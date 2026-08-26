@@ -1371,10 +1371,9 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             if (!res.writableEnded) {
                 try {
                     if (clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI) {
-                        if (!hasMessageStop) {
-                            res.write('data: [DONE]\n\n');
-                            hasMessageStop = true;
-                        }
+                        // OpenAI 规范：无论是否已有 finish_reason chunk，都必须以 [DONE] 收尾
+                        res.write('data: [DONE]\n\n');
+                        hasMessageStop = true;
                     } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
                         // OpenAI Responses 以 response.completed/response.incomplete（或 error）作为结束事件。
                         // 如果流结束时仍未发送结束标记，则发送兜底的 response.completed 事件，避免 Codex 等客户端报错
