@@ -332,6 +332,7 @@ export const DEFAULT_REQUEST_BODY_MAX_BYTES = 10 * 1024 * 1024;
 import {
     usesManagedModelList,
     getConfiguredSupportedModels,
+    getConfiguredNotSupportedModels,
     getCustomModelConfig,
     getCustomModelActualProvider,
     getCustomModelListProvider,
@@ -353,6 +354,85 @@ function getConfiguredSupportedModelsFromPool(providerPoolManager, providerType)
         providerPoolManager.providerStatus[providerType]
             .flatMap(providerStatus => getConfiguredSupportedModels(providerType, providerStatus.config))
     )].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * 获取指定提供商类型下，所有有效节点均排除（或指定节点排除）的不支持模型列表
+ * @param {object} providerPoolManager - 提供商池管理器
+ * @param {string} providerType - 提供商类型
+ * @param {string|null} pooluuid - 指定节点 UUID
+ * @returns {string[]} 聚合后的不支持模型列表
+ */
+function getConfiguredNotSupportedModelsFromPool(providerPoolManager, providerType, pooluuid = null) {
+    if (!providerPoolManager?.providerStatus?.[providerType]) {
+        return [];
+    }
+
+    const nodes = providerPoolManager.providerStatus[providerType];
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+        return [];
+    }
+
+    if (pooluuid) {
+        const targetNode = nodes.find(n => n.config?.uuid === pooluuid);
+        if (targetNode) {
+            return normalizeModelIds(targetNode.config?.notSupportedModels || []);
+        }
+    }
+
+    const activeNodes = nodes.filter(n => !n.config?.isDisabled);
+    if (activeNodes.length === 0) {
+        return [];
+    }
+
+    const firstNodeExcluded = normalizeModelIds(activeNodes[0].config?.notSupportedModels || []);
+    if (firstNodeExcluded.length === 0) {
+        return [];
+    }
+
+    return firstNodeExcluded.filter(model =>
+        activeNodes.every(n => (n.config?.notSupportedModels || []).includes(model))
+    );
+}
+
+/**
+ * 从模型列表响应中过滤掉不支持的模型
+ * @param {object} clientModelList - 客户端模型列表对象
+ * @param {string[]} notSupportedModels - 需要排除的模型列表
+ * @param {string} listEndpointType - 端点类型
+ * @returns {object} 过滤后的模型列表
+ */
+function filterNotSupportedModelsFromModelList(clientModelList, notSupportedModels, listEndpointType) {
+    if (!clientModelList || !Array.isArray(notSupportedModels) || notSupportedModels.length === 0) {
+        return clientModelList;
+    }
+
+    const excludedSet = new Set(notSupportedModels.map(m => m.trim().toLowerCase()));
+
+    if (listEndpointType === ENDPOINT_TYPE.OPENAI_MODEL_LIST) {
+        if (Array.isArray(clientModelList.data)) {
+            return {
+                ...clientModelList,
+                data: clientModelList.data.filter(item => {
+                    const modelId = (item?.id || '').trim().toLowerCase();
+                    return !excludedSet.has(modelId);
+                })
+            };
+        }
+    } else if (listEndpointType === ENDPOINT_TYPE.GEMINI_MODEL_LIST) {
+        if (Array.isArray(clientModelList.models)) {
+            return {
+                ...clientModelList,
+                models: clientModelList.models.filter(item => {
+                    const name = (item?.name || '').replace(/^models\//, '').trim().toLowerCase();
+                    const baseModelId = (item?.baseModelId || '').trim().toLowerCase();
+                    return !excludedSet.has(name) && !excludedSet.has(baseModelId);
+                })
+            };
+        }
+    }
+
+    return clientModelList;
 }
 
 function getCustomModelEntriesForProvider(config, providerType = null, options = {}) {
@@ -1036,6 +1116,8 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     chunk?.choices?.some(choice => choice?.finish_reason) ||
                     chunk?.type === 'message_stop' ||
                     chunk?.type === 'done' ||
+                    chunk?.type === 'response.completed' ||
+                    chunk?.type === 'response.incomplete' ||
                     chunk?.candidates?.some(candidate => candidate?.finishReason)
                 ) {
                     hasMessageStop = true;
@@ -1295,7 +1377,27 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                         }
                     } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
                         // OpenAI Responses 以 response.completed/response.incomplete（或 error）作为结束事件。
-                        // 连接关闭即表示流结束；不要再追加 `event: done` + `data: {}`，否则会触发下游类型校验失败（AI_TypeValidationError）。
+                        // 如果流结束时仍未发送结束标记，则发送兜底的 response.completed 事件，避免 Codex 等客户端报错
+                        if (!hasMessageStop) {
+                            const synthCompleted = {
+                                type: 'response.completed',
+                                response: {
+                                    id: streamRequestId || ('resp_' + Date.now()),
+                                    status: 'completed',
+                                    object: 'response',
+                                    model: model || 'unknown',
+                                    output: [],
+                                    usage: {
+                                        input_tokens: 0,
+                                        output_tokens: 0,
+                                        total_tokens: 0
+                                    }
+                                }
+                            };
+                            res.write(`event: response.completed\n`);
+                            res.write(`data: ${JSON.stringify(synthCompleted)}\n\n`);
+                            hasMessageStop = true;
+                        }
                     } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
                         if (!hasMessageStop) {
                             res.write('event: message_stop\n');
@@ -1650,6 +1752,16 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
 
             const customEntries = getCustomModelEntriesForProvider(CONFIG, toProvider);
             clientModelList = appendCustomModelsToModelList(clientModelList, customEntries, toProvider, endpointType);
+
+            // 过滤 notSupportedModels（从号池节点或配置中获取）
+            const pooledNotSupportedModels = getConfiguredNotSupportedModelsFromPool(providerPoolManager, toProvider, pooluuid);
+            const directNotSupportedModels = Array.isArray(CONFIG?.notSupportedModels) ? CONFIG.notSupportedModels : [];
+            const configuredNotSupportedModels = normalizeModelIds([...pooledNotSupportedModels, ...directNotSupportedModels]);
+
+            if (configuredNotSupportedModels.length > 0) {
+                logger.info(`[ModelList] Filtering out notSupportedModels for ${toProvider}: ${configuredNotSupportedModels.join(', ')}`);
+                clientModelList = filterNotSupportedModelsFromModelList(clientModelList, configuredNotSupportedModels, endpointType);
+            }
         }
 
         if (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO) {

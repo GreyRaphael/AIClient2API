@@ -64,13 +64,18 @@ const ANTIGRAVITY_CLIENT_TO_UPSTREAM_MODEL = {
     'gemini-3.1-pro-preview': 'gemini-pro-agent',
     'gemini-3.5-flash-high': 'gemini-3.5-flash-low',
     'gemini-3.6-flash': 'gemini-3.6-flash-low',
-    'gemini-3.7-flash': 'gemini-3.7-flash-low',
+    'gemini-3.6-flash-tiered': 'gemini-3.6-flash-high',
+    'gemini-3.7-flash': 'gemini-3.7-flash-tiered',
+    'gemini-3.7-flash-high': 'gemini-3.7-flash-tiered',
+    'gemini-3.7-flash-medium': 'gemini-3.7-flash-tiered',
+    'gemini-3.7-flash-low': 'gemini-3.7-flash-tiered',
 };
 
 const ANTIGRAVITY_UPSTREAM_TO_CLIENT_MODELS = {
     'gemini-pro-agent': ['gemini-3.1-pro-high', 'gemini-3.1-pro-preview'],
     'gemini-3.6-flash-low': ['gemini-3.6-flash', 'gemini-3.6-flash-low'],
-    'gemini-3.7-flash-low': ['gemini-3.7-flash', 'gemini-3.7-flash-low'],
+    'gemini-3.7-flash-tiered': ['gemini-3.7-flash', 'gemini-3.7-flash-high', 'gemini-3.7-flash-medium', 'gemini-3.7-flash-low'],
+    'gemini-3.6-flash-tiered': ['gemini-3.6-flash-high', 'gemini-3.6-flash-medium'],
 };
 
 const ANTIGRAVITY_CLIENT_MODEL_THINKING_LEVEL = {
@@ -82,6 +87,11 @@ const ANTIGRAVITY_CLIENT_MODEL_THINKING_LEVEL = {
     'gemini-3.5-flash-high': 'high',
     'gemini-3.6-flash-high': 'high',
     'gemini-3.7-flash-high': 'high',
+    'gemini-3.7-flash': 'high',
+    'gemini-3.7-flash-tiered': 'high',
+    'gemini-3.7-flash-medium': 'medium',
+    'gemini-3.6-flash-medium': 'medium',
+    'gemini-3.5-flash-medium': 'medium',
     'gemini-3.1-pro-low': 'low',
     'gemini-3-pro-low': 'low',
     'gemini-3.5-flash-low': 'low',
@@ -148,13 +158,25 @@ const ANTIGRAVITY_MODEL_METADATA = {
         maxOutputTokens: 65535,
         thinking: { min: 1, max: 65535, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
     },
-    'gemini-3.7-flash-low': {
-        maxOutputTokens: 65535,
-        thinking: { min: 1, max: 65535, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
+    'gemini-3.7-flash-tiered': {
+        maxOutputTokens: 65536,
+        thinking: { min: 32, max: 65536, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
+    },
+    'gemini-3.7-flash': {
+        maxOutputTokens: 65536,
+        thinking: { min: 32, max: 65536, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
     },
     'gemini-3.7-flash-high': {
-        maxOutputTokens: 65535,
-        thinking: { min: 1, max: 65535, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
+        maxOutputTokens: 65536,
+        thinking: { min: 32, max: 65536, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
+    },
+    'gemini-3.7-flash-medium': {
+        maxOutputTokens: 65536,
+        thinking: { min: 32, max: 65536, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
+    },
+    'gemini-3.7-flash-low': {
+        maxOutputTokens: 65536,
+        thinking: { min: 32, max: 65536, dynamicAllowed: true, levels: ['low', 'medium', 'high'] }
     }
 };
 
@@ -492,6 +514,9 @@ function ensureToolCallIds(contents) {
                 if (fc.name) {
                     if (!pendingByName.has(fc.name)) pendingByName.set(fc.name, []);
                     pendingByName.get(fc.name).push(fc.id);
+                }
+                if (!part.thoughtSignature && !part.thought_signature) {
+                    part.thoughtSignature = "skip_thought_signature_validator";
                 }
             } else if (part.functionResponse) {
                 const fr = part.functionResponse;

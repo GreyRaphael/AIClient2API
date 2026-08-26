@@ -7,6 +7,7 @@ import { convertData } from '../convert/convert.js';
 
 import {
     getConfiguredSupportedModels,
+    getConfiguredNotSupportedModels,
     getCustomModelListProvider,
     getProviderModels,
     normalizeModelIds
@@ -1451,6 +1452,15 @@ export class ProviderPoolManager {
             if (this.providerStatus[providerType]) {
                 const customAliases = getCustomModelAliasesForProvider(this.globalConfig, providerType);
                 const customModelIds = getCustomModelIdsForProvider(this.globalConfig, providerType);
+                const activeNodes = this.providerStatus[providerType].filter(p => !p.config?.isDisabled);
+
+                // 统计当前提供商类型下所有有效节点均标记为不支持的模型
+                const notSupportedModelsForType = activeNodes.length > 0
+                    ? normalizeModelIds(activeNodes[0].config?.notSupportedModels || []).filter(model =>
+                        activeNodes.every(p => (p.config?.notSupportedModels || []).includes(model))
+                    )
+                    : [];
+
                 const configuredSupportedModels = normalizeModelIds(
                     this.providerStatus[providerType].flatMap(providerStatus =>
                         getConfiguredSupportedModels(providerType, providerStatus.config)
@@ -1462,6 +1472,11 @@ export class ProviderPoolManager {
                         ...getProviderModels(providerType).filter(model => !customAliases.has(model)),
                         ...customModelIds
                     ]);
+
+                // 排除不支持的模型
+                if (notSupportedModelsForType.length > 0) {
+                    models = models.filter(m => !notSupportedModelsForType.includes(m));
+                }
 
                 // 如果硬编码的模型列表为空，或者该类型的提供商在号池中没有配置节点，尝试从服务获取
                 // 只有在非号池模式，或者号池中有节点时才尝试获取，避免无节点时读取全局默认配置
@@ -1497,6 +1512,9 @@ export class ProviderPoolManager {
                                 const fetchedModels = convertedData.data.map(m => m.id);
                                 if (fetchedModels.length > 0) {
                                     models = fetchedModels;
+                                    if (notSupportedModelsForType.length > 0) {
+                                        models = models.filter(m => !notSupportedModelsForType.includes(m));
+                                    }
                                 }
                             }
                         }

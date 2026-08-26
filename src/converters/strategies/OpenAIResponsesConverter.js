@@ -189,25 +189,29 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         }
                         break;
                     
+                    case 'custom_tool_call':
                     case 'function_call':
                         openaiRequest.messages.push({
                             role: 'assistant',
                             tool_calls: [{
-                                id: item.call_id,
+                                id: item.call_id || item.id,
                                 type: 'function',
                                 function: {
                                     name: item.name,
-                                    arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
+                                    arguments: item.type === 'custom_tool_call'
+                                        ? (typeof item.input === 'string' ? JSON.stringify({ input: item.input }) : JSON.stringify(item.input || {}))
+                                        : (typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {}))
                                 }
                             }]
                         });
                         break;
                     
+                    case 'custom_tool_call_output':
                     case 'function_call_output':
                         openaiRequest.messages.push({
                             role: 'tool',
-                            tool_call_id: item.call_id,
-                            content: item.output
+                            tool_call_id: item.call_id || item.id,
+                            content: typeof item.output === 'string' ? item.output : JSON.stringify(item.output || {})
                         });
                         break;
                 }
@@ -659,19 +663,23 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         );
                         break;
 
+                    case 'custom_tool_call':
                     case 'function_call':
                         this._pushClaudeMessage(claudeRequest.messages, 'assistant', [{
                                 type: 'tool_use',
                                 id: item.call_id || item.id || `toolu_${uuidv4().replace(/-/g, '')}`,
                                 name: item.name,
-                                input: this._normalizeToolInput(item.arguments)
+                                input: item.type === 'custom_tool_call'
+                                    ? (typeof item.input === 'string' ? { input: item.input } : item.input || {})
+                                    : this._normalizeToolInput(item.arguments)
                             }]);
                         break;
 
+                    case 'custom_tool_call_output':
                     case 'function_call_output':
                         this._pushClaudeMessage(claudeRequest.messages, 'user', [{
                                 type: 'tool_result',
-                                tool_use_id: item.call_id,
+                                tool_use_id: item.call_id || item.id,
                                 content: this._normalizeToolOutput(item.output)
                             }]);
                         break;
@@ -1075,6 +1083,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (input && Array.isArray(input)) {
+            // 先扫描建立 call_id -> functionName 映射表
+            const callIdToName = new Map();
+            input.forEach(item => {
+                const callId = item.call_id || item.id;
+                if ((item.type === 'function_call' || item.type === 'custom_tool_call') && item.name && callId) {
+                    callIdToName.set(callId, item.name);
+                }
+            });
+
             input.forEach(item => {
                 const itemType = item.type || (item.role ? 'message' : '');
                 
@@ -1111,29 +1128,71 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         }
                         break;
                     
-                    case 'function_call':
+                    case 'custom_tool_call':
+                    case 'function_call': {
+                        let parsedArgs = {};
+                        if (item.type === 'custom_tool_call') {
+                            if (typeof item.input === 'string') {
+                                parsedArgs = { input: item.input };
+                            } else if (item.input && typeof item.input === 'object') {
+                                parsedArgs = item.input;
+                            } else {
+                                parsedArgs = { input: '' };
+                            }
+                        } else {
+                            if (typeof item.arguments === 'string') {
+                                try {
+                                    parsedArgs = JSON.parse(item.arguments);
+                                } catch {
+                                    parsedArgs = { raw: item.arguments };
+                                }
+                            } else if (item.arguments && typeof item.arguments === 'object') {
+                                parsedArgs = item.arguments;
+                            }
+                        }
+                        const callId = item.id || item.call_id;
+                        const callName = item.name || (callId && callIdToName.get(callId)) || 'function_call';
                         geminiRequest.contents.push({
                             role: 'model',
                             parts: [{
                                 functionCall: {
-                                    name: item.name,
-                                    args: typeof item.arguments === 'string' ? JSON.parse(item.arguments) : item.arguments
-                                }
+                                    name: callName,
+                                    args: parsedArgs
+                                },
+                                thoughtSignature: "skip_thought_signature_validator"
                             }]
                         });
                         break;
+                    }
                     
-                    case 'function_call_output':
+                    case 'custom_tool_call_output':
+                    case 'function_call_output': {
+                        const callId = item.call_id || item.id;
+                        const callName = item.name || (callId && callIdToName.get(callId)) || (callId ? `call_${callId}` : 'function_call');
+                        let responseObj = { content: item.output };
+                        if (typeof item.output === 'object' && item.output !== null) {
+                            responseObj = item.output;
+                        } else if (typeof item.output === 'string') {
+                            try {
+                                const parsed = JSON.parse(item.output);
+                                if (parsed && typeof parsed === 'object') {
+                                    responseObj = parsed;
+                                }
+                            } catch {
+                                responseObj = { content: item.output };
+                            }
+                        }
                         geminiRequest.contents.push({
-                            role: 'user', // Gemini function response role is user or tool? usually user/model
+                            role: 'user',
                             parts: [{
                                 functionResponse: {
-                                    name: item.name,
-                                    response: { content: item.output }
+                                    name: callName,
+                                    response: responseObj
                                 }
                             }]
                         });
                         break;
+                    }
                 }
             });
         }
@@ -1155,12 +1214,13 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
             geminiRequest.tools = [{
                 functionDeclarations: responsesRequest.tools
-                    .filter(tool => !tool.type || tool.type === 'function')
+                    .filter(tool => !tool.type || tool.type === 'function' || tool.type === 'custom')
                     .map(tool => ({
-                        name: tool.name,
-                        description: tool.description,
-                        parameters: tool.parameters || tool.parametersJsonSchema || { type: 'object', properties: {} }
+                        name: tool.name || tool.function?.name,
+                        description: tool.description || tool.function?.description,
+                        parameters: tool.parameters || tool.function?.parameters || tool.parametersJsonSchema || { type: 'object', properties: {} }
                     }))
+                    .filter(fn => Boolean(fn.name))
             }];
         }
 

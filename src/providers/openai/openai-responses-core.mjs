@@ -136,12 +136,12 @@ function generateResponseInProgress(requestId) {
 /**
  * Generates a response.output_item.added event
  */
-function generateOutputItemAdded(requestId) {
+function generateOutputItemAdded(requestId, outputIndex = 0) {
   const state = streamStateManager.getOrCreateState(requestId);
 
   return {
     type: 'response.output_item.added',
-    output_index: 0,
+    output_index: outputIndex,
     item: {
       id: state.msgId,
       summary: [],
@@ -156,13 +156,13 @@ function generateOutputItemAdded(requestId) {
 /**
  * Generates a response.content_part.added event
  */
-function generateContentPartAdded(requestId) {
+function generateContentPartAdded(requestId, outputIndex = 0) {
   const state = streamStateManager.getOrCreateState(requestId);
 
   return {
     type: 'response.content_part.added',
     item_id: state.msgId,
-    output_index: 0,
+    output_index: outputIndex,
     content_index: 0,
     part: {
       type: 'output_text',
@@ -176,14 +176,14 @@ function generateContentPartAdded(requestId) {
 /**
  * Generates a response.output_text.delta event
  */
-function generateOutputTextDelta(requestId, delta) {
+function generateOutputTextDelta(requestId, delta, outputIndex = 0) {
   const state = streamStateManager.getOrCreateState(requestId);
   state.fullText += delta;
 
   return {
     type: 'response.output_text.delta',
     item_id: state.msgId,
-    output_index: 0,
+    output_index: outputIndex,
     content_index: 0,
     delta: delta,
     logprobs: [],
@@ -194,13 +194,13 @@ function generateOutputTextDelta(requestId, delta) {
 /**
  * Generates a response.output_text.done event
  */
-function generateOutputTextDone(requestId) {
+function generateOutputTextDone(requestId, outputIndex = 0) {
   const state = streamStateManager.getOrCreateState(requestId);
 
   return {
     type: 'response.output_text.done',
     item_id: state.msgId,
-    output_index: 0,
+    output_index: outputIndex,
     content_index: 0,
     text: state.fullText,
     logprobs: []
@@ -210,13 +210,13 @@ function generateOutputTextDone(requestId) {
 /**
  * Generates a response.content_part.done event
  */
-function generateContentPartDone(requestId) {
+function generateContentPartDone(requestId, outputIndex = 0) {
   const state = streamStateManager.getOrCreateState(requestId);
 
   return {
     type: 'response.content_part.done',
     item_id: state.msgId,
-    output_index: 0,
+    output_index: outputIndex,
     content_index: 0,
     part: {
       type: 'output_text',
@@ -230,12 +230,12 @@ function generateContentPartDone(requestId) {
 /**
  * Generates a response.output_item.done event
  */
-function generateOutputItemDone(requestId) {
+function generateOutputItemDone(requestId, outputIndex = 0) {
   const state = streamStateManager.getOrCreateState(requestId);
 
   return {
     type: 'response.output_item.done',
-    output_index: 0,
+    output_index: outputIndex,
     item: {
       id: state.msgId,
       summary: [],
@@ -283,10 +283,26 @@ function generateResponseCompleted(requestId, usage) {
         }
         if (state.toolCalls && state.toolCalls.length > 0) {
           for (const tc of state.toolCalls) {
-            items.push({
-              id: tc.id, call_id: tc.call_id || tc.id, type: 'function_call',
-              name: tc.name, arguments: tc.arguments || '{}', status: 'completed'
-            });
+            const isCustom = tc.type === 'custom_tool_call' || tc.name === 'apply_patch';
+            if (isCustom) {
+              items.push({
+                id: tc.id,
+                call_id: tc.call_id || tc.id,
+                type: 'custom_tool_call',
+                name: tc.name,
+                input: tc.input || tc.arguments || '',
+                status: 'completed'
+              });
+            } else {
+              items.push({
+                id: tc.id,
+                call_id: tc.call_id || tc.id,
+                type: 'function_call',
+                name: tc.name,
+                arguments: tc.arguments || '{}',
+                status: 'completed'
+              });
+            }
           }
         }
         if (items.length === 0) {
@@ -304,7 +320,7 @@ function generateResponseCompleted(requestId, usage) {
       },
       safety_identifier: `user-${uuidv4().replace(/-/g, '')}`, // 随机值
       service_tier: "default",
-      status: (state.toolCalls && state.toolCalls.length > 0) ? "requires_action" : "completed",
+      status: "completed",
       store: false,
       temperature: 1,
       text: {

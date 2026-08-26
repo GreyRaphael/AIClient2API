@@ -1279,8 +1279,16 @@ export class GeminiConverter extends BaseConverter {
         };
     }
 
+    _buildResponsesMessageItemId(responseId, index = 0) {
+        return `msg_${responseId}_${index}`;
+    }
+
     _buildResponsesFunctionItemId(callId) {
         return callId ? `fc_${callId}` : `fc_${uuidv4().replace(/-/g, '')}`;
+    }
+
+    _buildResponsesReasoningItemId(responseId, index = 0) {
+        return `rs_${responseId}_${index}`;
     }
 
     _stringifyGeminiFunctionArgs(args) {
@@ -1294,10 +1302,19 @@ export class GeminiConverter extends BaseConverter {
             this.openAIResponsesStreamStates.set(stateKey, {
                 responseId,
                 msgId: this._buildResponsesMessageItemId(responseId, 0),
+                reasoningId: this._buildResponsesReasoningItemId(responseId, 0),
                 model: model || 'unknown',
                 createdAt: Math.floor(Date.now() / 1000),
                 started: false,
                 textStarted: false,
+                reasoningStarted: false,
+                reasoningDone: false,
+                reasoningText: '',
+                nextOutputIndex: 0,
+                reasoningOutputIndex: 0,
+                textOutputIndex: 0,
+                completed: false,
+                savedUsage: null,
                 toolCalls: new Map()
             });
         }
@@ -1338,23 +1355,43 @@ export class GeminiConverter extends BaseConverter {
         if (state.textStarted) {
             return;
         }
+        state.textOutputIndex = state.nextOutputIndex++;
         events.push(
-            generateOutputItemAdded(stateKey),
-            generateContentPartAdded(stateKey)
+            generateOutputItemAdded(stateKey, state.textOutputIndex),
+            generateContentPartAdded(stateKey, state.textOutputIndex)
         );
         state.textStarted = true;
     }
 
     _getGeminiResponsesToolState(state, part, index) {
-        const callId = part.functionCall.id || `call_${state.responseId}_${index}`;
         const key = String(index);
         if (!state.toolCalls.has(key)) {
+            const callId = part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
+            const isCustom = part.functionCall.name === 'apply_patch';
+            const itemId = isCustom ? `ctc_${uuidv4().replace(/-/g, '').slice(0, 24)}` : this._buildResponsesFunctionItemId(callId);
+            const outputIndex = state.nextOutputIndex++;
+
+            let inputVal = '';
+            let argsVal = '';
+            if (isCustom) {
+                const rawArgs = part.functionCall.args;
+                if (typeof rawArgs === 'string') {
+                    inputVal = rawArgs;
+                } else if (rawArgs && typeof rawArgs === 'object') {
+                    inputVal = rawArgs.input || rawArgs.patch || rawArgs.content || JSON.stringify(rawArgs);
+                }
+            } else {
+                argsVal = this._stringifyGeminiFunctionArgs(part.functionCall.args);
+            }
+
             state.toolCalls.set(key, {
-                outputIndex: index,
+                outputIndex,
                 callId,
-                itemId: this._buildResponsesFunctionItemId(callId),
+                itemId,
+                isCustom,
                 name: part.functionCall.name || '',
-                arguments: this._stringifyGeminiFunctionArgs(part.functionCall.args),
+                input: inputVal,
+                arguments: argsVal,
                 added: false,
                 done: false
             });
@@ -1362,61 +1399,114 @@ export class GeminiConverter extends BaseConverter {
         const toolState = state.toolCalls.get(key);
         if (part.functionCall.id && toolState.callId !== part.functionCall.id) {
             toolState.callId = part.functionCall.id;
-            toolState.itemId = this._buildResponsesFunctionItemId(part.functionCall.id);
+            if (!toolState.isCustom) {
+                toolState.itemId = this._buildResponsesFunctionItemId(part.functionCall.id);
+            }
         }
         if (part.functionCall.name) {
             toolState.name = part.functionCall.name;
         }
-        toolState.arguments = this._stringifyGeminiFunctionArgs(part.functionCall.args);
+        if (toolState.isCustom) {
+            const rawArgs = part.functionCall.args;
+            if (typeof rawArgs === 'string') {
+                toolState.input = rawArgs;
+            } else if (rawArgs && typeof rawArgs === 'object') {
+                toolState.input = rawArgs.input || rawArgs.patch || rawArgs.content || JSON.stringify(rawArgs);
+            }
+        } else {
+            toolState.arguments = this._stringifyGeminiFunctionArgs(part.functionCall.args);
+        }
         return toolState;
     }
 
     _emitGeminiResponsesTool(stateKey, state, toolState, events) {
         this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
+        const isCustomTool = toolState.isCustom || toolState.name === 'apply_patch';
+        const itemType = isCustomTool ? "custom_tool_call" : "function_call";
+
         if (!toolState.added) {
+            const item = {
+                id: toolState.itemId,
+                call_id: toolState.callId,
+                type: itemType,
+                name: toolState.name,
+                status: "in_progress"
+            };
+            if (isCustomTool) {
+                item.input = "";
+            } else {
+                item.arguments = "";
+            }
+
             events.push({
-                item: {
-                    id: toolState.itemId,
-                    call_id: toolState.callId,
-                    type: "function_call",
-                    name: toolState.name,
-                    arguments: "",
-                    status: "in_progress"
-                },
+                item,
                 output_index: toolState.outputIndex,
                 sequence_number: 2,
                 type: "response.output_item.added"
             });
             toolState.added = true;
         }
+
         if (!toolState.done) {
-            if (toolState.arguments) {
+            if (isCustomTool) {
+                const inputVal = toolState.input || "";
+                if (inputVal) {
+                    events.push({
+                        delta: inputVal,
+                        item_id: toolState.itemId,
+                        output_index: toolState.outputIndex,
+                        sequence_number: 3,
+                        type: "response.custom_tool_call_input.delta"
+                    });
+                }
                 events.push({
-                    delta: toolState.arguments,
+                    type: "response.custom_tool_call_input.done",
                     item_id: toolState.itemId,
                     output_index: toolState.outputIndex,
-                    sequence_number: 3,
-                    type: "response.function_call_arguments.delta"
+                    input: inputVal
+                });
+                events.push({
+                    type: "response.output_item.done",
+                    output_index: toolState.outputIndex,
+                    item: {
+                        id: toolState.itemId,
+                        call_id: toolState.callId,
+                        type: "custom_tool_call",
+                        name: toolState.name,
+                        input: inputVal,
+                        status: "completed"
+                    }
+                });
+            } else {
+                const argsVal = toolState.arguments || "{}";
+                if (argsVal) {
+                    events.push({
+                        delta: argsVal,
+                        item_id: toolState.itemId,
+                        output_index: toolState.outputIndex,
+                        sequence_number: 3,
+                        type: "response.function_call_arguments.delta"
+                    });
+                }
+                events.push({
+                    type: "response.function_call_arguments.done",
+                    item_id: toolState.itemId,
+                    output_index: toolState.outputIndex,
+                    arguments: argsVal
+                });
+                events.push({
+                    type: "response.output_item.done",
+                    output_index: toolState.outputIndex,
+                    item: {
+                        id: toolState.itemId,
+                        call_id: toolState.callId,
+                        type: "function_call",
+                        name: toolState.name,
+                        arguments: argsVal,
+                        status: "completed"
+                    }
                 });
             }
-            events.push({
-                type: "response.function_call_arguments.done",
-                item_id: toolState.itemId,
-                output_index: toolState.outputIndex,
-                arguments: toolState.arguments
-            });
-            events.push({
-                type: "response.output_item.done",
-                output_index: toolState.outputIndex,
-                item: {
-                    id: toolState.itemId,
-                    call_id: toolState.callId,
-                    type: "function_call",
-                    name: toolState.name,
-                    arguments: toolState.arguments,
-                    status: "completed"
-                }
-            });
             toolState.done = true;
         }
     }
@@ -1526,6 +1616,21 @@ export class GeminiConverter extends BaseConverter {
 
         // 处理完整的Gemini chunk对象
         if (typeof geminiChunk === 'object' && !Array.isArray(geminiChunk)) {
+            // 保存 usageMetadata
+            if (geminiChunk.usageMetadata) {
+                state.savedUsage = {
+                    input_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
+                    input_tokens_details: {
+                        cached_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0
+                    },
+                    output_tokens: geminiChunk.usageMetadata.candidatesTokenCount || 0,
+                    output_tokens_details: {
+                        reasoning_tokens: geminiChunk.usageMetadata.thoughtsTokenCount || 0
+                    },
+                    total_tokens: geminiChunk.usageMetadata.totalTokenCount || 0
+                };
+            }
+
             const candidate = geminiChunk.candidates?.[0];
             
             if (candidate) {
@@ -1533,94 +1638,247 @@ export class GeminiConverter extends BaseConverter {
                 
                 // 第一个chunk - 检测是否是开始（有role）
                 if (candidate.content?.role === 'model' && parts && parts.length > 0) {
-                    // 只在第一次有内容时发送开始事件
                     const hasContent = parts.some(part => part && typeof part.text === 'string' && part.text.length > 0);
                     if (hasContent) {
-                        this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
+                        this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
                     }
                 }
                 
-                // 提取文本内容
+                // 提取内容
                 if (parts && Array.isArray(parts)) {
-                    const textParts = parts.filter(part => part && typeof part.text === 'string' && part.thought !== true);
-                    if (textParts.length > 0) {
-                        const text = textParts.map(part => part.text).join('');
-                        this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-                        events.push(generateOutputTextDelta(stateKey, text));
-                    }
-
-                    // [FIX] 提取推理内容
+                    // 1. 提取推理内容（Gemini 3.7 Flash thinking）
                     const thoughtParts = parts.filter(part => part && typeof part.text === 'string' && part.thought === true);
                     if (thoughtParts.length > 0) {
                         const thoughtText = thoughtParts.map(part => part.text).join('');
                         this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
+                        if (!state.reasoningStarted) {
+                            state.reasoningStarted = true;
+                            state.reasoningOutputIndex = state.nextOutputIndex++;
+                            events.push({
+                                type: "response.output_item.added",
+                                output_index: state.reasoningOutputIndex,
+                                sequence_number: 1,
+                                item: {
+                                    id: state.reasoningId,
+                                    type: "reasoning",
+                                    status: "in_progress",
+                                    summary: []
+                                }
+                            });
+                            events.push({
+                                type: "response.reasoning_summary_part.added",
+                                item_id: state.reasoningId,
+                                output_index: state.reasoningOutputIndex,
+                                summary_index: 0,
+                                part: {
+                                    type: "summary_text",
+                                    text: ""
+                                }
+                            });
+                        }
+                        state.reasoningText += thoughtText;
                         events.push({
                             type: 'response.reasoning_summary_text.delta',
+                            item_id: state.reasoningId,
                             response_id: state.responseId,
+                            output_index: state.reasoningOutputIndex,
+                            summary_index: 0,
                             delta: thoughtText
                         });
                     }
 
+                    // 2. 提取普通文本内容
+                    const textParts = parts.filter(part => part && typeof part.text === 'string' && part.thought !== true);
+                    if (textParts.length > 0) {
+                        const text = textParts.map(part => part.text).join('');
+
+                        // 若之前开启了思考模式且尚未闭合，先闭合思考块
+                        if (state.reasoningStarted && !state.reasoningDone) {
+                            events.push({
+                                type: "response.reasoning_summary_text.done",
+                                item_id: state.reasoningId,
+                                output_index: state.reasoningOutputIndex,
+                                summary_index: 0,
+                                text: state.reasoningText
+                            });
+                            events.push({
+                                type: "response.reasoning_summary_part.done",
+                                item_id: state.reasoningId,
+                                output_index: state.reasoningOutputIndex,
+                                summary_index: 0,
+                                part: {
+                                    type: "summary_text",
+                                    text: state.reasoningText
+                                }
+                            });
+                            events.push({
+                                type: "response.output_item.done",
+                                output_index: state.reasoningOutputIndex,
+                                item: {
+                                    id: state.reasoningId,
+                                    type: "reasoning",
+                                    status: "completed",
+                                    summary: [{
+                                        type: "summary_text",
+                                        text: state.reasoningText
+                                    }]
+                                }
+                            });
+                            state.reasoningDone = true;
+                        }
+
+                        this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
+                        events.push(generateOutputTextDelta(stateKey, text, state.textOutputIndex));
+                    }
+
+                    // 3. 提取工具调用
                     const functionParts = parts.filter(part => part && part.functionCall);
-                    functionParts.forEach((part, index) => {
-                        const toolState = this._getGeminiResponsesToolState(state, part, index);
-                        this._emitGeminiResponsesTool(stateKey, state, toolState, events);
-                    });
                     if (functionParts.length > 0) {
+                        // 先闭合可能处于打开状态的 reasoning 块
+                        if (state.reasoningStarted && !state.reasoningDone) {
+                            events.push({
+                                type: "response.reasoning_summary_text.done",
+                                item_id: state.reasoningId,
+                                output_index: state.reasoningOutputIndex,
+                                summary_index: 0,
+                                text: state.reasoningText
+                            });
+                            events.push({
+                                type: "response.reasoning_summary_part.done",
+                                item_id: state.reasoningId,
+                                output_index: state.reasoningOutputIndex,
+                                summary_index: 0,
+                                part: {
+                                    type: "summary_text",
+                                    text: state.reasoningText
+                                }
+                            });
+                            events.push({
+                                type: "response.output_item.done",
+                                output_index: state.reasoningOutputIndex,
+                                item: {
+                                    id: state.reasoningId,
+                                    type: "reasoning",
+                                    status: "completed",
+                                    summary: [{
+                                        type: "summary_text",
+                                        text: state.reasoningText
+                                    }]
+                                }
+                            });
+                            state.reasoningDone = true;
+                        }
+
+                        // 先闭合可能处于打开状态的 text 块
+                        if (state.textStarted) {
+                            events.push(
+                                generateOutputTextDone(stateKey, state.textOutputIndex),
+                                generateContentPartDone(stateKey, state.textOutputIndex),
+                                generateOutputItemDone(stateKey, state.textOutputIndex)
+                            );
+                            state.textStarted = false;
+                        }
+
+                        functionParts.forEach((part, index) => {
+                            const toolState = this._getGeminiResponsesToolState(state, part, index);
+                            this._emitGeminiResponsesTool(stateKey, state, toolState, events);
+                        });
+
                         const coreState = streamStateManager.getOrCreateState(stateKey);
                         coreState.toolCalls = Array.from(state.toolCalls.values()).map(toolState => ({
                             id: toolState.itemId,
                             call_id: toolState.callId,
+                            type: toolState.isCustom ? 'custom_tool_call' : 'function_call',
                             name: toolState.name,
+                            input: toolState.input || '',
                             arguments: toolState.arguments || '{}'
                         }));
                     }
                 }
-                
-                // 处理finishReason
-                if (candidate.finishReason) {
-                    this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-                    if (state.textStarted) {
-                        events.push(
-                            generateOutputTextDone(stateKey),
-                            generateContentPartDone(stateKey),
-                            generateOutputItemDone(stateKey)
-                        );
-                    }
-                    const completedEvent = generateResponseCompleted(stateKey, {
-                        input_tokens: geminiChunk.usageMetadata?.promptTokenCount || 0,
-                        input_tokens_details: {
-                            cached_tokens: geminiChunk.usageMetadata?.cachedContentTokenCount || 0
-                        },
-                        output_tokens: geminiChunk.usageMetadata?.candidatesTokenCount || 0,
-                        output_tokens_details: {
-                            reasoning_tokens: geminiChunk.usageMetadata?.thoughtsTokenCount || 0
-                        },
-                        total_tokens: geminiChunk.usageMetadata?.totalTokenCount || 0
-                    });
-                    events.push(completedEvent);
-                    
-                    // 如果有 usage 信息，更新最后一个事件
-                    if (geminiChunk.usageMetadata && events.length > 0) {
-                        const lastEvent = events[events.length - 1];
-                        if (lastEvent.response) {
-                            lastEvent.response.usage = {
-                                input_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
-                                input_tokens_details: {
-                                    cached_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0
-                                },
-                                output_tokens: geminiChunk.usageMetadata.candidatesTokenCount || 0,
-                                output_tokens_details: {
-                                    reasoning_tokens: geminiChunk.usageMetadata.thoughtsTokenCount || 0
-                                },
-                                total_tokens: geminiChunk.usageMetadata.totalTokenCount || 0
-                            };
-                        }
-                    }
+            }
 
-                    streamStateManager.cleanup(stateKey);
-                    this.openAIResponsesStreamStates.delete(stateKey);
+            // 检查是否应该完成响应（遇到 candidate.finishReason，或在已有开始状态下遇到纯 usage 帧）
+            const shouldComplete = !state.completed && (
+                Boolean(candidate?.finishReason) ||
+                (!candidate && Boolean(geminiChunk.usageMetadata) && (state.started || state.textStarted || state.reasoningStarted || state.toolCalls.size > 0))
+            );
+
+            if (shouldComplete) {
+                state.completed = true;
+                this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
+
+                // 如果有 reasoning 尚未闭合，先闭合 reasoning
+                if (state.reasoningStarted && !state.reasoningDone) {
+                    events.push({
+                        type: "response.reasoning_summary_text.done",
+                        item_id: state.reasoningId,
+                        output_index: state.reasoningOutputIndex,
+                        summary_index: 0,
+                        text: state.reasoningText
+                    });
+                    events.push({
+                        type: "response.reasoning_summary_part.done",
+                        item_id: state.reasoningId,
+                        output_index: state.reasoningOutputIndex,
+                        summary_index: 0,
+                        part: {
+                            type: "summary_text",
+                            text: state.reasoningText
+                        }
+                    });
+                    events.push({
+                        type: "response.output_item.done",
+                        output_index: state.reasoningOutputIndex,
+                        item: {
+                            id: state.reasoningId,
+                            type: "reasoning",
+                            status: "completed",
+                            summary: [{
+                                type: "summary_text",
+                                text: state.reasoningText
+                            }]
+                        }
+                    });
+                    state.reasoningDone = true;
                 }
+
+                if (state.textStarted) {
+                    events.push(
+                        generateOutputTextDone(stateKey, state.textOutputIndex),
+                        generateContentPartDone(stateKey, state.textOutputIndex),
+                        generateOutputItemDone(stateKey, state.textOutputIndex)
+                    );
+                    state.textStarted = false;
+                }
+
+                const usage = state.savedUsage || {
+                    input_tokens: geminiChunk.usageMetadata?.promptTokenCount || 0,
+                    input_tokens_details: {
+                        cached_tokens: geminiChunk.usageMetadata?.cachedContentTokenCount || 0
+                    },
+                    output_tokens: geminiChunk.usageMetadata?.candidatesTokenCount || 0,
+                    output_tokens_details: {
+                        reasoning_tokens: geminiChunk.usageMetadata?.thoughtsTokenCount || 0
+                    },
+                    total_tokens: geminiChunk.usageMetadata?.totalTokenCount || 0
+                };
+
+                const completedEvent = generateResponseCompleted(stateKey, usage);
+                if (state.reasoningStarted) {
+                    completedEvent.response.output.unshift({
+                        id: state.reasoningId,
+                        type: "reasoning",
+                        status: "completed",
+                        summary: [{
+                            type: "summary_text",
+                            text: state.reasoningText
+                        }]
+                    });
+                }
+                events.push(completedEvent);
+
+                streamStateManager.cleanup(stateKey);
+                this.openAIResponsesStreamStates.delete(stateKey);
             }
         }
 

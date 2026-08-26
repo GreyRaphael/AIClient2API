@@ -61,7 +61,9 @@ export const PROVIDER_MODELS = {
         'gemini-3.6-flash-high',
         'gemini-3.7-flash',
         'gemini-3.7-flash-low',
+        'gemini-3.7-flash-medium',
         'gemini-3.7-flash-high',
+        'gemini-3.7-flash-tiered',
         'gemini-3.1-pro-low',
         'gemini-3.1-pro-high',
         'gemini-3.1-flash-image',
@@ -274,6 +276,10 @@ export function getConfiguredSupportedModels(providerType, providerConfig = {}) 
     }
 
     return normalizeModelIds(providerConfig?.supportedModels);
+}
+
+export function getConfiguredNotSupportedModels(providerType, providerConfig = {}) {
+    return normalizeModelIds(providerConfig?.notSupportedModels);
 }
 
 /**
