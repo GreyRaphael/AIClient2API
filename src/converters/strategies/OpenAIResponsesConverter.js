@@ -1215,11 +1215,39 @@ export class OpenAIResponsesConverter extends BaseConverter {
             geminiRequest.tools = [{
                 functionDeclarations: responsesRequest.tools
                     .filter(tool => !tool.type || tool.type === 'function' || tool.type === 'custom')
-                    .map(tool => ({
-                        name: tool.name || tool.function?.name,
-                        description: tool.description || tool.function?.description,
-                        parameters: tool.parameters || tool.function?.parameters || tool.parametersJsonSchema || { type: 'object', properties: {} }
-                    }))
+                    .map(tool => {
+                        const name = tool.name || tool.function?.name;
+                        const description = tool.description || tool.function?.description;
+                        let parameters = tool.parameters || tool.function?.parameters || tool.parametersJsonSchema;
+
+                        // 针对 apply_patch 等 custom 类型工具（可能不带标准 parameters），构造明确的参数 Schema 引导 Gemini 输出内容
+                        if (!parameters || (parameters.type === 'object' && (!parameters.properties || Object.keys(parameters.properties).length === 0))) {
+                            if (name === 'apply_patch' || tool.type === 'custom') {
+                                parameters = {
+                                    type: 'object',
+                                    properties: {
+                                        patch: {
+                                            type: 'string',
+                                            description: 'The freeform patch content to apply (e.g. *** Begin Patch...)'
+                                        },
+                                        input: {
+                                            type: 'string',
+                                            description: 'The input or patch content'
+                                        }
+                                    },
+                                    required: ['patch']
+                                };
+                            } else {
+                                parameters = { type: 'object', properties: {} };
+                            }
+                        }
+
+                        return {
+                            name,
+                            description,
+                            parameters
+                        };
+                    })
                     .filter(fn => Boolean(fn.name))
             }];
         }

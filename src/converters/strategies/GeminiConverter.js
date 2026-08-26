@@ -1305,6 +1305,7 @@ export class GeminiConverter extends BaseConverter {
                 reasoningId: this._buildResponsesReasoningItemId(responseId, 0),
                 model: model || 'unknown',
                 createdAt: Math.floor(Date.now() / 1000),
+                sequenceNumber: 0,
                 started: false,
                 textStarted: false,
                 reasoningStarted: false,
@@ -1339,11 +1340,22 @@ export class GeminiConverter extends BaseConverter {
         return { stateKey, state };
     }
 
+    _pushResponsesEvents(state, events, ...eventList) {
+        for (const ev of eventList) {
+            if (ev && typeof ev === 'object') {
+                if (ev.sequence_number === undefined) {
+                    ev.sequence_number = state.sequenceNumber++;
+                }
+                events.push(ev);
+            }
+        }
+    }
+
     _ensureOpenAIResponsesStreamStarted(stateKey, state, events) {
         if (state.started) {
             return;
         }
-        events.push(
+        this._pushResponsesEvents(state, events,
             generateResponseCreated(stateKey, state.model),
             generateResponseInProgress(stateKey)
         );
@@ -1356,7 +1368,7 @@ export class GeminiConverter extends BaseConverter {
             return;
         }
         state.textOutputIndex = state.nextOutputIndex++;
-        events.push(
+        this._pushResponsesEvents(state, events,
             generateOutputItemAdded(stateKey, state.textOutputIndex),
             generateContentPartAdded(stateKey, state.textOutputIndex)
         );
@@ -1378,7 +1390,7 @@ export class GeminiConverter extends BaseConverter {
                 if (typeof rawArgs === 'string') {
                     inputVal = rawArgs;
                 } else if (rawArgs && typeof rawArgs === 'object') {
-                    inputVal = rawArgs.input || rawArgs.patch || rawArgs.content || JSON.stringify(rawArgs);
+                    inputVal = rawArgs.patch || rawArgs.input || rawArgs.content || JSON.stringify(rawArgs);
                 }
             } else {
                 argsVal = this._stringifyGeminiFunctionArgs(part.functionCall.args);
@@ -1392,6 +1404,8 @@ export class GeminiConverter extends BaseConverter {
                 name: part.functionCall.name || '',
                 input: inputVal,
                 arguments: argsVal,
+                emittedInput: '',
+                emittedArgs: '',
                 added: false,
                 done: false
             });
@@ -1411,7 +1425,7 @@ export class GeminiConverter extends BaseConverter {
             if (typeof rawArgs === 'string') {
                 toolState.input = rawArgs;
             } else if (rawArgs && typeof rawArgs === 'object') {
-                toolState.input = rawArgs.input || rawArgs.patch || rawArgs.content || JSON.stringify(rawArgs);
+                toolState.input = rawArgs.patch || rawArgs.input || rawArgs.content || JSON.stringify(rawArgs);
             }
         } else {
             toolState.arguments = this._stringifyGeminiFunctionArgs(part.functionCall.args);
@@ -1438,76 +1452,124 @@ export class GeminiConverter extends BaseConverter {
                 item.arguments = "";
             }
 
-            events.push({
+            this._pushResponsesEvents(state, events, {
                 item,
                 output_index: toolState.outputIndex,
-                sequence_number: 2,
                 type: "response.output_item.added"
             });
             toolState.added = true;
         }
 
-        if (!toolState.done) {
-            if (isCustomTool) {
-                const inputVal = toolState.input || "";
-                if (inputVal) {
-                    events.push({
-                        delta: inputVal,
-                        item_id: toolState.itemId,
-                        output_index: toolState.outputIndex,
-                        sequence_number: 3,
-                        type: "response.custom_tool_call_input.delta"
-                    });
-                }
-                events.push({
-                    type: "response.custom_tool_call_input.done",
-                    item_id: toolState.itemId,
-                    output_index: toolState.outputIndex,
-                    input: inputVal
-                });
-                events.push({
-                    type: "response.output_item.done",
-                    output_index: toolState.outputIndex,
-                    item: {
-                        id: toolState.itemId,
-                        call_id: toolState.callId,
-                        type: "custom_tool_call",
-                        name: toolState.name,
-                        input: inputVal,
-                        status: "completed"
-                    }
-                });
-            } else {
-                const argsVal = toolState.arguments || "{}";
-                if (argsVal) {
-                    events.push({
-                        delta: argsVal,
-                        item_id: toolState.itemId,
-                        output_index: toolState.outputIndex,
-                        sequence_number: 3,
-                        type: "response.function_call_arguments.delta"
-                    });
-                }
-                events.push({
-                    type: "response.function_call_arguments.done",
-                    item_id: toolState.itemId,
-                    output_index: toolState.outputIndex,
-                    arguments: argsVal
-                });
-                events.push({
-                    type: "response.output_item.done",
-                    output_index: toolState.outputIndex,
-                    item: {
-                        id: toolState.itemId,
-                        call_id: toolState.callId,
-                        type: "function_call",
-                        name: toolState.name,
-                        arguments: argsVal,
-                        status: "completed"
-                    }
-                });
+        // 发送增量 delta
+        if (isCustomTool) {
+            const currentInput = toolState.input || "";
+            const lastEmitted = toolState.emittedInput || "";
+            let delta = "";
+            if (currentInput.startsWith(lastEmitted)) {
+                delta = currentInput.slice(lastEmitted.length);
+            } else if (!lastEmitted) {
+                delta = currentInput;
             }
-            toolState.done = true;
+            if (delta) {
+                this._pushResponsesEvents(state, events, {
+                    type: "response.custom_tool_call_input.delta",
+                    item_id: toolState.itemId,
+                    output_index: toolState.outputIndex,
+                    delta: delta
+                });
+                toolState.emittedInput = currentInput;
+            }
+        } else {
+            const currentArgs = toolState.arguments || "";
+            const lastEmitted = toolState.emittedArgs || "";
+            let delta = "";
+            if (currentArgs.startsWith(lastEmitted)) {
+                delta = currentArgs.slice(lastEmitted.length);
+            } else if (!lastEmitted) {
+                delta = currentArgs;
+            }
+            if (delta) {
+                this._pushResponsesEvents(state, events, {
+                    type: "response.function_call_arguments.delta",
+                    item_id: toolState.itemId,
+                    output_index: toolState.outputIndex,
+                    delta: delta
+                });
+                toolState.emittedArgs = currentArgs;
+            }
+        }
+    }
+
+    _closeGeminiResponsesTools(stateKey, state, events) {
+        if (!state.toolCalls || state.toolCalls.size === 0) return;
+        for (const toolState of state.toolCalls.values()) {
+            if (toolState.added && !toolState.done) {
+                const isCustomTool = toolState.isCustom || toolState.name === 'apply_patch';
+                if (isCustomTool) {
+                    const inputVal = toolState.input || "";
+                    if (inputVal && !toolState.emittedInput) {
+                        this._pushResponsesEvents(state, events, {
+                            type: "response.custom_tool_call_input.delta",
+                            item_id: toolState.itemId,
+                            output_index: toolState.outputIndex,
+                            delta: inputVal
+                        });
+                        toolState.emittedInput = inputVal;
+                    }
+                    this._pushResponsesEvents(state, events,
+                        {
+                            type: "response.custom_tool_call_input.done",
+                            item_id: toolState.itemId,
+                            output_index: toolState.outputIndex,
+                            input: inputVal
+                        },
+                        {
+                            type: "response.output_item.done",
+                            output_index: toolState.outputIndex,
+                            item: {
+                                id: toolState.itemId,
+                                call_id: toolState.callId,
+                                type: "custom_tool_call",
+                                name: toolState.name,
+                                input: inputVal,
+                                status: "completed"
+                            }
+                        }
+                    );
+                } else {
+                    const argsVal = toolState.arguments || "{}";
+                    if (argsVal && !toolState.emittedArgs) {
+                        this._pushResponsesEvents(state, events, {
+                            type: "response.function_call_arguments.delta",
+                            item_id: toolState.itemId,
+                            output_index: toolState.outputIndex,
+                            delta: argsVal
+                        });
+                        toolState.emittedArgs = argsVal;
+                    }
+                    this._pushResponsesEvents(state, events,
+                        {
+                            type: "response.function_call_arguments.done",
+                            item_id: toolState.itemId,
+                            output_index: toolState.outputIndex,
+                            arguments: argsVal
+                        },
+                        {
+                            type: "response.output_item.done",
+                            output_index: toolState.outputIndex,
+                            item: {
+                                id: toolState.itemId,
+                                call_id: toolState.callId,
+                                type: "function_call",
+                                name: toolState.name,
+                                arguments: argsVal,
+                                status: "completed"
+                            }
+                        }
+                    );
+                }
+                toolState.done = true;
+            }
         }
     }
 
@@ -1654,30 +1716,31 @@ export class GeminiConverter extends BaseConverter {
                         if (!state.reasoningStarted) {
                             state.reasoningStarted = true;
                             state.reasoningOutputIndex = state.nextOutputIndex++;
-                            events.push({
-                                type: "response.output_item.added",
-                                output_index: state.reasoningOutputIndex,
-                                sequence_number: 1,
-                                item: {
-                                    id: state.reasoningId,
-                                    type: "reasoning",
-                                    status: "in_progress",
-                                    summary: []
+                            this._pushResponsesEvents(state, events,
+                                {
+                                    type: "response.output_item.added",
+                                    output_index: state.reasoningOutputIndex,
+                                    item: {
+                                        id: state.reasoningId,
+                                        type: "reasoning",
+                                        status: "in_progress",
+                                        summary: []
+                                    }
+                                },
+                                {
+                                    type: "response.reasoning_summary_part.added",
+                                    item_id: state.reasoningId,
+                                    output_index: state.reasoningOutputIndex,
+                                    summary_index: 0,
+                                    part: {
+                                        type: "summary_text",
+                                        text: ""
+                                    }
                                 }
-                            });
-                            events.push({
-                                type: "response.reasoning_summary_part.added",
-                                item_id: state.reasoningId,
-                                output_index: state.reasoningOutputIndex,
-                                summary_index: 0,
-                                part: {
-                                    type: "summary_text",
-                                    text: ""
-                                }
-                            });
+                            );
                         }
                         state.reasoningText += thoughtText;
-                        events.push({
+                        this._pushResponsesEvents(state, events, {
                             type: 'response.reasoning_summary_text.delta',
                             item_id: state.reasoningId,
                             response_id: state.responseId,
@@ -1694,41 +1757,43 @@ export class GeminiConverter extends BaseConverter {
 
                         // 若之前开启了思考模式且尚未闭合，先闭合思考块
                         if (state.reasoningStarted && !state.reasoningDone) {
-                            events.push({
-                                type: "response.reasoning_summary_text.done",
-                                item_id: state.reasoningId,
-                                output_index: state.reasoningOutputIndex,
-                                summary_index: 0,
-                                text: state.reasoningText
-                            });
-                            events.push({
-                                type: "response.reasoning_summary_part.done",
-                                item_id: state.reasoningId,
-                                output_index: state.reasoningOutputIndex,
-                                summary_index: 0,
-                                part: {
-                                    type: "summary_text",
+                            this._pushResponsesEvents(state, events,
+                                {
+                                    type: "response.reasoning_summary_text.done",
+                                    item_id: state.reasoningId,
+                                    output_index: state.reasoningOutputIndex,
+                                    summary_index: 0,
                                     text: state.reasoningText
-                                }
-                            });
-                            events.push({
-                                type: "response.output_item.done",
-                                output_index: state.reasoningOutputIndex,
-                                item: {
-                                    id: state.reasoningId,
-                                    type: "reasoning",
-                                    status: "completed",
-                                    summary: [{
+                                },
+                                {
+                                    type: "response.reasoning_summary_part.done",
+                                    item_id: state.reasoningId,
+                                    output_index: state.reasoningOutputIndex,
+                                    summary_index: 0,
+                                    part: {
                                         type: "summary_text",
                                         text: state.reasoningText
-                                    }]
+                                    }
+                                },
+                                {
+                                    type: "response.output_item.done",
+                                    output_index: state.reasoningOutputIndex,
+                                    item: {
+                                        id: state.reasoningId,
+                                        type: "reasoning",
+                                        status: "completed",
+                                        summary: [{
+                                            type: "summary_text",
+                                            text: state.reasoningText
+                                        }]
+                                    }
                                 }
-                            });
+                            );
                             state.reasoningDone = true;
                         }
 
                         this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-                        events.push(generateOutputTextDelta(stateKey, text, state.textOutputIndex));
+                        this._pushResponsesEvents(state, events, generateOutputTextDelta(stateKey, text, state.textOutputIndex));
                     }
 
                     // 3. 提取工具调用
@@ -1736,42 +1801,44 @@ export class GeminiConverter extends BaseConverter {
                     if (functionParts.length > 0) {
                         // 先闭合可能处于打开状态的 reasoning 块
                         if (state.reasoningStarted && !state.reasoningDone) {
-                            events.push({
-                                type: "response.reasoning_summary_text.done",
-                                item_id: state.reasoningId,
-                                output_index: state.reasoningOutputIndex,
-                                summary_index: 0,
-                                text: state.reasoningText
-                            });
-                            events.push({
-                                type: "response.reasoning_summary_part.done",
-                                item_id: state.reasoningId,
-                                output_index: state.reasoningOutputIndex,
-                                summary_index: 0,
-                                part: {
-                                    type: "summary_text",
+                            this._pushResponsesEvents(state, events,
+                                {
+                                    type: "response.reasoning_summary_text.done",
+                                    item_id: state.reasoningId,
+                                    output_index: state.reasoningOutputIndex,
+                                    summary_index: 0,
                                     text: state.reasoningText
-                                }
-                            });
-                            events.push({
-                                type: "response.output_item.done",
-                                output_index: state.reasoningOutputIndex,
-                                item: {
-                                    id: state.reasoningId,
-                                    type: "reasoning",
-                                    status: "completed",
-                                    summary: [{
+                                },
+                                {
+                                    type: "response.reasoning_summary_part.done",
+                                    item_id: state.reasoningId,
+                                    output_index: state.reasoningOutputIndex,
+                                    summary_index: 0,
+                                    part: {
                                         type: "summary_text",
                                         text: state.reasoningText
-                                    }]
+                                    }
+                                },
+                                {
+                                    type: "response.output_item.done",
+                                    output_index: state.reasoningOutputIndex,
+                                    item: {
+                                        id: state.reasoningId,
+                                        type: "reasoning",
+                                        status: "completed",
+                                        summary: [{
+                                            type: "summary_text",
+                                            text: state.reasoningText
+                                        }]
+                                    }
                                 }
-                            });
+                            );
                             state.reasoningDone = true;
                         }
 
                         // 先闭合可能处于打开状态的 text 块
                         if (state.textStarted) {
-                            events.push(
+                            this._pushResponsesEvents(state, events,
                                 generateOutputTextDone(stateKey, state.textOutputIndex),
                                 generateContentPartDone(stateKey, state.textOutputIndex),
                                 generateOutputItemDone(stateKey, state.textOutputIndex)
@@ -1809,47 +1876,52 @@ export class GeminiConverter extends BaseConverter {
 
                 // 如果有 reasoning 尚未闭合，先闭合 reasoning
                 if (state.reasoningStarted && !state.reasoningDone) {
-                    events.push({
-                        type: "response.reasoning_summary_text.done",
-                        item_id: state.reasoningId,
-                        output_index: state.reasoningOutputIndex,
-                        summary_index: 0,
-                        text: state.reasoningText
-                    });
-                    events.push({
-                        type: "response.reasoning_summary_part.done",
-                        item_id: state.reasoningId,
-                        output_index: state.reasoningOutputIndex,
-                        summary_index: 0,
-                        part: {
-                            type: "summary_text",
+                    this._pushResponsesEvents(state, events,
+                        {
+                            type: "response.reasoning_summary_text.done",
+                            item_id: state.reasoningId,
+                            output_index: state.reasoningOutputIndex,
+                            summary_index: 0,
                             text: state.reasoningText
-                        }
-                    });
-                    events.push({
-                        type: "response.output_item.done",
-                        output_index: state.reasoningOutputIndex,
-                        item: {
-                            id: state.reasoningId,
-                            type: "reasoning",
-                            status: "completed",
-                            summary: [{
+                        },
+                        {
+                            type: "response.reasoning_summary_part.done",
+                            item_id: state.reasoningId,
+                            output_index: state.reasoningOutputIndex,
+                            summary_index: 0,
+                            part: {
                                 type: "summary_text",
                                 text: state.reasoningText
-                            }]
+                            }
+                        },
+                        {
+                            type: "response.output_item.done",
+                            output_index: state.reasoningOutputIndex,
+                            item: {
+                                id: state.reasoningId,
+                                type: "reasoning",
+                                status: "completed",
+                                summary: [{
+                                    type: "summary_text",
+                                    text: state.reasoningText
+                                }]
+                            }
                         }
-                    });
+                    );
                     state.reasoningDone = true;
                 }
 
                 if (state.textStarted) {
-                    events.push(
+                    this._pushResponsesEvents(state, events,
                         generateOutputTextDone(stateKey, state.textOutputIndex),
                         generateContentPartDone(stateKey, state.textOutputIndex),
                         generateOutputItemDone(stateKey, state.textOutputIndex)
                     );
                     state.textStarted = false;
                 }
+
+                // 闭合所有处于进行中的工具调用
+                this._closeGeminiResponsesTools(stateKey, state, events);
 
                 const usage = state.savedUsage || {
                     input_tokens: geminiChunk.usageMetadata?.promptTokenCount || 0,
@@ -1875,7 +1947,7 @@ export class GeminiConverter extends BaseConverter {
                         }]
                     });
                 }
-                events.push(completedEvent);
+                this._pushResponsesEvents(state, events, completedEvent);
 
                 streamStateManager.cleanup(stateKey);
                 this.openAIResponsesStreamStates.delete(stateKey);
@@ -1885,7 +1957,7 @@ export class GeminiConverter extends BaseConverter {
         // 向后兼容：处理字符串格式
         if (typeof geminiChunk === 'string') {
             this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-            events.push(generateOutputTextDelta(stateKey, geminiChunk));
+            this._pushResponsesEvents(state, events, generateOutputTextDelta(stateKey, geminiChunk, state.textOutputIndex));
         }
 
         return events;
