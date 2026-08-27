@@ -128,17 +128,19 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
     const CONFIG = retryContext?.CONFIG ?? currentConfig;
     let slotProviderType = null;
     let slotUuid = null;
-    let model, n, response_format, size, codexRequestBody, virtualOpenAIRequest;
+    let model, n, response_format, size, aspect_ratio, image_size, codexRequestBody, virtualOpenAIRequest;
 
     try {
         if (retryContext?.parsedBody) {
-            ({model, n, response_format, size, virtualOpenAIRequest} = retryContext.parsedBody);
+            ({model, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest} = retryContext.parsedBody);
             codexRequestBody = virtualOpenAIRequest;
         } else {
             const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES });
             model = body.model || 'gpt-image-2';
             response_format = body.response_format || 'b64_json';
             size = body.size;
+            aspect_ratio = body.aspect_ratio || body.aspectRatio;
+            image_size = body.image_size || body.imageSize || body.sampleImageSize;
             // cap n：至少 1，最多 IMAGE_GEN_MAX_N，非数字降级为 1
             n = Math.min(Math.max(1, parseInt(body.n) || 1), IMAGE_GEN_MAX_N);
             const prompt = body.prompt;
@@ -172,8 +174,13 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
                 messages: [{ role: 'user', content: prompt }],
                 n,
                 size,
+                aspect_ratio,
+                aspectRatio: aspect_ratio,
+                image_size,
+                imageSize: image_size,
                 response_format,
-                _imageSize: size, // 兼容 Codex 内部使用的字段
+                _imageSize: size, // 兼容 Codex/Antigravity 内部使用的字段
+                _aspectRatio: aspect_ratio,
                 _monitorRequestId: currentConfig._monitorRequestId // 注入监控 ID
             };
 

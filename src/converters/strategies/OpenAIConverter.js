@@ -1139,20 +1139,17 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        // 处理 image_config（OpenRouter 风格）
-        if (openaiRequest.image_config) {
-            const imgCfg = openaiRequest.image_config;
-            if (imgCfg.aspect_ratio) {
-                geminiRequest.generationConfig = geminiRequest.generationConfig || {};
-                geminiRequest.generationConfig.imageConfig = geminiRequest.generationConfig.imageConfig || {};
-                geminiRequest.generationConfig.imageConfig.aspectRatio = imgCfg.aspect_ratio;
-            }
-            if (imgCfg.image_size) {
-                geminiRequest.generationConfig = geminiRequest.generationConfig || {};
-                geminiRequest.generationConfig.imageConfig = geminiRequest.generationConfig.imageConfig || {};
-                geminiRequest.generationConfig.imageConfig.imageSize = imgCfg.image_size;
-            }
-        }
+        // 处理 image_config / size / aspect_ratio / image_size
+        const rawAspectRatio = openaiRequest.aspect_ratio || openaiRequest.aspectRatio || openaiRequest._aspectRatio || openaiRequest.image_config?.aspect_ratio || openaiRequest.image_config?.aspectRatio;
+        const rawImageSize = openaiRequest.image_size || openaiRequest.imageSize || openaiRequest.sampleImageSize || openaiRequest.image_config?.image_size || openaiRequest.image_config?.imageSize;
+        const rawSize = openaiRequest.size || openaiRequest._imageSize;
+
+        const { aspectRatio, imageSize } = mapOpenAISizeToGeminiImageConfig(rawSize, rawAspectRatio, rawImageSize);
+
+        geminiRequest.generationConfig = geminiRequest.generationConfig || {};
+        geminiRequest.generationConfig.imageConfig = geminiRequest.generationConfig.imageConfig || {};
+        geminiRequest.generationConfig.imageConfig.aspectRatio = aspectRatio;
+        geminiRequest.generationConfig.imageConfig.imageSize = imageSize;
 
         // 处理 tools -> functionDeclarations
         if (openaiRequest.tools?.length) {
@@ -2154,6 +2151,125 @@ export class OpenAIConverter extends BaseConverter {
         return events;
     }
 
+}
+
+/**
+ * 映射 OpenAI size / aspect_ratio / image_size 到 Gemini 3.1 Flash Image 支持的 aspectRatio 与 imageSize
+ */
+export function mapOpenAISizeToGeminiImageConfig(sizeStr, explicitRatio, explicitSize) {
+    let aspectRatio = explicitRatio;
+    let imageSize = null;
+
+    // 只有当 explicitSize 是合法的 Gemini 档位 (512, 1K, 2K, 4K, 0.5K) 时才直接采用
+    if (explicitSize && typeof explicitSize === 'string') {
+        const u = explicitSize.toUpperCase().trim();
+        if (['512', '512P', '512PX', '0.5K'].includes(u)) {
+            imageSize = '512';
+        } else if (['1K', '2K', '4K'].includes(u)) {
+            imageSize = u;
+        }
+    }
+
+    if (sizeStr && typeof sizeStr === 'string') {
+        const s = sizeStr.toLowerCase().trim();
+        
+        // 像素尺寸映射表 (4K 及以下常用标准分辨率)
+        const sizeMap = {
+            // 0.5K (极速预览: Google 端点要求值为 "512")
+            '256x256':   { ratio: '1:1', size: '512' },
+            '512x512':   { ratio: '1:1', size: '512' },
+            '704x528':   { ratio: '4:3', size: '512' },
+            '528x704':   { ratio: '3:4', size: '512' },
+            '768x512':   { ratio: '3:2', size: '512' },
+            '512x768':   { ratio: '2:3', size: '512' },
+            '688x384':   { ratio: '16:9', size: '512' },
+            '912x512':   { ratio: '16:9', size: '512' },
+            '384x688':   { ratio: '9:16', size: '512' },
+            '512x912':   { ratio: '9:16', size: '512' },
+            '1024x438':  { ratio: '21:9', size: '512' },
+
+            // 1K (标准清晰度 - 默认省流)
+            '1024x1024': { ratio: '1:1', size: '1K' },
+            '1408x1056': { ratio: '4:3', size: '1K' },
+            '1024x768':  { ratio: '4:3', size: '1K' },
+            '1056x1408': { ratio: '3:4', size: '1K' },
+            '768x1024':  { ratio: '3:4', size: '1K' },
+            '1536x1024': { ratio: '3:2', size: '1K' },
+            '1024x1536': { ratio: '2:3', size: '1K' },
+            '1792x1024': { ratio: '16:9', size: '1K' },
+            '1376x768':  { ratio: '16:9', size: '1K' },
+            '1024x576':  { ratio: '16:9', size: '1K' },
+            '1024x1792': { ratio: '9:16', size: '1K' },
+            '768x1376':  { ratio: '9:16', size: '1K' },
+            '576x1024':  { ratio: '9:16', size: '1K' },
+            '2048x876':  { ratio: '21:9', size: '1K' },
+
+            // 2K (生产级高清)
+            '2048x2048': { ratio: '1:1', size: '2K' },
+            '2816x2112': { ratio: '4:3', size: '2K' },
+            '2112x2816': { ratio: '3:4', size: '2K' },
+            '3072x2048': { ratio: '3:2', size: '2K' },
+            '2048x3072': { ratio: '2:3', size: '2K' },
+            '2752x1536': { ratio: '16:9', size: '2K' },
+            '1536x2752': { ratio: '9:16', size: '2K' },
+            '4096x1752': { ratio: '21:9', size: '2K' },
+
+            // 4K (超清大图)
+            '4096x4096': { ratio: '1:1', size: '4K' },
+            '5632x4224': { ratio: '4:3', size: '4K' },
+            '4224x5632': { ratio: '3:4', size: '4K' },
+            '6144x4096': { ratio: '3:2', size: '4K' },
+            '4096x6144': { ratio: '2:3', size: '4K' },
+            '5632x3072': { ratio: '16:9', size: '4K' },
+            '3072x5632': { ratio: '9:16', size: '4K' },
+            '8192x3504': { ratio: '21:9', size: '4K' }
+        };
+
+        if (sizeMap[s]) {
+            if (!aspectRatio) aspectRatio = sizeMap[s].ratio;
+            if (!imageSize) imageSize = sizeMap[s].size;
+        } else {
+            // 直接传入 512 / 1K / 2K / 4K
+            const upper = s.toUpperCase();
+            if (['0.5K', '512', '512P', '512PX'].includes(upper)) {
+                if (!imageSize) imageSize = '512';
+            } else if (['1K', '2K', '4K'].includes(upper)) {
+                if (!imageSize) imageSize = upper;
+            } else {
+                // 自定义 WxH 解析
+                const parts = s.split('x').map(x => parseInt(x, 10));
+                if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && parts[0] > 0 && parts[1] > 0) {
+                    const w = parts[0];
+                    const h = parts[1];
+                    const r = w / h;
+                    if (!aspectRatio) {
+                        if (Math.abs(r - 1.0) < 0.1) aspectRatio = '1:1';
+                        else if (Math.abs(r - 1.33) < 0.1) aspectRatio = '4:3';
+                        else if (Math.abs(r - 0.75) < 0.1) aspectRatio = '3:4';
+                        else if (Math.abs(r - 1.5) < 0.1) aspectRatio = '3:2';
+                        else if (Math.abs(r - 0.67) < 0.1) aspectRatio = '2:3';
+                        else if (Math.abs(r - 1.77) < 0.15) aspectRatio = '16:9';
+                        else if (Math.abs(r - 0.56) < 0.1) aspectRatio = '9:16';
+                        else if (Math.abs(r - 2.33) < 0.2) aspectRatio = '21:9';
+                        else if (r > 1) aspectRatio = '16:9';
+                        else aspectRatio = '9:16';
+                    }
+                    if (!imageSize) {
+                        const maxDim = Math.max(w, h);
+                        if (maxDim <= 512) imageSize = '512';
+                        else if (maxDim <= 1792) imageSize = '1K';
+                        else if (maxDim <= 3072) imageSize = '2K';
+                        else imageSize = '4K';
+                    }
+                }
+            }
+        }
+    }
+
+    if (!aspectRatio) aspectRatio = '1:1';
+    if (!imageSize) imageSize = '1K';
+
+    return { aspectRatio, imageSize };
 }
 
 export default OpenAIConverter;

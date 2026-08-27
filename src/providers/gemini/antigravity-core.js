@@ -20,6 +20,7 @@ import { cleanJsonSchemaProperties } from '../../converters/utils.js';
 import { getProviderPoolManager } from '../../services/service-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
+import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.js';
 
 // --- Constants ---
 const CREDENTIALS_DIR = '.antigravity';
@@ -668,7 +669,7 @@ function geminiToAntigravity(modelName, payload, projectId) {
         }
     }
 
-    // 如果是图像模型，增加参数 "generationConfig.imageConfig.imageSize": "4K"
+    // 如果是图像模型，处理 imageConfig（支持动态 imageSize 与 aspectRatio，默认 1K）
     if (isImgModel) {
         if (!template.request.generationConfig) {
             template.request.generationConfig = {};
@@ -677,7 +678,26 @@ function geminiToAntigravity(modelName, payload, projectId) {
         if (!template.request.generationConfig.imageConfig) {
             template.request.generationConfig.imageConfig = {};
         }
-        template.request.generationConfig.imageConfig.imageSize = '4K';
+
+        const reqImgCfg = template.request.generationConfig.imageConfig;
+        const rawSize = template.request.size || template.request._imageSize || template.request.imageSize;
+        const rawRatio = reqImgCfg.aspectRatio || reqImgCfg.aspect_ratio || template.request.aspectRatio || template.request.aspect_ratio || template.request._aspectRatio;
+        const rawTier = reqImgCfg.imageSize || template.request.image_size || template.request.sampleImageSize;
+
+        const { aspectRatio, imageSize } = mapOpenAISizeToGeminiImageConfig(rawSize, rawRatio, rawTier);
+
+        template.request.generationConfig.imageConfig.imageSize = imageSize;
+        template.request.generationConfig.imageConfig.aspectRatio = aspectRatio;
+
+        // 清理顶层可能残留的非标准字段，防止上游返回 400 Invalid Argument (Unknown name "_imageSize" 等)
+        delete template.request._imageSize;
+        delete template.request._aspectRatio;
+        delete template.request.imageSize;
+        delete template.request.image_size;
+        delete template.request.aspectRatio;
+        delete template.request.aspect_ratio;
+        delete template.request.size;
+
         if (!template.request.generationConfig.thinkingConfig) {
             template.request.generationConfig.thinkingConfig = {};
         }
