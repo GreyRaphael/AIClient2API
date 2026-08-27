@@ -251,7 +251,7 @@ function antigravityModelRequiresStreamForNonStream(modelName) {
     return name.includes('claude') || name.includes('gemini-3-pro') || name.includes('gemini-3.1-flash-image');
 }
 
-function normalizeAntigravityTextPart(part) {
+function normalizeAntigravityTextPart(part, isClaudeModel = false) {
     if (!part || typeof part !== 'object' || !Object.prototype.hasOwnProperty.call(part, 'text')) {
         return;
     }
@@ -260,15 +260,43 @@ function normalizeAntigravityTextPart(part) {
         part.text = part.text == null ? '' : String(part.text);
     }
 
-    // Antigravity 的 Claude 后端要求 text block 为非空白文本。
-    if (part.text.trim().length === 0) {
+    // Antigravity 的 Claude 后端要求 text block 为非空白文本，Gemini 原生模型不需要且不应注入 '.'
+    if (isClaudeModel && part.text.trim().length === 0) {
         part.text = ANTIGRAVITY_EMPTY_TEXT_PLACEHOLDER;
     }
 }
 
-function normalizeAntigravityTextParts(parts) {
+function normalizeAntigravityTextParts(parts, isClaudeModel = false) {
     if (!Array.isArray(parts)) return;
-    parts.forEach(normalizeAntigravityTextPart);
+    parts.forEach(part => normalizeAntigravityTextPart(part, isClaudeModel));
+}
+
+function cleanAndNormalizeContents(contents, isClaudeModel = false) {
+    if (!Array.isArray(contents)) return;
+    contents.forEach(content => {
+        if (!content.role) {
+            content.role = 'user';
+        }
+        if (Array.isArray(content.parts)) {
+            // 检查是否包含非文本部分 (例如 functionCall / functionResponse / inlineData)
+            const hasNonTextParts = content.parts.some(p => p && (p.functionCall || p.functionResponse || p.inlineData || p.fileData));
+            if (hasNonTextParts) {
+                // 如果包含工具调用或响应，过滤掉无意义的纯空白文本部分，避免污染上下文
+                content.parts = content.parts.filter(p => {
+                    if (p && typeof p.text === 'string') {
+                        return p.text.trim().length > 0;
+                    }
+                    return true;
+                });
+            } else if (isClaudeModel) {
+                // 仅对 Claude 后端，在纯文本为空时使用占位符防止上游 400 错误
+                normalizeAntigravityTextParts(content.parts, true);
+            } else {
+                // Gemini 模型确保 text 格式正确，不注入占位符
+                normalizeAntigravityTextParts(content.parts, false);
+            }
+        }
+    });
 }
 
 function getAntigravityClientModelThinkingLevel(modelName) {
@@ -992,15 +1020,9 @@ function ensureRolesInContents(requestBody, modelName) {
         delete requestBody.systemInstruction;
     }
 
+    const isClaudeModel = isClaude(modelName);
     if (requestBody.contents && Array.isArray(requestBody.contents)) {
-        requestBody.contents.forEach(content => {
-            if (!content.role) {
-                content.role = 'user';
-            }
-            if (useAntigravity) {
-                normalizeAntigravityTextParts(content.parts);
-            }
-        });
+        cleanAndNormalizeContents(requestBody.contents, isClaudeModel);
     }
 
     return requestBody;

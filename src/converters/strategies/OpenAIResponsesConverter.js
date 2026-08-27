@@ -1101,7 +1101,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         if (Array.isArray(item.content)) {
                             item.content.forEach(c => {
                                 if (c.type === 'input_text' || c.type === 'output_text') {
-                                    parts.push({ text: c.text });
+                                    if (typeof c.text === 'string' && c.text.length > 0) {
+                                        parts.push({ text: c.text });
+                                    }
                                 } else if (c.type === 'input_image') {
                                     const url = c.image_url?.url || c.url;
                                     if (url && url.startsWith('data:')) {
@@ -1116,7 +1118,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                     }
                                 }
                             });
-                        } else if (typeof item.content === 'string') {
+                        } else if (typeof item.content === 'string' && item.content.length > 0) {
                             parts.push({ text: item.content });
                         }
                         

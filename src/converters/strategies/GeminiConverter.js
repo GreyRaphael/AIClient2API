@@ -1700,7 +1700,7 @@ export class GeminiConverter extends BaseConverter {
                 
                 // 第一个chunk - 检测是否是开始（有role）
                 if (candidate.content?.role === 'model' && parts && parts.length > 0) {
-                    const hasContent = parts.some(part => part && typeof part.text === 'string' && part.text.length > 0);
+                    const hasContent = parts.some(part => part && typeof part.text === 'string' && part.text.length > 0 && part.thought !== true);
                     if (hasContent) {
                         this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
                     }
@@ -1712,88 +1712,95 @@ export class GeminiConverter extends BaseConverter {
                     const thoughtParts = parts.filter(part => part && typeof part.text === 'string' && part.thought === true);
                     if (thoughtParts.length > 0) {
                         const thoughtText = thoughtParts.map(part => part.text).join('');
-                        this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-                        if (!state.reasoningStarted) {
-                            state.reasoningStarted = true;
-                            state.reasoningOutputIndex = state.nextOutputIndex++;
-                            this._pushResponsesEvents(state, events,
-                                {
-                                    type: "response.output_item.added",
-                                    output_index: state.reasoningOutputIndex,
-                                    item: {
-                                        id: state.reasoningId,
-                                        type: "reasoning",
-                                        status: "in_progress",
-                                        summary: []
+                        if (thoughtText.length > 0) {
+                            this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
+                            if (!state.reasoningStarted) {
+                                state.reasoningStarted = true;
+                                state.reasoningOutputIndex = state.nextOutputIndex++;
+                                this._pushResponsesEvents(state, events,
+                                    {
+                                        type: "response.output_item.added",
+                                        output_index: state.reasoningOutputIndex,
+                                        item: {
+                                            id: state.reasoningId,
+                                            type: "reasoning",
+                                            status: "in_progress",
+                                            summary: []
+                                        }
+                                    },
+                                    {
+                                        type: "response.reasoning_summary_part.added",
+                                        item_id: state.reasoningId,
+                                        output_index: state.reasoningOutputIndex,
+                                        summary_index: 0,
+                                        part: {
+                                            type: "summary_text",
+                                            text: ""
+                                        }
                                     }
-                                },
-                                {
-                                    type: "response.reasoning_summary_part.added",
-                                    item_id: state.reasoningId,
-                                    output_index: state.reasoningOutputIndex,
-                                    summary_index: 0,
-                                    part: {
-                                        type: "summary_text",
-                                        text: ""
-                                    }
-                                }
-                            );
+                                );
+                            }
+                            state.reasoningText += thoughtText;
+                            this._pushResponsesEvents(state, events, {
+                                type: 'response.reasoning_summary_text.delta',
+                                item_id: state.reasoningId,
+                                response_id: state.responseId,
+                                output_index: state.reasoningOutputIndex,
+                                summary_index: 0,
+                                delta: thoughtText
+                            });
                         }
-                        state.reasoningText += thoughtText;
-                        this._pushResponsesEvents(state, events, {
-                            type: 'response.reasoning_summary_text.delta',
-                            item_id: state.reasoningId,
-                            response_id: state.responseId,
-                            output_index: state.reasoningOutputIndex,
-                            summary_index: 0,
-                            delta: thoughtText
-                        });
                     }
 
                     // 2. 提取普通文本内容
                     const textParts = parts.filter(part => part && typeof part.text === 'string' && part.thought !== true);
+                    const functionPartsInChunk = parts.filter(part => part && part.functionCall);
                     if (textParts.length > 0) {
                         const text = textParts.map(part => part.text).join('');
+                        // 过滤掉纯空文本与伴随工具调用产生的孤立点号/空白占位符
+                        const isMeaninglessPlaceholder = (text === '.' || text === '..' || text.trim().length === 0) && functionPartsInChunk.length > 0;
 
-                        // 若之前开启了思考模式且尚未闭合，先闭合思考块
-                        if (state.reasoningStarted && !state.reasoningDone) {
-                            this._pushResponsesEvents(state, events,
-                                {
-                                    type: "response.reasoning_summary_text.done",
-                                    item_id: state.reasoningId,
-                                    output_index: state.reasoningOutputIndex,
-                                    summary_index: 0,
-                                    text: state.reasoningText
-                                },
-                                {
-                                    type: "response.reasoning_summary_part.done",
-                                    item_id: state.reasoningId,
-                                    output_index: state.reasoningOutputIndex,
-                                    summary_index: 0,
-                                    part: {
-                                        type: "summary_text",
+                        if (text.length > 0 && !isMeaninglessPlaceholder) {
+                            // 若之前开启了思考模式且尚未闭合，先闭合思考块
+                            if (state.reasoningStarted && !state.reasoningDone) {
+                                this._pushResponsesEvents(state, events,
+                                    {
+                                        type: "response.reasoning_summary_text.done",
+                                        item_id: state.reasoningId,
+                                        output_index: state.reasoningOutputIndex,
+                                        summary_index: 0,
                                         text: state.reasoningText
-                                    }
-                                },
-                                {
-                                    type: "response.output_item.done",
-                                    output_index: state.reasoningOutputIndex,
-                                    item: {
-                                        id: state.reasoningId,
-                                        type: "reasoning",
-                                        status: "completed",
-                                        summary: [{
+                                    },
+                                    {
+                                        type: "response.reasoning_summary_part.done",
+                                        item_id: state.reasoningId,
+                                        output_index: state.reasoningOutputIndex,
+                                        summary_index: 0,
+                                        part: {
                                             type: "summary_text",
                                             text: state.reasoningText
-                                        }]
+                                        }
+                                    },
+                                    {
+                                        type: "response.output_item.done",
+                                        output_index: state.reasoningOutputIndex,
+                                        item: {
+                                            id: state.reasoningId,
+                                            type: "reasoning",
+                                            status: "completed",
+                                            summary: [{
+                                                type: "summary_text",
+                                                text: state.reasoningText
+                                            }]
+                                        }
                                     }
-                                }
-                            );
-                            state.reasoningDone = true;
-                        }
+                                );
+                                state.reasoningDone = true;
+                            }
 
-                        this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-                        this._pushResponsesEvents(state, events, generateOutputTextDelta(stateKey, text, state.textOutputIndex));
+                            this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
+                            this._pushResponsesEvents(state, events, generateOutputTextDelta(stateKey, text, state.textOutputIndex));
+                        }
                     }
 
                     // 3. 提取工具调用
