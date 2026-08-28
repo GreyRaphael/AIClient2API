@@ -154,8 +154,8 @@ export class ClaudeApiService {
                     const lines = eventBlock.split('\n');
                     let data = '';
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            data = line.substring(6).trim();
+                        if (line.startsWith('data:')) {
+                            data = line.substring(5).trim();
                         }
                     }
 

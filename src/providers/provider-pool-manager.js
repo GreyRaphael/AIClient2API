@@ -1450,19 +1450,23 @@ export class ProviderPoolManager {
 
         for (const providerType of allProviderTypes) {
             if (this.providerStatus[providerType]) {
-                const customAliases = getCustomModelAliasesForProvider(this.globalConfig, providerType);
-                const customModelIds = getCustomModelIdsForProvider(this.globalConfig, providerType);
                 const activeNodes = this.providerStatus[providerType].filter(p => !p.config?.isDisabled);
 
+                // 如果号池中该提供商没有启用任何有效节点（例如节点全部被禁用或号池为空），则不应暴露该提供商的模型
+                if (activeNodes.length === 0) {
+                    continue;
+                }
+
+                const customAliases = getCustomModelAliasesForProvider(this.globalConfig, providerType);
+                const customModelIds = getCustomModelIdsForProvider(this.globalConfig, providerType);
+
                 // 统计当前提供商类型下所有有效节点均标记为不支持的模型
-                const notSupportedModelsForType = activeNodes.length > 0
-                    ? normalizeModelIds(activeNodes[0].config?.notSupportedModels || []).filter(model =>
-                        activeNodes.every(p => (p.config?.notSupportedModels || []).includes(model))
-                    )
-                    : [];
+                const notSupportedModelsForType = normalizeModelIds(activeNodes[0].config?.notSupportedModels || []).filter(model =>
+                    activeNodes.every(p => (p.config?.notSupportedModels || []).includes(model))
+                );
 
                 const configuredSupportedModels = normalizeModelIds(
-                    this.providerStatus[providerType].flatMap(providerStatus =>
+                    activeNodes.flatMap(providerStatus =>
                         getConfiguredSupportedModels(providerType, providerStatus.config)
                     )
                 );
@@ -1478,23 +1482,12 @@ export class ProviderPoolManager {
                     models = models.filter(m => !notSupportedModelsForType.includes(m));
                 }
 
-                // 如果硬编码的模型列表为空，或者该类型的提供商在号池中没有配置节点，尝试从服务获取
-                // 只有在非号池模式，或者号池中有节点时才尝试获取，避免无节点时读取全局默认配置
-                if (models.length === 0 && (!this.providerStatus[providerType] || this.providerStatus[providerType].length > 0)) {
+                // 如果硬编码的模型列表为空，尝试从服务获取
+                // 只有在号池中有活跃节点时才尝试获取
+                if (models.length === 0 && activeNodes.length > 0) {
                     try {
-                        // 确定使用的配置：优先使用号池中第一个节点的配置，否则使用全局配置
-                        let targetConfig = this.globalConfig;
-                        if (this.providerStatus[providerType] && this.providerStatus[providerType].length > 0) {
-                            targetConfig = this.providerStatus[providerType][0].config;
-                        } else {
-                            // 如果该提供商是属于号池类型的提供商（在 PROVIDER_MAPPINGS 中），且号池为空，则不应尝试读取全局配置
-                            const { PROVIDER_MAPPINGS } = await import('../utils/provider-utils.js');
-                            const isPoolable = PROVIDER_MAPPINGS.some(m => m.providerType === providerType);
-                            if (isPoolable) {
-                                this._log('debug', `Skipping model fetch for poolable provider ${providerType} with empty pool to avoid reading default config.`);
-                                continue;
-                            }
-                        }
+                        // 确定使用的配置：优先使用号池中第一个活跃节点的配置
+                        let targetConfig = activeNodes[0].config;
 
                         const tempConfig = {
                             ...this.globalConfig,

@@ -109,8 +109,8 @@ export class OpenAIResponsesApiService {
                     const line = buffer.substring(0, newlineIndex).trim();
                     buffer = buffer.substring(newlineIndex + 1);
 
-                    if (line.startsWith('data: ')) {
-                        const jsonData = line.substring(6).trim();
+                    if (line.startsWith('data:')) {
+                        const jsonData = line.substring(5).trim();
                         if (jsonData === '[DONE]') {
                             return; // Stream finished
                         }
