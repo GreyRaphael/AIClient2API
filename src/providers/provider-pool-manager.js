@@ -10,7 +10,8 @@ import {
     getConfiguredNotSupportedModels,
     getCustomModelListProvider,
     getProviderModels,
-    normalizeModelIds
+    normalizeModelIds,
+    usesManagedModelList
 } from './provider-models.js';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';
 import { ENDPOINT_TYPE } from '../utils/common.js';
@@ -1465,26 +1466,26 @@ export class ProviderPoolManager {
                     activeNodes.every(p => (p.config?.notSupportedModels || []).includes(model))
                 );
 
-                const configuredSupportedModels = normalizeModelIds(
-                    activeNodes.flatMap(providerStatus =>
-                        getConfiguredSupportedModels(providerType, providerStatus.config)
-                    )
-                );
-                let models = configuredSupportedModels.length > 0
-                    ? normalizeModelIds([...configuredSupportedModels, ...customModelIds])
-                    : normalizeModelIds([
-                        ...getProviderModels(providerType).filter(model => !customAliases.has(model)),
-                        ...customModelIds
-                    ]);
+                let models = [];
+                if (customModelIds.length > 0) {
+                    // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，完全使用"自定义模型管理"中的数据
+                    models = normalizeModelIds(customModelIds);
+                } else if (configuredSupportedModels.length > 0) {
+                    // 2. 如果节点配置了 supportedModels
+                    models = normalizeModelIds(configuredSupportedModels);
+                } else {
+                    // 3. 否则使用内置静态模型列表
+                    models = normalizeModelIds(getProviderModels(providerType).filter(model => !customAliases.has(model)));
+                }
 
                 // 排除不支持的模型
                 if (notSupportedModelsForType.length > 0) {
                     models = models.filter(m => !notSupportedModelsForType.includes(m));
                 }
 
-                // 如果硬编码的模型列表为空，尝试从服务获取
+                // 如果"自定义模型管理"没有设置且模型列表仍为空，尝试从源头服务获取
                 // 只有在号池中有活跃节点时才尝试获取
-                if (models.length === 0 && activeNodes.length > 0) {
+                if (customModelIds.length === 0 && models.length === 0 && activeNodes.length > 0) {
                     try {
                         // 确定使用的配置：优先使用号池中第一个活跃节点的配置
                         let targetConfig = activeNodes[0].config;

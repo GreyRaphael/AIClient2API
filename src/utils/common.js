@@ -1715,42 +1715,46 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
         } else {
             // --- 单提供商逻辑 ---
             const toProvider = CONFIG.MODEL_PROVIDER;
+            const customEntries = getCustomModelEntriesForProvider(CONFIG, toProvider);
+            const customModelIds = customEntries.map(e => e.modelId || e.id);
             const pooledSupportedModels = getConfiguredSupportedModelsFromPool(providerPoolManager, toProvider);
             const configuredSupportedModels = pooledSupportedModels.length > 0
                 ? pooledSupportedModels
                 : getConfiguredSupportedModels(toProvider, CONFIG);
 
-            if (usesManagedModelList(toProvider) && configuredSupportedModels.length > 0) {
+            // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，完全使用"自定义模型管理"中的数据
+            if (customModelIds.length > 0) {
+                const uniqueCustomModels = normalizeModelIds(customModelIds);
+                logger.info(`[ModelList] Using exclusively custom models for ${toProvider}: ${uniqueCustomModels.join(', ')}`);
+                clientModelList = buildConfiguredModelListResponse(uniqueCustomModels, toProvider, endpointType);
+            } else if (usesManagedModelList(toProvider) && configuredSupportedModels.length > 0) {
+                // 2. 如果是托管提供商且号池中明确配置了 supportedModels
                 logger.info(`[ModelList] Returning configured supported models for ${toProvider}: ${configuredSupportedModels.join(', ')}`);
                 clientModelList = buildConfiguredModelListResponse(configuredSupportedModels, toProvider, endpointType);
             } else {
+                // 3. 如果"自定义模型管理"没有针对该提供商设置，使用源头的 /v1/models 列表
+                let resolvedService = service;
+                if (!resolvedService) {
+                    const { getApiService } = await import('../services/service-manager.js');
+                    resolvedService = await getApiService(CONFIG, null, { skipUsageCount: true });
+                }
 
-            // service 可能未在上层预先注入（例如仅改了路径 provider 前缀），这里兜底获取
-            let resolvedService = service;
-            if (!resolvedService) {
-                const { getApiService } = await import('../services/service-manager.js');
-                resolvedService = await getApiService(CONFIG, null, { skipUsageCount: true });
+                if (!resolvedService || typeof resolvedService.listModels !== 'function') {
+                    throw new Error(`[ModelList] Service adapter is unavailable or does not implement listModels() for provider: ${toProvider}`);
+                }
+
+                // 1. Get the model list in the backend's native format.
+                const nativeModelList = await resolvedService.listModels();
+
+                // 2. Convert the model list to the client's expected format, if necessary.
+                clientModelList = nativeModelList;
+                if (!getProtocolPrefix(toProvider).includes(getProtocolPrefix(fromProvider))) {
+                    logger.info(`[ModelList Convert] Converting model list from ${toProvider} to ${fromProvider}`);
+                    clientModelList = convertData(nativeModelList, 'modelList', toProvider, fromProvider);
+                } else {
+                    logger.info(`[ModelList Convert] Model list format matches. No conversion needed.`);
+                }
             }
-
-            if (!resolvedService || typeof resolvedService.listModels !== 'function') {
-                throw new Error(`[ModelList] Service adapter is unavailable or does not implement listModels() for provider: ${toProvider}`);
-            }
-
-            // 1. Get the model list in the backend's native format.
-            const nativeModelList = await resolvedService.listModels();
-
-            // 2. Convert the model list to the client's expected format, if necessary.
-            clientModelList = nativeModelList;
-            if (!getProtocolPrefix(toProvider).includes(getProtocolPrefix(fromProvider))) {
-                logger.info(`[ModelList Convert] Converting model list from ${toProvider} to ${fromProvider}`);
-                clientModelList = convertData(nativeModelList, 'modelList', toProvider, fromProvider);
-            } else {
-                logger.info(`[ModelList Convert] Model list format matches. No conversion needed.`);
-            }
-            }
-
-            const customEntries = getCustomModelEntriesForProvider(CONFIG, toProvider);
-            clientModelList = appendCustomModelsToModelList(clientModelList, customEntries, toProvider, endpointType);
 
             // 过滤 notSupportedModels（从号池节点或配置中获取）
             const pooledNotSupportedModels = getConfiguredNotSupportedModelsFromPool(providerPoolManager, toProvider, pooluuid);
