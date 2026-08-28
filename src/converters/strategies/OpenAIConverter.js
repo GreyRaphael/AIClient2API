@@ -311,10 +311,11 @@ export class OpenAIConverter extends BaseConverter {
         }
 
 
+        const effectiveMaxTokens = openaiRequest.max_completion_tokens !== undefined ? openaiRequest.max_completion_tokens : openaiRequest.max_tokens;
         const claudeRequest = {
             model: openaiRequest.model,
             messages: mergedClaudeMessages,
-            max_tokens: checkAndAssignOrDefault(openaiRequest.max_tokens, CLAUDE_DEFAULT_MAX_TOKENS),
+            max_tokens: checkAndAssignOrDefault(effectiveMaxTokens, CLAUDE_DEFAULT_MAX_TOKENS),
             temperature: checkAndAssignOrDefault(openaiRequest.temperature, CLAUDE_DEFAULT_TEMPERATURE),
             top_p: checkAndAssignOrDefault(openaiRequest.top_p, CLAUDE_DEFAULT_TOP_P),
         };
@@ -512,36 +513,37 @@ export class OpenAIConverter extends BaseConverter {
             // }
 
             // 2. 处理 tool_calls (对应 content_block_start 和 content_block_delta)
-            // if (delta?.tool_calls) {
-            //     const toolCalls = delta.tool_calls;
-            //     for (const toolCall of toolCalls) {
-            //         // 如果有 function.name，说明是工具调用开始
-            //         if (toolCall.function?.name) {
-            //             events.push({
-            //                 type: "content_block_start",
-            //                 index: toolCall.index || 0,
-            //                 content_block: {
-            //                     type: "tool_use",
-            //                     id: toolCall.id || `tool_${uuidv4()}`,
-            //                     name: toolCall.function.name,
-            //                     input: {}
-            //                 }
-            //             });
-            //         }
+            if (delta?.tool_calls && Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+                const toolCalls = delta.tool_calls;
+                for (const toolCall of toolCalls) {
+                    const toolIndex = toolCall.index !== undefined ? toolCall.index : 0;
+                    // 如果有 function.name 或 id，说明是工具调用开始
+                    if (toolCall.function?.name || toolCall.id) {
+                        events.push({
+                            type: "content_block_start",
+                            index: toolIndex,
+                            content_block: {
+                                type: "tool_use",
+                                id: toolCall.id || `tool_${uuidv4().replace(/-/g, '')}`,
+                                name: toolCall.function?.name || '',
+                                input: {}
+                            }
+                        });
+                    }
 
-            //         // 如果有 function.arguments，说明是参数增量
-            //         if (toolCall.function?.arguments) {
-            //             events.push({
-            //                 type: "content_block_delta",
-            //                 index: toolCall.index || 0,
-            //                 delta: {
-            //                     type: "input_json_delta",
-            //                     partial_json: toolCall.function.arguments
-            //                 }
-            //             });
-            //         }
-            //     }
-            // }
+                    // 如果有 function.arguments，说明是参数增量
+                    if (toolCall.function?.arguments) {
+                        events.push({
+                            type: "content_block_delta",
+                            index: toolIndex,
+                            delta: {
+                                type: "input_json_delta",
+                                partial_json: toolCall.function.arguments
+                            }
+                        });
+                    }
+                }
+            }
 
             // 3. 处理 reasoning_content (对应 thinking 类型的 content_block)
             if (delta?.reasoning_content) {
@@ -573,6 +575,7 @@ export class OpenAIConverter extends BaseConverter {
             if (finishReason) {
                 // 映射 finish_reason
                 const stopReason = finishReason === "stop" ? "end_turn" :
+                    finishReason === "tool_calls" ? "tool_use" :
                     finishReason === "length" ? "max_tokens" :
                         "end_turn";
 
@@ -1047,9 +1050,23 @@ export class OpenAIConverter extends BaseConverter {
             // 其他 role 类型跳过
         }
 
-        // 构建 Gemini 请求
+        // 构建 Gemini 请求（合并相邻同角色消息，严格满足 Gemini 交替轮次规范）
+        const rawContents = processedMessages.filter(item => item.parts && item.parts.length > 0);
+        const mergedContents = [];
+        for (const item of rawContents) {
+            const last = mergedContents[mergedContents.length - 1];
+            if (last && last.role === item.role) {
+                last.parts.push(...item.parts);
+            } else {
+                mergedContents.push({
+                    role: item.role,
+                    parts: [...item.parts]
+                });
+            }
+        }
+
         const geminiRequest = {
-            contents: processedMessages.filter(item => item.parts && item.parts.length > 0)
+            contents: mergedContents
         };
 
         // 添加 model
@@ -1369,10 +1386,11 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 构建Gemini生成配置
      */
-    buildGeminiGenerationConfig({ temperature, max_tokens, top_p, stop, tools, response_format }, model) {
+    buildGeminiGenerationConfig({ temperature, max_tokens, max_completion_tokens, top_p, stop, tools, response_format }, model) {
         const config = {};
+        const effectiveMaxTokens = max_completion_tokens !== undefined ? max_completion_tokens : max_tokens;
         config.temperature = checkAndAssignOrDefault(temperature, GEMINI_DEFAULT_TEMPERATURE);
-        config.maxOutputTokens = checkAndAssignOrDefault(max_tokens, GEMINI_DEFAULT_MAX_TOKENS);
+        config.maxOutputTokens = checkAndAssignOrDefault(effectiveMaxTokens, GEMINI_DEFAULT_MAX_TOKENS);
         config.topP = checkAndAssignOrDefault(top_p, GEMINI_DEFAULT_TOP_P);
         if (stop !== undefined) config.stopSequences = Array.isArray(stop) ? stop : [stop];
 

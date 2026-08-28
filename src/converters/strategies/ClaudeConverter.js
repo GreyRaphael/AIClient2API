@@ -331,6 +331,9 @@ export class ClaudeConverter extends BaseConverter {
                 }
             }
             openaiRequest.max_completion_tokens = maxCompletionTokens;
+            // OpenAI 推理模型（o1/o3-mini 等）不允许自定义 temperature 和 top_p，自动剥离避免 400
+            delete openaiRequest.temperature;
+            delete openaiRequest.top_p;
         }
 
         // 添加系统消息
@@ -905,7 +908,25 @@ export class ClaudeConverter extends BaseConverter {
             }
         }
 
+        // 预扫描建立 tool_use_id -> tool_name 映射表（供 tool_result 还原函数名）
+        const toolIdToName = {};
+        if (Array.isArray(claudeRequest.messages)) {
+            for (const msg of claudeRequest.messages) {
+                if (msg && Array.isArray(msg.content)) {
+                    for (const block of msg.content) {
+                        if (block && block.type === 'tool_use' && block.name) {
+                            if (block.id) {
+                                toolIdToName[block.id] = block.name;
+                                toolIdToName[sanitizeToolId(block.id)] = block.name;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 处理消息
+        const rawGeminiContents = [];
         if (Array.isArray(claudeRequest.messages)) {
             claudeRequest.messages.forEach(message => {
                 if (!message || typeof message !== 'object' || !message.role) {
@@ -998,24 +1019,25 @@ export class ClaudeConverter extends BaseConverter {
                                 
                             case 'tool_result':
                                 // 转换为 Gemini functionResponse 格式
-                                // [FIX] 当 tool_use_id 缺失时自动生成，确保 functionResponse.id 不为空
-                                const toolCallId = sanitizeToolId(block.tool_use_id) || `tool_result_${uuidv4().replace(/-/g, '')}`;
+                                // [FIX] 从上下文映射表中优先获取真实函数名称，防止将 toolu_xxx 误作 name
+                                const rawToolUseId = block.tool_use_id;
+                                const toolCallId = sanitizeToolId(rawToolUseId) || `tool_result_${uuidv4().replace(/-/g, '')}`;
                                 {
-                                    // 尝试从之前的 tool_use 块中查找对应的函数名
-                                    // 如果找不到，则从 tool_use_id 中提取
-                                    let funcName = toolCallId;
-                                    
-                                    // 检查是否有缓存的 tool_id -> name 映射
-                                    // 格式通常是 "funcName-uuid" 或 "toolu_xxx"
-                                    if (toolCallId.startsWith('toolu_')) {
-                                        // Claude 格式的 tool_use_id，需要从上下文中查找函数名
-                                        // 这里我们保留原始 ID 作为 name（Gemini 会处理）
-                                        funcName = toolCallId;
-                                    } else {
-                                        const toolCallIdParts = toolCallId.split('-');
-                                        if (toolCallIdParts.length > 1) {
-                                            // 移除最后一个部分（UUID），保留函数名
-                                            funcName = toolCallIdParts.slice(0, -1).join('-');
+                                    let funcName = toolIdToName[rawToolUseId] || toolIdToName[toolCallId];
+                                    if (!funcName) {
+                                        if (toolCallId.startsWith('toolu_')) {
+                                            if (claudeRequest.tools && claudeRequest.tools.length === 1 && claudeRequest.tools[0].name) {
+                                                funcName = claudeRequest.tools[0].name;
+                                            } else {
+                                                funcName = toolCallId;
+                                            }
+                                        } else {
+                                            const toolCallIdParts = toolCallId.split('-');
+                                            if (toolCallIdParts.length > 1) {
+                                                funcName = toolCallIdParts.slice(0, -1).join('-');
+                                            } else {
+                                                funcName = toolCallId;
+                                            }
                                         }
                                     }
                                     
@@ -1062,20 +1084,35 @@ export class ClaudeConverter extends BaseConverter {
                     });
                     
                     if (parts.length > 0) {
-                        geminiRequest.contents.push({
+                        rawGeminiContents.push({
                             role: geminiRole,
                             parts: parts
                         });
                     }
                 } else if (typeof content === 'string') {
                     // 字符串内容
-                    geminiRequest.contents.push({
+                    rawGeminiContents.push({
                         role: geminiRole,
                         parts: [{ text: content }]
                     });
                 }
             });
         }
+
+        // 合并相邻同角色消息，严格满足 Gemini 交替轮次规范
+        const mergedGeminiContents = [];
+        for (const item of rawGeminiContents) {
+            const last = mergedGeminiContents[mergedGeminiContents.length - 1];
+            if (last && last.role === item.role) {
+                last.parts.push(...item.parts);
+            } else {
+                mergedGeminiContents.push({
+                    role: item.role,
+                    parts: [...item.parts]
+                });
+            }
+        }
+        geminiRequest.contents = mergedGeminiContents;
 
         // 添加生成配置
         const generationConfig = {};

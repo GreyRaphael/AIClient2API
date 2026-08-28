@@ -371,6 +371,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 }
             }];
         } else if (responsesChunk.type === 'response.output_item.added' && responsesChunk.item?.type === 'function_call') {
+            this._streamHasToolCalls = this._streamHasToolCalls || new Set();
+            this._streamHasToolCalls.add(resId);
             delta.tool_calls = [{
                 index: responsesChunk.output_index || 0,
                 id: responsesChunk.item.call_id,
@@ -381,10 +383,16 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 }
             }];
         } else if (responsesChunk.type === 'response.completed') {
-            finish_reason = 'stop';
+            const hasTool = (this._streamHasToolCalls && this._streamHasToolCalls.has(resId)) ||
+                responsesChunk.response?.output?.some(item => item.type === 'function_call' || item.type === 'custom_tool_call') ||
+                responsesChunk.response?.status === 'requires_action';
+            finish_reason = hasTool ? 'tool_calls' : 'stop';
+            if (this._streamHasToolCalls) {
+                this._streamHasToolCalls.delete(resId);
+            }
         }
 
-        return {
+        const chunkObj = {
             id: resId,
             object: 'chat.completion.chunk',
             created: created,
@@ -395,6 +403,17 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 finish_reason: finish_reason
             }]
         };
+
+        if (responsesChunk.response?.usage) {
+            const u = responsesChunk.response.usage;
+            chunkObj.usage = {
+                prompt_tokens: u.input_tokens || u.prompt_tokens || 0,
+                completion_tokens: u.output_tokens || u.completion_tokens || 0,
+                total_tokens: u.total_tokens || ((u.input_tokens || 0) + (u.output_tokens || 0))
+            };
+        }
+
+        return chunkObj;
     }
 
     // =============================================================================
@@ -1257,6 +1276,23 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     })
                     .filter(fn => Boolean(fn.name))
             }];
+        }
+
+        // 合并相邻同角色消息，严格满足 Gemini 交替轮次规范
+        if (Array.isArray(geminiRequest.contents) && geminiRequest.contents.length > 1) {
+            const mergedContents = [];
+            for (const item of geminiRequest.contents) {
+                const last = mergedContents[mergedContents.length - 1];
+                if (last && last.role === item.role) {
+                    last.parts.push(...item.parts);
+                } else {
+                    mergedContents.push({
+                        role: item.role,
+                        parts: [...item.parts]
+                    });
+                }
+            }
+            geminiRequest.contents = mergedContents;
         }
 
         return geminiRequest;
