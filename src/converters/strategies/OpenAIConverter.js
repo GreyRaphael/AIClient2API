@@ -1275,6 +1275,9 @@ export class OpenAIConverter extends BaseConverter {
      */
     validateGemini3ThinkingLevel(model, effort) {
         const validLevels = ['low', 'medium', 'high'];
+        if (effort === 'max' || effort === 'xhigh') {
+            return 'HIGH';
+        }
         if (validLevels.includes(effort)) {
             return effort.toUpperCase();
         }
@@ -1288,7 +1291,9 @@ export class OpenAIConverter extends BaseConverter {
         const effortToBudget = {
             'low': 1024,
             'medium': 8192,
-            'high': 24576
+            'high': 24576,
+            'max': 32768,
+            'xhigh': 32768
         };
         const budget = effortToBudget[effort] || effortToBudget['medium'];
         return {
@@ -1599,9 +1604,11 @@ export class OpenAIConverter extends BaseConverter {
             responsesRequest.instructions = extractText(systemInstruction.parts[0].text);
         }
 
-        if (openaiRequest.reasoning_effort) {
+        const reasoningEffort = openaiRequest.reasoning_effort || openaiRequest.reasoning?.effort;
+        if (reasoningEffort) {
             responsesRequest.reasoning = {
-                effort: openaiRequest.reasoning_effort
+                ...(openaiRequest.reasoning || {}),
+                effort: reasoningEffort
             };
         }
 

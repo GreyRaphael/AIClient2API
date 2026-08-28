@@ -261,6 +261,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
             openaiRequest.tool_choice = responsesRequest.tool_choice;
         }
 
+        const reasoningEffort = responsesRequest.reasoning?.effort || responsesRequest.reasoning_effort;
+        if (reasoningEffort) {
+            openaiRequest.reasoning_effort = reasoningEffort;
+        }
+
         return openaiRequest;
     }
 
