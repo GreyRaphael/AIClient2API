@@ -1466,6 +1466,12 @@ export class ProviderPoolManager {
                     activeNodes.every(p => (p.config?.notSupportedModels || []).includes(model))
                 );
 
+                const configuredSupportedModels = normalizeModelIds(
+                    activeNodes.flatMap(providerStatus =>
+                        getConfiguredSupportedModels(providerType, providerStatus.config)
+                    )
+                );
+
                 let models = [];
                 if (customModelIds.length > 0) {
                     // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，完全使用"自定义模型管理"中的数据
