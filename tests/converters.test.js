@@ -185,4 +185,36 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(oaiReq.temperature).toBeUndefined();
         expect(oaiReq.top_p).toBeUndefined();
     });
+
+    test('Fix 6: gemini-3.7-flash (text model) does NOT attach imageConfig', () => {
+        const textReq = {
+            model: 'gemini-3.7-flash',
+            messages: [{ role: 'user', content: 'Hello world' }]
+        };
+
+        const geminiReq = convertData(textReq, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.GEMINI);
+        expect(geminiReq.generationConfig?.imageConfig).toBeUndefined();
+    });
+
+    test('Fix 7: gemini-3.1-flash-image (image model) attaches correct imageConfig', () => {
+        const imgReqDefault = {
+            model: 'gemini-3.1-flash-image',
+            messages: [{ role: 'user', content: 'Draw a scenic landscape' }]
+        };
+        const geminiReqDefault = convertData(imgReqDefault, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.GEMINI);
+        expect(geminiReqDefault.generationConfig?.imageConfig).toBeDefined();
+        expect(geminiReqDefault.generationConfig.imageConfig.aspectRatio).toBe('1:1');
+        expect(geminiReqDefault.generationConfig.imageConfig.imageSize).toBe('1K');
+
+        const imgReqCustom = {
+            model: 'gemini-3.1-flash-image',
+            messages: [{ role: 'user', content: 'Draw a wallpaper' }],
+            aspect_ratio: '16:9',
+            image_size: '2K'
+        };
+        const geminiReqCustom = convertData(imgReqCustom, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.GEMINI);
+        expect(geminiReqCustom.generationConfig?.imageConfig).toBeDefined();
+        expect(geminiReqCustom.generationConfig.imageConfig.aspectRatio).toBe('16:9');
+        expect(geminiReqCustom.generationConfig.imageConfig.imageSize).toBe('2K');
+    });
 });

@@ -702,6 +702,20 @@ function geminiToAntigravity(modelName, payload, projectId) {
             template.request.generationConfig.thinkingConfig = {};
         }
         template.request.generationConfig.thinkingConfig.includeThoughts = false;
+    } else {
+        // 非图像模型（如 gemini-3.7-flash）清理 imageConfig 及顶层图像字段，防止上游报错 400 (Aspect ratio is not enabled for this model)
+        if (template.request?.generationConfig?.imageConfig) {
+            delete template.request.generationConfig.imageConfig;
+        }
+        if (template.request) {
+            delete template.request._imageSize;
+            delete template.request._aspectRatio;
+            delete template.request.imageSize;
+            delete template.request.image_size;
+            delete template.request.aspectRatio;
+            delete template.request.aspect_ratio;
+            delete template.request.size;
+        }
     }
 
     // 规范化 Thinking 配置

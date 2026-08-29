@@ -71,6 +71,14 @@ function modelSupportsThinking(modelName) {
            name.includes('-thinking');
 }
 
+function normalizeGeminiImageConfigRequest(modelName, requestBody) {
+    const isImgModel = modelName && String(modelName).toLowerCase().includes('image');
+    if (!isImgModel && requestBody?.generationConfig?.imageConfig) {
+        delete requestBody.generationConfig.imageConfig;
+    }
+    return requestBody;
+}
+
 function normalizeGeminiThinkingRequest(modelName, requestBody) {
     if (!modelSupportsThinking(modelName)) return requestBody;
 
@@ -791,7 +799,10 @@ export class GeminiApiService {
 
         const processedRequestBody = normalizeGeminiThinkingRequest(
             baseModel,
-            ensureRolesInContents({ ...requestBody })
+            normalizeGeminiImageConfigRequest(
+                baseModel,
+                ensureRolesInContents({ ...requestBody })
+            )
         );
         const apiRequest = { model: baseModel, project: this.projectId, request: processedRequestBody };
         
@@ -829,7 +840,10 @@ export class GeminiApiService {
             // 使用防截断流处理
             const processedRequestBody = normalizeGeminiThinkingRequest(
                 actualModel,
-                ensureRolesInContents({ ...requestBody })
+                normalizeGeminiImageConfigRequest(
+                    actualModel,
+                    ensureRolesInContents({ ...requestBody })
+                )
             );
             yield* apply_anti_truncation_to_stream(this, actualModel, processedRequestBody);
             return;
@@ -848,7 +862,10 @@ export class GeminiApiService {
 
         const processedRequestBody = normalizeGeminiThinkingRequest(
             baseModel,
-            ensureRolesInContents({ ...requestBody })
+            normalizeGeminiImageConfigRequest(
+                baseModel,
+                ensureRolesInContents({ ...requestBody })
+            )
         );
         const apiRequest = { model: baseModel, project: this.projectId, request: processedRequestBody };
         

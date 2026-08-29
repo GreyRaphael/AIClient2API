@@ -1161,12 +1161,21 @@ export class OpenAIConverter extends BaseConverter {
         const rawImageSize = openaiRequest.image_size || openaiRequest.imageSize || openaiRequest.sampleImageSize || openaiRequest.image_config?.image_size || openaiRequest.image_config?.imageSize;
         const rawSize = openaiRequest.size || openaiRequest._imageSize;
 
-        const { aspectRatio, imageSize } = mapOpenAISizeToGeminiImageConfig(rawSize, rawAspectRatio, rawImageSize);
+        // 仅在明确是图像模型，或请求显式包含图像配置/图像模态时才设置 imageConfig
+        const isImgModel = Boolean(
+            (model && String(model).toLowerCase().includes('image')) ||
+            (geminiRequest.generationConfig?.responseModalities && geminiRequest.generationConfig.responseModalities.includes('IMAGE'))
+        );
+        const hasExplicitImageConfig = Boolean(rawAspectRatio || rawImageSize || rawSize || openaiRequest.image_config);
 
-        geminiRequest.generationConfig = geminiRequest.generationConfig || {};
-        geminiRequest.generationConfig.imageConfig = geminiRequest.generationConfig.imageConfig || {};
-        geminiRequest.generationConfig.imageConfig.aspectRatio = aspectRatio;
-        geminiRequest.generationConfig.imageConfig.imageSize = imageSize;
+        if (isImgModel || hasExplicitImageConfig) {
+            const { aspectRatio, imageSize } = mapOpenAISizeToGeminiImageConfig(rawSize, rawAspectRatio, rawImageSize);
+
+            geminiRequest.generationConfig = geminiRequest.generationConfig || {};
+            geminiRequest.generationConfig.imageConfig = geminiRequest.generationConfig.imageConfig || {};
+            if (aspectRatio) geminiRequest.generationConfig.imageConfig.aspectRatio = aspectRatio;
+            if (imageSize) geminiRequest.generationConfig.imageConfig.imageSize = imageSize;
+        }
 
         // 处理 tools -> functionDeclarations
         if (openaiRequest.tools?.length) {
