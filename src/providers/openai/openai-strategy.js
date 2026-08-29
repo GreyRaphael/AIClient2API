@@ -52,7 +52,7 @@ class OpenAIStrategy extends ProviderStrategy {
         }
 
         const filePromptContent = config.SYSTEM_PROMPT_CONTENT;
-        if (filePromptContent === null) {
+        if (!filePromptContent || filePromptContent.trim() === '') {
             return requestBody;
         }
 

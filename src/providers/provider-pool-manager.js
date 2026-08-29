@@ -1050,17 +1050,18 @@ export class ProviderPoolManager {
 
         // 如果指定了模型，则排除不支持该模型的提供商
         if (requestedModel) {
+            const rawModelName = requestedModel.includes(':') ? requestedModel.substring(requestedModel.indexOf(':') + 1) : requestedModel;
             const modelFilteredProviders = availableAndHealthyProviders.filter(p => {
                 const supportedModels = getConfiguredSupportedModels(providerType, p.config);
                 if (supportedModels.length > 0) {
-                    return supportedModels.includes(requestedModel);
+                    return supportedModels.includes(requestedModel) || supportedModels.includes(rawModelName);
                 }
                 // 如果提供商没有配置 notSupportedModels，则认为它支持所有模型
                 if (!p.config.notSupportedModels || !Array.isArray(p.config.notSupportedModels)) {
                     return true;
                 }
                 // 检查 notSupportedModels 数组中是否包含请求的模型，如果包含则排除
-                return !p.config.notSupportedModels.includes(requestedModel);
+                return !p.config.notSupportedModels.includes(requestedModel) && !p.config.notSupportedModels.includes(rawModelName);
             });
 
             if (modelFilteredProviders.length === 0) {

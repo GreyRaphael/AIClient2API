@@ -1301,13 +1301,19 @@ export class OpenAIConverter extends BaseConverter {
      */
     validateGemini3ThinkingLevel(model, effort) {
         const validLevels = ['low', 'medium', 'high'];
-        if (effort === 'max' || effort === 'xhigh') {
-            return 'HIGH';
+        const normalizedEffort = (effort === 'max' || effort === 'xhigh') ? 'high' : effort;
+        if (!validLevels.includes(normalizedEffort)) {
+            return null;
         }
-        if (validLevels.includes(effort)) {
-            return effort.toUpperCase();
+        const modelLower = (model || '').toLowerCase();
+        // gemini-3.7-flash (tiered) 在大上下文/工具调用下若开启 thinkingConfig 会触发上游 429 额度耗尽，因此 base 模型不注入 thinkingConfig
+        if (modelLower.includes('gemini-3.7-flash') && !modelLower.includes('-high') && !modelLower.includes('-medium') && !modelLower.includes('-low')) {
+            return null;
         }
-        return null;
+        if (normalizedEffort === 'high' && modelLower.includes('flash') && !modelLower.includes('-high')) {
+            return 'MEDIUM';
+        }
+        return normalizedEffort.toUpperCase();
     }
 
     /**

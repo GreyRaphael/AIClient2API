@@ -1304,7 +1304,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 // 使用 acquireSlot: true 以占用新凭证的并发插槽
                 const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: true });
                 
-                if (result && result.service) {
+                if (result && result.service && result.uuid !== pooluuid) {
                     logger.info(`[Stream Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
                     
                     // 使用新服务重试
@@ -1333,7 +1333,15 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                         newRetryContext
                     );
                 } else {
-                    logger.info(`[Stream Retry] No healthy credential available for retry.`);
+                    if (result && result.uuid && providerPoolManager) {
+                        providerPoolManager.releaseSlot(result.actualProviderType || toProvider, result.uuid);
+                    }
+                    if (result?.uuid === pooluuid) {
+                        logger.info(`[Stream Retry] No alternative credential available in pool (selected same credential). Aborting switch retry.`);
+                    } else {
+                        logger.info(`[Stream Retry] No healthy credential available for retry.`);
+                    }
+                    throw error;
                 }
             } catch (retryError) {
                 logger.error(`[Stream Retry] Failed to get alternative service:`, retryError.message);
@@ -1582,7 +1590,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
                 // 使用 acquireSlot: true 以占用新凭证的并发插槽
                 const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: true });
                 
-                if (result && result.service) {
+                if (result && result.service && result.uuid !== pooluuid) {
                     logger.info(`[Unary Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
                     
                     // 使用新服务重试
@@ -1609,7 +1617,14 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
                         newRetryContext
                     );
                 } else {
-                    logger.info(`[Unary Retry] No healthy credential available for retry.`);
+                    if (result && result.uuid && providerPoolManager) {
+                        providerPoolManager.releaseSlot(result.actualProviderType || toProvider, result.uuid);
+                    }
+                    if (result?.uuid === pooluuid) {
+                        logger.info(`[Unary Retry] No alternative credential available in pool (selected same credential). Aborting switch retry.`);
+                    } else {
+                        logger.info(`[Unary Retry] No healthy credential available for retry.`);
+                    }
                 }
             } catch (retryError) {
                 logger.error(`[Unary Retry] Failed to get alternative service:`, retryError.message);
