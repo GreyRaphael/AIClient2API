@@ -36,9 +36,12 @@ const KIRO_CONSTANTS = {
     REFRESH_IDC_URL: 'https://oidc.{{region}}.amazonaws.com/token',
     BASE_URL: 'https://q.{{region}}.amazonaws.com/generateAssistantResponse',
     BASE_RUNTIME_URL: 'https://q.{{region}}.amazonaws.com/generateAssistantResponse',
+    // 路径大小写敏感，小写会返回 UnknownOperationException
+    LIST_PROFILES_URL: 'https://codewhisperer.{{region}}.amazonaws.com/ListAvailableProfiles',
     DEFAULT_MODEL_NAME: 'claude-sonnet-4-5',
     AXIOS_TIMEOUT: 120000, // 2 minutes timeout for normal requests
     TOKEN_REFRESH_TIMEOUT: 15000, // 15 seconds timeout for token refresh (shorter to avoid blocking)
+    LIST_PROFILES_TIMEOUT: 10000, // 凭证装载期同步 await，不能久等
     USER_AGENT: 'KiroIDE',
     KIRO_VERSION: '0.11.63', //升级到新版本会导致aws用不了，需要找新接口
     CONTENT_TYPE_JSON: 'application/json',
@@ -839,8 +842,108 @@ async loadCredentials() {
         this.refreshUrl = (this.config.KIRO_REFRESH_URL || KIRO_CONSTANTS.REFRESH_URL).replace("{{region}}", this.region);
         this.refreshIDCUrl = (this.config.KIRO_REFRESH_IDC_URL || KIRO_CONSTANTS.REFRESH_IDC_URL).replace("{{region}}", this.idcRegion);
         this.baseUrl = (this.config.KIRO_BASE_URL || defaultBaseUrl).replace("{{region}}", this.region);
+
+        // profileArn 与上面的 region / baseUrl 同属凭证装载期的派生，下游不再判断登录方式。
+        await this._ensureProfileArn(isSocialAuth);
     } catch (error) {
         logger.warn(`[Kiro Auth] Error during credential loading: ${error.message}`);
+    }
+}
+
+/**
+ * 解析 this.profileArn（唯一决策点）。
+ * profileArn 是 CodeWhisperer 的订阅归属标识，缺失时上游返回 403 AccessDeniedException。
+ * social 凭证由 Kiro auth 服务随刷新响应下发该字段；IdC / builder-id 走 AWS SSO OIDC，
+ * 响应不包含它，需自行查询。
+ * @param {boolean} isSocialAuth
+ * @private
+ */
+async _ensureProfileArn(isSocialAuth) {
+    if (typeof this.profileArn === 'string' && this.profileArn.trim() !== '') {
+        return;
+    }
+
+    // social token 非 AWS 签发，ListAvailableProfiles 对它不适用；缺失时原样交给下游。
+    if (isSocialAuth) {
+        return;
+    }
+
+    // 发现结果由 _doTokenRefresh 的回写落入凭证文件，每份凭证通常只需发现一次。
+    const discovered = await this._discoverProfileArn();
+    if (discovered) {
+        this.profileArn = discovered;
+        logger.info(`[Kiro Auth] profileArn discovered: ${discovered}`);
+    }
+}
+
+/**
+ * 查询当前 token 可用的 profile。该接口不需要 profileArn，可用于自举。
+ * 失败返回 null 而不抛错：调用方在凭证装载路径上，抛错会阻塞初始化；包装异常还会
+ * 丢掉 status，使上层按状态码分流的重试 / 切凭证失效。
+ * @returns {Promise<string|null>}
+ * @private
+ */
+async _discoverProfileArn() {
+    // 无可用 token 时调用必然失败；刷新成功后 _doTokenRefresh 会立即重试。
+    if (!this.accessToken || this.isTokenExpired()) {
+        logger.debug('[Kiro Auth] Skip profileArn discovery: no usable access token yet.');
+        return null;
+    }
+
+    const url = KIRO_CONSTANTS.LIST_PROFILES_URL.replace('{{region}}', this.region);
+    const machineId = generateMachineIdFromConfig({
+        uuid: this.uuid,
+        profileArn: this.profileArn,
+        clientId: this.clientId
+    });
+    const { osName, nodeVersion } = getSystemRuntimeInfo();
+    const kiroVersion = KIRO_CONSTANTS.KIRO_VERSION;
+
+    const axiosConfig = {
+        method: 'post',
+        url,
+        data: { maxResults: 10 },
+        timeout: KIRO_CONSTANTS.LIST_PROFILES_TIMEOUT,
+        headers: {
+            'Content-Type': KIRO_CONSTANTS.CONTENT_TYPE_JSON,
+            'Accept': KIRO_CONSTANTS.ACCEPT_JSON,
+            'Authorization': `Bearer ${this.accessToken}`,
+            'amz-sdk-invocation-id': uuidv4(),
+            'amz-sdk-request': 'attempt=1; max=1',
+            'x-amz-user-agent': `aws-sdk-js/1.0.34 KiroIDE-${kiroVersion}-${machineId}`,
+            'user-agent': `aws-sdk-js/1.0.34 ua/2.1 os/${osName} lang/js md/nodejs#${nodeVersion} api/codewhisperer#1.0.34 m/E KiroIDE-${kiroVersion}-${machineId}`,
+            'Connection': 'close'
+        }
+    };
+    this._applySidecar(axiosConfig);
+
+    try {
+        const response = await axios.request(axiosConfig);
+        const profiles = response.data?.profiles;
+        if (!Array.isArray(profiles) || profiles.length === 0) {
+            logger.warn('[Kiro Auth] ListAvailableProfiles returned no profiles.');
+            return null;
+        }
+
+        // 优先取与当前 region 匹配的，否则回退到第一个
+        const matched = profiles.find(p => p?.arn && typeof p.arn === 'string' && p.arn.includes(`:${this.region}:`));
+        const picked = matched || profiles.find(p => p?.arn);
+        if (!picked?.arn) {
+            logger.warn('[Kiro Auth] ListAvailableProfiles returned profiles without arn.');
+            return null;
+        }
+
+        if (profiles.length > 1) {
+            const all = profiles.map(p => p?.arn).filter(Boolean).join(', ');
+            logger.info(`[Kiro Auth] ${profiles.length} profiles available [${all}], selected ${picked.profileName || picked.arn}.`);
+        }
+        return picked.arn;
+    } catch (error) {
+        // 静默降级，由上层的 403 处理接手。
+        const status = error.response?.status;
+        const detail = error.response?.data?.message || error.message;
+        logger.warn(`[Kiro Auth] profileArn discovery failed${status ? ` (HTTP ${status})` : ''}: ${detail}`);
+        return null;
     }
 }
 
@@ -985,6 +1088,11 @@ async saveCredentialsToFile(filePath, newData) {
                 const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
                 this.expiresAt = expiresAt;
                 logger.info('[Kiro Auth] Access token refreshed successfully');
+
+                // IdC refresh responses do not include profileArn. Discover it now that
+                // the fresh token and expiry are installed, before the first generation
+                // request and before persisting the refreshed credentials.
+                await this._ensureProfileArn(isSocialAuth);
 
                 const updatedTokenData = {
                     accessToken: this.accessToken,
@@ -1732,7 +1840,9 @@ async saveCredentialsToFile(filePath, newData) {
             }
         }
 
-        if (this.authMethod === KIRO_CONSTANTS.AUTH_METHOD_SOCIAL) {
+        // != null 而非 truthy：social 凭证可能把 profileArn 落地成空串
+        // （kiro-oauth.js 的 `data.profileArn || ''`），保持请求体不变。
+        if (this.profileArn != null) {
             request.profileArn = this.profileArn;
         }
 
@@ -2215,9 +2325,9 @@ async saveCredentialsToFile(filePath, newData) {
         try {
             // Verify usage limits to confirm quota exhaustion
             const usageLimits = await this.getUsageLimits();
-            const isQuotaExhausted = usageLimits?.usedCount >= usageLimits?.limitCount;
-            
-            logger.info(`[Kiro] Quota confirmed exhausted: ${usageLimits?.usedCount}/${usageLimits?.limitCount}`);
+            // 真实响应字段为 usageBreakdownList[].currentUsage / usageLimit
+            const breakdown = usageLimits?.usageBreakdownList?.[0];
+            logger.info(`[Kiro] Quota confirmed exhausted: ${breakdown?.currentUsage}/${breakdown?.usageLimit}`);
             // Calculate recovery time: 1st day of next month at 00:00:00 UTC
             const nextMonth = this._getNextMonthFirstDay();
             this._markCredentialUnhealthyWithRecovery(verifiedReason, error, nextMonth);
@@ -3627,7 +3737,7 @@ async saveCredentialsToFile(filePath, newData) {
             origin: KIRO_CONSTANTS.ORIGIN_AI_EDITOR,
             resourceType: resourceType
         });
-         if (this.authMethod === KIRO_CONSTANTS.AUTH_METHOD_SOCIAL && this.profileArn) {
+        if (this.profileArn) {
             params.append('profileArn', this.profileArn);
         }
         const fullUrl = `${usageLimitsUrl}?${params.toString()}`;
