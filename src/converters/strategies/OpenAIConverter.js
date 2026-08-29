@@ -1275,7 +1275,7 @@ export class OpenAIConverter extends BaseConverter {
     modelSupportsThinking(model) {
         if (!model) return false;
         const m = model.toLowerCase();
-        return m.includes('2.5') || m.includes('thinking') || m.includes('2.0-flash-thinking');
+        return m.includes('2.5') || m.includes('thinking') || m.includes('2.0-flash-thinking') || m.includes('gemini-3') || m.includes('gemini3');
     }
 
     /**

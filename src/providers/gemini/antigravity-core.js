@@ -1559,11 +1559,15 @@ export class AntigravityApiService {
                 if (baseURLIndex + 1 < this.baseURLs.length) {
                     logger.info(`[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`);
                     return this.callApi(method, body, isRetry, retryCount, baseURLIndex + 1);
-                } else if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    logger.info(`[Antigravity API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
+                } else if (retryCount < Math.min(maxRetries, 2)) {
+                    const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
+                    logger.info(`[Antigravity API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     return this.callApi(method, body, isRetry, retryCount + 1, 0);
+                } else {
+                    await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
+                    error.shouldSwitchCredential = true;
+                    throw error;
                 }
             }
 
@@ -1723,12 +1727,16 @@ export class AntigravityApiService {
                     logger.info(`[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`);
                     yield* this.streamApi(method, body, isRetry, retryCount, baseURLIndex + 1);
                     return;
-                } else if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    logger.info(`[Antigravity API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
+                } else if (retryCount < Math.min(maxRetries, 2)) {
+                    const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
+                    logger.info(`[Antigravity API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     yield* this.streamApi(method, body, isRetry, retryCount + 1, 0);
                     return;
+                } else {
+                    await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
+                    error.shouldSwitchCredential = true;
+                    throw error;
                 }
             }
 
