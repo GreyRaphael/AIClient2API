@@ -217,4 +217,23 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(geminiReqCustom.generationConfig.imageConfig.aspectRatio).toBe('16:9');
         expect(geminiReqCustom.generationConfig.imageConfig.imageSize).toBe('2K');
     });
+
+    test('Fix 8: Antigravity model list contains clean models and no tiered or internal test IDs', () => {
+        const { PROVIDER_MODELS } = require('../src/providers/provider-models.js');
+        const antigravityModels = PROVIDER_MODELS['gemini-antigravity'];
+
+        expect(antigravityModels).toContain('gemini-3.7-flash-high');
+        expect(antigravityModels).toContain('gemini-3.7-flash-medium');
+        expect(antigravityModels).toContain('gemini-3.7-flash-low');
+        expect(antigravityModels).toContain('gemini-3.1-flash-image');
+        expect(antigravityModels).toContain('claude-sonnet-4-6');
+
+        // 确保不包含任何 tiered 或内部测试模型及重复前缀
+        expect(antigravityModels.some(m => m.includes('-tiered'))).toBe(false);
+        expect(antigravityModels.some(m => m.startsWith('chat_'))).toBe(false);
+        expect(antigravityModels.some(m => m.startsWith('tab_'))).toBe(false);
+        expect(antigravityModels.includes('gemini-pro-agent')).toBe(false);
+        expect(antigravityModels.includes('gemini-claude-sonnet-4-6')).toBe(false);
+        expect(antigravityModels.includes('gemini-claude-opus-4-6-thinking')).toBe(false);
+    });
 });

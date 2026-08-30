@@ -329,8 +329,20 @@ export async function handleGetSupportedProviders(req, res, currentConfig, provi
     return true;
 }
 
+function getExcludedModelsForType(providerType, providerPools, providerPoolManager) {
+    const rawProviders = providerPoolManager?.providerPools?.[providerType] || providerPools?.[providerType] || [];
+    if (!Array.isArray(rawProviders) || rawProviders.length === 0) return [];
+    const activeNodes = rawProviders.filter(p => !p.isDisabled);
+    if (activeNodes.length === 0) return [];
+    const firstNodeExcluded = normalizeModelIds(activeNodes[0].notSupportedModels || []);
+    if (firstNodeExcluded.length === 0) return [];
+    return firstNodeExcluded.filter(model =>
+        activeNodes.every(n => (n.notSupportedModels || []).includes(model))
+    );
+}
+
 /**
- * 获取所有提供商的可用模型（支持动态配置组）
+ * 获取所有提供商的可用模型（支持动态配置组，并过滤号池中排除的模型）
  */
 export async function handleGetProviderModels(req, res, currentConfig, providerPoolManager) {
     const registeredProviders = getRegisteredProviders();
@@ -354,6 +366,11 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
             if (managedModels.length > 0) {
                 models = managedModels;
             }
+        }
+        // 过滤掉号池中配置的 notSupportedModels
+        const excludedModels = getExcludedModelsForType(type, providerPools, providerPoolManager);
+        if (excludedModels.length > 0) {
+            models = models.filter(m => !excludedModels.includes(m));
         }
         if (models && models.length > 0) {
             allModels[type] = models;
