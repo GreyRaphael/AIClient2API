@@ -1305,14 +1305,6 @@ export class OpenAIConverter extends BaseConverter {
         if (!validLevels.includes(normalizedEffort)) {
             return null;
         }
-        const modelLower = (model || '').toLowerCase();
-        // gemini-3.7-flash (tiered) 在大上下文/工具调用下若开启 thinkingConfig 会触发上游 429 额度耗尽，因此 base 模型不注入 thinkingConfig
-        if (modelLower.includes('gemini-3.7-flash') && !modelLower.includes('-high') && !modelLower.includes('-medium') && !modelLower.includes('-low')) {
-            return null;
-        }
-        if (normalizedEffort === 'high' && modelLower.includes('flash') && !modelLower.includes('-high')) {
-            return 'MEDIUM';
-        }
         return normalizedEffort.toUpperCase();
     }
 

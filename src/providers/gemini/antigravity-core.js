@@ -36,9 +36,6 @@ const OAUTH_CLIENT_SECRET = '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';
 const DEFAULT_USER_AGENT = 'antigravity/2.8.1 darwin/arm64';
 const REFRESH_SKEW = 3000; // 3000秒（50分钟）提前刷新Token
 
-const ANTIGRAVITY_SYSTEM_PROMPT = `You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**`;
-
-
 // Thinking 配置相关常量
 const DEFAULT_THINKING_MIN = 1024;
 const DEFAULT_THINKING_MAX = 100000;
@@ -99,6 +96,31 @@ function antigravityModelRequiresStreamForNonStream(modelName) {
     return name.includes('claude') || name.includes('gemini-3-pro') || name.includes('gemini-3.1-flash-image');
 }
 
+/**
+ * 净化文本中的敏感 Prompt 特征与 Agent 身份指纹，防止触发 Google 上游风控与反滥用 429 拦截
+ * @param {string} text
+ * @returns {string}
+ */
+function sanitizeAgentFingerprint(text) {
+    if (typeof text !== 'string') return text;
+    return text
+        .replace(
+            /You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding\./gi,
+            'You are an expert AI coding assistant.'
+        )
+        .replace(
+            /(You are Hermes Agent, an intelligent AI assistant) created by Nous Research\./gi,
+            '$1.'
+        )
+        .replace(
+            /You run on Hermes Agent \(by Nous Research\)\./gi,
+            'You run on Hermes Agent.'
+        )
+        .replace(/created by Nous Research/gi, 'created as an advanced AI')
+        .replace(/\(by Nous Research\)/gi, '')
+        .replace(/Nous Research/gi, 'AI Research');
+}
+
 function normalizeAntigravityTextPart(part, isClaudeModel = false) {
     if (!part || typeof part !== 'object' || !Object.prototype.hasOwnProperty.call(part, 'text')) {
         return;
@@ -107,6 +129,9 @@ function normalizeAntigravityTextPart(part, isClaudeModel = false) {
     if (typeof part.text !== 'string') {
         part.text = part.text == null ? '' : String(part.text);
     }
+
+    // 净化敏感指纹
+    part.text = sanitizeAgentFingerprint(part.text);
 
     // Antigravity 的 Claude 后端要求 text block 为非空白文本，Gemini 原生模型不需要且不应注入 '.'
     if (isClaudeModel && part.text.trim().length === 0) {
@@ -132,16 +157,13 @@ function cleanAndNormalizeContents(contents, isClaudeModel = false) {
                 // 如果包含工具调用或响应，过滤掉无意义的纯空白文本部分，避免污染上下文
                 content.parts = content.parts.filter(p => {
                     if (p && typeof p.text === 'string') {
+                        p.text = sanitizeAgentFingerprint(p.text);
                         return p.text.trim().length > 0;
                     }
                     return true;
                 });
-            } else if (isClaudeModel) {
-                // 仅对 Claude 后端，在纯文本为空时使用占位符防止上游 400 错误
-                normalizeAntigravityTextParts(content.parts, true);
             } else {
-                // Gemini 模型确保 text 格式正确，不注入占位符
-                normalizeAntigravityTextParts(content.parts, false);
+                normalizeAntigravityTextParts(content.parts, isClaudeModel);
             }
         }
     });
@@ -409,48 +431,17 @@ function geminiToAntigravity(modelName, payload, projectId) {
         template.request = {};
     }
 
-    // 净化 System Instruction 和 Contents 中的敏感 identity 字符串，防止触发上游 Google Cloud Code 内部提示词反射及开源 Agent 指纹 429 滥用拦截
-    const sanitizePrompt = (text) => {
-        if (typeof text !== 'string') return text;
-        return text
-            .replace(
-                /You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding\./gi,
-                'You are an expert AI coding assistant.'
-            )
-            .replace(
-                /(You are Hermes Agent, an intelligent AI assistant) created by Nous Research\./gi,
-                '$1.'
-            )
-            .replace(
-                /You run on Hermes Agent \(by Nous Research\)\./gi,
-                'You run on Hermes Agent.'
-            )
-            .replace(/created by Nous Research/gi, 'created as an advanced AI')
-            .replace(/\(by Nous Research\)/gi, '')
-            .replace(/Nous Research/gi, 'AI Research');
-    };
-
     if (template.request?.systemInstruction?.parts && Array.isArray(template.request.systemInstruction.parts)) {
         template.request.systemInstruction.parts.forEach(part => {
             if (typeof part.text === 'string') {
-                part.text = sanitizePrompt(part.text);
+                part.text = sanitizeAgentFingerprint(part.text);
             }
         });
-        if (template.request.systemInstruction.role) {
-            delete template.request.systemInstruction.role;
-        }
+        delete template.request.systemInstruction.role;
     }
 
     if (template.request?.contents && Array.isArray(template.request.contents)) {
-        template.request.contents.forEach(content => {
-            if (content.parts && Array.isArray(content.parts)) {
-                content.parts.forEach(part => {
-                    if (typeof part.text === 'string') {
-                        part.text = sanitizePrompt(part.text);
-                    }
-                });
-            }
-        });
+        cleanAndNormalizeContents(template.request.contents, isClaudeModel);
     }
 
     // 删除安全设置
