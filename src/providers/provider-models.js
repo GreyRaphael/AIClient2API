@@ -24,12 +24,14 @@ export function getCustomModelConfig(modelId, provider = null) {
 
     if (!targetProvider) {
         return CONFIG.customModels.find(m =>
+            m && m.enabled !== false &&
             !m.provider &&
             (m.id === targetModelId || m.alias === targetModelId)
         ) || null;
     }
 
     return CONFIG.customModels.find(m =>
+        m && m.enabled !== false &&
         m.provider === targetProvider &&
         (m.id === targetModelId || m.alias === targetModelId)
     ) || null;
@@ -305,6 +307,7 @@ export function getProviderModels(providerType) {
     // 注入自定义模型
     if (CONFIG.customModels && Array.isArray(CONFIG.customModels)) {
         CONFIG.customModels.forEach(m => {
+            if (m && m.enabled === false) return;
             // 匹配模型列表归属提供商或其后缀分组
             if (customModelMatchesProvider(m, providerType)) {
                 // 注入 ID
@@ -332,6 +335,7 @@ export function getAllProviderModels() {
     // 合并自定义模型到对应的提供商
     if (CONFIG.customModels && Array.isArray(CONFIG.customModels)) {
         CONFIG.customModels.forEach(m => {
+            if (m && m.enabled === false) return;
             // 如果指定了模型列表归属提供商，注入到该提供商
             // 如果没有指定（Auto），则注入到特殊的虚拟分组
             const targetProvider = getCustomModelListProvider(m) || 'custom-auto';

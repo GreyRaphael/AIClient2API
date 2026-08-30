@@ -236,8 +236,8 @@ function findCustomModelConfigForModel(model, config = {}) {
     }
 
     const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
-    return customModels.find(({ id, alias, actualModel } = {}) =>
-        id === targetModel || alias === targetModel || actualModel === targetModel
+    return customModels.find(({ id, alias, actualModel, enabled } = {}) =>
+        enabled !== false && (id === targetModel || alias === targetModel || actualModel === targetModel)
     ) || null;
 }
 

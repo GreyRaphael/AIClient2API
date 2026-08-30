@@ -21,6 +21,7 @@ function getCustomModelAliasesForProvider(config, providerType) {
     return new Set(
         customModels
             .filter(model => {
+                if (model?.enabled === false) return false;
                 const listProvider = getCustomModelListProvider(model);
                 return model?.alias &&
                     model.alias !== model.id &&
@@ -35,6 +36,7 @@ function getCustomModelIdsForProvider(config, providerType) {
     const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
     return customModels
         .filter(model => {
+            if (model?.enabled === false) return false;
             const listProvider = getCustomModelListProvider(model);
             return model?.id &&
                 listProvider &&

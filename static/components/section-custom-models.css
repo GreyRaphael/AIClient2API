@@ -455,6 +455,73 @@
     color: var(--text-secondary);
 }
 
+/* 状态列与 Toggle Switch 样式 */
+.custom-model-status-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.custom-model-status-cell .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 22px;
+    flex-shrink: 0;
+}
+
+.custom-model-status-cell .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.custom-model-status-cell .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-tertiary, #e2e8f0);
+    border: 1px solid var(--border-color, #cbd5e1);
+    transition: var(--transition, all 0.25s ease);
+    border-radius: 22px;
+}
+
+.custom-model-status-cell .toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: #ffffff;
+    transition: var(--transition, all 0.25s ease);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.custom-model-status-cell input:checked + .toggle-slider {
+    background-color: var(--primary-color, #3b82f6);
+    border-color: var(--primary-color, #3b82f6);
+}
+
+.custom-model-status-cell input:checked + .toggle-slider:before {
+    transform: translateX(22px);
+}
+
+/* 禁用状态行的视觉弱化 */
+.custom-models-table tr.model-disabled td:not(:nth-last-child(2)):not(:last-child) {
+    opacity: 0.5;
+}
+
+.custom-models-table tr.model-disabled .main-id {
+    text-decoration: line-through;
+    color: var(--text-tertiary);
+}
+
 /* 响应式适配 */
 @media (max-width: 640px) {
     .form-row {

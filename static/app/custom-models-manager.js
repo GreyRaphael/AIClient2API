@@ -52,6 +52,31 @@ export class CustomModelsManager {
                 return;
             }
         });
+
+        // 监听启用状态 Toggle 切换
+        document.addEventListener('change', (e) => {
+            const toggleInput = e.target.closest('.custom-model-toggle-input');
+            if (toggleInput) {
+                const id = toggleInput.dataset.id;
+                const enabled = toggleInput.checked;
+                this.toggleModelEnabled(id, enabled);
+            }
+        });
+    }
+
+    async toggleModelEnabled(id, enabled) {
+        try {
+            await window.apiClient.put(`/custom-models/${encodeURIComponent(id)}`, { enabled });
+            const model = this.models.find(m => m.id === id);
+            if (model) {
+                model.enabled = enabled;
+            }
+            this.render();
+        } catch (e) {
+            console.error('[Custom Models] Failed to toggle model status:', e);
+            alert(t('customModels.toggle.failed') + ': ' + e.message);
+            await this.load();
+        }
     }
 
     async load() {
@@ -186,7 +211,7 @@ export class CustomModelsManager {
         if (this.models.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="table-empty-state">
+                    <td colspan="7" class="table-empty-state">
                         <div class="empty-icon"><i class="fas fa-cubes"></i></div>
                         <div class="empty-text" data-i18n="customModels.noModels">暂无自定义模型</div>
                         <div class="empty-hint" data-i18n="customModels.emptyHint">${t('customModels.emptyHint')}</div>
@@ -196,8 +221,10 @@ export class CustomModelsManager {
             return;
         }
 
-        tbody.innerHTML = this.models.map(model => `
-            <tr>
+        tbody.innerHTML = this.models.map(model => {
+            const isEnabled = model.enabled !== false;
+            return `
+            <tr class="${isEnabled ? '' : 'model-disabled'}">
                 <td>
                     <div class="model-id-cell">
                         <span class="main-id">${model.id}</span>
@@ -216,6 +243,14 @@ export class CustomModelsManager {
                     </div>
                 </td>
                 <td>
+                    <div class="custom-model-status-cell">
+                        <label class="toggle-switch" title="${isEnabled ? t('customModels.status.enabled') : t('customModels.status.disabled')}">
+                            <input type="checkbox" class="custom-model-toggle-input" data-id="${model.id}" ${isEnabled ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </td>
+                <td>
                     <div class="action-buttons">
                         <button class="icon-btn edit edit-model-btn" data-id="${model.id}" title="${t('customModels.editAction')}" data-i18n-title="customModels.editAction">
                             <i class="fas fa-edit"></i>
@@ -226,7 +261,8 @@ export class CustomModelsManager {
                     </div>
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
     }
 
     showModal(id) {
@@ -256,6 +292,9 @@ export class CustomModelsManager {
         
         const origIdInput = document.getElementById('editModelOriginalId');
         if (origIdInput) origIdInput.value = '';
+
+        const enabledInput = document.getElementById('customModelEnabled');
+        if (enabledInput) enabledInput.checked = true;
         
         this.showModal('customModelModal');
     }
@@ -298,6 +337,11 @@ export class CustomModelsManager {
             el.value = model[fields[fieldId]] ?? '';
         });
 
+        const enabledInput = document.getElementById('customModelEnabled');
+        if (enabledInput) {
+            enabledInput.checked = model.enabled !== false;
+        }
+
         this.showModal('customModelModal');
     }
 
@@ -329,7 +373,8 @@ export class CustomModelsManager {
             maxTokens: getNum('maxTokens'),
             temperature: getNum('temperature', true),
             topP: getNum('topP', true),
-            description: getVal('modelDescription')
+            description: getVal('modelDescription'),
+            enabled: document.getElementById('customModelEnabled')?.checked ?? true
         };
 
         if (!origId) {

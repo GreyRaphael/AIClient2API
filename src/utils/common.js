@@ -440,7 +440,7 @@ function getCustomModelEntriesForProvider(config, providerType = null, options =
     const entries = [];
 
     customModels.forEach(modelConfig => {
-        if (!modelConfig?.id) {
+        if (!modelConfig?.id || modelConfig.enabled === false) {
             return;
         }
 
