@@ -1275,16 +1275,16 @@ export class OpenAIConverter extends BaseConverter {
     modelSupportsThinking(model) {
         if (!model) return false;
         const m = model.toLowerCase();
-        return m.includes('2.5') || m.includes('thinking') || m.includes('2.0-flash-thinking') || m.includes('gemini-3') || m.includes('gemini3');
+        return m.includes('2.5') || m.includes('thinking') || m.includes('2.0-flash-thinking') || /^gemini-[3-9]/.test(m) || m.includes('gemini3');
     }
 
     /**
-     * 检查是否是 Gemini 3 模型
+     * 检查是否是 Gemini 3 及以上版本模型（采用 thinkingLevel 模式）
      */
     isGemini3Model(model) {
         if (!model) return false;
         const m = model.toLowerCase();
-        return m.includes('gemini-3') || m.includes('gemini3');
+        return /^gemini-[3-9]/.test(m) || m.includes('gemini3');
     }
 
     /**

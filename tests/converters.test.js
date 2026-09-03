@@ -222,18 +222,38 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         const { PROVIDER_MODELS } = require('../src/providers/provider-models.js');
         const antigravityModels = PROVIDER_MODELS['gemini-antigravity'];
 
+        expect(antigravityModels).toContain('gemini-3.8-flash-high');
         expect(antigravityModels).toContain('gemini-3.7-flash-high');
-        expect(antigravityModels).toContain('gemini-3.7-flash-medium');
-        expect(antigravityModels).toContain('gemini-3.7-flash-low');
+        expect(antigravityModels).toContain('gemini-3.6-flash-high');
         expect(antigravityModels).toContain('gemini-3.1-flash-image');
         expect(antigravityModels).toContain('claude-sonnet-4-6');
 
-        // 确保不包含任何 tiered 或内部测试模型及重复前缀
+        // 确保不包含任何 tiered、flash medium/low 或内部测试模型及重复前缀
         expect(antigravityModels.some(m => m.includes('-tiered'))).toBe(false);
+        expect(antigravityModels.some(m => m.includes('flash') && (m.endsWith('-medium') || m.endsWith('-low')))).toBe(false);
         expect(antigravityModels.some(m => m.startsWith('chat_'))).toBe(false);
         expect(antigravityModels.some(m => m.startsWith('tab_'))).toBe(false);
         expect(antigravityModels.includes('gemini-pro-agent')).toBe(false);
         expect(antigravityModels.includes('gemini-claude-sonnet-4-6')).toBe(false);
         expect(antigravityModels.includes('gemini-claude-opus-4-6-thinking')).toBe(false);
+    });
+
+    test('Fix 9: Forward-compatible generic flash models (3.9, 3.10, 4.0) use thinking levels and map properly', () => {
+        const { ConverterFactory } = require('../src/converters/ConverterFactory.js');
+        const openaiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.OPENAI);
+
+        // 验证未来版本均被识别为支持 thinking levels
+        ['gemini-3.9-flash-high', 'gemini-3.10-flash-high', 'gemini-4.0-flash-high', 'gemini-3.9-flash'].forEach(m => {
+            expect(openaiConverter.modelSupportsThinking(m)).toBe(true);
+            expect(openaiConverter.modelUsesThinkingLevels(m)).toBe(true);
+        });
+
+        const req = {
+            model: 'gemini-3.9-flash-high',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'high'
+        };
+        const converted = convertData(req, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.GEMINI);
+        expect(converted.generationConfig?.thinkingConfig?.thinkingLevel).toBe('HIGH');
     });
 });

@@ -99,3 +99,18 @@ Antigravity Provider 在底层（`antigravity-core.js`）采用了**根据客户
 在前端「提供商池管理」中勾选的“不支持的模型”（`notSupportedModels`），现已与 `/v1/models` 和 `/v1beta/models` 端点完成联动：
 * **单提供商模式**：若节点或配置中指定了 `notSupportedModels`，系统在组装模型列表时会自动将对应的模型剔除。
 * **Auto 聚合模式**：当某个提供商类型下的所有有效节点均排除了某些模型时，`getAllAvailableModels()` 会自动从聚合结果中剔除这部分模型，确保客户端获取到的模型列表与前端配置严格一致。
+
+---
+
+## 六、Daily 链路与 `-tiered` 到 `-high` 模型收敛机制
+
+1. **Daily 环境优先**：
+   * Antigravity 模型列表优先通过 `https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels` 拉取，以获取最新的灰度模型（如 `gemini-3.8-flash-tiered`）。
+2. **`-tiered` 自动映射为 `-high`**：
+   * 上游的 `gemini-3.8-flash-tiered`、`gemini-3.7-flash-tiered`、`gemini-3.6-flash-tiered` 自动在模型列表中统一收敛映射为对应的 `-high` 版本：
+     * `gemini-3.8-flash-high`
+     * `gemini-3.7-flash-high`
+     * `gemini-3.6-flash-high`
+   * 彻底过滤并剔除 `-medium`、`-low`、`-extra-low` 以及未处理的原始 `-tiered`。
+3. **调用自动注入思考级别**：
+   * 当客户端调用这些 `-high` 模型时，底层在将请求转发给上游 `-tiered` 模型的同时，会自动注入 `thinkingLevel: "high"` 与 `includeThoughts: true`。
