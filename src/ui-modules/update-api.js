@@ -13,7 +13,31 @@ import { isValidVersionTag } from '../utils/version-tag.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-const GITHUB_REPO = 'justlovemaki/AIClient2API';
+export const DEFAULT_GITHUB_REPO = 'GreyRaphael/AIClient2API';
+
+/**
+ * 解析并获取当前目标 GitHub 仓库 (owner/repo)
+ * 优先级: 环境变量 process.env.GITHUB_REPO -> 配置文件 CONFIG.GITHUB_REPO -> Git remote origin 提取 -> 默认 DEFAULT_GITHUB_REPO
+ * @returns {Promise<string>}
+ */
+export async function resolveTargetRepo() {
+    if (process.env.GITHUB_REPO && process.env.GITHUB_REPO.trim()) {
+        return process.env.GITHUB_REPO.trim();
+    }
+    if (CONFIG && CONFIG.GITHUB_REPO && typeof CONFIG.GITHUB_REPO === 'string' && CONFIG.GITHUB_REPO.trim()) {
+        return CONFIG.GITHUB_REPO.trim();
+    }
+    try {
+        const { stdout } = await execAsync('git remote get-url origin');
+        const match = stdout.trim().match(/(?:github\.com[:/])([^/]+)\/([^/.]+?)(?:\.git)?$/i);
+        if (match) {
+            return `${match[1]}/${match[2]}`;
+        }
+    } catch (e) {
+        // 非 Git 环境或获取失败，继续走兜底逻辑
+    }
+    return DEFAULT_GITHUB_REPO;
+}
 
 function buildGitHubApiCandidates(repo) {
     const apiPath = `repos/${repo}/tags`;
@@ -169,14 +193,16 @@ function compareVersions(v1, v2) {
 /**
  * 通过 GitHub API 获取最近的版本列表
  * @param {number} limit - 限制返回的版本数量
+ * @param {string} [repo] - GitHub 仓库
  * @returns {Promise<string[]>} 版本列表
  */
-async function getVersionsFromGitHub(limit = 10) {
-    const candidates = buildGitHubApiCandidates(GITHUB_REPO);
+async function getVersionsFromGitHub(limit = 10, repo = null) {
+    const targetRepo = repo || await resolveTargetRepo();
+    const candidates = buildGitHubApiCandidates(targetRepo);
     
     for (const candidate of candidates) {
         try {
-            logger.info(`[Update] Fetching versions from GitHub API via ${candidate.name}...`);
+            logger.info(`[Update] Fetching versions from GitHub API via ${candidate.name} (${targetRepo})...`);
             const response = await fetchWithProxy(candidate.url, {
                 headers: {
                     'Accept': 'application/vnd.github.v3+json',
@@ -219,10 +245,11 @@ async function getVersionsFromGitHub(limit = 10) {
 
 /**
  * 通过 GitHub API 获取最新版本
+ * @param {string} [repo] - GitHub 仓库
  * @returns {Promise<string|null>} 最新版本号或 null
  */
-async function getLatestVersionFromGitHub() {
-    const versions = await getVersionsFromGitHub(1);
+async function getLatestVersionFromGitHub(repo = null) {
+    const versions = await getVersionsFromGitHub(1, repo);
     return versions.length > 0 ? versions[0] : null;
 }
 
@@ -259,27 +286,45 @@ export async function checkForUpdates() {
     let latestTag = null;
     let availableVersions = [];
     let updateMethod = 'unknown';
+    const targetRepo = await resolveTargetRepo();
     
     if (isGitRepo) {
-        // Git 仓库模式：使用 git命令
+        // Git 仓库模式：使用 git 命令
         updateMethod = 'git';
         
-        // 获取远程 tags
+        // 优先从 origin 远端查询实际存在的 tags，避免被本地 upstream 缓存污染
         try {
-            logger.info('[Update] Fetching remote tags...');
-            await execAsync('git fetch --tags');
+            logger.info(`[Update] Checking remote tags from git origin (${targetRepo})...`);
+            const { stdout: lsRemoteOutput } = await execAsync('git ls-remote --tags origin');
+            const originTags = Array.from(new Set(
+                lsRemoteOutput.split('\n')
+                    .map(line => {
+                        const match = line.match(/refs\/tags\/([^^{}\s]+)/);
+                        return match ? match[1] : null;
+                    })
+                    .filter(Boolean)
+                    .filter(isValidVersionTag)
+            ));
+            
+            if (originTags.length > 0) {
+                originTags.sort((a, b) => compareVersions(b, a));
+                availableVersions = originTags.slice(0, 10);
+                latestTag = availableVersions[0];
+            }
+
+            // 同步尝试拉取 origin 上的 tags（加 --force 避免 tag 冲突报错）
+            try {
+                await execAsync('git fetch origin --tags --force');
+            } catch (fetchErr) {
+                logger.warn('[Update] Failed to fetch tags from origin:', fetchErr.message);
+            }
         } catch (error) {
-            logger.warn('[Update] Failed to fetch tags via git, falling back to GitHub API');
-            // 如果 git fetch 失败，回退到 GitHub API
-            availableVersions = await getVersionsFromGitHub(10);
-            latestTag = availableVersions.length > 0 ? availableVersions[0] : null;
-            updateMethod = 'github_api';
+            logger.warn('[Update] Failed to query tags via git origin, falling back to local tags or GitHub API:', error.message);
         }
         
-        // 如果 git fetch 成功，获取最新的 tag 和可用的 tags
-        if (!latestTag && updateMethod === 'git') {
+        // 如果 git ls-remote 未能获取到，回退尝试本地 tag
+        if (!latestTag) {
             try {
-                // 获取最近的 10 个 tag
                 const { stdout } = await execAsync('git tag --sort=-v:refname');
                 const tags = stdout.trim().split('\n').filter(isValidVersionTag);
                 if (tags.length > 0) {
@@ -287,16 +332,20 @@ export async function checkForUpdates() {
                     latestTag = availableVersions[0];
                 }
             } catch (error) {
-                logger.warn('[Update] Failed to get tags via git, falling back to GitHub API:', error.message);
-                availableVersions = await getVersionsFromGitHub(10);
-                latestTag = availableVersions.length > 0 ? availableVersions[0] : null;
-                updateMethod = 'github_api';
+                logger.warn('[Update] Failed to get tags via git local, falling back to GitHub API:', error.message);
             }
+        }
+
+        // 如果依然没有 tag，回退到 GitHub API
+        if (!latestTag) {
+            availableVersions = await getVersionsFromGitHub(10, targetRepo);
+            latestTag = availableVersions.length > 0 ? availableVersions[0] : null;
+            updateMethod = 'github_api';
         }
     } else {
         // 非 Git 仓库模式（如 Docker 容器）：使用 GitHub API
         updateMethod = 'github_api';
-        availableVersions = await getVersionsFromGitHub(10);
+        availableVersions = await getVersionsFromGitHub(10, targetRepo);
         latestTag = availableVersions.length > 0 ? availableVersions[0] : null;
     }
     
@@ -378,7 +427,7 @@ export async function performUpdate(targetTag = null) {
     if (updateInfo.updateMethod === 'github_api') {
         // Docker/非 Git 环境，通过下载 tarball 更新
         logger.info(`[Update] Running in Docker/non-Git environment, will download and extract tarball for ${finalTag}`);
-        return await performTarballUpdate(updateInfo.localVersion, finalTag);
+        return await performTarballUpdate(updateInfo.localVersion, finalTag, targetRepo);
     }
     
     logger.info(`[Update] Starting update to ${finalTag}...`);
@@ -397,6 +446,12 @@ export async function performUpdate(targetTag = null) {
     
     // 执行 checkout 到目标 tag
     try {
+        logger.info(`[Update] Fetching tag ${finalTag} from origin...`);
+        try {
+            await execAsync(`git fetch origin tag ${finalTag} --force`);
+        } catch (fetchErr) {
+            logger.warn(`[Update] Failed to fetch tag ${finalTag} from origin: ${fetchErr.message}`);
+        }
         logger.info(`[Update] Checking out to ${finalTag}...`);
         await execFileAsync('git', ['checkout', finalTag]);
     } catch (error) {
@@ -454,10 +509,12 @@ export async function performUpdate(targetTag = null) {
  * 通过下载 tarball 执行更新（用于 Docker/非 Git 环境）
  * @param {string} localVersion - 本地版本
  * @param {string} latestTag - 最新版本 tag
+ * @param {string} [repo] - GitHub 仓库
  * @returns {Promise<Object>} 更新结果
  */
-async function performTarballUpdate(localVersion, latestTag) {
-    const tarballCandidates = buildTarballCandidates(GITHUB_REPO, latestTag);
+async function performTarballUpdate(localVersion, latestTag, repo = null) {
+    const targetRepo = repo || await resolveTargetRepo();
+    const tarballCandidates = buildTarballCandidates(targetRepo, latestTag);
     const appDir = process.cwd();
     const tempDir = path.join(appDir, '.update_temp');
     const tarballPath = path.join(tempDir, 'update.tar.gz');
@@ -467,7 +524,7 @@ async function performTarballUpdate(localVersion, latestTag) {
     const pluginsUserBackupPath = path.join(tempDir, 'plugins-user_backup');
     let hasPluginsUserBackup = false;
     
-    logger.info(`[Update] Starting tarball update to ${latestTag}...`);
+    logger.info(`[Update] Starting tarball update to ${latestTag} (${targetRepo})...`);
     
     try {
         // 1. 创建临时目录
@@ -514,14 +571,28 @@ async function performTarballUpdate(localVersion, latestTag) {
         logger.info('[Update] Extracting tarball...');
         await execFileAsync('tar', ['-xzf', tarballPath, '-C', tempDir]);
         
-        // 4. 找到解压后的目录（格式通常是 repo-name-tag）
+        // 4. 找到解压后的目录（查找包含 package.json 的解压子目录）
         const extractedItems = await fs.readdir(tempDir);
-        const extractedDir = extractedItems.find(item =>
-            item.startsWith('AIClient-2-API-') || item.startsWith('AIClient2API-')
-        );
+        let extractedDir = null;
+        for (const item of extractedItems) {
+            const itemPath = path.join(tempDir, item);
+            try {
+                const stat = await fs.stat(itemPath);
+                if (stat.isDirectory() && existsSync(path.join(itemPath, 'package.json'))) {
+                    extractedDir = item;
+                    break;
+                }
+            } catch (e) {}
+        }
         
         if (!extractedDir) {
-            throw new Error('Could not find extracted directory');
+            extractedDir = extractedItems.find(item =>
+                item.startsWith('AIClient-2-API-') || item.startsWith('AIClient2API-')
+            );
+        }
+        
+        if (!extractedDir) {
+            throw new Error('Could not find extracted directory containing package.json');
         }
         
         const sourcePath = path.join(tempDir, extractedDir);

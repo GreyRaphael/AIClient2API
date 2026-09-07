@@ -156,7 +156,8 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         TLS_SIDECAR_PORT: 9090,     // sidecar 监听端口
         TLS_SIDECAR_BINARY_PATH: null, // 自定义二进制路径（默认自动搜索）
         TLS_SIDECAR_PROXY_URL: null,    // TLS Sidecar 专用的上游代理地址
-        UI_ENABLED: true           // 是否启用前端管理界面
+        UI_ENABLED: true,          // 是否启用前端管理界面
+        GITHUB_REPO: null          // 自定义更新检查与发布的 GitHub 仓库 (例如 "GreyRaphael/AIClient2API")
     };
 
     let currentConfig = { ...defaultConfig };
