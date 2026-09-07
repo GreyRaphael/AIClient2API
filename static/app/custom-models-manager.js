@@ -8,6 +8,8 @@ export class CustomModelsManager {
     constructor() {
         this.models = [];
         this.providers = []; // 存储带名称的配置对象
+        this.sortField = null; // 当前排序字段，例如 'id'
+        this.sortOrder = null; // 'asc' | 'desc' | null
         this.initEventListeners();
         console.log('✅ [Custom Models] Manager Initialized');
     }
@@ -17,6 +19,13 @@ export class CustomModelsManager {
      */
     initEventListeners() {
         document.addEventListener('click', (e) => {
+            // 表头排序（模型 ID / 别名）
+            const sortTh = e.target.closest('#customModelSortIdTh');
+            if (sortTh) {
+                this.toggleSort('id');
+                return;
+            }
+
             // 添加按钮
             const addBtn = e.target.closest('#addCustomModelBtn');
             if (addBtn) {
@@ -51,6 +60,19 @@ export class CustomModelsManager {
                 this.deleteModel(delBtn.dataset.id);
                 return;
             }
+        });
+
+        // 键盘无障碍支持（回车/空格触发排序）
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('#customModelSortIdTh')) {
+                e.preventDefault();
+                this.toggleSort('id');
+            }
+        });
+
+        // 监听语言切换事件，刷新表头排序 tooltip
+        window.addEventListener('languageChanged', () => {
+            this.updateSortHeaderUI();
         });
 
         // 监听启用状态 Toggle 切换
@@ -204,11 +226,97 @@ export class CustomModelsManager {
         `;
     }
 
+    /**
+     * 切换排序字段及顺序
+     * 状态循环：无排序 -> 升序(asc) -> 降序(desc) -> 无排序(恢复原状)
+     */
+    toggleSort(field) {
+        if (this.sortField !== field) {
+            this.sortField = field;
+            this.sortOrder = 'asc';
+        } else if (this.sortOrder === 'asc') {
+            this.sortOrder = 'desc';
+        } else if (this.sortOrder === 'desc') {
+            this.sortField = null;
+            this.sortOrder = null;
+        } else {
+            this.sortField = field;
+            this.sortOrder = 'asc';
+        }
+        this.render();
+    }
+
+    /**
+     * 根据当前排序状态返回排好序的模型列表副本
+     */
+    getSortedModels() {
+        if (!this.sortField || !this.sortOrder) {
+            return this.models;
+        }
+
+        const list = [...this.models];
+        if (this.sortField === 'id') {
+            list.sort((a, b) => {
+                const idA = (a.id || '').trim();
+                const idB = (b.id || '').trim();
+                const idCmp = idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+                if (idCmp !== 0) {
+                    return this.sortOrder === 'asc' ? idCmp : -idCmp;
+                }
+                const aliasA = (a.alias || '').trim();
+                const aliasB = (b.alias || '').trim();
+                const aliasCmp = aliasA.localeCompare(aliasB, undefined, { numeric: true, sensitivity: 'base' });
+                return this.sortOrder === 'asc' ? aliasCmp : -aliasCmp;
+            });
+        }
+        return list;
+    }
+
+    /**
+     * 更新表头排序图标、状态样式及无障碍信息
+     */
+    updateSortHeaderUI() {
+        const th = document.getElementById('customModelSortIdTh');
+        const icon = document.getElementById('customModelSortIdIcon');
+        if (!th || !icon) return;
+
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        icon.classList.remove('fa-sort', 'fa-sort-up', 'fa-sort-down');
+
+        if (this.sortField === 'id') {
+            if (this.sortOrder === 'asc') {
+                th.classList.add('sorted-asc');
+                icon.classList.add('fa-sort-up');
+                th.setAttribute('aria-sort', 'ascending');
+                const tip = t('customModels.table.sortAscTooltip') || '当前按“模型 ID / 别名”升序，点击切换为降序';
+                th.setAttribute('title', tip);
+                th.setAttribute('aria-label', tip);
+            } else if (this.sortOrder === 'desc') {
+                th.classList.add('sorted-desc');
+                icon.classList.add('fa-sort-down');
+                th.setAttribute('aria-sort', 'descending');
+                const tip = t('customModels.table.sortDescTooltip') || '当前按“模型 ID / 别名”降序，点击恢复默认排序';
+                th.setAttribute('title', tip);
+                th.setAttribute('aria-label', tip);
+            }
+        } else {
+            icon.classList.add('fa-sort');
+            th.removeAttribute('aria-sort');
+            const tip = t('customModels.table.sortTooltip') || '点击按“模型 ID / 别名”排序';
+            th.setAttribute('title', tip);
+            th.setAttribute('aria-label', tip);
+        }
+    }
+
     render() {
         const tbody = document.getElementById('customModelsTableBody');
         if (!tbody) return;
 
-        if (this.models.length === 0) {
+        this.updateSortHeaderUI();
+
+        const modelsToRender = this.getSortedModels();
+
+        if (modelsToRender.length === 0) {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="7" class="table-empty-state">
@@ -221,7 +329,7 @@ export class CustomModelsManager {
             return;
         }
 
-        tbody.innerHTML = this.models.map(model => {
+        tbody.innerHTML = modelsToRender.map(model => {
             const isEnabled = model.enabled !== false;
             return `
             <tr class="${isEnabled ? '' : 'model-disabled'}">

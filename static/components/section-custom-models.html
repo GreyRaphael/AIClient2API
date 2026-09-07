@@ -18,7 +18,12 @@
             <table class="custom-models-table">
                 <thead>
                     <tr>
-                        <th data-i18n="customModels.table.id">模型 ID / 别名</th>
+                        <th id="customModelSortIdTh" class="sortable-th" tabindex="0" role="button" data-i18n-title="customModels.table.sortTooltip" title="点击按“模型 ID / 别名”排序" aria-label="按 模型 ID / 别名 排序">
+                            <span class="th-content">
+                                <span data-i18n="customModels.table.id">模型 ID / 别名</span>
+                                <i class="fas fa-sort sort-icon" id="customModelSortIdIcon" aria-hidden="true"></i>
+                            </span>
+                        </th>
                         <th data-i18n="customModels.table.name">显示名称</th>
                         <th data-i18n="customModels.table.provider">列表提供商</th>
                         <th data-i18n="customModels.table.actualRoute">实际路由</th>

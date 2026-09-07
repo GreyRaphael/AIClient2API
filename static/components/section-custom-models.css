@@ -58,6 +58,48 @@
     border-bottom: 1px solid var(--border-color);
 }
 
+.custom-models-table th.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.custom-models-table th.sortable-th:hover,
+.custom-models-table th.sortable-th:focus-visible {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    outline: none;
+}
+
+.custom-models-table th.sortable-th .th-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.custom-models-table th.sortable-th .sort-icon {
+    font-size: 0.8rem;
+    color: var(--text-tertiary);
+    opacity: 0.55;
+    transition: color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+}
+
+.custom-models-table th.sortable-th:hover .sort-icon {
+    opacity: 0.95;
+    color: var(--text-primary);
+}
+
+.custom-models-table th.sortable-th.sorted-asc,
+.custom-models-table th.sortable-th.sorted-desc {
+    color: var(--primary-color);
+}
+
+.custom-models-table th.sortable-th.sorted-asc .sort-icon,
+.custom-models-table th.sortable-th.sorted-desc .sort-icon {
+    color: var(--primary-color);
+    opacity: 1;
+}
+
 .custom-models-table th:nth-child(3),
 .custom-models-table td:nth-child(3) {
     min-width: 170px;
