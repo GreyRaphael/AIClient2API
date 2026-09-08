@@ -335,9 +335,19 @@ export class ZedApiService {
                 stream: true
             };
 
-            const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
+            let reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
+            if (!reasoningEffort && requestBody.thinking?.type === 'enabled') {
+                const budget = requestBody.thinking.budget_tokens || 4096;
+                if (budget <= 2048) reasoningEffort = 'low';
+                else if (budget <= 4096) reasoningEffort = 'medium';
+                else reasoningEffort = 'high';
+            }
+
             if (reasoningEffort && reasoningEffort !== 'none') {
-                provReq.reasoning = { effort: reasoningEffort };
+                provReq.reasoning = {
+                    effort: reasoningEffort,
+                    summary: 'detailed'
+                };
             }
 
             if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
@@ -360,9 +370,10 @@ export class ZedApiService {
         }
 
         // 2. Anthropic 规范请求
+        let maxTokens = Math.min(requestBody.max_tokens || 8192, 64000);
         const provReq = {
             model: model,
-            max_tokens: requestBody.max_tokens || 8192,
+            max_tokens: maxTokens,
             temperature: requestBody.temperature,
             stream: true
         };
@@ -375,11 +386,33 @@ export class ZedApiService {
                     : String(requestBody.system);
         }
 
+        const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
         if (requestBody.thinking) {
+            const budget = Math.min(requestBody.thinking.budget_tokens || 4096, 32000);
             provReq.thinking = {
                 type: 'enabled',
-                budget_tokens: requestBody.thinking.budget_tokens || 8192
+                budget_tokens: budget
             };
+            delete provReq.temperature;
+            if (provReq.max_tokens <= budget) {
+                provReq.max_tokens = Math.min(budget + 4096, 64000);
+            }
+        } else if (reasoningEffort && reasoningEffort !== 'none') {
+            const budgetMap = {
+                'low': 2048,
+                'medium': 4096,
+                'high': 8192,
+                'xhigh': 16384
+            };
+            const budget = budgetMap[reasoningEffort] || 4096;
+            provReq.thinking = {
+                type: 'enabled',
+                budget_tokens: budget
+            };
+            delete provReq.temperature;
+            if (provReq.max_tokens <= budget) {
+                provReq.max_tokens = Math.min(budget + 4096, 64000);
+            }
         }
 
         if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
@@ -593,7 +626,9 @@ export class ZedApiService {
                                 text: obj.delta
                             }
                         };
-                    } else if ((obj.type === 'response.reasoning_text.delta' || obj.type === 'response.thinking_text.delta') && obj.delta) {
+                    } else if ((obj.type === 'response.reasoning_text.delta' ||
+                                obj.type === 'response.thinking_text.delta' ||
+                                obj.type === 'response.reasoning_summary_text.delta') && obj.delta) {
                         yield {
                             type: 'content_block_delta',
                             index: 0,

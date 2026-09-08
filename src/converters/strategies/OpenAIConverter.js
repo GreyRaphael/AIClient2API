@@ -384,6 +384,10 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
+        if (openaiRequest.reasoning_effort) {
+            claudeRequest.reasoning_effort = openaiRequest.reasoning_effort;
+        }
+
         return claudeRequest;
     }
 
