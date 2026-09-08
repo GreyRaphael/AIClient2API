@@ -769,7 +769,7 @@ async function openProviderManager(providerType, searchTerm = '') {
  */
 function generateAuthButton(providerType) {
     // 只为支持OAuth或批量导入的提供商显示授权按钮
-    const oauthProviders = ['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth', 'openai-iflow', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web'];
+    const oauthProviders = ['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth', 'openai-iflow', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed'];
 
     if (!oauthProviders.includes(providerType)) {
         return '';
@@ -933,7 +933,84 @@ async function handleGenerateAuthUrl(providerType) {
         return;
     }
 
+    if (providerType === 'zed') {
+        showZedAuthSelector(providerType);
+        return;
+    }
+
     await executeGenerateAuthUrl(providerType, {});
+}
+
+/**
+ * 显示 Zed 账号授权邮箱配置模态框
+ * @param {string} providerType - 提供商类型
+ */
+function showZedAuthSelector(providerType) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.display = 'flex';
+    modal.style.zIndex = '3100';
+
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3><i class="fas fa-key"></i> <span>Zed 订阅授权登录</span></h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                    通过 Zed 官方 OAuth 登录获取授权凭据，系统将自动挂载到提供商池中。
+                </div>
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary);">
+                        Zed / GitHub 账号邮箱
+                    </label>
+                    <input type="email" id="zedAuthEmail" value="gewei@pku.edu.cn" placeholder="gewei@pku.edu.cn" style="width: 100%; padding: 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
+                    <small style="display: block; margin-top: 6px; font-size: 12px; color: var(--text-tertiary);">
+                        用于标记凭据归属与识别账号身份，建议填写绑定的 GitHub 邮箱。
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn btn-secondary modal-cancel">${t('modal.provider.cancel') || '取消'}</button>
+                <button class="btn btn-primary" id="zedAuthConfirmBtn">
+                    <i class="fas fa-external-link-alt"></i> <span>生成授权链接</span>
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeBtn = modal.querySelector('.modal-close');
+    const cancelBtn = modal.querySelector('.modal-cancel');
+    const confirmBtn = modal.querySelector('#zedAuthConfirmBtn');
+    const emailInput = modal.querySelector('#zedAuthEmail');
+
+    const closeModal = () => modal.remove();
+    [closeBtn, cancelBtn].forEach(btn => btn.addEventListener('click', closeModal));
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    const doSubmit = async () => {
+        const email = emailInput.value.trim() || 'gewei@pku.edu.cn';
+        closeModal();
+        await executeGenerateAuthUrl(providerType, { email });
+    };
+
+    confirmBtn.addEventListener('click', doSubmit);
+    emailInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            doSubmit();
+        }
+    });
+
+    setTimeout(() => {
+        if (emailInput) {
+            emailInput.focus();
+            emailInput.select();
+        }
+    }, 100);
 }
 
 /**
@@ -4004,7 +4081,8 @@ function getAuthFilePath(provider) {
         'gemini-antigravity': '~/.antigravity/oauth_creds.json',
         'openai-qwen-oauth': '~/.qwen/oauth_creds.json',
         'claude-kiro-oauth': '~/.aws/sso/cache/kiro-auth-token.json',
-        'openai-iflow': '~/.iflow/oauth_creds.json'
+        'openai-iflow': '~/.iflow/oauth_creds.json',
+        'zed': 'configs/zed/'
     };
     return authFilePaths[provider] || (getCurrentLanguage() === 'en-US' ? 'Unknown Path' : '未知路径');
 }
@@ -4068,6 +4146,17 @@ function showAuthModal(authUrl, authInfo) {
                     <li data-i18n="oauth.iflow.step2">${t('oauth.iflow.step2')}</li>
                     <li data-i18n="oauth.iflow.step3">${t('oauth.iflow.step3')}</li>
                     <li data-i18n="oauth.iflow.step4">${t('oauth.iflow.step4')}</li>
+                </ol>
+            </div>
+        `;
+    } else if (authInfo.provider === 'zed') {
+        instructionsHtml = `
+            <div class="auth-instructions">
+                <h4 data-i18n="oauth.modal.steps">${t('oauth.modal.steps')}</h4>
+                <ol>
+                    <li>点击下方“在浏览器中打开”或复制授权链接到浏览器中打开</li>
+                    <li>在 Zed 官方页面使用 GitHub 账号登录并点击完成授权</li>
+                    <li>如在远程服务器或 Docker 中运行，请确保端口 <code>${requiredPort}</code> 已开放映射；若浏览器授权后未自动返回，可复制地址栏 URL（包含 access_token）粘贴至下方手动提交</li>
                 </ol>
             </div>
         `;
@@ -4343,6 +4432,15 @@ function showAuthModal(authUrl, authInfo) {
                         console.log('Detected code only input, auto-completing callback URL:', cleanUrlStr);
                     }
 
+                    // 如果是 Zed 回调，可能只粘贴了 access_token 或参数串
+                    if (isManualInput && authInfo.provider === 'zed' && !cleanUrlStr.includes('://')) {
+                        if (!cleanUrlStr.startsWith('?')) {
+                            cleanUrlStr = '?' + cleanUrlStr;
+                        }
+                        cleanUrlStr = `http://127.0.0.1:${authInfo.port || 56122}/${cleanUrlStr}`;
+                        console.log('Auto-completing Zed callback URL:', cleanUrlStr);
+                    }
+
                     const match = cleanUrlStr.match(/(https?|kiro):\/\/[^\s]+/);
                     if (match) {
                         cleanUrlStr = match[0];
@@ -4357,7 +4455,7 @@ function showAuthModal(authUrl, authInfo) {
 
                     const url = new URL(cleanUrlStr);
                     
-                    if (url.searchParams.has('code') || url.searchParams.has('token')) {
+                    if (url.searchParams.has('code') || url.searchParams.has('token') || url.searchParams.has('access_token') || url.searchParams.has('user_id')) {
                         if (pollTimer) {
                             clearInterval(pollTimer);
                             pollTimer = null;
@@ -4434,7 +4532,7 @@ function showAuthModal(authUrl, authInfo) {
                     }
                     // 如果能读到说明回到了同域
                     const currentUrl = authWindow.location.href;
-                    if (currentUrl && (currentUrl.includes('code=') || currentUrl.includes('token='))) {
+                    if (currentUrl && (currentUrl.includes('code=') || currentUrl.includes('token=') || currentUrl.includes('access_token=') || currentUrl.includes('user_id='))) {
                         processCallback(currentUrl);
                     }
                 } catch (e) {

@@ -30,5 +30,8 @@ export {
     refreshGrokCliTokensWithRetry,
     handleGrokCliOAuth,
     handleGrokCliOAuthCallback,
-    batchImportGrokCliTokensStream
+    batchImportGrokCliTokensStream,
+    // Zed OAuth
+    handleZedOAuth,
+    handleZedOAuthCallback
 } from './index.js';

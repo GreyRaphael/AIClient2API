@@ -14,8 +14,10 @@ import { fileURLToPath } from 'url';
 import logger from './logger.js';
 import http from 'http';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let __dirname = process.cwd();
+try {
+    __dirname = path.dirname(fileURLToPath(import.meta.url));
+} catch (_) {}
 
 const DEFAULT_PORT = 9090;
 const HEALTH_CHECK_INTERVAL = 30000; // 30s

@@ -71,6 +71,7 @@ export const MODEL_PROVIDER = {
     FORWARD_API: 'forward-api',
     GROK_WEB: 'grok-web',
     GROK_CLI: 'grok-cli-oauth',
+    ZED: 'zed',
     AUTO: 'auto',
 };
 

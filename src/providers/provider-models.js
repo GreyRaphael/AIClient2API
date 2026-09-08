@@ -172,6 +172,20 @@ export const PROVIDER_MODELS = {
         'grok-imagine-1.0-edit',
         'grok-imagine-1.0-fast',
         'grok-imagine-1.0-fast-edit',
+    ],
+    'zed': [
+        'gpt-5.6-luna',
+        'gpt-5.6-sol',
+        'gpt-5.6-terra',
+        'gpt-5.5',
+        'gpt-5.4-latest',
+        'gpt-5.4',
+        'gpt-5.3-codex',
+        'gpt-5.2',
+        'gpt-5-mini',
+        'gpt-5-nano',
+        'claude-sonnet-4-5',
+        'claude-haiku-4-5',
     ]
 };
 

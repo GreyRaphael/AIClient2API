@@ -10,6 +10,7 @@ import { CodexApiService } from './openai/codex-core.js';
 import { ForwardApiService } from './forward/forward-core.js';
 import { GrokApiService } from './grok/grok-core.js';
 import { GrokCliApiService } from './grok/grok-cli-core.js';
+import { ZedApiService } from './zed/zed-core.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
@@ -749,6 +750,46 @@ export class GrokCliApiServiceAdapter extends ApiServiceAdapter {
     }
 }
 
+// Zed API 服务适配器
+export class ZedApiServiceAdapter extends ApiServiceAdapter {
+    constructor(config) {
+        super();
+        this.config = config;
+        this.zedApiService = new ZedApiService(config);
+    }
+
+    async generateContent(model, requestBody) {
+        return this.zedApiService.generateContent(model, requestBody);
+    }
+
+    async *generateContentStream(model, requestBody) {
+        yield* this.zedApiService.generateContentStream(model, requestBody);
+    }
+
+    async listModels() {
+        return this.zedApiService.listModels();
+    }
+
+    async refreshToken() {
+        if (this.isExpiryDateNear()) {
+            logger.info('[Zed] Expiry date is near, refreshing LLM token...');
+            await this.zedApiService.getToken(true);
+            return true;
+        }
+        return false;
+    }
+
+    async forceRefreshToken() {
+        logger.info('[Zed] Force refreshing LLM token...');
+        await this.zedApiService.getToken(true);
+        return true;
+    }
+
+    isExpiryDateNear() {
+        return this.zedApiService.isExpiryDateNear();
+    }
+}
+
 // 注册所有内置适配器
 registerAdapter(MODEL_PROVIDER.QINIU, OpenAIApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.FENNO, OpenAIApiServiceAdapter);
@@ -761,6 +802,7 @@ registerAdapter(MODEL_PROVIDER.KIRO_API, KiroApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.CODEX_API, CodexApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.GROK_CLI, GrokCliApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.GROK_WEB, GrokApiServiceAdapter);
+registerAdapter(MODEL_PROVIDER.ZED, ZedApiServiceAdapter);
 // registerAdapter(MODEL_PROVIDER.FORWARD_API, ForwardApiServiceAdapter);
 // registerAdapter(MODEL_PROVIDER.QWEN_API, QwenApiServiceAdapter);
 // registerAdapter(MODEL_PROVIDER.IFLOW_API, IFlowApiServiceAdapter);

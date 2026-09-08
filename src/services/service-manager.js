@@ -28,9 +28,18 @@ let providerPoolManager = null;
  * @returns {Promise<Object>} 更新后的 providerPools 对象
  */
 export async function autoLinkProviderConfigs(config, options = {}) {
-    // 确保 providerPools 对象存在
-    if (!config.providerPools) {
-        config.providerPools = {};
+    const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
+    // 确保从现有 provider_pools.json 文件加载已有配置，避免未完全初始化的 config 覆盖现有池
+    if (!config.providerPools || Object.keys(config.providerPools).length === 0) {
+        if (fs.existsSync(filePath)) {
+            try {
+                config.providerPools = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            } catch (_) {
+                config.providerPools = config.providerPools || {};
+            }
+        } else {
+            config.providerPools = config.providerPools || {};
+        }
     }
     
     let totalNewProviders = 0;
@@ -313,7 +322,8 @@ export async function initApiService(config, isReady = false) {
             // 验证提供商类型是否有效且被包含在 DEFAULT_MODEL_PROVIDERS 中
             // 如果没设置 DEFAULT_MODEL_PROVIDERS，则允许所有已注册的类型
             const isDefaultProvider = !config.DEFAULT_MODEL_PROVIDERS || 
-                                     (Array.isArray(config.DEFAULT_MODEL_PROVIDERS) && config.DEFAULT_MODEL_PROVIDERS.includes(providerType));
+                                     (Array.isArray(config.DEFAULT_MODEL_PROVIDERS) && config.DEFAULT_MODEL_PROVIDERS.includes(providerType)) ||
+                                     PROVIDER_MAPPINGS.some(m => m.providerType === providerType);
             
             if (!isDefaultProvider) {
                 // 进一步检查是否是注册提供商的变体（带后缀）

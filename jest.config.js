@@ -4,7 +4,7 @@ export default {
     '^.+\\.(js|mjs)$': 'babel-jest',
   },
   transformIgnorePatterns: [
-    '/node_modules/(?!(uuid)/)', // uuid is an ESM module that needs to be transformed
+    '/node_modules/(?!(uuid|open)/)', // uuid and open are ESM modules that need to be transformed
   ],
   globals: {
     'jest': {

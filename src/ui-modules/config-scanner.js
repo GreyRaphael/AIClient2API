@@ -31,6 +31,7 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
     addToUsedPaths(usedPaths, currentConfig.IFLOW_TOKEN_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.CODEX_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.GROK_CLI_OAUTH_CREDS_FILE_PATH);
+    addToUsedPaths(usedPaths, currentConfig.ZED_OAUTH_CREDS_FILE_PATH);
 
     // 使用最新的提供商池数据
     let providerPools = currentConfig.providerPools;
@@ -49,6 +50,7 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
                 addToUsedPaths(usedPaths, provider.IFLOW_TOKEN_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.CODEX_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.GROK_CLI_OAUTH_CREDS_FILE_PATH);
+                addToUsedPaths(usedPaths, provider.ZED_OAUTH_CREDS_FILE_PATH);
             }
         }
     }
@@ -98,6 +100,7 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
             else if (type.includes('antigravity')) oauthProvider = 'antigravity';
             else if (type.includes('codex')) oauthProvider = 'codex';
             else if (type.includes('iflow')) oauthProvider = 'iflow';
+            else if (type.includes('zed')) oauthProvider = 'zed';
         } else {
             // 兜底逻辑
             if (normalizedPath.includes('/kiro/') || normalizedPath.includes('kiro-auth-token')) oauthProvider = 'kiro';
@@ -106,6 +109,7 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
             else if (normalizedPath.includes('/antigravity/') || normalizedPath.includes('/.antigravity/')) oauthProvider = 'antigravity';
             else if (normalizedPath.includes('/codex/') || normalizedPath.includes('/.codex/')) oauthProvider = 'codex';
             else if (normalizedPath.includes('/iflow/')) oauthProvider = 'iflow';
+            else if (normalizedPath.includes('/zed/') || normalizedPath.includes('/.zed/')) oauthProvider = 'zed';
         }
 
         try {
@@ -350,6 +354,17 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
         });
     }
 
+    if (currentConfig.ZED_OAUTH_CREDS_FILE_PATH &&
+        (pathsEqual(relativePath, currentConfig.ZED_OAUTH_CREDS_FILE_PATH) ||
+         pathsEqual(relativePath, currentConfig.ZED_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
+        usageInfo.usageType = 'main_config';
+        usageInfo.usageDetails.push({
+            type: 'Main Config',
+            location: 'Zed OAuth credentials file path',
+            configKey: 'ZED_OAUTH_CREDS_FILE_PATH'
+        });
+    }
+
     // 检查提供商池中的使用情况
     const poolsToUse = providerPools || currentConfig.providerPools;
     if (poolsToUse) {
@@ -471,6 +486,22 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
                     isHealthy: provider.isHealthy !== false,
                     isDisabled: provider.isDisabled === true,
                     configKey: 'GROK_CLI_OAUTH_CREDS_FILE_PATH'
+                });
+            }
+
+            if (provider.ZED_OAUTH_CREDS_FILE_PATH &&
+                (pathsEqual(relativePath, provider.ZED_OAUTH_CREDS_FILE_PATH) ||
+                 pathsEqual(relativePath, provider.ZED_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
+                providerUsages.push({
+                    type: 'Provider Pool',
+                    location: `Zed OAuth credentials (node ${index + 1})`,
+                    providerType: providerType,
+                    providerIndex: index,
+                    nodeName: provider.customName,
+                    uuid: provider.uuid,
+                    isHealthy: provider.isHealthy !== false,
+                    isDisabled: provider.isDisabled === true,
+                    configKey: 'ZED_OAUTH_CREDS_FILE_PATH'
                 });
             }
             

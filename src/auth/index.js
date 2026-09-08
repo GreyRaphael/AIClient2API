@@ -47,3 +47,9 @@ export {
     batchImportGrokCliTokensStream
 } from './grok-cli-oauth.js';
 
+// Zed OAuth
+export {
+    handleZedOAuth,
+    handleZedOAuthCallback
+} from './zed-oauth.js';
+

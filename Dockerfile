@@ -54,7 +54,7 @@ USER root
 RUN mkdir -p /app/logs
 
 # 暴露端口
-EXPOSE 3000 8085 8086 19876-19880
+EXPOSE 3000 8085 8086 56121 56122 19876-19880
 
 # 添加健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

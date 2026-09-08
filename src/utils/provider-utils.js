@@ -100,6 +100,17 @@ export const PROVIDER_MAPPINGS = [
         displayName: 'Grok Web',
         needsProjectId: false,
         urlKeys: ['GROK_BASE_URL', 'GROK_CF_CLEARANCE', 'GROK_CF_BM', 'GROK_USER_AGENT', 'GROK_STATSIG_ID']
+    },
+    {
+        // Zed OAuth 配置
+        dirName: 'zed',
+        patterns: ['configs/zed/', '/zed/', '/.zed/'],
+        providerType: 'zed',
+        credPathKey: 'ZED_OAUTH_CREDS_FILE_PATH',
+        defaultCheckModel: 'claude-sonnet-4-5',
+        displayName: 'Zed OAuth',
+        needsProjectId: false,
+        urlKeys: ['ZED_BASE_URL']
     }
 ];
 

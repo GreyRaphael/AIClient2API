@@ -503,6 +503,26 @@ function getProviderTypeFields(providerType) {
                 placeholder: 'https://api.x.ai/v1'
             }
         ],
+        'zed': [
+            {
+                id: 'ZED_OAUTH_CREDS_FILE_PATH',
+                label: t('modal.provider.field.oauthPath'),
+                type: 'text',
+                placeholder: 'configs/zed/..._oauth_creds.json'
+            },
+            {
+                id: 'ZED_EMAIL',
+                label: `${t('modal.provider.field.email')} <span class="optional-tag">${t('config.optional')}</span>`,
+                type: 'email',
+                placeholder: 'gewei@pku.edu.cn'
+            },
+            {
+                id: 'ZED_BASE_URL',
+                label: `Zed Base URL <span class="optional-tag">${t('config.optional')}</span>`,
+                type: 'text',
+                placeholder: 'https://cloud.zed.dev'
+            }
+        ],
         'grok-web': [
             {
                 id: 'GROK_COOKIE_TOKEN',

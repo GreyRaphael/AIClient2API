@@ -66,6 +66,7 @@ export class ProviderPoolManager {
         'openaiResponses-custom': 'gpt-5.5',
         'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
+        'zed': 'claude-sonnet-4-5',
         'forward-api': 'gpt-5.5'
     };
 
@@ -166,6 +167,8 @@ export class ProviderPoolManager {
                     configPath = config.CODEX_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('grok-cli')) {
                     configPath = config.GROK_CLI_OAUTH_CREDS_FILE_PATH;
+                } else if (providerType.startsWith('zed')) {
+                    configPath = config.ZED_OAUTH_CREDS_FILE_PATH;
                 }
                 
                 // logger.info(`Checking node ${this._getDisplayName(config)} (${providerType}) expiry date... configPath: ${configPath}`);
@@ -2198,8 +2201,8 @@ export class ProviderPoolManager {
             return requests;
         }
         
-        // Kiro OAuth 只支持 messages 格式
-        if (providerType.startsWith('claude-kiro')) {
+        // Kiro OAuth and Zed 只支持 messages 格式
+        if (providerType.startsWith('claude-kiro') || providerType.startsWith('zed')) {
             requests.push({
                 messages: [baseMessage],
                 model: modelName,

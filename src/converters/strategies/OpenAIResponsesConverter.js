@@ -363,6 +363,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         if (responsesChunk.type === 'response.output_text.delta') {
             delta.content = responsesChunk.delta;
+        } else if (responsesChunk.type === 'response.reasoning_text.delta' ||
+                   responsesChunk.type === 'response.reasoning_summary_text.delta' ||
+                   responsesChunk.type === 'response.reasoning.delta') {
+            delta.reasoning_content = responsesChunk.delta;
         } else if (responsesChunk.type === 'response.function_call_arguments.delta') {
             delta.tool_calls = [{
                 index: responsesChunk.output_index || 0,
@@ -390,6 +394,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
             if (this._streamHasToolCalls) {
                 this._streamHasToolCalls.delete(resId);
             }
+        }
+
+        // 如果既无 delta 变更也无 finish_reason，且无 usage，则无需下发空 chunk
+        if (Object.keys(delta).length === 0 && !finish_reason && !responsesChunk.response?.usage) {
+            return null;
         }
 
         const chunkObj = {

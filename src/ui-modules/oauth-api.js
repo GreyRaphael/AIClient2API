@@ -9,6 +9,8 @@ import {
     handleIFlowOAuth,
     handleCodexOAuth,
     handleGrokCliOAuth,
+    handleZedOAuth,
+    handleZedOAuthCallback,
     batchImportCodexTokensStream,
     batchImportGrokCliTokensStream,
     batchImportKiroRefreshTokensStream,
@@ -72,6 +74,11 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
             const result = await handleGrokCliOAuth(currentConfig, options);
             authUrl = result.authUrl;
             authInfo = result.authInfo;
+        } else if (providerType === 'zed') {
+            // Zed OAuth
+            const result = await handleZedOAuth(currentConfig, options);
+            authUrl = result.authUrl;
+            authInfo = result.authInfo;
         } else {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -127,6 +134,18 @@ export async function handleManualOAuthCallback(req, res) {
         const code = url.searchParams.get('code');
         const state = url.searchParams.get('state');
         const token = url.searchParams.get('token');
+        const userId = url.searchParams.get('user_id');
+        const accessToken = url.searchParams.get('access_token');
+
+        // 特殊处理 Zed OAuth 回调
+        if (provider === 'zed' && (userId || accessToken || callbackUrl.includes('access_token'))) {
+            const { handleZedOAuthCallback } = await import('../auth/oauth-handlers.js');
+            const result = await handleZedOAuthCallback(callbackUrl);
+
+            res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result));
+            return true;
+        }
 
         if (!code && !token) {
             res.writeHead(400, { 'Content-Type': 'application/json' });

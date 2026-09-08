@@ -608,6 +608,10 @@ export function getProtocolPrefix(provider) {
         provider === 'fenno' || provider.startsWith('fenno-')) {
         return MODEL_PROTOCOL_PREFIX.OPENAI;
     }
+    // Special case for Zed - protocol is Claude/Anthropic compatible
+    if (provider === 'zed' || provider.startsWith('zed-')) {
+        return MODEL_PROTOCOL_PREFIX.CLAUDE;
+    }
 
     const hyphenIndex = provider.indexOf('-');
     if (hyphenIndex !== -1) {
