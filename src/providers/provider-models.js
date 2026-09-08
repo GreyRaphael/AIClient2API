@@ -174,20 +174,34 @@ export const PROVIDER_MODELS = {
         'grok-imagine-1.0-fast-edit',
     ],
     'zed': [
-        'gpt-5.6-luna',
+        'claude-sonnet-5',
+        'claude-sonnet-4-6',
+        'claude-sonnet-4-5',
+        'claude-haiku-4-5',
         'gpt-5.6-sol',
         'gpt-5.6-terra',
+        'gpt-5.6-luna',
         'gpt-5.5',
-        'gpt-5.4-latest',
         'gpt-5.4',
         'gpt-5.3-codex',
         'gpt-5.2',
         'gpt-5-mini',
         'gpt-5-nano',
-        'claude-sonnet-4-5',
-        'claude-haiku-4-5',
+        'gemini-3.1-pro-preview',
+        'gemini-3.5-flash',
+        'gemini-3-flash'
     ]
 };
+
+/**
+ * 动态更新指定提供商的模型列表
+ * @param {string} providerType 
+ * @param {Array<string>} modelIds 
+ */
+export function updateProviderModels(providerType, modelIds) {
+    if (!providerType || !Array.isArray(modelIds) || modelIds.length === 0) return;
+    PROVIDER_MODELS[providerType] = normalizeModelIds(modelIds);
+}
 
 export const MANAGED_MODEL_LIST_PROVIDERS = [
     'openai-custom',

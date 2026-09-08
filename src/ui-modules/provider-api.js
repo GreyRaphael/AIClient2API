@@ -359,6 +359,22 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
     const allTypes = [...new Set([...registeredProviders, ...poolTypes])];
     const allModels = {};
 
+    // 若包含 zed 提供商，尝试动态刷新一次远程模型列表保持与 cloud.zed.dev 一致
+    for (const type of allTypes) {
+        if (type === 'zed' || type.startsWith('zed-')) {
+            try {
+                const zedNodes = providerPools[type] || [];
+                const zedConfig = zedNodes[0]?.config || { ...currentConfig, MODEL_PROVIDER: type };
+                const adapter = getServiceAdapter(zedConfig);
+                if (adapter && typeof adapter.listModels === 'function') {
+                    await adapter.listModels();
+                }
+            } catch (e) {
+                logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
+            }
+        }
+    }
+
     allTypes.forEach(type => {
         let models = getProviderModels(type);
         if (usesManagedModelList(type)) {
@@ -386,6 +402,19 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
  * 获取特定提供商类型的可用模型
  */
 export async function handleGetProviderTypeModels(req, res, currentConfig, providerPoolManager, providerType) {
+    if (providerType === 'zed' || providerType.startsWith('zed-')) {
+        try {
+            const providerPools = loadProviderPools(currentConfig, providerPoolManager);
+            const zedNodes = providerPools[providerType] || [];
+            const zedConfig = zedNodes[0]?.config || { ...currentConfig, MODEL_PROVIDER: providerType };
+            const adapter = getServiceAdapter(zedConfig);
+            if (adapter && typeof adapter.listModels === 'function') {
+                await adapter.listModels();
+            }
+        } catch (e) {
+            logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
+        }
+    }
     let models = getProviderModels(providerType);
     if (usesManagedModelList(providerType)) {
         try {

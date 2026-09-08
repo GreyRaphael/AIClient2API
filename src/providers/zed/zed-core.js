@@ -6,13 +6,20 @@ import path from 'path';
 import os from 'os';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { PROVIDER_MODELS } from '../provider-models.js';
+import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 
 const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
+const ZED_MODELS_URL = 'https://cloud.zed.dev/models';
 const ZED_FALLBACK_SYSTEM_ID = '6b87ab66-af2c-49c7-b986-ef4c27c9e1fb';
 const ZED_FALLBACK_VERSION = '0.222.4+stable.147.b385025df963c9e8c3f74cc4dadb1c4b29b3c6f0';
+
+// 模块级共享模型缓存与元数据映射
+let globalZedModelsCache = null;
+let globalZedModelsExpiresAt = 0;
+const globalZedModelMetadataMap = new Map();
+const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 
 /**
  * 尝试从系统 ~/.zed_server 目录中自动获取正在使用的服务端 Zed 版本
@@ -41,6 +48,10 @@ export function getZedVersionFromSystem() {
  * @returns {'anthropic' | 'open_ai' | 'google' | 'x_ai'}
  */
 export function getZedProviderForModel(model) {
+    if (globalZedModelMetadataMap.has(model)) {
+        const meta = globalZedModelMetadataMap.get(model);
+        if (meta?.provider) return meta.provider;
+    }
     const m = (model || '').toLowerCase();
     if (m.startsWith('claude')) {
         return 'anthropic';
@@ -75,6 +86,11 @@ export class ZedApiService {
         this.isInitialized = false;
 
         this.loadCredentials();
+        if (this.isInitialized) {
+            this.fetchRemoteModels().catch(err => {
+                logger.debug(`[Zed] Initial model fetch notice: ${err.message}`);
+            });
+        }
     }
 
     /**
@@ -207,6 +223,11 @@ export class ZedApiService {
 
         logger.info(`[Zed] Successfully acquired LLM token, expires at: ${new Date(this.jwtExpiresAt).toISOString()}`);
         await this.saveCredentials();
+
+        // 成功获取 Token 后，如果模型缓存失效或未加载，后台触发一次模型列表拉取
+        if (!globalZedModelsCache || Date.now() > globalZedModelsExpiresAt) {
+            this.fetchRemoteModels().catch(() => {});
+        }
 
         return this.jwtToken;
     }
@@ -369,7 +390,75 @@ export class ZedApiService {
             };
         }
 
-        // 2. Anthropic 规范请求
+        // 2. Google AI 规范请求 (cloud.zed.dev 对 google 系列模型如 gemini-3.5-flash)
+        if (provider === 'google') {
+            const contents = [];
+            const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+            let systemInstruction = null;
+
+            if (requestBody.system) {
+                const sysText = typeof requestBody.system === 'string'
+                    ? requestBody.system
+                    : Array.isArray(requestBody.system)
+                        ? requestBody.system.map(s => s.text || '').join('\n\n')
+                        : String(requestBody.system);
+                systemInstruction = { parts: [{ text: sysText }] };
+            }
+
+            for (const m of rawMessages) {
+                if (m.role === 'system') {
+                    const sysText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+                    if (!systemInstruction) {
+                        systemInstruction = { parts: [{ text: sysText }] };
+                    } else {
+                        systemInstruction.parts.push({ text: sysText });
+                    }
+                    continue;
+                }
+
+                let role = m.role === 'assistant' ? 'model' : 'user';
+                const parts = [];
+                if (typeof m.content === 'string') {
+                    parts.push({ text: m.content });
+                } else if (Array.isArray(m.content)) {
+                    for (const p of m.content) {
+                        if (p.type === 'text' && p.text) {
+                            parts.push({ text: p.text });
+                        } else if (p.type === 'image' && p.source) {
+                            parts.push({
+                                inlineData: {
+                                    mimeType: p.source.media_type || 'image/jpeg',
+                                    data: p.source.data
+                                }
+                            });
+                        }
+                    }
+                }
+                if (parts.length > 0) {
+                    contents.push({ role, parts });
+                }
+            }
+
+            const provReq = {
+                model: model,
+                contents: contents
+            };
+
+            if (systemInstruction) {
+                provReq.systemInstruction = systemInstruction;
+            }
+
+            return {
+                thread_id: randomUUID(),
+                prompt_id: randomUUID(),
+                intent: 'user_prompt',
+                provider: 'google',
+                model: model,
+                provider_request: provReq
+            };
+        }
+
+        // 3. Anthropic 规范请求
         let maxTokens = Math.min(requestBody.max_tokens || 8192, 64000);
         const provReq = {
             model: model,
@@ -888,30 +977,93 @@ export class ZedApiService {
     }
 
     /**
-     * 获取可用模型列表
+     * 动态从 https://cloud.zed.dev/models 获取最新模型列表并更新系统缓存
+     * @param {boolean} force 是否强制忽略缓存刷新
+     * @returns {Promise<Array<object>>} 模型元数据对象列表
+     */
+    async fetchRemoteModels(force = false) {
+        const now = Date.now();
+        if (!force && globalZedModelsCache && (globalZedModelsExpiresAt > now)) {
+            return globalZedModelsCache;
+        }
+
+        try {
+            const jwt = await this.getToken();
+            if (!jwt) {
+                logger.warn('[Zed] Cannot fetch remote models: No JWT token available');
+                return globalZedModelsCache || this._getFallbackModels();
+            }
+
+            const axiosConfig = {
+                method: 'get',
+                url: ZED_MODELS_URL,
+                headers: {
+                    'Authorization': `Bearer ${jwt}`,
+                    'X-Zed-Version': this.version || ZED_FALLBACK_VERSION,
+                    'Accept': 'application/json'
+                },
+                timeout: 15000
+            };
+            configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
+
+            const res = await axios.request(axiosConfig);
+            if (res.data && Array.isArray(res.data.models)) {
+                const rawModels = res.data.models;
+                const modelIds = [];
+                globalZedModelMetadataMap.clear();
+
+                for (const m of rawModels) {
+                    if (m && m.id && !m.is_disabled) {
+                        modelIds.push(m.id);
+                        globalZedModelMetadataMap.set(m.id, m);
+                    }
+                }
+
+                if (modelIds.length > 0) {
+                    globalZedModelsCache = rawModels;
+                    globalZedModelsExpiresAt = now + ZED_MODELS_CACHE_TTL_MS;
+                    // 同步更新全局 PROVIDER_MODELS['zed']
+                    updateProviderModels(MODEL_PROVIDER.ZED, modelIds);
+                    logger.info(`[Zed] Successfully updated dynamic model list from cloud.zed.dev (${modelIds.length} models): ${modelIds.join(', ')}`);
+                    return rawModels;
+                }
+            }
+        } catch (error) {
+            logger.warn(`[Zed] Failed to fetch remote models from ${ZED_MODELS_URL}: ${error.message}`);
+        }
+
+        return globalZedModelsCache || this._getFallbackModels();
+    }
+
+    /**
+     * 回退静态模型列表
+     */
+    _getFallbackModels() {
+        const modelIds = PROVIDER_MODELS['zed'] || [];
+        return modelIds.map(id => ({
+            id,
+            display_name: id,
+            provider: getZedProviderForModel(id),
+            supports_thinking: id.includes('sonnet') || id.includes('luna') || id.includes('sol') || id.includes('terra') || id.includes('5.5') || id.includes('5.4') || id.includes('codex') || id.includes('flash') || id.includes('pro')
+        }));
+    }
+
+    /**
+     * 获取可用模型列表 (动态拉取或回退到缓存)
      */
     async listModels() {
-        const models = PROVIDER_MODELS['zed'] || [
-            'gpt-5.6-luna',
-            'gpt-5.6-sol',
-            'gpt-5.6-terra',
-            'gpt-5.5',
-            'gpt-5.4-latest',
-            'gpt-5.4',
-            'gpt-5.3-codex',
-            'gpt-5.2',
-            'gpt-5-mini',
-            'gpt-5-nano',
-            'claude-sonnet-4-5',
-            'claude-haiku-4-5'
-        ];
-
-        const modelObjects = models.map(m => ({
-            id: m,
-            name: m,
+        const rawModels = await this.fetchRemoteModels();
+        const modelObjects = rawModels.map(m => ({
+            id: m.id,
+            name: m.display_name || m.id,
             object: 'model',
             created: Math.floor(Date.now() / 1000),
-            owned_by: 'zed'
+            owned_by: 'zed',
+            provider: m.provider || getZedProviderForModel(m.id),
+            supports_thinking: m.supports_thinking ?? false,
+            supported_effort_levels: m.supported_effort_levels || [],
+            max_token_count: m.max_token_count,
+            max_output_tokens: m.max_output_tokens
         }));
 
         return {
