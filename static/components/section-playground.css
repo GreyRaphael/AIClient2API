@@ -524,6 +524,26 @@
     box-shadow: 0 0 0 3px var(--primary-10);
 }
 
+.pg-workspace .pg-select-inline {
+    border: 1.5px solid var(--border-color);
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.6rem;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pg-workspace .pg-select-inline:focus {
+    border-color: var(--primary-color);
+    background: var(--bg-primary);
+    box-shadow: 0 0 0 3px var(--primary-10);
+}
+
 /* Switch 样式 */
 .pg-workspace .pg-switch {
     position: relative;

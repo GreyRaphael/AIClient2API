@@ -372,6 +372,18 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
+        // Map standard reasoning_effort to Claude thinking if not already provided
+        if (!claudeRequest.thinking && openaiRequest.reasoning_effort) {
+            const effort = String(openaiRequest.reasoning_effort).toLowerCase().trim();
+            if (effort === 'low') {
+                claudeRequest.thinking = { type: 'enabled', budget_tokens: 2048 };
+            } else if (effort === 'medium') {
+                claudeRequest.thinking = { type: 'enabled', budget_tokens: 4096 };
+            } else if (effort === 'high' || effort === 'max') {
+                claudeRequest.thinking = { type: 'enabled', budget_tokens: 8192 };
+            }
+        }
+
         return claudeRequest;
     }
 

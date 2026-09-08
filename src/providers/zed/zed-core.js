@@ -335,6 +335,11 @@ export class ZedApiService {
                 stream: true
             };
 
+            const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
+            if (reasoningEffort && reasoningEffort !== 'none') {
+                provReq.reasoning = { effort: reasoningEffort };
+            }
+
             if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
                 provReq.tools = requestBody.tools.map(t => ({
                     type: 'function',

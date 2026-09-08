@@ -17,7 +17,7 @@ const ZED_OAUTH_CONFIG = {
     authBaseUrl: 'https://zed.dev/native_app_signin',
     successRedirectUrl: 'https://zed.dev/native_app_signin_succeeded',
     tokenExchangeUrl: 'https://cloud.zed.dev/client/llm_tokens',
-    defaultEmail: 'user@example.com',
+    defaultEmail: 'gewei@pku.edu.cn',
     defaultPort: 56122,
     logPrefix: '[Zed Auth]'
 };
