@@ -84,6 +84,7 @@ export class ZedApiService {
         this.jwtToken = null;
         this.jwtExpiresAt = 0;
         this.isInitialized = false;
+        this._tokenRefreshPromise = null;
 
         this.loadCredentials();
         if (this.isInitialized) {
@@ -177,59 +178,71 @@ export class ZedApiService {
             return this.jwtToken;
         }
 
-        if (!this.userId || !this.accessToken) {
-            if (!this.loadCredentials()) {
-                throw new Error('Zed credentials missing. Please log in first.');
-            }
+        if (this._tokenRefreshPromise) {
+            return this._tokenRefreshPromise;
         }
 
-        logger.info(`[Zed] Requesting new LLM token from ${ZED_TOKEN_URL}...`);
-
-        const axiosConfig = {
-            method: 'post',
-            url: ZED_TOKEN_URL,
-            headers: {
-                'Authorization': `${this.userId} ${this.accessToken}`,
-                'Content-Type': 'application/json',
-                'X-Zed-System-Id': this.systemId || ZED_FALLBACK_SYSTEM_ID
-            },
-            timeout: 15000
-        };
-
-        configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
-
-        const response = await axios.request(axiosConfig);
-        const token = response.data?.token;
-
-        if (!token) {
-            throw new Error(`Zed token exchange failed: invalid response data ${JSON.stringify(response.data)}`);
-        }
-
-        this.jwtToken = token;
-        // 解析 JWT 过期时间
-        try {
-            const parts = token.split('.');
-            if (parts.length >= 2) {
-                const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
-                const claims = JSON.parse(payloadJson);
-                if (claims.exp) {
-                    this.jwtExpiresAt = claims.exp * 1000;
+        this._tokenRefreshPromise = (async () => {
+            try {
+                if (!this.userId || !this.accessToken) {
+                    if (!this.loadCredentials()) {
+                        throw new Error('Zed credentials missing. Please log in first.');
+                    }
                 }
+
+                logger.info(`[Zed] Requesting new LLM token from ${ZED_TOKEN_URL}...`);
+
+                const axiosConfig = {
+                    method: 'post',
+                    url: ZED_TOKEN_URL,
+                    headers: {
+                        'Authorization': `${this.userId} ${this.accessToken}`,
+                        'Content-Type': 'application/json',
+                        'X-Zed-System-Id': this.systemId || ZED_FALLBACK_SYSTEM_ID
+                    },
+                    timeout: 15000
+                };
+
+                configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
+
+                const response = await axios.request(axiosConfig);
+                const token = response.data?.token;
+
+                if (!token) {
+                    throw new Error(`Zed token exchange failed: invalid response data ${JSON.stringify(response.data)}`);
+                }
+
+                this.jwtToken = token;
+                // 解析 JWT 过期时间
+                try {
+                    const parts = token.split('.');
+                    if (parts.length >= 2) {
+                        const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
+                        const claims = JSON.parse(payloadJson);
+                        if (claims.exp) {
+                            this.jwtExpiresAt = claims.exp * 1000;
+                        }
+                    }
+                } catch (e) {
+                    logger.warn(`[Zed] Failed to parse JWT exp: ${e.message}, defaulting to 1 hour`);
+                    this.jwtExpiresAt = Date.now() + 3600 * 1000;
+                }
+
+                logger.info(`[Zed] Successfully acquired LLM token, expires at: ${new Date(this.jwtExpiresAt).toISOString()}`);
+                await this.saveCredentials();
+
+                // 成功获取 Token 后，如果模型缓存失效或未加载，后台触发一次模型列表拉取
+                if (!globalZedModelsCache || Date.now() > globalZedModelsExpiresAt) {
+                    this.fetchRemoteModels().catch(() => {});
+                }
+
+                return this.jwtToken;
+            } finally {
+                this._tokenRefreshPromise = null;
             }
-        } catch (e) {
-            logger.warn(`[Zed] Failed to parse JWT exp: ${e.message}, defaulting to 1 hour`);
-            this.jwtExpiresAt = now + 3600 * 1000;
-        }
+        })();
 
-        logger.info(`[Zed] Successfully acquired LLM token, expires at: ${new Date(this.jwtExpiresAt).toISOString()}`);
-        await this.saveCredentials();
-
-        // 成功获取 Token 后，如果模型缓存失效或未加载，后台触发一次模型列表拉取
-        if (!globalZedModelsCache || Date.now() > globalZedModelsExpiresAt) {
-            this.fetchRemoteModels().catch(() => {});
-        }
-
-        return this.jwtToken;
+        return this._tokenRefreshPromise;
     }
 
     /**
@@ -418,7 +431,12 @@ export class ZedApiService {
 
                 let role = m.role === 'assistant' ? 'model' : 'user';
                 const parts = [];
-                if (typeof m.content === 'string') {
+                if (m.role === 'tool' || m.tool_call_id) {
+                    role = 'user';
+                    parts.push({
+                        text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                    });
+                } else if (typeof m.content === 'string') {
                     parts.push({ text: m.content });
                 } else if (Array.isArray(m.content)) {
                     for (const p of m.content) {
@@ -431,11 +449,21 @@ export class ZedApiService {
                                     data: p.source.data
                                 }
                             });
+                        } else if (p.type === 'tool_result') {
+                            parts.push({
+                                text: typeof p.content === 'string' ? p.content : JSON.stringify(p.content)
+                            });
                         }
                     }
                 }
+
                 if (parts.length > 0) {
-                    contents.push({ role, parts });
+                    // 合并连续同角色消息以满足 Gemini API 要求
+                    if (contents.length > 0 && contents[contents.length - 1].role === role) {
+                        contents[contents.length - 1].parts.push(...parts);
+                    } else {
+                        contents.push({ role, parts });
+                    }
                 }
             }
 
@@ -446,6 +474,31 @@ export class ZedApiService {
 
             if (systemInstruction) {
                 provReq.systemInstruction = systemInstruction;
+            }
+
+            // 超参数与 Gemini 3.1+ 思考配置
+            const generationConfig = {};
+            if (requestBody.temperature !== undefined) generationConfig.temperature = requestBody.temperature;
+            if (requestBody.max_tokens) generationConfig.maxOutputTokens = requestBody.max_tokens;
+
+            const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
+            const thinkingBudget = requestBody.thinking?.budget_tokens;
+            if (thinkingBudget) {
+                generationConfig.thinkingConfig = { thinkingBudget };
+            } else if (reasoningEffort && reasoningEffort !== 'none') {
+                const effortBudgetMap = {
+                    'low': 2048,
+                    'medium': 4096,
+                    'high': 8192,
+                    'xhigh': 16384,
+                    'max': 32768
+                };
+                const budget = effortBudgetMap[reasoningEffort] || 4096;
+                generationConfig.thinkingConfig = { thinkingBudget: budget };
+            }
+
+            if (Object.keys(generationConfig).length > 0) {
+                provReq.generationConfig = generationConfig;
             }
 
             return {
@@ -631,13 +684,13 @@ export class ZedApiService {
         let buffer = '';
         let messageStarted = false;
         let messageStopped = false;
-        let textBlockStarted = false;
-        let toolBlockIndex = 0;
+        let activeBlockIndex = -1;
+        let activeBlockType = null; // 'thinking' | 'text' | 'tool_use'
 
-        const ensureMessageStart = () => {
+        const ensureMessageStart = function* () {
             if (!messageStarted) {
                 messageStarted = true;
-                return {
+                yield {
                     type: 'message_start',
                     message: {
                         id: `msg_${randomUUID().replace(/-/g, '')}`,
@@ -650,22 +703,43 @@ export class ZedApiService {
                     }
                 };
             }
-            return null;
         };
 
-        const ensureTextBlockStart = () => {
-            if (!textBlockStarted) {
-                textBlockStarted = true;
-                return {
+        const ensureThinkingBlockStart = function* () {
+            if (activeBlockType !== 'thinking') {
+                if (activeBlockType !== null) {
+                    yield { type: 'content_block_stop', index: activeBlockIndex };
+                }
+                activeBlockIndex++;
+                activeBlockType = 'thinking';
+                yield {
                     type: 'content_block_start',
-                    index: 0,
-                    content_block: {
-                        type: 'text',
-                        text: ''
-                    }
+                    index: activeBlockIndex,
+                    content_block: { type: 'thinking', thinking: '' }
                 };
             }
-            return null;
+        };
+
+        const ensureTextBlockStart = function* () {
+            if (activeBlockType !== 'text') {
+                if (activeBlockType !== null) {
+                    yield { type: 'content_block_stop', index: activeBlockIndex };
+                }
+                activeBlockIndex++;
+                activeBlockType = 'text';
+                yield {
+                    type: 'content_block_start',
+                    index: activeBlockIndex,
+                    content_block: { type: 'text', text: '' }
+                };
+            }
+        };
+
+        const closeActiveBlock = function* () {
+            if (activeBlockType !== null) {
+                yield { type: 'content_block_stop', index: activeBlockIndex };
+                activeBlockType = null;
+            }
         };
 
         for await (const chunk of stream) {
@@ -697,19 +771,15 @@ export class ZedApiService {
                     obj = obj.event;
                 }
 
-                const startEvt = ensureMessageStart();
-                if (startEvt) {
-                    yield startEvt;
-                }
+                yield* ensureMessageStart();
 
                 // 1. OpenAI Responses API 事件 (cloud.zed.dev 对 open_ai 系列模型返回)
                 if (typeof obj.type === 'string' && obj.type.startsWith('response.')) {
                     if (obj.type === 'response.output_text.delta' && obj.delta) {
-                        const blockStart = ensureTextBlockStart();
-                        if (blockStart) yield blockStart;
+                        yield* ensureTextBlockStart();
                         yield {
                             type: 'content_block_delta',
-                            index: 0,
+                            index: activeBlockIndex,
                             delta: {
                                 type: 'text_delta',
                                 text: obj.delta
@@ -718,29 +788,26 @@ export class ZedApiService {
                     } else if ((obj.type === 'response.reasoning_text.delta' ||
                                 obj.type === 'response.thinking_text.delta' ||
                                 obj.type === 'response.reasoning_summary_text.delta') && obj.delta) {
+                        yield* ensureThinkingBlockStart();
                         yield {
                             type: 'content_block_delta',
-                            index: 0,
+                            index: activeBlockIndex,
                             delta: {
                                 type: 'thinking_delta',
                                 thinking: obj.delta
                             }
                         };
                     } else if (obj.type === 'response.output_text.done') {
-                        if (textBlockStarted) {
-                            yield {
-                                type: 'content_block_stop',
-                                index: 0
-                            };
-                            textBlockStarted = false;
-                        }
+                        yield* closeActiveBlock();
                     } else if (obj.type === 'response.output_item.added') {
                         const item = obj.item;
                         if (item?.type === 'function_call') {
-                            toolBlockIndex++;
+                            yield* closeActiveBlock();
+                            activeBlockIndex++;
+                            activeBlockType = 'tool_use';
                             yield {
                                 type: 'content_block_start',
-                                index: toolBlockIndex,
+                                index: activeBlockIndex,
                                 content_block: {
                                     type: 'tool_use',
                                     id: item.call_id || item.id || `call_${randomUUID().slice(0, 8)}`,
@@ -751,7 +818,7 @@ export class ZedApiService {
                     } else if (obj.type === 'response.function_call_arguments.delta' && obj.delta) {
                         yield {
                             type: 'content_block_delta',
-                            index: toolBlockIndex,
+                            index: activeBlockIndex,
                             delta: {
                                 type: 'input_json_delta',
                                 partial_json: obj.delta
@@ -760,17 +827,15 @@ export class ZedApiService {
                     } else if (obj.type === 'response.output_item.done') {
                         const item = obj.item;
                         if (item?.type === 'function_call') {
-                            yield {
-                                type: 'content_block_stop',
-                                index: toolBlockIndex
-                            };
+                            yield* closeActiveBlock();
                         }
                     } else if (obj.type === 'response.completed') {
+                        yield* closeActiveBlock();
                         const usage = obj.response?.usage || {};
                         yield {
                             type: 'message_delta',
                             delta: {
-                                stop_reason: toolBlockIndex > 0 ? 'tool_use' : 'end_turn'
+                                stop_reason: activeBlockIndex >= 0 && activeBlockType === 'tool_use' ? 'tool_use' : 'end_turn'
                             },
                             usage: {
                                 input_tokens: usage.input_tokens || 0,
@@ -803,26 +868,26 @@ export class ZedApiService {
                     const choice = obj.choices[0];
                     const delta = choice.delta || {};
 
-                    if (delta.content) {
-                        const blockStart = ensureTextBlockStart();
-                        if (blockStart) yield blockStart;
+                    if (delta.reasoning_content) {
+                        yield* ensureThinkingBlockStart();
                         yield {
                             type: 'content_block_delta',
-                            index: 0,
+                            index: activeBlockIndex,
                             delta: {
-                                type: 'text_delta',
-                                text: delta.content
+                                type: 'thinking_delta',
+                                thinking: delta.reasoning_content
                             }
                         };
                     }
 
-                    if (delta.reasoning_content) {
+                    if (delta.content) {
+                        yield* ensureTextBlockStart();
                         yield {
                             type: 'content_block_delta',
-                            index: 0,
+                            index: activeBlockIndex,
                             delta: {
-                                type: 'thinking_delta',
-                                thinking: delta.reasoning_content
+                                type: 'text_delta',
+                                text: delta.content
                             }
                         };
                     }
@@ -831,10 +896,12 @@ export class ZedApiService {
                         for (let i = 0; i < delta.tool_calls.length; i++) {
                             const tc = delta.tool_calls[i];
                             if (tc.function?.name) {
-                                toolBlockIndex++;
+                                yield* closeActiveBlock();
+                                activeBlockIndex++;
+                                activeBlockType = 'tool_use';
                                 yield {
                                     type: 'content_block_start',
-                                    index: toolBlockIndex,
+                                    index: activeBlockIndex,
                                     content_block: {
                                         type: 'tool_use',
                                         id: tc.id || `call_${randomUUID().slice(0, 8)}`,
@@ -845,7 +912,7 @@ export class ZedApiService {
                             if (tc.function?.arguments) {
                                 yield {
                                     type: 'content_block_delta',
-                                    index: toolBlockIndex,
+                                    index: activeBlockIndex,
                                     delta: {
                                         type: 'input_json_delta',
                                         partial_json: tc.function.arguments
@@ -856,6 +923,7 @@ export class ZedApiService {
                     }
 
                     if (choice.finish_reason) {
+                        yield* closeActiveBlock();
                         yield {
                             type: 'message_delta',
                             delta: { stop_reason: choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn' },
@@ -871,12 +939,21 @@ export class ZedApiService {
                     const parts = candidate.content?.parts;
                     if (Array.isArray(parts)) {
                         for (const part of parts) {
-                            if (part.text) {
-                                const blockStart = ensureTextBlockStart();
-                                if (blockStart) yield blockStart;
+                            if (part.thought && part.text) {
+                                yield* ensureThinkingBlockStart();
                                 yield {
                                     type: 'content_block_delta',
-                                    index: 0,
+                                    index: activeBlockIndex,
+                                    delta: {
+                                        type: 'thinking_delta',
+                                        thinking: part.text
+                                    }
+                                };
+                            } else if (part.text) {
+                                yield* ensureTextBlockStart();
+                                yield {
+                                    type: 'content_block_delta',
+                                    index: activeBlockIndex,
                                     delta: {
                                         type: 'text_delta',
                                         text: part.text
@@ -885,10 +962,26 @@ export class ZedApiService {
                             }
                         }
                     }
+
+                    if (candidate.finishReason) {
+                        yield* closeActiveBlock();
+                        yield {
+                            type: 'message_delta',
+                            delta: {
+                                stop_reason: candidate.finishReason === 'STOP' ? 'end_turn' : candidate.finishReason.toLowerCase()
+                            },
+                            usage: {
+                                input_tokens: obj.usageMetadata?.promptTokenCount || 0,
+                                output_tokens: obj.usageMetadata?.candidatesTokenCount || 0
+                            }
+                        };
+                    }
+                    continue;
                 }
             }
         }
 
+        yield* closeActiveBlock();
         if (!messageStopped) {
             yield { type: 'message_stop' };
         }

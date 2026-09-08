@@ -359,15 +359,22 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
     const allTypes = [...new Set([...registeredProviders, ...poolTypes])];
     const allModels = {};
 
-    // 若包含 zed 提供商，尝试动态刷新一次远程模型列表保持与 cloud.zed.dev 一致
+    // 若包含 zed 提供商，尝试动态刷新一次远程模型列表保持与 cloud.zed.dev 一致（非阻塞异步刷新）
     for (const type of allTypes) {
         if (type === 'zed' || type.startsWith('zed-')) {
             try {
                 const zedNodes = providerPools[type] || [];
-                const zedConfig = zedNodes[0]?.config || { ...currentConfig, MODEL_PROVIDER: type };
+                const zedNode = zedNodes[0];
+                const nodeConfig = zedNode?.config || zedNode;
+                const zedConfig = nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH
+                    ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: type }
+                    : { ...currentConfig, MODEL_PROVIDER: type };
                 const adapter = getServiceAdapter(zedConfig);
                 if (adapter && typeof adapter.listModels === 'function') {
-                    await adapter.listModels();
+                    // 异步非阻塞刷新，避免网络延迟阻塞 /v1/models 接口
+                    adapter.listModels().catch(e => {
+                        logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
+                    });
                 }
             } catch (e) {
                 logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
@@ -406,10 +413,17 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
         try {
             const providerPools = loadProviderPools(currentConfig, providerPoolManager);
             const zedNodes = providerPools[providerType] || [];
-            const zedConfig = zedNodes[0]?.config || { ...currentConfig, MODEL_PROVIDER: providerType };
+            const zedNode = zedNodes[0];
+            const nodeConfig = zedNode?.config || zedNode;
+            const zedConfig = nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH
+                ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType }
+                : { ...currentConfig, MODEL_PROVIDER: providerType };
             const adapter = getServiceAdapter(zedConfig);
             if (adapter && typeof adapter.listModels === 'function') {
-                await adapter.listModels();
+                // 异步非阻塞刷新，避免网络延迟阻塞 /v1/models 接口
+                adapter.listModels().catch(e => {
+                    logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
+                });
             }
         } catch (e) {
             logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);

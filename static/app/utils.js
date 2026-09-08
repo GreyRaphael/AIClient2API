@@ -514,7 +514,7 @@ function getProviderTypeFields(providerType) {
                 id: 'ZED_EMAIL',
                 label: `${t('modal.provider.field.email')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'email',
-                placeholder: 'gewei@pku.edu.cn'
+                placeholder: 'user@example.com'
             },
             {
                 id: 'ZED_BASE_URL',

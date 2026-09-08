@@ -965,7 +965,7 @@ function showZedAuthSelector(providerType) {
                     <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary);">
                         Zed / GitHub 账号邮箱
                     </label>
-                    <input type="email" id="zedAuthEmail" value="gewei@pku.edu.cn" placeholder="gewei@pku.edu.cn" style="width: 100%; padding: 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
+                    <input type="email" id="zedAuthEmail" value="" placeholder="user@example.com" style="width: 100%; padding: 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
                     <small style="display: block; margin-top: 6px; font-size: 12px; color: var(--text-tertiary);">
                         用于标记凭据归属与识别账号身份，建议填写绑定的 GitHub 邮箱。
                     </small>
@@ -992,7 +992,7 @@ function showZedAuthSelector(providerType) {
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
     const doSubmit = async () => {
-        const email = emailInput.value.trim() || 'gewei@pku.edu.cn';
+        const email = emailInput.value.trim() || 'user@example.com';
         closeModal();
         await executeGenerateAuthUrl(providerType, { email });
     };

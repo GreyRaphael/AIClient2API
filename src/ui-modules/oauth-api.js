@@ -129,16 +129,8 @@ export async function handleManualOAuthCallback(req, res) {
         logger.info(`[OAuth Manual Callback] Processing manual callback for ${provider}`);
         logger.info(`[OAuth Manual Callback] Callback URL: ${callbackUrl}`);
 
-        // 解析回调URL
-        const url = new URL(callbackUrl);
-        const code = url.searchParams.get('code');
-        const state = url.searchParams.get('state');
-        const token = url.searchParams.get('token');
-        const userId = url.searchParams.get('user_id');
-        const accessToken = url.searchParams.get('access_token');
-
         // 特殊处理 Zed OAuth 回调
-        if (provider === 'zed' && (userId || accessToken || callbackUrl.includes('access_token'))) {
+        if (provider === 'zed') {
             const { handleZedOAuthCallback } = await import('../auth/oauth-handlers.js');
             const result = await handleZedOAuthCallback(callbackUrl);
 
@@ -146,6 +138,12 @@ export async function handleManualOAuthCallback(req, res) {
             res.end(JSON.stringify(result));
             return true;
         }
+
+        // 解析回调URL
+        const url = new URL(callbackUrl);
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        const token = url.searchParams.get('token');
 
         if (!code && !token) {
             res.writeHead(400, { 'Content-Type': 'application/json' });

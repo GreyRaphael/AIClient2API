@@ -17,7 +17,7 @@ const ZED_OAUTH_CONFIG = {
     authBaseUrl: 'https://zed.dev/native_app_signin',
     successRedirectUrl: 'https://zed.dev/native_app_signin_succeeded',
     tokenExchangeUrl: 'https://cloud.zed.dev/client/llm_tokens',
-    defaultEmail: 'gewei@pku.edu.cn',
+    defaultEmail: 'user@example.com',
     defaultPort: 56122,
     logPrefix: '[Zed Auth]'
 };
@@ -222,13 +222,16 @@ export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
  */
 export async function handleZedOAuthCallback(rawInput, sessionId = null, currentConfig = CONFIG) {
     let session = null;
+    let targetSessionId = sessionId;
+
     if (sessionId && activeSessions.has(sessionId)) {
         session = activeSessions.get(sessionId);
     } else {
-        // 如果只有一个 active session，默认取第一个
-        const first = activeSessions.values().next();
-        if (!first.done) {
-            session = first.value;
+        // 如果未指定 sessionId，寻找第一个 active session
+        for (const [id, s] of activeSessions.entries()) {
+            targetSessionId = id;
+            session = s;
+            break;
         }
     }
 
@@ -285,7 +288,7 @@ export async function handleZedOAuthCallback(rawInput, sessionId = null, current
         currentConfig
     });
 
-    cleanupSession(sessionId);
+    cleanupSession(targetSessionId);
 
     return {
         success: true,
@@ -420,13 +423,6 @@ async function saveZedCredentials({
 
 function cleanupSession(sessionId) {
     if (!sessionId) {
-        for (const [id, session] of activeSessions.entries()) {
-            try {
-                clearTimeout(session.timeoutTimer);
-                session.server.close();
-            } catch (_) {}
-            activeSessions.delete(id);
-        }
         return;
     }
 

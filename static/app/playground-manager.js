@@ -296,7 +296,7 @@ async function handleSend() {
     const sysPrompt = getSystemInput()?.value.trim();
     const temp = parseFloat(getTempSlider()?.value || '0.7');
     const maxTokens = parseInt(getMaxTokens()?.value || '4096');
-    const reasoningEffort = getReasoningEffort()?.value || 'medium';
+    const reasoningEffort = getReasoningEffort()?.value || 'none';
     const useStream = getStreamCheckbox()?.checked ?? true;
 
     // Build history for request

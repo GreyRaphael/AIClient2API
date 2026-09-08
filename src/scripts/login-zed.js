@@ -6,7 +6,7 @@ import logger from '../utils/logger.js';
 async function main() {
     await initializeConfig();
     const args = process.argv.slice(2);
-    let email = 'gewei@pku.edu.cn';
+    let email = 'user@example.com';
 
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--email' && args[i + 1]) {

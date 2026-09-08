@@ -10,6 +10,7 @@ import {
     getZedProviderForModel
 } from '../src/providers/zed/zed-core.js';
 import { PROVIDER_MODELS } from '../src/providers/provider-models.js';
+import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
 
 describe('Zed Provider & OAuth Implementation Tests', () => {
     test('Zed provider is properly registered and configured', () => {
@@ -110,5 +111,137 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         }, Buffer.from(encTokenB64, 'base64url')).toString('utf8');
 
         expect(decrypted).toBe(rawSecret);
+    });
+
+    test('OpenAIConverter.toClaudeRequest handles reasoning_effort legality fallback', () => {
+        const converter = new OpenAIConverter();
+
+        // 1. none does not set thinking
+        const reqNone = converter.toClaudeRequest({
+            model: 'gpt-4o',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'none',
+            temperature: 0.7
+        });
+        expect(reqNone.thinking).toBeUndefined();
+        expect(reqNone.temperature).toBe(0.7);
+
+        // 2. medium sets budget_tokens, deletes temperature/top_p, elevates max_tokens if <= budget
+        const reqMedium = converter.toClaudeRequest({
+            model: 'claude-3-7-sonnet',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'medium',
+            temperature: 0.7,
+            top_p: 0.9,
+            max_tokens: 4096
+        });
+        expect(reqMedium.thinking).toEqual({ type: 'enabled', budget_tokens: 4096 });
+        expect(reqMedium.temperature).toBeUndefined();
+        expect(reqMedium.top_p).toBeUndefined();
+        expect(reqMedium.max_tokens).toBeGreaterThan(4096);
+
+        // 3. xhigh and max map correctly
+        const reqXhigh = converter.toClaudeRequest({
+            model: 'claude-3-7-sonnet',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'xhigh',
+            max_tokens: 20000
+        });
+        expect(reqXhigh.thinking).toEqual({ type: 'enabled', budget_tokens: 16384 });
+
+        const reqMax = converter.toClaudeRequest({
+            model: 'claude-3-7-sonnet',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'max',
+            max_tokens: 1000
+        });
+        expect(reqMax.thinking).toEqual({ type: 'enabled', budget_tokens: 32768 });
+        expect(reqMax.max_tokens).toBe(32768 + 4096);
+    });
+
+    test('ZedApiService.buildPayload formats Google provider request correctly for Gemini 3.1+', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        const claudeRequestBody = {
+            system: 'System instructions for Gemini',
+            messages: [
+                { role: 'user', content: 'Message 1' },
+                { role: 'user', content: 'Message 2' },
+                { role: 'assistant', content: 'Reply 1' }
+            ],
+            reasoning_effort: 'high',
+            temperature: 0.5,
+            max_tokens: 8192
+        };
+
+        const payload = zedService.buildPayload('gemini-3.1-pro-preview', claudeRequestBody);
+        expect(payload.provider).toBe('google');
+        expect(payload.model).toBe('gemini-3.1-pro-preview');
+
+        const provReq = payload.provider_request;
+        expect(provReq.systemInstruction).toBeDefined();
+        // Check consecutive user messages merged
+        expect(provReq.contents.length).toBe(2);
+        expect(provReq.contents[0].role).toBe('user');
+        expect(provReq.contents[0].parts.length).toBe(2);
+        expect(provReq.contents[1].role).toBe('model');
+
+        // Check generationConfig
+        expect(provReq.generationConfig).toBeDefined();
+        expect(provReq.generationConfig.temperature).toBe(0.5);
+        expect(provReq.generationConfig.maxOutputTokens).toBe(8192);
+        expect(provReq.generationConfig.thinkingConfig?.thinkingBudget).toBe(8192);
+    });
+
+    test('ZedApiService.getToken deduplicates concurrent calls via _tokenRefreshPromise', async () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        // Mock loadCredentials to return true
+        jest.spyOn(zedService, 'loadCredentials').mockImplementation(() => {
+            zedService.userId = 'mock_user';
+            zedService.accessToken = 'mock_token';
+            return true;
+        });
+        jest.spyOn(zedService, 'saveCredentials').mockImplementation(async () => {});
+
+        let tokenExchangeCount = 0;
+        // Mock axios
+        const axios = (await import('axios')).default;
+        const originalRequest = axios.request;
+        axios.request = jest.fn().mockImplementation(async (config) => {
+            if (config.url?.includes('llm_tokens')) {
+                tokenExchangeCount++;
+                await new Promise(r => setTimeout(r, 20));
+                return {
+                    data: {
+                        token: 'mock.eyJleHAiOjE5OTk5OTk5OTl9.sig'
+                    }
+                };
+            }
+            return { data: { models: [] } };
+        });
+
+        try {
+            // Call getToken concurrently 5 times
+            const promises = [
+                zedService.getToken(true),
+                zedService.getToken(true),
+                zedService.getToken(true),
+                zedService.getToken(true),
+                zedService.getToken(true)
+            ];
+
+            const results = await Promise.all(promises);
+            expect(tokenExchangeCount).toBe(1);
+            expect(results.every(t => t === 'mock.eyJleHAiOjE5OTk5OTk5OTl9.sig')).toBe(true);
+        } finally {
+            axios.request = originalRequest;
+        }
     });
 });

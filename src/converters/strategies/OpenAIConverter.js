@@ -375,12 +375,27 @@ export class OpenAIConverter extends BaseConverter {
         // Map standard reasoning_effort to Claude thinking if not already provided
         if (!claudeRequest.thinking && openaiRequest.reasoning_effort) {
             const effort = String(openaiRequest.reasoning_effort).toLowerCase().trim();
-            if (effort === 'low') {
-                claudeRequest.thinking = { type: 'enabled', budget_tokens: 2048 };
-            } else if (effort === 'medium') {
-                claudeRequest.thinking = { type: 'enabled', budget_tokens: 4096 };
-            } else if (effort === 'high' || effort === 'max') {
-                claudeRequest.thinking = { type: 'enabled', budget_tokens: 8192 };
+            if (effort !== 'none') {
+                const effortBudgetMap = {
+                    'low': 2048,
+                    'medium': 4096,
+                    'high': 8192,
+                    'xhigh': 16384,
+                    'max': 32768
+                };
+                const budget = effortBudgetMap[effort] || 4096;
+                claudeRequest.thinking = { type: 'enabled', budget_tokens: budget };
+            }
+        }
+
+        // 合法性兜底：当 thinking 启用时，删除 temperature 和 top_p，且若 max_tokens <= budget_tokens 则上调 max_tokens
+        if (claudeRequest.thinking?.type === 'enabled') {
+            delete claudeRequest.temperature;
+            delete claudeRequest.top_p;
+            const budget = claudeRequest.thinking.budget_tokens || 4096;
+            const currentMax = claudeRequest.max_tokens || 8192;
+            if (currentMax <= budget) {
+                claudeRequest.max_tokens = Math.min(budget + 4096, 64000);
             }
         }
 
