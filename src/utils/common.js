@@ -938,7 +938,7 @@ export function createEmptyUpstreamResponseError(providerLabel = 'Upstream') {
  * @returns {Promise<{retry: boolean, result?: object, emptyResponseRetry?: number}>}
  */
 async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, logPrefix, providerLabel = 'Upstream') {
-    const emptyRetryMax = CONFIG?.EMPTY_RESPONSE_MAX_RETRIES ?? 2;
+    const emptyRetryMax = CONFIG?.EMPTY_RESPONSE_MAX_RETRIES ?? 5;
     const emptyRetryDelayMs = CONFIG?.EMPTY_RESPONSE_RETRY_DELAY_MS ?? 500;
 
     if (attemptsMade >= emptyRetryMax) {

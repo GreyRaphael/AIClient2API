@@ -771,7 +771,7 @@ kill -9 <PID>
 
 本项目针对这种情况内置了检测与重试机制：
 
-- 检测到上游返回真正的空响应时，不再伪造一次成功的 `end_turn`，而是在代理内部**用同一份请求体**（历史不会变大）直接重试，最多重试 `EMPTY_RESPONSE_MAX_RETRIES` 次（默认 `2`），每次重试前等待 `EMPTY_RESPONSE_RETRY_DELAY_MS` 毫秒（默认 `500`）。
+- 检测到上游返回真正的空响应时，不再伪造一次成功的 `end_turn`，而是在代理内部**用同一份请求体**（历史不会变大）直接重试，最多重试 `EMPTY_RESPONSE_MAX_RETRIES` 次（默认 `5`），每次重试前等待 `EMPTY_RESPONSE_RETRY_DELAY_MS` 毫秒（默认 `500`）。
 - 该重试预算与凭证切换重试次数（`CREDENTIAL_SWITCH_MAX_RETRIES`）**互相独立、分开计数**，不会因为一次空回就把凭证切换的重试预算提前耗光，也不会因为切换凭证重试而额外增加本次请求的历史/token 开销。
 - 正常有内容的响应不受影响：只要上游返回过任意文本、工具调用或思考内容中的一种，就不会触发重试逻辑，流式响应的首字延迟基本不变。
 - 重试次数用尽后，会向客户端返回明确的错误信息（而不是静默的空 `end_turn`），可以在日志中搜索 `empty response` 或 `isEmptyUpstreamResponse` 相关关键字确认是否命中过该问题，以及命中频率。
@@ -781,7 +781,7 @@ kill -9 <PID>
 
 ```json
 {
-  "EMPTY_RESPONSE_MAX_RETRIES": 2,
+  "EMPTY_RESPONSE_MAX_RETRIES": 5,
   "EMPTY_RESPONSE_RETRY_DELAY_MS": 500
 }
 ```

@@ -507,6 +507,10 @@ async function loadConfiguration() {
         // 坏凭证切换最大重试次数
         const credentialSwitchMaxRetriesEl = document.getElementById('credentialSwitchMaxRetries');
         if (credentialSwitchMaxRetriesEl) credentialSwitchMaxRetriesEl.value = data.CREDENTIAL_SWITCH_MAX_RETRIES || 5;
+        const emptyResponseMaxRetriesEl = document.getElementById('emptyResponseMaxRetries');
+        if (emptyResponseMaxRetriesEl) emptyResponseMaxRetriesEl.value = data.EMPTY_RESPONSE_MAX_RETRIES ?? 5;
+        const emptyResponseRetryDelayMsEl = document.getElementById('emptyResponseRetryDelayMs');
+        if (emptyResponseRetryDelayMsEl) emptyResponseRetryDelayMsEl.value = data.EMPTY_RESPONSE_RETRY_DELAY_MS ?? 500;
         if (rateLimitCooldownEnabledEl) rateLimitCooldownEnabledEl.checked = data.RATE_LIMIT_COOLDOWN_ENABLED || false;
         if (rateLimitCooldownMsEl) rateLimitCooldownMsEl.value = data.RATE_LIMIT_COOLDOWN_MS ?? 30000;
         
@@ -702,6 +706,8 @@ async function saveConfiguration(options = {}) {
     config.REQUEST_BASE_DELAY = parseInt(document.getElementById('requestBaseDelay')?.value || 1000);
     config.MODEL_FALLBACK_ENABLED = document.getElementById('modelFallbackEnabled')?.checked !== false;
     config.CREDENTIAL_SWITCH_MAX_RETRIES = parseInt(document.getElementById('credentialSwitchMaxRetries')?.value || 5);
+    config.EMPTY_RESPONSE_MAX_RETRIES = parseInt(document.getElementById('emptyResponseMaxRetries')?.value || 5);
+    config.EMPTY_RESPONSE_RETRY_DELAY_MS = parseInt(document.getElementById('emptyResponseRetryDelayMs')?.value || 500);
     config.RATE_LIMIT_COOLDOWN_ENABLED = document.getElementById('rateLimitCooldownEnabled')?.checked || false;
     config.RATE_LIMIT_COOLDOWN_MS = parseInt(document.getElementById('rateLimitCooldownMs')?.value || 30000);
     config.CRON_NEAR_MINUTES = parseInt(document.getElementById('cronNearMinutes')?.value || 1);

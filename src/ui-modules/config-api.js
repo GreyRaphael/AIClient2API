@@ -83,6 +83,8 @@ export async function handleGetConfig(req, res, currentConfig) {
         REQUEST_BASE_DELAY: currentConfig.REQUEST_BASE_DELAY,
         MODEL_FALLBACK_ENABLED: currentConfig.MODEL_FALLBACK_ENABLED !== false,
         CREDENTIAL_SWITCH_MAX_RETRIES: currentConfig.CREDENTIAL_SWITCH_MAX_RETRIES,
+        EMPTY_RESPONSE_MAX_RETRIES: currentConfig.EMPTY_RESPONSE_MAX_RETRIES,
+        EMPTY_RESPONSE_RETRY_DELAY_MS: currentConfig.EMPTY_RESPONSE_RETRY_DELAY_MS,
         RATE_LIMIT_COOLDOWN_ENABLED: currentConfig.RATE_LIMIT_COOLDOWN_ENABLED,
         RATE_LIMIT_COOLDOWN_MS: currentConfig.RATE_LIMIT_COOLDOWN_MS,
         RATE_LIMIT_COOLDOWN_JITTER_MS: currentConfig.RATE_LIMIT_COOLDOWN_JITTER_MS,
@@ -196,6 +198,14 @@ async function _handleUpdateConfig(req, res, currentConfig, body) {
         if (newConfig.REQUEST_BASE_DELAY !== undefined) currentConfig.REQUEST_BASE_DELAY = newConfig.REQUEST_BASE_DELAY;
         if (newConfig.MODEL_FALLBACK_ENABLED !== undefined) currentConfig.MODEL_FALLBACK_ENABLED = parseBooleanConfig(newConfig.MODEL_FALLBACK_ENABLED);
         if (newConfig.CREDENTIAL_SWITCH_MAX_RETRIES !== undefined) currentConfig.CREDENTIAL_SWITCH_MAX_RETRIES = newConfig.CREDENTIAL_SWITCH_MAX_RETRIES;
+        if (newConfig.EMPTY_RESPONSE_MAX_RETRIES !== undefined) {
+            const v = Number(newConfig.EMPTY_RESPONSE_MAX_RETRIES);
+            if (Number.isInteger(v) && v >= 0) currentConfig.EMPTY_RESPONSE_MAX_RETRIES = v;
+        }
+        if (newConfig.EMPTY_RESPONSE_RETRY_DELAY_MS !== undefined) {
+            const v = Number(newConfig.EMPTY_RESPONSE_RETRY_DELAY_MS);
+            if (Number.isInteger(v) && v >= 0) currentConfig.EMPTY_RESPONSE_RETRY_DELAY_MS = v;
+        }
         if (newConfig.RATE_LIMIT_COOLDOWN_ENABLED !== undefined) currentConfig.RATE_LIMIT_COOLDOWN_ENABLED = parseBooleanConfig(newConfig.RATE_LIMIT_COOLDOWN_ENABLED);
         if (newConfig.RATE_LIMIT_COOLDOWN_MS !== undefined) {
             const v = Number(newConfig.RATE_LIMIT_COOLDOWN_MS);
@@ -355,6 +365,8 @@ async function _handleUpdateConfig(req, res, currentConfig, body) {
                 REQUEST_MAX_RETRIES: currentConfig.REQUEST_MAX_RETRIES,
                 REQUEST_BASE_DELAY: currentConfig.REQUEST_BASE_DELAY,
                 CREDENTIAL_SWITCH_MAX_RETRIES: currentConfig.CREDENTIAL_SWITCH_MAX_RETRIES,
+                EMPTY_RESPONSE_MAX_RETRIES: currentConfig.EMPTY_RESPONSE_MAX_RETRIES,
+                EMPTY_RESPONSE_RETRY_DELAY_MS: currentConfig.EMPTY_RESPONSE_RETRY_DELAY_MS,
                 RATE_LIMIT_COOLDOWN_ENABLED: currentConfig.RATE_LIMIT_COOLDOWN_ENABLED,
                 RATE_LIMIT_COOLDOWN_MS: currentConfig.RATE_LIMIT_COOLDOWN_MS,
                 RATE_LIMIT_COOLDOWN_JITTER_MS: currentConfig.RATE_LIMIT_COOLDOWN_JITTER_MS,

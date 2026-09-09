@@ -255,6 +255,16 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
+                        <label for="emptyResponseMaxRetries" data-i18n="config.advanced.emptyResponseMaxRetries">空响应最大重试次数</label>
+                        <input type="number" id="emptyResponseMaxRetries" class="form-control" min="1" max="20" value="5">
+                    </div>
+                    <div class="form-group">
+                        <label for="emptyResponseRetryDelayMs" data-i18n="config.advanced.emptyResponseRetryDelayMs">空响应重试延迟(毫秒)</label>
+                        <input type="number" id="emptyResponseRetryDelayMs" class="form-control" min="0" step="100" value="500">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
                         <label data-i18n="config.advanced.modelFallbackEnabled">启用模型不存在自动 Fallback</label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="modelFallbackEnabled" checked>
