@@ -240,8 +240,9 @@ function formatTimestamp(val) {
 function parseTierId(tierId) {
     if (!tierId) return 'FREE';
     if (typeof tierId !== 'string') return String(tierId);
-    if (tierId.includes('-')) return tierId;
-    const parts = tierId.trim().split(/\s+/);
+    const cleaned = tierId.replace(/\(free\)/i, '').trim();
+    if (cleaned.includes('-')) return cleaned;
+    const parts = cleaned.split(/\s+/);
     if (parts.length >= 2 && parts[parts.length - 2].toLowerCase() === 'for') {
         const startIndex = Math.max(0, parts.length - 3);
         return parts.slice(startIndex).join(' ');

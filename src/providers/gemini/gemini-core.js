@@ -311,13 +311,7 @@ export class GeminiApiService {
         // 仅执行基础的凭证加载
         await this.loadCredentials();
 
-        if (!this.projectId) {
-            this.projectId = await this.discoverProjectAndModels();
-        } else {
-            logger.info(`[Gemini] Using provided Project ID: ${this.projectId}`);
-            this.availableModels = GEMINI_MODELS;
-            logger.info(`[Gemini] Using fixed models: [${this.availableModels.join(', ')}]`);
-        }
+        await this.discoverProjectAndModels();
         if (this.projectId === 'default') {
             throw new Error("Error: 'default' is not a valid project ID. Please provide a valid Google Cloud Project ID using the --project-id argument.");
         }
@@ -464,29 +458,30 @@ export class GeminiApiService {
     }
 
     async discoverProjectAndModels() {
-        if (this.projectId) {
-            logger.info(`[Gemini] Using pre-configured Project ID: ${this.projectId}`);
-            return this.projectId;
+        const configuredProjectId = this.projectId;
+        if (configuredProjectId) {
+            logger.info(`[Gemini] Using pre-configured Project ID: ${configuredProjectId}`);
+        } else {
+            logger.info('[Gemini] Discovering Project ID...');
         }
 
-        logger.info('[Gemini] Discovering Project ID...');
         this.availableModels = GEMINI_MODELS;
         logger.info(`[Gemini] Using fixed models: [${this.availableModels.join(', ')}]`);
         try {
-            const initialProjectId = ""
+            const initialProjectId = "";
             // Prepare client metadata
             const clientMetadata = {
                 ideType: "IDE_UNSPECIFIED",
                 platform: "PLATFORM_UNSPECIFIED",
                 pluginType: "GEMINI",
                 duetProject: initialProjectId,
-            }
+            };
 
             // Call loadCodeAssist to discover the actual project ID
             const loadRequest = {
                 cloudaicompanionProject: initialProjectId,
                 metadata: clientMetadata,
-            }
+            };
 
             const loadResponse = await this.callApi('loadCodeAssist', loadRequest, false, 0, 'load-code-assist');
 
@@ -498,29 +493,31 @@ export class GeminiApiService {
                     this.accountEmail = decodeURIComponent(emailMatch[1]);
                     logger.info(`[Gemini] Extracted account email: ${this.accountEmail}`);
                 }
-            } else{
+            } else {
                 const res = await this.authClient.getTokenInfo(this.authClient.credentials.access_token);
-                if(res?.email){
+                if (res?.email) {
                     this.accountEmail = res.email;
-                    logger.info(`[Antigravity] Extracted account email from token info: ${this.accountEmail}`);
+                    logger.info(`[Gemini] Extracted account email from token info: ${this.accountEmail}`);
                 }
             }
 
-            // Check if we already have a project ID from the response
+            // 优先使用 paidTier.name，其次使用默认 tier 或 free-tier
+            const defaultTier = loadResponse.allowedTiers?.find(tier => tier.isDefault);
+            const baseTier = defaultTier?.id || 'free-tier';
+            this.tierId = loadResponse.paidTier?.name || baseTier;
+
+            // 优先保留配置的 Project ID，其次使用 API 返回的 Project ID
+            if (configuredProjectId) {
+                this.projectId = configuredProjectId;
+                return this.projectId;
+            }
+
             if (loadResponse.cloudaicompanionProject) {
-                // 尝试从 allowedTiers 中获取当前 tierId，如果存在 paidTier 则优先使用 paidTier.id
-                const defaultTier = loadResponse.allowedTiers?.find(tier => tier.isDefault);
-                const baseTier = defaultTier?.id || 'free-tier';
-                this.tierId = loadResponse.paidTier?.name ? `${loadResponse.paidTier.name}(${baseTier.replace('-tier', '')})` : baseTier;
+                this.projectId = loadResponse.cloudaicompanionProject;
                 return loadResponse.cloudaicompanionProject;
             }
 
             // If no existing project, we need to onboard
-            const defaultTier = loadResponse.allowedTiers?.find(tier => tier.isDefault);
-            const baseTier = defaultTier?.id || 'free-tier';
-            const tierId = loadResponse.paidTier?.name ? `${loadResponse.paidTier.name}(${baseTier.replace('-tier', '')})` : baseTier;
-            this.tierId = tierId;
-
             const onboardRequest = {
                 tierId: baseTier,
                 cloudaicompanionProject: initialProjectId,
@@ -544,9 +541,14 @@ export class GeminiApiService {
             }
 
             const discoveredProjectId = lroResponse.response?.cloudaicompanionProject?.id || initialProjectId;
+            this.projectId = discoveredProjectId;
             return discoveredProjectId;
         } catch (error) {
             logger.error('[Gemini] Failed to discover Project ID:', error.response?.data || error.message);
+            if (configuredProjectId) {
+                this.projectId = configuredProjectId;
+                return configuredProjectId;
+            }
             throw new Error('Could not discover a valid Google Cloud Project ID.');
         }
     }
@@ -923,6 +925,13 @@ export class GeminiApiService {
      */
     async getUsageLimits() {
         if (!this.isInitialized) await this.initialize();
+        if (!this.tierId) {
+            try {
+                await this.discoverProjectAndModels();
+            } catch (_err) {
+                // ignore
+            }
+        }
         
         try {
             const quotaURL = `${this.codeAssistEndpoint}/${this.apiVersion}:retrieveUserQuota`;

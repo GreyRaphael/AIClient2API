@@ -986,13 +986,7 @@ export class AntigravityApiService {
         // 仅执行基础的凭证加载
         await this.loadCredentials();
 
-        if (!this.projectId) {
-            this.projectId = await this.discoverProjectAndModels();
-        } else {
-            logger.info(`[Antigravity] Using provided Project ID: ${this.projectId}`);
-            // 获取可用模型
-            await this.fetchAvailableModels();
-        }
+        await this.discoverProjectAndModels();
 
         this.isInitialized = true;
         logger.info(`[Antigravity] Initialization complete. Project ID: ${this.projectId}`);
@@ -1141,12 +1135,13 @@ export class AntigravityApiService {
     }
 
     async discoverProjectAndModels() {
-        if (this.projectId) {
-            logger.info(`[Antigravity] Using pre-configured Project ID: ${this.projectId}`);
-            return this.projectId;
+        const configuredProjectId = this.projectId;
+        if (configuredProjectId) {
+            logger.info(`[Antigravity] Using pre-configured Project ID: ${configuredProjectId}`);
+        } else {
+            logger.info('[Antigravity] Discovering Project ID...');
         }
 
-        logger.info('[Antigravity] Discovering Project ID...');
         try {
             const initialProjectId = "";
             // Prepare client metadata
@@ -1169,35 +1164,34 @@ export class AntigravityApiService {
                     this.accountEmail = decodeURIComponent(emailMatch[1]);
                     logger.info(`[Antigravity] Extracted account email: ${this.accountEmail}`);
                 }
-            } else{
+            } else {
                 const res = await this.authClient.getTokenInfo(this.authClient.credentials.access_token);
-                if(res?.email){
+                if (res?.email) {
                     this.accountEmail = res.email;
                     logger.info(`[Antigravity] Extracted account email from token info: ${this.accountEmail}`);
                 }
             }
 
-            // Check if we already have a project ID from the response
-            if (loadResponse.cloudaicompanionProject) {
+            // 优先使用 paidTier.name，其次使用默认 tier 或 free-tier
+            const defaultTier = loadResponse.allowedTiers?.find(tier => tier.isDefault);
+            const baseTier = defaultTier?.id || 'free-tier';
+            this.tierId = loadResponse.paidTier?.name || baseTier;
+
+            // 优先保留配置的 Project ID，其次使用 API 返回的 Project ID
+            if (configuredProjectId) {
+                this.projectId = configuredProjectId;
+            } else if (loadResponse.cloudaicompanionProject) {
                 logger.info(`[Antigravity] Discovered existing Project ID: ${loadResponse.cloudaicompanionProject}`);
                 this.projectId = loadResponse.cloudaicompanionProject;
-                
-                // 尝试从 allowedTiers 中获取当前 tierId，如果存在 paidTier 则优先使用 paidTier.id
-                const defaultTier = loadResponse.allowedTiers?.find(tier => tier.isDefault);
-                const baseTier = defaultTier?.id || 'free-tier';
-                this.tierId = loadResponse.paidTier?.name ? `${loadResponse.paidTier.name}(${baseTier.replace('-tier', '')})` : baseTier;
-                
+            }
+
+            if (this.projectId) {
                 // 获取可用模型
                 await this.fetchAvailableModels();
-                return loadResponse.cloudaicompanionProject;
+                return this.projectId;
             }
 
             // If no existing project, we need to onboard
-            const defaultTier = loadResponse.allowedTiers?.find(tier => tier.isDefault);
-            const baseTier = defaultTier?.id || 'free-tier';
-            const tierId = loadResponse.paidTier?.name ? `${loadResponse.paidTier.name}(${baseTier.replace('-tier', '')})` : baseTier;
-            this.tierId = tierId;
-
             const onboardRequest = {
                 tier_id: baseTier,
                 metadata: {
@@ -1231,6 +1225,11 @@ export class AntigravityApiService {
             return discoveredProjectId;
         } catch (error) {
             logger.error('[Antigravity] Failed to discover Project ID:', error.response?.data || error.message);
+            if (configuredProjectId) {
+                this.projectId = configuredProjectId;
+                await this.fetchAvailableModels();
+                return configuredProjectId;
+            }
             logger.info('[Antigravity] Falling back to generated Project ID as last resort...');
             const fallbackProjectId = generateProjectID();
             logger.info(`[Antigravity] Generated fallback Project ID: ${fallbackProjectId}`);
@@ -1960,6 +1959,13 @@ export class AntigravityApiService {
      */
     async getUsageLimits() {
         if (!this.isInitialized) await this.initialize();
+        if (!this.tierId) {
+            try {
+                await this.discoverProjectAndModels();
+            } catch (_err) {
+                // ignore
+            }
+        }
         
         for (const baseURL of this.baseURLs) {
             try {
