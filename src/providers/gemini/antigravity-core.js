@@ -1954,7 +1954,7 @@ export class AntigravityApiService {
     }
 
     /**
-     * 获取模型配额信息 (返回原始 API 数据)
+     * 获取模型配额信息 (返回原始 API 数据，包含周限制和5小时限制汇总)
      * @returns {Promise<Object>} 原始配额信息
      */
     async getUsageLimits() {
@@ -1969,8 +1969,21 @@ export class AntigravityApiService {
         
         for (const baseURL of this.baseURLs) {
             try {
+                const quotaSummaryURL = `${baseURL}/${ANTIGRAVITY_API_VERSION}:retrieveUserQuotaSummary`;
                 const modelsURL = `${baseURL}/${ANTIGRAVITY_API_VERSION}:fetchAvailableModels`;
-                const requestOptions = {
+
+                const quotaOptions = {
+                    url: quotaSummaryURL,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': this.userAgent
+                    },
+                    responseType: 'json',
+                    body: JSON.stringify({ project: this.projectId })
+                };
+
+                const modelsOptions = {
                     url: modelsURL,
                     method: 'POST',
                     headers: {
@@ -1981,11 +1994,21 @@ export class AntigravityApiService {
                     body: JSON.stringify({ project: this.projectId })
                 };
 
-                this._applySidecar(requestOptions);
-                const res = await this.authClient.request(requestOptions);
-                if (res.data) {
+                this._applySidecar(quotaOptions);
+                this._applySidecar(modelsOptions);
+
+                const [quotaRes, modelsRes] = await Promise.allSettled([
+                    this.authClient.request(quotaOptions),
+                    this.authClient.request(modelsOptions)
+                ]);
+
+                const quotaData = quotaRes.status === 'fulfilled' && typeof quotaRes.value?.data === 'object' && quotaRes.value?.data?.groups ? quotaRes.value.data : null;
+                const modelsData = modelsRes.status === 'fulfilled' && typeof modelsRes.value?.data === 'object' && modelsRes.value?.data?.models ? modelsRes.value.data : null;
+
+                if (quotaData || modelsData) {
                     return {
-                        ...res.data,
+                        ...(modelsData || {}),
+                        ...(quotaData || {}),
                         tierId: this.tierId,
                         account: this.accountEmail
                     };

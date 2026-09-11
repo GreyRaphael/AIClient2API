@@ -115,7 +115,13 @@ export async function loadUsage() {
  */
 export async function refreshUsage() {
     const refreshBtn = document.getElementById('refreshUsageBtn');
+    const refreshIcon = refreshBtn?.querySelector('i');
     if (refreshBtn) refreshBtn.disabled = true;
+    if (refreshIcon) refreshIcon.classList.add('fa-spin');
+
+    // 为当前所有卡片上的刷新按钮添加旋转动画，提供直观的刷新反馈
+    const cardIcons = document.querySelectorAll('.usage-instance-card .btn-refresh-usage i');
+    cardIcons.forEach(icon => icon.classList.add('fa-spin'));
 
     try {
         // 使用更明显的反馈：显示加载中的 Toast
@@ -129,7 +135,7 @@ export async function refreshUsage() {
         
         const data = await response.json();
         
-        // 渲染数据
+        // 渲染数据（就地更新，保留展开/折叠状态）
         renderUsageData(data, document.getElementById('usageContent'));
         updateTimeInfo(data);
         
@@ -140,6 +146,8 @@ export async function refreshUsage() {
         showToast(t('common.error'), error.message || t('common.requestFailed'), 'error');
     } finally {
         if (refreshBtn) refreshBtn.disabled = false;
+        if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+        document.querySelectorAll('.usage-instance-card .btn-refresh-usage i.fa-spin').forEach(icon => icon.classList.remove('fa-spin'));
     }
 }
 
@@ -147,6 +155,12 @@ export async function refreshUsage() {
  * 刷新单个实例
  */
 export async function refreshSingleInstanceUsage(providerType, uuid, displayName) {
+    const card = document.querySelector(`.usage-instance-card[data-uuid="${uuid}"]`);
+    const refreshBtn = card?.querySelector('.btn-refresh-usage');
+    const refreshIcon = refreshBtn?.querySelector('i');
+    if (refreshBtn) refreshBtn.disabled = true;
+    if (refreshIcon) refreshIcon.classList.add('fa-spin');
+
     try {
         showToast(t('usage.refreshingInstance', { name: displayName }), 'info');
         const response = await fetch(`/api/usage/${providerType}/${uuid}?refresh=true`, { 
@@ -171,6 +185,9 @@ export async function refreshSingleInstanceUsage(providerType, uuid, displayName
     } catch (error) {
         console.error('刷新单个实例用量失败:', error);
         showToast(error.message || t('common.requestFailed'), 'error');
+    } finally {
+        if (refreshBtn) refreshBtn.disabled = false;
+        if (refreshIcon) refreshIcon.classList.remove('fa-spin');
     }
 }
 
@@ -217,6 +234,22 @@ async function resetSingleInstanceUsage(providerType, uuid, displayName, buttonE
 }
 
 /**
+ * 更新分组头部统计数量
+ */
+function updateGroupHeaderStats(group) {
+    if (!group) return;
+    const cards = group.querySelectorAll('.usage-instance-card');
+    const successCount = group.querySelectorAll('.usage-instance-card.success').length;
+    const countEl = group.querySelector('.instance-count');
+    if (countEl) countEl.textContent = t('usage.group.instances', { count: cards.length });
+    const successEl = group.querySelector('.success-count');
+    if (successEl) {
+        successEl.textContent = t('usage.group.success', { count: successCount, total: cards.length });
+        successEl.classList.toggle('all-success', successCount === cards.length && cards.length > 0);
+    }
+}
+
+/**
  * 更新单个实例卡片 (局部更新 DOM)
  */
 function updateSingleInstanceCard(providerType, instanceData) {
@@ -229,8 +262,6 @@ function updateSingleInstanceCard(providerType, instanceData) {
     const grid = group.querySelector('.usage-cards-grid');
     if (!grid) return;
 
-    // 找到该实例的卡片。卡片本身没有 data-uuid 属性，我们需要通过内部的 span 查找或添加它
-    // 在 createInstanceUsageCard 中，我们可以为卡片添加 data-uuid
     const cards = grid.querySelectorAll('.usage-instance-card');
     let targetCard = null;
     
@@ -246,7 +277,12 @@ function updateSingleInstanceCard(providerType, instanceData) {
         const newCard = createInstanceUsageCard(instanceData, providerType);
         newCard.classList.toggle('collapsed', isCollapsed);
         grid.replaceChild(newCard, targetCard);
+    } else {
+        const newCard = createInstanceUsageCard(instanceData, providerType);
+        grid.appendChild(newCard);
     }
+
+    updateGroupHeaderStats(group);
 }
 
 /**
@@ -280,9 +316,9 @@ export async function refreshProviderUsage(providerType) {
 /**
  * 更新单个提供商分组 (局部更新 DOM)
  */
-function updateSingleProviderGroup(providerType, providerData) {
+function updateSingleProviderGroup(providerType, providerData, expandedCards = null) {
     const container = document.getElementById('usageContent');
-    if (!container) return;
+    if (!container) return null;
 
     const existingGroup = container.querySelector(`.usage-provider-group[data-provider="${providerType}"]`);
     const instances = (providerData.instances || []).filter(i => !i.isDisabled && !i.error?.includes('not initialized'));
@@ -292,21 +328,50 @@ function updateSingleProviderGroup(providerType, providerData) {
         if (container.children.length === 0) {
             renderUsageData({ providers: {} }, container);
         }
-        return;
+        return null;
     }
 
-    const newGroup = createProviderGroup(providerType, instances);
     if (existingGroup) {
-        // 保留展开/折叠状态
-        if (!existingGroup.classList.contains('collapsed')) {
-            newGroup.classList.remove('collapsed');
+        const grid = existingGroup.querySelector('.usage-cards-grid');
+        if (grid) {
+            const currentCards = Array.from(grid.querySelectorAll('.usage-instance-card'));
+            const currentCardMap = new Map(currentCards.map(c => [c.getAttribute('data-uuid'), c]));
+            const instanceUuids = new Set(instances.map(i => i.uuid));
+
+            // 移除已删除的实例卡片
+            for (const [uuid, card] of currentCardMap) {
+                if (!instanceUuids.has(uuid)) {
+                    card.remove();
+                }
+            }
+
+            // 更新或追加实例卡片，保留每张卡片的折叠状态
+            instances.forEach(inst => {
+                const existingCard = currentCardMap.get(inst.uuid);
+                let isCollapsed = true;
+                if (existingCard) {
+                    isCollapsed = existingCard.classList.contains('collapsed');
+                } else if (expandedCards) {
+                    isCollapsed = !expandedCards.has(inst.uuid);
+                }
+                const newCard = createInstanceUsageCard(inst, providerType);
+                newCard.classList.toggle('collapsed', isCollapsed);
+                
+                if (existingCard) {
+                    grid.replaceChild(newCard, existingCard);
+                } else {
+                    grid.appendChild(newCard);
+                }
+            });
+
+            updateGroupHeaderStats(existingGroup);
+            return existingGroup;
         }
-        container.replaceChild(newGroup, existingGroup);
-    } else {
-        // 如果原本没有，则按顺序插入或直接追加
-        container.appendChild(newGroup);
-        // 这里简化处理，实际可能需要根据 displayOrder 重新排序
     }
+
+    // 如果不存在现有组，创建新组
+    const newGroup = createProviderGroup(providerType, instances, expandedCards);
+    return newGroup;
 }
 
 /**
@@ -330,11 +395,10 @@ function updateTimeInfo(data) {
 }
 
 /**
- * 渲染数据
+ * 渲染数据 (支持增量更新，保留展开/折叠状态)
  */
 function renderUsageData(data, container) {
     if (!container) return;
-    container.innerHTML = '';
 
     if (!data?.providers || Object.keys(data.providers).length === 0) {
         container.innerHTML = `<div class="usage-empty"><p>${t('usage.noData')}</p></div>`;
@@ -348,16 +412,55 @@ function renderUsageData(data, container) {
         if (valid.length > 0) groupedInstances[type] = valid;
     }
 
+    if (Object.keys(groupedInstances).length === 0) {
+        container.innerHTML = `<div class="usage-empty"><p>${t('usage.noData')}</p></div>`;
+        return;
+    }
+
+    // 记录刷新前的展开状态（Provider Group 和 Instance Card）
+    const expandedGroups = new Set(
+        Array.from(container.querySelectorAll('.usage-provider-group:not(.collapsed)'))
+            .map(el => el.getAttribute('data-provider'))
+    );
+    const expandedCards = new Set(
+        Array.from(container.querySelectorAll('.usage-instance-card:not(.collapsed)'))
+            .map(el => el.getAttribute('data-uuid'))
+    );
+
+    // 清除空状态占位
+    const emptyEl = container.querySelector('.usage-empty');
+    if (emptyEl) container.innerHTML = '';
+
+    // 移除不再存在的组
+    const existingGroups = container.querySelectorAll('.usage-provider-group');
+    existingGroups.forEach(group => {
+        const type = group.getAttribute('data-provider');
+        if (!groupedInstances[type]) {
+            group.remove();
+        }
+    });
+
     const displayOrder = currentProviderConfigs ? currentProviderConfigs.map(c => c.id) : Object.keys(groupedInstances);
     displayOrder.forEach(type => {
-        if (groupedInstances[type]) container.appendChild(createProviderGroup(type, groupedInstances[type]));
+        if (!groupedInstances[type]) return;
+        const existingGroup = container.querySelector(`.usage-provider-group[data-provider="${type}"]`);
+        if (existingGroup) {
+            updateSingleProviderGroup(type, { instances: groupedInstances[type] }, expandedCards);
+            container.appendChild(existingGroup); // 保留并按displayOrder排序
+        } else {
+            const newGroup = createProviderGroup(type, groupedInstances[type], expandedCards);
+            if (expandedGroups.has(type)) {
+                newGroup.classList.remove('collapsed');
+            }
+            container.appendChild(newGroup);
+        }
     });
 }
 
 /**
  * 创建分组
  */
-function createProviderGroup(providerType, instances) {
+function createProviderGroup(providerType, instances, expandedCards = null) {
     const group = document.createElement('div');
     group.className = 'usage-provider-group collapsed';
     group.setAttribute('data-provider', providerType);
@@ -392,7 +495,13 @@ function createProviderGroup(providerType, instances) {
     };
     
     const grid = group.querySelector('.usage-cards-grid');
-    instances.forEach(inst => grid.appendChild(createInstanceUsageCard(inst, providerType)));
+    instances.forEach(inst => {
+        const card = createInstanceUsageCard(inst, providerType);
+        if (expandedCards && expandedCards.has(inst.uuid)) {
+            card.classList.remove('collapsed');
+        }
+        grid.appendChild(card);
+    });
 
     return group;
 }
@@ -428,9 +537,9 @@ function createInstanceUsageCard(instance, providerType) {
             ${instance.success ? `
             <div class="collapsed-summary-row collapsed-summary-usage-row">
                 <div class="collapsed-progress-bar ${summary.status}"><div class="progress-fill" style="width: ${summary.usedPercent}%"></div></div>
-                <span class="collapsed-percent">
+                <span class="collapsed-percent" title="${summary.remainingPercent !== undefined ? `${t('usage.usedPrefix') || '已用'}: ${summary.usedPercent.toFixed(1)}%, ${t('usage.remainingPrefix') || '剩余'}: ${summary.remainingPercent.toFixed(1)}%` : ''}">
                     ${summary.unit === 'percent' 
-                        ? `${summary.usedPercent.toFixed(1)}%` 
+                        ? `${summary.usedPercent.toFixed(1)}%${summary.remainingPercent !== undefined ? ` <span class="collapsed-remaining" style="font-size: 0.85em; opacity: 0.8;">(${t('usage.remainingPrefixShort') || '余'}${summary.remainingPercent.toFixed(1)}%)</span>` : ''}` 
                         : `${formatNumber(summary.totalUsed || 0)} / ${formatNumber(summary.totalLimit || 0)}`
                     }
                 </span>
@@ -498,10 +607,13 @@ function renderUsageDetails(usage) {
     if (summary?.usedPercent !== undefined) {
         const total = document.createElement('div');
         total.className = 'usage-section total-usage';
+        const remainingHint = summary.remainingPercent !== undefined 
+            ? `<span class="remaining-hint" style="font-size: 0.85em; opacity: 0.85; font-weight: normal; margin-left: 6px;">(${t('usage.remainingPrefix') || '剩余'} ${summary.remainingPercent.toFixed(1)}%)</span>` 
+            : '';
         total.innerHTML = `
             <div class="total-usage-header">
                 <span class="total-label"><i class="fas fa-chart-pie"></i> <span>${t('usage.card.totalUsage')}</span></span>
-                <span class="total-value">${summary.usedPercent.toFixed(1)}%</span>
+                <span class="total-value">${summary.usedPercent.toFixed(1)}%${remainingHint}</span>
             </div>
             <div class="progress-bar ${summary.status}"><div class="progress-fill" style="width: ${summary.usedPercent}%"></div></div>
             <div class="total-footer">
@@ -515,11 +627,35 @@ function renderUsageDetails(usage) {
         const breakdown = document.createElement('div');
         breakdown.className = 'usage-section usage-breakdown-compact';
         items.forEach(item => {
-            const val = item.unit === 'percent' ? `${item.percent.toFixed(1)}%` : `${formatNumber(item.used)} / ${formatNumber(item.limit)}`;
+            let val;
+            if (item.unit === 'percent') {
+                const rem = item.remainingPercent !== undefined 
+                    ? ` <span class="breakdown-remaining" style="font-size: 0.85em; opacity: 0.85; font-weight: normal;">(${t('usage.remainingPrefix') || '剩余'} ${item.remainingPercent.toFixed(1)}%)</span>` 
+                    : '';
+                val = `${item.percent.toFixed(1)}%${rem}`;
+            } else {
+                val = `${formatNumber(item.used)} / ${formatNumber(item.limit)}`;
+            }
+
+            let itemLabel = item.label;
+            if (item.id === 'secondary_window' || item.label === 'Weekly Limit') {
+                itemLabel = t('usage.weeklyLimit');
+            } else if (item.id === 'primary_window' || item.label === 'Request Quota (5h)') {
+                itemLabel = t('usage.codex.primaryWindow');
+            } else if (item.id === 'gemini-weekly') {
+                itemLabel = t('usage.antigravity.geminiWeekly') || 'Gemini 模型 - 每周限制';
+            } else if (item.id === 'gemini-5h') {
+                itemLabel = t('usage.antigravity.gemini5h') || 'Gemini 模型 - 5小时限制';
+            } else if (item.id === '3p-weekly') {
+                itemLabel = t('usage.antigravity.claudeWeekly') || 'Claude/GPT 模型 - 每周限制';
+            } else if (item.id === '3p-5h') {
+                itemLabel = t('usage.antigravity.claude5h') || 'Claude/GPT 模型 - 5小时限制';
+            }
+
             const itemEl = document.createElement('div');
             itemEl.className = 'breakdown-item-compact';
             itemEl.innerHTML = `
-                <div class="breakdown-header-compact"><span class="breakdown-name">${item.label}</span><span class="breakdown-usage">${val}</span></div>
+                <div class="breakdown-header-compact"><span class="breakdown-name">${itemLabel}</span><span class="breakdown-usage">${val}</span></div>
                 <div class="progress-bar-small ${item.status}"><div class="progress-fill" style="width: ${item.percent}%"></div></div>
                 ${item.resetAt ? `<div class="extra-usage-info reset-time"><i class="fas fa-history"></i> ${formatDate(item.resetAt)}</div>` : ''}
             `;

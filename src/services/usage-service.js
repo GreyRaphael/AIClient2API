@@ -123,8 +123,9 @@ export class UsageService {
      * @private
      */
     async _getRawUsageFromAdapter(providerType, uuid = null) {
-        const providerKey = uuid ? providerType + uuid : providerType;
-        const adapter = serviceInstances[providerKey];
+        const targetUuid = (uuid && uuid !== 'default') ? uuid : null;
+        const providerKey = targetUuid ? providerType + targetUuid : providerType;
+        const adapter = serviceInstances[providerKey] || serviceInstances[providerType];
         
         if (!adapter) {
             throw new Error(`${providerType} 服务实例未找到: ${providerKey}`);
@@ -422,6 +423,7 @@ export function formatGeminiUsage(usageData) {
                 used: percent,
                 limit: 100,
                 percent,
+                remainingPercent: Math.max(0, 100 - percent),
                 unit: 'percent',
                 status: getStatus(percent),
                 resetAt: formatTimestamp(bucket.resetTime)
@@ -438,6 +440,7 @@ export function formatGeminiUsage(usageData) {
         return {
             summary: {
                 usedPercent: avgUsedPercent,
+                remainingPercent: Math.max(0, 100 - avgUsedPercent),
                 status: getStatus(avgUsedPercent),
                 resetAt: formatTimestamp(maxResetAt),
                 plan,
@@ -459,9 +462,90 @@ export function formatGeminiUsage(usageData) {
  */
 export function formatAntigravityUsage(usageData) {
     if (!usageData) return null;
+    if (usageData.summary && usageData.items) return usageData;
 
-    // 检查是否为原始 API 响应 (包含 models 对象且内部有 quotaInfo)
-    if (usageData.models && typeof usageData.models === 'object' && !usageData.summary) {
+    // 1. 优先使用按配额组划分的数据 (包含 groups 数组，提供每周限制和5小时限制)
+    if (usageData.groups && Array.isArray(usageData.groups)) {
+        const items = [];
+        
+        for (const group of usageData.groups) {
+            if (!group.buckets || !Array.isArray(group.buckets)) continue;
+            for (const bucket of group.buckets) {
+                const remaining = typeof bucket.remainingFraction === 'number' ? bucket.remainingFraction : 1;
+                const percent = Math.max(0, Math.min(100, (1 - remaining) * 100));
+                const remainingPercent = Math.max(0, Math.min(100, remaining * 100));
+                
+                let defaultLabel = bucket.displayName || bucket.bucketId;
+                if (bucket.bucketId === 'gemini-weekly') {
+                    defaultLabel = 'Gemini Models - Weekly Limit';
+                } else if (bucket.bucketId === 'gemini-5h') {
+                    defaultLabel = 'Gemini Models - 5h Limit';
+                } else if (bucket.bucketId === '3p-weekly') {
+                    defaultLabel = 'Claude/GPT Models - Weekly Limit';
+                } else if (bucket.bucketId === '3p-5h') {
+                    defaultLabel = 'Claude/GPT Models - 5h Limit';
+                } else if (group.displayName) {
+                    defaultLabel = `${group.displayName} - ${bucket.displayName || bucket.bucketId}`;
+                }
+
+                items.push({
+                    id: bucket.bucketId,
+                    label: defaultLabel,
+                    group: group.displayName,
+                    window: bucket.window,
+                    used: percent,
+                    limit: 100,
+                    percent,
+                    remainingPercent,
+                    unit: 'percent',
+                    status: getStatus(percent),
+                    resetAt: formatTimestamp(bucket.resetTime),
+                    description: bucket.description
+                });
+            }
+        }
+
+        // 排序规则：按业务优先级，周配额优先展示 (gemini-weekly -> 3p-weekly -> gemini-5h -> 3p-5h)
+        const bucketOrder = {
+            'gemini-weekly': 1,
+            '3p-weekly': 2,
+            'gemini-5h': 3,
+            '3p-5h': 4
+        };
+        items.sort((a, b) => {
+            const orderA = bucketOrder[a.id] || (a.window === 'weekly' ? 10 : 20);
+            const orderB = bucketOrder[b.id] || (b.window === 'weekly' ? 10 : 20);
+            return orderA - orderB;
+        });
+
+        // 概要指标：优先展示周用量（用户关心的长期配额核心指标，例如 gemini-weekly）
+        const primaryWeekly = items.find(i => i.id === 'gemini-weekly') || items.find(i => i.window === 'weekly') || items[0];
+        const usedPercent = primaryWeekly ? primaryWeekly.percent : 0;
+        const remainingPercent = primaryWeekly ? primaryWeekly.remainingPercent : 100;
+        const resetAt = primaryWeekly ? primaryWeekly.resetAt : null;
+        const plan = parseTierId(usageData.tierId);
+
+        return {
+            summary: {
+                usedPercent,
+                remainingPercent,
+                status: getStatus(usedPercent),
+                resetAt,
+                plan,
+                planClass: getPlanClass(plan),
+                unit: 'percent',
+                periodType: 'weekly'
+            },
+            user: { 
+                email: usageData.account || null
+            },
+            items,
+            raw: usageData
+        };
+    }
+
+    // 2. 兼容回退：如果 API 仅返回 models 对象且无 groups
+    if (usageData.models && typeof usageData.models === 'object') {
         const supportedModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
         const items = [];
         let totalPercent = 0;
@@ -479,6 +563,7 @@ export function formatAntigravityUsage(usageData) {
                 const qInfo = modelData.quotaInfo;
                 const remaining = typeof qInfo.remainingFraction === 'number' ? qInfo.remainingFraction : (qInfo.remaining || 0);
                 const percent = (1 - remaining) * 100;
+                const remainingPercent = remaining * 100;
                 
                 totalPercent += percent;
                 if (!maxResetAt || qInfo.resetTime > maxResetAt) {
@@ -491,6 +576,7 @@ export function formatAntigravityUsage(usageData) {
                     used: percent,
                     limit: 100,
                     percent,
+                    remainingPercent,
                     unit: 'percent',
                     status: getStatus(percent),
                     resetAt: formatTimestamp(qInfo.resetTime)
@@ -503,11 +589,13 @@ export function formatAntigravityUsage(usageData) {
 
         // 计算平均使用率作为概要
         const avgUsedPercent = items.length > 0 ? totalPercent / items.length : 0;
+        const avgRemainingPercent = 100 - avgUsedPercent;
         const plan = parseTierId(usageData.tierId);
 
         return {
             summary: {
                 usedPercent: avgUsedPercent,
+                remainingPercent: avgRemainingPercent,
                 status: getStatus(avgUsedPercent),
                 resetAt: formatTimestamp(maxResetAt),
                 plan,
@@ -688,54 +776,54 @@ export function formatCodexUsage(usageData) {
     const primaryUsedPercent = primary?.used_percent ?? primary?.usedPercent ?? 0;
     const secondaryUsedPercent = secondary?.used_percent ?? secondary?.usedPercent ?? 0;
 
-    let maxUsedPercent = 0;
-    let worstResetAtTimestamp = null;
     const items = [];
 
-    // 1. 处理主窗口（短时间配额）
-    if (primary) {
-        maxUsedPercent = primaryUsedPercent;
-        worstResetAtTimestamp = primary?.reset_at ?? primary?.resetAt;
-        
-        items.push({
-            id: 'primary_window',
-            label: 'Request Quota (5h)',
-            used: primaryUsedPercent,
-            limit: 100,
-            percent: primaryUsedPercent,
-            unit: 'percent',
-            status: getStatus(primaryUsedPercent),
-            resetAt: formatTimestamp(worstResetAtTimestamp)
-        });
-    }
-
-    // 2. 比较并添加从窗口（周配额）
+    // 1. 周配额窗口（优先作为主要展示指标）
     if (secondary) {
         const secondaryResetAt = secondary?.reset_at ?? secondary?.resetAt;
-        if (secondaryUsedPercent > maxUsedPercent) {
-            maxUsedPercent = secondaryUsedPercent;
-            worstResetAtTimestamp = secondaryResetAt;
-        }
-        
         items.push({
             id: 'secondary_window',
             label: 'Weekly Limit',
             used: secondaryUsedPercent,
             limit: 100,
             percent: secondaryUsedPercent,
+            remainingPercent: Math.max(0, 100 - secondaryUsedPercent),
             unit: 'percent',
             status: getStatus(secondaryUsedPercent),
             resetAt: formatTimestamp(secondaryResetAt)
         });
     }
 
+    // 2. 短期主窗口（5小时配额）
+    if (primary) {
+        const primaryResetAt = primary?.reset_at ?? primary?.resetAt;
+        items.push({
+            id: 'primary_window',
+            label: 'Request Quota (5h)',
+            used: primaryUsedPercent,
+            limit: 100,
+            percent: primaryUsedPercent,
+            remainingPercent: Math.max(0, 100 - primaryUsedPercent),
+            unit: 'percent',
+            status: getStatus(primaryUsedPercent),
+            resetAt: formatTimestamp(primaryResetAt)
+        });
+    }
+
+    // 概要指标：优先展示周用量（用户主要关心的长期配额指标）；无周用量时回退到 5 小时用量
+    const summaryUsedPercent = secondary ? secondaryUsedPercent : (primary ? primaryUsedPercent : 0);
+    const summaryResetAt = secondary 
+        ? (secondary?.reset_at ?? secondary?.resetAt) 
+        : (primary?.reset_at ?? primary?.resetAt);
+
     const plan = usageData.plan_type || usageData.planType || 'FREE';
 
     return {
         summary: {
-            usedPercent: maxUsedPercent,
-            status: getStatus(maxUsedPercent),
-            resetAt: formatTimestamp(worstResetAtTimestamp),
+            usedPercent: summaryUsedPercent,
+            remainingPercent: Math.max(0, 100 - summaryUsedPercent),
+            status: getStatus(summaryUsedPercent),
+            resetAt: formatTimestamp(summaryResetAt),
             plan,
             planClass: getPlanClass(plan),
             unit: 'percent',

@@ -96,6 +96,18 @@ function loadProviderList(providerType, currentConfig, providerPoolManager) {
     } catch (fileError) {
         logger.warn(`[Usage API] Failed to load provider pools from file: ${fileError.message}`);
     }
+
+    // 补充兜底：如果号池中没有配置，但当前活跃的单提供商或服务适配器匹配此类型
+    const activeProviders = (currentConfig.MODEL_PROVIDER || '').split(',').map(p => p.trim());
+    if (activeProviders.includes(providerType) || serviceInstances[providerType]) {
+        return [{
+            uuid: 'default',
+            customName: `${providerType} (Default)`,
+            isHealthy: true,
+            isDisabled: false
+        }];
+    }
+
     return [];
 }
 
@@ -120,9 +132,9 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
 
     result.totalCount = providers.length;
 
-    // 遍历所有提供商实例获取用量
-    for (const provider of providers) {
-        const providerKey = providerType + (provider.uuid || '');
+    // 并发获取该提供商下所有实例的用量，避免串行阻塞与单个实例超时拖垮全局刷新
+    const instancePromises = providers.map(async (provider) => {
+        const providerKey = (provider.uuid && provider.uuid !== 'default') ? providerType + provider.uuid : providerType;
         let adapter = serviceInstances[providerKey];
         
         const instanceResult = {
@@ -139,8 +151,10 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
         // First check if disabled, skip initialization for disabled providers
         if (provider.isDisabled) {
             instanceResult.error = 'Provider is disabled';
-            result.errorCount++;
-        } else if (!adapter) {
+            return instanceResult;
+        }
+
+        if (!adapter) {
             // Service instance not initialized, try auto-initialization
             try {
                 logger.info(`[Usage API] Auto-initializing service adapter for ${providerType}: ${provider.uuid}`);
@@ -154,25 +168,30 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
             } catch (initError) {
                 logger.error(`[Usage API] Failed to initialize adapter for ${providerType}: ${provider.uuid}:`, initError.message);
                 instanceResult.error = `Service instance initialization failed: ${initError.message}`;
-                result.errorCount++;
+                return instanceResult;
             }
         }
         
         // If adapter exists (including just initialized), and no error, try to get usage
         if (adapter && !instanceResult.error) {
             try {
-                const usage = await usageService.getFormattedUsage(providerType, provider.uuid);
+                const queryUuid = provider.uuid === 'default' ? null : provider.uuid;
+                const usage = await usageService.getFormattedUsage(providerType, queryUuid);
                 instanceResult.success = true;
                 instanceResult.usage = usage;
-                result.successCount++;
             } catch (error) {
+                logger.warn(`[Usage API] Failed to fetch usage for ${providerType}:${provider.uuid}: ${error.message}`);
                 instanceResult.error = error.message;
-                result.errorCount++;
             }
         }
 
-        result.instances.push(instanceResult);
-    }
+        return instanceResult;
+    });
+
+    const instances = await Promise.all(instancePromises);
+    result.instances = instances;
+    result.successCount = instances.filter(i => i.success).length;
+    result.errorCount = instances.filter(i => !i.success).length;
 
     return result;
 }
@@ -253,13 +272,22 @@ function reformatUsageResults(results) {
 
 async function resolveProviderInstance(currentConfig, providerPoolManager, providerType, uuid) {
     const providers = loadProviderList(providerType, currentConfig, providerPoolManager);
-    const provider = providers.find(p => p.uuid === uuid);
+    let provider = providers.find(p => p.uuid === uuid);
+
+    if (!provider && (uuid === 'default' || !uuid)) {
+        provider = {
+            uuid: 'default',
+            customName: `${providerType} (Default)`,
+            isHealthy: true,
+            isDisabled: false
+        };
+    }
 
     if (!provider) {
         throw new Error(`未找到指定的提供商实例: ${uuid}`);
     }
 
-    const providerKey = providerType + (provider.uuid || '');
+    const providerKey = (provider.uuid && provider.uuid !== 'default') ? providerType + provider.uuid : providerType;
     let adapter = serviceInstances[providerKey];
 
     const instanceResult = {
@@ -292,9 +320,27 @@ async function resolveProviderInstance(currentConfig, providerPoolManager, provi
 
 async function updateSingleInstanceInCache(providerType, uuid, instanceResult) {
     try {
-        const cache = await readUsageCache();
-        if (!cache?.providers?.[providerType]?.instances || !Array.isArray(cache.providers[providerType].instances)) {
-            return;
+        let cache = await readUsageCache();
+        if (!cache) {
+            cache = {
+                timestamp: new Date().toISOString(),
+                providers: {}
+            };
+        }
+        if (!cache.providers) {
+            cache.providers = {};
+        }
+        if (!cache.providers[providerType]) {
+            cache.providers[providerType] = {
+                providerType,
+                instances: [],
+                totalCount: 0,
+                successCount: 0,
+                errorCount: 0
+            };
+        }
+        if (!Array.isArray(cache.providers[providerType].instances)) {
+            cache.providers[providerType].instances = [];
         }
 
         const providerCache = cache.providers[providerType];
@@ -423,7 +469,8 @@ export async function handleGetSingleInstanceUsage(req, res, currentConfig, prov
 
         if (adapter && !instanceResult.error) {
             try {
-                const usage = await usageService.getFormattedUsage(providerType, provider.uuid);
+                const queryUuid = (provider.uuid === 'default' || !provider.uuid) ? null : provider.uuid;
+                const usage = await usageService.getFormattedUsage(providerType, queryUuid);
                 instanceResult.success = true;
                 instanceResult.usage = usage;
             } catch (error) {
