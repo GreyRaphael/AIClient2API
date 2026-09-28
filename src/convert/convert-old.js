@@ -87,7 +87,15 @@ function _cleanJsonSchemaProperties(schema) {
     const sanitized = {};
     for (const [key, value] of Object.entries(schema)) {
         if (["type", "description", "properties", "required", "enum", "items"].includes(key)) {
-            sanitized[key] = value;
+            // Gemini 要求 enum 元素为非空字符串
+            if (key === 'enum' && Array.isArray(value)) {
+                const strEnum = value.filter(v => typeof v === 'string' && v.length > 0);
+                if (strEnum.length > 0) {
+                    sanitized[key] = strEnum;
+                }
+            } else {
+                sanitized[key] = value;
+            }
         }
     }
 
