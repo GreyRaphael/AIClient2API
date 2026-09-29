@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * 转换器公共工具函数模块
  * 提供各种协议转换所需的通用辅助函数
@@ -233,9 +235,10 @@ function handleOpenAITypeField(sanitized, typeValue) {
  * 通用 JSON Schema 清理函数
  * @param {Object} schema - JSON Schema
  * @param {Object} options - 清理选项
- * @param {Array} options.allowedKeys - 允许的键白名单（可选）
- * @param {Array} options.excludedKeys - 排除的键黑名单（可选）
+ * @param {string[]} [options.allowedKeys] - 允许的键白名单（可选）
+ * @param {string[]} [options.excludedKeys] - 排除的键黑名单（可选）
  * @param {Function} options.typeHandler - type 字段处理函数
+ * @param {boolean} [options.sanitizeEnum] - 是否过滤无效枚举值（可选）
  * @param {Function} recursiveFn - 递归调用的函数
  * @returns {Object} 清理后的 JSON Schema
  */

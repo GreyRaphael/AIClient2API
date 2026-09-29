@@ -1,57 +1,74 @@
+// @ts-check
+
 /**
  * 转换器基类
- * 使用策略模式定义转换器的通用接口
+ * 使用策略模式定义转换器的通用接口与强类型契约
+ */
+
+/**
+ * @typedef {import('../../types/converters.js').IProtocolConverter} IProtocolConverter
+ * @typedef {import('../../types/protocols/common.js').CrossProtocolRequest} CrossProtocolRequest
+ * @typedef {import('../../types/protocols/common.js').CrossProtocolResponse} CrossProtocolResponse
+ * @typedef {import('../../types/protocols/common.js').CrossProtocolStreamChunk} CrossProtocolStreamChunk
  */
 
 /**
  * 抽象转换器基类
  * 所有具体的协议转换器都应继承此类
+ * @implements {IProtocolConverter}
  */
 export class BaseConverter {
+    /**
+     * @param {string} protocolName - 协议名称
+     */
     constructor(protocolName) {
         if (new.target === BaseConverter) {
             throw new Error('BaseConverter是抽象类，不能直接实例化');
         }
+        /** @type {string} */
         this.protocolName = protocolName;
     }
 
     /**
      * 转换请求
-     * @param {Object} data - 请求数据
+     * @param {CrossProtocolRequest} data - 请求数据
      * @param {string} targetProtocol - 目标协议
-     * @returns {Object} 转换后的请求
+     * @param {string} [requestId] - 请求 ID
+     * @returns {CrossProtocolRequest} 转换后的请求
      */
-    convertRequest(data, targetProtocol) {
+    convertRequest(data, targetProtocol, requestId) {
         throw new Error('convertRequest方法必须被子类实现');
     }
 
     /**
      * 转换响应
-     * @param {Object} data - 响应数据
+     * @param {CrossProtocolResponse} data - 响应数据
      * @param {string} targetProtocol - 目标协议
-     * @param {string} model - 模型名称
-     * @returns {Object} 转换后的响应
+     * @param {string} [model] - 模型名称
+     * @param {string} [requestId] - 请求 ID
+     * @returns {CrossProtocolResponse} 转换后的响应
      */
-    convertResponse(data, targetProtocol, model) {
+    convertResponse(data, targetProtocol, model, requestId) {
         throw new Error('convertResponse方法必须被子类实现');
     }
 
     /**
      * 转换流式响应块
-     * @param {Object} chunk - 流式响应块
+     * @param {CrossProtocolStreamChunk} chunk - 流式响应块
      * @param {string} targetProtocol - 目标协议
-     * @param {string} model - 模型名称
-     * @returns {Object} 转换后的流式响应块
+     * @param {string} [model] - 模型名称
+     * @param {string} [requestId] - 请求 ID
+     * @returns {CrossProtocolStreamChunk} 转换后的流式响应块
      */
-    convertStreamChunk(chunk, targetProtocol, model) {
+    convertStreamChunk(chunk, targetProtocol, model, requestId) {
         throw new Error('convertStreamChunk方法必须被子类实现');
     }
 
     /**
      * 转换模型列表
-     * @param {Object} data - 模型列表数据
+     * @param {any} data - 模型列表数据
      * @param {string} targetProtocol - 目标协议
-     * @returns {Object} 转换后的模型列表
+     * @returns {any} 转换后的模型列表
      */
     convertModelList(data, targetProtocol) {
         throw new Error('convertModelList方法必须被子类实现');
@@ -88,8 +105,8 @@ export class ContentProcessor {
 export class ToolProcessor {
     /**
      * 处理工具定义
-     * @param {Array} tools - 工具定义数组
-     * @returns {Array} 处理后的工具定义
+     * @param {any[]} tools - 工具定义数组
+     * @returns {any[]} 处理后的工具定义
      */
     processToolDefinitions(tools) {
         throw new Error('processToolDefinitions方法必须被子类实现');
@@ -97,8 +114,8 @@ export class ToolProcessor {
 
     /**
      * 处理工具调用
-     * @param {Object} toolCall - 工具调用数据
-     * @returns {Object} 处理后的工具调用
+     * @param {Record<string, any>} toolCall - 工具调用数据
+     * @returns {Record<string, any>} 处理后的工具调用
      */
     processToolCall(toolCall) {
         throw new Error('processToolCall方法必须被子类实现');
@@ -106,8 +123,8 @@ export class ToolProcessor {
 
     /**
      * 处理工具结果
-     * @param {Object} toolResult - 工具结果数据
-     * @returns {Object} 处理后的工具结果
+     * @param {Record<string, any>} toolResult - 工具结果数据
+     * @returns {Record<string, any>} 处理后的工具结果
      */
     processToolResult(toolResult) {
         throw new Error('processToolResult方法必须被子类实现');

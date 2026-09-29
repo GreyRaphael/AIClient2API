@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0
+  },
+  "include": [
+    "types/**/*",
+    "src/convert/convert.js",
+    "src/converters/BaseConverter.js",
+    "src/converters/ConverterFactory.js",
+    "src/converters/utils.js",
+    "src/converters/type-guards.js"
+  ]
+}

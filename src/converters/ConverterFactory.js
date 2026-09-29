@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * 转换器工厂类
  * 使用工厂模式管理转换器实例的创建和缓存
@@ -7,19 +9,24 @@ import { MODEL_PROTOCOL_PREFIX } from '../utils/common.js';
 import logger from '../utils/logger.js';
 
 /**
+ * @typedef {import('./BaseConverter.js').BaseConverter} BaseConverter
+ * @typedef {new (...args: any[]) => BaseConverter} ConverterConstructor
+ */
+
+/**
  * 转换器工厂（单例模式 + 工厂模式）
  */
 export class ConverterFactory {
-    // 私有静态属性：存储转换器实例
+    /** @type {Map<string, BaseConverter>} */
     static #converters = new Map();
     
-    // 私有静态属性：存储转换器类
+    /** @type {Map<string, ConverterConstructor>} */
     static #converterClasses = new Map();
 
     /**
      * 注册转换器类
      * @param {string} protocolPrefix - 协议前缀
-     * @param {Class} ConverterClass - 转换器类
+     * @param {ConverterConstructor} ConverterClass - 转换器类
      */
     static registerConverter(protocolPrefix, ConverterClass) {
         this.#converterClasses.set(protocolPrefix, ConverterClass);
@@ -33,7 +40,8 @@ export class ConverterFactory {
     static getConverter(protocolPrefix) {
         // 检查缓存
         if (this.#converters.has(protocolPrefix)) {
-            return this.#converters.get(protocolPrefix);
+            const cached = this.#converters.get(protocolPrefix);
+            if (cached) return cached;
         }
 
         // 创建新实例
@@ -79,7 +87,7 @@ export class ConverterFactory {
 
     /**
      * 获取所有已注册的协议
-     * @returns {Array<string>} 协议前缀数组
+     * @returns {string[]} 协议前缀数组
      */
     static getRegisteredProtocols() {
         return Array.from(this.#converterClasses.keys());
