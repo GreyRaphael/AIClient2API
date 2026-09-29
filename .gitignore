@@ -20,5 +20,10 @@ api-potluck-data.json
 model-usage-stats.json
 AGENTS.md
 src/plugins-user/
+configs/pwd
+configs/antigravity/
+configs/zed/
+configs/grok-cli/
 
 /.codegraph/
+

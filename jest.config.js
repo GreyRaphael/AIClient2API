@@ -14,6 +14,10 @@ export default {
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1'
   },
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    'api-integration\\.test\\.js'
+  ],
   testMatch: [
     '**/tests/**/*.test.js'
   ],

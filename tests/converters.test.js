@@ -256,4 +256,61 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         const converted = convertData(req, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.GEMINI);
         expect(converted.generationConfig?.thinkingConfig?.thinkingLevel).toBe('HIGH');
     });
+
+    test('Fix 10: Gemini schema parameters filters empty and whitespace-only enum values', async () => {
+        const { cleanJsonSchemaProperties } = await import('../src/converters/utils.js');
+
+        // 1. 直接针对 cleanJsonSchemaProperties 进行单元测试
+        const schema = {
+            type: 'object',
+            properties: {
+                status: {
+                    type: 'string',
+                    enum: ['', '   ', '\t', 'active', 'inactive', null, 123]
+                },
+                emptyOnly: {
+                    type: 'string',
+                    enum: ['', '   ', '\n\t']
+                }
+            }
+        };
+
+        const cleaned = cleanJsonSchemaProperties(schema);
+        expect(cleaned.properties.status.enum).toEqual(['active', 'inactive']);
+        // 全空白/空串的 enum 属性应当被完全剔除，避免 Gemini 返回 400（不允许空 enum 数组）
+        expect(cleaned.properties.emptyOnly.enum).toBeUndefined();
+
+        // 2. 端到端协议转换测试：OpenAI 工具转 Gemini 工具
+        const openaiReqWithTools = {
+            model: 'gemini-2.5-flash',
+            messages: [{ role: 'user', content: 'check status' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'query_status',
+                    description: 'Query status with enum options',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            category: {
+                                type: 'string',
+                                enum: ['', '  ', 'order', 'refund']
+                            },
+                            placeholder: {
+                                type: 'string',
+                                enum: ['', ' ']
+                            }
+                        }
+                    }
+                }
+            }]
+        };
+
+        const geminiReq = convertData(openaiReqWithTools, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.GEMINI);
+        const funcDecl = geminiReq.tools[0].functionDeclarations[0];
+        const params = funcDecl.parametersJsonSchema || funcDecl.parameters;
+
+        expect(params.properties.category.enum).toEqual(['order', 'refund']);
+        expect(params.properties.placeholder.enum).toBeUndefined();
+    });
 });

@@ -262,10 +262,10 @@ function cleanJsonSchemaGeneric(schema, options, recursiveFn) {
             continue;
         }
 
-        // 处理 enum：Gemini 要求枚举元素为字符串（仅 sanitizeEnum 模式）
+        // 处理 enum：Gemini 要求枚举元素为非空且非纯空白字符串（仅 sanitizeEnum 模式）
         if (key === 'enum' && options.sanitizeEnum) {
             if (Array.isArray(value)) {
-                const strEnum = value.filter(v => typeof v === 'string' && v.length > 0);
+                const strEnum = value.filter(v => typeof v === 'string' && v.trim().length > 0);
                 if (strEnum.length > 0) {
                     sanitized[key] = strEnum;
                 }
