@@ -301,14 +301,6 @@ export function detectProviderFromPath(normalizedPath) {
     return null;
 }
 
-/**
- * 根据目录名获取提供商映射
- * @param {string} dirName - 目录名称
- * @returns {Object|null} 提供商映射对象，如果未找到则返回 null
- */
-export function getProviderMappingByDirName(dirName) {
-    return PROVIDER_MAPPINGS.find(m => m.dirName === dirName) || null;
-}
 
 /**
  * 验证文件是否是有效的 OAuth 凭据文件
@@ -402,16 +394,4 @@ export function addToUsedPaths(usedPaths, filePath) {
     } else {
         usedPaths.add('./' + normalizedPath);
     }
-}
-
-/**
- * 检查路径是否已关联（用于自动关联检测）
- * @param {string} relativePath - 相对路径
- * @param {Set} linkedPaths - 已关联路径的集合
- * @returns {boolean} 是否已关联
- */
-export function isPathLinked(relativePath, linkedPaths) {
-    return linkedPaths.has(relativePath) ||
-           linkedPaths.has('./' + relativePath) ||
-           linkedPaths.has(relativePath.replace(/^\.\//, ''));
 }

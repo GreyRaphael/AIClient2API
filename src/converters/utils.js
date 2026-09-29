@@ -3,17 +3,11 @@
  * 提供各种协议转换所需的通用辅助函数
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
 
 // =============================================================================
 // 常量定义
 // =============================================================================
-
-// 通用默认值
-export const DEFAULT_MAX_TOKENS = 8192;
-export const DEFAULT_TEMPERATURE = 1;
-export const DEFAULT_TOP_P = 0.95;
 
 // =============================================================================
 // OpenAI 相关常量
@@ -41,15 +35,6 @@ export const GEMINI_DEFAULT_INPUT_TOKEN_LIMIT = 32768;
 export const GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT = 65534;
 
 // =============================================================================
-// OpenAI Responses 相关常量
-// =============================================================================
-export const OPENAI_RESPONSES_DEFAULT_MAX_TOKENS = 128000;
-export const OPENAI_RESPONSES_DEFAULT_TEMPERATURE = 1;
-export const OPENAI_RESPONSES_DEFAULT_TOP_P = 0.95;
-export const OPENAI_RESPONSES_DEFAULT_INPUT_TOKEN_LIMIT = 32768;
-export const OPENAI_RESPONSES_DEFAULT_OUTPUT_TOKEN_LIMIT = 128000;
-
-// =============================================================================
 // 通用辅助函数
 // =============================================================================
 
@@ -64,15 +49,6 @@ export function checkAndAssignOrDefault(value, defaultValue) {
         return value;
     }
     return defaultValue;
-}
-
-/**
- * 生成唯一ID
- * @param {string} prefix - ID前缀
- * @returns {string} 生成的ID
- */
-export function generateId(prefix = '') {
-    return prefix ? `${prefix}_${uuidv4()}` : uuidv4();
 }
 
 /**
@@ -481,35 +457,3 @@ export function extractThinkingFromOpenAIText(text) {
 
     return contentBlocks;
 }
-
-// =============================================================================
-// 工具状态管理器（单例模式）
-// =============================================================================
-
-/**
- * 全局工具状态管理器
- */
-class ToolStateManager {
-    constructor() {
-        if (ToolStateManager.instance) {
-            return ToolStateManager.instance;
-        }
-        ToolStateManager.instance = this;
-        this._toolMappings = {};
-        return this;
-    }
-
-    storeToolMapping(funcName, toolId) {
-        this._toolMappings[funcName] = toolId;
-    }
-
-    getToolId(funcName) {
-        return this._toolMappings[funcName] || null;
-    }
-
-    clearMappings() {
-        this._toolMappings = {};
-    }
-}
-
-export const toolStateManager = new ToolStateManager();

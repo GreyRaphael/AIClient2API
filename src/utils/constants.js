@@ -86,13 +86,6 @@ export const SUPPORTED_IMAGE_MODELS = new Set([
     'gemini-3.1-flash-image'
 ]);
 
-// 视频生成模型常量
-export const SUPPORTED_VIDEO_MODELS = new Set([
-    'grok-imagine-video',
-    'grok-imagine-video-1.5-preview',
-    'grok-imagine-video-1.5-2026-05-30'
-]);
-
 // UI 相关的路径常量
 export const UI_PATHS = {
     // 静态文件和基础路径前缀

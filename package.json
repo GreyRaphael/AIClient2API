@@ -41,9 +41,6 @@
     "test:coverage": "jest --coverage",
     "test:verbose": "jest --verbose",
     "test:silent": "jest --silent",
-    "test:unit": "node run-tests.js --unit",
-    "test:integration": "node run-tests.js --integration",
-    "test:summary": "node test-summary.js",
     "help": "node src/scripts/help.js",
     "example:api": "node src/scripts/example-api.js",
     "login:zed": "node src/scripts/login-zed.js"

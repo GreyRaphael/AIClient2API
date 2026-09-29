@@ -3,7 +3,7 @@
  * 负责请求拦截和配额检查
  */
 
-import { validateKey, incrementUsage, KEY_PREFIX } from './key-manager.js';
+import { KEY_PREFIX } from './key-manager.js';
 import logger from '../../utils/logger.js';
 
 /**
@@ -57,72 +57,6 @@ export function extractPotluckKey(req, requestUrl) {
  */
 export function isPotluckRequest(req, requestUrl) {
     return extractPotluckKey(req, requestUrl) !== null;
-}
-
-/**
- * Potluck 认证中间件
- * 验证 Potluck API Key 并检查配额
- * 
- * @param {http.IncomingMessage} req - HTTP 请求对象
- * @param {URL} requestUrl - 解析后的 URL 对象
- * @returns {Promise<{authorized: boolean, error?: Object, keyData?: Object, apiKey?: string}>}
- */
-export async function potluckAuthMiddleware(req, requestUrl) {
-    const apiKey = extractPotluckKey(req, requestUrl);
-    
-    if (!apiKey) {
-        // 不是 potluck 请求，返回 null 让原有逻辑处理
-        return { authorized: null };
-    }
-
-    // 验证 Key
-    const validation = await validateKey(apiKey);
-    
-    if (!validation.valid) {
-        const errorMessages = {
-            'invalid_format': 'Invalid API key format',
-            'not_found': 'API key not found',
-            'disabled': 'API key has been disabled',
-            'quota_exceeded': 'Quota exceeded for this API key'
-        };
-
-        const statusCodes = {
-            'invalid_format': 401,
-            'not_found': 401,
-            'disabled': 403,
-            'quota_exceeded': 429
-        };
-
-        return {
-            authorized: false,
-            error: {
-                statusCode: statusCodes[validation.reason] || 401,
-                message: errorMessages[validation.reason] || 'Authentication failed',
-                code: validation.reason,
-                keyData: validation.keyData
-            }
-        };
-    }
-
-    return {
-        authorized: true,
-        keyData: validation.keyData,
-        apiKey: apiKey
-    };
-}
-
-/**
- * 记录 Potluck 请求使用
- * 在请求成功处理后调用
- * 
- * @param {string} apiKey - API Key
- * @returns {Promise<Object|null>}
- */
-export async function recordPotluckUsage(apiKey) {
-    if (!apiKey || !apiKey.startsWith(KEY_PREFIX)) {
-        return null;
-    }
-    return incrementUsage(apiKey);
 }
 
 /**

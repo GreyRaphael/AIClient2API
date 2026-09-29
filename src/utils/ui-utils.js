@@ -27,12 +27,3 @@ export function isUIApiPath(path) {
     return path.startsWith(UI_PATHS.API_PREFIX) && 
            !UI_PATHS.API_WHITELIST.includes(path);
 }
-
-/**
- * 判断是否为任何形式的 UI 相关路径（资源或 API）
- * @param {string} path - 请求路径
- * @returns {boolean}
- */
-export function isAnyUIPath(path) {
-    return isUIPath(path) || isUIApiPath(path);
-}
