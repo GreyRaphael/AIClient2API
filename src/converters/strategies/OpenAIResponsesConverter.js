@@ -25,7 +25,7 @@ import {
     generateContentPartDone,
     generateOutputItemDone,
     generateResponseCompleted
-} from '../../providers/openai/openai-responses-core.mjs';
+} from '../../providers/openai/openai-responses-events.js';
 
 /**
  * OpenAI Responses API 转换器类

@@ -36,7 +36,7 @@ import {
     generateOutputTextDelta,
     generateResponseCompleted,
     streamStateManager
-} from '../../providers/openai/openai-responses-core.mjs';
+} from '../../providers/openai/openai-responses-events.js';
 
 /**
  * 清洗 tool_use/functionCall ID，只保留 [a-zA-Z0-9_-] 字符

@@ -1,4 +1,4 @@
-import { ProviderStrategy } from '../../utils/provider-strategy.js';
+import { ProviderStrategy } from '../../utils/provider-strategy-base.js';
 import logger from '../../utils/logger.js';
 import { extractSystemPromptFromRequestBody, MODEL_PROTOCOL_PREFIX } from '../../utils/common.js';
 import { applySystemPromptReplacements } from '../../converters/utils.js';

@@ -1,6 +1,6 @@
 import { API_ACTIONS, extractSystemPromptFromRequestBody, MODEL_PROTOCOL_PREFIX } from '../../utils/common.js';
 import logger from '../../utils/logger.js';
-import { ProviderStrategy } from '../../utils/provider-strategy.js';
+import { ProviderStrategy } from '../../utils/provider-strategy-base.js';
 import { applySystemPromptReplacements } from '../../converters/utils.js';
 
 /**
