@@ -29,8 +29,12 @@ const MODEL_MAP = {
     'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
     'DeepSeek-V4-Flash 正式版': 'DeepSeek-V4-Flash-Official',
     'deepseek-v4-flash-official': 'DeepSeek-V4-Flash-Official',
-    'Doubao-Seed-2.1-Pro-0915': 'Doubao-Seed-2.1-pro',
-    'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-pro',
+    'Doubao-Seed-2.1-Pro-0915': 'Doubao-Seed-2.1-Pro',
+    'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-Pro',
+    'Doubao-Seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
+    'doubao-seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
+    'Doubao-Seed-2.1-Turbo': 'Doubao-Seed-2.1-Turbo',
+    'doubao-seed-2.1-turbo': 'Doubao-Seed-2.1-Turbo',
     'Doubao-Seed-Code': 'Doubao_1_6',
     'doubao-seed-code': 'Doubao_1_6',
     'Step-5-Preview': 'step-5-preview',
@@ -46,8 +50,12 @@ const MODEL_MAP = {
     'Kimi-K2.8-Preview': 'kimi-k2.8-preview',
     'Kimi-K3': 'kimi-k3',
     'Kimi-K2.7-Code': 'kimi-k2.7-code',
-    'DeepSeek-V4.1-Flash': 'DeepSeek-V4.1-Flash',
-    'DeepSeek-V4-Pro': 'deepseek-V4-Pro',
+    'DeepSeek-V4.1-Flash': 'deepseek-v4.1-flash',
+    'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
+    'DeepSeek-V4-Pro': 'DeepSeek-V4-Pro',
+    'deepseek-v4-pro': 'DeepSeek-V4-Pro',
+    'DeepSeek-V4-Flash': 'DeepSeek-V4-Flash',
+    'deepseek-v4-flash': 'DeepSeek-V4-Flash',
 };
 
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
@@ -278,6 +286,13 @@ export class TraeApiService {
         if (!targetModel) {
             targetModel = DEFAULT_MODEL;
         }
+
+        // 统一校准 Trae 服务端大小写敏感的核心模型
+        const lowerTarget = targetModel.toLowerCase();
+        if (lowerTarget === 'doubao-seed-2.1-pro') targetModel = 'Doubao-Seed-2.1-Pro';
+        else if (lowerTarget === 'doubao-seed-2.1-turbo') targetModel = 'Doubao-Seed-2.1-Turbo';
+        else if (lowerTarget === 'deepseek-v4.1-flash') targetModel = 'deepseek-v4.1-flash';
+        else if (lowerTarget === 'deepseek-v4-pro') targetModel = 'DeepSeek-V4-Pro';
 
         payload.stream = true; // 上游统一走流式通道
         payload.function = globalTraeModelFunctionMap.get(targetModel) || FUNCTION_NAME;
@@ -632,12 +647,18 @@ export class TraeApiService {
                     const parsedCache = JSON.parse(cacheContent);
                     if (Array.isArray(parsedCache.models)) {
                         for (const m of parsedCache.models) {
-                            const configName = m.config_name;
+                            let configName = m.config_name;
                             const slug = m.slug;
+                            // 对齐 Trae 上游真实存在的服务端大小写
+                            if (configName?.toLowerCase() === 'doubao-seed-2.1-pro') configName = 'Doubao-Seed-2.1-Pro';
+                            if (configName?.toLowerCase() === 'doubao-seed-2.1-turbo') configName = 'Doubao-Seed-2.1-Turbo';
+                            if (configName?.toLowerCase() === 'deepseek-v4.1-flash') configName = 'deepseek-v4.1-flash';
+                            if (configName?.toLowerCase() === 'deepseek-v4-pro') configName = 'DeepSeek-V4-Pro';
+
                             const variants = m.business_metadata?.variants || {};
                             const ctx = variants.max_context_window || variants.standard_context_window || m.context_window || 1000000;
                             const maxTok = m.truncation_policy?.limit || 32000;
-                            const tobFunc = m.business_metadata?.tob_function || (configName === 'kimi-k2.7-code' || configName === 'Doubao-Seed-2.0-Code' ? 'solo_work_lite' : 'chat_v3');
+                            const tobFunc = (configName === 'kimi-k2.7-code' || configName === 'Doubao-Seed-2.0-Code') ? 'solo_work_lite' : 'chat_v3';
                             const supportsThinking = Array.isArray(m.supported_reasoning_levels) && m.supported_reasoning_levels.length > 0;
 
                             if (configName) {

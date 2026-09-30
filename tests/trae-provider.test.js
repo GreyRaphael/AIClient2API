@@ -104,7 +104,7 @@ describe('Trae Provider Implementation Tests', () => {
         expect(p6.model).toBe('DeepSeek-V4-Flash-Official');
 
         const p7 = traeService.prepareRequestBody('Doubao-Seed-2.1-Pro-0915', {});
-        expect(p7.model).toBe('Doubao-Seed-2.1-pro');
+        expect(p7.model).toBe('Doubao-Seed-2.1-Pro');
 
         const p8 = traeService.prepareRequestBody('Doubao-Seed-Code', {});
         expect(p8.model).toBe('Doubao_1_6');

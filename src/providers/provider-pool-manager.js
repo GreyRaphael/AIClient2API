@@ -1057,7 +1057,12 @@ export class ProviderPoolManager {
 
         // 如果指定了模型，则排除不支持该模型的提供商
         if (requestedModel) {
-            const rawModelName = requestedModel.includes(':') ? requestedModel.substring(requestedModel.indexOf(':') + 1) : requestedModel;
+            let rawModelName = requestedModel;
+            if (requestedModel.includes(':')) {
+                rawModelName = requestedModel.substring(requestedModel.indexOf(':') + 1);
+            } else if (requestedModel.includes('/')) {
+                rawModelName = requestedModel.substring(requestedModel.indexOf('/') + 1);
+            }
             const modelFilteredProviders = availableAndHealthyProviders.filter(p => {
                 const supportedModels = getConfiguredSupportedModels(providerType, p.config);
                 if (supportedModels.length > 0) {

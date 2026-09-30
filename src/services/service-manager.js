@@ -387,15 +387,16 @@ async function _resolveEffectiveRouting(config, requestedModel) {
     let effectiveProvider = config.MODEL_PROVIDER;
     let actualModelName = requestedModel;
 
-    // 1. 处理显式前缀 (无论是否是 AUTO 模式都支持)
-    if (requestedModel && requestedModel.includes(':')) {
-        const [prefix, ...modelParts] = requestedModel.split(':');
-        const modelSuffix = modelParts.join(':');
+    // 1. 处理显式前缀 (无论是否是 AUTO 模式都支持，兼容 provider:model 与 provider/model 格式)
+    if (requestedModel && (requestedModel.includes(':') || requestedModel.includes('/'))) {
+        const sep = requestedModel.includes(':') ? ':' : '/';
+        const [prefix, ...modelParts] = requestedModel.split(sep);
+        const modelSuffix = modelParts.join(sep);
         // 检查前缀是否是有效的提供商标识
         if (providerPoolManager && (providerPoolManager.providerStatus[prefix] || config.providerPools?.[prefix])) {
             effectiveProvider = prefix;
             actualModelName = modelSuffix;
-            logger.info(`[Routing] Prefix resolved: ${prefix}:${modelSuffix}`);
+            logger.info(`[Routing] Prefix resolved: ${prefix}${sep}${modelSuffix}`);
         }
     }
 
