@@ -303,6 +303,30 @@ export class TraeApiService {
             }
         }
 
+        // 归一化 tools: 上游 Go 结构体 FunctionDefinition.parameters 要求必须为 JSON 字符串
+        if (Array.isArray(payload.tools) && payload.tools.length > 0) {
+            const validTools = [];
+            for (const item of payload.tools) {
+                if (!item || typeof item !== 'object') continue;
+                const toolObj = { ...item };
+                if (toolObj.function && typeof toolObj.function === 'object') {
+                    const fn = { ...toolObj.function };
+                    if (fn.parameters && typeof fn.parameters === 'object') {
+                        try {
+                            fn.parameters = JSON.stringify(fn.parameters);
+                        } catch (_) {}
+                    }
+                    toolObj.function = fn;
+                    validTools.push(toolObj);
+                }
+            }
+            if (validTools.length > 0) {
+                payload.tools = validTools;
+            } else {
+                delete payload.tools;
+            }
+        }
+
         return payload;
     }
 
@@ -333,7 +357,23 @@ export class TraeApiService {
             const errData = err.response?.data;
             let errMsg = err.message;
             if (errData) {
-                errMsg = typeof errData === 'string' ? errData : JSON.stringify(errData);
+                if (typeof errData === 'string') {
+                    errMsg = errData;
+                } else if (errData && typeof errData.on === 'function') {
+                    try {
+                        const chunks = [];
+                        for await (const chunk of errData) chunks.push(chunk);
+                        errMsg = Buffer.concat(chunks).toString('utf-8');
+                    } catch (_) {
+                        errMsg = err.message;
+                    }
+                } else {
+                    try {
+                        errMsg = JSON.stringify(errData);
+                    } catch (_) {
+                        errMsg = err.message;
+                    }
+                }
             }
             logger.error(`[Trae] Request to ${url} failed (${err.response?.status || 'network'}): ${errMsg}`);
             throw new Error(`Trae request failed: ${errMsg}`);
@@ -344,6 +384,7 @@ export class TraeApiService {
         let buffer = '';
         let currentEvent = 'output';
         let isFirst = true;
+        let hasSeenToolCalls = false;
 
         for await (const chunk of response.data) {
             buffer += chunk.toString('utf-8');
@@ -383,7 +424,20 @@ export class TraeApiService {
                     if (currentEvent === 'output') {
                         const contentDelta = dataObj.response || '';
                         const reasoningDelta = dataObj.reasoning_content || '';
-                        const toolCalls = dataObj.tool_calls;
+                        let toolCalls = null;
+                        if (Array.isArray(dataObj.tool_calls) && dataObj.tool_calls.length > 0) {
+                            toolCalls = dataObj.tool_calls.map((tc, idx) => {
+                                const item = { ...tc };
+                                if (item.index === undefined) item.index = idx;
+                                if (!item.type) item.type = 'function';
+                                // 如果上游返回的是 function_call (Trae 格式)，归一化为 OpenAI 标准的 function
+                                if (item.function_call && !item.function) {
+                                    item.function = item.function_call;
+                                }
+                                return item;
+                            });
+                            hasSeenToolCalls = true;
+                        }
 
                         if (contentDelta || reasoningDelta || toolCalls) {
                             const delta = {};
@@ -408,6 +462,10 @@ export class TraeApiService {
                             };
                         }
                     } else if (currentEvent === 'done') {
+                        let finalFinishReason = dataObj.finish_reason || 'stop';
+                        if (hasSeenToolCalls && (!finalFinishReason || finalFinishReason === 'stop')) {
+                            finalFinishReason = 'tool_calls';
+                        }
                         yield {
                             id: `chatcmpl-${chatId}`,
                             object: 'chat.completion.chunk',
@@ -416,7 +474,7 @@ export class TraeApiService {
                             choices: [{
                                 index: 0,
                                 delta: {},
-                                finish_reason: dataObj.finish_reason || 'stop'
+                                finish_reason: finalFinishReason
                             }]
                         };
                     }
@@ -433,6 +491,7 @@ export class TraeApiService {
         let fullContent = '';
         let fullReasoning = '';
         let finishReason = 'stop';
+        const toolCallsMap = new Map();
         const stream = this.generateContentStream(model, requestBody);
 
         for await (const chunk of stream) {
@@ -445,9 +504,43 @@ export class TraeApiService {
             if (choice.delta?.reasoning_content) {
                 fullReasoning += choice.delta.reasoning_content;
             }
+            if (Array.isArray(choice.delta?.tool_calls)) {
+                for (const tc of choice.delta.tool_calls) {
+                    const idx = tc.index ?? 0;
+                    if (!toolCallsMap.has(idx)) {
+                        toolCallsMap.set(idx, {
+                            id: tc.id || `call_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
+                            type: tc.type || 'function',
+                            function: {
+                                name: tc.function?.name || '',
+                                arguments: tc.function?.arguments || ''
+                            }
+                        });
+                    } else {
+                        const existing = toolCallsMap.get(idx);
+                        if (tc.id) existing.id = tc.id;
+                        if (tc.function?.name) existing.function.name += tc.function.name;
+                        if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+                    }
+                }
+            }
             if (choice.finish_reason) {
                 finishReason = choice.finish_reason;
             }
+        }
+
+        const aggregatedToolCalls = Array.from(toolCallsMap.values());
+        if (aggregatedToolCalls.length > 0 && finishReason === 'stop') {
+            finishReason = 'tool_calls';
+        }
+
+        const message = {
+            role: 'assistant',
+            content: fullContent || (aggregatedToolCalls.length > 0 ? null : ''),
+            ...(fullReasoning ? { reasoning_content: fullReasoning } : {})
+        };
+        if (aggregatedToolCalls.length > 0) {
+            message.tool_calls = aggregatedToolCalls;
         }
 
         return {
@@ -457,11 +550,7 @@ export class TraeApiService {
             model,
             choices: [{
                 index: 0,
-                message: {
-                    role: 'assistant',
-                    content: fullContent,
-                    ...(fullReasoning ? { reasoning_content: fullReasoning } : {})
-                },
+                message,
                 finish_reason: finishReason
             }],
             usage: {

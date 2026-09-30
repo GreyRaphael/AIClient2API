@@ -57,6 +57,8 @@ describe('Trae Provider Implementation Tests', () => {
         expect(prepared.stream).toBe(true);
         expect(prepared.model).toBe('glm-5.2');
         expect(prepared.config_name).toBe('glm-5.2');
+        expect(typeof prepared.tools[0].function.parameters).toBe('string');
+        expect(prepared.tools[0].function.parameters).toBe('{"type":"object"}');
 
         // Test reasoning_effort mapping
         const reqWithEffort = traeService.prepareRequestBody('glm-5.3', {
@@ -140,4 +142,52 @@ describe('Trae Provider Implementation Tests', () => {
         expect(Array.isArray(modelList.data)).toBe(true);
         expect(modelList.data.some(m => m.id === 'deepseek-v4.1-flash')).toBe(true);
     });
+
+    test('TraeApiService.generateContent aggregates streaming tool calls properly', async () => {
+        const traeService = new TraeApiService({
+            uuid: 'test-trae-uuid'
+        });
+
+        traeService.generateContentStream = async function* () {
+            yield {
+                choices: [{
+                    delta: {
+                        role: 'assistant',
+                        tool_calls: [{
+                            index: 0,
+                            id: 'call_test_1',
+                            type: 'function',
+                            function: { name: 'get_weather', arguments: '{"ci' }
+                        }]
+                    },
+                    finish_reason: null
+                }]
+            };
+            yield {
+                choices: [{
+                    delta: {
+                        tool_calls: [{
+                            index: 0,
+                            function: { arguments: 'ty":"Beijing"}' }
+                        }]
+                    },
+                    finish_reason: null
+                }]
+            };
+            yield {
+                choices: [{
+                    delta: {},
+                    finish_reason: 'tool_calls'
+                }]
+            };
+        };
+
+        const result = await traeService.generateContent('deepseek-v4.1-flash', {});
+        expect(result.choices[0].finish_reason).toBe('tool_calls');
+        expect(result.choices[0].message.tool_calls).toHaveLength(1);
+        expect(result.choices[0].message.tool_calls[0].id).toBe('call_test_1');
+        expect(result.choices[0].message.tool_calls[0].function.name).toBe('get_weather');
+        expect(result.choices[0].message.tool_calls[0].function.arguments).toBe('{"city":"Beijing"}');
+    });
 });
+
