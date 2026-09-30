@@ -24,6 +24,30 @@ const MODEL_MAP = {
     'claude-3.7-sonnet': 'glm-5.2',
     'gpt-4o': 'DeepSeek-V4-Pro',
     'gpt-4o-mini': 'DeepSeek-V4-Flash',
+    // Trae CLI 2.0 官方 22 个模型 Slug 与别名精准重定向
+    'DeepSeek-V4-Pro 正式版': 'DeepSeek-V4-Pro-Official',
+    'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
+    'DeepSeek-V4-Flash 正式版': 'DeepSeek-V4-Flash-Official',
+    'deepseek-v4-flash-official': 'DeepSeek-V4-Flash-Official',
+    'Doubao-Seed-2.1-Pro-0915': 'Doubao-Seed-2.1-pro',
+    'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-pro',
+    'Doubao-Seed-Code': 'Doubao_1_6',
+    'doubao-seed-code': 'Doubao_1_6',
+    'Step-5-Preview': 'step-5-preview',
+    'GLM-5.3-FlashX': 'glm-5.3-flashx',
+    'GLM-5.3-Flash': 'glm-5.3-flash',
+    'GLM-5.3': 'glm-5.3',
+    'GLM-5.2': 'glm-5.2',
+    'GLM-5V-Turbo': 'glm-5v-turbo',
+    'MiniMax-M3': 'minimax-m3',
+    'MiniMax-M2.7': 'minimax-m2.7',
+    'Qwen3.8-Max': 'qwen3.8-max',
+    'Qwen3.7-Plus': 'qwen-3.7-plus',
+    'Kimi-K2.8-Preview': 'kimi-k2.8-preview',
+    'Kimi-K3': 'kimi-k3',
+    'Kimi-K2.7-Code': 'kimi-k2.7-code',
+    'DeepSeek-V4.1-Flash': 'DeepSeek-V4.1-Flash',
+    'DeepSeek-V4-Pro': 'deepseek-V4-Pro',
 };
 
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
@@ -234,6 +258,22 @@ export class TraeApiService {
         let targetModel = String(model || payload.model || DEFAULT_MODEL).trim();
         if (MODEL_MAP[targetModel]) {
             targetModel = MODEL_MAP[targetModel];
+        } else {
+            const targetLower = targetModel.toLowerCase();
+            for (const [k, v] of Object.entries(MODEL_MAP)) {
+                if (k.toLowerCase() === targetLower) {
+                    targetModel = v;
+                    break;
+                }
+            }
+            if (!MODEL_MAP[targetModel]) {
+                for (const [k] of globalTraeModelFunctionMap.entries()) {
+                    if (k.toLowerCase() === targetLower) {
+                        targetModel = k;
+                        break;
+                    }
+                }
+            }
         }
         if (!targetModel) {
             targetModel = DEFAULT_MODEL;
@@ -562,12 +602,7 @@ export class TraeApiService {
     }
 
     /**
-     * 动态从上游 get_detail_param 接口拉取可用模型列表并更新系统缓存
-     * @param {boolean} force 是否强制忽略缓存刷新
-     * @returns {Promise<Array<object>>} 模型元数据对象列表
-     */
-    /**
-     * 动态从上游 get_detail_param 接口拉取可用模型列表并更新系统缓存
+     * 动态从本地 traecli 官方缓存或上游接口拉取可用模型列表并更新系统缓存
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
@@ -582,6 +617,61 @@ export class TraeApiService {
             if (!token) {
                 logger.warn('[Trae] Cannot fetch remote models: No token available');
                 return globalTraeModelsCache || this._getFallbackModels();
+            }
+
+            const mergedMap = new Map();
+            globalTraeModelMetadataMap.clear();
+            globalTraeModelFunctionMap.clear();
+
+            // 1. 优先探测本地 ~/.trae/cli/models_cache.json (Trae CLI 2.0 官方 22 个主力大模型元数据)
+            try {
+                const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+                const localCachePath = path.join(homeDir, '.trae', 'cli', 'models_cache.json');
+                if (fs.existsSync(localCachePath)) {
+                    const cacheContent = fs.readFileSync(localCachePath, 'utf-8');
+                    const parsedCache = JSON.parse(cacheContent);
+                    if (Array.isArray(parsedCache.models)) {
+                        for (const m of parsedCache.models) {
+                            const configName = m.config_name;
+                            const slug = m.slug;
+                            const variants = m.business_metadata?.variants || {};
+                            const ctx = variants.max_context_window || variants.standard_context_window || m.context_window || 1000000;
+                            const maxTok = m.truncation_policy?.limit || 32000;
+                            const tobFunc = m.business_metadata?.tob_function || (configName === 'kimi-k2.7-code' || configName === 'Doubao-Seed-2.0-Code' ? 'solo_work_lite' : 'chat_v3');
+                            const supportsThinking = Array.isArray(m.supported_reasoning_levels) && m.supported_reasoning_levels.length > 0;
+
+                            if (configName) {
+                                const modelInfo = {
+                                    id: configName,
+                                    name: slug || configName,
+                                    context_window: ctx,
+                                    max_tokens: maxTok,
+                                    supports_thinking: supportsThinking
+                                };
+                                mergedMap.set(configName, modelInfo);
+                                globalTraeModelMetadataMap.set(configName, modelInfo);
+                                globalTraeModelFunctionMap.set(configName, tobFunc);
+                            }
+
+                            if (slug && slug !== configName) {
+                                MODEL_MAP[slug] = configName;
+                                const slugInfo = {
+                                    id: slug,
+                                    name: slug,
+                                    context_window: ctx,
+                                    max_tokens: maxTok,
+                                    supports_thinking: supportsThinking
+                                };
+                                mergedMap.set(slug, slugInfo);
+                                globalTraeModelMetadataMap.set(slug, slugInfo);
+                                globalTraeModelFunctionMap.set(slug, tobFunc);
+                            }
+                        }
+                        logger.debug(`[Trae] Loaded ${parsedCache.models.length} official models from local traecli cache (${localCachePath})`);
+                    }
+                }
+            } catch (cacheErr) {
+                logger.debug(`[Trae] Reading local trae models_cache.json notice: ${cacheErr.message}`);
             }
 
             const headers = await this.buildHeaders(false);
@@ -620,14 +710,11 @@ export class TraeApiService {
                 'fast_apply',
                 'fast_apply_new',
                 'title_generation',
-                'input_optimization'
+                'input_optimization',
+                'context_selection'
             ]);
 
-            const mergedMap = new Map();
-            globalTraeModelMetadataMap.clear();
-            globalTraeModelFunctionMap.clear();
-
-            // 先载入 soloList，再用 chatList 合并覆盖 (chatList 含有 max: 1000000 等 1M 上下文元数据)
+            // 2. 结合线上通道动态补充并校验 (遵循 traecli visible_tob_batch_configs 过滤规则)
             const combined = [
                 ...soloList.map(item => ({ item, fn: 'solo_work_lite' })),
                 ...chatList.map(item => ({ item, fn: 'chat_v3' }))
@@ -637,11 +724,11 @@ export class TraeApiService {
                 const id = item.config_name;
                 const displayName = item.display_config?.display_name?.trim();
                 if (!id || excludedConfigNames.has(id)) continue;
+                if (item.config_switch === false || item.is_invisible_to_user === true) continue;
                 if (id.startsWith('custom_model_') && (!displayName || displayName === '-')) continue;
                 if (displayName === '-') continue;
 
                 const detail = item.model_detail_list?.[0];
-                // 优先取 max 模式上限 (1M = 1000000)，其次取 dev 窗口，最后取 prompt_max_tokens
                 const ctx = item.context_window_tokens?.max || item.context_window_tokens?.dev || detail?.prompt_max_tokens || 1000000;
                 const maxTok = detail?.max_tokens || 32000;
                 const supportsThinking = Boolean(item.reasoning_effort_config?.support_thinking);
@@ -651,7 +738,7 @@ export class TraeApiService {
                     if (ctx > prev.context_window) prev.context_window = ctx;
                     if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
                     if (supportsThinking) prev.supports_thinking = true;
-                    globalTraeModelFunctionMap.set(id, fn);
+                    if (fn === 'chat_v3') globalTraeModelFunctionMap.set(id, fn);
                 } else {
                     const modelInfo = {
                         id,

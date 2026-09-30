@@ -92,6 +92,25 @@ describe('Trae Provider Implementation Tests', () => {
 
         const p3 = traeService.prepareRequestBody('glm-5.3', {});
         expect(p3.model).toBe('glm-5.3');
+
+        // Trae CLI 2.0 官方 22 个模型 Slug 与别名重定向测试
+        const p4 = traeService.prepareRequestBody('DeepSeek-V4-Pro 正式版', {});
+        expect(p4.model).toBe('DeepSeek-V4-Pro-Official');
+
+        const p5 = traeService.prepareRequestBody('deepseek-v4-pro-official', {});
+        expect(p5.model).toBe('DeepSeek-V4-Pro-Official');
+
+        const p6 = traeService.prepareRequestBody('DeepSeek-V4-Flash 正式版', {});
+        expect(p6.model).toBe('DeepSeek-V4-Flash-Official');
+
+        const p7 = traeService.prepareRequestBody('Doubao-Seed-2.1-Pro-0915', {});
+        expect(p7.model).toBe('Doubao-Seed-2.1-pro');
+
+        const p8 = traeService.prepareRequestBody('Doubao-Seed-Code', {});
+        expect(p8.model).toBe('Doubao_1_6');
+
+        const p9 = traeService.prepareRequestBody('GLM-5.3-FlashX', {});
+        expect(p9.model).toBe('glm-5.3-flashx');
     });
 
     test('Trae Web Auth URL generation and callback parser work as expected', async () => {
