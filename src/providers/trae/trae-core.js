@@ -14,7 +14,8 @@ const IDE_VERSION = '0.1.52';
 const IDE_VERSION_CODE = '20260811';
 const DEVICE_BRAND = '83DG';
 const OS_VERSION = 'Windows 11 Pro';
-const FUNCTION_NAME = 'solo_work_lite';
+const FUNCTION_NAME = 'chat_v3';
+const FALLBACK_FUNCTION_NAME = 'solo_work_lite';
 const DEFAULT_MODEL = 'glm-5.2';
 
 const MODEL_MAP = {
@@ -29,6 +30,7 @@ const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
 let globalTraeModelsCache = null;
 let globalTraeModelsExpiresAt = 0;
 const globalTraeModelMetadataMap = new Map();
+const globalTraeModelFunctionMap = new Map();
 
 /**
  * Trae API Service
@@ -238,7 +240,8 @@ export class TraeApiService {
         }
 
         payload.stream = true; // 上游统一走流式通道
-        payload.function = FUNCTION_NAME;
+        payload.function = globalTraeModelFunctionMap.get(targetModel) || FUNCTION_NAME;
+        payload.max_mode = true; // 开启 Trae Max Mode 超大上下文 (最高 1M)
         payload.model = targetModel;
         payload.config_name = targetModel;
 
@@ -460,6 +463,11 @@ export class TraeApiService {
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
+    /**
+     * 动态从上游 get_detail_param 接口拉取可用模型列表并更新系统缓存
+     * @param {boolean} force 是否强制忽略缓存刷新
+     * @returns {Promise<Array<object>>} 模型元数据对象列表
+     */
     async fetchRemoteModels(force = false) {
         const now = Date.now();
         if (!force && globalTraeModelsCache && (globalTraeModelsExpiresAt > now)) {
@@ -474,86 +482,113 @@ export class TraeApiService {
             }
 
             const headers = await this.buildHeaders(false);
-            const url = `${this.agentHost}/api/ide/v1/get_detail_param`;
-            const payload = {
-                function: FUNCTION_NAME,
-                config_names: null,
-                need_prompt: false,
-                current_config_info: null,
-                poly_prompt: true,
-                mode_type: null,
-                agent_type: null
+            const fetchFnList = async (fn) => {
+                const axiosConfig = {
+                    method: 'POST',
+                    url: `${this.agentHost}/api/ide/v1/get_detail_param`,
+                    data: {
+                        function: fn,
+                        config_names: null,
+                        need_prompt: false,
+                        current_config_info: null,
+                        poly_prompt: true,
+                        mode_type: null,
+                        agent_type: null
+                    },
+                    headers,
+                    timeout: 15000
+                };
+                configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
+                const res = await axios(axiosConfig);
+                return res.data?.config_info_list || [];
             };
 
-            const axiosConfig = {
-                method: 'POST',
-                url,
-                data: payload,
-                headers,
-                timeout: 15000
-            };
-            configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
+            const [chatList, soloList] = await Promise.all([
+                fetchFnList('chat_v3').catch(() => []),
+                fetchFnList('solo_work_lite').catch(() => [])
+            ]);
 
-            const res = await axios(axiosConfig);
-            const rawList = res.data?.config_info_list;
+            const excludedConfigNames = new Set([
+                'computer_use_subagent',
+                'browser_use_subagent',
+                'file_search_agent',
+                'explore_sub_agent_v2',
+                'summary',
+                'fast_apply',
+                'fast_apply_new',
+                'title_generation',
+                'input_optimization'
+            ]);
 
-            if (Array.isArray(rawList) && rawList.length > 0) {
-                const excludedConfigNames = new Set([
-                    'computer_use_subagent',
-                    'browser_use_subagent',
-                    'file_search_agent',
-                    'explore_sub_agent_v2',
-                    'summary'
-                ]);
+            const mergedMap = new Map();
+            globalTraeModelMetadataMap.clear();
+            globalTraeModelFunctionMap.clear();
 
-                const modelObjects = [];
-                const modelIds = [];
-                globalTraeModelMetadataMap.clear();
+            // 先载入 soloList，再用 chatList 合并覆盖 (chatList 含有 max: 1000000 等 1M 上下文元数据)
+            const combined = [
+                ...soloList.map(item => ({ item, fn: 'solo_work_lite' })),
+                ...chatList.map(item => ({ item, fn: 'chat_v3' }))
+            ];
 
-                for (const item of rawList) {
-                    const id = item.config_name;
-                    const displayName = item.display_config?.display_name?.trim();
-                    if (!id) continue;
-                    if (excludedConfigNames.has(id)) continue;
-                    if (id.startsWith('custom_model_') && (!displayName || displayName === '-')) continue;
-                    if (displayName === '-') continue;
+            for (const { item, fn } of combined) {
+                const id = item.config_name;
+                const displayName = item.display_config?.display_name?.trim();
+                if (!id || excludedConfigNames.has(id)) continue;
+                if (id.startsWith('custom_model_') && (!displayName || displayName === '-')) continue;
+                if (displayName === '-') continue;
 
-                    const detail = item.model_detail_list?.[0];
+                const detail = item.model_detail_list?.[0];
+                // 优先取 max 模式上限 (1M = 1000000)，其次取 dev 窗口，最后取 prompt_max_tokens
+                const ctx = item.context_window_tokens?.max || item.context_window_tokens?.dev || detail?.prompt_max_tokens || 1000000;
+                const maxTok = detail?.max_tokens || 32000;
+                const supportsThinking = Boolean(item.reasoning_effort_config?.support_thinking);
+
+                if (mergedMap.has(id)) {
+                    const prev = mergedMap.get(id);
+                    if (ctx > prev.context_window) prev.context_window = ctx;
+                    if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
+                    if (supportsThinking) prev.supports_thinking = true;
+                    globalTraeModelFunctionMap.set(id, fn);
+                } else {
                     const modelInfo = {
                         id,
                         name: displayName || id,
-                        context_window: detail?.prompt_max_tokens || 128000,
-                        max_tokens: detail?.max_tokens || 8192,
-                        supports_thinking: Boolean(item.reasoning_effort_config?.support_thinking)
+                        context_window: ctx,
+                        max_tokens: maxTok,
+                        supports_thinking: supportsThinking
                     };
-
-                    modelObjects.push(modelInfo);
-                    modelIds.push(id);
+                    mergedMap.set(id, modelInfo);
                     globalTraeModelMetadataMap.set(id, modelInfo);
+                    globalTraeModelFunctionMap.set(id, fn);
                 }
+            }
 
-                // 注入常用的便捷别名 (如 auto, claude-3.5-sonnet, gpt-4o 等)
-                const aliases = Object.keys(MODEL_MAP);
-                for (const alias of aliases) {
-                    if (!modelIds.includes(alias)) {
-                        modelIds.push(alias);
-                        modelObjects.push({
-                            id: alias,
-                            name: `Trae Auto / ${alias}`,
-                            context_window: 128000,
-                            max_tokens: 8192,
-                            supports_thinking: true
-                        });
-                    }
+            // 注入常用的便捷别名 (如 auto, claude-3.5-sonnet, gpt-4o 等)
+            const aliases = Object.keys(MODEL_MAP);
+            for (const alias of aliases) {
+                if (!mergedMap.has(alias)) {
+                    const modelInfo = {
+                        id: alias,
+                        name: `Trae Auto / ${alias}`,
+                        context_window: 1000000,
+                        max_tokens: 32000,
+                        supports_thinking: true
+                    };
+                    mergedMap.set(alias, modelInfo);
+                    globalTraeModelMetadataMap.set(alias, modelInfo);
+                    globalTraeModelFunctionMap.set(alias, 'chat_v3');
                 }
+            }
 
-                if (modelIds.length > 0) {
-                    globalTraeModelsCache = modelObjects;
-                    globalTraeModelsExpiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
-                    updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
-                    logger.info(`[Trae] Successfully fetched dynamic model list (${modelIds.length} models): ${modelIds.join(', ')}`);
-                    return modelObjects;
-                }
+            const modelObjects = Array.from(mergedMap.values());
+            const modelIds = Array.from(mergedMap.keys());
+
+            if (modelIds.length > 0) {
+                globalTraeModelsCache = modelObjects;
+                globalTraeModelsExpiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
+                updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
+                logger.info(`[Trae] Successfully fetched dynamic model list (${modelIds.length} models, with Max Mode 1M support): ${modelIds.join(', ')}`);
+                return modelObjects;
             }
         } catch (error) {
             logger.warn(`[Trae] Failed to fetch remote models from ${this.agentHost}: ${error.message}`);
@@ -567,11 +602,18 @@ export class TraeApiService {
      */
     _getFallbackModels() {
         const modelIds = PROVIDER_MODELS.trae || ['glm-5.2', 'deepseek-v4.1-flash', 'DeepSeek-V4-Pro'];
+        const default1MModels = new Set([
+            'deepseek-v4.1-flash', 'DeepSeek-V4-Flash-Official', 'DeepSeek-V4-Flash',
+            'DeepSeek-V4-Pro-Official', 'DeepSeek-V4-Pro', 'glm-5.3', 'glm-5.2',
+            'glm-5.3-flash', 'glm-5.3-flashx',
+            'step-5-preview', 'kimi-k3', 'kimi-k2.8-preview', 'minimax-m3',
+            'qwen3.8-flash', 'qwen3.8-max', 'qwen-3.7-plus', 'Doubao-Seed-Evolving', 'Doubao-Seed-2.1-Pro'
+        ]);
         return modelIds.map(id => ({
             id,
             name: id,
-            context_window: 128000,
-            max_tokens: 8192,
+            context_window: default1MModels.has(id) ? 1000000 : 200000,
+            max_tokens: 32000,
             supports_thinking: true
         }));
     }

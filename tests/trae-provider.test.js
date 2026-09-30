@@ -52,7 +52,8 @@ describe('Trae Provider Implementation Tests', () => {
 
         const prepared = traeService.prepareRequestBody('auto', openAIRequestBody);
 
-        expect(prepared.function).toBe('solo_work_lite');
+        expect(prepared.function).toBe('chat_v3');
+        expect(prepared.max_mode).toBe(true);
         expect(prepared.stream).toBe(true);
         expect(prepared.model).toBe('glm-5.2');
         expect(prepared.config_name).toBe('glm-5.2');
@@ -121,6 +122,10 @@ describe('Trae Provider Implementation Tests', () => {
         expect(ids).toContain('DeepSeek-V4-Pro');
         expect(ids).toContain('glm-5.2');
         expect(ids).toContain('qwen-3.7-plus');
+
+        const deepseekModel = fallback.find(m => m.id === 'deepseek-v4.1-flash');
+        expect(deepseekModel).toBeDefined();
+        expect(deepseekModel.context_window).toBe(1000000);
 
         const modelList = await traeService.listModels();
         expect(modelList.object).toBe('list');
