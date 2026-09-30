@@ -46,6 +46,7 @@
     "test:silent": "jest --silent",
     "help": "node src/scripts/help.js",
     "example:api": "node src/scripts/example-api.js",
-    "login:zed": "node src/scripts/login-zed.js"
+    "login:zed": "node src/scripts/login-zed.js",
+    "login:trae": "node src/scripts/login-trae.js"
   }
 }

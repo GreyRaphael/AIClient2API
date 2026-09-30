@@ -72,6 +72,7 @@ export const MODEL_PROVIDER = {
     GROK_WEB: 'grok-web',
     GROK_CLI: 'grok-cli-oauth',
     ZED: 'zed',
+    TRAE: 'trae',
     AUTO: 'auto',
 };
 

@@ -1122,6 +1122,18 @@ function detectProviderFromPath(filePath) {
             providerType: 'openai-iflow',
             displayName: 'OpenAI iFlow OAuth',
             shortName: 'iflow-oauth'
+        },
+        {
+            patterns: ['configs/zed/', '/zed/'],
+            providerType: 'zed',
+            displayName: 'Zed OAuth',
+            shortName: 'zed'
+        },
+        {
+            patterns: ['configs/trae/', '/trae/'],
+            providerType: 'trae',
+            displayName: 'Trae',
+            shortName: 'trae'
         }
     ];
 

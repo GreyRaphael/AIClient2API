@@ -286,6 +286,28 @@ function getAvailableRoutes() {
             description: t('dashboard.routing.free'),
             badge: t('dashboard.routing.free'),
             badgeClass: 'oauth'
+        },
+        {
+            provider: 'zed',
+            name: 'Zed',
+            paths: {
+                openai: '/zed/v1/chat/completions',
+                claude: '/zed/v1/messages'
+            },
+            description: t('dashboard.routing.oauth') || 'OAuth 认证',
+            badge: t('dashboard.routing.oauth') || 'OAuth',
+            badgeClass: 'oauth'
+        },
+        {
+            provider: 'trae',
+            name: 'Trae',
+            paths: {
+                openai: '/trae/v1/chat/completions',
+                claude: '/trae/v1/messages'
+            },
+            description: 'Trae AI / Enterprise',
+            badge: 'OAuth/PAT',
+            badgeClass: 'oauth'
         }
     ];
 }
@@ -399,6 +421,8 @@ async function copyCurlExample(provider, options = {}) {
         case 'openai-iflow':
         case 'openai-codex-oauth':
         case 'forward-api':
+        case 'zed':
+        case 'trae':
             if (protocol === 'openai') {
                 curlCommand = `curl ${hostname}${path} \\
   -H "Content-Type: application/json" \\
@@ -542,7 +566,9 @@ function renderRoutingExamples(providerConfigs) {
         'openai-iflow': 'fa-wind',
         'openai-codex-oauth': 'fa-keyboard',
         'grok-cli-oauth': 'fa-terminal',
-        'grok-web': 'fa-search'
+        'grok-web': 'fa-search',
+        'zed': 'fa-edit',
+        'trae': 'fa-bolt'
     };
 
     // 默认模型映射 (用于 curl 示例)
@@ -561,7 +587,9 @@ function renderRoutingExamples(providerConfigs) {
         'openaiResponses-custom': 'gpt-5.5',
         'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
-        'forward-api': 'gpt-5.5'
+        'forward-api': 'gpt-5.5',
+        'zed': 'claude-sonnet-4-5',
+        'trae': 'glm-5.2'
     };
 
     providerConfigs.forEach(config => {

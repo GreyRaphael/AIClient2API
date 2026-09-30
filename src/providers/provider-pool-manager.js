@@ -169,6 +169,8 @@ export class ProviderPoolManager {
                     configPath = config.GROK_CLI_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('zed')) {
                     configPath = config.ZED_OAUTH_CREDS_FILE_PATH;
+                } else if (providerType.startsWith('trae')) {
+                    configPath = config.TRAE_OAUTH_CREDS_FILE_PATH;
                 }
                 
                 // logger.info(`Checking node ${this._getDisplayName(config)} (${providerType}) expiry date... configPath: ${configPath}`);

@@ -53,3 +53,12 @@ export {
     handleZedOAuthCallback
 } from './zed-oauth.js';
 
+// Trae Auth
+export {
+    handleTraePATLogin,
+    handleTraeOAuth,
+    buildTraeWebLoginUrl,
+    parseTraeCallback
+} from './trae-auth.js';
+
+

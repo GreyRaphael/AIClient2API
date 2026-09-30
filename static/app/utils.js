@@ -105,6 +105,22 @@ function getBaseProviderConfigs() {
             name: 'OpenAI Responses', 
             icon: 'fa-reply-all'
         },
+        { 
+            id: 'zed', 
+            name: 'Zed', 
+            usageName: 'Zed',
+            icon: 'fa-edit',
+            defaultPath: 'configs/zed/'
+        },
+        { 
+            id: 'trae', 
+            name: 'Trae', 
+            usageName: 'Trae',
+            icon: 'fa-bolt',
+            defaultPath: 'configs/trae/',
+            registerUrl: 'https://www.trae.cn/enterprise',
+            docUrl: 'https://docs.trae.cn/cli_login-token'
+        }
     ];
 }
 
@@ -521,6 +537,20 @@ function getProviderTypeFields(providerType) {
                 label: `Zed Base URL <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://cloud.zed.dev'
+            }
+        ],
+        'trae': [
+            {
+                id: 'TRAE_OAUTH_CREDS_FILE_PATH',
+                label: t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
+                type: 'text',
+                placeholder: 'configs/trae/..._oauth_creds.json'
+            },
+            {
+                id: 'TRAE_BASE_URL',
+                label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
+                type: 'text',
+                placeholder: 'https://api.enterprise.trae.cn'
             }
         ],
         'grok-web': [

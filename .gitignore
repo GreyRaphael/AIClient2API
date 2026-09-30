@@ -24,6 +24,7 @@ configs/pwd
 configs/antigravity/
 configs/zed/
 configs/grok-cli/
+configs/trae/
 
 /.codegraph/
 

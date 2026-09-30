@@ -111,6 +111,17 @@ export const PROVIDER_MAPPINGS = [
         displayName: 'Zed OAuth',
         needsProjectId: false,
         urlKeys: ['ZED_BASE_URL']
+    },
+    {
+        // Trae 配置
+        dirName: 'trae',
+        patterns: ['configs/trae/', '/trae/', '/.trae/'],
+        providerType: 'trae',
+        credPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
+        defaultCheckModel: 'glm-5.2',
+        displayName: 'Trae',
+        needsProjectId: false,
+        urlKeys: ['TRAE_BASE_URL', 'TRAE_HOST']
     }
 ];
 

@@ -11,6 +11,7 @@ import { ForwardApiService } from './forward/forward-core.js';
 import { GrokApiService } from './grok/grok-core.js';
 import { GrokCliApiService } from './grok/grok-cli-core.js';
 import { ZedApiService } from './zed/zed-core.js';
+import { TraeApiService } from './trae/trae-core.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
@@ -790,6 +791,46 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
     }
 }
 
+// Trae API 服务适配器
+export class TraeApiServiceAdapter extends ApiServiceAdapter {
+    constructor(config) {
+        super();
+        this.config = config;
+        this.traeApiService = new TraeApiService(config);
+    }
+
+    async generateContent(model, requestBody) {
+        return this.traeApiService.generateContent(model, requestBody);
+    }
+
+    async *generateContentStream(model, requestBody) {
+        yield* this.traeApiService.generateContentStream(model, requestBody);
+    }
+
+    async listModels() {
+        return this.traeApiService.listModels();
+    }
+
+    async refreshToken() {
+        if (this.isExpiryDateNear()) {
+            logger.info('[Trae] Expiry date is near, refreshing token...');
+            await this.traeApiService.getToken(true);
+            return true;
+        }
+        return false;
+    }
+
+    async forceRefreshToken() {
+        logger.info('[Trae] Force refreshing token...');
+        await this.traeApiService.getToken(true);
+        return true;
+    }
+
+    isExpiryDateNear() {
+        return this.traeApiService.isExpiryDateNear();
+    }
+}
+
 // 注册所有内置适配器
 registerAdapter(MODEL_PROVIDER.QINIU, OpenAIApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.FENNO, OpenAIApiServiceAdapter);
@@ -803,6 +844,7 @@ registerAdapter(MODEL_PROVIDER.CODEX_API, CodexApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.GROK_CLI, GrokCliApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.GROK_WEB, GrokApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.ZED, ZedApiServiceAdapter);
+registerAdapter(MODEL_PROVIDER.TRAE, TraeApiServiceAdapter);
 // registerAdapter(MODEL_PROVIDER.FORWARD_API, ForwardApiServiceAdapter);
 // registerAdapter(MODEL_PROVIDER.QWEN_API, QwenApiServiceAdapter);
 // registerAdapter(MODEL_PROVIDER.IFLOW_API, IFlowApiServiceAdapter);

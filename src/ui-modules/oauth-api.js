@@ -11,6 +11,9 @@ import {
     handleGrokCliOAuth,
     handleZedOAuth,
     handleZedOAuthCallback,
+    handleTraePATLogin,
+    handleTraeOAuth,
+    buildTraeWebLoginUrl,
     batchImportCodexTokensStream,
     batchImportGrokCliTokensStream,
     batchImportKiroRefreshTokensStream,
@@ -79,6 +82,39 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
             const result = await handleZedOAuth(currentConfig, options);
             authUrl = result.authUrl;
             authInfo = result.authInfo;
+        } else if (providerType === 'trae') {
+            // Trae PAT 或 Web OAuth 授权
+            const { token, host, customName } = options;
+            if (token) {
+                // 直接使用 PAT 或 Callback URL 换取凭证
+                const result = await handleTraePATLogin({
+                    token,
+                    host,
+                    customName
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: true,
+                    directSuccess: true,
+                    credPath: result.credPath,
+                    accountName: result.accountName,
+                    authInfo: {
+                        provider: 'trae',
+                        userId: result.userId,
+                        nickname: result.nickname,
+                        enterpriseId: result.enterpriseId,
+                        host: result.host,
+                        credPath: result.credPath,
+                        accountName: result.accountName
+                    }
+                }));
+                return true;
+            } else {
+                // 未提供 Token 时，生成浏览器 Web 授权链接
+                const result = await handleTraeOAuth(currentConfig, options);
+                authUrl = result.authUrl;
+                authInfo = result.authInfo;
+            }
         } else {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -133,6 +169,19 @@ export async function handleManualOAuthCallback(req, res) {
         if (provider === 'zed') {
             const { handleZedOAuthCallback } = await import('../auth/oauth-handlers.js');
             const result = await handleZedOAuthCallback(callbackUrl);
+
+            res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result));
+            return true;
+        }
+
+        // 特殊处理 Trae OAuth / Callback 回调
+        if (provider === 'trae') {
+            const { handleTraePATLogin } = await import('../auth/oauth-handlers.js');
+            const result = await handleTraePATLogin({
+                token: callbackUrl,
+                host: body.host
+            });
 
             res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(result));

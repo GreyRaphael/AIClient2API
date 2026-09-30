@@ -44,7 +44,8 @@ import {
     showAuthModal,
     executeGenerateAuthUrl,
     handleGenerateAuthUrl,
-    showAddProviderGroupModal
+    showAddProviderGroupModal,
+    showTraeAuthSelector
 } from './provider-manager.js';
 
 import {
@@ -159,6 +160,7 @@ async function initApp() {
     window.showAuthModal = showAuthModal;
     window.executeGenerateAuthUrl = executeGenerateAuthUrl;
     window.handleGenerateAuthUrl = handleGenerateAuthUrl;
+    window.showTraeAuthSelector = showTraeAuthSelector;
     window.showAddProviderGroupModal = showAddProviderGroupModal;
 
     // 配置管理相关全局函数

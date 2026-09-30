@@ -769,7 +769,7 @@ async function openProviderManager(providerType, searchTerm = '') {
  */
 function generateAuthButton(providerType) {
     // 只为支持OAuth或批量导入的提供商显示授权按钮
-    const oauthProviders = ['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth', 'openai-iflow', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed'];
+    const oauthProviders = ['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth', 'openai-iflow', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'];
 
     if (!oauthProviders.includes(providerType)) {
         return '';
@@ -938,6 +938,11 @@ async function handleGenerateAuthUrl(providerType) {
         return;
     }
 
+    if (providerType === 'trae') {
+        showTraeAuthSelector(providerType);
+        return;
+    }
+
     await executeGenerateAuthUrl(providerType, {});
 }
 
@@ -1010,6 +1015,153 @@ function showZedAuthSelector(providerType) {
             emailInput.focus();
             emailInput.select();
         }
+    }, 100);
+}
+
+/**
+ * 显示 Trae 账号授权登录模态框
+ * @param {string} providerType - 提供商类型
+ * @param {Object} [extraOptions] - 附加选项
+ */
+function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.display = 'flex';
+    modal.style.zIndex = '3100';
+
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h3><i class="fas fa-bolt"></i> <span>Trae 账号授权登录</span></h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                    支持 Trae 企业版与个人版账号。输入个人访问令牌 (PAT) 或粘贴浏览器授权回调 URL，系统将自动换取凭据并挂载到提供商节点池。
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary);">
+                        访问令牌 (PAT) 或 回调 URL <span style="color: #ef4444;">*</span>
+                    </label>
+                    <div style="position: relative;">
+                        <input type="password" id="traeAuthToken" placeholder="trae-lt-... 或完整回调 URL" style="width: 100%; padding: 10px 40px 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
+                        <button type="button" id="traeTogglePasswordBtn" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-tertiary); cursor: pointer; padding: 4px;">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <small style="display: block; margin-top: 5px; font-size: 12px; color: var(--text-tertiary); line-height: 1.4;">
+                        推荐使用 PAT 令牌（以 <code>trae-lt-</code> 开头），获取方式详见 <a href="https://docs.trae.cn/cli_login-token" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); text-decoration: underline;">Trae 官方登录凭证文档</a>。
+                    </small>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary);">
+                        Trae 服务地址 (Host)
+                    </label>
+                    <input type="text" id="traeAuthHost" value="https://api.enterprise.trae.cn" placeholder="https://api.enterprise.trae.cn" style="width: 100%; padding: 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
+                    <small style="display: block; margin-top: 5px; font-size: 12px; color: var(--text-tertiary);">
+                        企业账号默认为 <code>https://api.enterprise.trae.cn</code>；个人海外版可改为 <code>https://api.trae.com.cn</code>。
+                    </small>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary);">
+                        账号备注 / 别名 <span style="font-weight: normal; color: var(--text-tertiary);">(可选)</span>
+                    </label>
+                    <input type="text" id="traeAuthName" placeholder="例如：Trae 企业工作号" style="width: 100%; padding: 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
+                </div>
+
+                <div style="margin-top: 10px; padding: 10px 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; justify-content: space-between;">
+                    <span>需要通过浏览器网页登录授权？</span>
+                    <button type="button" class="btn btn-secondary" id="traeOpenWebAuthBtn" style="padding: 4px 10px; font-size: 12px; border-radius: 6px;">
+                        <i class="fas fa-external-link-alt"></i> <span>打开网页授权</span>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn btn-secondary modal-cancel">${t('modal.provider.cancel') || '取消'}</button>
+                <button class="btn btn-primary" id="traeAuthConfirmBtn">
+                    <i class="fas fa-check"></i> <span>登录并保存授权</span>
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeBtn = modal.querySelector('.modal-close');
+    const cancelBtn = modal.querySelector('.modal-cancel');
+    const confirmBtn = modal.querySelector('#traeAuthConfirmBtn');
+    const tokenInput = modal.querySelector('#traeAuthToken');
+    const hostInput = modal.querySelector('#traeAuthHost');
+    const nameInput = modal.querySelector('#traeAuthName');
+    const toggleBtn = modal.querySelector('#traeTogglePasswordBtn');
+    const webAuthBtn = modal.querySelector('#traeOpenWebAuthBtn');
+
+    const closeModal = () => modal.remove();
+    [closeBtn, cancelBtn].forEach(btn => btn.addEventListener('click', closeModal));
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    if (toggleBtn && tokenInput) {
+        toggleBtn.addEventListener('click', () => {
+            const isPassword = tokenInput.type === 'password';
+            tokenInput.type = isPassword ? 'text' : 'password';
+            toggleBtn.innerHTML = isPassword ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+        });
+    }
+
+    if (webAuthBtn) {
+        webAuthBtn.addEventListener('click', async () => {
+            const host = hostInput.value.trim() || 'https://api.enterprise.trae.cn';
+            closeModal();
+            await executeGenerateAuthUrl(providerType, { host, targetInputId: extraOptions.targetInputId });
+        });
+    }
+
+    const doSubmit = async () => {
+        const token = tokenInput.value.trim();
+        const host = hostInput.value.trim() || 'https://api.enterprise.trae.cn';
+        const customName = nameInput.value.trim();
+
+        if (!token) {
+            showToast(t('common.error') || '错误', '请输入 Personal Access Token (trae-lt-...) 或完整回调 URL', 'error');
+            tokenInput.focus();
+            return;
+        }
+
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>正在登录...</span>';
+
+        try {
+            const res = await executeGenerateAuthUrl(providerType, {
+                token,
+                host,
+                customName,
+                targetInputId: extraOptions.targetInputId
+            });
+            if (res && res.success) {
+                closeModal();
+            } else {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="fas fa-check"></i> <span>登录并保存授权</span>';
+            }
+        } catch (err) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fas fa-check"></i> <span>登录并保存授权</span>';
+        }
+    };
+
+    confirmBtn.addEventListener('click', doSubmit);
+    tokenInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            doSubmit();
+        }
+    });
+
+    setTimeout(() => {
+        if (tokenInput) tokenInput.focus();
     }, 100);
 }
 
@@ -4061,12 +4213,28 @@ async function executeGenerateAuthUrl(providerType, extraOptions = {}) {
 
             // 显示授权信息模态框
             showAuthModal(response.authUrl, response.authInfo);
+            return response;
+        } else if (response.success && (response.directSuccess || response.credPath)) {
+            const accName = response.accountName || response.authInfo?.accountName || response.authInfo?.nickname || '';
+            showToast(t('common.success') || '成功', `授权成功并已自动挂载节点${accName ? ': ' + accName : ''}`, 'success');
+            if (extraOptions.targetInputId) {
+                const input = document.getElementById(extraOptions.targetInputId);
+                if (input) {
+                    input.value = response.credPath || response.authInfo?.credPath;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+            if (typeof loadProviders === 'function') loadProviders();
+            if (typeof loadConfigList === 'function') loadConfigList();
+            return response;
         } else {
-            showToast(t('common.error'), t('modal.provider.auth.failed'), 'error');
+            showToast(t('common.error'), (response.error && response.error.message) || t('modal.provider.auth.failed'), 'error');
+            return response;
         }
     } catch (error) {
         console.error('生成授权链接失败:', error);
         showToast(t('common.error'), t('modal.provider.auth.failed') + `: ${error.message}`, 'error');
+        throw error;
     }
 }
 
@@ -4082,7 +4250,8 @@ function getAuthFilePath(provider) {
         'openai-qwen-oauth': '~/.qwen/oauth_creds.json',
         'claude-kiro-oauth': '~/.aws/sso/cache/kiro-auth-token.json',
         'openai-iflow': '~/.iflow/oauth_creds.json',
-        'zed': 'configs/zed/'
+        'zed': 'configs/zed/',
+        'trae': 'configs/trae/'
     };
     return authFilePaths[provider] || (getCurrentLanguage() === 'en-US' ? 'Unknown Path' : '未知路径');
 }
@@ -4157,6 +4326,18 @@ function showAuthModal(authUrl, authInfo) {
                     <li>点击下方“在浏览器中打开”或复制授权链接到浏览器中打开</li>
                     <li>在 Zed 官方页面使用 GitHub 账号登录并点击完成授权</li>
                     <li>如在远程服务器或 Docker 中运行，请确保端口 <code>${requiredPort}</code> 已开放映射；若浏览器授权后未自动返回，可复制地址栏 URL（包含 access_token）粘贴至下方手动提交</li>
+                </ol>
+            </div>
+        `;
+    } else if (authInfo.provider === 'trae') {
+        instructionsHtml = `
+            <div class="auth-instructions">
+                <h4 data-i18n="oauth.modal.steps">${t('oauth.modal.steps')}</h4>
+                <ol>
+                    <li>点击下方“在浏览器中打开”或复制上方授权链接至浏览器</li>
+                    <li>在 Trae 登录页面完成登录（支持企业版与个人版）</li>
+                    <li>登录成功后浏览器将跳转至包含 <code>refreshToken</code> 的回调链接（若页面显示连接失败属正常现象）</li>
+                    <li>复制浏览器地址栏的完整 URL（或仅复制 <code>refreshToken=...</code> 参数），粘贴至下方“手动输入回调URL”并点击确认提交</li>
                 </ol>
             </div>
         `;
@@ -4441,6 +4622,15 @@ function showAuthModal(authUrl, authInfo) {
                         console.log('Auto-completing Zed callback URL:', cleanUrlStr);
                     }
 
+                    // 如果是 Trae 回调，可能只粘贴了 refreshToken 或参数串
+                    if (isManualInput && authInfo.provider === 'trae' && !cleanUrlStr.includes('://')) {
+                        if (!cleanUrlStr.startsWith('?')) {
+                            cleanUrlStr = '?' + cleanUrlStr;
+                        }
+                        cleanUrlStr = `http://127.0.0.1:18080/authorize${cleanUrlStr}`;
+                        console.log('Auto-completing Trae callback URL:', cleanUrlStr);
+                    }
+
                     const match = cleanUrlStr.match(/(https?|kiro):\/\/[^\s]+/);
                     if (match) {
                         cleanUrlStr = match[0];
@@ -4455,7 +4645,7 @@ function showAuthModal(authUrl, authInfo) {
 
                     const url = new URL(cleanUrlStr);
                     
-                    if (url.searchParams.has('code') || url.searchParams.has('token') || url.searchParams.has('access_token') || url.searchParams.has('user_id')) {
+                    if (url.searchParams.has('code') || url.searchParams.has('token') || url.searchParams.has('access_token') || url.searchParams.has('user_id') || url.searchParams.has('refreshToken')) {
                         if (pollTimer) {
                             clearInterval(pollTimer);
                             pollTimer = null;
@@ -4970,5 +5160,6 @@ export {
     handleGenerateAuthUrl,
     checkUpdate,
     performUpdate,
-    showAddProviderGroupModal
+    showAddProviderGroupModal,
+    showTraeAuthSelector
 };

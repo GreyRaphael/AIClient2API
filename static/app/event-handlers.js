@@ -422,6 +422,10 @@ async function handleGenerateCreds(event) {
  * 实际执行授权逻辑
  */
 async function proceedWithAuth(providerType, targetInputId, extraOptions = {}) {
+    if (providerType === 'trae' && typeof window.showTraeAuthSelector === 'function') {
+        window.showTraeAuthSelector(providerType, { targetInputId, ...extraOptions });
+        return;
+    }
     if (window.executeGenerateAuthUrl) {
         await window.executeGenerateAuthUrl(providerType, {
             targetInputId,

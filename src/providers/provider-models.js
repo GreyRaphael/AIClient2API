@@ -190,6 +190,19 @@ export const PROVIDER_MODELS = {
         'gemini-3.1-pro-preview',
         'gemini-3.5-flash',
         'gemini-3-flash'
+    ],
+    'trae': [
+        'glm-5.3',
+        'glm-5.2',
+        'glm-5',
+        'glm-5-turbo',
+        'DeepSeek-V4-Pro',
+        'DeepSeek-V4-Flash',
+        'qwen-3.7-plus',
+        'kimi-k2.6',
+        'claude-3.5-sonnet',
+        'gpt-4o',
+        'auto'
     ]
 };
 

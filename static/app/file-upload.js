@@ -61,7 +61,8 @@ class FileUploadHandler {
             'openai-iflow': 'iflow',
             'openai-codex-oauth': 'codex',
             'grok-cli-oauth': 'grok-cli',
-            'zed': 'zed'
+            'zed': 'zed',
+            'trae': 'trae'
         };
         return providerMap[provider] || 'gemini';
     }

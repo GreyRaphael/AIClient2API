@@ -33,5 +33,10 @@ export {
     batchImportGrokCliTokensStream,
     // Zed OAuth
     handleZedOAuth,
-    handleZedOAuthCallback
+    handleZedOAuthCallback,
+    // Trae Auth
+    handleTraePATLogin,
+    handleTraeOAuth,
+    buildTraeWebLoginUrl,
+    parseTraeCallback
 } from './index.js';
