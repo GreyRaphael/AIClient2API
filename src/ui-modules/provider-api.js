@@ -379,6 +379,23 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
             } catch (e) {
                 logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
             }
+        } else if (type === 'trae' || type.startsWith('trae-')) {
+            try {
+                const traeNodes = providerPools[type] || [];
+                const traeNode = traeNodes[0];
+                const nodeConfig = traeNode?.config || traeNode;
+                const traeConfig = nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH
+                    ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: type }
+                    : { ...currentConfig, MODEL_PROVIDER: type };
+                const adapter = getServiceAdapter(traeConfig);
+                if (adapter && typeof adapter.listModels === 'function') {
+                    adapter.listModels().catch(e => {
+                        logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
+                    });
+                }
+            } catch (e) {
+                logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
+            }
         }
     }
 
@@ -427,6 +444,24 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
             }
         } catch (e) {
             logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
+        }
+    } else if (providerType === 'trae' || providerType.startsWith('trae-')) {
+        try {
+            const providerPools = loadProviderPools(currentConfig, providerPoolManager);
+            const traeNodes = providerPools[providerType] || [];
+            const traeNode = traeNodes[0];
+            const nodeConfig = traeNode?.config || traeNode;
+            const traeConfig = nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH
+                ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType }
+                : { ...currentConfig, MODEL_PROVIDER: providerType };
+            const adapter = getServiceAdapter(traeConfig);
+            if (adapter && typeof adapter.listModels === 'function') {
+                adapter.listModels().catch(e => {
+                    logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
+                });
+            }
+        } catch (e) {
+            logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
         }
     }
     let models = getProviderModels(providerType);

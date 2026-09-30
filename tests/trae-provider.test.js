@@ -108,4 +108,23 @@ describe('Trae Provider Implementation Tests', () => {
         expect(oauthResult.authUrl).toContain('https://www.trae.cn/authorization');
         expect(oauthResult.authInfo.provider).toBe('trae');
     });
+
+    test('TraeApiService returns fallback models when uninitialized and includes deepseek-v4.1-flash', async () => {
+        const traeService = new TraeApiService({
+            uuid: 'test-trae-uuid-fallback'
+        });
+
+        const fallback = traeService._getFallbackModels();
+        expect(fallback.length).toBeGreaterThan(5);
+        const ids = fallback.map(m => m.id);
+        expect(ids).toContain('deepseek-v4.1-flash');
+        expect(ids).toContain('DeepSeek-V4-Pro');
+        expect(ids).toContain('glm-5.2');
+        expect(ids).toContain('qwen-3.7-plus');
+
+        const modelList = await traeService.listModels();
+        expect(modelList.object).toBe('list');
+        expect(Array.isArray(modelList.data)).toBe(true);
+        expect(modelList.data.some(m => m.id === 'deepseek-v4.1-flash')).toBe(true);
+    });
 });

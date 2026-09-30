@@ -25,6 +25,11 @@ const MODEL_MAP = {
     'gpt-4o-mini': 'DeepSeek-V4-Flash',
 };
 
+const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
+let globalTraeModelsCache = null;
+let globalTraeModelsExpiresAt = 0;
+const globalTraeModelMetadataMap = new Map();
+
 /**
  * Trae API Service
  * 封装与 Trae / SOLO 上游端点 (api.enterprise.trae.cn / api.trae.cn) 的交互与 SSE 转换
@@ -52,6 +57,9 @@ export class TraeApiService {
         this.loadCredentials();
         if (this.isInitialized) {
             updateProviderModels(MODEL_PROVIDER.TRAE, PROVIDER_MODELS.trae);
+            this.fetchRemoteModels().catch(err => {
+                logger.debug(`[Trae] Initial dynamic model fetch notice: ${err.message}`);
+            });
         }
     }
 
@@ -448,17 +456,141 @@ export class TraeApiService {
     }
 
     /**
-     * 获取可用模型列表
+     * 动态从上游 get_detail_param 接口拉取可用模型列表并更新系统缓存
+     * @param {boolean} force 是否强制忽略缓存刷新
+     * @returns {Promise<Array<object>>} 模型元数据对象列表
+     */
+    async fetchRemoteModels(force = false) {
+        const now = Date.now();
+        if (!force && globalTraeModelsCache && (globalTraeModelsExpiresAt > now)) {
+            return globalTraeModelsCache;
+        }
+
+        try {
+            const token = await this.getToken();
+            if (!token) {
+                logger.warn('[Trae] Cannot fetch remote models: No token available');
+                return globalTraeModelsCache || this._getFallbackModels();
+            }
+
+            const headers = await this.buildHeaders(false);
+            const url = `${this.agentHost}/api/ide/v1/get_detail_param`;
+            const payload = {
+                function: FUNCTION_NAME,
+                config_names: null,
+                need_prompt: false,
+                current_config_info: null,
+                poly_prompt: true,
+                mode_type: null,
+                agent_type: null
+            };
+
+            const axiosConfig = {
+                method: 'POST',
+                url,
+                data: payload,
+                headers,
+                timeout: 15000
+            };
+            configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
+
+            const res = await axios(axiosConfig);
+            const rawList = res.data?.config_info_list;
+
+            if (Array.isArray(rawList) && rawList.length > 0) {
+                const excludedConfigNames = new Set([
+                    'computer_use_subagent',
+                    'browser_use_subagent',
+                    'file_search_agent',
+                    'explore_sub_agent_v2',
+                    'summary'
+                ]);
+
+                const modelObjects = [];
+                const modelIds = [];
+                globalTraeModelMetadataMap.clear();
+
+                for (const item of rawList) {
+                    const id = item.config_name;
+                    const displayName = item.display_config?.display_name?.trim();
+                    if (!id) continue;
+                    if (excludedConfigNames.has(id)) continue;
+                    if (id.startsWith('custom_model_') && (!displayName || displayName === '-')) continue;
+                    if (displayName === '-') continue;
+
+                    const detail = item.model_detail_list?.[0];
+                    const modelInfo = {
+                        id,
+                        name: displayName || id,
+                        context_window: detail?.prompt_max_tokens || 128000,
+                        max_tokens: detail?.max_tokens || 8192,
+                        supports_thinking: Boolean(item.reasoning_effort_config?.support_thinking)
+                    };
+
+                    modelObjects.push(modelInfo);
+                    modelIds.push(id);
+                    globalTraeModelMetadataMap.set(id, modelInfo);
+                }
+
+                // 注入常用的便捷别名 (如 auto, claude-3.5-sonnet, gpt-4o 等)
+                const aliases = Object.keys(MODEL_MAP);
+                for (const alias of aliases) {
+                    if (!modelIds.includes(alias)) {
+                        modelIds.push(alias);
+                        modelObjects.push({
+                            id: alias,
+                            name: `Trae Auto / ${alias}`,
+                            context_window: 128000,
+                            max_tokens: 8192,
+                            supports_thinking: true
+                        });
+                    }
+                }
+
+                if (modelIds.length > 0) {
+                    globalTraeModelsCache = modelObjects;
+                    globalTraeModelsExpiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
+                    updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
+                    logger.info(`[Trae] Successfully fetched dynamic model list (${modelIds.length} models): ${modelIds.join(', ')}`);
+                    return modelObjects;
+                }
+            }
+        } catch (error) {
+            logger.warn(`[Trae] Failed to fetch remote models from ${this.agentHost}: ${error.message}`);
+        }
+
+        return globalTraeModelsCache || this._getFallbackModels();
+    }
+
+    /**
+     * 回退静态模型列表
+     */
+    _getFallbackModels() {
+        const modelIds = PROVIDER_MODELS.trae || ['glm-5.2', 'deepseek-v4.1-flash', 'DeepSeek-V4-Pro'];
+        return modelIds.map(id => ({
+            id,
+            name: id,
+            context_window: 128000,
+            max_tokens: 8192,
+            supports_thinking: true
+        }));
+    }
+
+    /**
+     * 获取可用模型列表 (动态拉取或回退到缓存)
      */
     async listModels() {
-        const models = PROVIDER_MODELS.trae || ['glm-5.2', 'DeepSeek-V4-Pro'];
+        const models = await this.fetchRemoteModels();
         return {
             object: 'list',
             data: models.map(m => ({
-                id: m,
+                id: m.id,
                 object: 'model',
                 created: 1753600000,
-                owned_by: 'trae'
+                owned_by: 'trae',
+                name: m.name,
+                context_window: m.context_window,
+                max_tokens: m.max_tokens
             }))
         };
     }
