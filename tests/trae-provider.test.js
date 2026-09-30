@@ -208,5 +208,31 @@ describe('Trae Provider Implementation Tests', () => {
         expect(result.choices[0].message.tool_calls[0].function.name).toBe('get_weather');
         expect(result.choices[0].message.tool_calls[0].function.arguments).toBe('{"city":"Beijing"}');
     });
+
+    test('Trae provider exposes underlying technical IDs without Chinese display name pollution and with 1M context_window', async () => {
+        const traeService = new TraeApiService();
+        const res = await traeService.listModels();
+        const modelIds = res.data.map(m => m.id);
+
+        // 必须使用底层 ID
+        expect(modelIds).toContain('DeepSeek-V4-Pro-Official');
+        expect(modelIds).toContain('DeepSeek-V4-Flash-Official');
+        expect(modelIds).toContain('Doubao-Seed-2.1-Pro');
+        expect(modelIds).toContain('deepseek-v4.1-flash');
+        expect(modelIds).toContain('glm-5.3');
+
+        // 严禁将中文显示名作为模型 ID
+        expect(modelIds).not.toContain('DeepSeek-V4-Pro 正式版');
+        expect(modelIds).not.toContain('DeepSeek-V4-Flash 正式版');
+        expect(modelIds).not.toContain('Doubao-Seed-2.1-Pro-0915');
+
+        // 验证 1M context_window 与 reasoning
+        const deepseekOfficial = res.data.find(m => m.id === 'DeepSeek-V4-Pro-Official');
+        expect(deepseekOfficial).toBeDefined();
+        expect(deepseekOfficial.context_window).toBe(1000000);
+        expect(deepseekOfficial.max_tokens).toBe(32000);
+        expect(deepseekOfficial.supports_thinking).toBe(true);
+    });
 });
+
 

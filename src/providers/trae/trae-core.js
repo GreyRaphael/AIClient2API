@@ -69,12 +69,12 @@ const globalTraeModelFunctionMap = new Map();
  * 封装与 Trae / SOLO 上游端点 (api.enterprise.trae.cn / api.trae.cn) 的交互与 SSE 转换
  */
 export class TraeApiService {
-    constructor(config) {
+    constructor(config = {}) {
         this.config = config || {};
-        this.uuid = config.uuid;
-        this.credsFilePath = config.TRAE_OAUTH_CREDS_FILE_PATH;
-        this.authHost = (config.TRAE_AUTH_HOST || config.TRAE_HOST || config.TRAE_BASE_URL || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
-        this.agentHost = (config.TRAE_AGENT_HOST || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
+        this.uuid = this.config.uuid;
+        this.credsFilePath = this.config.TRAE_OAUTH_CREDS_FILE_PATH;
+        this.authHost = (this.config.TRAE_AUTH_HOST || this.config.TRAE_HOST || this.config.TRAE_BASE_URL || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
+        this.agentHost = (this.config.TRAE_AGENT_HOST || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
         this.host = this.authHost;
         this.userId = null;
         this.enterpriseId = null;
@@ -638,89 +638,72 @@ export class TraeApiService {
             globalTraeModelMetadataMap.clear();
             globalTraeModelFunctionMap.clear();
 
-            // 1. 优先探测本地 ~/.trae/cli/models_cache.json (Trae CLI 2.0 官方 22 个主力大模型元数据)
-            try {
-                const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-                const localCachePath = path.join(homeDir, '.trae', 'cli', 'models_cache.json');
-                if (fs.existsSync(localCachePath)) {
-                    const cacheContent = fs.readFileSync(localCachePath, 'utf-8');
-                    const parsedCache = JSON.parse(cacheContent);
-                    if (Array.isArray(parsedCache.models)) {
-                        for (const m of parsedCache.models) {
-                            let configName = m.config_name;
-                            const slug = m.slug;
-                            // 对齐 Trae 上游真实存在的服务端大小写
-                            if (configName?.toLowerCase() === 'doubao-seed-2.1-pro') configName = 'Doubao-Seed-2.1-Pro';
-                            if (configName?.toLowerCase() === 'doubao-seed-2.1-turbo') configName = 'Doubao-Seed-2.1-Turbo';
-                            if (configName?.toLowerCase() === 'deepseek-v4.1-flash') configName = 'deepseek-v4.1-flash';
-                            if (configName?.toLowerCase() === 'deepseek-v4-pro') configName = 'DeepSeek-V4-Pro';
-
-                            const variants = m.business_metadata?.variants || {};
-                            const ctx = variants.max_context_window || variants.standard_context_window || m.context_window || 1000000;
-                            const maxTok = m.truncation_policy?.limit || 32000;
-                            const tobFunc = (configName === 'kimi-k2.7-code' || configName === 'Doubao-Seed-2.0-Code') ? 'solo_work_lite' : 'chat_v3';
-                            const supportsThinking = Array.isArray(m.supported_reasoning_levels) && m.supported_reasoning_levels.length > 0;
-
-                            if (configName) {
-                                const modelInfo = {
-                                    id: configName,
-                                    name: slug || configName,
-                                    context_window: ctx,
-                                    max_tokens: maxTok,
-                                    supports_thinking: supportsThinking
-                                };
-                                mergedMap.set(configName, modelInfo);
-                                globalTraeModelMetadataMap.set(configName, modelInfo);
-                                globalTraeModelFunctionMap.set(configName, tobFunc);
-                            }
-
-                            if (slug && slug !== configName) {
-                                MODEL_MAP[slug] = configName;
-                                const slugInfo = {
-                                    id: slug,
-                                    name: slug,
-                                    context_window: ctx,
-                                    max_tokens: maxTok,
-                                    supports_thinking: supportsThinking
-                                };
-                                mergedMap.set(slug, slugInfo);
-                                globalTraeModelMetadataMap.set(slug, slugInfo);
-                                globalTraeModelFunctionMap.set(slug, tobFunc);
-                            }
-                        }
-                        logger.debug(`[Trae] Loaded ${parsedCache.models.length} official models from local traecli cache (${localCachePath})`);
-                    }
-                }
-            } catch (cacheErr) {
-                logger.debug(`[Trae] Reading local trae models_cache.json notice: ${cacheErr.message}`);
-            }
-
             const headers = await this.buildHeaders(false);
-            const fetchFnList = async (fn) => {
-                const axiosConfig = {
-                    method: 'POST',
-                    url: `${this.agentHost}/api/ide/v1/get_detail_param`,
-                    data: {
-                        function: fn,
-                        config_names: null,
-                        need_prompt: false,
-                        current_config_info: null,
-                        poly_prompt: true,
-                        mode_type: null,
-                        agent_type: null
-                    },
-                    headers,
-                    timeout: 15000
-                };
-                configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
-                const res = await axios(axiosConfig);
-                return res.data?.config_info_list || [];
+            const batchBody = {
+                app_id: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
+                version_code: '20260908',
+                functions: ['chat', 'chat_v3', 'solo_work_lite'],
+                agent_type: 'chat',
+                mode_type: 0,
+                access_type: 4,
+                show_custom_model: true
             };
 
-            const [chatList, soloList] = await Promise.all([
-                fetchFnList('chat_v3').catch(() => []),
-                fetchFnList('solo_work_lite').catch(() => [])
-            ]);
+            const allConfigs = [];
+            // 优先从企业源头拉取 (https://api.enterprise.trae.cn/api/ide/v1/batch_get_detail_param)
+            // 结合兼容节点补充拉取 (https://trae-api-cn.mchost.guru/api/ide/v1/batch_get_detail_param)
+            const hosts = Array.from(new Set([this.authHost, this.agentHost]));
+            for (const host of hosts) {
+                try {
+                    const axiosConfig = {
+                        method: 'POST',
+                        url: `${host}/api/ide/v1/batch_get_detail_param`,
+                        data: batchBody,
+                        headers,
+                        timeout: 15000
+                    };
+                    configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
+                    const res = await axios(axiosConfig);
+                    for (const fc of res.data?.function_configs || []) {
+                        for (const item of fc.config_info_list || []) {
+                            allConfigs.push({ item, fn: fc.function, host });
+                        }
+                    }
+                } catch (batchErr) {
+                    logger.debug(`[Trae] batch_get_detail_param failed on ${host}: ${batchErr.message}`);
+                }
+            }
+
+            // 若 batch 接口未返回，降级回退到 get_detail_param 接口
+            if (allConfigs.length === 0) {
+                const fetchFnList = async (fn) => {
+                    const axiosConfig = {
+                        method: 'POST',
+                        url: `${this.agentHost}/api/ide/v1/get_detail_param`,
+                        data: {
+                            function: fn,
+                            config_names: null,
+                            need_prompt: false,
+                            current_config_info: null,
+                            poly_prompt: true,
+                            mode_type: null,
+                            agent_type: null
+                        },
+                        headers,
+                        timeout: 15000
+                    };
+                    configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
+                    const res = await axios(axiosConfig);
+                    return res.data?.config_info_list || [];
+                };
+
+                const [chatList, soloList] = await Promise.all([
+                    fetchFnList('chat_v3').catch(() => []),
+                    fetchFnList('solo_work_lite').catch(() => [])
+                ]);
+                for (const item of soloList) allConfigs.push({ item, fn: 'solo_work_lite', host: this.agentHost });
+                for (const item of chatList) allConfigs.push({ item, fn: 'chat_v3', host: this.agentHost });
+            }
 
             const excludedConfigNames = new Set([
                 'computer_use_subagent',
@@ -732,58 +715,76 @@ export class TraeApiService {
                 'fast_apply_new',
                 'title_generation',
                 'input_optimization',
-                'context_selection'
+                'context_selection',
+                'custom_model_placeholder'
             ]);
 
-            // 2. 结合线上通道动态补充并校验 (遵循 traecli visible_tob_batch_configs 过滤规则)
-            const combined = [
-                ...soloList.map(item => ({ item, fn: 'solo_work_lite' })),
-                ...chatList.map(item => ({ item, fn: 'chat_v3' }))
-            ];
-
-            for (const { item, fn } of combined) {
-                const id = item.config_name;
-                const displayName = item.display_config?.display_name?.trim();
+            // 严格执行 visible_tob_batch_configs 过滤流水线，统一提取底层 ID、上下文与推理配置
+            for (const { item, fn } of allConfigs) {
+                let id = item.config_name;
                 if (!id || excludedConfigNames.has(id)) continue;
                 if (item.config_switch === false || item.is_invisible_to_user === true) continue;
+                const displayName = item.display_config?.display_name?.trim() || item.display_name?.trim();
                 if (id.startsWith('custom_model_') && (!displayName || displayName === '-')) continue;
                 if (displayName === '-') continue;
 
+                // 严格对齐上游真实底层 ID 大小写
+                if (id.toLowerCase() === 'doubao-seed-2.1-pro') id = 'Doubao-Seed-2.1-Pro';
+                if (id.toLowerCase() === 'doubao-seed-2.1-turbo') id = 'Doubao-Seed-2.1-Turbo';
+                if (id.toLowerCase() === 'deepseek-v4.1-flash') id = 'deepseek-v4.1-flash';
+                if (id.toLowerCase() === 'deepseek-v4-pro') id = 'DeepSeek-V4-Pro';
+
                 const detail = item.model_detail_list?.[0];
-                const ctx = item.context_window_tokens?.max || item.context_window_tokens?.dev || detail?.prompt_max_tokens || 1000000;
+                const devCtx = item.context_window_tokens?.dev || 0;
+                const maxCtx = item.context_window_tokens?.max || 0;
+                const promptMax = detail?.prompt_max_tokens || 0;
+                // Trae Max Mode 具备 1M (1,000,000) 上下文能力，标准模式为 200,000
+                const ctx = maxCtx >= 1000000 ? maxCtx : (maxCtx > 0 ? maxCtx : (devCtx > 0 ? devCtx : (promptMax > 0 ? promptMax : 1000000)));
                 const maxTok = detail?.max_tokens || 32000;
-                const supportsThinking = Boolean(item.reasoning_effort_config?.support_thinking);
+                const effortConfig = item.reasoning_effort_config;
+                const isReasoning = id.toLowerCase().includes('deepseek') ||
+                                    id.toLowerCase().includes('glm-5') ||
+                                    id.toLowerCase().includes('step-5');
+                const supportsThinking = Boolean(effortConfig?.support_thinking || isReasoning);
+                const effortLevels = effortConfig?.reasoning_effort_level_options || (supportsThinking ? ['low', 'high', 'xhigh'] : []);
+                const defaultEffort = effortConfig?.default_reasoning_effort_level || (supportsThinking ? 'high' : undefined);
+                const tobFunc = (id === 'kimi-k2.7-code' || id === 'Doubao-Seed-2.0-Code') ? 'solo_work_lite' : (fn === 'solo_work_lite' ? 'solo_work_lite' : 'chat_v3');
 
                 if (mergedMap.has(id)) {
                     const prev = mergedMap.get(id);
                     if (ctx > prev.context_window) prev.context_window = ctx;
                     if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
                     if (supportsThinking) prev.supports_thinking = true;
-                    if (fn === 'chat_v3') globalTraeModelFunctionMap.set(id, fn);
+                    if (fn === 'chat_v3') globalTraeModelFunctionMap.set(id, 'chat_v3');
                 } else {
                     const modelInfo = {
-                        id,
-                        name: displayName || id,
+                        id, // 严格使用底层真实 ID (例如 DeepSeek-V4-Pro-Official)
+                        name: id,
+                        display_name: displayName || id,
                         context_window: ctx,
                         max_tokens: maxTok,
-                        supports_thinking: supportsThinking
+                        supports_thinking: supportsThinking,
+                        default_reasoning_effort: defaultEffort,
+                        reasoning_effort_levels: effortLevels
                     };
                     mergedMap.set(id, modelInfo);
                     globalTraeModelMetadataMap.set(id, modelInfo);
-                    globalTraeModelFunctionMap.set(id, fn);
+                    globalTraeModelFunctionMap.set(id, tobFunc);
                 }
             }
 
-            // 注入常用的便捷别名 (如 auto, claude-3.5-sonnet, gpt-4o 等)
-            const aliases = Object.keys(MODEL_MAP);
-            for (const alias of aliases) {
+            // 仅注入标准开发者便捷别名 (如 auto, gpt-4o 等)，不暴露中文展示名
+            const standardAliases = ['auto', 'gpt-4o', 'gpt-4o-mini', 'claude-3.5-sonnet', 'claude-3.7-sonnet'];
+            for (const alias of standardAliases) {
                 if (!mergedMap.has(alias)) {
+                    const target = MODEL_MAP[alias] || DEFAULT_MODEL;
+                    const targetMeta = mergedMap.get(target);
                     const modelInfo = {
                         id: alias,
-                        name: `Trae Auto / ${alias}`,
-                        context_window: 1000000,
-                        max_tokens: 32000,
-                        supports_thinking: true
+                        name: alias,
+                        context_window: targetMeta?.context_window || 1000000,
+                        max_tokens: targetMeta?.max_tokens || 32000,
+                        supports_thinking: targetMeta?.supports_thinking ?? true
                     };
                     mergedMap.set(alias, modelInfo);
                     globalTraeModelMetadataMap.set(alias, modelInfo);
@@ -798,11 +799,11 @@ export class TraeApiService {
                 globalTraeModelsCache = modelObjects;
                 globalTraeModelsExpiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
                 updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
-                logger.info(`[Trae] Successfully fetched dynamic model list (${modelIds.length} models, with Max Mode 1M support): ${modelIds.join(', ')}`);
+                logger.info(`[Trae] Successfully fetched dynamic model list from upstream (${modelIds.length} models, with Max Mode 1M support): ${modelIds.join(', ')}`);
                 return modelObjects;
             }
         } catch (error) {
-            logger.warn(`[Trae] Failed to fetch remote models from ${this.agentHost}: ${error.message}`);
+            logger.warn(`[Trae] Failed to fetch remote models from ${this.authHost}: ${error.message}`);
         }
 
         return globalTraeModelsCache || this._getFallbackModels();
@@ -843,7 +844,10 @@ export class TraeApiService {
                 owned_by: 'trae',
                 name: m.name,
                 context_window: m.context_window,
-                max_tokens: m.max_tokens
+                max_tokens: m.max_tokens,
+                supports_thinking: m.supports_thinking,
+                default_reasoning_effort: m.default_reasoning_effort,
+                reasoning_effort_levels: m.reasoning_effort_levels
             }))
         };
     }
