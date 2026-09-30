@@ -245,6 +245,20 @@ export class TraeApiService {
         payload.model = targetModel;
         payload.config_name = targetModel;
 
+        // 映射并注入 Trae 2.0 原生思考深度 (light / high / extra_high)
+        const rawEffort = payload.reasoning_effort || requestBody?.reasoning_effort;
+        delete payload.reasoning_effort;
+        if (rawEffort) {
+            const effortLower = String(rawEffort).toLowerCase();
+            if (effortLower === 'low' || effortLower === 'light') {
+                payload.reasoning_effort_level = 'light';
+            } else if (effortLower === 'xhigh' || effortLower === 'extra_high' || effortLower === 'max' || effortLower === 'ultra') {
+                payload.reasoning_effort_level = 'extra_high';
+            } else {
+                payload.reasoning_effort_level = 'high';
+            }
+        }
+
         if (Array.isArray(payload.messages)) {
             for (const msg of payload.messages) {
                 // 处理 assistant tool_calls

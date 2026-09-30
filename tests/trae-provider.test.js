@@ -58,6 +58,14 @@ describe('Trae Provider Implementation Tests', () => {
         expect(prepared.model).toBe('glm-5.2');
         expect(prepared.config_name).toBe('glm-5.2');
 
+        // Test reasoning_effort mapping
+        const reqWithEffort = traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'max'
+        });
+        expect(reqWithEffort.reasoning_effort_level).toBe('extra_high');
+        expect(reqWithEffort.reasoning_effort).toBeUndefined();
+
         // Check message formatting
         expect(prepared.messages[0].content).toEqual([{ type: 'text', text: 'You are a helpful assistant' }]);
         expect(prepared.messages[1].content).toEqual([{ type: 'text', text: 'Hello' }]);
