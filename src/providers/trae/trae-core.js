@@ -79,7 +79,7 @@ export class TraeApiService {
     constructor(config = {}) {
         this.config = config || {};
         this.uuid = this.config.uuid;
-        this.credsFilePath = this.config.TRAE_OAUTH_CREDS_FILE_PATH;
+        this.credsFilePath = this.config.TRAE_OAUTH_CREDS_FILE_PATH || process.env.TRAE_OAUTH_CREDS_FILE_PATH;
         this.authHost = (this.config.TRAE_AUTH_HOST || this.config.TRAE_HOST || this.config.TRAE_BASE_URL || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
         this.agentHost = (this.config.TRAE_AGENT_HOST || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
         this.host = this.authHost;
@@ -785,28 +785,36 @@ export class TraeApiService {
                 // 严格对齐上游真实底层规范 ID
                 id = this.normalizeModelName(id);
 
-                // context_window(默认1m): Trae Max Mode 具备 1M (1,000,000) 上下文能力
-                const devCtx = item.context_window_tokens?.dev || 0;
-                const maxCtx = item.context_window_tokens?.max || 0;
-                const promptMax = Math.max(...(item.model_detail_list || []).map(d => (d.prompt_max_tokens || 0) + (d.max_tokens || 0)), 0);
-                const detectedCtx = Math.max(maxCtx, devCtx, promptMax);
-                const ctx = detectedCtx > 1000000 ? detectedCtx : 1000000;
+                // context_window: 默认使用上游 Max 档位 (context_window_tokens.max)；若未显式提供则取可用最大档位 (如 dev / 详情最大容量)
+                const maxCtx = item.context_window_tokens?.max;
+                const devCtx = item.context_window_tokens?.dev;
+                const detailMaxCtx = Math.max(...(item.model_detail_list || []).map(d => {
+                    if (d.context_window_tokens) return d.context_window_tokens;
+                    return (d.prompt_max_tokens || 0) + (d.max_tokens || 0);
+                }), 0);
+                const ctx = maxCtx || Math.max(devCtx || 0, detailMaxCtx) || 0;
 
-                // max_tokens(默认最大): 提取模型所有档位（尤其是 Max Mode）中的最大值，默认至少 64000
+                // max_tokens: 默认使用上游最大档位 (从 model_detail_list 所有档位中提取最大值)
                 const detailMaxTokens = (item.model_detail_list || []).map(d => d.max_tokens || 0);
-                const maxTok = Math.max(...detailMaxTokens, 64000);
+                const maxTok = detailMaxTokens.length > 0 ? Math.max(...detailMaxTokens) : (item.max_tokens || 0);
 
                 // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
                 const effortConfig = item.reasoning_effort_config;
                 const hasExplicitThinkingSupport = effortConfig?.support_thinking === true ||
+                    (Array.isArray(effortConfig?.options) && effortConfig.options.length > 0) ||
                     (Array.isArray(effortConfig?.reasoning_effort_level_options) && effortConfig.reasoning_effort_level_options.length > 0);
-                const supportsThinking = Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some(re => re.test(id)));
-                const rawOptions = effortConfig?.reasoning_effort_level_options || effortConfig?.options;
+                const isExplicitlyDisabled = effortConfig?.support_thinking === false;
+                const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some(re => re.test(id)));
+
+                const rawOptions = effortConfig?.options || effortConfig?.reasoning_effort_level_options;
                 const effortLevels = rawOptions?.length
                     ? [...new Set(rawOptions.map(mapReasoningLevel))]
                     : (supportsThinking ? ['low', 'high', 'xhigh'] : []);
-                const rawDefault = effortConfig?.default_reasoning_effort_level || effortConfig?.default_level;
-                const defaultEffort = rawDefault ? mapReasoningLevel(rawDefault) : (supportsThinking ? 'high' : undefined);
+
+                const rawDefault = effortConfig?.default_level || effortConfig?.default_reasoning_effort_level;
+                const defaultEffort = rawDefault
+                    ? mapReasoningLevel(rawDefault)
+                    : (supportsThinking ? (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high') : undefined);
 
                 if (mergedMap.has(id)) {
                     const prev = mergedMap.get(id);
@@ -814,7 +822,7 @@ export class TraeApiService {
                     if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
                     if (supportsThinking) prev.supports_thinking = true;
                     if (effortLevels.length > prev.reasoning_effort_levels.length) prev.reasoning_effort_levels = effortLevels;
-                    if (defaultEffort) prev.default_reasoning_effort = defaultEffort;
+                    if (defaultEffort && !prev.default_reasoning_effort) prev.default_reasoning_effort = defaultEffort;
                     accountCache.functionMap.set(id, FUNCTION_NAME);
                 } else {
                     const modelInfo = {
@@ -833,7 +841,7 @@ export class TraeApiService {
                 }
             }
 
-            // 仅注入标准通用别名 auto (确保模型列表中只包含原生基础模型)
+            // 仅注入标准通用别名 auto (确保模型列表中只包含原生基础模型，动态继承目标模型的上游元数据)
             const standardAliases = ['auto'];
             for (const alias of standardAliases) {
                 if (!mergedMap.has(alias)) {
@@ -842,8 +850,8 @@ export class TraeApiService {
                     const modelInfo = {
                         id: alias,
                         name: alias,
-                        context_window: targetMeta?.context_window || 1000000,
-                        max_tokens: targetMeta?.max_tokens || 64000,
+                        context_window: targetMeta?.context_window || 0,
+                        max_tokens: targetMeta?.max_tokens || 0,
                         supports_thinking: targetMeta?.supports_thinking ?? true,
                         default_reasoning_effort: targetMeta?.default_reasoning_effort || 'high',
                         reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
