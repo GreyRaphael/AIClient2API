@@ -230,8 +230,10 @@ describe('Trae Provider Implementation Tests', () => {
         const deepseekOfficial = res.data.find(m => m.id === 'DeepSeek-V4-Pro-Official');
         expect(deepseekOfficial).toBeDefined();
         expect(deepseekOfficial.context_window).toBe(1000000);
-        expect(deepseekOfficial.max_tokens).toBe(32000);
+        expect(deepseekOfficial.max_tokens).toBe(64000);
         expect(deepseekOfficial.supports_thinking).toBe(true);
+        expect(deepseekOfficial.default_reasoning_effort).toBe('high');
+        expect(deepseekOfficial.reasoning_effort_levels).toEqual(['low', 'high', 'xhigh']);
     });
 });
 

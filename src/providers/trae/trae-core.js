@@ -15,7 +15,11 @@ const IDE_VERSION_CODE = '20260811';
 const DEVICE_BRAND = '83DG';
 const OS_VERSION = 'Windows 11 Pro';
 const FUNCTION_NAME = 'chat_v3';
-const FALLBACK_FUNCTION_NAME = 'solo_work_lite';
+// 备用通道说明（以 chat_v3 为准，其余通道写入注释）：
+// - 'solo_work_lite': 长流程自主多步骤编码/修改专用通道
+// - 'chat': 早期常规对话/快速问答通道
+// const FALLBACK_FUNCTION_NAME = 'solo_work_lite';
+// const OLD_CHAT_FUNCTION_NAME = 'chat';
 const DEFAULT_MODEL = 'glm-5.2';
 
 const MODEL_MAP = {
@@ -301,9 +305,10 @@ export class TraeApiService {
         payload.config_name = targetModel;
 
         // 映射并注入 Trae 2.0 原生思考深度 (light / high / extra_high)
-        const rawEffort = payload.reasoning_effort || requestBody?.reasoning_effort;
+        const modelMeta = globalTraeModelMetadataMap.get(targetModel);
+        const rawEffort = payload.reasoning_effort || requestBody?.reasoning_effort || (modelMeta?.supports_thinking ? modelMeta.default_reasoning_effort : undefined);
         delete payload.reasoning_effort;
-        if (rawEffort) {
+        if (rawEffort && (modelMeta?.supports_thinking !== false)) {
             const effortLower = String(rawEffort).toLowerCase();
             if (effortLower === 'low' || effortLower === 'light') {
                 payload.reasoning_effort_level = 'light';
@@ -639,10 +644,15 @@ export class TraeApiService {
             globalTraeModelFunctionMap.clear();
 
             const headers = await this.buildHeaders(false);
+            // 以 chat_v3 通道为准，其余 2 个通道写入注释备用
+            // 备用通道说明：
+            // - 'solo_work_lite': 长流程自主多步编码/规划专用通道
+            // - 'chat': 早期轻量对话/常规问答通道
             const batchBody = {
                 app_id: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
                 version_code: '20260908',
-                functions: ['chat', 'chat_v3', 'solo_work_lite'],
+                functions: ['chat_v3'],
+                // 备用通道: functions: ['chat', 'chat_v3', 'solo_work_lite'],
                 agent_type: 'chat',
                 mode_type: 0,
                 access_type: 4,
@@ -674,7 +684,7 @@ export class TraeApiService {
                 }
             }
 
-            // 若 batch 接口未返回，降级回退到 get_detail_param 接口
+            // 若 batch 接口未返回，降级回退到 get_detail_param 接口 (以 chat_v3 通道为准)
             if (allConfigs.length === 0) {
                 const fetchFnList = async (fn) => {
                     const axiosConfig = {
@@ -697,12 +707,13 @@ export class TraeApiService {
                     return res.data?.config_info_list || [];
                 };
 
-                const [chatList, soloList] = await Promise.all([
-                    fetchFnList('chat_v3').catch(() => []),
-                    fetchFnList('solo_work_lite').catch(() => [])
-                ]);
-                for (const item of soloList) allConfigs.push({ item, fn: 'solo_work_lite', host: this.agentHost });
+                // 以 chat_v3 为准；其他两个通道写入注释备用:
+                // const soloList = await fetchFnList('solo_work_lite').catch(() => []); // 备用: solo_work_lite
+                // const oldChatList = await fetchFnList('chat').catch(() => []);        // 备用: chat
+                const chatList = await fetchFnList('chat_v3').catch(() => []);
                 for (const item of chatList) allConfigs.push({ item, fn: 'chat_v3', host: this.agentHost });
+                // for (const item of soloList) allConfigs.push({ item, fn: 'solo_work_lite', host: this.agentHost });
+                // for (const item of oldChatList) allConfigs.push({ item, fn: 'chat', host: this.agentHost });
             }
 
             const excludedConfigNames = new Set([
@@ -719,8 +730,16 @@ export class TraeApiService {
                 'custom_model_placeholder'
             ]);
 
+            // 映射并规范化推理深度级别
+            const mapReasoningLevel = (lvl) => {
+                const l = String(lvl || '').toLowerCase();
+                if (l === 'light' || l === 'low') return 'low';
+                if (l === 'extra_high' || l === 'xhigh' || l === 'max') return 'xhigh';
+                return 'high';
+            };
+
             // 严格执行 visible_tob_batch_configs 过滤流水线，统一提取底层 ID、上下文与推理配置
-            for (const { item, fn } of allConfigs) {
+            for (const { item } of allConfigs) {
                 let id = item.config_name;
                 if (!id || excludedConfigNames.has(id)) continue;
                 if (item.config_switch === false || item.is_invisible_to_user === true) continue;
@@ -734,28 +753,44 @@ export class TraeApiService {
                 if (id.toLowerCase() === 'deepseek-v4.1-flash') id = 'deepseek-v4.1-flash';
                 if (id.toLowerCase() === 'deepseek-v4-pro') id = 'DeepSeek-V4-Pro';
 
-                const detail = item.model_detail_list?.[0];
+                // context_window(默认1m): Trae Max Mode 具备 1M (1,000,000) 上下文能力
                 const devCtx = item.context_window_tokens?.dev || 0;
                 const maxCtx = item.context_window_tokens?.max || 0;
-                const promptMax = detail?.prompt_max_tokens || 0;
-                // Trae Max Mode 具备 1M (1,000,000) 上下文能力，标准模式为 200,000
-                const ctx = maxCtx >= 1000000 ? maxCtx : (maxCtx > 0 ? maxCtx : (devCtx > 0 ? devCtx : (promptMax > 0 ? promptMax : 1000000)));
-                const maxTok = detail?.max_tokens || 32000;
+                const promptMax = Math.max(...(item.model_detail_list || []).map(d => (d.prompt_max_tokens || 0) + (d.max_tokens || 0)), 0);
+                const detectedCtx = Math.max(maxCtx, devCtx, promptMax);
+                const ctx = detectedCtx > 1000000 ? detectedCtx : 1000000;
+
+                // max_tokens(默认最大): 提取模型所有档位（尤其是 Max Mode）中的最大值，默认至少 64000
+                const detailMaxTokens = (item.model_detail_list || []).map(d => d.max_tokens || 0);
+                const maxTok = Math.max(...detailMaxTokens, 64000);
+
+                // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
                 const effortConfig = item.reasoning_effort_config;
                 const isReasoning = id.toLowerCase().includes('deepseek') ||
                                     id.toLowerCase().includes('glm-5') ||
-                                    id.toLowerCase().includes('step-5');
+                                    id.toLowerCase().includes('step-5') ||
+                                    id.toLowerCase().includes('kimi-k3') ||
+                                    id.toLowerCase().includes('kimi-k2.8') ||
+                                    id.toLowerCase().includes('qwen3.8');
                 const supportsThinking = Boolean(effortConfig?.support_thinking || isReasoning);
-                const effortLevels = effortConfig?.reasoning_effort_level_options || (supportsThinking ? ['low', 'high', 'xhigh'] : []);
-                const defaultEffort = effortConfig?.default_reasoning_effort_level || (supportsThinking ? 'high' : undefined);
-                const tobFunc = (id === 'kimi-k2.7-code' || id === 'Doubao-Seed-2.0-Code') ? 'solo_work_lite' : (fn === 'solo_work_lite' ? 'solo_work_lite' : 'chat_v3');
+                const rawOptions = effortConfig?.reasoning_effort_level_options || effortConfig?.options;
+                const effortLevels = rawOptions?.length
+                    ? [...new Set(rawOptions.map(mapReasoningLevel))]
+                    : (supportsThinking ? ['low', 'high', 'xhigh'] : []);
+                const rawDefault = effortConfig?.default_reasoning_effort_level || effortConfig?.default_level;
+                const defaultEffort = rawDefault ? mapReasoningLevel(rawDefault) : (supportsThinking ? 'high' : undefined);
+
+                // 以 chat_v3 通道为准；备选通道写入注释: 'solo_work_lite', 'chat'
+                const tobFunc = 'chat_v3';
 
                 if (mergedMap.has(id)) {
                     const prev = mergedMap.get(id);
                     if (ctx > prev.context_window) prev.context_window = ctx;
                     if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
                     if (supportsThinking) prev.supports_thinking = true;
-                    if (fn === 'chat_v3') globalTraeModelFunctionMap.set(id, 'chat_v3');
+                    if (effortLevels.length > prev.reasoning_effort_levels.length) prev.reasoning_effort_levels = effortLevels;
+                    if (defaultEffort) prev.default_reasoning_effort = defaultEffort;
+                    globalTraeModelFunctionMap.set(id, 'chat_v3');
                 } else {
                     const modelInfo = {
                         id, // 严格使用底层真实 ID (例如 DeepSeek-V4-Pro-Official)
@@ -783,8 +818,10 @@ export class TraeApiService {
                         id: alias,
                         name: alias,
                         context_window: targetMeta?.context_window || 1000000,
-                        max_tokens: targetMeta?.max_tokens || 32000,
-                        supports_thinking: targetMeta?.supports_thinking ?? true
+                        max_tokens: targetMeta?.max_tokens || 64000,
+                        supports_thinking: targetMeta?.supports_thinking ?? true,
+                        default_reasoning_effort: targetMeta?.default_reasoning_effort || 'high',
+                        reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
                     };
                     mergedMap.set(alias, modelInfo);
                     globalTraeModelMetadataMap.set(alias, modelInfo);
@@ -814,19 +851,14 @@ export class TraeApiService {
      */
     _getFallbackModels() {
         const modelIds = PROVIDER_MODELS.trae || ['glm-5.2', 'deepseek-v4.1-flash', 'DeepSeek-V4-Pro'];
-        const default1MModels = new Set([
-            'deepseek-v4.1-flash', 'DeepSeek-V4-Flash-Official', 'DeepSeek-V4-Flash',
-            'DeepSeek-V4-Pro-Official', 'DeepSeek-V4-Pro', 'glm-5.3', 'glm-5.2',
-            'glm-5.3-flash', 'glm-5.3-flashx',
-            'step-5-preview', 'kimi-k3', 'kimi-k2.8-preview', 'minimax-m3',
-            'qwen3.8-flash', 'qwen3.8-max', 'qwen-3.7-plus', 'Doubao-Seed-Evolving', 'Doubao-Seed-2.1-Pro'
-        ]);
         return modelIds.map(id => ({
             id,
             name: id,
-            context_window: default1MModels.has(id) ? 1000000 : 200000,
-            max_tokens: 32000,
-            supports_thinking: true
+            context_window: 1000000, // 默认 1M
+            max_tokens: 64000,        // 默认最大
+            supports_thinking: true,
+            default_reasoning_effort: 'high',
+            reasoning_effort_levels: ['low', 'high', 'xhigh']
         }));
     }
 
