@@ -213,10 +213,6 @@ export const PROVIDER_MODELS = {
         'Doubao-Seed-2.1-Turbo',
         'Doubao-Seed-2.0-Code',
         'seed-code-pro-0430',
-        'claude-3.5-sonnet',
-        'claude-3.7-sonnet',
-        'gpt-4o',
-        'gpt-4o-mini',
         'auto'
     ]
 };

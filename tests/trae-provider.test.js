@@ -226,6 +226,11 @@ describe('Trae Provider Implementation Tests', () => {
         expect(modelIds).not.toContain('DeepSeek-V4-Flash 正式版');
         expect(modelIds).not.toContain('Doubao-Seed-2.1-Pro-0915');
 
+        // 验证已优雅剔除企业自定义与外部映射模型 (无 custom_ 前缀，无 gemini/claude 等外部 ID)
+        expect(modelIds.some(id => id.startsWith('custom_'))).toBe(false);
+        expect(modelIds.some(id => id.toLowerCase().includes('gemini'))).toBe(false);
+        expect(modelIds.some(id => id.toLowerCase().includes('claude'))).toBe(false);
+
         // 验证 1M context_window 与 reasoning
         const deepseekOfficial = res.data.find(m => m.id === 'DeepSeek-V4-Pro-Official');
         expect(deepseekOfficial).toBeDefined();

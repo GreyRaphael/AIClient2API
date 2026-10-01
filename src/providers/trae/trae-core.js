@@ -656,7 +656,7 @@ export class TraeApiService {
                 agent_type: 'chat',
                 mode_type: 0,
                 access_type: 4,
-                show_custom_model: true
+                show_custom_model: false
             };
 
             const allConfigs = [];
@@ -743,8 +743,19 @@ export class TraeApiService {
                 let id = item.config_name;
                 if (!id || excludedConfigNames.has(id)) continue;
                 if (item.config_switch === false || item.is_invisible_to_user === true) continue;
+
+                // 优雅过滤企业自定义与外部映射模型：
+                // 1. 基于上游数据结构：custom_models 为非空数组表示映射至外部提供商 (如 anthropic/gemini 等)
+                // 2. 基于上游元数据标识：display_config.is_custom_model 为 true
+                // 3. 基于上游统一命名规范：config_name 以 custom_ 开头
+                const isCustomMappedModel = Boolean(
+                    (Array.isArray(item.custom_models) && item.custom_models.length > 0) ||
+                    item.display_config?.is_custom_model ||
+                    id.startsWith('custom_')
+                );
+                if (isCustomMappedModel) continue;
+
                 const displayName = item.display_config?.display_name?.trim() || item.display_name?.trim();
-                if (id.startsWith('custom_model_') && (!displayName || displayName === '-')) continue;
                 if (displayName === '-') continue;
 
                 // 严格对齐上游真实底层 ID 大小写
@@ -808,8 +819,8 @@ export class TraeApiService {
                 }
             }
 
-            // 仅注入标准开发者便捷别名 (如 auto, gpt-4o 等)，不暴露中文展示名
-            const standardAliases = ['auto', 'gpt-4o', 'gpt-4o-mini', 'claude-3.5-sonnet', 'claude-3.7-sonnet'];
+            // 仅注入标准通用别名 auto (确保模型列表中只包含原生基础模型)
+            const standardAliases = ['auto'];
             for (const alias of standardAliases) {
                 if (!mergedMap.has(alias)) {
                     const target = MODEL_MAP[alias] || DEFAULT_MODEL;
