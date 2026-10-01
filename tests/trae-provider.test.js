@@ -240,6 +240,35 @@ describe('Trae Provider Implementation Tests', () => {
         expect(deepseekOfficial.default_reasoning_effort).toBe('high');
         expect(deepseekOfficial.reasoning_effort_levels).toEqual(['low', 'high', 'xhigh']);
     });
+
+    test('TraeApiService.normalizeModelName handles aliases, mixed casing and dynamic resolution', () => {
+        const traeService = new TraeApiService({ uuid: 'test-norm' });
+
+        expect(traeService.normalizeModelName('auto')).toBe('glm-5.2');
+        expect(traeService.normalizeModelName('AUTO')).toBe('glm-5.2');
+        expect(traeService.normalizeModelName('DeepSeek-V4-Pro 正式版')).toBe('DeepSeek-V4-Pro-Official');
+        expect(traeService.normalizeModelName('deepseek-v4-pro-official')).toBe('DeepSeek-V4-Pro-Official');
+        expect(traeService.normalizeModelName('DEEPSEEK-V4-PRO-OFFICIAL')).toBe('DeepSeek-V4-Pro-Official');
+        expect(traeService.normalizeModelName('Doubao-Seed-2.1-pro')).toBe('Doubao-Seed-2.1-Pro');
+        expect(traeService.normalizeModelName('doubao-seed-2.1-turbo')).toBe('Doubao-Seed-2.1-Turbo');
+        expect(traeService.normalizeModelName('deepseek-v4.1-flash')).toBe('deepseek-v4.1-flash');
+        expect(traeService.normalizeModelName('GLM-5.3-FLASHX')).toBe('glm-5.3-flashx');
+    });
+
+    test('TraeApiService supports multi-account isolation without cache interference', () => {
+        const acc1 = new TraeApiService({ uuid: 'tenant-a' });
+        const acc2 = new TraeApiService({ uuid: 'tenant-b' });
+
+        const cache1 = acc1.getAccountCache();
+        const cache2 = acc2.getAccountCache();
+
+        expect(acc1.getAccountKey()).not.toBe(acc2.getAccountKey());
+        expect(cache1).not.toBe(cache2);
+
+        cache1.metadataMap.set('special-model', { id: 'special-model', name: 'special-model' });
+        expect(acc1.modelMetadataMap.has('special-model')).toBe(true);
+        expect(acc2.modelMetadataMap.has('special-model')).toBe(false);
+    });
 });
 
 

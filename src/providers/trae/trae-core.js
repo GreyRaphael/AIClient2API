@@ -15,58 +15,61 @@ const IDE_VERSION_CODE = '20260811';
 const DEVICE_BRAND = '83DG';
 const OS_VERSION = 'Windows 11 Pro';
 const FUNCTION_NAME = 'chat_v3';
-// 备用通道说明（以 chat_v3 为准，其余通道写入注释）：
+// 备用通道说明（以 chat_v3 为准）：
 // - 'solo_work_lite': 长流程自主多步骤编码/修改专用通道
 // - 'chat': 早期常规对话/快速问答通道
-// const FALLBACK_FUNCTION_NAME = 'solo_work_lite';
-// const OLD_CHAT_FUNCTION_NAME = 'chat';
 const DEFAULT_MODEL = 'glm-5.2';
 
-const MODEL_MAP = {
+/**
+ * Trae 官方模型别名与重定向映射表（以全小写作为规范化键，支持 O(1) 匹配）
+ */
+const CANONICAL_MODEL_ALIASES = {
     'auto': 'glm-5.2',
     'claude-3.5-sonnet': 'glm-5.2',
     'claude-3.7-sonnet': 'glm-5.2',
     'gpt-4o': 'DeepSeek-V4-Pro',
     'gpt-4o-mini': 'DeepSeek-V4-Flash',
-    // Trae CLI 2.0 官方 22 个模型 Slug 与别名精准重定向
-    'DeepSeek-V4-Pro 正式版': 'DeepSeek-V4-Pro-Official',
+    // 官方 2.0 底层 ID 映射
+    'deepseek-v4-pro 正式版': 'DeepSeek-V4-Pro-Official',
     'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
-    'DeepSeek-V4-Flash 正式版': 'DeepSeek-V4-Flash-Official',
+    'deepseek-v4-flash 正式版': 'DeepSeek-V4-Flash-Official',
     'deepseek-v4-flash-official': 'DeepSeek-V4-Flash-Official',
-    'Doubao-Seed-2.1-Pro-0915': 'Doubao-Seed-2.1-Pro',
     'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-Pro',
-    'Doubao-Seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
     'doubao-seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
-    'Doubao-Seed-2.1-Turbo': 'Doubao-Seed-2.1-Turbo',
     'doubao-seed-2.1-turbo': 'Doubao-Seed-2.1-Turbo',
-    'Doubao-Seed-Code': 'Doubao_1_6',
     'doubao-seed-code': 'Doubao_1_6',
-    'Step-5-Preview': 'step-5-preview',
-    'GLM-5.3-FlashX': 'glm-5.3-flashx',
-    'GLM-5.3-Flash': 'glm-5.3-flash',
-    'GLM-5.3': 'glm-5.3',
-    'GLM-5.2': 'glm-5.2',
-    'GLM-5V-Turbo': 'glm-5v-turbo',
-    'MiniMax-M3': 'minimax-m3',
-    'MiniMax-M2.7': 'minimax-m2.7',
-    'Qwen3.8-Max': 'qwen3.8-max',
-    'Qwen3.7-Plus': 'qwen-3.7-plus',
-    'Kimi-K2.8-Preview': 'kimi-k2.8-preview',
-    'Kimi-K3': 'kimi-k3',
-    'Kimi-K2.7-Code': 'kimi-k2.7-code',
-    'DeepSeek-V4.1-Flash': 'deepseek-v4.1-flash',
+    'step-5-preview': 'step-5-preview',
+    'glm-5.3-flashx': 'glm-5.3-flashx',
+    'glm-5.3-flash': 'glm-5.3-flash',
+    'glm-5.3': 'glm-5.3',
+    'glm-5.2': 'glm-5.2',
+    'glm-5v-turbo': 'glm-5v-turbo',
+    'minimax-m3': 'minimax-m3',
+    'minimax-m2.7': 'minimax-m2.7',
+    'qwen3.8-max': 'qwen3.8-max',
+    'qwen3.7-plus': 'qwen-3.7-plus',
+    'kimi-k2.8-preview': 'kimi-k2.8-preview',
+    'kimi-k3': 'kimi-k3',
+    'kimi-k2.7-code': 'kimi-k2.7-code',
     'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
-    'DeepSeek-V4-Pro': 'DeepSeek-V4-Pro',
     'deepseek-v4-pro': 'DeepSeek-V4-Pro',
-    'DeepSeek-V4-Flash': 'DeepSeek-V4-Flash',
-    'deepseek-v4-flash': 'DeepSeek-V4-Flash',
+    'deepseek-v4-flash': 'DeepSeek-V4-Flash'
 };
 
+// 保持对外的兼容性引用（自动支持大小写透明访问）
+export const MODEL_MAP = new Proxy(CANONICAL_MODEL_ALIASES, {
+    get(target, prop) {
+        if (typeof prop === 'string') {
+            return target[prop.toLowerCase()] || target[prop];
+        }
+        return target[prop];
+    }
+});
+
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
-let globalTraeModelsCache = null;
-let globalTraeModelsExpiresAt = 0;
-const globalTraeModelMetadataMap = new Map();
-const globalTraeModelFunctionMap = new Map();
+
+// 多租户/多账号隔离的缓存容器: Map<accountKey, { models: Array, expiresAt: number, metadataMap: Map, functionMap: Map }>
+const traeAccountCacheMap = new Map();
 
 /**
  * Trae API Service
@@ -99,6 +102,74 @@ export class TraeApiService {
                 logger.debug(`[Trae] Initial dynamic model fetch notice: ${err.message}`);
             });
         }
+    }
+
+    /**
+     * 获取当前 Trae 账户的隔离缓存标识键
+     */
+    getAccountKey() {
+        const accountId = this.userId || this.nickname || this.enterpriseId || this.uuid || 'default';
+        return `${this.authHost}#${accountId}`;
+    }
+
+    /**
+     * 获取当前 Trae 账户专属的缓存与元数据映射，彻底隔离多账号并发状态
+     */
+    getAccountCache() {
+        const key = this.getAccountKey();
+        let cache = traeAccountCacheMap.get(key);
+        if (!cache) {
+            cache = {
+                models: null,
+                expiresAt: 0,
+                metadataMap: new Map(),
+                functionMap: new Map()
+            };
+            traeAccountCacheMap.set(key, cache);
+        }
+        return cache;
+    }
+
+    get modelMetadataMap() {
+        return this.getAccountCache().metadataMap;
+    }
+
+    get modelFunctionMap() {
+        return this.getAccountCache().functionMap;
+    }
+
+    /**
+     * 规范化模型名称，统一消除大小写与别名差异
+     * @param {string} rawModel 原始请求模型名称
+     * @returns {string} 对应的 Trae 底层规范模型 ID
+     */
+    normalizeModelName(rawModel) {
+        const trimmed = String(rawModel || DEFAULT_MODEL).trim();
+        const lower = trimmed.toLowerCase();
+
+        // 1. 命中预设别名表（O(1) 精确匹配）
+        if (CANONICAL_MODEL_ALIASES[lower]) {
+            return CANONICAL_MODEL_ALIASES[lower];
+        }
+
+        // 2. 匹配动态发现的模型元数据列表（忽略大小写）
+        const accountCache = this.getAccountCache();
+        if (accountCache.metadataMap && accountCache.metadataMap.size > 0) {
+            for (const key of accountCache.metadataMap.keys()) {
+                if (key.toLowerCase() === lower) {
+                    return key;
+                }
+            }
+        }
+
+        // 3. 特殊大小写敏感模型保全规范化
+        if (lower === 'doubao-seed-2.1-pro') return 'Doubao-Seed-2.1-Pro';
+        if (lower === 'doubao-seed-2.1-turbo') return 'Doubao-Seed-2.1-Turbo';
+        if (lower === 'deepseek-v4.1-flash') return 'deepseek-v4.1-flash';
+        if (lower === 'deepseek-v4-pro') return 'DeepSeek-V4-Pro';
+        if (lower === 'deepseek-v4-flash') return 'DeepSeek-V4-Flash';
+
+        return trimmed;
     }
 
     /**
@@ -266,46 +337,16 @@ export class TraeApiService {
      */
     prepareRequestBody(model, requestBody) {
         const payload = JSON.parse(JSON.stringify(requestBody || {}));
-
-        let targetModel = String(model || payload.model || DEFAULT_MODEL).trim();
-        if (MODEL_MAP[targetModel]) {
-            targetModel = MODEL_MAP[targetModel];
-        } else {
-            const targetLower = targetModel.toLowerCase();
-            for (const [k, v] of Object.entries(MODEL_MAP)) {
-                if (k.toLowerCase() === targetLower) {
-                    targetModel = v;
-                    break;
-                }
-            }
-            if (!MODEL_MAP[targetModel]) {
-                for (const [k] of globalTraeModelFunctionMap.entries()) {
-                    if (k.toLowerCase() === targetLower) {
-                        targetModel = k;
-                        break;
-                    }
-                }
-            }
-        }
-        if (!targetModel) {
-            targetModel = DEFAULT_MODEL;
-        }
-
-        // 统一校准 Trae 服务端大小写敏感的核心模型
-        const lowerTarget = targetModel.toLowerCase();
-        if (lowerTarget === 'doubao-seed-2.1-pro') targetModel = 'Doubao-Seed-2.1-Pro';
-        else if (lowerTarget === 'doubao-seed-2.1-turbo') targetModel = 'Doubao-Seed-2.1-Turbo';
-        else if (lowerTarget === 'deepseek-v4.1-flash') targetModel = 'deepseek-v4.1-flash';
-        else if (lowerTarget === 'deepseek-v4-pro') targetModel = 'DeepSeek-V4-Pro';
+        const targetModel = this.normalizeModelName(model || payload.model || DEFAULT_MODEL);
 
         payload.stream = true; // 上游统一走流式通道
-        payload.function = globalTraeModelFunctionMap.get(targetModel) || FUNCTION_NAME;
+        payload.function = this.modelFunctionMap.get(targetModel) || FUNCTION_NAME;
         payload.max_mode = true; // 开启 Trae Max Mode 超大上下文 (最高 1M)
         payload.model = targetModel;
         payload.config_name = targetModel;
 
         // 映射并注入 Trae 2.0 原生思考深度 (light / high / extra_high)
-        const modelMeta = globalTraeModelMetadataMap.get(targetModel);
+        const modelMeta = this.modelMetadataMap.get(targetModel);
         const rawEffort = payload.reasoning_effort || requestBody?.reasoning_effort || (modelMeta?.supports_thinking ? modelMeta.default_reasoning_effort : undefined);
         delete payload.reasoning_effort;
         if (rawEffort && (modelMeta?.supports_thinking !== false)) {
@@ -622,37 +663,34 @@ export class TraeApiService {
     }
 
     /**
-     * 动态从本地 traecli 官方缓存或上游接口拉取可用模型列表并更新系统缓存
+     * 动态从上游接口拉取可用模型列表并更新系统缓存
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
     async fetchRemoteModels(force = false) {
         const now = Date.now();
-        if (!force && globalTraeModelsCache && (globalTraeModelsExpiresAt > now)) {
-            return globalTraeModelsCache;
+        const accountCache = this.getAccountCache();
+
+        if (!force && accountCache.models && (accountCache.expiresAt > now)) {
+            return accountCache.models;
         }
 
         try {
             const token = await this.getToken();
             if (!token) {
                 logger.warn('[Trae] Cannot fetch remote models: No token available');
-                return globalTraeModelsCache || this._getFallbackModels();
+                return accountCache.models || this._getFallbackModels();
             }
 
             const mergedMap = new Map();
-            globalTraeModelMetadataMap.clear();
-            globalTraeModelFunctionMap.clear();
+            accountCache.metadataMap.clear();
+            accountCache.functionMap.clear();
 
             const headers = await this.buildHeaders(false);
-            // 以 chat_v3 通道为准，其余 2 个通道写入注释备用
-            // 备用通道说明：
-            // - 'solo_work_lite': 长流程自主多步编码/规划专用通道
-            // - 'chat': 早期轻量对话/常规问答通道
             const batchBody = {
                 app_id: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
                 version_code: '20260908',
-                functions: ['chat_v3'],
-                // 备用通道: functions: ['chat', 'chat_v3', 'solo_work_lite'],
+                functions: [FUNCTION_NAME],
                 agent_type: 'chat',
                 mode_type: 0,
                 access_type: 4,
@@ -660,60 +698,37 @@ export class TraeApiService {
             };
 
             const allConfigs = [];
-            // 优先从企业源头拉取 (https://api.enterprise.trae.cn/api/ide/v1/batch_get_detail_param)
-            // 结合兼容节点补充拉取 (https://trae-api-cn.mchost.guru/api/ide/v1/batch_get_detail_param)
-            const hosts = Array.from(new Set([this.authHost, this.agentHost]));
-            for (const host of hosts) {
+            // 并发向目标节点发起 batch_get_detail_param 探测，提升冷启动与模型拉取效率
+            const hosts = Array.from(new Set([this.authHost, this.agentHost].filter(Boolean)));
+            const fetchPromises = hosts.map(async (host) => {
                 try {
                     const axiosConfig = {
                         method: 'POST',
                         url: `${host}/api/ide/v1/batch_get_detail_param`,
                         data: batchBody,
                         headers,
-                        timeout: 15000
+                        timeout: 8000
                     };
                     configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
                     const res = await axios(axiosConfig);
+                    const configs = [];
                     for (const fc of res.data?.function_configs || []) {
                         for (const item of fc.config_info_list || []) {
-                            allConfigs.push({ item, fn: fc.function, host });
+                            configs.push({ item, fn: fc.function, host });
                         }
                     }
+                    return configs;
                 } catch (batchErr) {
                     logger.debug(`[Trae] batch_get_detail_param failed on ${host}: ${batchErr.message}`);
+                    return [];
                 }
-            }
+            });
 
-            // 若 batch 接口未返回，降级回退到 get_detail_param 接口 (以 chat_v3 通道为准)
-            if (allConfigs.length === 0) {
-                const fetchFnList = async (fn) => {
-                    const axiosConfig = {
-                        method: 'POST',
-                        url: `${this.agentHost}/api/ide/v1/get_detail_param`,
-                        data: {
-                            function: fn,
-                            config_names: null,
-                            need_prompt: false,
-                            current_config_info: null,
-                            poly_prompt: true,
-                            mode_type: null,
-                            agent_type: null
-                        },
-                        headers,
-                        timeout: 15000
-                    };
-                    configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
-                    const res = await axios(axiosConfig);
-                    return res.data?.config_info_list || [];
-                };
-
-                // 以 chat_v3 为准；其他两个通道写入注释备用:
-                // const soloList = await fetchFnList('solo_work_lite').catch(() => []); // 备用: solo_work_lite
-                // const oldChatList = await fetchFnList('chat').catch(() => []);        // 备用: chat
-                const chatList = await fetchFnList('chat_v3').catch(() => []);
-                for (const item of chatList) allConfigs.push({ item, fn: 'chat_v3', host: this.agentHost });
-                // for (const item of soloList) allConfigs.push({ item, fn: 'solo_work_lite', host: this.agentHost });
-                // for (const item of oldChatList) allConfigs.push({ item, fn: 'chat', host: this.agentHost });
+            const results = await Promise.allSettled(fetchPromises);
+            for (const r of results) {
+                if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+                    allConfigs.push(...r.value);
+                }
             }
 
             const excludedConfigNames = new Set([
@@ -738,6 +753,15 @@ export class TraeApiService {
                 return 'high';
             };
 
+            // 常见已知具备思考/推理能力模型的正则模式
+            const REASONING_MODEL_PATTERNS = [
+                /deepseek/i,
+                /glm-5/i,
+                /step-5/i,
+                /kimi-(?:k3|k2\.8)/i,
+                /qwen3\.8/i
+            ];
+
             // 严格执行 visible_tob_batch_configs 过滤流水线，统一提取底层 ID、上下文与推理配置
             for (const { item } of allConfigs) {
                 let id = item.config_name;
@@ -758,11 +782,8 @@ export class TraeApiService {
                 const displayName = item.display_config?.display_name?.trim() || item.display_name?.trim();
                 if (displayName === '-') continue;
 
-                // 严格对齐上游真实底层 ID 大小写
-                if (id.toLowerCase() === 'doubao-seed-2.1-pro') id = 'Doubao-Seed-2.1-Pro';
-                if (id.toLowerCase() === 'doubao-seed-2.1-turbo') id = 'Doubao-Seed-2.1-Turbo';
-                if (id.toLowerCase() === 'deepseek-v4.1-flash') id = 'deepseek-v4.1-flash';
-                if (id.toLowerCase() === 'deepseek-v4-pro') id = 'DeepSeek-V4-Pro';
+                // 严格对齐上游真实底层规范 ID
+                id = this.normalizeModelName(id);
 
                 // context_window(默认1m): Trae Max Mode 具备 1M (1,000,000) 上下文能力
                 const devCtx = item.context_window_tokens?.dev || 0;
@@ -777,22 +798,15 @@ export class TraeApiService {
 
                 // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
                 const effortConfig = item.reasoning_effort_config;
-                const isReasoning = id.toLowerCase().includes('deepseek') ||
-                                    id.toLowerCase().includes('glm-5') ||
-                                    id.toLowerCase().includes('step-5') ||
-                                    id.toLowerCase().includes('kimi-k3') ||
-                                    id.toLowerCase().includes('kimi-k2.8') ||
-                                    id.toLowerCase().includes('qwen3.8');
-                const supportsThinking = Boolean(effortConfig?.support_thinking || isReasoning);
+                const hasExplicitThinkingSupport = effortConfig?.support_thinking === true ||
+                    (Array.isArray(effortConfig?.reasoning_effort_level_options) && effortConfig.reasoning_effort_level_options.length > 0);
+                const supportsThinking = Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some(re => re.test(id)));
                 const rawOptions = effortConfig?.reasoning_effort_level_options || effortConfig?.options;
                 const effortLevels = rawOptions?.length
                     ? [...new Set(rawOptions.map(mapReasoningLevel))]
                     : (supportsThinking ? ['low', 'high', 'xhigh'] : []);
                 const rawDefault = effortConfig?.default_reasoning_effort_level || effortConfig?.default_level;
                 const defaultEffort = rawDefault ? mapReasoningLevel(rawDefault) : (supportsThinking ? 'high' : undefined);
-
-                // 以 chat_v3 通道为准；备选通道写入注释: 'solo_work_lite', 'chat'
-                const tobFunc = 'chat_v3';
 
                 if (mergedMap.has(id)) {
                     const prev = mergedMap.get(id);
@@ -801,7 +815,7 @@ export class TraeApiService {
                     if (supportsThinking) prev.supports_thinking = true;
                     if (effortLevels.length > prev.reasoning_effort_levels.length) prev.reasoning_effort_levels = effortLevels;
                     if (defaultEffort) prev.default_reasoning_effort = defaultEffort;
-                    globalTraeModelFunctionMap.set(id, 'chat_v3');
+                    accountCache.functionMap.set(id, FUNCTION_NAME);
                 } else {
                     const modelInfo = {
                         id, // 严格使用底层真实 ID (例如 DeepSeek-V4-Pro-Official)
@@ -814,8 +828,8 @@ export class TraeApiService {
                         reasoning_effort_levels: effortLevels
                     };
                     mergedMap.set(id, modelInfo);
-                    globalTraeModelMetadataMap.set(id, modelInfo);
-                    globalTraeModelFunctionMap.set(id, tobFunc);
+                    accountCache.metadataMap.set(id, modelInfo);
+                    accountCache.functionMap.set(id, FUNCTION_NAME);
                 }
             }
 
@@ -823,7 +837,7 @@ export class TraeApiService {
             const standardAliases = ['auto'];
             for (const alias of standardAliases) {
                 if (!mergedMap.has(alias)) {
-                    const target = MODEL_MAP[alias] || DEFAULT_MODEL;
+                    const target = this.normalizeModelName(alias);
                     const targetMeta = mergedMap.get(target);
                     const modelInfo = {
                         id: alias,
@@ -835,8 +849,8 @@ export class TraeApiService {
                         reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
                     };
                     mergedMap.set(alias, modelInfo);
-                    globalTraeModelMetadataMap.set(alias, modelInfo);
-                    globalTraeModelFunctionMap.set(alias, 'chat_v3');
+                    accountCache.metadataMap.set(alias, modelInfo);
+                    accountCache.functionMap.set(alias, FUNCTION_NAME);
                 }
             }
 
@@ -844,8 +858,8 @@ export class TraeApiService {
             const modelIds = Array.from(mergedMap.keys());
 
             if (modelIds.length > 0) {
-                globalTraeModelsCache = modelObjects;
-                globalTraeModelsExpiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
+                accountCache.models = modelObjects;
+                accountCache.expiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
                 updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
                 logger.info(`[Trae] Successfully fetched dynamic model list from upstream (${modelIds.length} models, with Max Mode 1M support): ${modelIds.join(', ')}`);
                 return modelObjects;
@@ -854,23 +868,38 @@ export class TraeApiService {
             logger.warn(`[Trae] Failed to fetch remote models from ${this.authHost}: ${error.message}`);
         }
 
-        return globalTraeModelsCache || this._getFallbackModels();
+        return accountCache.models || this._getFallbackModels();
     }
 
     /**
-     * 回退静态模型列表
+     * 回退静态模型列表，并预热账户元数据与通道映射
      */
     _getFallbackModels() {
         const modelIds = PROVIDER_MODELS.trae || ['glm-5.2', 'deepseek-v4.1-flash', 'DeepSeek-V4-Pro'];
-        return modelIds.map(id => ({
-            id,
-            name: id,
-            context_window: 1000000, // 默认 1M
-            max_tokens: 64000,        // 默认最大
-            supports_thinking: true,
-            default_reasoning_effort: 'high',
-            reasoning_effort_levels: ['low', 'high', 'xhigh']
-        }));
+        const accountCache = this.getAccountCache();
+        const fallbackList = modelIds.map(id => {
+            const canonicalId = this.normalizeModelName(id);
+            return {
+                id: canonicalId,
+                name: canonicalId,
+                context_window: 1000000, // 默认 1M
+                max_tokens: 64000,        // 默认最大
+                supports_thinking: true,
+                default_reasoning_effort: 'high',
+                reasoning_effort_levels: ['low', 'high', 'xhigh']
+            };
+        });
+
+        for (const item of fallbackList) {
+            if (!accountCache.metadataMap.has(item.id)) {
+                accountCache.metadataMap.set(item.id, item);
+            }
+            if (!accountCache.functionMap.has(item.id)) {
+                accountCache.functionMap.set(item.id, FUNCTION_NAME);
+            }
+        }
+
+        return fallbackList;
     }
 
     /**
