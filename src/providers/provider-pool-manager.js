@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.js';
+import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter, serviceInstances } from './adapter.js';
 import logger from '../utils/logger.js';
 import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
@@ -1068,6 +1068,27 @@ export class ProviderPoolManager {
                 if (supportedModels.length > 0) {
                     return supportedModels.includes(requestedModel) || supportedModels.includes(rawModelName);
                 }
+
+                // 若为 gemini-antigravity 提供商，且该节点已探测出自身可用模型列表，严格核对其是否实际支持
+                if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
+                    const instanceKey = `${providerType}${p.config?.uuid || 'default'}`;
+                    const adapter = serviceInstances[instanceKey];
+                    const nodeAvailable = adapter?.antigravityApiService?.availableModels;
+                    if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+                        const target1 = (requestedModel || '').replace(/^models\//, '');
+                        const target2 = (rawModelName || '').replace(/^models\//, '');
+                        const isSupportedByNode = nodeAvailable.some(m =>
+                            m === target1 || m === target2 ||
+                            m === `${target1}-high` || m === `${target2}-high` ||
+                            m === `${target1}-thinking` || m === `${target2}-thinking` ||
+                            (target1.startsWith('gemini-') && m.startsWith(target1))
+                        );
+                        if (!isSupportedByNode) {
+                            return false;
+                        }
+                    }
+                }
+
                 // 如果提供商没有配置 notSupportedModels，则认为它支持所有模型
                 if (!p.config.notSupportedModels || !Array.isArray(p.config.notSupportedModels)) {
                     return true;
@@ -1451,6 +1472,23 @@ export class ProviderPoolManager {
     }
 
     /**
+     * 获取节点的可用模型列表（优先从运行中的适配器获取，降级到配置中的 availableModels）
+     * @param {string} providerType 
+     * @param {object} nodeConfig 
+     * @returns {string[]|null}
+     */
+    getNodeAvailableModels(providerType, nodeConfig) {
+        if (!nodeConfig) return null;
+        const instanceKey = `${providerType}${nodeConfig.uuid || 'default'}`;
+        const adapter = serviceInstances?.[instanceKey];
+        const nodeAvailable = adapter?.antigravityApiService?.availableModels || nodeConfig.availableModels;
+        if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+            return nodeAvailable;
+        }
+        return null;
+    }
+
+    /**
      * Gets all available models across all provider pools, with optional format conversion.
      * @param {string} [endpointType] - Optional endpoint type for format conversion (OPENAI_MODEL_LIST or GEMINI_MODEL_LIST).
      * @returns {Promise<Object|Array>} Formatted model list or raw array of model objects.
@@ -1493,13 +1531,31 @@ export class ProviderPoolManager {
                     // 2. 如果节点配置了 supportedModels
                     models = normalizeModelIds(configuredSupportedModels);
                 } else {
-                    // 3. 否则使用内置静态模型列表
-                    models = normalizeModelIds(getProviderModels(providerType).filter(model => !customAliases.has(model)));
-                }
+                    // 3. 否则使用内置静态模型列表或节点探测到的模型
+                    const activeModelsFromNodes = new Set();
+                    let hasNodeSpecificModels = false;
+                    for (const nodeStatus of activeNodes) {
+                        const nodeAvailable = this.getNodeAvailableModels(providerType, nodeStatus.config);
+                        if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+                            hasNodeSpecificModels = true;
+                            const notSupported = normalizeModelIds(nodeStatus.config?.notSupportedModels || []);
+                            nodeAvailable.forEach(m => {
+                                if (!notSupported.includes(m)) {
+                                    activeModelsFromNodes.add(m);
+                                }
+                            });
+                        }
+                    }
 
-                // 排除不支持的模型
-                if (notSupportedModelsForType.length > 0) {
-                    models = models.filter(m => !notSupportedModelsForType.includes(m));
+                    if (hasNodeSpecificModels) {
+                        models = normalizeModelIds(Array.from(activeModelsFromNodes).filter(model => !customAliases.has(model)));
+                    } else {
+                        models = normalizeModelIds(getProviderModels(providerType).filter(model => !customAliases.has(model)));
+                        // 排除不支持的模型
+                        if (notSupportedModelsForType.length > 0) {
+                            models = models.filter(m => !notSupportedModelsForType.includes(m));
+                        }
+                    }
                 }
 
                 // 如果"自定义模型管理"没有设置且模型列表仍为空，尝试从源头服务获取

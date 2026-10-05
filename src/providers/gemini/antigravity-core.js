@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import open from 'open';
 import { configureTLSSidecar } from '../../utils/proxy-utils.js';
 import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.js';
-import { getProviderModels } from '../provider-models.js';
+import { getProviderModels, updateProviderModels } from '../provider-models.js';
 import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.js';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
 import { cleanJsonSchemaProperties } from '../../converters/utils.js';
@@ -21,6 +21,10 @@ import { getProviderPoolManager } from '../../services/service-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.js';
+
+// 模块级全局共享缓存（跨节点并集）
+let globalAntigravityModelsCache = null;
+const globalAntigravityModelMetadataMap = new Map();
 
 // --- Constants ---
 const CREDENTIALS_DIR = '.antigravity';
@@ -100,7 +104,10 @@ function isKnownAntigravityModel(modelName) {
     const baseModel = stripModelSuffix(modelName);
     if (!baseModel) return false;
     const resolved = resolveAntigravityUpstreamModel(baseModel);
-    if (ANTIGRAVITY_MODELS.includes(baseModel) || ANTIGRAVITY_MODELS.includes(resolved)) {
+    const currentModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
+    if (currentModels.includes(baseModel) || currentModels.includes(resolved) ||
+        (globalAntigravityModelsCache && (globalAntigravityModelsCache.includes(baseModel) || globalAntigravityModelsCache.includes(resolved))) ||
+        ANTIGRAVITY_MODELS.includes(baseModel) || ANTIGRAVITY_MODELS.includes(resolved)) {
         return true;
     }
     // 泛型识别：动态支持未来任意版本的 Gemini Flash 体系（如 gemini-3.9-flash-high, gemini-4.0-flash-high 等）
@@ -1274,6 +1281,15 @@ export class AntigravityApiService {
                         }
                     }
 
+                    // 映射 gemini-pro-agent -> gemini-3.1-pro-high
+                    if (this.upstreamModelMetadata['gemini-pro-agent']) {
+                        highTieredModels.push('gemini-3.1-pro-high');
+                        this.upstreamModelMetadata['gemini-3.1-pro-high'] = {
+                            ...this.upstreamModelMetadata['gemini-pro-agent'],
+                            displayName: 'Gemini 3.1 Pro (High)'
+                        };
+                    }
+
                     // 过滤内部与未整理模型（-tiered 结尾、所有 -medium/-low 结尾、chat_ 开头、tab_ 开头、gemini-pro-agent 内部别名）
                     const isExcluded = (id) => {
                         const lower = (id || '').toLowerCase();
@@ -1288,7 +1304,17 @@ export class AntigravityApiService {
 
                     const filteredRaw = rawModels.filter(m => !isExcluded(m));
                     this.availableModels = [...new Set([...highTieredModels, ...filteredRaw])];
+
+                    // 合并至模块级全局共享缓存并更新全局 PROVIDER_MODELS['gemini-antigravity']
+                    const existingCache = globalAntigravityModelsCache || [];
+                    globalAntigravityModelsCache = [...new Set([...existingCache, ...this.availableModels])];
+                    for (const [k, v] of Object.entries(this.upstreamModelMetadata)) {
+                        globalAntigravityModelMetadataMap.set(k, v);
+                    }
+                    updateProviderModels(MODEL_PROVIDER.ANTIGRAVITY, globalAntigravityModelsCache);
+
                     logger.info(`[Antigravity] Available models (${baseURL}): [${this.availableModels.join(', ')}]`);
+                    logger.info(`[Antigravity] Global union models (${globalAntigravityModelsCache.length}): [${globalAntigravityModelsCache.join(', ')}]`);
                     return;
                 }
             } catch (error) {
@@ -1297,18 +1323,22 @@ export class AntigravityApiService {
         }
 
         logger.warn('[Antigravity] Failed to fetch models from all endpoints. Using default models.');
-        this.availableModels = ANTIGRAVITY_MODELS;
+        this.availableModels = globalAntigravityModelsCache || getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
     }
 
     async listModels() {
         if (!this.isInitialized) await this.initialize();
 
+        const modelsToList = (globalAntigravityModelsCache && globalAntigravityModelsCache.length > 0)
+            ? globalAntigravityModelsCache
+            : this.availableModels;
+
         const now = Math.floor(Date.now() / 1000);
-        const formattedModels = this.availableModels.map(modelId => {
-            const displayName = modelId.split('-').map(word =>
+        const formattedModels = modelsToList.map(modelId => {
+            const meta = this.upstreamModelMetadata?.[modelId] || globalAntigravityModelMetadataMap.get(modelId);
+            const displayName = meta?.displayName || modelId.split('-').map(word =>
                 word.charAt(0).toUpperCase() + word.slice(1)
             ).join(' ');
-            const meta = this.upstreamModelMetadata?.[modelId];
 
             const modelInfo = {
                 name: `models/${modelId}`,

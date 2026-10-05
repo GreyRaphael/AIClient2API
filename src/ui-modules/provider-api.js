@@ -218,6 +218,46 @@ async function runProviderHealthCheck(providerPoolManager, providerType, provide
 }
 
 /**
+ * 解析特定节点实际可用模型列表（隔离自各账号自身的配额与探测结果）
+ */
+async function resolveNodeAvailableModels(providerType, providerConfig, currentConfig) {
+    if (!providerType || !providerConfig) return null;
+    const uuid = providerConfig.uuid || 'default';
+    const instanceKey = `${providerType}${uuid}`;
+    let adapter = serviceInstances[instanceKey];
+    if (!adapter) {
+        try {
+            const nodeConfig = providerConfig?.config || providerConfig;
+            const fullConfig = {
+                ...currentConfig,
+                ...nodeConfig,
+                MODEL_PROVIDER: providerType,
+                uuid
+            };
+            delete fullConfig.providerPools;
+            adapter = getServiceAdapter(fullConfig);
+        } catch (e) {
+            logger.debug(`[UI API] Failed to obtain adapter for node ${instanceKey}: ${e.message}`);
+        }
+    }
+    if (adapter) {
+        if (typeof adapter.getNodeAvailableModels === 'function') {
+            try {
+                const models = await adapter.getNodeAvailableModels();
+                if (Array.isArray(models) && models.length > 0) {
+                    return models;
+                }
+            } catch (e) {
+                logger.debug(`[UI API] Error getting node available models for ${instanceKey}: ${e.message}`);
+            }
+        } else if (Array.isArray(adapter.antigravityApiService?.availableModels) && adapter.antigravityApiService.availableModels.length > 0) {
+            return adapter.antigravityApiService.availableModels;
+        }
+    }
+    return null;
+}
+
+/**
  * 获取所有提供商的状态（包括支持的类型和号池组）
  */
 export async function handleGetProviders(req, res, currentConfig, providerPoolManager) {
@@ -229,10 +269,17 @@ export async function handleGetProviders(req, res, currentConfig, providerPoolMa
     const providerStatus = {};
     if (providerPoolManager) {
         for (const [type, providers] of Object.entries(providerPoolManager.providerStatus)) {
-            providerStatus[type] = providers.map(p => ({
-                ...p.config,
-                activeRequests: p.state?.activeCount || 0,
-                waitingRequests: p.state?.waitingCount || 0
+            providerStatus[type] = await Promise.all(providers.map(async p => {
+                const item = {
+                    ...p.config,
+                    activeRequests: p.state?.activeCount || 0,
+                    waitingRequests: p.state?.waitingCount || 0
+                };
+                const nodeModels = await resolveNodeAvailableModels(type, p.config, currentConfig);
+                if (Array.isArray(nodeModels) && nodeModels.length > 0) {
+                    item.availableModels = nodeModels;
+                }
+                return item;
             }));
         }
     }
@@ -243,21 +290,28 @@ export async function handleGetProviders(req, res, currentConfig, providerPoolMa
         if (existsSync(filePath)) {
             const poolsData = JSON.parse(readFileSync(filePath, 'utf-8'));
             poolTypes = Object.keys(poolsData);
-            poolTypes.forEach(type => {
+            for (const type of poolTypes) {
                 // 如果管理器中没有该组，或者该组是空的，则从文件中补全
                 if (!providerStatus[type] || providerStatus[type].length === 0) {
                     const fileProviders = poolsData[type] || [];
                     if (fileProviders.length > 0) {
-                        providerStatus[type] = fileProviders.map(p => ({
-                            ...p,
-                            activeRequests: 0,
-                            waitingRequests: 0
+                        providerStatus[type] = await Promise.all(fileProviders.map(async p => {
+                            const item = {
+                                ...p,
+                                activeRequests: 0,
+                                waitingRequests: 0
+                            };
+                            const nodeModels = await resolveNodeAvailableModels(type, p, currentConfig);
+                            if (Array.isArray(nodeModels) && nodeModels.length > 0) {
+                                item.availableModels = nodeModels;
+                            }
+                            return item;
                         }));
                     } else if (!providerStatus[type]) {
                         providerStatus[type] = [];
                     }
                 }
-            });
+            }
         }
     } catch (error) {
         logger.warn('[UI API] Failed to supplement provider status:', error.message);
@@ -292,10 +346,19 @@ export async function handleGetProviderType(req, res, currentConfig, providerPoo
     }
 
     const providers = providerPools[providerType] || [];
+    const sanitizedProviders = await Promise.all(providers.map(async p => {
+        const sanitized = sanitizeProviderData(p, true);
+        const nodeModels = await resolveNodeAvailableModels(providerType, p, currentConfig);
+        if (Array.isArray(nodeModels) && nodeModels.length > 0) {
+            sanitized.availableModels = nodeModels;
+        }
+        return sanitized;
+    }));
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         providerType,
-        providers: providers.map(p => sanitizeProviderData(p, true)), // 详情页也进行打码，确保即便点击显示也是脱敏数据
+        providers: sanitizedProviders, // 详情页也进行打码，确保即便点击显示也是脱敏数据
         totalCount: providers.length,
         healthyCount: providers.filter(p => p.isHealthy).length
     }));
@@ -329,16 +392,56 @@ export async function handleGetSupportedProviders(req, res, currentConfig, provi
     return true;
 }
 
-function getExcludedModelsForType(providerType, providerPools, providerPoolManager) {
+function getActiveProviderModels(providerType, providerPools, providerPoolManager) {
     const rawProviders = providerPoolManager?.providerPools?.[providerType] || providerPools?.[providerType] || [];
-    if (!Array.isArray(rawProviders) || rawProviders.length === 0) return [];
+    if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
+        return getProviderModels(providerType);
+    }
     const activeNodes = rawProviders.filter(p => !p.isDisabled);
-    if (activeNodes.length === 0) return [];
+    if (activeNodes.length === 0) {
+        return [];
+    }
+
+    if (usesManagedModelList(providerType)) {
+        return getManagedSupportedModels(providerType, activeNodes);
+    }
+
+    const defaultModels = getProviderModels(providerType);
+    const activeModelsSet = new Set();
+    let hasNodeSpecificModels = false;
+
+    for (const node of activeNodes) {
+        const notSupported = normalizeModelIds(node.notSupportedModels || []);
+        const uuid = node.uuid || 'default';
+        const instanceKey = `${providerType}${uuid}`;
+        const adapter = serviceInstances?.[instanceKey];
+        const nodeAvailable = adapter?.antigravityApiService?.availableModels || node.availableModels;
+
+        if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+            hasNodeSpecificModels = true;
+            nodeAvailable.forEach(m => {
+                if (!notSupported.includes(m)) {
+                    activeModelsSet.add(m);
+                }
+            });
+        }
+    }
+
+    if (hasNodeSpecificModels) {
+        return Array.from(activeModelsSet).sort((a, b) => a.localeCompare(b));
+    }
+
+    // 静态通用提供商：排除被所有活跃节点共同排除的模型
     const firstNodeExcluded = normalizeModelIds(activeNodes[0].notSupportedModels || []);
-    if (firstNodeExcluded.length === 0) return [];
-    return firstNodeExcluded.filter(model =>
+    const excludedModels = firstNodeExcluded.filter(model =>
         activeNodes.every(n => (n.notSupportedModels || []).includes(model))
     );
+
+    let models = defaultModels;
+    if (excludedModels.length > 0) {
+        models = models.filter(m => !excludedModels.includes(m));
+    }
+    return models;
 }
 
 /**
@@ -396,22 +499,30 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
             } catch (e) {
                 logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
             }
+        } else if (type === 'gemini-antigravity' || type.startsWith('gemini-antigravity-')) {
+            try {
+                const agyNodes = providerPools[type] || [];
+                const agyNode = agyNodes.find(n => !n.isDisabled && !n.needsRefresh) || agyNodes[0];
+                const nodeConfig = agyNode?.config || agyNode;
+                if (nodeConfig) {
+                    const agyConfig = nodeConfig?.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH
+                        ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: type }
+                        : { ...currentConfig, MODEL_PROVIDER: type };
+                    const adapter = getServiceAdapter(agyConfig);
+                    if (adapter && typeof adapter.listModels === 'function') {
+                        adapter.listModels().catch(e => {
+                            logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
+                        });
+                    }
+                }
+            } catch (e) {
+                logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
+            }
         }
     }
 
     allTypes.forEach(type => {
-        let models = getProviderModels(type);
-        if (usesManagedModelList(type)) {
-            const managedModels = getManagedSupportedModels(type, providerPools[type] || []);
-            if (managedModels.length > 0) {
-                models = managedModels;
-            }
-        }
-        // 过滤掉号池中配置的 notSupportedModels
-        const excludedModels = getExcludedModelsForType(type, providerPools, providerPoolManager);
-        if (excludedModels.length > 0) {
-            models = models.filter(m => !excludedModels.includes(m));
-        }
+        const models = getActiveProviderModels(type, providerPools, providerPoolManager);
         if (models && models.length > 0) {
             allModels[type] = models;
         }
@@ -463,18 +574,34 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
         } catch (e) {
             logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
         }
-    }
-    let models = getProviderModels(providerType);
-    if (usesManagedModelList(providerType)) {
+    } else if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
         try {
             const providerPools = loadProviderPools(currentConfig, providerPoolManager);
-            const managedModels = getManagedSupportedModels(providerType, providerPools[providerType] || []);
-            if (managedModels.length > 0) {
-                models = managedModels;
+            const agyNodes = providerPools[providerType] || [];
+            const agyNode = agyNodes.find(n => !n.isDisabled && !n.needsRefresh) || agyNodes[0];
+            const nodeConfig = agyNode?.config || agyNode;
+            if (nodeConfig) {
+                const agyConfig = nodeConfig?.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH
+                    ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType }
+                    : { ...currentConfig, MODEL_PROVIDER: providerType };
+                const adapter = getServiceAdapter(agyConfig);
+                if (adapter && typeof adapter.listModels === 'function') {
+                    adapter.listModels().catch(e => {
+                        logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
+                    });
+                }
             }
-        } catch (error) {
-            logger.warn('[UI API] Failed to load managed provider models:', error.message);
+        } catch (e) {
+            logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
         }
+    }
+    let models = [];
+    try {
+        const providerPools = loadProviderPools(currentConfig, providerPoolManager);
+        models = getActiveProviderModels(providerType, providerPools, providerPoolManager);
+    } catch (error) {
+        logger.warn('[UI API] Failed to load provider models for type:', error.message);
+        models = getProviderModels(providerType);
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -705,6 +832,13 @@ async function _handleUpdateProvider(req, res, currentConfig, providerPoolManage
         if (usesManagedModelList(providerType)) {
             filteredConfig.supportedModels = normalizeModelIds(filteredConfig.supportedModels);
             filteredConfig.notSupportedModels = [];
+        } else {
+            filteredConfig.notSupportedModels = normalizeModelIds(filteredConfig.notSupportedModels);
+            // 若节点具备明确的 availableModels，剔除其根本不支持的无关模型
+            const nodeAvailable = await resolveNodeAvailableModels(providerType, existingProvider, currentConfig);
+            if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+                filteredConfig.notSupportedModels = filteredConfig.notSupportedModels.filter(m => nodeAvailable.includes(m));
+            }
         }
         
         const updatedProvider = {

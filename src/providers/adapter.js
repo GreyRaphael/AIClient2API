@@ -90,6 +90,14 @@ export class ApiServiceAdapter {
     }
 
     /**
+     * 获取节点专属的可用模型列表（若提供商不区分节点或未探测则返回 null）
+     * @returns {Promise<Array<string>|null>}
+     */
+    async getNodeAvailableModels() {
+        return null;
+    }
+
+    /**
      * 判断日期是否接近过期
      * @returns {boolean}
      */
@@ -225,6 +233,17 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
 
     isExpiryDateNear() {
         return this.antigravityApiService.isExpiryDateNear();
+    }
+
+    /**
+     * 获取节点实际支持的可用模型列表（隔离自各账号自身的配额与上游返回）
+     * @returns {Promise<Array<string>>}
+     */
+    async getNodeAvailableModels() {
+        if (!this.antigravityApiService.isInitialized) {
+            await this.antigravityApiService.initialize();
+        }
+        return this.antigravityApiService.availableModels || [];
     }
 
     /**

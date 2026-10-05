@@ -637,7 +637,10 @@ function goToProviderPage(page) {
     // 如果已缓存模型列表，直接使用
     if (!usesManagedModelList(currentProviderType) && cachedModels.length > 0) {
         pageProviders.forEach(provider => {
-            renderNotSupportedModelsSelector(provider.uuid, cachedModels, provider.notSupportedModels || []);
+            const modelsForNode = (provider.availableModels && provider.availableModels.length > 0)
+                ? provider.availableModels
+                : cachedModels;
+            renderNotSupportedModelsSelector(provider.uuid, modelsForNode, provider.notSupportedModels || []);
         });
     } else if (!usesManagedModelList(currentProviderType)) {
         loadModelsForProviderType(currentProviderType, pageProviders);
@@ -686,7 +689,10 @@ async function loadModelsForProviderType(providerType, providers) {
         // 如果已有缓存，直接使用
         if (cachedModels.length > 0) {
             providers.forEach(provider => {
-                renderNotSupportedModelsSelector(provider.uuid, cachedModels, provider.notSupportedModels || []);
+                const modelsForNode = (provider.availableModels && provider.availableModels.length > 0)
+                    ? provider.availableModels
+                    : cachedModels;
+                renderNotSupportedModelsSelector(provider.uuid, modelsForNode, provider.notSupportedModels || []);
             });
             return;
         }
@@ -700,7 +706,10 @@ async function loadModelsForProviderType(providerType, providers) {
         
         // 为每个提供商渲染模型选择器
         providers.forEach(provider => {
-            renderNotSupportedModelsSelector(provider.uuid, models, provider.notSupportedModels || []);
+            const modelsForNode = (provider.availableModels && provider.availableModels.length > 0)
+                ? provider.availableModels
+                : models;
+            renderNotSupportedModelsSelector(provider.uuid, modelsForNode, provider.notSupportedModels || []);
         });
     } catch (error) {
         console.error('Failed to load models for provider type:', error);
@@ -1432,7 +1441,10 @@ function cancelEdit(uuid, event) {
     } else {
         const currentProviderData = currentProviders.find(provider => provider.uuid === uuid);
         if (currentProviderData) {
-            renderNotSupportedModelsSelector(uuid, cachedModels, currentProviderData.notSupportedModels || []);
+            const modelsForNode = (currentProviderData.availableModels && currentProviderData.availableModels.length > 0)
+                ? currentProviderData.availableModels
+                : cachedModels;
+            renderNotSupportedModelsSelector(uuid, modelsForNode, currentProviderData.notSupportedModels || []);
         }
     }
     
@@ -1608,6 +1620,11 @@ async function refreshProviderConfig(providerType) {
         // 同时更新主界面的提供商统计数据
         if (typeof window.loadProviders === 'function') {
             await window.loadProviders();
+        }
+
+        // 同步刷新模型测试（Playground）中的模型列表
+        if (typeof window.loadPlaygroundData === 'function') {
+            window.loadPlaygroundData().catch(e => console.error('Failed to reload playground data:', e));
         }
         
     } catch (error) {
@@ -2200,14 +2217,22 @@ function renderNotSupportedModelsSelector(uuid, models, notSupportedModels = [])
     const container = document.querySelector(`.not-supported-models-container[data-uuid="${uuid}"]`);
     if (!container) return;
     
-    if (models.length === 0) {
+    let effectiveModels = models;
+    if (typeof currentProviders !== 'undefined' && Array.isArray(currentProviders)) {
+        const node = currentProviders.find(p => p.uuid === uuid);
+        if (node?.availableModels && node.availableModels.length > 0) {
+            effectiveModels = node.availableModels;
+        }
+    }
+
+    if (!effectiveModels || effectiveModels.length === 0) {
         container.innerHTML = `<div class="no-models" data-i18n="modal.provider.noModels">${t('modal.provider.noModels')}</div>`;
         return;
     }
     
     // 渲染模型复选框列表
     let html = '<div class="models-checkbox-grid">';
-    models.forEach(model => {
+    effectiveModels.forEach(model => {
         const isChecked = notSupportedModels.includes(model);
         html += `
             <label class="model-checkbox-label">

@@ -226,6 +226,8 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(antigravityModels).toContain('gemini-3.7-flash-high');
         expect(antigravityModels).toContain('gemini-3.6-flash-high');
         expect(antigravityModels).toContain('gemini-3.1-flash-image');
+        expect(antigravityModels).toContain('claude-sonnet-5-5-high');
+        expect(antigravityModels).toContain('claude-opus-5-5-high');
         expect(antigravityModels).toContain('claude-sonnet-4-6');
 
         // 确保不包含任何 tiered、flash medium/low 或内部测试模型及重复前缀

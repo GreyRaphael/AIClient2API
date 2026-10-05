@@ -152,6 +152,7 @@ async function initApp() {
     });
     
     // 导出全局函数供其他模块使用
+    window.loadPlaygroundData = loadPlaygroundData;
     window.loadProviders = loadProviders;
     window.openProviderManager = openProviderManager;
     window.showProviderManagerModal = showProviderManagerModal;
