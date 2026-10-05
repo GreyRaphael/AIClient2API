@@ -320,8 +320,7 @@ function updateSingleProviderGroup(providerType, providerData, expandedCards = n
     const container = document.getElementById('usageContent');
     if (!container) return null;
 
-    const existingGroup = container.querySelector(`.usage-provider-group[data-provider="${providerType}"]`);
-    const instances = (providerData.instances || []).filter(i => !i.isDisabled && !i.error?.includes('not initialized'));
+    const instances = (providerData.instances || []).filter(i => !i.error?.includes('not initialized'));
     
     if (instances.length === 0) {
         if (existingGroup) existingGroup.remove();
@@ -408,7 +407,7 @@ function renderUsageData(data, container) {
     const groupedInstances = {};
     for (const [type, pData] of Object.entries(data.providers)) {
         if (currentProviderConfigs?.find(c => c.id === type)?.visible === false) continue;
-        const valid = (pData.instances || []).filter(i => !i.isDisabled && !i.error?.includes('not initialized'));
+        const valid = (pData.instances || []).filter(i => !i.error?.includes('not initialized'));
         if (valid.length > 0) groupedInstances[type] = valid;
     }
 

@@ -1290,13 +1290,15 @@ export class AntigravityApiService {
                         };
                     }
 
-                    // 过滤内部与未整理模型（-tiered 结尾、所有 -medium/-low 结尾、chat_ 开头、tab_ 开头、gemini-pro-agent 内部别名）
+                    // 过滤内部与未整理模型（-tiered 结尾、所有 -medium/-low/-lite 结尾、chat_ 开头、tab_ 开头、gemini-pro-agent 内部别名）
                     const isExcluded = (id) => {
                         const lower = (id || '').toLowerCase();
                         return lower.endsWith('-tiered') ||
                                lower.endsWith('-medium') ||
                                lower.endsWith('-low') ||
                                lower.endsWith('-extra-low') ||
+                               lower.endsWith('-lite') ||
+                               lower.includes('-lite-') ||
                                lower.startsWith('chat_') ||
                                lower.startsWith('tab_') ||
                                lower === 'gemini-pro-agent';

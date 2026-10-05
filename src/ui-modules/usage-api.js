@@ -148,12 +148,6 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
             error: null
         };
 
-        // First check if disabled, skip initialization for disabled providers
-        if (provider.isDisabled) {
-            instanceResult.error = 'Provider is disabled';
-            return instanceResult;
-        }
-
         if (!adapter) {
             // Service instance not initialized, try auto-initialization
             try {
@@ -164,6 +158,7 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
                     ...provider,
                     MODEL_PROVIDER: providerType
                 };
+                delete serviceConfig.providerPools;
                 adapter = getServiceAdapter(serviceConfig);
             } catch (initError) {
                 logger.error(`[Usage API] Failed to initialize adapter for ${providerType}: ${provider.uuid}:`, initError.message);
@@ -301,17 +296,13 @@ async function resolveProviderInstance(currentConfig, providerPoolManager, provi
         error: null
     };
 
-    if (provider.isDisabled) {
-        instanceResult.error = 'Provider is disabled';
-        return { provider, adapter: null, instanceResult };
-    }
-
     if (!adapter) {
         const serviceConfig = {
             ...CONFIG,
             ...provider,
             MODEL_PROVIDER: providerType
         };
+        delete serviceConfig.providerPools;
         adapter = getServiceAdapter(serviceConfig);
     }
 
@@ -407,10 +398,40 @@ export async function handleGetUsage(req, res, currentConfig, providerPoolManage
             // 优先读取缓存
             const cachedData = await readUsageCache();
             if (cachedData) {
-                logger.info('[Usage API] Returning cached usage data');
-                usageResults = { ...cachedData, fromCache: true };
-                // 使用最新的格式化逻辑处理缓存的原始数据
-                reformatUsageResults(usageResults);
+                const cacheAge = Date.now() - new Date(cachedData.timestamp || 0).getTime();
+                const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存有效期
+                
+                let cacheValid = cacheAge < CACHE_TTL;
+                if (cacheValid) {
+                    // 校验缓存中的实例列表是否与当前配置的提供商列表一致
+                    for (const type of supportedProviders) {
+                        const currentList = loadProviderList(type, currentConfig, providerPoolManager);
+                        const cachedList = cachedData.providers?.[type]?.instances || [];
+                        if (currentList.length !== cachedList.length) {
+                            cacheValid = false;
+                            break;
+                        }
+                        const cachedUuidMap = new Map(cachedList.map(inst => [inst.uuid, inst]));
+                        for (const p of currentList) {
+                            const pUuid = p.uuid || 'default';
+                            const cachedInst = cachedUuidMap.get(pUuid);
+                            if (!cachedInst || cachedInst.isDisabled !== (p.isDisabled === true)) {
+                                cacheValid = false;
+                                break;
+                            }
+                        }
+                        if (!cacheValid) break;
+                    }
+                }
+
+                if (cacheValid) {
+                    logger.info('[Usage API] Returning valid cached usage data');
+                    usageResults = { ...cachedData, fromCache: true };
+                    // 使用最新的格式化逻辑处理缓存的原始数据
+                    reformatUsageResults(usageResults);
+                } else {
+                    logger.info('[Usage API] Usage cache is expired or mismatched with current provider pools, refreshing...');
+                }
             }
         }
         

@@ -230,9 +230,10 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(antigravityModels).toContain('claude-opus-5-5-high');
         expect(antigravityModels).toContain('claude-sonnet-4-6');
 
-        // 确保不包含任何 tiered、flash medium/low 或内部测试模型及重复前缀
+        // 确保不包含任何 tiered、flash medium/low/lite 或内部测试模型及重复前缀
         expect(antigravityModels.some(m => m.includes('-tiered'))).toBe(false);
         expect(antigravityModels.some(m => m.includes('flash') && (m.endsWith('-medium') || m.endsWith('-low')))).toBe(false);
+        expect(antigravityModels.some(m => m.endsWith('-lite'))).toBe(false);
         expect(antigravityModels.some(m => m.startsWith('chat_'))).toBe(false);
         expect(antigravityModels.some(m => m.startsWith('tab_'))).toBe(false);
         expect(antigravityModels.includes('gemini-pro-agent')).toBe(false);
