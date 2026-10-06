@@ -2217,13 +2217,9 @@ function renderNotSupportedModelsSelector(uuid, models, notSupportedModels = [])
     const container = document.querySelector(`.not-supported-models-container[data-uuid="${uuid}"]`);
     if (!container) return;
     
-    let effectiveModels = models;
-    if (typeof currentProviders !== 'undefined' && Array.isArray(currentProviders)) {
-        const node = currentProviders.find(p => p.uuid === uuid);
-        if (node?.availableModels && node.availableModels.length > 0) {
-            effectiveModels = node.availableModels;
-        }
-    }
+    const effectiveModels = (Array.isArray(models) && models.length > 0)
+        ? models
+        : (typeof cachedModels !== 'undefined' ? cachedModels : []);
 
     if (!effectiveModels || effectiveModels.length === 0) {
         container.innerHTML = `<div class="no-models" data-i18n="modal.provider.noModels">${t('modal.provider.noModels')}</div>`;

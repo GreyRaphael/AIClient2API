@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import open from 'open';
 import { configureTLSSidecar } from '../../utils/proxy-utils.js';
 import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.js';
-import { getProviderModels, updateProviderModels } from '../provider-models.js';
+import { getProviderModels } from '../provider-models.js';
 import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.js';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
 import { cleanJsonSchemaProperties } from '../../converters/utils.js';
@@ -21,10 +21,6 @@ import { getProviderPoolManager } from '../../services/service-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.js';
-
-// 模块级全局共享缓存（跨节点并集）
-let globalAntigravityModelsCache = null;
-const globalAntigravityModelMetadataMap = new Map();
 
 // --- Constants ---
 const CREDENTIALS_DIR = '.antigravity';
@@ -46,20 +42,12 @@ const DEFAULT_THINKING_MAX = 100000;
 const ANTIGRAVITY_EMPTY_TEXT_PLACEHOLDER = '.';
 
 // 流式请求超时相关常量（仅作用于 Antigravity 流式链路）
-// 背景：走 TLS sidecar 时 proxy-utils 会删除 httpAgent/httpsAgent，
-// 构造函数里配置的 agent timeout 随之失效，streamApi 自身又未设置 timeout，
-// 导致上游/代理静默挂住连接时请求永久等待（并发插槽也不会释放）。
-// 首字节与空闲分开计时：thinking 模型首字节可能较慢，但长时间无新数据即视为连接已死。
 const ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS = 180000;
 const ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS = 300000;
 
 // 上游偶尔以非 SSE 的 JSON 数组返回整个响应，需缓存原始行才能回退解析。
-// 超过该行数认为不是「一次性 JSON 响应」，放弃缓存以免长流吃内存。
 const ANTIGRAVITY_RAW_FALLBACK_MAX_LINES = 20000;
 const ANTIGRAVITY_ERROR_BODY_MAX_BYTES = 1024 * 1024;
-
-// 获取 Antigravity 模型列表
-const ANTIGRAVITY_MODELS = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
 
 function normalizeAntigravityModelId(modelName) {
     if (!modelName || typeof modelName !== 'string') return '';
@@ -86,17 +74,6 @@ function resolveAntigravityUpstreamModel(modelName) {
     if (baseModel.startsWith('gemini-claude-')) {
         return baseModel.replace('gemini-claude-', 'claude-');
     }
-    // 泛型动态映射：任何以 -flash-high 结尾的模型（如 gemini-3.8-flash-high, gemini-3.9-flash-high, gemini-4.0-flash-high 等）
-    // 自动映射到上游对应的 -flash-tiered 模型
-    const flashHighMatch = baseModel.match(/^(.+?-flash)-high$/);
-    if (flashHighMatch) {
-        return `${flashHighMatch[1]}-tiered`;
-    }
-    // 泛型简写形式：任何 gemini-X.X-flash 自动映射到 gemini-X.X-flash-tiered
-    const flashBaseMatch = baseModel.match(/^(gemini-[\d.]+-flash)$/);
-    if (flashBaseMatch) {
-        return `${flashBaseMatch[1]}-tiered`;
-    }
     return baseModel;
 }
 
@@ -105,13 +82,11 @@ function isKnownAntigravityModel(modelName) {
     if (!baseModel) return false;
     const resolved = resolveAntigravityUpstreamModel(baseModel);
     const currentModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
-    if (currentModels.includes(baseModel) || currentModels.includes(resolved) ||
-        (globalAntigravityModelsCache && (globalAntigravityModelsCache.includes(baseModel) || globalAntigravityModelsCache.includes(resolved))) ||
-        ANTIGRAVITY_MODELS.includes(baseModel) || ANTIGRAVITY_MODELS.includes(resolved)) {
+    if (currentModels.includes(baseModel) || currentModels.includes(resolved)) {
         return true;
     }
-    // 泛型识别：动态支持未来任意版本的 Gemini Flash 体系（如 gemini-3.9-flash-high, gemini-4.0-flash-high 等）
-    if (/^gemini-[\d.]+-flash(-high|-tiered)?$/.test(baseModel)) {
+    // 泛型识别：动态支持 Gemini Flash 系列体系
+    if (/^gemini-[\d.]+-flash(-high)?$/.test(baseModel)) {
         return true;
     }
     return false;
@@ -119,7 +94,7 @@ function isKnownAntigravityModel(modelName) {
 
 function antigravityModelRequiresStreamForNonStream(modelName) {
     const name = String(modelName || '').toLowerCase();
-    return name.includes('claude') || name.includes('gemini-3-pro') || name.includes('gemini-3.1-flash-image');
+    return name.includes('claude') || name === 'gemini-pro-agent' || name.includes('gemini-3.1-pro') || name.includes('gemini-3.1-flash-image');
 }
 
 /**
@@ -214,6 +189,17 @@ function isImageModel(modelName) {
 }
 
 /**
+ * 检查模型是否为 Claude 5.5 系列模型 (low/medium/high 分级体系)
+ * @param {string} modelName - 模型名称
+ * @returns {boolean}
+ */
+function isClaude55(modelName) {
+    if (!modelName) return false;
+    const name = modelName.toLowerCase();
+    return name.includes('claude') && (name.includes('5-5') || name.includes('5.5'));
+}
+
+/**
  * 检查模型是否支持 Thinking
  * @param {string} modelName - 模型名称
  * @returns {boolean}
@@ -224,7 +210,8 @@ function modelSupportsThinking(modelName) {
     return /^gemini-[3-9]/.test(name) ||
            name.startsWith('gemini-2.5-') ||
            name.includes('-thinking') ||
-           name.includes('-tiered');
+           name.includes('-high') ||
+           isClaude55(name);
 }
 
 /**
@@ -348,8 +335,8 @@ function normalizeAntigravityThinking(modelName, payload, isClaudeModel) {
         normalizedBudget = Math.max(0, maxTokens - 1);
     }
     
-    // 如果是 Claude 模型，检查最小 budget
-    if (isClaudeModel) {
+    // 如果是传统 Claude 模型（非 Claude 5.5 分级模型），检查最小 budget
+    if (isClaudeModel && !isClaude55(modelName)) {
         const minBudget = DEFAULT_THINKING_MIN;
         if (normalizedBudget >= 0 && normalizedBudget < minBudget && normalizedBudget !== -1) {
             // Budget 低于最小值，移除 thinking 配置
@@ -522,8 +509,20 @@ function geminiToAntigravity(modelName, payload, projectId) {
         template.request.generationConfig.responseSchema = cleanJsonSchemaProperties(template.request.generationConfig.responseSchema);
     }
 
-    // 处理 Thinking 配置：对于 Claude 和 Gemini 2.5 等使用 budget 的模型，若存在 thinkingLevel 则转为 thinkingBudget
-    if (isClaudeModel || modelName.startsWith('gemini-2.5-')) {
+    // 处理 Thinking 配置：
+    // Claude 5.5 系列为 low/medium/high 分级体系，固定思考强度，忽略 client reasoning_effort
+    if (isClaude55(modelName)) {
+        if (!template.request.generationConfig) {
+            template.request.generationConfig = {};
+        }
+        if (!template.request.generationConfig.thinkingConfig) {
+            template.request.generationConfig.thinkingConfig = {};
+        }
+        template.request.generationConfig.thinkingConfig.thinkingLevel = modelName.endsWith('-high') ? 'high' : 'high';
+        template.request.generationConfig.thinkingConfig.includeThoughts = true;
+        delete template.request.generationConfig.thinkingConfig.thinkingBudget;
+    } else if (isClaudeModel || modelName.startsWith('gemini-2.5-')) {
+        // 对于传统 Claude (如 claude-opus-4-6-thinking) 和 Gemini 2.5 等使用 budget 的模型，若存在 thinkingLevel 则转为 thinkingBudget
         if (template.request.generationConfig?.thinkingConfig?.thinkingLevel) {
             delete template.request.generationConfig.thinkingConfig.thinkingLevel;
             template.request.generationConfig.thinkingConfig.thinkingBudget = -1;
@@ -1306,7 +1305,7 @@ export class AntigravityApiService {
                             if (this.upstreamModelMetadata[rawId]) {
                                 this.upstreamModelMetadata[publicAlias] = {
                                     ...this.upstreamModelMetadata[rawId],
-                                    displayName: this.upstreamModelMetadata[rawId].displayName || 'Gemini 3.1 Pro (High)'
+                                    displayName: this.upstreamModelMetadata[rawId].displayName || (publicAlias === 'gemini-3.1-pro-high' ? 'Gemini 3.1 Pro (High)' : publicAlias)
                                 };
                             }
                         } else {
@@ -1322,7 +1321,6 @@ export class AntigravityApiService {
                                lower.endsWith('-extra-low') ||
                                lower.endsWith('-lite') ||
                                lower.includes('-lite-') ||
-                               lower.endsWith('-tiered') ||
                                lower.startsWith('chat_') ||
                                lower.startsWith('tab_');
                     };
@@ -1337,16 +1335,7 @@ export class AntigravityApiService {
                     // 确定当前节点的专属 availableModels (去重)
                     this.availableModels = [...new Set(filteredCandidates)];
 
-                    // 合并至模块级全局共享缓存并更新全局 PROVIDER_MODELS['gemini-antigravity']
-                    const existingCache = globalAntigravityModelsCache || [];
-                    globalAntigravityModelsCache = [...new Set([...existingCache, ...this.availableModels])];
-                    for (const [k, v] of Object.entries(this.upstreamModelMetadata)) {
-                        globalAntigravityModelMetadataMap.set(k, v);
-                    }
-                    updateProviderModels(MODEL_PROVIDER.ANTIGRAVITY, globalAntigravityModelsCache);
-
                     logger.info(`[Antigravity] Available models (${baseURL}): [${this.availableModels.join(', ')}]`);
-                    logger.info(`[Antigravity] Global union models (${globalAntigravityModelsCache.length}): [${globalAntigravityModelsCache.join(', ')}]`);
                     return;
                 }
             } catch (error) {
@@ -1355,19 +1344,19 @@ export class AntigravityApiService {
         }
 
         logger.warn('[Antigravity] Failed to fetch models from all endpoints. Using default models.');
-        this.availableModels = globalAntigravityModelsCache || getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
+        this.availableModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
     }
 
     async listModels() {
         if (!this.isInitialized) await this.initialize();
 
-        const modelsToList = (globalAntigravityModelsCache && globalAntigravityModelsCache.length > 0)
-            ? globalAntigravityModelsCache
-            : this.availableModels;
+        const modelsToList = (Array.isArray(this.availableModels) && this.availableModels.length > 0)
+            ? this.availableModels
+            : getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
 
         const now = Math.floor(Date.now() / 1000);
         const formattedModels = modelsToList.map(modelId => {
-            const meta = this.upstreamModelMetadata?.[modelId] || globalAntigravityModelMetadataMap.get(modelId);
+            const meta = this.upstreamModelMetadata?.[modelId];
             const displayName = meta?.displayName || modelId.split('-').map(word =>
                 word.charAt(0).toUpperCase() + word.slice(1)
             ).join(' ');
@@ -1915,8 +1904,11 @@ export class AntigravityApiService {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
                 throw new Error(`[Antigravity] 模型不存在: ${model}`);
             }
-            logger.warn(`[Antigravity] Model '${model}' not found. Using default model: 'gemini-3-flash'`);
-            selectedModel = 'gemini-3-flash';
+            const fallbackModel = (Array.isArray(this.availableModels) && this.availableModels.length > 0)
+                ? this.availableModels[0]
+                : 'gemini-3.8-flash-high';
+            logger.warn(`[Antigravity] Model '${model}' not found. Using default model: '${fallbackModel}'`);
+            selectedModel = fallbackModel;
             requestBody.model = selectedModel;
         }
 
@@ -1926,8 +1918,8 @@ export class AntigravityApiService {
         const processedRequestBody = ensureRolesInContents(JSON.parse(JSON.stringify(requestBody)), selectedModel);
         const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId);
 
-        // 若选中的模型以 -high 结尾或对应的上游为 -tiered，确保思考级别设置为 high
-        if (selectedModel.endsWith('-high') || actualModelName.endsWith('-tiered')) {
+        // 若选中的模型以 -high 结尾，确保思考级别设置为 high
+        if (selectedModel.endsWith('-high') || actualModelName.endsWith('-high')) {
             if (!payload.request) payload.request = {};
             if (!payload.request.generationConfig) payload.request.generationConfig = {};
             if (!payload.request.generationConfig.thinkingConfig) payload.request.generationConfig.thinkingConfig = {};

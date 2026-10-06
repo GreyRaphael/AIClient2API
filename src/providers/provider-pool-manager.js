@@ -1069,23 +1069,18 @@ export class ProviderPoolManager {
                     return supportedModels.includes(requestedModel) || supportedModels.includes(rawModelName);
                 }
 
-                // 若为 gemini-antigravity 提供商，且该节点已探测出自身可用模型列表，严格核对其是否实际支持
-                if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
-                    const instanceKey = `${providerType}${p.config?.uuid || 'default'}`;
-                    const adapter = serviceInstances[instanceKey];
-                    const nodeAvailable = adapter?.antigravityApiService?.availableModels;
-                    if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
-                        const target1 = (requestedModel || '').replace(/^models\//, '');
-                        const target2 = (rawModelName || '').replace(/^models\//, '');
-                        const isSupportedByNode = nodeAvailable.some(m =>
-                            m === target1 || m === target2 ||
-                            m === `${target1}-high` || m === `${target2}-high` ||
-                            m === `${target1}-thinking` || m === `${target2}-thinking` ||
-                            (target1.startsWith('gemini-') && m.startsWith(target1))
-                        );
-                        if (!isSupportedByNode) {
-                            return false;
-                        }
+                // 通用节点专属能力守卫：若节点已明确自身可用模型列表，严格核对其是否实际支持
+                const nodeAvailable = this.getNodeAvailableModels(providerType, p.config);
+                if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+                    const cleanRequested = (requestedModel || '').replace(/^models\//, '');
+                    const cleanRaw = (rawModelName || '').replace(/^models\//, '');
+                    const isSupportedByNode = nodeAvailable.some(m =>
+                        m === cleanRequested || m === cleanRaw ||
+                        m === `${cleanRequested}-high` || m === `${cleanRaw}-high` ||
+                        m === `${cleanRequested}-thinking` || m === `${cleanRaw}-thinking`
+                    );
+                    if (!isSupportedByNode) {
+                        return false;
                     }
                 }
 
@@ -1489,6 +1484,111 @@ export class ProviderPoolManager {
     }
 
     /**
+     * 获取指定提供商类型下所有活跃节点支持的可用模型并集（单一事实来源）
+     * @param {string} providerType 
+     * @param {Array} [rawNodesOverride] 
+     * @returns {string[]}
+     */
+    getActiveProviderModels(providerType, rawNodesOverride = null) {
+        const rawProviders = rawNodesOverride || this.providerStatus[providerType] || this.providerPools?.[providerType] || [];
+        if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
+            return getProviderModels(providerType);
+        }
+
+        const activeNodes = rawProviders.filter(p => {
+            const cfg = p.config || p;
+            return !cfg.isDisabled && (cfg.isHealthy !== false);
+        });
+
+        if (activeNodes.length === 0) {
+            return [];
+        }
+
+        if (usesManagedModelList(providerType)) {
+            const rawModels = activeNodes.flatMap(p => {
+                const cfg = p.config || p;
+                return Array.isArray(cfg.supportedModels) ? cfg.supportedModels : [];
+            });
+            return normalizeModelIds(rawModels);
+        }
+
+        const activeModelsSet = new Set();
+        let hasNodeSpecificModels = false;
+
+        for (const node of activeNodes) {
+            const nodeConfig = node.config || node;
+            const notSupported = normalizeModelIds(nodeConfig.notSupportedModels || []);
+            const nodeAvailable = this.getNodeAvailableModels(providerType, nodeConfig);
+
+            if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+                hasNodeSpecificModels = true;
+                nodeAvailable.forEach(m => {
+                    if (!notSupported.includes(m)) {
+                        activeModelsSet.add(m);
+                    }
+                });
+            }
+        }
+
+        if (hasNodeSpecificModels) {
+            return Array.from(activeModelsSet).sort((a, b) => a.localeCompare(b));
+        }
+
+        // 静态通用提供商：排除被所有活跃节点共同排除的模型
+        const defaultModels = getProviderModels(providerType);
+        const firstNodeConfig = activeNodes[0].config || activeNodes[0];
+        const firstNodeExcluded = normalizeModelIds(firstNodeConfig.notSupportedModels || []);
+        const commonExcluded = firstNodeExcluded.filter(model =>
+            activeNodes.every(n => {
+                const cfg = n.config || n;
+                return (cfg.notSupportedModels || []).includes(model);
+            })
+        );
+
+        if (commonExcluded.length > 0) {
+            return defaultModels.filter(m => !commonExcluded.includes(m));
+        }
+        return defaultModels;
+    }
+
+    /**
+     * 计算指定提供商在号池中的有效排除模型列表 (用于从响应中过滤掉不支持的模型)
+     * @param {string} providerType 
+     * @param {string} [pooluuid] 
+     * @returns {string[]}
+     */
+    getEffectiveExcludedModels(providerType, pooluuid = null) {
+        const rawProviders = this.providerStatus[providerType] || this.providerPools?.[providerType] || [];
+        if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
+            return [];
+        }
+
+        if (pooluuid) {
+            const targetNode = rawProviders.find(n => (n.config?.uuid || n.uuid) === pooluuid);
+            if (targetNode) {
+                const cfg = targetNode.config || targetNode;
+                return normalizeModelIds(cfg.notSupportedModels || []);
+            }
+        }
+
+        const activeNodes = rawProviders.filter(p => {
+            const cfg = p.config || p;
+            return !cfg.isDisabled && (cfg.isHealthy !== false);
+        });
+
+        if (activeNodes.length === 0) {
+            return normalizeModelIds(getProviderModels(providerType));
+        }
+
+        const activeModels = this.getActiveProviderModels(providerType, rawProviders);
+        const allKnownModels = getProviderModels(providerType);
+        const activeModelsSet = new Set(activeModels);
+
+        const excluded = allKnownModels.filter(m => !activeModelsSet.has(m));
+        return normalizeModelIds(excluded);
+    }
+
+    /**
      * Gets all available models across all provider pools, with optional format conversion.
      * @param {string} [endpointType] - Optional endpoint type for format conversion (OPENAI_MODEL_LIST or GEMINI_MODEL_LIST).
      * @returns {Promise<Object|Array>} Formatted model list or raw array of model objects.
@@ -1512,11 +1612,6 @@ export class ProviderPoolManager {
                 const customAliases = getCustomModelAliasesForProvider(this.globalConfig, providerType);
                 const customModelIds = getCustomModelIdsForProvider(this.globalConfig, providerType);
 
-                // 统计当前提供商类型下所有有效节点均标记为不支持的模型
-                const notSupportedModelsForType = normalizeModelIds(activeNodes[0].config?.notSupportedModels || []).filter(model =>
-                    activeNodes.every(p => (p.config?.notSupportedModels || []).includes(model))
-                );
-
                 const configuredSupportedModels = normalizeModelIds(
                     activeNodes.flatMap(providerStatus =>
                         getConfiguredSupportedModels(providerType, providerStatus.config)
@@ -1531,31 +1626,9 @@ export class ProviderPoolManager {
                     // 2. 如果节点配置了 supportedModels
                     models = normalizeModelIds(configuredSupportedModels);
                 } else {
-                    // 3. 否则使用内置静态模型列表或节点探测到的模型
-                    const activeModelsFromNodes = new Set();
-                    let hasNodeSpecificModels = false;
-                    for (const nodeStatus of activeNodes) {
-                        const nodeAvailable = this.getNodeAvailableModels(providerType, nodeStatus.config);
-                        if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
-                            hasNodeSpecificModels = true;
-                            const notSupported = normalizeModelIds(nodeStatus.config?.notSupportedModels || []);
-                            nodeAvailable.forEach(m => {
-                                if (!notSupported.includes(m)) {
-                                    activeModelsFromNodes.add(m);
-                                }
-                            });
-                        }
-                    }
-
-                    if (hasNodeSpecificModels) {
-                        models = normalizeModelIds(Array.from(activeModelsFromNodes).filter(model => !customAliases.has(model)));
-                    } else {
-                        models = normalizeModelIds(getProviderModels(providerType).filter(model => !customAliases.has(model)));
-                        // 排除不支持的模型
-                        if (notSupportedModelsForType.length > 0) {
-                            models = models.filter(m => !notSupportedModelsForType.includes(m));
-                        }
-                    }
+                    // 3. 否则使用号池活跃节点动态聚合的模型列表（单一事实来源）
+                    const poolActiveModels = this.getActiveProviderModels(providerType, activeNodes);
+                    models = normalizeModelIds(poolActiveModels.filter(model => !customAliases.has(model)));
                 }
 
                 // 如果"自定义模型管理"没有设置且模型列表仍为空，尝试从源头服务获取

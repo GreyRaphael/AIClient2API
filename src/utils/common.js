@@ -363,7 +363,12 @@ function getConfiguredSupportedModelsFromPool(providerPoolManager, providerType)
  * @param {string|null} pooluuid - 指定节点 UUID
  * @returns {string[]} 聚合后的不支持模型列表
  */
-function getConfiguredNotSupportedModelsFromPool(providerPoolManager, providerType, pooluuid = null) {
+export function getConfiguredNotSupportedModelsFromPool(providerPoolManager, providerType, pooluuid = null) {
+    if (!providerPoolManager) return [];
+    if (typeof providerPoolManager.getEffectiveExcludedModels === 'function') {
+        return providerPoolManager.getEffectiveExcludedModels(providerType, pooluuid);
+    }
+
     if (!providerPoolManager?.providerStatus?.[providerType]) {
         return [];
     }
@@ -383,37 +388,6 @@ function getConfiguredNotSupportedModelsFromPool(providerPoolManager, providerTy
     const activeNodes = nodes.filter(n => !n.config?.isDisabled);
     if (activeNodes.length === 0) {
         return normalizeModelIds(getProviderModels(providerType));
-    }
-
-    // 检查是否有节点具备专属 availableModels（例如 gemini-antigravity）
-    let hasNodeSpecificModels = false;
-    const supportedByAtLeastOneActiveNode = new Set();
-    const allKnownModels = new Set(getProviderModels(providerType));
-
-    for (const n of activeNodes) {
-        const nodeAvailable = providerPoolManager?.getNodeAvailableModels
-            ? providerPoolManager.getNodeAvailableModels(providerType, n.config)
-            : (n.config?.availableModels);
-        if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
-            hasNodeSpecificModels = true;
-            const notSupported = normalizeModelIds(n.config?.notSupportedModels || []);
-            nodeAvailable.forEach(m => {
-                if (!notSupported.includes(m)) {
-                    supportedByAtLeastOneActiveNode.add(m);
-                }
-            });
-        }
-    }
-
-    if (hasNodeSpecificModels) {
-        // 如果有节点专属模型，任何没有被至少一个活跃节点支持的模型都属于排除模型
-        const excluded = [];
-        for (const m of allKnownModels) {
-            if (!supportedByAtLeastOneActiveNode.has(m)) {
-                excluded.push(m);
-            }
-        }
-        return normalizeModelIds(excluded);
     }
 
     const firstNodeExcluded = normalizeModelIds(activeNodes[0].config?.notSupportedModels || []);

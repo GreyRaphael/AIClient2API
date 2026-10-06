@@ -250,8 +250,6 @@ async function resolveNodeAvailableModels(providerType, providerConfig, currentC
             } catch (e) {
                 logger.debug(`[UI API] Error getting node available models for ${instanceKey}: ${e.message}`);
             }
-        } else if (Array.isArray(adapter.antigravityApiService?.availableModels) && adapter.antigravityApiService.availableModels.length > 0) {
-            return adapter.antigravityApiService.availableModels;
         }
     }
     return null;
@@ -393,7 +391,10 @@ export async function handleGetSupportedProviders(req, res, currentConfig, provi
 }
 
 function getActiveProviderModels(providerType, providerPools, providerPoolManager) {
-    const rawProviders = providerPoolManager?.providerPools?.[providerType] || providerPools?.[providerType] || [];
+    if (providerPoolManager?.getActiveProviderModels) {
+        return providerPoolManager.getActiveProviderModels(providerType, providerPools?.[providerType]);
+    }
+    const rawProviders = providerPools?.[providerType] || [];
     if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
         return getProviderModels(providerType);
     }
@@ -401,47 +402,39 @@ function getActiveProviderModels(providerType, providerPools, providerPoolManage
     if (activeNodes.length === 0) {
         return [];
     }
-
     if (usesManagedModelList(providerType)) {
         return getManagedSupportedModels(providerType, activeNodes);
     }
+    return getProviderModels(providerType);
+}
 
-    const defaultModels = getProviderModels(providerType);
-    const activeModelsSet = new Set();
-    let hasNodeSpecificModels = false;
-
-    for (const node of activeNodes) {
-        const notSupported = normalizeModelIds(node.notSupportedModels || []);
-        const uuid = node.uuid || 'default';
-        const instanceKey = `${providerType}${uuid}`;
-        const adapter = serviceInstances?.[instanceKey];
-        const nodeAvailable = adapter?.antigravityApiService?.availableModels || node.availableModels;
-
-        if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
-            hasNodeSpecificModels = true;
-            nodeAvailable.forEach(m => {
-                if (!notSupported.includes(m)) {
-                    activeModelsSet.add(m);
+async function warmProviderNodeModels(providerType, providerPools, currentConfig) {
+    if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
+        try {
+            const agyNodes = providerPools[providerType] || [];
+            const activeNodes = agyNodes.filter(n => !n.isDisabled && !n.needsRefresh);
+            const probePromises = activeNodes.map(async (agyNode) => {
+                const nodeConfig = agyNode?.config || agyNode;
+                const instanceKey = `${providerType}${nodeConfig?.uuid || 'default'}`;
+                const existingAdapter = serviceInstances?.[instanceKey];
+                if (existingAdapter?.antigravityApiService?.availableModels?.length > 0) {
+                    return;
+                }
+                const agyConfig = { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType, uuid: nodeConfig?.uuid };
+                delete agyConfig.providerPools;
+                const adapter = getServiceAdapter(agyConfig);
+                if (adapter && typeof adapter.listModels === 'function') {
+                    await adapter.listModels();
                 }
             });
+            await Promise.race([
+                Promise.allSettled(probePromises),
+                new Promise(resolve => setTimeout(resolve, 3000))
+            ]);
+        } catch (e) {
+            logger.debug(`[UI API] Dynamic antigravity model warm notice: ${e.message}`);
         }
     }
-
-    if (hasNodeSpecificModels) {
-        return Array.from(activeModelsSet).sort((a, b) => a.localeCompare(b));
-    }
-
-    // 静态通用提供商：排除被所有活跃节点共同排除的模型
-    const firstNodeExcluded = normalizeModelIds(activeNodes[0].notSupportedModels || []);
-    const excludedModels = firstNodeExcluded.filter(model =>
-        activeNodes.every(n => (n.notSupportedModels || []).includes(model))
-    );
-
-    let models = defaultModels;
-    if (excludedModels.length > 0) {
-        models = models.filter(m => !excludedModels.includes(m));
-    }
-    return models;
 }
 
 /**
@@ -500,24 +493,7 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
                 logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
             }
         } else if (type === 'gemini-antigravity' || type.startsWith('gemini-antigravity-')) {
-            try {
-                const agyNodes = providerPools[type] || [];
-                const agyNode = agyNodes.find(n => !n.isDisabled && !n.needsRefresh) || agyNodes[0];
-                const nodeConfig = agyNode?.config || agyNode;
-                if (nodeConfig) {
-                    const agyConfig = nodeConfig?.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH
-                        ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: type }
-                        : { ...currentConfig, MODEL_PROVIDER: type };
-                    const adapter = getServiceAdapter(agyConfig);
-                    if (adapter && typeof adapter.listModels === 'function') {
-                        adapter.listModels().catch(e => {
-                            logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
-                        });
-                    }
-                }
-            } catch (e) {
-                logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
-            }
+            await warmProviderNodeModels(type, providerPools, currentConfig);
         }
     }
 
@@ -575,25 +551,8 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
             logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
         }
     } else if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
-        try {
-            const providerPools = loadProviderPools(currentConfig, providerPoolManager);
-            const agyNodes = providerPools[providerType] || [];
-            const agyNode = agyNodes.find(n => !n.isDisabled && !n.needsRefresh) || agyNodes[0];
-            const nodeConfig = agyNode?.config || agyNode;
-            if (nodeConfig) {
-                const agyConfig = nodeConfig?.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH
-                    ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType }
-                    : { ...currentConfig, MODEL_PROVIDER: providerType };
-                const adapter = getServiceAdapter(agyConfig);
-                if (adapter && typeof adapter.listModels === 'function') {
-                    adapter.listModels().catch(e => {
-                        logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
-                    });
-                }
-            }
-        } catch (e) {
-            logger.debug(`[UI API] Dynamic antigravity model refresh notice: ${e.message}`);
-        }
+        const providerPools = loadProviderPools(currentConfig, providerPoolManager);
+        await warmProviderNodeModels(providerType, providerPools, currentConfig);
     }
     let models = [];
     try {
