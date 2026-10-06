@@ -200,4 +200,46 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         const excluded = getConfiguredNotSupportedModelsFromPool(poolManager, 'gemini-antigravity', 'pool-node-1');
         expect(excluded).toEqual(expect.arrayContaining(['gemini-1.5-flash', 'gemini-1.5-pro']));
     });
+
+    test('7. handleGetProviderTypeModels returns full candidate model list for Trae and Zed without filtering notSupportedModels', async () => {
+        const { handleGetProviderTypeModels } = await import('../src/ui-modules/provider-api.js');
+        const poolManager = getProviderPoolManager();
+        const mockConfig = {
+            providerPools: {
+                trae: [{
+                    uuid: 'trae-node-1',
+                    isDisabled: false,
+                    isHealthy: true,
+                    notSupportedModels: ['glm-5.2', 'auto']
+                }],
+                zed: [{
+                    uuid: 'zed-node-1',
+                    isDisabled: false,
+                    isHealthy: true,
+                    notSupportedModels: ['claude-sonnet-4-5']
+                }]
+            }
+        };
+
+        let traeModels = [];
+        const mockResTrae = {
+            writeHead: jest.fn(),
+            end: (data) => {
+                traeModels = JSON.parse(data).models;
+            }
+        };
+        await handleGetProviderTypeModels({}, mockResTrae, mockConfig, poolManager, 'trae');
+        expect(traeModels).toContain('glm-5.2');
+        expect(traeModels).toContain('auto');
+
+        let zedModels = [];
+        const mockResZed = {
+            writeHead: jest.fn(),
+            end: (data) => {
+                zedModels = JSON.parse(data).models;
+            }
+        };
+        await handleGetProviderTypeModels({}, mockResZed, mockConfig, poolManager, 'zed');
+        expect(zedModels).toContain('claude-sonnet-4-5');
+    });
 });

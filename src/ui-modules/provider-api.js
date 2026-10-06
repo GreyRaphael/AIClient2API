@@ -557,7 +557,22 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
     let models = [];
     try {
         const providerPools = loadProviderPools(currentConfig, providerPoolManager);
-        models = getActiveProviderModels(providerType, providerPools, providerPoolManager);
+        if (usesManagedModelList(providerType)) {
+            models = getManagedSupportedModels(providerType, providerPools[providerType] || []);
+        } else if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
+            const agyNodes = providerPools[providerType] || [];
+            const dynamicModels = new Set(getProviderModels(providerType));
+            for (const n of agyNodes) {
+                const nodeConfig = n.config || n;
+                const nodeModels = nodeConfig.availableModels || (serviceInstances?.[`${providerType}${nodeConfig.uuid || 'default'}`]?.antigravityApiService?.availableModels);
+                if (Array.isArray(nodeModels)) {
+                    nodeModels.forEach(m => dynamicModels.add(m));
+                }
+            }
+            models = Array.from(dynamicModels).sort((a, b) => a.localeCompare(b));
+        } else {
+            models = getProviderModels(providerType);
+        }
     } catch (error) {
         logger.warn('[UI API] Failed to load provider models for type:', error.message);
         models = getProviderModels(providerType);

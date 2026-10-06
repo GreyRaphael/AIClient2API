@@ -27,9 +27,6 @@ function getMessages()       { return el('pg-messages'); }
 function getEmpty()          { return el('pg-empty'); }
 function getAttachPreview()  { return el('pg-attachments-preview'); }
 function getSystemInput()    { return el('pg-system-input'); }
-function getTempSlider()     { return el('pg-temp-slider'); }
-function getTempVal()        { return el('pg-temp-val'); }
-function getMaxTokens()      { return el('pg-max-tokens'); }
 function getReasoningEffort() { return el('pg-reasoning-effort'); }
 function getStreamCheckbox() { return el('pg-stream-checkbox'); }
 
@@ -158,12 +155,6 @@ function bindEvents() {
         }
     });
 
-    document.addEventListener('input', (e) => {
-        if (e.target.id === 'pg-temp-slider') {
-            const val = getTempVal();
-            if (val) val.textContent = e.target.value;
-        }
-    });
 
     document.addEventListener('keydown', (e) => {
         if (e.target.id === 'pg-input' && e.key === 'Enter' && !e.shiftKey) {
@@ -294,8 +285,6 @@ async function handleSend() {
     if (!apiKey) return;
 
     const sysPrompt = getSystemInput()?.value.trim();
-    const temp = parseFloat(getTempSlider()?.value || '0.7');
-    const maxTokens = parseInt(getMaxTokens()?.value || '4096');
     const reasoningEffort = getReasoningEffort()?.value || 'none';
     const useStream = getStreamCheckbox()?.checked ?? true;
 
@@ -329,15 +318,11 @@ async function handleSend() {
     } else if (useStream) {
         await streamResponse(provider, model, assistantBubble, {
             messages: requestMessages,
-            temperature: temp,
-            max_tokens: maxTokens,
             reasoning_effort: reasoningEffort
         });
     } else {
         await unaryResponse(provider, model, assistantBubble, {
             messages: requestMessages,
-            temperature: temp,
-            max_tokens: maxTokens,
             reasoning_effort: reasoningEffort
         });
     }
@@ -459,8 +444,6 @@ async function unaryResponse(provider, model, bubble, params) {
             body: JSON.stringify({
                 model,
                 messages: params.messages,
-                temperature: params.temperature,
-                max_tokens: params.max_tokens,
                 ...(params.reasoning_effort && params.reasoning_effort !== 'none' ? { reasoning_effort: params.reasoning_effort } : {}),
                 stream: false
             }),
@@ -535,8 +518,6 @@ async function streamResponse(provider, model, bubble, params) {
             body: JSON.stringify({
                 model,
                 messages: params.messages,
-                temperature: params.temperature,
-                max_tokens: params.max_tokens,
                 ...(params.reasoning_effort && params.reasoning_effort !== 'none' ? { reasoning_effort: params.reasoning_effort } : {}),
                 stream: true
             }),
