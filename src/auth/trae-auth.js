@@ -1,7 +1,7 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import crypto, { randomBytes, randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import logger from '../utils/logger.js';
 import { autoLinkProviderConfigs } from '../services/service-manager.js';
 import { broadcastEvent } from '../services/ui-manager.js';
@@ -14,7 +14,6 @@ export const TRAE_AUTH_CONFIG = {
     defaultHost: 'https://api.enterprise.trae.cn',
     defaultClientId: 'en1oxy7wnw8j9n',
     ideVersion: '0.1.52',
-    ideVersionCode: '20260811',
     logPrefix: '[Trae Auth]'
 };
 
@@ -210,12 +209,17 @@ export async function saveTraeCredentials(credData, options = {}) {
     const filename = `${timestamp}_trae-${safeUser}_creds.json`;
     const credPath = path.join(baseDir, filename);
 
+    const authHost = (credData.authHost || credData.host || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
+    const agentHost = (credData.agentHost || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
+
     const fullCreds = {
         provider: 'trae',
         user_id: credData.userId || '',
         enterprise_id: credData.enterpriseId || '',
         nickname: credData.nickname || 'user',
-        host: (credData.host || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, ''),
+        auth_host: authHost,
+        agent_host: agentHost,
+        host: authHost,
         access_token: credData.accessToken,
         refresh_token: credData.refreshToken || '',
         personal_access_token: credData.personalAccessToken || '',
@@ -278,8 +282,8 @@ export function buildTraeWebLoginUrl({
     callbackUrl = `http://127.0.0.1:${callbackPort}/authorize`,
     clientId = TRAE_AUTH_CONFIG.defaultClientId
 } = {}) {
-    const machineId = crypto.randomBytes(16).toString('hex');
-    const deviceId = crypto.randomBytes(16).toString('hex');
+    const machineId = randomBytes(16).toString('hex');
+    const deviceId = randomBytes(16).toString('hex');
     const loginTraceId = (machineId + deviceId).slice(-16);
 
     const baseConsole = host && host.includes('enterprise')
@@ -358,13 +362,23 @@ export function parseTraeCallback(rawUrl) {
         refreshToken = userJwt.RefreshToken;
     }
 
+    const rawExpiresAt = Number(userJwt.TokenExpireAt || 0);
+    let expiresAtMs = 0;
+    if (rawExpiresAt > 10 ** 12) {
+        expiresAtMs = rawExpiresAt;
+    } else if (rawExpiresAt > 0) {
+        expiresAtMs = rawExpiresAt * 1000;
+    } else {
+        expiresAtMs = Date.now() + 7 * 86400 * 1000;
+    }
+
     return {
         refreshToken,
         accessToken: userJwt.Token || '',
         userId: userInfo.UserID || '',
         nickname: userInfo.ScreenName || '',
         enterpriseId: userInfo.TenantID || '',
-        expiresAt: userJwt.TokenExpireAt ? Math.floor(Number(userJwt.TokenExpireAt) / 1000) : 0
+        expiresAt: expiresAtMs
     };
 }
 
@@ -422,7 +436,7 @@ export async function handleTraePATLogin({
             logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} ExchangeToken failed on callback, falling back to callback accessToken: ${exErr.message}`);
             accessToken = callbackData.accessToken;
             refreshToken = callbackData.refreshToken || '';
-            expiresAt = callbackData.expiresAt || (Math.floor(Date.now() / 1000) + 86400 * 7);
+            expiresAt = callbackData.expiresAt || (Date.now() + 7 * 86400 * 1000);
         } else {
             throw exErr;
         }

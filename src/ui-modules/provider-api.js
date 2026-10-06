@@ -438,6 +438,33 @@ async function warmProviderNodeModels(providerType, providerPools, currentConfig
 }
 
 /**
+ * 触发 Zed / Trae 动态模型的异步刷新（非阻塞）
+ */
+function triggerProviderDynamicModelRefresh(providerType, providerPools, currentConfig) {
+    const isZed = providerType === 'zed' || providerType.startsWith('zed-');
+    const isTrae = providerType === 'trae' || providerType.startsWith('trae-');
+    if (!isZed && !isTrae) return;
+
+    try {
+        const nodes = providerPools[providerType] || [];
+        const node = nodes[0];
+        const nodeConfig = node?.config || node;
+        const credPath = isZed ? nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH : nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH;
+        if (!credPath) return;
+
+        const config = { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType };
+        const adapter = getServiceAdapter(config);
+        if (adapter && typeof adapter.listModels === 'function') {
+            adapter.listModels().catch(e => {
+                logger.debug(`[UI API] Dynamic ${providerType} model refresh notice: ${e.message}`);
+            });
+        }
+    } catch (e) {
+        logger.debug(`[UI API] Dynamic ${providerType} model refresh notice: ${e.message}`);
+    }
+}
+
+/**
  * 获取所有提供商的可用模型（支持动态配置组，并过滤号池中排除的模型）
  */
 export async function handleGetProviderModels(req, res, currentConfig, providerPoolManager) {
@@ -455,45 +482,11 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
     const allTypes = [...new Set([...registeredProviders, ...poolTypes])];
     const allModels = {};
 
-    // 若包含 zed 提供商，尝试动态刷新一次远程模型列表保持与 cloud.zed.dev 一致（非阻塞异步刷新）
     for (const type of allTypes) {
-        if (type === 'zed' || type.startsWith('zed-')) {
-            try {
-                const zedNodes = providerPools[type] || [];
-                const zedNode = zedNodes[0];
-                const nodeConfig = zedNode?.config || zedNode;
-                const zedConfig = nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH
-                    ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: type }
-                    : { ...currentConfig, MODEL_PROVIDER: type };
-                const adapter = getServiceAdapter(zedConfig);
-                if (adapter && typeof adapter.listModels === 'function') {
-                    // 异步非阻塞刷新，避免网络延迟阻塞 /v1/models 接口
-                    adapter.listModels().catch(e => {
-                        logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
-                    });
-                }
-            } catch (e) {
-                logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
-            }
-        } else if (type === 'trae' || type.startsWith('trae-')) {
-            try {
-                const traeNodes = providerPools[type] || [];
-                const traeNode = traeNodes[0];
-                const nodeConfig = traeNode?.config || traeNode;
-                const traeConfig = nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH
-                    ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: type }
-                    : { ...currentConfig, MODEL_PROVIDER: type };
-                const adapter = getServiceAdapter(traeConfig);
-                if (adapter && typeof adapter.listModels === 'function') {
-                    adapter.listModels().catch(e => {
-                        logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
-                    });
-                }
-            } catch (e) {
-                logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
-            }
-        } else if (type === 'gemini-antigravity' || type.startsWith('gemini-antigravity-')) {
+        if (type === 'gemini-antigravity' || type.startsWith('gemini-antigravity-')) {
             await warmProviderNodeModels(type, providerPools, currentConfig);
+        } else {
+            triggerProviderDynamicModelRefresh(type, providerPools, currentConfig);
         }
     }
 
@@ -513,47 +506,19 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
  * 获取特定提供商类型的可用模型
  */
 export async function handleGetProviderTypeModels(req, res, currentConfig, providerPoolManager, providerType) {
-    if (providerType === 'zed' || providerType.startsWith('zed-')) {
-        try {
-            const providerPools = loadProviderPools(currentConfig, providerPoolManager);
-            const zedNodes = providerPools[providerType] || [];
-            const zedNode = zedNodes[0];
-            const nodeConfig = zedNode?.config || zedNode;
-            const zedConfig = nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH
-                ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType }
-                : { ...currentConfig, MODEL_PROVIDER: providerType };
-            const adapter = getServiceAdapter(zedConfig);
-            if (adapter && typeof adapter.listModels === 'function') {
-                // 异步非阻塞刷新，避免网络延迟阻塞 /v1/models 接口
-                adapter.listModels().catch(e => {
-                    logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
-                });
-            }
-        } catch (e) {
-            logger.debug(`[UI API] Dynamic zed model refresh notice: ${e.message}`);
-        }
-    } else if (providerType === 'trae' || providerType.startsWith('trae-')) {
-        try {
-            const providerPools = loadProviderPools(currentConfig, providerPoolManager);
-            const traeNodes = providerPools[providerType] || [];
-            const traeNode = traeNodes[0];
-            const nodeConfig = traeNode?.config || traeNode;
-            const traeConfig = nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH
-                ? { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType }
-                : { ...currentConfig, MODEL_PROVIDER: providerType };
-            const adapter = getServiceAdapter(traeConfig);
-            if (adapter && typeof adapter.listModels === 'function') {
-                adapter.listModels().catch(e => {
-                    logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
-                });
-            }
-        } catch (e) {
-            logger.debug(`[UI API] Dynamic trae model refresh notice: ${e.message}`);
-        }
-    } else if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
-        const providerPools = loadProviderPools(currentConfig, providerPoolManager);
-        await warmProviderNodeModels(providerType, providerPools, currentConfig);
+    let providerPools = {};
+    try {
+        providerPools = loadProviderPools(currentConfig, providerPoolManager);
+    } catch (error) {
+        logger.warn('[UI API] Failed to load provider pools for type models:', error.message);
     }
+
+    if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
+        await warmProviderNodeModels(providerType, providerPools, currentConfig);
+    } else {
+        triggerProviderDynamicModelRefresh(providerType, providerPools, currentConfig);
+    }
+
     let models = [];
     try {
         const providerPools = loadProviderPools(currentConfig, providerPoolManager);

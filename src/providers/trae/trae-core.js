@@ -24,6 +24,7 @@ const DEFAULT_MODEL = 'glm-5.2';
  * Trae 官方模型别名与重定向映射表（以全小写作为规范化键，支持 O(1) 匹配）
  */
 const CANONICAL_MODEL_ALIASES = {
+    // 常用别名映射
     'auto': 'glm-5.2',
     'claude-3.5-sonnet': 'glm-5.2',
     'claude-3.7-sonnet': 'glm-5.2',
@@ -35,36 +36,20 @@ const CANONICAL_MODEL_ALIASES = {
     'deepseek-v4-flash 正式版': 'DeepSeek-V4-Flash-Official',
     'deepseek-v4-flash-official': 'DeepSeek-V4-Flash-Official',
     'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-Pro',
+    'doubao-seed-code': 'Doubao_1_6',
+    'qwen3.7-plus': 'qwen-3.7-plus',
+    // 大小写敏感与官方底层 ID 规范化
     'doubao-seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
     'doubao-seed-2.1-turbo': 'Doubao-Seed-2.1-Turbo',
-    'doubao-seed-code': 'Doubao_1_6',
-    'step-5-preview': 'step-5-preview',
-    'glm-5.3-flashx': 'glm-5.3-flashx',
-    'glm-5.3-flash': 'glm-5.3-flash',
-    'glm-5.3': 'glm-5.3',
-    'glm-5.2': 'glm-5.2',
-    'glm-5v-turbo': 'glm-5v-turbo',
-    'minimax-m3': 'minimax-m3',
-    'minimax-m2.7': 'minimax-m2.7',
-    'qwen3.8-max': 'qwen3.8-max',
-    'qwen3.7-plus': 'qwen-3.7-plus',
-    'kimi-k2.8-preview': 'kimi-k2.8-preview',
-    'kimi-k3': 'kimi-k3',
-    'kimi-k2.7-code': 'kimi-k2.7-code',
-    'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
     'deepseek-v4-pro': 'DeepSeek-V4-Pro',
-    'deepseek-v4-flash': 'DeepSeek-V4-Flash'
+    'deepseek-v4-flash': 'DeepSeek-V4-Flash',
+    'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
+    'glm-5.3-flash': 'glm-5.3-flash',
+    'glm-5.3-flashx': 'glm-5.3-flashx',
+    'kimi-k2.8': 'kimi-k2.8-preview',
+    'kimi-k2.8-preview': 'kimi-k2.8-preview',
+    'qwen3.8-flash': 'qwen3.8-flash'
 };
-
-// 保持对外的兼容性引用（自动支持大小写透明访问）
-export const MODEL_MAP = new Proxy(CANONICAL_MODEL_ALIASES, {
-    get(target, prop) {
-        if (typeof prop === 'string') {
-            return target[prop.toLowerCase()] || target[prop];
-        }
-        return target[prop];
-    }
-});
 
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
 
@@ -94,13 +79,11 @@ export class TraeApiService {
         this.expiresAt = 0;
         this.isInitialized = false;
         this._tokenRefreshPromise = null;
+        this._fetchModelsPromise = null;
 
         this.loadCredentials();
         if (this.isInitialized) {
             updateProviderModels(MODEL_PROVIDER.TRAE, PROVIDER_MODELS.trae);
-            this.fetchRemoteModels().catch(err => {
-                logger.debug(`[Trae] Initial dynamic model fetch notice: ${err.message}`);
-            });
         }
     }
 
@@ -161,13 +144,6 @@ export class TraeApiService {
                 }
             }
         }
-
-        // 3. 特殊大小写敏感模型保全规范化
-        if (lower === 'doubao-seed-2.1-pro') return 'Doubao-Seed-2.1-Pro';
-        if (lower === 'doubao-seed-2.1-turbo') return 'Doubao-Seed-2.1-Turbo';
-        if (lower === 'deepseek-v4.1-flash') return 'deepseek-v4.1-flash';
-        if (lower === 'deepseek-v4-pro') return 'DeepSeek-V4-Pro';
-        if (lower === 'deepseek-v4-flash') return 'DeepSeek-V4-Flash';
 
         return trimmed;
     }
@@ -675,208 +651,228 @@ export class TraeApiService {
             return accountCache.models;
         }
 
-        try {
-            const token = await this.getToken();
-            if (!token) {
-                logger.warn('[Trae] Cannot fetch remote models: No token available');
-                return accountCache.models || this._getFallbackModels();
-            }
+        if (this._fetchModelsPromise) {
+            return this._fetchModelsPromise;
+        }
 
-            const mergedMap = new Map();
-            accountCache.metadataMap.clear();
-            accountCache.functionMap.clear();
+        this._fetchModelsPromise = (async () => {
+            try {
+                const token = await this.getToken();
+                if (!token) {
+                    logger.warn('[Trae] Cannot fetch remote models: No token available');
+                    return accountCache.models || this._getFallbackModels();
+                }
 
-            const headers = await this.buildHeaders(false);
-            const batchBody = {
-                app_id: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
-                version_code: '20260908',
-                functions: [FUNCTION_NAME],
-                agent_type: 'chat',
-                mode_type: 0,
-                access_type: 4,
-                show_custom_model: false
-            };
+                const newMetadataMap = new Map();
+                const newFunctionMap = new Map();
+                const mergedMap = new Map();
 
-            const allConfigs = [];
-            // 并发向目标节点发起 batch_get_detail_param 探测，提升冷启动与模型拉取效率
-            const hosts = Array.from(new Set([this.authHost, this.agentHost].filter(Boolean)));
-            const fetchPromises = hosts.map(async (host) => {
+                const headers = await this.buildHeaders(false);
+                const batchBody = {
+                    app_id: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
+                    version_code: '20260908',
+                    functions: [FUNCTION_NAME],
+                    agent_type: 'chat',
+                    mode_type: 0,
+                    access_type: 4,
+                    show_custom_model: false
+                };
+
+                const allConfigs = [];
                 try {
                     const axiosConfig = {
                         method: 'POST',
-                        url: `${host}/api/ide/v1/batch_get_detail_param`,
+                        url: `${this.authHost}/api/ide/v1/batch_get_detail_param`,
                         data: batchBody,
                         headers,
                         timeout: 8000
                     };
                     configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
                     const res = await axios(axiosConfig);
-                    const configs = [];
                     for (const fc of res.data?.function_configs || []) {
                         for (const item of fc.config_info_list || []) {
-                            configs.push({ item, fn: fc.function, host });
+                            if (item) allConfigs.push(item);
                         }
                     }
-                    return configs;
                 } catch (batchErr) {
-                    logger.debug(`[Trae] batch_get_detail_param failed on ${host}: ${batchErr.message}`);
-                    return [];
+                    logger.debug(`[Trae] batch_get_detail_param failed on ${this.authHost}: ${batchErr.message}`);
                 }
-            });
 
-            const results = await Promise.allSettled(fetchPromises);
-            for (const r of results) {
-                if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-                    allConfigs.push(...r.value);
+                const excludedConfigNames = new Set([
+                    'computer_use_subagent',
+                    'browser_use_subagent',
+                    'file_search_agent',
+                    'explore_sub_agent_v2',
+                    'summary',
+                    'fast_apply',
+                    'fast_apply_new',
+                    'title_generation',
+                    'input_optimization',
+                    'context_selection',
+                    'custom_model_placeholder'
+                ]);
+
+                // 映射并规范化推理深度级别
+                const mapReasoningLevel = (lvl) => {
+                    const l = String(lvl || '').toLowerCase();
+                    if (l === 'light' || l === 'low') return 'low';
+                    if (l === 'extra_high' || l === 'xhigh' || l === 'max') return 'xhigh';
+                    return 'high';
+                };
+
+                // 常见已知具备思考/推理能力模型的正则模式
+                const REASONING_MODEL_PATTERNS = [
+                    /deepseek/i,
+                    /glm-5/i,
+                    /step-5/i,
+                    /kimi-(?:k3|k2\.8)/i,
+                    /qwen3\.8/i
+                ];
+
+                // 严格执行 visible_tob_batch_configs 过滤流水线，统一提取底层 ID、上下文与推理配置
+                for (const item of allConfigs) {
+                    let id = item.config_name;
+                    if (!id || excludedConfigNames.has(id)) continue;
+                    if (item.config_switch === false || item.is_invisible_to_user === true) continue;
+
+                    // 优雅过滤企业自定义与外部映射模型：
+                    // 1. 基于上游数据结构：custom_models 为非空数组表示映射至外部提供商 (如 anthropic/gemini 等)
+                    // 2. 基于上游元数据标识：display_config.is_custom_model 为 true
+                    // 3. 基于上游统一命名规范：config_name 以 custom_ 开头
+                    const isCustomMappedModel = Boolean(
+                        (Array.isArray(item.custom_models) && item.custom_models.length > 0) ||
+                        item.display_config?.is_custom_model ||
+                        id.startsWith('custom_')
+                    );
+                    if (isCustomMappedModel) continue;
+
+                    const displayName = item.display_config?.display_name?.trim() || item.display_name?.trim();
+                    if (displayName === '-') continue;
+
+                    // 严格对齐上游真实底层规范 ID
+                    id = this.normalizeModelName(id);
+
+                    // context_window: 默认使用上游 Max 档位 (context_window_tokens.max)；若未显式提供则取可用最大档位 (如 dev / 详情最大容量)
+                    const maxCtx = item.context_window_tokens?.max;
+                    const devCtx = item.context_window_tokens?.dev;
+                    const detailMaxCtx = Math.max(...(item.model_detail_list || []).map(d => {
+                        if (d.context_window_tokens) return d.context_window_tokens;
+                        return (d.prompt_max_tokens || 0) + (d.max_tokens || 0);
+                    }), 0);
+                    const ctx = maxCtx || Math.max(devCtx || 0, detailMaxCtx) || 0;
+
+                    // max_tokens: 默认使用上游最大档位 (从 model_detail_list 所有档位中提取最大值)
+                    const detailMaxTokens = (item.model_detail_list || []).map(d => d.max_tokens || 0);
+                    const maxTok = detailMaxTokens.length > 0 ? Math.max(...detailMaxTokens) : (item.max_tokens || 0);
+
+                    // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
+                    const effortConfig = item.reasoning_effort_config;
+                    const hasExplicitThinkingSupport = effortConfig?.support_thinking === true ||
+                        (Array.isArray(effortConfig?.options) && effortConfig.options.length > 0) ||
+                        (Array.isArray(effortConfig?.reasoning_effort_level_options) && effortConfig.reasoning_effort_level_options.length > 0);
+                    const isExplicitlyDisabled = effortConfig?.support_thinking === false;
+                    const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some(re => re.test(id)));
+
+                    const rawOptions = effortConfig?.options || effortConfig?.reasoning_effort_level_options;
+                    const effortLevels = rawOptions?.length
+                        ? [...new Set(rawOptions.map(mapReasoningLevel))]
+                        : (supportsThinking ? ['low', 'high', 'xhigh'] : []);
+
+                    const rawDefault = effortConfig?.default_level || effortConfig?.default_reasoning_effort_level;
+                    const defaultEffort = rawDefault
+                        ? mapReasoningLevel(rawDefault)
+                        : (supportsThinking ? (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high') : undefined);
+
+                    if (mergedMap.has(id)) {
+                        const prev = mergedMap.get(id);
+                        if (ctx > prev.context_window) prev.context_window = ctx;
+                        if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
+                        if (supportsThinking) prev.supports_thinking = true;
+                        if (effortLevels.length > prev.reasoning_effort_levels.length) prev.reasoning_effort_levels = effortLevels;
+                        if (defaultEffort && !prev.default_reasoning_effort) prev.default_reasoning_effort = defaultEffort;
+                        newFunctionMap.set(id, FUNCTION_NAME);
+                    } else {
+                        const modelInfo = {
+                            id, // 严格使用底层真实 ID (例如 DeepSeek-V4-Pro-Official)
+                            name: id,
+                            display_name: displayName || id,
+                            context_window: ctx,
+                            max_tokens: maxTok,
+                            supports_thinking: supportsThinking,
+                            default_reasoning_effort: defaultEffort,
+                            reasoning_effort_levels: effortLevels
+                        };
+                        mergedMap.set(id, modelInfo);
+                        newMetadataMap.set(id, modelInfo);
+                        newFunctionMap.set(id, FUNCTION_NAME);
+                    }
                 }
+
+                // 确保合并并保留核心原生基础模型 (特别是 deepseek-v4.1-flash 等直连推理端点原生支持的模型)
+                const baseModelIds = PROVIDER_MODELS.trae || ['deepseek-v4.1-flash', 'DeepSeek-V4-Flash', 'DeepSeek-V4-Pro', 'glm-5.2', 'auto'];
+                for (const baseId of baseModelIds) {
+                    if (!mergedMap.has(baseId)) {
+                        const canonicalId = this.normalizeModelName(baseId);
+                        const targetMeta = mergedMap.get(canonicalId);
+                        const modelInfo = {
+                            id: baseId,
+                            name: baseId,
+                            display_name: baseId,
+                            context_window: targetMeta?.context_window || 1000000,
+                            max_tokens: targetMeta?.max_tokens || 64000,
+                            supports_thinking: targetMeta?.supports_thinking ?? true,
+                            default_reasoning_effort: targetMeta?.default_reasoning_effort || (baseId.toLowerCase().includes('kimi') ? 'xhigh' : 'high'),
+                            reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
+                        };
+                        mergedMap.set(baseId, modelInfo);
+                        newMetadataMap.set(baseId, modelInfo);
+                        newFunctionMap.set(baseId, FUNCTION_NAME);
+                    }
+                }
+
+                // 仅注入标准通用别名 auto (确保模型列表中只包含原生基础模型，动态继承目标模型的上游元数据)
+                const standardAliases = ['auto'];
+                for (const alias of standardAliases) {
+                    if (!mergedMap.has(alias)) {
+                        const target = this.normalizeModelName(alias);
+                        const targetMeta = mergedMap.get(target);
+                        const modelInfo = {
+                            id: alias,
+                            name: alias,
+                            context_window: targetMeta?.context_window || 0,
+                            max_tokens: targetMeta?.max_tokens || 0,
+                            supports_thinking: targetMeta?.supports_thinking ?? true,
+                            default_reasoning_effort: targetMeta?.default_reasoning_effort || 'high',
+                            reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
+                        };
+                        mergedMap.set(alias, modelInfo);
+                        newMetadataMap.set(alias, modelInfo);
+                        newFunctionMap.set(alias, FUNCTION_NAME);
+                    }
+                }
+
+                const modelObjects = Array.from(mergedMap.values());
+                const modelIds = Array.from(mergedMap.keys());
+
+                if (modelIds.length > 0) {
+                    accountCache.metadataMap = newMetadataMap;
+                    accountCache.functionMap = newFunctionMap;
+                    accountCache.models = modelObjects;
+                    accountCache.expiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
+                    updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
+                    logger.info(`[Trae] Successfully fetched dynamic model list from upstream (${modelIds.length} models, with Max Mode 1M support): ${modelIds.join(', ')}`);
+                    return modelObjects;
+                }
+            } catch (error) {
+                logger.warn(`[Trae] Failed to fetch remote models from ${this.authHost}: ${error.message}`);
+            } finally {
+                this._fetchModelsPromise = null;
             }
 
-            const excludedConfigNames = new Set([
-                'computer_use_subagent',
-                'browser_use_subagent',
-                'file_search_agent',
-                'explore_sub_agent_v2',
-                'summary',
-                'fast_apply',
-                'fast_apply_new',
-                'title_generation',
-                'input_optimization',
-                'context_selection',
-                'custom_model_placeholder'
-            ]);
+            return accountCache.models || this._getFallbackModels();
+        })();
 
-            // 映射并规范化推理深度级别
-            const mapReasoningLevel = (lvl) => {
-                const l = String(lvl || '').toLowerCase();
-                if (l === 'light' || l === 'low') return 'low';
-                if (l === 'extra_high' || l === 'xhigh' || l === 'max') return 'xhigh';
-                return 'high';
-            };
-
-            // 常见已知具备思考/推理能力模型的正则模式
-            const REASONING_MODEL_PATTERNS = [
-                /deepseek/i,
-                /glm-5/i,
-                /step-5/i,
-                /kimi-(?:k3|k2\.8)/i,
-                /qwen3\.8/i
-            ];
-
-            // 严格执行 visible_tob_batch_configs 过滤流水线，统一提取底层 ID、上下文与推理配置
-            for (const { item } of allConfigs) {
-                let id = item.config_name;
-                if (!id || excludedConfigNames.has(id)) continue;
-                if (item.config_switch === false || item.is_invisible_to_user === true) continue;
-
-                // 优雅过滤企业自定义与外部映射模型：
-                // 1. 基于上游数据结构：custom_models 为非空数组表示映射至外部提供商 (如 anthropic/gemini 等)
-                // 2. 基于上游元数据标识：display_config.is_custom_model 为 true
-                // 3. 基于上游统一命名规范：config_name 以 custom_ 开头
-                const isCustomMappedModel = Boolean(
-                    (Array.isArray(item.custom_models) && item.custom_models.length > 0) ||
-                    item.display_config?.is_custom_model ||
-                    id.startsWith('custom_')
-                );
-                if (isCustomMappedModel) continue;
-
-                const displayName = item.display_config?.display_name?.trim() || item.display_name?.trim();
-                if (displayName === '-') continue;
-
-                // 严格对齐上游真实底层规范 ID
-                id = this.normalizeModelName(id);
-
-                // context_window: 默认使用上游 Max 档位 (context_window_tokens.max)；若未显式提供则取可用最大档位 (如 dev / 详情最大容量)
-                const maxCtx = item.context_window_tokens?.max;
-                const devCtx = item.context_window_tokens?.dev;
-                const detailMaxCtx = Math.max(...(item.model_detail_list || []).map(d => {
-                    if (d.context_window_tokens) return d.context_window_tokens;
-                    return (d.prompt_max_tokens || 0) + (d.max_tokens || 0);
-                }), 0);
-                const ctx = maxCtx || Math.max(devCtx || 0, detailMaxCtx) || 0;
-
-                // max_tokens: 默认使用上游最大档位 (从 model_detail_list 所有档位中提取最大值)
-                const detailMaxTokens = (item.model_detail_list || []).map(d => d.max_tokens || 0);
-                const maxTok = detailMaxTokens.length > 0 ? Math.max(...detailMaxTokens) : (item.max_tokens || 0);
-
-                // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
-                const effortConfig = item.reasoning_effort_config;
-                const hasExplicitThinkingSupport = effortConfig?.support_thinking === true ||
-                    (Array.isArray(effortConfig?.options) && effortConfig.options.length > 0) ||
-                    (Array.isArray(effortConfig?.reasoning_effort_level_options) && effortConfig.reasoning_effort_level_options.length > 0);
-                const isExplicitlyDisabled = effortConfig?.support_thinking === false;
-                const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some(re => re.test(id)));
-
-                const rawOptions = effortConfig?.options || effortConfig?.reasoning_effort_level_options;
-                const effortLevels = rawOptions?.length
-                    ? [...new Set(rawOptions.map(mapReasoningLevel))]
-                    : (supportsThinking ? ['low', 'high', 'xhigh'] : []);
-
-                const rawDefault = effortConfig?.default_level || effortConfig?.default_reasoning_effort_level;
-                const defaultEffort = rawDefault
-                    ? mapReasoningLevel(rawDefault)
-                    : (supportsThinking ? (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high') : undefined);
-
-                if (mergedMap.has(id)) {
-                    const prev = mergedMap.get(id);
-                    if (ctx > prev.context_window) prev.context_window = ctx;
-                    if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
-                    if (supportsThinking) prev.supports_thinking = true;
-                    if (effortLevels.length > prev.reasoning_effort_levels.length) prev.reasoning_effort_levels = effortLevels;
-                    if (defaultEffort && !prev.default_reasoning_effort) prev.default_reasoning_effort = defaultEffort;
-                    accountCache.functionMap.set(id, FUNCTION_NAME);
-                } else {
-                    const modelInfo = {
-                        id, // 严格使用底层真实 ID (例如 DeepSeek-V4-Pro-Official)
-                        name: id,
-                        display_name: displayName || id,
-                        context_window: ctx,
-                        max_tokens: maxTok,
-                        supports_thinking: supportsThinking,
-                        default_reasoning_effort: defaultEffort,
-                        reasoning_effort_levels: effortLevels
-                    };
-                    mergedMap.set(id, modelInfo);
-                    accountCache.metadataMap.set(id, modelInfo);
-                    accountCache.functionMap.set(id, FUNCTION_NAME);
-                }
-            }
-
-            // 仅注入标准通用别名 auto (确保模型列表中只包含原生基础模型，动态继承目标模型的上游元数据)
-            const standardAliases = ['auto'];
-            for (const alias of standardAliases) {
-                if (!mergedMap.has(alias)) {
-                    const target = this.normalizeModelName(alias);
-                    const targetMeta = mergedMap.get(target);
-                    const modelInfo = {
-                        id: alias,
-                        name: alias,
-                        context_window: targetMeta?.context_window || 0,
-                        max_tokens: targetMeta?.max_tokens || 0,
-                        supports_thinking: targetMeta?.supports_thinking ?? true,
-                        default_reasoning_effort: targetMeta?.default_reasoning_effort || 'high',
-                        reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
-                    };
-                    mergedMap.set(alias, modelInfo);
-                    accountCache.metadataMap.set(alias, modelInfo);
-                    accountCache.functionMap.set(alias, FUNCTION_NAME);
-                }
-            }
-
-            const modelObjects = Array.from(mergedMap.values());
-            const modelIds = Array.from(mergedMap.keys());
-
-            if (modelIds.length > 0) {
-                accountCache.models = modelObjects;
-                accountCache.expiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
-                updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
-                logger.info(`[Trae] Successfully fetched dynamic model list from upstream (${modelIds.length} models, with Max Mode 1M support): ${modelIds.join(', ')}`);
-                return modelObjects;
-            }
-        } catch (error) {
-            logger.warn(`[Trae] Failed to fetch remote models from ${this.authHost}: ${error.message}`);
-        }
-
-        return accountCache.models || this._getFallbackModels();
+        return this._fetchModelsPromise;
     }
 
     /**
@@ -886,14 +882,13 @@ export class TraeApiService {
         const modelIds = PROVIDER_MODELS.trae || ['glm-5.2', 'deepseek-v4.1-flash', 'DeepSeek-V4-Pro'];
         const accountCache = this.getAccountCache();
         const fallbackList = modelIds.map(id => {
-            const canonicalId = this.normalizeModelName(id);
             return {
-                id: canonicalId,
-                name: canonicalId,
+                id,
+                name: id,
                 context_window: 1000000, // 默认 1M
                 max_tokens: 64000,        // 默认最大
                 supports_thinking: true,
-                default_reasoning_effort: 'high',
+                default_reasoning_effort: (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high'),
                 reasoning_effort_levels: ['low', 'high', 'xhigh']
             };
         });

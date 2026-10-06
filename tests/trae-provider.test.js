@@ -4,7 +4,7 @@ import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
 import { isRegisteredProvider } from '../src/providers/adapter.js';
 import { TraeApiService } from '../src/providers/trae/trae-core.js';
-import { PROVIDER_MODELS } from '../src/providers/provider-models.js';
+import { PROVIDER_MODELS, updateProviderModels, BASE_TRAE_MODELS } from '../src/providers/provider-models.js';
 
 describe('Trae Provider Implementation Tests', () => {
     test('Trae provider is properly registered and configured', () => {
@@ -253,6 +253,8 @@ describe('Trae Provider Implementation Tests', () => {
         expect(traeService.normalizeModelName('doubao-seed-2.1-turbo')).toBe('Doubao-Seed-2.1-Turbo');
         expect(traeService.normalizeModelName('deepseek-v4.1-flash')).toBe('deepseek-v4.1-flash');
         expect(traeService.normalizeModelName('GLM-5.3-FLASHX')).toBe('glm-5.3-flashx');
+        expect(traeService.normalizeModelName('kimi-k2.8')).toBe('kimi-k2.8-preview');
+        expect(traeService.normalizeModelName('KIMI-K2.8-PREVIEW')).toBe('kimi-k2.8-preview');
     });
 
     test('TraeApiService supports multi-account isolation without cache interference', () => {
@@ -268,6 +270,23 @@ describe('Trae Provider Implementation Tests', () => {
         cache1.metadataMap.set('special-model', { id: 'special-model', name: 'special-model' });
         expect(acc1.modelMetadataMap.has('special-model')).toBe(true);
         expect(acc2.modelMetadataMap.has('special-model')).toBe(false);
+    });
+
+    test('updateProviderModels preserves base Trae models including deepseek-v4.1-flash and kimi-k2.8-preview', () => {
+        expect(BASE_TRAE_MODELS).toContain('deepseek-v4.1-flash');
+        expect(BASE_TRAE_MODELS).toContain('kimi-k2.8-preview');
+        expect(PROVIDER_MODELS.trae).toContain('deepseek-v4.1-flash');
+        expect(PROVIDER_MODELS.trae).toContain('kimi-k2.8-preview');
+
+        // 模拟上游动态返回的模型列表 (缺少 deepseek-v4.1-flash 与 kimi-k2.8-preview)
+        const upstreamOnlyModels = ['DeepSeek-V4-Flash-Official', 'glm-5.3', 'kimi-k3'];
+        updateProviderModels(MODEL_PROVIDER.TRAE, upstreamOnlyModels);
+
+        // 验证 base 模型没有被抹掉，且上游新模型正常合并
+        expect(PROVIDER_MODELS.trae).toContain('deepseek-v4.1-flash');
+        expect(PROVIDER_MODELS.trae).toContain('kimi-k2.8-preview');
+        expect(PROVIDER_MODELS.trae).toContain('glm-5.3');
+        expect(PROVIDER_MODELS.trae).toContain('kimi-k3');
     });
 });
 

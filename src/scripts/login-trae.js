@@ -3,6 +3,25 @@ import { handleTraePATLogin, TRAE_AUTH_CONFIG } from '../auth/trae-auth.js';
 import { initializeConfig } from '../core/config-manager.js';
 import logger from '../utils/logger.js';
 
+async function performLoginAndDisplay({ token, host, customName }) {
+    try {
+        console.log('正在向 Trae 端点执行 ExchangeToken 握手与身份验证...');
+        const res = await handleTraePATLogin({ token, host, customName });
+        console.log('\n\x1b[32m[SUCCESS] Trae 凭据验证与录入成功！\x1b[0m');
+        console.log(`  用户标识: ${res.nickname} (UID: ${res.userId || 'N/A'})`);
+        if (res.enterpriseId) {
+            console.log(`  所属企业: ${res.enterpriseId}`);
+        }
+        console.log(`  令牌有效期至: ${new Date(res.expiresAt).toLocaleString()}`);
+        console.log(`  凭据配置文件: ${res.credPath}`);
+        console.log('\n凭据已自动注入 configs/provider_pools.json，启动 AIClient2API 即可直接调用 Trae 模型！');
+        process.exit(0);
+    } catch (err) {
+        console.error('\n\x1b[31m[ERROR] 凭证换取失败:\x1b[0m', err.message);
+        process.exit(1);
+    }
+}
+
 async function main() {
     await initializeConfig();
     const args = process.argv.slice(2);
@@ -44,22 +63,8 @@ async function main() {
 
     if (token) {
         console.log(`已检测到凭据令牌: ${token.substring(0, 15)}... (长度: ${token.length})`);
-        try {
-            console.log('正在向 Trae 端点执行 ExchangeToken 握手与身份验证...');
-            const res = await handleTraePATLogin({ token, host, customName });
-            console.log('\n\x1b[32m[SUCCESS] Trae 凭据验证与录入成功！\x1b[0m');
-            console.log(`  用户标识: ${res.nickname} (UID: ${res.userId || 'N/A'})`);
-            if (res.enterpriseId) {
-                console.log(`  所属企业: ${res.enterpriseId}`);
-            }
-            console.log(`  令牌有效期至: ${new Date(res.expiresAt).toLocaleString()}`);
-            console.log(`  凭据配置文件: ${res.credPath}`);
-            console.log('\n凭据已自动注入 configs/provider_pools.json，启动 AIClient2API 即可直接调用 Trae 模型！');
-            process.exit(0);
-        } catch (err) {
-            console.error('\n\x1b[31m[ERROR] 凭证换取失败:\x1b[0m', err.message);
-            process.exit(1);
-        }
+        await performLoginAndDisplay({ token, host, customName });
+        return;
     }
 
     // 交互式输入
@@ -77,22 +82,7 @@ async function main() {
             process.exit(1);
         }
 
-        try {
-            console.log('\n正在向 Trae 端点执行 ExchangeToken 握手与身份验证...');
-            const res = await handleTraePATLogin({ token: inputToken.trim(), host, customName });
-            console.log('\n\x1b[32m[SUCCESS] Trae 凭据验证与录入成功！\x1b[0m');
-            console.log(`  用户标识: ${res.nickname} (UID: ${res.userId || 'N/A'})`);
-            if (res.enterpriseId) {
-                console.log(`  所属企业: ${res.enterpriseId}`);
-            }
-            console.log(`  令牌有效期至: ${new Date(res.expiresAt).toLocaleString()}`);
-            console.log(`  凭据配置文件: ${res.credPath}`);
-            console.log('\n凭据已自动注入 configs/provider_pools.json，启动 AIClient2API 即可直接调用 Trae 模型！');
-            process.exit(0);
-        } catch (err) {
-            console.error('\n\x1b[31m[ERROR] 凭证换取失败:\x1b[0m', err.message);
-            process.exit(1);
-        }
+        await performLoginAndDisplay({ token: inputToken.trim(), host, customName });
     });
 }
 

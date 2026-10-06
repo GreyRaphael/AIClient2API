@@ -1476,7 +1476,10 @@ export class ProviderPoolManager {
         if (!nodeConfig) return null;
         const instanceKey = `${providerType}${nodeConfig.uuid || 'default'}`;
         const adapter = serviceInstances?.[instanceKey];
-        const nodeAvailable = adapter?.antigravityApiService?.availableModels || nodeConfig.availableModels;
+        let nodeAvailable = adapter?.antigravityApiService?.availableModels || nodeConfig.availableModels;
+        if (typeof nodeAvailable === 'string') {
+            nodeAvailable = nodeAvailable.split(',').map(s => s.trim()).filter(Boolean);
+        }
         if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
             return nodeAvailable;
         }
