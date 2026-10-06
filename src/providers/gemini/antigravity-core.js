@@ -1265,47 +1265,77 @@ export class AntigravityApiService {
                 };
 
                 const res = await this.authClient.request(requestOptions);
-                if (res.data && res.data.models) {
-                    this.upstreamModelMetadata = { ...res.data.models };
-                    const rawModels = Object.keys(res.data.models);
+                if (res.data) {
+                    this.upstreamModelMetadata = { ...(res.data.models || {}) };
 
-                    // 提取所有以 -tiered 结尾的模型，转换为对应的 -high 模型（如 gemini-3.8-flash-tiered -> gemini-3.8-flash-high）
-                    const highTieredModels = [];
-                    for (const modelId of rawModels) {
-                        if (modelId.endsWith('-tiered')) {
-                            const highModelId = modelId.replace(/-tiered$/, '-high');
-                            highTieredModels.push(highModelId);
-                            if (this.upstreamModelMetadata[modelId]) {
-                                this.upstreamModelMetadata[highModelId] = { ...this.upstreamModelMetadata[modelId] };
+                    // 1. 严格从 agentModelSorts 提取 Agent 对话模型
+                    const agentModels = [];
+                    if (Array.isArray(res.data.agentModelSorts)) {
+                        for (const sortItem of res.data.agentModelSorts) {
+                            if (Array.isArray(sortItem?.groups)) {
+                                for (const group of sortItem.groups) {
+                                    if (Array.isArray(group?.modelIds)) {
+                                        agentModels.push(...group.modelIds);
+                                    }
+                                }
                             }
                         }
                     }
 
-                    // 映射 gemini-pro-agent -> gemini-3.1-pro-high
-                    if (this.upstreamModelMetadata['gemini-pro-agent']) {
-                        highTieredModels.push('gemini-3.1-pro-high');
-                        this.upstreamModelMetadata['gemini-3.1-pro-high'] = {
-                            ...this.upstreamModelMetadata['gemini-pro-agent'],
-                            displayName: 'Gemini 3.1 Pro (High)'
-                        };
+                    // 2. 严格从 imageGenerationModelIds 提取图像生成模型
+                    const imageModels = Array.isArray(res.data.imageGenerationModelIds)
+                        ? res.data.imageGenerationModelIds
+                        : [];
+
+                    // 3. 构建候选列表并处理内部 gemini-pro-agent / deprecatedModelIds 规范化映射到 gemini-3.1-pro-high
+                    const deprecatedMap = res.data.deprecatedModelIds || {};
+                    const reverseDeprecatedMap = new Map();
+                    for (const [pubId, detail] of Object.entries(deprecatedMap)) {
+                        if (detail?.newModelId) {
+                            reverseDeprecatedMap.set(detail.newModelId, pubId);
+                        }
                     }
 
-                    // 过滤内部与未整理模型（-tiered 结尾、所有 -medium/-low/-lite 结尾、chat_ 开头、tab_ 开头、gemini-pro-agent 内部别名）
-                    const isExcluded = (id) => {
+                    const candidateModels = [];
+                    for (const rawId of [...agentModels, ...imageModels]) {
+                        if (!rawId || typeof rawId !== 'string') continue;
+
+                        const publicAlias = reverseDeprecatedMap.get(rawId) || (rawId === 'gemini-pro-agent' ? 'gemini-3.1-pro-high' : null);
+                        if (publicAlias) {
+                            candidateModels.push(publicAlias);
+                            if (this.upstreamModelMetadata[rawId]) {
+                                this.upstreamModelMetadata[publicAlias] = {
+                                    ...this.upstreamModelMetadata[rawId],
+                                    displayName: this.upstreamModelMetadata[rawId].displayName || 'Gemini 3.1 Pro (High)'
+                                };
+                            }
+                        } else {
+                            candidateModels.push(rawId);
+                        }
+                    }
+
+                    // 4. 严格排除 -medium, -low, -lite 等降级或子系统模型
+                    const isTierExcluded = (id) => {
                         const lower = (id || '').toLowerCase();
-                        return lower.endsWith('-tiered') ||
-                               lower.endsWith('-medium') ||
+                        return lower.endsWith('-medium') ||
                                lower.endsWith('-low') ||
                                lower.endsWith('-extra-low') ||
                                lower.endsWith('-lite') ||
                                lower.includes('-lite-') ||
+                               lower.endsWith('-tiered') ||
                                lower.startsWith('chat_') ||
-                               lower.startsWith('tab_') ||
-                               lower === 'gemini-pro-agent';
+                               lower.startsWith('tab_');
                     };
 
-                    const filteredRaw = rawModels.filter(m => !isExcluded(m));
-                    this.availableModels = [...new Set([...highTieredModels, ...filteredRaw])];
+                    const filteredCandidates = candidateModels.filter(m => !isTierExcluded(m));
+
+                    // 5. 容错降级：若上游因异常未返回 agentModelSorts，降级检查 defaultAgentModelId
+                    if (filteredCandidates.length === 0 && res.data.defaultAgentModelId && !isTierExcluded(res.data.defaultAgentModelId)) {
+                        filteredCandidates.push(res.data.defaultAgentModelId);
+                    }
+
+                    // 确定当前节点的专属 availableModels (去重)
+                    this.availableModels = [...new Set(filteredCandidates)];
 
                     // 合并至模块级全局共享缓存并更新全局 PROVIDER_MODELS['gemini-antigravity']
                     const existingCache = globalAntigravityModelsCache || [];

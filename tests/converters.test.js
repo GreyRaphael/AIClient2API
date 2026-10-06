@@ -225,14 +225,17 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(antigravityModels).toContain('gemini-3.8-flash-high');
         expect(antigravityModels).toContain('gemini-3.7-flash-high');
         expect(antigravityModels).toContain('gemini-3.6-flash-high');
+        expect(antigravityModels).toContain('gemini-3.1-pro-high');
         expect(antigravityModels).toContain('gemini-3.1-flash-image');
         expect(antigravityModels).toContain('claude-sonnet-5-5-high');
         expect(antigravityModels).toContain('claude-opus-5-5-high');
         expect(antigravityModels).toContain('claude-sonnet-4-6');
+        expect(antigravityModels).toContain('claude-opus-4-6-thinking');
 
-        // 确保不包含任何 tiered、flash medium/low/lite 或内部测试模型及重复前缀
+        // 确保不包含任何 tiered、medium/low/lite 降级模型或内部测试模型及重复前缀
         expect(antigravityModels.some(m => m.includes('-tiered'))).toBe(false);
-        expect(antigravityModels.some(m => m.includes('flash') && (m.endsWith('-medium') || m.endsWith('-low')))).toBe(false);
+        expect(antigravityModels.some(m => m.endsWith('-medium'))).toBe(false);
+        expect(antigravityModels.some(m => m.endsWith('-low'))).toBe(false);
         expect(antigravityModels.some(m => m.endsWith('-lite'))).toBe(false);
         expect(antigravityModels.some(m => m.startsWith('chat_'))).toBe(false);
         expect(antigravityModels.some(m => m.startsWith('tab_'))).toBe(false);
