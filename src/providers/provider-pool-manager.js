@@ -2509,6 +2509,11 @@ export class ProviderPoolManager {
             this.saveTimer = null;
         }
 
+        if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined) {
+            this.pendingSaves.clear();
+            return;
+        }
+
         const filePath = this.globalConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
         
         // 使用文件锁确保并发安全

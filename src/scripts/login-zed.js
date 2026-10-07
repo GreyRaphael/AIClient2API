@@ -6,7 +6,7 @@ import logger from '../utils/logger.js';
 async function main() {
     await initializeConfig();
     const args = process.argv.slice(2);
-    let email = 'user@example.com';
+    let email = null;
 
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--email' && args[i + 1]) {
@@ -18,7 +18,7 @@ async function main() {
     console.log('\n======================================================================');
     console.log('                 Zed 订阅转 API - 账号授权登录');
     console.log('======================================================================');
-    console.log(`目标账号: ${email}`);
+    console.log(`目标账号: ${email || '未指定 (将以授权返回的 user_id 自动命名)'}`);
     console.log('正在初始化本地 RSA 密钥与授权回调监听...');
 
     try {
@@ -58,7 +58,7 @@ async function main() {
                 console.log('\n\x1b[32m[SUCCESS] Zed 授权成功！\x1b[0m');
                 console.log(`User ID: ${result.userId}`);
                 console.log(`凭据文件已写入: ${result.credPath}`);
-                console.log(`节点已自动挂载至 provider_pools.json (Zed - ${email})\n`);
+                console.log(`节点已自动挂载至 provider_pools.json (Zed - ${result.email || result.userId})\n`);
                 cleanupAndExit(0);
             })
             .catch(err => {
@@ -78,7 +78,7 @@ async function main() {
                     console.log('\n\x1b[32m[SUCCESS] Zed 授权成功！\x1b[0m');
                     console.log(`User ID: ${result.userId}`);
                     console.log(`凭据文件已写入: ${result.credPath}`);
-                    console.log(`节点已自动挂载至 provider_pools.json (Zed - ${email})\n`);
+                    console.log(`节点已自动挂载至 provider_pools.json (Zed - ${result.email || result.userId})\n`);
                     cleanupAndExit(0);
                 } catch (err) {
                     console.error(`\n\x1b[31m[ERROR] 手动回调解析失败: ${err.message}\x1b[0m\n`);

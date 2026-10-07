@@ -9,47 +9,87 @@ import { MODEL_PROVIDER } from '../../utils/constants.js';
 import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 
-const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
-const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
-const ZED_MODELS_URL = 'https://cloud.zed.dev/models';
-const ZED_FALLBACK_SYSTEM_ID = '6b87ab66-af2c-49c7-b986-ef4c27c9e1fb';
-const ZED_FALLBACK_VERSION = '0.222.4+stable.147.b385025df963c9e8c3f74cc4dadb1c4b29b3c6f0';
-
-// 模块级共享模型缓存与元数据映射
-let globalZedModelsCache = null;
-let globalZedModelsExpiresAt = 0;
-const globalZedModelMetadataMap = new Map();
-const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
+export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
+export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
+export const ZED_MODELS_URL = 'https://cloud.zed.dev/models';
+export const ZED_FALLBACK_SYSTEM_ID = '6b87ab66-af2c-49c7-b986-ef4c27c9e1fb';
+export const ZED_FALLBACK_VERSION = '0.222.4+stable.147.b385025df963c9e8c3f74cc4dadb1c4b29b3c6f0';
+export const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 
 /**
- * 尝试从系统 ~/.zed_server 目录中自动获取正在使用的服务端 Zed 版本
+ * 解析 JWT 过期时间 (毫秒时间戳)，解析失败或未包含 exp 时兜底 1 小时
+ * @param {string} token 
+ * @returns {number}
  */
-export function getZedVersionFromSystem() {
+export function parseJwtExpiresAt(token) {
+    let expiresAt = Date.now() + 3600 * 1000;
     try {
-        const zedServerDir = path.join(os.homedir(), '.zed_server');
-        if (fs.existsSync(zedServerDir)) {
-            const files = fs.readdirSync(zedServerDir);
-            for (const file of files) {
-                const match = file.match(/(\d+\.\d+\.\d+\+[a-zA-Z0-9\.]+)/);
-                if (match) {
-                    return match[1];
-                }
+        const parts = String(token || '').split('.');
+        if (parts.length >= 2) {
+            const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
+            const claims = JSON.parse(payloadJson);
+            if (claims.exp) {
+                expiresAt = claims.exp * 1000;
             }
         }
-    } catch (e) {
-        logger.warn(`[Zed] Failed to detect zed version from ~/.zed_server: ${e.message}`);
+    } catch (_) {}
+    return expiresAt;
+}
+
+/**
+ * 向 Zed cloud 请求短效 LLM token 并解析过期时间
+ * @param {Object} params
+ * @param {string} params.userId
+ * @param {string} params.accessToken
+ * @param {string} [params.systemId]
+ * @param {Object} [params.config]
+ * @returns {Promise<{ token: string, expiresAt: number }>}
+ */
+export async function exchangeZedToken({ userId, accessToken, systemId, config }) {
+    if (!userId || !accessToken) {
+        throw new Error('Zed user_id and access_token are required for token exchange');
     }
+
+    const axiosConfig = {
+        method: 'post',
+        url: ZED_TOKEN_URL,
+        headers: {
+            'Authorization': `${userId} ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Zed-System-Id': systemId || ZED_FALLBACK_SYSTEM_ID
+        },
+        timeout: 15000
+    };
+
+    configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
+
+    const response = await axios.request(axiosConfig);
+    const token = response.data?.token;
+
+    if (!token) {
+        throw new Error(`Zed token exchange failed: invalid response data ${JSON.stringify(response.data)}`);
+    }
+
+    const expiresAt = parseJwtExpiresAt(token);
+    return { token, expiresAt };
+}
+
+/**
+ * 获取正在使用的 Zed 版本 (回退常量)
+ */
+export function getZedVersionFromSystem() {
     return ZED_FALLBACK_VERSION;
 }
 
 /**
  * 根据模型名推断 Zed 上游 provider 类型
  * @param {string} model 
- * @returns {'anthropic' | 'open_ai' | 'google' | 'x_ai'}
+ * @param {Map} [metadataMap] 可选模型元数据映射
+ * @returns {'anthropic' | 'open_ai' | 'google'}
  */
-export function getZedProviderForModel(model) {
-    if (globalZedModelMetadataMap.has(model)) {
-        const meta = globalZedModelMetadataMap.get(model);
+export function getZedProviderForModel(model, metadataMap = null) {
+    if (metadataMap && metadataMap.has(model)) {
+        const meta = metadataMap.get(model);
         if (meta?.provider) return meta.provider;
     }
     const m = (model || '').toLowerCase();
@@ -61,9 +101,6 @@ export function getZedProviderForModel(model) {
     }
     if (m.startsWith('gemini')) {
         return 'google';
-    }
-    if (m.startsWith('grok')) {
-        return 'x_ai';
     }
     return 'anthropic';
 }
@@ -85,13 +122,14 @@ export class ZedApiService {
         this.jwtExpiresAt = 0;
         this.isInitialized = false;
         this._tokenRefreshPromise = null;
+        this._modelsFetchPromise = null;
+
+        // 实例隔离的模型缓存与元数据映射
+        this.modelsCache = null;
+        this.modelsExpiresAt = 0;
+        this.modelMetadataMap = new Map();
 
         this.loadCredentials();
-        if (this.isInitialized) {
-            this.fetchRemoteModels().catch(err => {
-                logger.debug(`[Zed] Initial model fetch notice: ${err.message}`);
-            });
-        }
     }
 
     /**
@@ -125,32 +163,32 @@ export class ZedApiService {
     }
 
     /**
-     * 将更新后的凭据持久化写入文件
+     * 将更新后的凭据持久化写入文件 (读写置于文件锁临界区以保证原子性)
      */
     async saveCredentials() {
         if (!this.credsFilePath) return;
 
         try {
-            let existingData = {};
-            if (fs.existsSync(this.credsFilePath)) {
-                try {
-                    existingData = JSON.parse(fs.readFileSync(this.credsFilePath, 'utf8'));
-                } catch (_) {}
-            }
-
-            const updatedData = {
-                ...existingData,
-                provider: 'zed',
-                user_id: this.userId,
-                access_token: this.accessToken,
-                system_id: this.systemId,
-                version: this.version,
-                jwt_token: this.jwtToken,
-                expires_at: this.jwtExpiresAt,
-                updated_at: Date.now()
-            };
-
             await withFileLock(this.credsFilePath, async () => {
+                let existingData = {};
+                if (fs.existsSync(this.credsFilePath)) {
+                    try {
+                        existingData = JSON.parse(fs.readFileSync(this.credsFilePath, 'utf8'));
+                    } catch (_) {}
+                }
+
+                const updatedData = {
+                    ...existingData,
+                    provider: 'zed',
+                    user_id: this.userId,
+                    access_token: this.accessToken,
+                    system_id: this.systemId,
+                    version: this.version,
+                    jwt_token: this.jwtToken,
+                    expires_at: this.jwtExpiresAt,
+                    updated_at: Date.now()
+                };
+
                 await atomicWriteFile(this.credsFilePath, JSON.stringify(updatedData, null, 2), 'utf8');
             });
             logger.info(`[Zed] Saved updated credentials to ${this.credsFilePath}`);
@@ -192,47 +230,21 @@ export class ZedApiService {
 
                 logger.info(`[Zed] Requesting new LLM token from ${ZED_TOKEN_URL}...`);
 
-                const axiosConfig = {
-                    method: 'post',
-                    url: ZED_TOKEN_URL,
-                    headers: {
-                        'Authorization': `${this.userId} ${this.accessToken}`,
-                        'Content-Type': 'application/json',
-                        'X-Zed-System-Id': this.systemId || ZED_FALLBACK_SYSTEM_ID
-                    },
-                    timeout: 15000
-                };
-
-                configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
-
-                const response = await axios.request(axiosConfig);
-                const token = response.data?.token;
-
-                if (!token) {
-                    throw new Error(`Zed token exchange failed: invalid response data ${JSON.stringify(response.data)}`);
-                }
+                const { token, expiresAt } = await exchangeZedToken({
+                    userId: this.userId,
+                    accessToken: this.accessToken,
+                    systemId: this.systemId,
+                    config: this.config
+                });
 
                 this.jwtToken = token;
-                // 解析 JWT 过期时间
-                try {
-                    const parts = token.split('.');
-                    if (parts.length >= 2) {
-                        const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
-                        const claims = JSON.parse(payloadJson);
-                        if (claims.exp) {
-                            this.jwtExpiresAt = claims.exp * 1000;
-                        }
-                    }
-                } catch (e) {
-                    logger.warn(`[Zed] Failed to parse JWT exp: ${e.message}, defaulting to 1 hour`);
-                    this.jwtExpiresAt = Date.now() + 3600 * 1000;
-                }
+                this.jwtExpiresAt = expiresAt;
 
                 logger.info(`[Zed] Successfully acquired LLM token, expires at: ${new Date(this.jwtExpiresAt).toISOString()}`);
                 await this.saveCredentials();
 
-                // 成功获取 Token 后，如果模型缓存失效或未加载，后台触发一次模型列表拉取
-                if (!globalZedModelsCache || Date.now() > globalZedModelsExpiresAt) {
+                // 成功获取 Token 后，如果当前节点模型缓存失效或未加载，后台触发一次模型列表拉取
+                if (!this.modelsCache || Date.now() > this.modelsExpiresAt) {
                     this.fetchRemoteModels().catch(() => {});
                 }
 
@@ -246,12 +258,20 @@ export class ZedApiService {
     }
 
     /**
+     * 根据当前实例元数据或模型名称获取上游提供商
+     * @param {string} model 
+     */
+    getProviderForModel(model) {
+        return getZedProviderForModel(model, this.modelMetadataMap);
+    }
+
+    /**
      * 构建适合发送给 Zed cloud completions 的 payload
      * @param {string} model 
      * @param {object} requestBody Claude 规范的请求体
      */
     buildPayload(model, requestBody) {
-        const provider = getZedProviderForModel(model);
+        const provider = this.getProviderForModel(model);
 
         // 1. OpenAI 规范请求 (cloud.zed.dev 对 open_ai 使用 Responses API 格式)
         if (provider === 'open_ai') {
@@ -529,31 +549,67 @@ export class ZedApiService {
         }
 
         const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
-        if (requestBody.thinking) {
-            const budget = Math.min(requestBody.thinking.budget_tokens || 4096, 32000);
-            provReq.thinking = {
-                type: 'enabled',
-                budget_tokens: budget
-            };
-            delete provReq.temperature;
-            if (provReq.max_tokens <= budget) {
-                provReq.max_tokens = Math.min(budget + 4096, 64000);
-            }
-        } else if (reasoningEffort && reasoningEffort !== 'none') {
-            const budgetMap = {
-                'low': 2048,
-                'medium': 4096,
-                'high': 8192,
-                'xhigh': 16384
-            };
-            const budget = budgetMap[reasoningEffort] || 4096;
-            provReq.thinking = {
-                type: 'enabled',
-                budget_tokens: budget
-            };
-            delete provReq.temperature;
-            if (provReq.max_tokens <= budget) {
-                provReq.max_tokens = Math.min(budget + 4096, 64000);
+        const thinkingObj = requestBody.thinking;
+        const isThinkingRequested = (thinkingObj && thinkingObj.type !== 'disabled') || (reasoningEffort && reasoningEffort !== 'none');
+
+        if (isThinkingRequested) {
+            const meta = this.modelMetadataMap?.get(model);
+            const hasEffortLevels = Array.isArray(meta?.supported_effort_levels) && meta.supported_effort_levels.length > 0;
+            const isAdaptive = hasEffortLevels ||
+                model.includes('5-5') ||
+                model.includes('sonnet-5') ||
+                model.includes('sonnet-4-6') ||
+                model.includes('opus-4-6');
+
+            if (isAdaptive) {
+                let effort = null;
+                if (reasoningEffort && reasoningEffort !== 'none') {
+                    effort = String(reasoningEffort).toLowerCase().trim();
+                } else if (thinkingObj?.effort) {
+                    effort = String(thinkingObj.effort).toLowerCase().trim();
+                } else if (thinkingObj?.budget_tokens) {
+                    const b = Number(thinkingObj.budget_tokens);
+                    if (b <= 2048) effort = 'low';
+                    else if (b <= 4096) effort = 'medium';
+                    else if (b <= 8192) effort = 'high';
+                    else if (b <= 16384) effort = 'xhigh';
+                    else effort = 'max';
+                }
+
+                const validEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
+                if (!validEfforts.includes(effort)) {
+                    effort = 'high';
+                }
+
+                provReq.thinking = { type: 'adaptive' };
+                provReq.output_config = { effort };
+                delete provReq.temperature;
+            } else {
+                let budget = 4096;
+                if (thinkingObj?.budget_tokens) {
+                    budget = Math.min(Number(thinkingObj.budget_tokens) || 4096, 32000);
+                } else {
+                    const eff = (reasoningEffort && reasoningEffort !== 'none')
+                        ? String(reasoningEffort).toLowerCase().trim()
+                        : (thinkingObj?.effort ? String(thinkingObj.effort).toLowerCase().trim() : 'medium');
+                    const budgetMap = {
+                        'low': 2048,
+                        'medium': 4096,
+                        'high': 8192,
+                        'xhigh': 16384,
+                        'max': 32768
+                    };
+                    budget = budgetMap[eff] || 4096;
+                }
+
+                provReq.thinking = {
+                    type: 'enabled',
+                    budget_tokens: budget
+                };
+                delete provReq.temperature;
+                if (provReq.max_tokens <= budget) {
+                    provReq.max_tokens = Math.min(budget + 4096, 64000);
+                }
             }
         }
 
@@ -678,7 +734,34 @@ export class ZedApiService {
 
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
 
-        const response = await axios.request(axiosConfig);
+        let response;
+        try {
+            response = await axios.request(axiosConfig);
+        } catch (err) {
+            const errData = err.response?.data;
+            let errMsg = err.message;
+            if (errData) {
+                if (typeof errData === 'string') {
+                    errMsg = errData;
+                } else if (typeof errData.on === 'function') {
+                    try {
+                        const chunks = [];
+                        for await (const chunk of errData) chunks.push(chunk);
+                        errMsg = Buffer.concat(chunks).toString('utf-8');
+                    } catch (_) {
+                        errMsg = err.message;
+                    }
+                } else {
+                    try {
+                        errMsg = JSON.stringify(errData);
+                    } catch (_) {
+                        errMsg = String(errData);
+                    }
+                }
+            }
+            logger.error(`[Zed] Streaming request failed (${err.response?.status || 'network'}): ${errMsg}`);
+            throw new Error(`Zed API error (${err.response?.status || 500}): ${errMsg}`);
+        }
         const stream = response.data;
 
         let buffer = '';
@@ -997,6 +1080,10 @@ export class ZedApiService {
         let fullThinking = '';
         const toolCalls = new Map();
         let stopReason = 'end_turn';
+        const usage = {
+            input_tokens: 0,
+            output_tokens: 0
+        };
 
         for await (const chunk of this.generateContentStream(model, requestBody)) {
             if (chunk.type === 'content_block_start') {
@@ -1023,6 +1110,14 @@ export class ZedApiService {
             } else if (chunk.type === 'message_delta') {
                 if (chunk.delta?.stop_reason) {
                     stopReason = chunk.delta.stop_reason;
+                }
+                if (chunk.usage) {
+                    if (typeof chunk.usage.input_tokens === 'number') {
+                        usage.input_tokens = chunk.usage.input_tokens;
+                    }
+                    if (typeof chunk.usage.output_tokens === 'number') {
+                        usage.output_tokens = chunk.usage.output_tokens;
+                    }
                 }
             }
         }
@@ -1062,70 +1157,77 @@ export class ZedApiService {
             model: model,
             content: content,
             stop_reason: stopReason,
-            usage: {
-                input_tokens: 0,
-                output_tokens: 0
-            }
+            usage: usage
         };
     }
 
     /**
-     * 动态从 https://cloud.zed.dev/models 获取最新模型列表并更新系统缓存
+     * 动态从 https://cloud.zed.dev/models 获取最新模型列表并更新系统缓存 (含 Single-Flight 并发单飞锁与实例隔离)
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
     async fetchRemoteModels(force = false) {
         const now = Date.now();
-        if (!force && globalZedModelsCache && (globalZedModelsExpiresAt > now)) {
-            return globalZedModelsCache;
+        if (!force && this.modelsCache && (this.modelsExpiresAt > now)) {
+            return this.modelsCache;
         }
 
-        try {
-            const jwt = await this.getToken();
-            if (!jwt) {
-                logger.warn('[Zed] Cannot fetch remote models: No JWT token available');
-                return globalZedModelsCache || this._getFallbackModels();
-            }
+        if (this._modelsFetchPromise) {
+            return this._modelsFetchPromise;
+        }
 
-            const axiosConfig = {
-                method: 'get',
-                url: ZED_MODELS_URL,
-                headers: {
-                    'Authorization': `Bearer ${jwt}`,
-                    'X-Zed-Version': this.version || ZED_FALLBACK_VERSION,
-                    'Accept': 'application/json'
-                },
-                timeout: 15000
-            };
-            configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
+        this._modelsFetchPromise = (async () => {
+            try {
+                const jwt = await this.getToken();
+                if (!jwt) {
+                    logger.warn('[Zed] Cannot fetch remote models: No JWT token available');
+                    return this.modelsCache || this._getFallbackModels();
+                }
 
-            const res = await axios.request(axiosConfig);
-            if (res.data && Array.isArray(res.data.models)) {
-                const rawModels = res.data.models;
-                const modelIds = [];
-                globalZedModelMetadataMap.clear();
+                const axiosConfig = {
+                    method: 'get',
+                    url: ZED_MODELS_URL,
+                    headers: {
+                        'Authorization': `Bearer ${jwt}`,
+                        'X-Zed-Version': this.version || ZED_FALLBACK_VERSION,
+                        'Accept': 'application/json'
+                    },
+                    timeout: 15000
+                };
+                configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
 
-                for (const m of rawModels) {
-                    if (m && m.id && !m.is_disabled) {
-                        modelIds.push(m.id);
-                        globalZedModelMetadataMap.set(m.id, m);
+                const res = await axios.request(axiosConfig);
+                if (res.data && Array.isArray(res.data.models)) {
+                    const rawModels = res.data.models;
+                    const modelIds = [];
+                    this.modelMetadataMap.clear();
+
+                    for (const m of rawModels) {
+                        if (m && m.id && !m.is_disabled) {
+                            modelIds.push(m.id);
+                            this.modelMetadataMap.set(m.id, m);
+                        }
+                    }
+
+                    if (modelIds.length > 0) {
+                        this.modelsCache = rawModels;
+                        this.modelsExpiresAt = Date.now() + ZED_MODELS_CACHE_TTL_MS;
+                        // 同步更新全局 PROVIDER_MODELS['zed']（受 BASE_ZED_MODELS 合并保护）
+                        updateProviderModels(MODEL_PROVIDER.ZED, modelIds);
+                        logger.info(`[Zed] Successfully updated dynamic model list from cloud.zed.dev (${modelIds.length} models): ${modelIds.join(', ')}`);
+                        return rawModels;
                     }
                 }
-
-                if (modelIds.length > 0) {
-                    globalZedModelsCache = rawModels;
-                    globalZedModelsExpiresAt = now + ZED_MODELS_CACHE_TTL_MS;
-                    // 同步更新全局 PROVIDER_MODELS['zed']
-                    updateProviderModels(MODEL_PROVIDER.ZED, modelIds);
-                    logger.info(`[Zed] Successfully updated dynamic model list from cloud.zed.dev (${modelIds.length} models): ${modelIds.join(', ')}`);
-                    return rawModels;
-                }
+            } catch (error) {
+                logger.warn(`[Zed] Failed to fetch remote models from ${ZED_MODELS_URL}: ${error.message}`);
+            } finally {
+                this._modelsFetchPromise = null;
             }
-        } catch (error) {
-            logger.warn(`[Zed] Failed to fetch remote models from ${ZED_MODELS_URL}: ${error.message}`);
-        }
 
-        return globalZedModelsCache || this._getFallbackModels();
+            return this.modelsCache || this._getFallbackModels();
+        })();
+
+        return this._modelsFetchPromise;
     }
 
     /**
@@ -1136,8 +1238,9 @@ export class ZedApiService {
         return modelIds.map(id => ({
             id,
             display_name: id,
-            provider: getZedProviderForModel(id),
-            supports_thinking: id.includes('sonnet') || id.includes('luna') || id.includes('sol') || id.includes('terra') || id.includes('5.5') || id.includes('5.4') || id.includes('codex') || id.includes('flash') || id.includes('pro')
+            provider: this.getProviderForModel(id),
+            supports_thinking: id.includes('sonnet') || id.includes('luna') || id.includes('sol') || id.includes('terra') || id.includes('5.5') || id.includes('5.4') || id.includes('codex') || id.includes('flash') || id.includes('pro') || id.includes('5-5'),
+            supported_effort_levels: (id.includes('5-5') || id.includes('sonnet-5') || id.includes('sonnet-4-6') || id.includes('opus-4-6')) ? ['low', 'medium', 'high', 'xhigh', 'max'] : []
         }));
     }
 
@@ -1152,7 +1255,7 @@ export class ZedApiService {
             object: 'model',
             created: Math.floor(Date.now() / 1000),
             owned_by: 'zed',
-            provider: m.provider || getZedProviderForModel(m.id),
+            provider: m.provider || this.getProviderForModel(m.id),
             supports_thinking: m.supports_thinking ?? false,
             supported_effort_levels: m.supported_effort_levels || [],
             max_token_count: m.max_token_count,

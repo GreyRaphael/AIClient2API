@@ -167,10 +167,14 @@ export const PROVIDER_MODELS = {
         'grok-imagine-1.0-fast-edit',
     ],
     'zed': [
+        'claude-sonnet-5-5',
         'claude-sonnet-5',
         'claude-sonnet-4-6',
         'claude-sonnet-4-5',
         'claude-haiku-4-5',
+        'gpt-6.1-sol',
+        'gpt-6-sol',
+        'gpt-6-luna',
         'gpt-5.6-sol',
         'gpt-5.6-terra',
         'gpt-5.6-luna',
@@ -181,6 +185,7 @@ export const PROVIDER_MODELS = {
         'gpt-5-mini',
         'gpt-5-nano',
         'gemini-3.1-pro-preview',
+        'gemini-3.8-flash',
         'gemini-3.5-flash',
         'gemini-3-flash'
     ],
@@ -213,6 +218,7 @@ export const PROVIDER_MODELS = {
 };
 
 export const BASE_TRAE_MODELS = [...PROVIDER_MODELS.trae];
+export const BASE_ZED_MODELS = [...PROVIDER_MODELS.zed];
 
 /**
  * 动态更新指定提供商的模型列表
@@ -226,6 +232,12 @@ export function updateProviderModels(providerType, modelIds) {
         // 确保保留核心原生基础模型并合并去重
         const existing = PROVIDER_MODELS[providerType] || BASE_TRAE_MODELS;
         PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_TRAE_MODELS, ...modelIds]);
+        return;
+    }
+    if (providerType === MODEL_PROVIDER.ZED) {
+        // Zed 动态接口仅返回当前凭证权限范围内的模型，确保保留预置的原生核心模型并合并去重
+        const existing = PROVIDER_MODELS[providerType] || BASE_ZED_MODELS;
+        PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_ZED_MODELS, ...modelIds]);
         return;
     }
     PROVIDER_MODELS[providerType] = normalizeModelIds(modelIds);

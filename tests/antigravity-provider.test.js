@@ -3,7 +3,6 @@ jest.mock('open', () => ({ default: jest.fn() }));
 import { AntigravityApiService } from '../src/providers/gemini/antigravity-core.js';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.js';
 import { getConfiguredNotSupportedModelsFromPool } from '../src/utils/common.js';
-import { initApiService, getProviderPoolManager } from '../src/services/service-manager.js';
 
 describe('Antigravity Provider & Pool Refactor Tests', () => {
     test('1. Model List Extraction strictly follows agentModelSorts and imageGenerationModelIds with node isolation', async () => {
@@ -180,30 +179,24 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         expect(none).toBeNull();
     });
 
-    test('6. common.js getConfiguredNotSupportedModelsFromPool delegates to ProviderPoolManager', async () => {
-        await initApiService({
-            providerPools: {
-                'gemini-antigravity': [
-                    {
-                        uuid: 'pool-node-1',
-                        isDisabled: false,
-                        isHealthy: true,
-                        notSupportedModels: ['gemini-1.5-flash', 'gemini-1.5-pro']
-                    }
-                ]
-            }
-        });
+    test('6. common.js getConfiguredNotSupportedModelsFromPool delegates to ProviderPoolManager', () => {
+        const poolManager = new ProviderPoolManager({
+            'gemini-antigravity': [
+                {
+                    uuid: 'mock-pool-node-1',
+                    isDisabled: false,
+                    isHealthy: true,
+                    notSupportedModels: ['gemini-1.5-flash', 'gemini-1.5-pro']
+                }
+            ]
+        }, { maxErrorCount: 10 });
 
-        const poolManager = getProviderPoolManager();
-        expect(poolManager).toBeDefined();
-
-        const excluded = getConfiguredNotSupportedModelsFromPool(poolManager, 'gemini-antigravity', 'pool-node-1');
+        const excluded = getConfiguredNotSupportedModelsFromPool(poolManager, 'gemini-antigravity', 'mock-pool-node-1');
         expect(excluded).toEqual(expect.arrayContaining(['gemini-1.5-flash', 'gemini-1.5-pro']));
     });
 
     test('7. handleGetProviderTypeModels returns full candidate model list for Trae and Zed without filtering notSupportedModels', async () => {
         const { handleGetProviderTypeModels } = await import('../src/ui-modules/provider-api.js');
-        const poolManager = getProviderPoolManager();
         const mockConfig = {
             providerPools: {
                 trae: [{
@@ -220,6 +213,7 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                 }]
             }
         };
+        const poolManager = new ProviderPoolManager(mockConfig.providerPools, { maxErrorCount: 10 });
 
         let traeModels = [];
         const mockResTrae = {

@@ -6,18 +6,17 @@ import crypto, { randomUUID } from 'crypto';
 import open from 'open';
 import axios from 'axios';
 import { broadcastEvent } from '../services/ui-manager.js';
-import { autoLinkProviderConfigs } from '../services/service-manager.js';
+import { autoLinkProviderConfigs, getProviderPoolManager } from '../services/service-manager.js';
 import { CONFIG } from '../core/config-manager.js';
 import { configureAxiosProxy, getProxyConfigForProvider } from '../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
-import { getZedVersionFromSystem } from '../providers/zed/zed-core.js';
+import { getZedVersionFromSystem, exchangeZedToken } from '../providers/zed/zed-core.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 
 const ZED_OAUTH_CONFIG = {
     authBaseUrl: 'https://zed.dev/native_app_signin',
     successRedirectUrl: 'https://zed.dev/native_app_signin_succeeded',
     tokenExchangeUrl: 'https://cloud.zed.dev/client/llm_tokens',
-    defaultEmail: 'user@example.com',
     defaultPort: 56122,
     logPrefix: '[Zed Auth]'
 };
@@ -49,12 +48,12 @@ function sanitizeFilenamePart(value) {
  * @returns {Promise<{ authUrl: string, authInfo: Object, waitForCallback: Function }>}
  */
 export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
-    const email = options.email || ZED_OAUTH_CONFIG.defaultEmail;
+    const email = options.email || null;
     const sessionId = randomUUID();
     const systemId = options.systemId || randomUUID();
     const version = getZedVersionFromSystem();
 
-    logger.info(`${ZED_OAUTH_CONFIG.logPrefix} Starting Zed OAuth for account: ${email}`);
+    logger.info(`${ZED_OAUTH_CONFIG.logPrefix} Starting Zed OAuth for account: ${email || 'default'}`);
 
     // 1. 生成 RSA 2048 密钥对
     const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
@@ -107,9 +106,9 @@ export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
             res.end();
 
             // 4. 换取并检验 JWT Token
-            const tokenExchangeResult = await exchangeInitialZedToken({
+            const tokenExchangeResult = await exchangeZedToken({
                 userId,
-                plainTextToken: plainText,
+                accessToken: plainText,
                 systemId,
                 config: currentConfig
             });
@@ -187,7 +186,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
             if (callbackReject) {
                 callbackReject(new Error('Zed OAuth authorization timeout (5 minutes)'));
             }
-        }, 5 * 60 * 1000)
+        }, 5 * 60 * 1000).unref()
     });
 
     logger.info(`${ZED_OAUTH_CONFIG.logPrefix} Callback server listening on port ${port}`);
@@ -269,9 +268,9 @@ export async function handleZedOAuthCallback(rawInput, sessionId = null, current
     }, Buffer.from(encAccessToken, 'base64url')).toString('utf8');
 
     // 换取初始 JWT
-    const tokenExchangeResult = await exchangeInitialZedToken({
+    const tokenExchangeResult = await exchangeZedToken({
         userId,
-        plainTextToken: plainText,
+        accessToken: plainText,
         systemId: session.systemId,
         config: currentConfig
     });
@@ -299,50 +298,6 @@ export async function handleZedOAuthCallback(rawInput, sessionId = null, current
 }
 
 /**
- * 请求 Zed 云端获取短效 JWT Token 并解析有效时间
- */
-async function exchangeInitialZedToken({ userId, plainTextToken, systemId, config }) {
-    logger.info(`${ZED_OAUTH_CONFIG.logPrefix} Exchanging LLM token with cloud.zed.dev...`);
-
-    const axiosConfig = {
-        method: 'post',
-        url: ZED_OAUTH_CONFIG.tokenExchangeUrl,
-        headers: {
-            'Authorization': `${userId} ${plainTextToken}`,
-            'Content-Type': 'application/json',
-            'X-Zed-System-Id': systemId
-        },
-        timeout: 15000
-    };
-
-    configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
-
-    const response = await axios.request(axiosConfig);
-    const token = response.data?.token;
-
-    if (!token) {
-        throw new Error(`Token exchange failed: ${JSON.stringify(response.data)}`);
-    }
-
-    let expiresAt = Date.now() + 3600 * 1000;
-    try {
-        const parts = token.split('.');
-        if (parts.length >= 2) {
-            const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
-            const claims = JSON.parse(payloadJson);
-            if (claims.exp) {
-                expiresAt = claims.exp * 1000;
-            }
-        }
-    } catch (_) {}
-
-    return {
-        token,
-        expiresAt
-    };
-}
-
-/**
  * 持久化保存 Zed 凭证到 configs/zed/
  */
 async function saveZedCredentials({
@@ -361,7 +316,7 @@ async function saveZedCredentials({
     }
 
     const timestamp = Date.now();
-    const sanitizedEmail = sanitizeFilenamePart(email || userId);
+    const sanitizedEmail = sanitizeFilenamePart(email || (userId ? `user_${userId}` : 'default'));
     const filename = `${timestamp}_zed-${sanitizedEmail}_oauth_creds.json`;
     const credPath = path.join(zedConfigsDir, filename);
 
@@ -392,7 +347,7 @@ async function saveZedCredentials({
             credPath: relPath
         });
 
-        // 查找或更新 customName
+        // 查找或更新 customName 并同步号池状态
         if (currentConfig.providerPools && Array.isArray(currentConfig.providerPools['zed'])) {
             const node = currentConfig.providerPools['zed'].find(p => p.ZED_OAUTH_CREDS_FILE_PATH === relPath);
             if (node) {
@@ -401,6 +356,12 @@ async function saveZedCredentials({
                 await withFileLock(poolsFile, async () => {
                     await atomicWriteFile(poolsFile, JSON.stringify(currentConfig.providerPools, null, 2), 'utf8');
                 });
+
+                const ppm = getProviderPoolManager();
+                if (ppm) {
+                    ppm.providerPools = currentConfig.providerPools;
+                    ppm.initializeProviderStatus();
+                }
             }
         }
 

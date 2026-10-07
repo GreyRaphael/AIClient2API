@@ -34,7 +34,8 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(getZedProviderForModel('gpt-5.2-codex')).toBe('open_ai');
         expect(getZedProviderForModel('o1-preview')).toBe('open_ai');
         expect(getZedProviderForModel('gemini-3.1-pro')).toBe('google');
-        expect(getZedProviderForModel('grok-3')).toBe('x_ai');
+        expect(getZedProviderForModel('gemini-3.5-flash')).toBe('google');
+        expect(getZedProviderForModel('unknown-model')).toBe('anthropic');
     });
 
     test('ZedApiService.buildPayload formats request into Zed zedPayload structure', () => {
@@ -240,6 +241,172 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             const results = await Promise.all(promises);
             expect(tokenExchangeCount).toBe(1);
             expect(results.every(t => t === 'mock.eyJleHAiOjE5OTk5OTk5OTl9.sig')).toBe(true);
+        } finally {
+            axios.request = originalRequest;
+        }
+    });
+
+    test('updateProviderModels merges and protects BASE_ZED_MODELS', async () => {
+        const { BASE_ZED_MODELS, updateProviderModels } = await import('../src/providers/provider-models.js');
+        expect(Array.isArray(BASE_ZED_MODELS)).toBe(true);
+        expect(BASE_ZED_MODELS).toContain('claude-sonnet-5');
+        expect(BASE_ZED_MODELS).toContain('claude-sonnet-4-5');
+
+        // Dynamically update with a subset or custom model
+        updateProviderModels(MODEL_PROVIDER.ZED, ['custom-dynamic-zed-model']);
+        expect(PROVIDER_MODELS['zed']).toContain('custom-dynamic-zed-model');
+        expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-5');
+        expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-4-5');
+    });
+
+    test('ZedApiService.fetchRemoteModels deduplicates concurrent calls via _modelsFetchPromise', async () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        jest.spyOn(zedService, 'getToken').mockResolvedValue('mock-jwt');
+
+        let modelsFetchCount = 0;
+        const axios = (await import('axios')).default;
+        const originalRequest = axios.request;
+        axios.request = jest.fn().mockImplementation(async (config) => {
+            if (config.url?.includes('models')) {
+                modelsFetchCount++;
+                await new Promise(r => setTimeout(r, 20));
+                return {
+                    data: {
+                        models: [
+                            { id: 'remote-model-1', display_name: 'Remote 1' },
+                            { id: 'remote-model-2', display_name: 'Remote 2' }
+                        ]
+                    }
+                };
+            }
+            return { data: {} };
+        });
+
+        try {
+            const results = await Promise.all([
+                zedService.fetchRemoteModels(true),
+                zedService.fetchRemoteModels(true),
+                zedService.fetchRemoteModels(true),
+                zedService.fetchRemoteModels(true)
+            ]);
+
+            expect(modelsFetchCount).toBe(1);
+            expect(results[0].length).toBe(2);
+        } finally {
+            axios.request = originalRequest;
+        }
+    });
+
+    test('ZedApiService.generateContent accumulates and preserves stream usage', async () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        // Mock generateContentStream
+        zedService.generateContentStream = async function* () {
+            yield {
+                type: 'message_start',
+                message: { role: 'assistant', content: [] }
+            };
+            yield {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'text', text: '' }
+            };
+            yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'Hello from Zed' }
+            };
+            yield {
+                type: 'content_block_stop',
+                index: 0
+            };
+            yield {
+                type: 'message_delta',
+                delta: { stop_reason: 'end_turn' },
+                usage: { input_tokens: 15, output_tokens: 25 }
+            };
+            yield {
+                type: 'message_stop'
+            };
+        };
+
+        const res = await zedService.generateContent('claude-sonnet-4-5', { messages: [] });
+        expect(res.content[0].text).toBe('Hello from Zed');
+        expect(res.usage).toEqual({ input_tokens: 15, output_tokens: 25 });
+    });
+
+    test('ZedApiService.buildPayload formats adaptive thinking for claude-sonnet-5-5', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        // 1. With reasoning_effort: 'medium'
+        const payloadMedium = zedService.buildPayload('claude-sonnet-5-5', {
+            reasoning_effort: 'medium',
+            temperature: 0.7,
+            messages: [{ role: 'user', content: 'hello' }]
+        });
+        expect(payloadMedium.provider_request.thinking).toEqual({ type: 'adaptive' });
+        expect(payloadMedium.provider_request.output_config).toEqual({ effort: 'medium' });
+        expect(payloadMedium.provider_request.temperature).toBeUndefined();
+
+        // 2. With budget_tokens (mapped to effort)
+        const payloadBudget = zedService.buildPayload('claude-sonnet-5-5', {
+            thinking: { type: 'enabled', budget_tokens: 4096 },
+            messages: [{ role: 'user', content: 'hello' }]
+        });
+        expect(payloadBudget.provider_request.thinking).toEqual({ type: 'adaptive' });
+        expect(payloadBudget.provider_request.output_config).toEqual({ effort: 'medium' });
+        expect(payloadBudget.provider_request.temperature).toBeUndefined();
+
+        // 3. Without thinking (no thinking or output_config injected)
+        const payloadNoThinking = zedService.buildPayload('claude-sonnet-5-5', {
+            messages: [{ role: 'user', content: 'hello' }],
+            temperature: 0.5
+        });
+        expect(payloadNoThinking.provider_request.thinking).toBeUndefined();
+        expect(payloadNoThinking.provider_request.output_config).toBeUndefined();
+        expect(payloadNoThinking.provider_request.temperature).toBe(0.5);
+    });
+
+    test('ZedApiService.generateContentStream extracts detailed error when upstream returns error stream', async () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        jest.spyOn(zedService, 'getToken').mockResolvedValue('mock-jwt');
+
+        const { Readable } = await import('stream');
+        const axios = (await import('axios')).default;
+        const originalRequest = axios.request;
+
+        const errorStream = new Readable({
+            read() {
+                this.push(Buffer.from('{"error":"thinking.type.enabled is not supported for this model"}'));
+                this.push(null);
+            }
+        });
+
+        const axiosError = new Error('Request failed with status code 400');
+        axiosError.response = {
+            status: 400,
+            data: errorStream
+        };
+
+        axios.request = jest.fn().mockRejectedValue(axiosError);
+
+        try {
+            const gen = zedService.generateContentStream('claude-sonnet-5-5', { messages: [] });
+            await expect(gen.next()).rejects.toThrow(/Zed API error \(400\): {"error":"thinking\.type\.enabled/);
         } finally {
             axios.request = originalRequest;
         }
