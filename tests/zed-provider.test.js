@@ -411,4 +411,38 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             axios.request = originalRequest;
         }
     });
+
+    test('ZedApiService.buildPayload supports full 5 reasoning effort levels for OpenAI models', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        // Test explicit reasoning_effort levels
+        const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
+        for (const level of levels) {
+            const payload = zedService.buildPayload('gpt-6.1-sol', {
+                reasoning_effort: level,
+                messages: [{ role: 'user', content: 'test' }]
+            });
+            expect(payload.provider).toBe('open_ai');
+            expect(payload.provider_request.reasoning).toEqual({
+                effort: level,
+                summary: 'detailed'
+            });
+        }
+
+        // Test budget_tokens mapping to xhigh and max
+        const payloadXhigh = zedService.buildPayload('gpt-6.1-sol', {
+            thinking: { type: 'enabled', budget_tokens: 16000 },
+            messages: [{ role: 'user', content: 'test' }]
+        });
+        expect(payloadXhigh.provider_request.reasoning.effort).toBe('xhigh');
+
+        const payloadMax = zedService.buildPayload('gpt-6.1-sol', {
+            thinking: { type: 'enabled', budget_tokens: 32000 },
+            messages: [{ role: 'user', content: 'test' }]
+        });
+        expect(payloadMax.provider_request.reasoning.effort).toBe('max');
+    });
 });

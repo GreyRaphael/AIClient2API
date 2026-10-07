@@ -390,11 +390,17 @@ export class ZedApiService {
             };
 
             let reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
-            if (!reasoningEffort && requestBody.thinking?.type === 'enabled') {
-                const budget = requestBody.thinking.budget_tokens || 4096;
-                if (budget <= 2048) reasoningEffort = 'low';
-                else if (budget <= 4096) reasoningEffort = 'medium';
-                else reasoningEffort = 'high';
+            if (!reasoningEffort && requestBody.thinking) {
+                if (requestBody.thinking.effort) {
+                    reasoningEffort = requestBody.thinking.effort;
+                } else if (requestBody.thinking.budget_tokens) {
+                    const budget = Number(requestBody.thinking.budget_tokens) || 4096;
+                    if (budget <= 2048) reasoningEffort = 'low';
+                    else if (budget <= 4096) reasoningEffort = 'medium';
+                    else if (budget <= 8192) reasoningEffort = 'high';
+                    else if (budget <= 16384) reasoningEffort = 'xhigh';
+                    else reasoningEffort = 'max';
+                }
             }
 
             if (reasoningEffort && reasoningEffort !== 'none') {
