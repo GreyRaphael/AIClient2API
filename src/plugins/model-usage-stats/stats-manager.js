@@ -269,18 +269,30 @@ function normalizeUsageCandidate(candidate) {
         usage?.promptTokenCount ??
         usage?.inputTokenCount
     );
-    const completionTokens = toNumber(
+    const rawCompletionTokens = toNumber(
         candidate.completion_tokens ??
         usage?.completion_tokens ??
         usage?.output_tokens ??
         usage?.candidatesTokenCount ??
         usage?.outputTokenCount
-    ) + reasoningTokens;
-    const totalTokens = toNumber(
+    );
+    const totalTokensCandidate = toNumber(
         candidate.total_tokens ??
         usage?.total_tokens ??
         usage?.totalTokenCount
     );
+
+    // 标准 OpenAI 响应中 completion_tokens 已包含 reasoning_tokens；
+    // 仅当 totalTokens 显式大于 prompt + completion 时（如 Gemini candidatesTokenCount 未包含 thoughtsTokenCount）才叠加补齐
+    let completionTokens = rawCompletionTokens;
+    if (reasoningTokens > 0) {
+        if (totalTokensCandidate > 0 && rawCompletionTokens + promptTokens < totalTokensCandidate) {
+            completionTokens = Math.min(rawCompletionTokens + reasoningTokens, totalTokensCandidate - promptTokens);
+        } else if (totalTokensCandidate === 0 && (usage?.candidatesTokenCount !== undefined || candidate?.candidatesTokenCount !== undefined)) {
+            completionTokens += reasoningTokens;
+        }
+    }
+    const totalTokens = totalTokensCandidate;
     const cachedTokens = toNumber(
         candidate.cached_tokens ??
         usage?.cached_tokens ??

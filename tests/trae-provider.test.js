@@ -363,6 +363,71 @@ describe('Trae Provider Implementation Tests', () => {
         expect(toolMsg.content[0].type).toBe('text');
         expect(toolMsg.content[0].text).toBe(JSON.stringify({ success: true, count: 42, details: ['a', 'b'] }));
     });
+
+    test('TraeApiService._formatTokenUsage correctly parses upstream token_usage', () => {
+        const traeService = new TraeApiService({ uuid: 'test-usage-format' });
+        const upstreamUsage = {
+            name: '',
+            prompt_tokens: 31,
+            completion_tokens: 36,
+            total_tokens: 67,
+            cache_read_input_tokens: 12,
+            reasoning_tokens: 26
+        };
+
+        const usage = traeService._formatTokenUsage(upstreamUsage);
+        expect(usage).toEqual({
+            prompt_tokens: 31,
+            completion_tokens: 36,
+            total_tokens: 67,
+            cached_tokens: 12,
+            prompt_tokens_details: {
+                cached_tokens: 12
+            },
+            completion_tokens_details: {
+                reasoning_tokens: 26
+            }
+        });
+    });
+
+    test('TraeApiService.generateContent aggregates usage from stream chunks', async () => {
+        const traeService = new TraeApiService({ uuid: 'test-usage-agg' });
+
+        traeService.generateContentStream = async function* () {
+            yield {
+                choices: [{
+                    delta: { role: 'assistant', content: 'Hello' },
+                    finish_reason: null
+                }]
+            };
+            yield {
+                choices: [{
+                    delta: {},
+                    finish_reason: 'stop'
+                }],
+                usage: {
+                    prompt_tokens: 15,
+                    completion_tokens: 25,
+                    total_tokens: 40,
+                    cached_tokens: 5,
+                    prompt_tokens_details: { cached_tokens: 5 },
+                    completion_tokens_details: { reasoning_tokens: 10 }
+                }
+            };
+        };
+
+        const result = await traeService.generateContent('deepseek-v4.1-flash', {});
+        expect(result.choices[0].finish_reason).toBe('stop');
+        expect(result.choices[0].message.content).toBe('Hello');
+        expect(result.usage).toEqual({
+            prompt_tokens: 15,
+            completion_tokens: 25,
+            total_tokens: 40,
+            cached_tokens: 5,
+            prompt_tokens_details: { cached_tokens: 5 },
+            completion_tokens_details: { reasoning_tokens: 10 }
+        });
+    });
 });
 
 

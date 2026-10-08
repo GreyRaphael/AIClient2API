@@ -454,6 +454,34 @@ export class TraeApiService {
     }
 
     /**
+     * 将 Trae 上游返回的 token_usage 转换为标准 OpenAI usage 规范对象
+     * @param {Object} data - 上游 token_usage 数据
+     * @returns {Object|null}
+     */
+    _formatTokenUsage(data) {
+        if (!data || typeof data !== 'object') return null;
+
+        const promptTokens = Number(data.prompt_tokens ?? data.input_tokens) || 0;
+        const completionTokens = Number(data.completion_tokens ?? data.output_tokens) || 0;
+        const totalTokens = Number(data.total_tokens) || (promptTokens + completionTokens);
+        const cachedTokens = Number(data.cache_read_input_tokens ?? data.cached_tokens ?? data.cache_creation_input_tokens) || 0;
+        const reasoningTokens = Number(data.reasoning_tokens) || 0;
+
+        return {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: totalTokens,
+            cached_tokens: cachedTokens,
+            prompt_tokens_details: {
+                cached_tokens: cachedTokens
+            },
+            completion_tokens_details: {
+                reasoning_tokens: reasoningTokens
+            }
+        };
+    }
+
+    /**
      * 流式生成内容
      * 解析 Trae 的专有 SSE 事件并实时转码为 OpenAI 兼容的 chunk
      */
@@ -508,6 +536,8 @@ export class TraeApiService {
         let currentEvent = 'output';
         let isFirst = true;
         let hasSeenToolCalls = false;
+        let tokenUsage = null;
+        let hasYieldedDone = false;
 
         for await (const chunk of response.data) {
             buffer += chunk.toString('utf-8');
@@ -584,12 +614,25 @@ export class TraeApiService {
                                 }]
                             };
                         }
+                    } else if (currentEvent === 'token_usage') {
+                        tokenUsage = this._formatTokenUsage(dataObj);
+                        // 如果极少数情况下 done 先于 token_usage 到达，补发一个包含 usage 的 chunk
+                        if (hasYieldedDone && tokenUsage) {
+                            yield {
+                                id: `chatcmpl-${chatId}`,
+                                object: 'chat.completion.chunk',
+                                created,
+                                model,
+                                choices: [],
+                                usage: tokenUsage
+                            };
+                        }
                     } else if (currentEvent === 'done') {
                         let finalFinishReason = dataObj.finish_reason || 'stop';
                         if (hasSeenToolCalls && (!finalFinishReason || finalFinishReason === 'stop')) {
                             finalFinishReason = 'tool_calls';
                         }
-                        yield {
+                        const doneChunk = {
                             id: `chatcmpl-${chatId}`,
                             object: 'chat.completion.chunk',
                             created,
@@ -600,9 +643,30 @@ export class TraeApiService {
                                 finish_reason: finalFinishReason
                             }]
                         };
+                        if (tokenUsage) {
+                            doneChunk.usage = tokenUsage;
+                        }
+                        hasYieldedDone = true;
+                        yield doneChunk;
                     }
                 }
             }
+        }
+
+        // 容错：若上游异常断流未输出 done，发送终止 chunk 确保流闭合
+        if (!hasYieldedDone) {
+            yield {
+                id: `chatcmpl-${chatId}`,
+                object: 'chat.completion.chunk',
+                created,
+                model,
+                choices: [{
+                    index: 0,
+                    delta: {},
+                    finish_reason: hasSeenToolCalls ? 'tool_calls' : 'stop'
+                }],
+                ...(tokenUsage ? { usage: tokenUsage } : {})
+            };
         }
     }
 
@@ -614,10 +678,14 @@ export class TraeApiService {
         let fullContent = '';
         let fullReasoning = '';
         let finishReason = 'stop';
+        let latestUsage = null;
         const toolCallsMap = new Map();
         const stream = this.generateContentStream(model, requestBody);
 
         for await (const chunk of stream) {
+            if (chunk.usage) {
+                latestUsage = chunk.usage;
+            }
             const choice = chunk.choices?.[0];
             if (!choice) continue;
 
@@ -676,7 +744,7 @@ export class TraeApiService {
                 message,
                 finish_reason: finishReason
             }],
-            usage: {
+            usage: latestUsage || {
                 prompt_tokens: 0,
                 completion_tokens: 0,
                 total_tokens: 0
