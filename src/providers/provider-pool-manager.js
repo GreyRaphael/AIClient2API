@@ -1508,11 +1508,24 @@ export class ProviderPoolManager {
         }
 
         if (usesManagedModelList(providerType)) {
-            const rawModels = activeNodes.flatMap(p => {
+            const nodeModels = activeNodes.flatMap(p => {
                 const cfg = p.config || p;
-                return Array.isArray(cfg.supportedModels) ? cfg.supportedModels : [];
+                if (Array.isArray(cfg.supportedModels) && cfg.supportedModels.length > 0) {
+                    return cfg.supportedModels;
+                }
+                const fallback = [];
+                if (cfg.checkModelName) fallback.push(cfg.checkModelName);
+                const available = this.getNodeAvailableModels(providerType, cfg);
+                if (Array.isArray(available)) fallback.push(...available);
+                return fallback;
             });
-            return normalizeModelIds(rawModels);
+            const customModels = getProviderModels(providerType);
+            const combined = normalizeModelIds([...nodeModels, ...customModels]);
+            if (combined.length > 0) {
+                return combined;
+            }
+            const defaultModel = ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS[providerType];
+            return defaultModel ? [defaultModel] : [];
         }
 
         const activeModelsSet = new Set();
@@ -1622,12 +1635,12 @@ export class ProviderPoolManager {
                 );
 
                 let models = [];
-                if (customModelIds.length > 0) {
-                    // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，完全使用"自定义模型管理"中的数据
+                if (customModelIds.length > 0 && configuredSupportedModels.length === 0) {
+                    // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，且节点未配置 supportedModels，优先使用"自定义模型管理"中的数据
                     models = normalizeModelIds(customModelIds);
                 } else if (configuredSupportedModels.length > 0) {
-                    // 2. 如果节点配置了 supportedModels
-                    models = normalizeModelIds(configuredSupportedModels);
+                    // 2. 如果节点配置了 supportedModels，合并自定义模型
+                    models = normalizeModelIds([...configuredSupportedModels, ...customModelIds]);
                 } else {
                     // 3. 否则使用号池活跃节点动态聚合的模型列表（单一事实来源）
                     const poolActiveModels = this.getActiveProviderModels(providerType, activeNodes);
@@ -1657,8 +1670,9 @@ export class ProviderPoolManager {
                                 const fetchedModels = convertedData.data.map(m => m.id);
                                 if (fetchedModels.length > 0) {
                                     models = fetchedModels;
-                                    if (notSupportedModelsForType.length > 0) {
-                                        models = models.filter(m => !notSupportedModelsForType.includes(m));
+                                    const effectiveExcluded = this.getEffectiveExcludedModels(providerType);
+                                    if (effectiveExcluded.length > 0) {
+                                        models = models.filter(m => !effectiveExcluded.includes(m));
                                     }
                                 }
                             }

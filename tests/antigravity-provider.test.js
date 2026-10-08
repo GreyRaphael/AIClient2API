@@ -236,4 +236,40 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         await handleGetProviderTypeModels({}, mockResZed, mockConfig, poolManager, 'zed');
         expect(zedModels).toContain('claude-sonnet-4-5');
     });
+
+    test('8. getActiveProviderModels and handleGetProviderTypeModels fall back to checkModelName and custom models for managed providers', async () => {
+        const { handleGetProviderTypeModels } = await import('../src/ui-modules/provider-api.js');
+        const { CONFIG } = await import('../src/core/config-manager.js');
+        CONFIG.customModels = [
+            { id: 'custom-glm-model', provider: 'openai-custom', enabled: true }
+        ];
+
+        const mockConfig = {
+            providerPools: {
+                'openai-custom': [{
+                    uuid: 'custom-bot-1',
+                    isDisabled: false,
+                    isHealthy: true,
+                    checkModelName: 'glm-5.2',
+                    supportedModels: []
+                }]
+            }
+        };
+        const poolManager = new ProviderPoolManager(mockConfig.providerPools, { maxErrorCount: 10 });
+
+        const activeModels = poolManager.getActiveProviderModels('openai-custom');
+        expect(activeModels).toContain('glm-5.2');
+        expect(activeModels).toContain('custom-glm-model');
+
+        let endpointModels = [];
+        const mockRes = {
+            writeHead: jest.fn(),
+            end: (data) => {
+                endpointModels = JSON.parse(data).models;
+            }
+        };
+        await handleGetProviderTypeModels({}, mockRes, mockConfig, poolManager, 'openai-custom');
+        expect(endpointModels).toContain('glm-5.2');
+        expect(endpointModels).toContain('custom-glm-model');
+    });
 });

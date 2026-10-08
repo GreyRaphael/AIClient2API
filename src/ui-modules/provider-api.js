@@ -116,9 +116,20 @@ function loadProviderPools(currentConfig, providerPoolManager) {
 }
 
 function getManagedSupportedModels(providerType, providers = []) {
-    return normalizeModelIds(
-        providers.flatMap(provider => getConfiguredSupportedModels(providerType, provider))
-    );
+    const nodeModels = providers.flatMap(provider => {
+        const cfg = provider?.config || provider;
+        if (Array.isArray(cfg?.supportedModels) && cfg.supportedModels.length > 0) {
+            return cfg.supportedModels;
+        }
+        const fallback = [];
+        if (cfg?.checkModelName) fallback.push(cfg.checkModelName);
+        let available = cfg?.availableModels;
+        if (typeof available === 'string') available = available.split(',').map(s => s.trim()).filter(Boolean);
+        if (Array.isArray(available)) fallback.push(...available);
+        return fallback;
+    });
+    const customModels = getProviderModels(providerType);
+    return normalizeModelIds([...nodeModels, ...customModels]);
 }
 
 async function persistProviderStatusToFile(currentConfig, providerPoolManager) {
