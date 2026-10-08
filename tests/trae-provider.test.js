@@ -332,6 +332,37 @@ describe('Trae Provider Implementation Tests', () => {
         expect(prepared.messages[3].role).toBe('tool');
         expect(prepared.messages[3].tool_call_id).toBe('call_2');
     });
+
+    test('TraeApiService.prepareRequestBody safely serializes object and non-string tool content', () => {
+        const traeService = new TraeApiService({ uuid: 'test-serialize-content' });
+        const requestWithObjectContent = {
+            model: 'deepseek-v4.1-flash',
+            messages: [
+                { role: 'user', content: 'Execute tool' },
+                {
+                    role: 'assistant',
+                    content: 'Executing...',
+                    tool_calls: [{
+                        id: 'call_1',
+                        type: 'function',
+                        function: { name: 'get_status', arguments: '{}' }
+                    }]
+                },
+                {
+                    role: 'tool',
+                    tool_call_id: 'call_1',
+                    content: { success: true, count: 42, details: ['a', 'b'] }
+                }
+            ]
+        };
+
+        const prepared = traeService.prepareRequestBody('deepseek-v4.1-flash', requestWithObjectContent);
+        const toolMsg = prepared.messages.find(m => m.role === 'tool');
+        expect(toolMsg).toBeDefined();
+        expect(Array.isArray(toolMsg.content)).toBe(true);
+        expect(toolMsg.content[0].type).toBe('text');
+        expect(toolMsg.content[0].text).toBe(JSON.stringify({ success: true, count: 42, details: ['a', 'b'] }));
+    });
 });
 
 

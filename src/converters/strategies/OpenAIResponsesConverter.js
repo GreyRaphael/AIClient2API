@@ -1127,8 +1127,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
             };
         }
 
-        // 处理 input 数组中的消息
+        // 处理 input 数组中的消息（支持从 messages 回退）
         let input = responsesRequest.input;
+        if (!input && responsesRequest.messages && Array.isArray(responsesRequest.messages)) {
+            input = responsesRequest.messages.map(m => ({
+                type: 'message',
+                role: m.role,
+                content: m.content
+            }));
+        }
         if (typeof input === 'string') {
             input = [{
                 type: 'message',
@@ -1209,13 +1216,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         }
                         const callId = item.id || item.call_id;
                         const callName = item.name || (callId && callIdToName.get(callId)) || 'function_call';
+                        const fc = {
+                            name: callName,
+                            args: parsedArgs
+                        };
+                        if (callId) fc.id = callId;
                         geminiRequest.contents.push({
                             role: 'model',
                             parts: [{
-                                functionCall: {
-                                    name: callName,
-                                    args: parsedArgs
-                                },
+                                functionCall: fc,
                                 thoughtSignature: "skip_thought_signature_validator"
                             }]
                         });
@@ -1239,13 +1248,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                 responseObj = { content: item.output };
                             }
                         }
+                        const fr = {
+                            name: callName,
+                            response: responseObj
+                        };
+                        if (callId) fr.id = callId;
                         geminiRequest.contents.push({
                             role: 'user',
                             parts: [{
-                                functionResponse: {
-                                    name: callName,
-                                    response: responseObj
-                                }
+                                functionResponse: fr
                             }]
                         });
                         break;
@@ -1310,9 +1321,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         // 合并相邻同角色消息，严格满足 Gemini 交替轮次规范
-        if (Array.isArray(geminiRequest.contents) && geminiRequest.contents.length > 1) {
+        if (Array.isArray(geminiRequest.contents) && geminiRequest.contents.length > 0) {
+            const rawContents = geminiRequest.contents.filter(item => item && Array.isArray(item.parts) && item.parts.length > 0);
             const mergedContents = [];
-            for (const item of geminiRequest.contents) {
+            for (const item of rawContents) {
                 const last = mergedContents[mergedContents.length - 1];
                 if (last && last.role === item.role) {
                     last.parts.push(...item.parts);

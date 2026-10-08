@@ -187,15 +187,27 @@ export class OpenAIConverter extends BaseConverter {
                 });
                 claudeMessages.push({ role: 'user', content: content });
             } else if (message.role === 'assistant' && (message.tool_calls?.length || message.function_calls?.length)) {
-                // 助手工具调用消息 - 支持tool_calls和function_calls
+                // 助手工具调用消息 - 支持tool_calls和function_calls，并保留伴随的文本说明
+                const assistantBlocks = [];
+                if (typeof message.content === 'string' && message.content.trim()) {
+                    assistantBlocks.push({ type: 'text', text: message.content.trim() });
+                } else if (Array.isArray(message.content)) {
+                    message.content.forEach(item => {
+                        if (item && item.type === 'text' && item.text) {
+                            assistantBlocks.push({ type: 'text', text: item.text.trim() });
+                        }
+                    });
+                }
+
                 const calls = message.tool_calls || message.function_calls || [];
                 const toolUseBlocks = calls.map(tc => ({
                     type: 'tool_use',
                     id: tc.id,
-                    name: tc.function.name,
-                    input: safeParseJSON(tc.function.arguments)
+                    name: tc.function?.name || tc.name,
+                    input: safeParseJSON(tc.function?.arguments || tc.arguments)
                 }));
-                claudeMessages.push({ role: 'assistant', content: toolUseBlocks });
+                assistantBlocks.push(...toolUseBlocks);
+                claudeMessages.push({ role: 'assistant', content: assistantBlocks });
             } else {
                 // 普通消息
                 if (typeof message.content === 'string') {
@@ -1676,13 +1688,38 @@ export class OpenAIConverter extends BaseConverter {
                     call_id: msg.tool_call_id,
                     output: msg.content
                 });
-            } else if (msg.role === 'assistant' && msg.tool_calls?.length) {
-                for (const tc of msg.tool_calls) {
+            } else if (msg.role === 'assistant' && (msg.tool_calls?.length || msg.function_calls?.length)) {
+                // 如果 assistant 消息同时携带了文本 content，先提取并生成 message 块保留说明与思考文本
+                const textParts = [];
+                if (typeof msg.content === 'string' && msg.content.trim()) {
+                    textParts.push({
+                        type: 'output_text',
+                        text: msg.content
+                    });
+                } else if (Array.isArray(msg.content)) {
+                    msg.content.forEach(c => {
+                        if (c?.type === 'text' && c.text) {
+                            textParts.push({ type: 'output_text', text: c.text });
+                        }
+                    });
+                }
+                if (textParts.length > 0) {
+                    responsesRequest.input.push({
+                        type: 'message',
+                        role: 'assistant',
+                        content: textParts
+                    });
+                }
+
+                const calls = msg.tool_calls || msg.function_calls || [];
+                for (const tc of calls) {
                     responsesRequest.input.push({
                         type: 'function_call',
                         call_id: tc.id,
-                        name: tc.function.name,
-                        arguments: tc.function.arguments
+                        name: tc.function?.name || tc.name,
+                        arguments: typeof tc.function?.arguments === 'string'
+                            ? tc.function.arguments
+                            : (typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.function?.arguments || tc.arguments || {}))
                     });
                 }
             } else {

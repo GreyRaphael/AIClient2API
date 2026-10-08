@@ -371,4 +371,131 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(openaiReq.messages[3].role).toBe('tool');
         expect(openaiReq.messages[3].tool_call_id).toBe('call_2');
     });
+
+    test('Fix 11: OpenAI Responses input with parallel tool calls and assistant text merges into alternating Gemini contents with IDs', () => {
+        const responsesReq = {
+            model: 'gemini-2.5-flash',
+            input: [
+                { type: 'message', role: 'user', content: 'Search and read' },
+                {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'Searching knowledge base...' }]
+                },
+                {
+                    type: 'function_call',
+                    call_id: 'call_search',
+                    name: 'search_kb',
+                    arguments: '{"query":"auth"}'
+                },
+                {
+                    type: 'function_call',
+                    call_id: 'call_read',
+                    name: 'read_doc',
+                    arguments: '{"doc_id":"123"}'
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_search',
+                    output: '{"found": true}'
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_read',
+                    output: 'Doc content'
+                }
+            ]
+        };
+
+        const geminiReq = convertData(responsesReq, 'request', MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES, MODEL_PROTOCOL_PREFIX.GEMINI);
+        // Strictly alternating roles: user -> model -> user
+        expect(geminiReq.contents).toHaveLength(3);
+        expect(geminiReq.contents[0].role).toBe('user');
+        expect(geminiReq.contents[1].role).toBe('model');
+        expect(geminiReq.contents[2].role).toBe('user');
+
+        // Model turn merges assistant text and both function calls into parts
+        const modelParts = geminiReq.contents[1].parts;
+        expect(modelParts.some(p => p.text === 'Searching knowledge base...')).toBe(true);
+        const fcParts = modelParts.filter(p => p.functionCall);
+        expect(fcParts).toHaveLength(2);
+        expect(fcParts[0].functionCall.id).toBe('call_search');
+        expect(fcParts[0].functionCall.name).toBe('search_kb');
+        expect(fcParts[1].functionCall.id).toBe('call_read');
+        expect(fcParts[1].functionCall.name).toBe('read_doc');
+
+        // User turn merges both function responses into parts
+        const userRespParts = geminiReq.contents[2].parts;
+        const frParts = userRespParts.filter(p => p.functionResponse);
+        expect(frParts).toHaveLength(2);
+        expect(frParts[0].functionResponse.id).toBe('call_search');
+        expect(frParts[0].functionResponse.name).toBe('search_kb');
+        expect(frParts[1].functionResponse.id).toBe('call_read');
+        expect(frParts[1].functionResponse.name).toBe('read_doc');
+    });
+
+    test('Fix 12: OpenAI request with assistant text and tool_calls preserves text in OpenAI Responses conversion', () => {
+        const openaiReq = {
+            model: 'gpt-4o',
+            messages: [
+                { role: 'user', content: 'What is the system status?' },
+                {
+                    role: 'assistant',
+                    content: 'I am checking system status via diagnostic tool.',
+                    tool_calls: [{
+                        id: 'call_diag_1',
+                        type: 'function',
+                        function: { name: 'run_diag', arguments: '{"full":true}' }
+                    }]
+                },
+                { role: 'tool', tool_call_id: 'call_diag_1', content: 'All services green' }
+            ]
+        };
+
+        const responsesReq = convertData(openaiReq, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
+        // Must have assistant message with output_text BEFORE function_call
+        const assistantMsgs = responsesReq.input.filter(item => item.type === 'message' && item.role === 'assistant');
+        expect(assistantMsgs).toHaveLength(1);
+        expect(assistantMsgs[0].content[0].type).toBe('output_text');
+        expect(assistantMsgs[0].content[0].text).toBe('I am checking system status via diagnostic tool.');
+
+        const functionCalls = responsesReq.input.filter(item => item.type === 'function_call');
+        expect(functionCalls).toHaveLength(1);
+        expect(functionCalls[0].call_id).toBe('call_diag_1');
+        expect(functionCalls[0].name).toBe('run_diag');
+
+        const functionOutputs = responsesReq.input.filter(item => item.type === 'function_call_output');
+        expect(functionOutputs).toHaveLength(1);
+        expect(functionOutputs[0].call_id).toBe('call_diag_1');
+        expect(functionOutputs[0].output).toBe('All services green');
+    });
+
+    test('Fix 13: OpenAI request with assistant text and tool_calls preserves text in Claude conversion', () => {
+        const openaiReq = {
+            model: 'claude-3-7-sonnet',
+            messages: [
+                { role: 'user', content: 'Inspect the codebase' },
+                {
+                    role: 'assistant',
+                    content: 'Here is what I plan to do before executing tools.',
+                    tool_calls: [{
+                        id: 'call_tool_1',
+                        type: 'function',
+                        function: { name: 'list_files', arguments: '{"dir":"src"}' }
+                    }]
+                },
+                { role: 'tool', tool_call_id: 'call_tool_1', content: '["index.js"]' }
+            ]
+        };
+
+        const claudeReq = convertData(openaiReq, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE);
+        const assistantMsg = claudeReq.messages.find(m => m.role === 'assistant');
+        expect(assistantMsg).toBeDefined();
+        // content must include BOTH text block and tool_use block
+        expect(assistantMsg.content).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'text', text: 'Here is what I plan to do before executing tools.' }),
+            expect.objectContaining({ type: 'tool_use', id: 'call_tool_1', name: 'list_files' })
+        ]));
+    });
 });
+

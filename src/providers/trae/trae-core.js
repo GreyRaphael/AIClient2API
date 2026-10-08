@@ -362,9 +362,30 @@ export class TraeApiService {
                     }
                 }
 
-                // 转换 string content 为 [{"type": "text", "text": "..."}]
+                // 规范化 content 为 Trae 的 [{"type": "text", "text": "..."}] 结构，兼容工具返回对象等情况
                 if (typeof msg.content === 'string') {
                     msg.content = [{ type: 'text', text: msg.content }];
+                } else if (typeof msg.content === 'number' || typeof msg.content === 'boolean') {
+                    msg.content = [{ type: 'text', text: String(msg.content) }];
+                } else if (typeof msg.content === 'object' && msg.content !== null && !Array.isArray(msg.content)) {
+                    try {
+                        msg.content = [{ type: 'text', text: JSON.stringify(msg.content) }];
+                    } catch (_) {
+                        msg.content = [{ type: 'text', text: String(msg.content) }];
+                    }
+                } else if (Array.isArray(msg.content)) {
+                    msg.content = msg.content.map(part => {
+                        if (typeof part === 'string') return { type: 'text', text: part };
+                        if (part && typeof part === 'object') {
+                            if (part.type === 'text' && typeof part.text !== 'string') {
+                                return { type: 'text', text: JSON.stringify(part.text) };
+                            }
+                            return part;
+                        }
+                        return { type: 'text', text: String(part) };
+                    });
+                } else if (msg.role === 'tool' && (msg.content === null || msg.content === undefined)) {
+                    msg.content = [{ type: 'text', text: '' }];
                 }
 
                 // 合并连续的 assistant 消息，防止并发 tool_calls 被切成多个 assistant 消息导致上游 4027 错误
