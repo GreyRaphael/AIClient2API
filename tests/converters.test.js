@@ -319,4 +319,56 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(params.properties.category.enum).toEqual(['order', 'refund']);
         expect(params.properties.placeholder.enum).toBeUndefined();
     });
+
+    test('Fix 10: OpenAI Responses input with parallel function_calls correctly merges into a single assistant message for OpenAI', () => {
+        const responsesReq = {
+            model: 'gpt-4o',
+            input: [
+                { type: 'message', role: 'user', content: 'Run two tools' },
+                {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'Executing...' }]
+                },
+                {
+                    type: 'function_call',
+                    call_id: 'call_1',
+                    name: 'exec',
+                    arguments: '{"cmd":"ls"}'
+                },
+                {
+                    type: 'function_call',
+                    call_id: 'call_2',
+                    name: 'exec',
+                    arguments: '{"cmd":"pwd"}'
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_1',
+                    output: 'file1.txt'
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_2',
+                    output: '/root'
+                }
+            ]
+        };
+
+        const openaiReq = convertData(responsesReq, 'request', MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES, MODEL_PROTOCOL_PREFIX.OPENAI);
+        const assistantMsgs = openaiReq.messages.filter(m => m.role === 'assistant');
+        expect(assistantMsgs).toHaveLength(1);
+        expect(assistantMsgs[0].content).toBe('Executing...');
+        expect(assistantMsgs[0].tool_calls).toHaveLength(2);
+        expect(assistantMsgs[0].tool_calls[0].id).toBe('call_1');
+        expect(assistantMsgs[0].tool_calls[1].id).toBe('call_2');
+
+        // Verify ordering: user -> assistant (with 2 tool calls) -> tool 1 -> tool 2
+        expect(openaiReq.messages[0].role).toBe('user');
+        expect(openaiReq.messages[1].role).toBe('assistant');
+        expect(openaiReq.messages[2].role).toBe('tool');
+        expect(openaiReq.messages[2].tool_call_id).toBe('call_1');
+        expect(openaiReq.messages[3].role).toBe('tool');
+        expect(openaiReq.messages[3].tool_call_id).toBe('call_2');
+    });
 });

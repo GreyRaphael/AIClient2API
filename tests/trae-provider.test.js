@@ -288,6 +288,50 @@ describe('Trae Provider Implementation Tests', () => {
         expect(PROVIDER_MODELS.trae).toContain('glm-5.3');
         expect(PROVIDER_MODELS.trae).toContain('kimi-k3');
     });
+
+    test('TraeApiService.prepareRequestBody merges consecutive assistant messages to prevent 4027 error', () => {
+        const traeService = new TraeApiService({ uuid: 'test-merge-tool-calls' });
+        const requestWithSplitAssistant = {
+            model: 'deepseek-v4.1-flash',
+            messages: [
+                { role: 'user', content: 'Run two tools' },
+                {
+                    role: 'assistant',
+                    content: 'I will execute commands.',
+                    tool_calls: [{
+                        id: 'call_1',
+                        type: 'function',
+                        function: { name: 'exec', arguments: '{"cmd":"ls"}' }
+                    }]
+                },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [{
+                        id: 'call_2',
+                        type: 'function',
+                        function: { name: 'exec', arguments: '{"cmd":"pwd"}' }
+                    }]
+                },
+                { role: 'tool', tool_call_id: 'call_1', content: 'file1.txt' },
+                { role: 'tool', tool_call_id: 'call_2', content: '/app' }
+            ]
+        };
+
+        const prepared = traeService.prepareRequestBody('deepseek-v4.1-flash', requestWithSplitAssistant);
+        // Consecutive assistant messages should be merged into 1 assistant message with 2 tool_calls
+        const assistantMsgs = prepared.messages.filter(m => m.role === 'assistant');
+        expect(assistantMsgs).toHaveLength(1);
+        expect(assistantMsgs[0].tool_calls).toHaveLength(2);
+        expect(assistantMsgs[0].tool_calls[0].function_call.name).toBe('exec');
+        expect(assistantMsgs[0].tool_calls[1].function_call.name).toBe('exec');
+        // The assistant message must be immediately followed by the tool messages
+        expect(prepared.messages[1].role).toBe('assistant');
+        expect(prepared.messages[2].role).toBe('tool');
+        expect(prepared.messages[2].tool_call_id).toBe('call_1');
+        expect(prepared.messages[3].role).toBe('tool');
+        expect(prepared.messages[3].tool_call_id).toBe('call_2');
+    });
 });
 
 

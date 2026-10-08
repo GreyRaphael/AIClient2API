@@ -169,7 +169,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 const itemType = item.type || (item.role ? 'message' : '');
                 
                 switch (itemType) {
-                    case 'message':
+                    case 'message': {
                         // 提取消息内容
                         let content = '';
                         if (Array.isArray(item.content)) {
@@ -181,30 +181,52 @@ export class OpenAIResponsesConverter extends BaseConverter {
                             content = item.content;
                         }
                         
-                        if (content || (item.role === 'assistant' || item.role === 'developer')) {
+                        const role = item.role === 'developer' ? 'system' : item.role;
+                        const lastMsg = openaiRequest.messages[openaiRequest.messages.length - 1];
+
+                        // 如果上一条已经是 assistant 消息且尚未带有 tool_calls，合并文本内容
+                        if (role === 'assistant' && lastMsg && lastMsg.role === 'assistant' && !lastMsg.tool_calls) {
+                            lastMsg.content = [lastMsg.content, content].filter(Boolean).join('\n');
+                        } else if (content || (role === 'assistant' || role === 'system')) {
                             openaiRequest.messages.push({
-                                role: item.role === 'developer' ? 'system' : item.role,
+                                role: role,
                                 content: content
                             });
                         }
                         break;
+                    }
                     
                     case 'custom_tool_call':
-                    case 'function_call':
-                        openaiRequest.messages.push({
-                            role: 'assistant',
-                            tool_calls: [{
-                                id: item.call_id || item.id,
-                                type: 'function',
-                                function: {
-                                    name: item.name,
-                                    arguments: item.type === 'custom_tool_call'
-                                        ? (typeof item.input === 'string' ? JSON.stringify({ input: item.input }) : JSON.stringify(item.input || {}))
-                                        : (typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {}))
-                                }
-                            }]
-                        });
+                    case 'function_call': {
+                        const toolCallObj = {
+                            id: item.call_id || item.id,
+                            type: 'function',
+                            function: {
+                                name: item.name,
+                                arguments: item.type === 'custom_tool_call'
+                                    ? (typeof item.input === 'string' ? JSON.stringify({ input: item.input }) : JSON.stringify(item.input || {}))
+                                    : (typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {}))
+                            }
+                        };
+
+                        const lastMsg = openaiRequest.messages[openaiRequest.messages.length - 1];
+                        if (lastMsg && lastMsg.role === 'assistant') {
+                            if (!Array.isArray(lastMsg.tool_calls)) {
+                                lastMsg.tool_calls = [];
+                            }
+                            lastMsg.tool_calls.push(toolCallObj);
+                            if (!lastMsg.content) {
+                                lastMsg.content = null;
+                            }
+                        } else {
+                            openaiRequest.messages.push({
+                                role: 'assistant',
+                                content: null,
+                                tool_calls: [toolCallObj]
+                            });
+                        }
                         break;
+                    }
                     
                     case 'custom_tool_call_output':
                     case 'function_call_output':

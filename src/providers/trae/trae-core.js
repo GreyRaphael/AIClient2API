@@ -337,7 +337,11 @@ export class TraeApiService {
         }
 
         if (Array.isArray(payload.messages)) {
-            for (const msg of payload.messages) {
+            const mergedMessages = [];
+            for (const rawMsg of payload.messages) {
+                if (!rawMsg) continue;
+                const msg = { ...rawMsg };
+
                 // 处理 assistant tool_calls
                 if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
                     const validToolCalls = [];
@@ -362,7 +366,28 @@ export class TraeApiService {
                 if (typeof msg.content === 'string') {
                     msg.content = [{ type: 'text', text: msg.content }];
                 }
+
+                // 合并连续的 assistant 消息，防止并发 tool_calls 被切成多个 assistant 消息导致上游 4027 错误
+                const prevMsg = mergedMessages[mergedMessages.length - 1];
+                if (prevMsg && prevMsg.role === 'assistant' && msg.role === 'assistant') {
+                    if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+                        if (!Array.isArray(prevMsg.tool_calls)) {
+                            prevMsg.tool_calls = [];
+                        }
+                        prevMsg.tool_calls.push(...msg.tool_calls);
+                    }
+                    if (msg.content) {
+                        if (!prevMsg.content) {
+                            prevMsg.content = msg.content;
+                        } else if (Array.isArray(prevMsg.content) && Array.isArray(msg.content)) {
+                            prevMsg.content.push(...msg.content);
+                        }
+                    }
+                } else {
+                    mergedMessages.push(msg);
+                }
             }
+            payload.messages = mergedMessages;
         }
 
         // 归一化 tool_choice
