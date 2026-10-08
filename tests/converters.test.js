@@ -497,5 +497,232 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
             expect.objectContaining({ type: 'tool_use', id: 'call_tool_1', name: 'list_files' })
         ]));
     });
+
+    test('Fix 14: Claude request with parallel tool_use and assistant text preserves all tools and explanation in OpenAI request', () => {
+        const claudeReq = {
+            model: 'gpt-4o',
+            messages: [
+                { role: 'user', content: 'Compare weather in Paris and London' },
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'text', text: 'I will query both cities simultaneously.' },
+                        { type: 'tool_use', id: 'toolu_paris_01', name: 'get_weather', input: { city: 'Paris' } },
+                        { type: 'tool_use', id: 'toolu_london_02', name: 'get_weather', input: { city: 'London' } }
+                    ]
+                },
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'tool_result', tool_use_id: 'toolu_paris_01', content: '{"temp": 18}' },
+                        { type: 'tool_result', tool_use_id: 'toolu_london_02', content: '{"temp": 15}' }
+                    ]
+                }
+            ]
+        };
+
+        const openaiReq = convertData(claudeReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI);
+        const assistantMsg = openaiReq.messages.find(m => m.role === 'assistant');
+
+        expect(assistantMsg).toBeDefined();
+        // Natural language text must not be lost or wiped as empty string
+        expect(assistantMsg.content).toBe('I will query both cities simultaneously.');
+        // Both parallel tool calls must be retained (not truncated by .find())
+        expect(assistantMsg.tool_calls).toHaveLength(2);
+        expect(assistantMsg.tool_calls[0].id).toBe('toolu_paris_01');
+        expect(assistantMsg.tool_calls[0].function.name).toBe('get_weather');
+        expect(JSON.parse(assistantMsg.tool_calls[0].function.arguments)).toEqual({ city: 'Paris' });
+        expect(assistantMsg.tool_calls[1].id).toBe('toolu_london_02');
+        expect(assistantMsg.tool_calls[1].function.name).toBe('get_weather');
+        expect(JSON.parse(assistantMsg.tool_calls[1].function.arguments)).toEqual({ city: 'London' });
+    });
+
+    test('Fix 15: Claude user message with tool_result and instructional text splits into tool and user messages and filters orphans', () => {
+        const claudeReq = {
+            model: 'gpt-4o',
+            messages: [
+                { role: 'user', content: 'Find files' },
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'tool_use', id: 'toolu_find_1', name: 'find_files', input: { pattern: '*.js' } }
+                    ]
+                },
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'tool_result', tool_use_id: 'toolu_find_1', content: '["app.js"]' },
+                        { type: 'tool_result', tool_use_id: 'toolu_orphan_999', content: 'unknown' },
+                        { type: 'text', text: 'Now summarize the findings and recommend next steps.' }
+                    ]
+                }
+            ]
+        };
+
+        const openaiReq = convertData(claudeReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI);
+        const messages = openaiReq.messages;
+
+        // Valid tool_result must be present
+        const toolMsg = messages.find(m => m.role === 'tool' && m.tool_call_id === 'toolu_find_1');
+        expect(toolMsg).toBeDefined();
+        expect(toolMsg.content).toBe('["app.js"]');
+
+        // Orphan tool message without matching tool_call in preceding assistant message must be filtered out
+        const orphanMsg = messages.find(m => m.role === 'tool' && m.tool_call_id === 'toolu_orphan_999');
+        expect(orphanMsg).toBeUndefined();
+
+        // Accompanying user text instruction must be preserved as a trailing user message
+        const lastMsg = messages[messages.length - 1];
+        expect(lastMsg.role).toBe('user');
+        expect(lastMsg.content).toBe('Now summarize the findings and recommend next steps.');
+    });
+
+    test('Fix 16: OpenAI response with thinking, text, and tool_calls converts to Claude in canonical order thinking -> text -> tool_use', () => {
+        const openaiResp = {
+            id: 'chatcmpl-canonical-order-test',
+            object: 'chat.completion',
+            created: 1700000000,
+            model: 'gpt-4o',
+            choices: [{
+                index: 0,
+                message: {
+                    role: 'assistant',
+                    content: 'Let me look up the database schema for you.',
+                    reasoning_content: 'Step 1: Check table schemas. Step 2: Formulate query.',
+                    tool_calls: [{
+                        id: 'call_db_check_1',
+                        type: 'function',
+                        function: { name: 'get_schema', arguments: '{"table":"users"}' }
+                    }]
+                },
+                finish_reason: 'tool_calls'
+            }],
+            usage: { prompt_tokens: 30, completion_tokens: 50, total_tokens: 80 }
+        };
+
+        const claudeResp = convertData(openaiResp, 'response', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet');
+
+        expect(claudeResp.role).toBe('assistant');
+        expect(claudeResp.stop_reason).toBe('tool_use');
+        expect(claudeResp.content).toHaveLength(3);
+
+        // Strict canonical order check: 1. thinking -> 2. text -> 3. tool_use
+        expect(claudeResp.content[0].type).toBe('thinking');
+        expect(claudeResp.content[0].thinking).toBe('Step 1: Check table schemas. Step 2: Formulate query.');
+
+        expect(claudeResp.content[1].type).toBe('text');
+        expect(claudeResp.content[1].text).toBe('Let me look up the database schema for you.');
+
+        expect(claudeResp.content[2].type).toBe('tool_use');
+        expect(claudeResp.content[2].id).toBe('call_db_check_1');
+        expect(claudeResp.content[2].name).toBe('get_schema');
+        expect(claudeResp.content[2].input).toEqual({ table: 'users' });
+    });
+
+    test('Fix 17: OpenAI streaming chunk state machine generates canonical Anthropic SSE event sequence with distinct block indices', () => {
+        const streamReqId = 'stream_test_claude_state_machine_01';
+        const chunk1 = {
+            id: 'chatcmpl-stream-test',
+            choices: [{
+                index: 0,
+                delta: { role: 'assistant' }
+            }]
+        };
+        const chunk2 = {
+            id: 'chatcmpl-stream-test',
+            choices: [{
+                index: 0,
+                delta: { reasoning_content: 'Deep reasoning started...' }
+            }]
+        };
+        const chunk3 = {
+            id: 'chatcmpl-stream-test',
+            choices: [{
+                index: 0,
+                delta: { content: 'Here is the preliminary summary.' }
+            }]
+        };
+        const chunk4 = {
+            id: 'chatcmpl-stream-test',
+            choices: [{
+                index: 0,
+                delta: {
+                    tool_calls: [{
+                        index: 0,
+                        id: 'call_search_42',
+                        type: 'function',
+                        function: { name: 'search_docs', arguments: '{"q":"Anthropic"}' }
+                    }]
+                }
+            }]
+        };
+        const chunk5 = {
+            id: 'chatcmpl-stream-test',
+            choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: 'tool_calls'
+            }],
+            usage: { prompt_tokens: 15, completion_tokens: 25, total_tokens: 40 }
+        };
+
+        const ev1 = convertData(chunk1, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
+        const ev2 = convertData(chunk2, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
+        const ev3 = convertData(chunk3, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
+        const ev4 = convertData(chunk4, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
+        const ev5 = convertData(chunk5, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
+
+        // Chunk 1: message_start
+        expect(ev1).toHaveLength(1);
+        expect(ev1[0].type).toBe('message_start');
+        expect(ev1[0].message.role).toBe('assistant');
+
+        // Chunk 2: content_block_start (thinking, index 0) + content_block_delta (thinking_delta, index 0)
+        expect(ev2).toEqual([
+            { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Deep reasoning started...' } }
+        ]);
+
+        // Chunk 3: content_block_stop (index 0) + content_block_start (text, index 1) + content_block_delta (text_delta, index 1)
+        expect(ev3).toEqual([
+            { type: 'content_block_stop', index: 0 },
+            { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+            { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Here is the preliminary summary.' } }
+        ]);
+
+        // Chunk 4: content_block_stop (index 1) + content_block_start (tool_use, index 2) + content_block_delta (input_json_delta, index 2)
+        expect(ev4).toEqual([
+            { type: 'content_block_stop', index: 1 },
+            {
+                type: 'content_block_start',
+                index: 2,
+                content_block: {
+                    type: 'tool_use',
+                    id: 'call_search_42',
+                    name: 'search_docs',
+                    input: {}
+                }
+            },
+            {
+                type: 'content_block_delta',
+                index: 2,
+                delta: {
+                    type: 'input_json_delta',
+                    partial_json: '{"q":"Anthropic"}'
+                }
+            }
+        ]);
+
+        // Chunk 5: content_block_stop (index 2) + message_delta (stop_reason: tool_use) + message_stop
+        expect(ev5).toEqual([
+            { type: 'content_block_stop', index: 2 },
+            {
+                type: 'message_delta',
+                delta: { stop_reason: 'tool_use', stop_sequence: null },
+                usage: { output_tokens: 25 }
+            },
+            { type: 'message_stop' }
+        ]);
+    });
 });
 

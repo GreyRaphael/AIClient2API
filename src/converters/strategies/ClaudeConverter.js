@@ -152,26 +152,43 @@ export class ClaudeConverter extends BaseConverter {
             for (const msg of claudeRequest.messages) {
                 const role = msg.role;
 
-                // 处理用户的工具结果消息
+                // 处理用户的工具结果消息（同时保留用户可能附带的后续指令文本）
                 if (role === "user" && Array.isArray(msg.content)) {
-                    const hasToolResult = msg.content.some(
+                    const toolResultBlocks = msg.content.filter(
                         item => item && typeof item === 'object' && item.type === "tool_result"
                     );
 
-                    if (hasToolResult) {
-                        for (const item of msg.content) {
-                            if (item && typeof item === 'object' && item.type === "tool_result") {
-                                const toolUseId = item.tool_use_id || item.id || "";
-                                let contentStr = item.content || "";
-                                if (typeof contentStr === 'object') {
-                                    contentStr = JSON.stringify(contentStr);
-                                } else {
-                                    contentStr = String(contentStr);
+                    if (toolResultBlocks.length > 0) {
+                        for (const item of toolResultBlocks) {
+                            const toolUseId = item.tool_use_id || item.id || "";
+                            let contentStr = item.content || "";
+                            if (typeof contentStr === 'object') {
+                                contentStr = JSON.stringify(contentStr);
+                            } else {
+                                contentStr = String(contentStr);
+                            }
+                            tempOpenAIMessages.push({
+                                role: "tool",
+                                tool_call_id: toolUseId,
+                                content: contentStr,
+                            });
+                        }
+
+                        // 检查并保留用户附带的自然语言或多模态指令
+                        const nonToolBlocks = msg.content.filter(
+                            item => !item || typeof item !== 'object' || item.type !== "tool_result"
+                        );
+                        if (nonToolBlocks.length > 0) {
+                            const convertedUserContent = this.processClaudeContentToOpenAIContent(nonToolBlocks);
+                            const hasUserContent = convertedUserContent && (Array.isArray(convertedUserContent) ? convertedUserContent.length > 0 : String(convertedUserContent).trim().length > 0);
+                            if (hasUserContent) {
+                                let finalUserContent = convertedUserContent;
+                                if (Array.isArray(convertedUserContent) && convertedUserContent.length === 1 && convertedUserContent[0].type === 'text') {
+                                    finalUserContent = convertedUserContent[0].text;
                                 }
                                 tempOpenAIMessages.push({
-                                    role: "tool",
-                                    tool_call_id: toolUseId,
-                                    content: contentStr,
+                                    role: "user",
+                                    content: finalUserContent
                                 });
                             }
                         }
@@ -193,26 +210,38 @@ export class ClaudeConverter extends BaseConverter {
                     }
                 }
 
-                // 处理assistant消息中的工具调用
+                // 处理 assistant 消息中的工具调用（完整提取所有并发工具并保留说明文本）
                 if (role === "assistant" && Array.isArray(msg.content) && msg.content.length > 0) {
-                    const toolUsePart = msg.content.find(b => b && b.type === "tool_use");
-                    if (toolUsePart) {
-                        const funcName = toolUsePart.name || "";
-                        const funcArgs = toolUsePart.input || {};
+                    const toolUseBlocks = msg.content.filter(b => b && typeof b === 'object' && b.type === "tool_use");
+                    if (toolUseBlocks.length > 0) {
+                        // 提取伴随的说明文本内容，避免丢失助手的自然语言解释
+                        const nonToolBlocks = msg.content.filter(b => b && typeof b === 'object' && b.type !== "tool_use" && b.type !== "thinking");
+                        let assistantContent = null;
+                        if (nonToolBlocks.length > 0) {
+                            const textBlocks = nonToolBlocks.filter(b => b && b.type === "text" && b.text);
+                            if (textBlocks.length > 0) {
+                                assistantContent = textBlocks.map(b => b.text).join('\n');
+                            }
+                        }
+
+                        const toolCalls = toolUseBlocks.map((tu, idx) => {
+                            const funcName = tu.name || "";
+                            const funcArgs = tu.input || {};
+                            return {
+                                id: tu.id || `call_${funcName}_${idx + 1}`,
+                                type: "function",
+                                function: {
+                                    name: funcName,
+                                    arguments: typeof funcArgs === 'string' ? funcArgs : JSON.stringify(funcArgs)
+                                },
+                                index: tu.index !== undefined ? tu.index : idx
+                            };
+                        });
+
                         const toolCallMsg = {
                             role: "assistant",
-                            content: '',
-                            tool_calls: [
-                                {
-                                    id: toolUsePart.id || `call_${funcName}_1`,
-                                    type: "function",
-                                    function: {
-                                        name: funcName,
-                                        arguments: JSON.stringify(funcArgs)
-                                    },
-                                    index: toolUsePart.index || 0
-                                }
-                            ]
+                            content: assistantContent,
+                            tool_calls: toolCalls
                         };
                         // 带 tool_calls 的 assistant 消息：thinking 启用则强制携带 reasoning_content（空串兜底）
                         if (thinkingEnabled || reasoningContent) {
@@ -241,7 +270,9 @@ export class ClaudeConverter extends BaseConverter {
                 }
             }
 
-            // OpenAI兼容性校验
+            // OpenAI兼容性校验：
+            // 1. 过滤掉未被工具回复确认的 tool_calls
+            // 2. 过滤掉没有对应 assistant tool_calls 的孤立 tool 消息，防止 400 报错
             const validatedMessages = [];
             for (let idx = 0; idx < tempOpenAIMessages.length; idx++) {
                 const m = tempOpenAIMessages[idx];
@@ -265,7 +296,20 @@ export class ClaudeConverter extends BaseConverter {
                 }
                 validatedMessages.push(m);
             }
-            openaiMessages.push(...validatedMessages);
+
+            const knownToolCallIds = new Set();
+            for (const m of validatedMessages) {
+                if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+                    m.tool_calls.forEach(tc => { if (tc.id) knownToolCallIds.add(tc.id); });
+                }
+            }
+            const finalMessages = validatedMessages.filter(m => {
+                if (m.role === "tool") {
+                    return knownToolCallIds.has(m.tool_call_id);
+                }
+                return true;
+            });
+            openaiMessages.push(...finalMessages);
         }
 
         const openaiRequest = {

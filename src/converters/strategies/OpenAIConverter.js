@@ -57,6 +57,7 @@ export class OpenAIConverter extends BaseConverter {
         // 创建 CodexConverter 实例用于委托
         this.codexConverter = new CodexConverter();
         this.openAIResponsesStreamStates = new Map();
+        this.claudeStreamStates = new Map();
     }
 
     /**
@@ -112,7 +113,7 @@ export class OpenAIConverter extends BaseConverter {
     convertStreamChunk(chunk, targetProtocol, model, requestId) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model);
+                return this.toClaudeStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.GEMINI:
                 return this.toGeminiStreamChunk(chunk, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
@@ -427,21 +428,51 @@ export class OpenAIConverter extends BaseConverter {
                 id: `msg_${uuidv4()}`,
                 type: "message",
                 role: "assistant",
-                content: [],
-                model: model,
+                content: [{ type: "text", text: "" }],
+                model: model || "unknown",
                 stop_reason: "end_turn",
                 stop_sequence: null,
                 usage: {
                     input_tokens: openaiResponse?.usage?.prompt_tokens || 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: openaiResponse?.usage?.prompt_tokens_details?.cached_tokens || 0,
                     output_tokens: openaiResponse?.usage?.completion_tokens || 0
                 }
             };
         }
 
         const choice = openaiResponse.choices[0];
-        const contentList = [];
+        const thinkingBlocks = [];
+        const textBlocks = [];
+        const toolUseBlocks = [];
 
-        // 处理工具调用 - 支持tool_calls和function_calls
+        // 1. 处理 reasoning_content（推理内容）
+        const reasoningContent = choice.message?.reasoning_content || "";
+        if (reasoningContent) {
+            thinkingBlocks.push({
+                type: "thinking",
+                thinking: reasoningContent
+            });
+        }
+
+        // 2. 处理文本内容（支持从文本中解析 <thinking> 标签）
+        const contentText = choice.message?.content || "";
+        if (contentText) {
+            const extractedContent = extractThinkingFromOpenAIText(contentText);
+            if (Array.isArray(extractedContent)) {
+                for (const block of extractedContent) {
+                    if (block.type === "thinking") {
+                        thinkingBlocks.push(block);
+                    } else if (block.type === "text") {
+                        textBlocks.push(block);
+                    }
+                }
+            } else if (extractedContent) {
+                textBlocks.push({ type: "text", text: extractedContent });
+            }
+        }
+
+        // 3. 处理工具调用 - 支持 tool_calls 和 function_calls
         const toolCalls = choice.message?.tool_calls || choice.message?.function_calls || [];
         for (const toolCall of toolCalls.filter(tc => tc && typeof tc === 'object')) {
             if (toolCall.function) {
@@ -453,7 +484,7 @@ export class OpenAIConverter extends BaseConverter {
                 } catch (e) {
                     argObj = {};
                 }
-                contentList.push({
+                toolUseBlocks.push({
                     type: "tool_use",
                     id: toolCall.id || "",
                     name: func.name || "",
@@ -462,39 +493,28 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        // 处理reasoning_content（推理内容）
-        const reasoningContent = choice.message?.reasoning_content || "";
-        if (reasoningContent) {
-            contentList.push({
-                type: "thinking",
-                thinking: reasoningContent
-            });
-        }
-
-        // 处理文本内容
-        const contentText = choice.message?.content || "";
-        if (contentText) {
-            const extractedContent = extractThinkingFromOpenAIText(contentText);
-            if (Array.isArray(extractedContent)) {
-                contentList.push(...extractedContent);
-            } else {
-                contentList.push({ type: "text", text: extractedContent });
-            }
+        // 严格遵循 Anthropic 标准内容块顺序: thinking -> text -> tool_use
+        const contentList = [...thinkingBlocks, ...textBlocks, ...toolUseBlocks];
+        if (contentList.length === 0) {
+            contentList.push({ type: "text", text: "" });
         }
 
         // 映射结束原因
-        const stopReason = mapFinishReason(
+        let stopReason = mapFinishReason(
             choice.finish_reason || "stop",
             "openai",
             "anthropic"
         );
+        if (toolUseBlocks.length > 0 && stopReason === "end_turn") {
+            stopReason = "tool_use";
+        }
 
         return {
             id: `msg_${uuidv4()}`,
             type: "message",
             role: "assistant",
             content: contentList,
-            model: model,
+            model: model || openaiResponse.model || "unknown",
             stop_reason: stopReason,
             stop_sequence: null,
             usage: {
@@ -507,148 +527,46 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI流式响应 -> Claude流式响应
-     *
-     * 这个方法实现了与 ClaudeConverter.toOpenAIStreamChunk 相反的转换逻辑
-     * 将 OpenAI 的流式 chunk 转换为 Claude 的流式事件
+     * 获取或创建 Claude 流式转换状态
      */
-    toClaudeStreamChunk(openaiChunk, model) {
-        if (!openaiChunk) return null;
+    _getClaudeStreamState(openaiChunk, model, requestId) {
+        const stateKey = requestId || (openaiChunk && openaiChunk.id) || 'default';
+        if (!this.claudeStreamStates.has(stateKey)) {
+            const rawMsgId = openaiChunk?.id ? String(openaiChunk.id).replace(/^chatcmpl-/, '') : uuidv4();
+            this.claudeStreamStates.set(stateKey, {
+                msgStarted: false,
+                messageId: `msg_${rawMsgId.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+                nextBlockIndex: 0,
+                reasoningBlock: null,
+                textBlock: null,
+                toolBlocks: new Map(),
+                openBlocks: new Set(),
+                activeToolIndex: null,
+                createdAt: Date.now()
+            });
+        }
 
-        // 处理 OpenAI chunk 对象
-        if (typeof openaiChunk === 'object' && !Array.isArray(openaiChunk)) {
-            const choice = openaiChunk.choices?.[0];
-            if (!choice) {
-                return null;
-            }
-
-            const delta = choice.delta;
-            const finishReason = choice.finish_reason;
-            const events = [];
-
-            // 注释部分是为了兼容claude code，但是不兼容cherry studio
-            // 1. 处理 role (对应 message_start) 
-            // if (delta?.role === "assistant") {
-            //     events.push({
-            //         type: "message_start",
-            //         message: {
-            //             id: openaiChunk.id || `msg_${uuidv4()}`,
-            //             type: "message",
-            //             role: "assistant",
-            //             content: [],
-            //             model: model || openaiChunk.model || "unknown",
-            //             stop_reason: null,
-            //             stop_sequence: null,
-            //             usage: {
-            //                 input_tokens: openaiChunk.usage?.prompt_tokens || 0,
-            //                 output_tokens: 0
-            //             }
-            //         }
-            //     });
-            //     events.push({
-            //         type: "content_block_start",
-            //         index: 0,
-            //         content_block: {
-            //             type: "text",
-            //             text: ""
-            //         }
-            //     });
-            // }
-
-            // 2. 处理 tool_calls (对应 content_block_start 和 content_block_delta)
-            if (delta?.tool_calls && Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-                const toolCalls = delta.tool_calls;
-                for (const toolCall of toolCalls) {
-                    const toolIndex = toolCall.index !== undefined ? toolCall.index : 0;
-                    // 如果有 function.name 或 id，说明是工具调用开始
-                    if (toolCall.function?.name || toolCall.id) {
-                        events.push({
-                            type: "content_block_start",
-                            index: toolIndex,
-                            content_block: {
-                                type: "tool_use",
-                                id: toolCall.id || `tool_${uuidv4().replace(/-/g, '')}`,
-                                name: toolCall.function?.name || '',
-                                input: {}
-                            }
-                        });
-                    }
-
-                    // 如果有 function.arguments，说明是参数增量
-                    if (toolCall.function?.arguments) {
-                        events.push({
-                            type: "content_block_delta",
-                            index: toolIndex,
-                            delta: {
-                                type: "input_json_delta",
-                                partial_json: toolCall.function.arguments
-                            }
-                        });
-                    }
+        // 定期清理过期状态（防止异常中断遗留）
+        if (this.claudeStreamStates.size > 200) {
+            const now = Date.now();
+            for (const [k, v] of this.claudeStreamStates.entries()) {
+                if (now - v.createdAt > 300000) {
+                    this.claudeStreamStates.delete(k);
                 }
             }
-
-            // 3. 处理 reasoning_content (对应 thinking 类型的 content_block)
-            if (delta?.reasoning_content) {
-                // 注意：这里可能需要先发送 content_block_start，但由于状态管理复杂，
-                // 我们假设调用方会处理这个逻辑
-                events.push({
-                    type: "content_block_delta",
-                    index: 0,
-                    delta: {
-                        type: "thinking_delta",
-                        thinking: delta.reasoning_content
-                    }
-                });
-            }
-
-            // 4. 处理普通文本 content (对应 text 类型的 content_block)
-            if (delta?.content) {
-                events.push({
-                    type: "content_block_delta",
-                    index: 0,
-                    delta: {
-                        type: "text_delta",
-                        text: delta.content
-                    }
-                });
-            }
-
-            // 5. 处理 finish_reason (对应 message_delta 和 message_stop)
-            if (finishReason) {
-                // 映射 finish_reason
-                const stopReason = finishReason === "stop" ? "end_turn" :
-                    finishReason === "tool_calls" ? "tool_use" :
-                    finishReason === "length" ? "max_tokens" :
-                        "end_turn";
-
-                events.push({
-                    type: "content_block_stop",
-                    index: 0
-                });
-                // 发送 message_delta
-                events.push({
-                    type: "message_delta",
-                    delta: {
-                        stop_reason: stopReason,
-                        stop_sequence: null
-                    },
-                    usage: {
-                        input_tokens: openaiChunk.usage?.prompt_tokens || 0,
-                        cache_creation_input_tokens: 0,
-                        cache_read_input_tokens: openaiChunk.usage?.prompt_tokens_details?.cached_tokens || 0,
-                        output_tokens: openaiChunk.usage?.completion_tokens || 0
-                    }
-                });
-
-                // 发送 message_stop
-                events.push({
-                    type: "message_stop"
-                });
-            }
-
-            return events.length > 0 ? events : null;
         }
+
+        return { stateKey, state: this.claudeStreamStates.get(stateKey) };
+    }
+
+    /**
+     * OpenAI流式响应 -> Claude流式响应
+     *
+     * 严格遵循 Anthropic Messages API SSE 事件规范：
+     * message_start -> content_block_start -> content_block_delta* -> content_block_stop -> message_delta -> message_stop
+     */
+    toClaudeStreamChunk(openaiChunk, model, requestId = null) {
+        if (!openaiChunk) return null;
 
         // 向后兼容：处理字符串格式
         if (typeof openaiChunk === 'string') {
@@ -662,7 +580,227 @@ export class OpenAIConverter extends BaseConverter {
             };
         }
 
-        return null;
+        if (typeof openaiChunk !== 'object' || Array.isArray(openaiChunk)) {
+            return null;
+        }
+
+        const choice = openaiChunk.choices?.[0];
+        if (!choice && !openaiChunk.usage) {
+            return null;
+        }
+
+        const { stateKey, state } = this._getClaudeStreamState(openaiChunk, model, requestId);
+        const events = [];
+
+        // 1. 发送 message_start 事件（流开始的第一个有效 chunk 时发出）
+        if (!state.msgStarted) {
+            state.msgStarted = true;
+            events.push({
+                type: "message_start",
+                message: {
+                    id: state.messageId,
+                    type: "message",
+                    role: "assistant",
+                    content: [],
+                    model: model || openaiChunk.model || "unknown",
+                    stop_reason: null,
+                    stop_sequence: null,
+                    usage: {
+                        input_tokens: openaiChunk.usage?.prompt_tokens || 0,
+                        output_tokens: 0
+                    }
+                }
+            });
+        }
+
+        const delta = choice?.delta;
+
+        // 2. 处理 reasoning_content (对应 thinking 类型的 content_block)
+        if (delta?.reasoning_content) {
+            if (!state.reasoningBlock) {
+                const blockIndex = state.nextBlockIndex++;
+                state.reasoningBlock = { index: blockIndex };
+                state.openBlocks.add(blockIndex);
+                events.push({
+                    type: "content_block_start",
+                    index: blockIndex,
+                    content_block: {
+                        type: "thinking",
+                        thinking: ""
+                    }
+                });
+            }
+
+            events.push({
+                type: "content_block_delta",
+                index: state.reasoningBlock.index,
+                delta: {
+                    type: "thinking_delta",
+                    thinking: delta.reasoning_content
+                }
+            });
+        }
+
+        // 3. 处理普通文本 content (对应 text 类型的 content_block)
+        if (typeof delta?.content === 'string' && delta.content.length > 0) {
+            // 如果之前有处于打开状态的 reasoning block，先关闭它
+            if (state.reasoningBlock && state.openBlocks.has(state.reasoningBlock.index)) {
+                events.push({
+                    type: "content_block_stop",
+                    index: state.reasoningBlock.index
+                });
+                state.openBlocks.delete(state.reasoningBlock.index);
+            }
+
+            if (!state.textBlock) {
+                const blockIndex = state.nextBlockIndex++;
+                state.textBlock = { index: blockIndex };
+                state.openBlocks.add(blockIndex);
+                events.push({
+                    type: "content_block_start",
+                    index: blockIndex,
+                    content_block: {
+                        type: "text",
+                        text: ""
+                    }
+                });
+            }
+
+            events.push({
+                type: "content_block_delta",
+                index: state.textBlock.index,
+                delta: {
+                    type: "text_delta",
+                    text: delta.content
+                }
+            });
+        }
+
+        // 4. 处理 tool_calls (对应 tool_use 类型的 content_block)
+        if (delta?.tool_calls && Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+            // 工具调用前关闭任何仍处于打开状态的 reasoning 或 text block
+            if (state.reasoningBlock && state.openBlocks.has(state.reasoningBlock.index)) {
+                events.push({
+                    type: "content_block_stop",
+                    index: state.reasoningBlock.index
+                });
+                state.openBlocks.delete(state.reasoningBlock.index);
+            }
+            if (state.textBlock && state.openBlocks.has(state.textBlock.index)) {
+                events.push({
+                    type: "content_block_stop",
+                    index: state.textBlock.index
+                });
+                state.openBlocks.delete(state.textBlock.index);
+            }
+
+            for (const toolCall of delta.tool_calls) {
+                const rawToolIndex = toolCall.index !== undefined ? toolCall.index : 0;
+
+                if (!state.toolBlocks.has(rawToolIndex)) {
+                    // 如果存在上一个 tool block 且仍处于 open 状态，先关闭它
+                    if (state.activeToolIndex !== null && state.activeToolIndex !== rawToolIndex) {
+                        const prevBlock = state.toolBlocks.get(state.activeToolIndex);
+                        if (prevBlock && state.openBlocks.has(prevBlock.index)) {
+                            events.push({
+                                type: "content_block_stop",
+                                index: prevBlock.index
+                            });
+                            state.openBlocks.delete(prevBlock.index);
+                        }
+                    }
+
+                    const blockIndex = state.nextBlockIndex++;
+                    const toolInfo = {
+                        index: blockIndex,
+                        id: toolCall.id || `tool_${uuidv4().replace(/-/g, '')}`,
+                        name: toolCall.function?.name || ''
+                    };
+                    state.toolBlocks.set(rawToolIndex, toolInfo);
+                    state.openBlocks.add(blockIndex);
+                    state.activeToolIndex = rawToolIndex;
+
+                    events.push({
+                        type: "content_block_start",
+                        index: blockIndex,
+                        content_block: {
+                            type: "tool_use",
+                            id: toolInfo.id,
+                            name: toolInfo.name,
+                            input: {}
+                        }
+                    });
+                }
+
+                // 增量参数
+                if (toolCall.function?.arguments) {
+                    const toolInfo = state.toolBlocks.get(rawToolIndex);
+                    events.push({
+                        type: "content_block_delta",
+                        index: toolInfo.index,
+                        delta: {
+                            type: "input_json_delta",
+                            partial_json: toolCall.function.arguments
+                        }
+                    });
+                }
+            }
+        }
+
+        // 5. 处理 finish_reason (对应 content_block_stop、message_delta 和 message_stop)
+        const finishReason = choice?.finish_reason;
+        if (finishReason) {
+            // 如果从未开启过任何内容块（空输出），补一个空的 text block
+            if (state.nextBlockIndex === 0) {
+                events.push({
+                    type: "content_block_start",
+                    index: 0,
+                    content_block: {
+                        type: "text",
+                        text: ""
+                    }
+                });
+                state.openBlocks.add(0);
+            }
+
+            // 关闭所有仍在 open 状态的内容块
+            for (const openIndex of state.openBlocks) {
+                events.push({
+                    type: "content_block_stop",
+                    index: openIndex
+                });
+            }
+            state.openBlocks.clear();
+
+            let stopReason = mapFinishReason(
+                finishReason,
+                "openai",
+                "anthropic"
+            );
+            if (state.toolBlocks.size > 0 && stopReason === "end_turn") {
+                stopReason = "tool_use";
+            }
+
+            events.push({
+                type: "message_delta",
+                delta: {
+                    stop_reason: stopReason,
+                    stop_sequence: null
+                },
+                usage: {
+                    output_tokens: openaiChunk.usage?.completion_tokens || 0
+                }
+            });
+
+            events.push({
+                type: "message_stop"
+            });
+
+            // 清理流状态
+            this.claudeStreamStates.delete(stateKey);
+        }
+
+        return events.length > 0 ? events : null;
     }
 
     /**
