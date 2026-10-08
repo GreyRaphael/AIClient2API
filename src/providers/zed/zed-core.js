@@ -715,6 +715,54 @@ export class ZedApiService {
     }
 
     /**
+     * 将上游各协议的 usage 数据规整为 Claude 规范的 usage 结构 (完整保留 cache_read_input_tokens)
+     * @param {Object} rawUsage - 上游原始 usage 对象
+     * @returns {Object}
+     */
+    _formatClaudeUsage(rawUsage = {}) {
+        if (!rawUsage || typeof rawUsage !== 'object') {
+            return {
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_read_input_tokens: 0
+            };
+        }
+
+        const inputTokens = Number(
+            rawUsage.input_tokens ??
+            rawUsage.prompt_tokens ??
+            rawUsage.promptTokenCount
+        ) || 0;
+
+        const outputTokens = Number(
+            rawUsage.output_tokens ??
+            rawUsage.completion_tokens ??
+            rawUsage.candidatesTokenCount
+        ) || 0;
+
+        const cachedTokens = Number(
+            rawUsage.cache_read_input_tokens ??
+            rawUsage.input_tokens_details?.cached_tokens ??
+            rawUsage.input_token_details?.cached_tokens ??
+            rawUsage.prompt_tokens_details?.cached_tokens ??
+            rawUsage.cachedContentTokenCount ??
+            rawUsage.cached_tokens
+        ) || 0;
+
+        const res = {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            cache_read_input_tokens: cachedTokens
+        };
+
+        if (rawUsage.cache_creation_input_tokens !== undefined) {
+            res.cache_creation_input_tokens = Number(rawUsage.cache_creation_input_tokens) || 0;
+        }
+
+        return res;
+    }
+
+    /**
      * 流式生成内容 (输出 Claude 规范的 stream 事件)
      * @param {string} model 
      * @param {object} requestBody 
@@ -860,9 +908,25 @@ export class ZedApiService {
                     obj = obj.event;
                 }
 
+                // 1. Anthropic 原生规范事件 (标记状态后直接透传)
+                if (typeof obj.type === 'string' && (
+                    obj.type.startsWith('message_') ||
+                    obj.type.startsWith('content_block_') ||
+                    obj.type === 'ping'
+                )) {
+                    if (obj.type === 'message_start') {
+                        messageStarted = true;
+                    }
+                    if (obj.type === 'message_stop') {
+                        messageStopped = true;
+                    }
+                    yield obj;
+                    continue;
+                }
+
                 yield* ensureMessageStart();
 
-                // 1. OpenAI Responses API 事件 (cloud.zed.dev 对 open_ai 系列模型返回)
+                // 2. OpenAI Responses API 事件 (cloud.zed.dev 对 open_ai 系列模型返回)
                 if (typeof obj.type === 'string' && obj.type.startsWith('response.')) {
                     if (obj.type === 'response.output_text.delta' && obj.delta) {
                         yield* ensureTextBlockStart();
@@ -920,35 +984,18 @@ export class ZedApiService {
                         }
                     } else if (obj.type === 'response.completed') {
                         yield* closeActiveBlock();
-                        const usage = obj.response?.usage || {};
                         yield {
                             type: 'message_delta',
                             delta: {
                                 stop_reason: activeBlockIndex >= 0 && activeBlockType === 'tool_use' ? 'tool_use' : 'end_turn'
                             },
-                            usage: {
-                                input_tokens: usage.input_tokens || 0,
-                                output_tokens: usage.output_tokens || 0
-                            }
+                            usage: this._formatClaudeUsage(obj.response?.usage)
                         };
                         yield {
                             type: 'message_stop'
                         };
                         messageStopped = true;
                     }
-                    continue;
-                }
-
-                // 2. Anthropic 格式事件
-                if (typeof obj.type === 'string' && (
-                    obj.type.startsWith('message_') ||
-                    obj.type.startsWith('content_block_') ||
-                    obj.type === 'ping'
-                )) {
-                    if (obj.type === 'message_stop') {
-                        messageStopped = true;
-                    }
-                    yield obj;
                     continue;
                 }
 
@@ -1016,9 +1063,19 @@ export class ZedApiService {
                         yield {
                             type: 'message_delta',
                             delta: { stop_reason: choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn' },
-                            usage: { output_tokens: 0 }
+                            usage: obj.usage ? this._formatClaudeUsage(obj.usage) : { output_tokens: 0 }
                         };
                     }
+                    continue;
+                }
+
+                // OpenAI Chat Completions 独立 usage 块 (例如 stream_options: { include_usage: true } 时 choices 为空)
+                if (obj.usage && (!Array.isArray(obj.choices) || obj.choices.length === 0)) {
+                    yield {
+                        type: 'message_delta',
+                        delta: { stop_reason: 'end_turn' },
+                        usage: this._formatClaudeUsage(obj.usage)
+                    };
                     continue;
                 }
 
@@ -1059,10 +1116,7 @@ export class ZedApiService {
                             delta: {
                                 stop_reason: candidate.finishReason === 'STOP' ? 'end_turn' : candidate.finishReason.toLowerCase()
                             },
-                            usage: {
-                                input_tokens: obj.usageMetadata?.promptTokenCount || 0,
-                                output_tokens: obj.usageMetadata?.candidatesTokenCount || 0
-                            }
+                            usage: this._formatClaudeUsage(obj.usageMetadata)
                         };
                     }
                     continue;
@@ -1113,6 +1167,12 @@ export class ZedApiService {
                         tc.arguments += delta.partial_json || '';
                     }
                 }
+            } else if (chunk.type === 'message_start' && chunk.message?.usage) {
+                const u = chunk.message.usage;
+                if (typeof u.input_tokens === 'number') usage.input_tokens = u.input_tokens;
+                if (typeof u.output_tokens === 'number') usage.output_tokens = u.output_tokens;
+                if (typeof u.cache_read_input_tokens === 'number') usage.cache_read_input_tokens = u.cache_read_input_tokens;
+                if (typeof u.cache_creation_input_tokens === 'number') usage.cache_creation_input_tokens = u.cache_creation_input_tokens;
             } else if (chunk.type === 'message_delta') {
                 if (chunk.delta?.stop_reason) {
                     stopReason = chunk.delta.stop_reason;
@@ -1123,6 +1183,12 @@ export class ZedApiService {
                     }
                     if (typeof chunk.usage.output_tokens === 'number') {
                         usage.output_tokens = chunk.usage.output_tokens;
+                    }
+                    if (typeof chunk.usage.cache_read_input_tokens === 'number') {
+                        usage.cache_read_input_tokens = chunk.usage.cache_read_input_tokens;
+                    }
+                    if (typeof chunk.usage.cache_creation_input_tokens === 'number') {
+                        usage.cache_creation_input_tokens = chunk.usage.cache_creation_input_tokens;
                     }
                 }
             }

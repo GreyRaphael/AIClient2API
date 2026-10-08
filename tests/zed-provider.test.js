@@ -445,4 +445,159 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
         expect(payloadMax.provider_request.reasoning.effort).toBe('max');
     });
+
+    describe('Zed Usage & Cache Extraction Tests', () => {
+        test('_formatClaudeUsage extracts cache_read_input_tokens across various upstream protocols', () => {
+            const zedService = new ZedApiService({ uuid: 'test-uuid' });
+
+            // 1. OpenAI Responses API (response.completed)
+            const openaiResponsesUsage = {
+                input_tokens: 1200,
+                output_tokens: 350,
+                input_tokens_details: {
+                    cached_tokens: 800
+                }
+            };
+            expect(zedService._formatClaudeUsage(openaiResponsesUsage)).toEqual({
+                input_tokens: 1200,
+                output_tokens: 350,
+                cache_read_input_tokens: 800
+            });
+
+            // 2. OpenAI Chat Completions (prompt_tokens_details)
+            const openaiChatUsage = {
+                prompt_tokens: 1500,
+                completion_tokens: 200,
+                prompt_tokens_details: {
+                    cached_tokens: 1000
+                }
+            };
+            expect(zedService._formatClaudeUsage(openaiChatUsage)).toEqual({
+                input_tokens: 1500,
+                output_tokens: 200,
+                cache_read_input_tokens: 1000
+            });
+
+            // 3. Google Gemini (usageMetadata)
+            const geminiUsage = {
+                promptTokenCount: 2000,
+                candidatesTokenCount: 500,
+                cachedContentTokenCount: 1800
+            };
+            expect(zedService._formatClaudeUsage(geminiUsage)).toEqual({
+                input_tokens: 2000,
+                output_tokens: 500,
+                cache_read_input_tokens: 1800
+            });
+
+            // 4. Native Anthropic (cache_read_input_tokens + cache_creation_input_tokens)
+            const anthropicUsage = {
+                input_tokens: 2500,
+                output_tokens: 400,
+                cache_read_input_tokens: 1500,
+                cache_creation_input_tokens: 200
+            };
+            expect(zedService._formatClaudeUsage(anthropicUsage)).toEqual({
+                input_tokens: 2500,
+                output_tokens: 400,
+                cache_read_input_tokens: 1500,
+                cache_creation_input_tokens: 200
+            });
+
+            // 5. Fallback on empty / null / invalid
+            expect(zedService._formatClaudeUsage(null)).toEqual({
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_read_input_tokens: 0
+            });
+            expect(zedService._formatClaudeUsage({})).toEqual({
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_read_input_tokens: 0
+            });
+        });
+
+        test('generateContent correctly accumulates cache_read_input_tokens from stream chunks', async () => {
+            const zedService = new ZedApiService({ uuid: 'test-uuid' });
+
+            zedService.generateContentStream = async function* () {
+                yield {
+                    type: 'message_start',
+                    message: {
+                        role: 'assistant',
+                        content: [],
+                        usage: { input_tokens: 100, cache_read_input_tokens: 50 }
+                    }
+                };
+                yield {
+                    type: 'content_block_start',
+                    index: 0,
+                    content_block: { type: 'text', text: '' }
+                };
+                yield {
+                    type: 'content_block_delta',
+                    index: 0,
+                    delta: { type: 'text_delta', text: 'Zed cached reply' }
+                };
+                yield {
+                    type: 'content_block_stop',
+                    index: 0
+                };
+                yield {
+                    type: 'message_delta',
+                    delta: { stop_reason: 'end_turn' },
+                    usage: { input_tokens: 100, output_tokens: 25, cache_read_input_tokens: 80 }
+                };
+                yield {
+                    type: 'message_stop'
+                };
+            };
+
+            const res = await zedService.generateContent('gpt-5.6-luna', { messages: [] });
+            expect(res.content[0].text).toBe('Zed cached reply');
+            expect(res.usage).toEqual({
+                input_tokens: 100,
+                output_tokens: 25,
+                cache_read_input_tokens: 80
+            });
+        });
+
+        test('generateContentStream extracts cache_read_input_tokens from response.completed SSE event', async () => {
+            const zedService = new ZedApiService({ uuid: 'test-uuid' });
+            jest.spyOn(zedService, 'getToken').mockResolvedValue('mock-jwt');
+
+            const { Readable } = await import('stream');
+            const axios = (await import('axios')).default;
+            const originalRequest = axios.request;
+
+            const ssePayload = [
+                'data: {"type":"response.output_text.delta","delta":"Hi"}\n\n',
+                'data: {"type":"response.completed","response":{"usage":{"input_tokens":1200,"output_tokens":35,"input_tokens_details":{"cached_tokens":960}}}}\n\n',
+                'data: [DONE]\n\n'
+            ].join('');
+
+            const mockStream = Readable.from([Buffer.from(ssePayload)]);
+
+            axios.request = jest.fn().mockResolvedValue({
+                data: mockStream
+            });
+
+            try {
+                const chunks = [];
+                for await (const chunk of zedService.generateContentStream('gpt-5.6-luna', { messages: [] })) {
+                    chunks.push(chunk);
+                }
+
+                const deltaChunk = chunks.find(c => c.type === 'message_delta');
+                expect(deltaChunk).toBeDefined();
+                expect(deltaChunk.usage).toEqual({
+                    input_tokens: 1200,
+                    output_tokens: 35,
+                    cache_read_input_tokens: 960
+                });
+            } finally {
+                axios.request = originalRequest;
+            }
+        });
+    });
 });
