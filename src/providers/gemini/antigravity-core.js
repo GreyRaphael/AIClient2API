@@ -319,6 +319,13 @@ function normalizeAntigravityThinking(modelName, payload, isClaudeModel) {
         thinkingLevel !== undefined ||
         (budget !== undefined && budget !== 0);
 
+    if (thinkingConfig.include_thoughts !== undefined) {
+        if (thinkingConfig.includeThoughts === undefined) {
+            thinkingConfig.includeThoughts = thinkingConfig.include_thoughts;
+        }
+        delete thinkingConfig.include_thoughts;
+    }
+
     // Antigravity 只有在 includeThoughts=true 时才会回传 thought parts。
     // 上游对 gemini-3 thinkingLevel 的请求不一定会显式带上这个字段，这里兜底补齐。
     if (thinkingRequested && thinkingConfig.includeThoughts === undefined) {

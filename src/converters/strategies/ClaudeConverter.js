@@ -1183,7 +1183,7 @@ export class ClaudeConverter extends BaseConverter {
                     generationConfig.thinkingConfig = {};
                 }
                 generationConfig.thinkingConfig.thinkingBudget = budget;
-                generationConfig.thinkingConfig.include_thoughts = true;
+                generationConfig.thinkingConfig.includeThoughts = true;
             }
         }
         

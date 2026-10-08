@@ -91,6 +91,13 @@ function normalizeGeminiThinkingRequest(modelName, requestBody) {
         thinkingLevel !== undefined ||
         (budget !== undefined && budget !== 0);
 
+    if (thinkingConfig.include_thoughts !== undefined) {
+        if (thinkingConfig.includeThoughts === undefined) {
+            thinkingConfig.includeThoughts = thinkingConfig.include_thoughts;
+        }
+        delete thinkingConfig.include_thoughts;
+    }
+
     // Gemini 只有在 includeThoughts=true 时才会稳定返回 thought parts。
     // 上游在 gemini-3 thinkingLevel 场景下可能没有显式传这个字段，这里兜底补齐。
     if (thinkingRequested && thinkingConfig.includeThoughts === undefined) {
