@@ -8,6 +8,7 @@ import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
 import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
+import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -716,46 +717,20 @@ export class ZedApiService {
 
     /**
      * 将上游各协议的 usage 数据规整为 Claude 规范的 usage 结构 (完整保留 cache_read_input_tokens)
+     * 字段提取统一走共享的 usage-normalizer，此处仅做 Claude 格式映射
      * @param {Object} rawUsage - 上游原始 usage 对象
      * @returns {Object}
      */
     _formatClaudeUsage(rawUsage = {}) {
-        if (!rawUsage || typeof rawUsage !== 'object') {
-            return {
-                input_tokens: 0,
-                output_tokens: 0,
-                cache_read_input_tokens: 0
-            };
-        }
-
-        const inputTokens = Number(
-            rawUsage.input_tokens ??
-            rawUsage.prompt_tokens ??
-            rawUsage.promptTokenCount
-        ) || 0;
-
-        const outputTokens = Number(
-            rawUsage.output_tokens ??
-            rawUsage.completion_tokens ??
-            rawUsage.candidatesTokenCount
-        ) || 0;
-
-        const cachedTokens = Number(
-            rawUsage.cache_read_input_tokens ??
-            rawUsage.input_tokens_details?.cached_tokens ??
-            rawUsage.input_token_details?.cached_tokens ??
-            rawUsage.prompt_tokens_details?.cached_tokens ??
-            rawUsage.cachedContentTokenCount ??
-            rawUsage.cached_tokens
-        ) || 0;
+        const normalized = normalizeUsageCandidate(rawUsage);
 
         const res = {
-            input_tokens: inputTokens,
-            output_tokens: outputTokens,
-            cache_read_input_tokens: cachedTokens
+            input_tokens: normalized?.promptTokens ?? 0,
+            output_tokens: normalized?.completionTokens ?? 0,
+            cache_read_input_tokens: normalized?.cachedTokens ?? 0
         };
 
-        if (rawUsage.cache_creation_input_tokens !== undefined) {
+        if (rawUsage && typeof rawUsage === 'object' && rawUsage.cache_creation_input_tokens !== undefined) {
             res.cache_creation_input_tokens = Number(rawUsage.cache_creation_input_tokens) || 0;
         }
 

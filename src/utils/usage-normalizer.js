@@ -47,26 +47,34 @@ export function normalizeUsageCandidate(candidate) {
         candidate.output_tokens_details?.reasoning_tokens ??
         usage?.completion_tokens_details?.reasoning_tokens ??
         usage?.output_tokens_details?.reasoning_tokens ??
-        usage?.thoughtsTokenCount
+        usage?.thoughtsTokenCount ??
+        candidate.thoughtsTokenCount
     );
     const promptTokens = toNumber(
         candidate.prompt_tokens ??
         usage?.prompt_tokens ??
         usage?.input_tokens ??
+        candidate.input_tokens ??
         usage?.promptTokenCount ??
-        usage?.inputTokenCount
+        candidate.promptTokenCount ??
+        usage?.inputTokenCount ??
+        candidate.inputTokenCount
     );
     const rawCompletionTokens = toNumber(
         candidate.completion_tokens ??
         usage?.completion_tokens ??
         usage?.output_tokens ??
+        candidate.output_tokens ??
         usage?.candidatesTokenCount ??
-        usage?.outputTokenCount
+        candidate.candidatesTokenCount ??
+        usage?.outputTokenCount ??
+        candidate.outputTokenCount
     );
     const totalTokensCandidate = toNumber(
         candidate.total_tokens ??
         usage?.total_tokens ??
-        usage?.totalTokenCount
+        usage?.totalTokenCount ??
+        candidate.totalTokenCount
     );
 
     // 标准 OpenAI 响应中 completion_tokens 已包含 reasoning_tokens；
@@ -85,10 +93,14 @@ export function normalizeUsageCandidate(candidate) {
         usage?.cached_tokens ??
         candidate.prompt_tokens_details?.cached_tokens ??
         candidate.input_tokens_details?.cached_tokens ??
+        candidate.input_token_details?.cached_tokens ??
         usage?.prompt_tokens_details?.cached_tokens ??
         usage?.input_tokens_details?.cached_tokens ??
+        usage?.input_token_details?.cached_tokens ??
         usage?.cache_read_input_tokens ??
-        usage?.cachedContentTokenCount
+        candidate.cache_read_input_tokens ??
+        usage?.cachedContentTokenCount ??
+        candidate.cachedContentTokenCount
     );
 
     const hasUsage = promptTokens > 0 || completionTokens > 0 || totalTokens > 0 || cachedTokens > 0;

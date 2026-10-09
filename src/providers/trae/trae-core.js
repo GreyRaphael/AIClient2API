@@ -454,7 +454,10 @@ export class TraeApiService {
     }
 
     /**
-     * 将 Trae 上游返回的 token_usage 转换为标准 OpenAI usage 规范对象
+     * 将 Trae 上游返回的 token_usage 转换为标准 OpenAI usage 规范对象。
+     * 注意：这是刻意的"格式适配"而非"归一化折叠"——reasoning_tokens 保持独立字段、
+     * cache_creation_input_tokens 计入 cached_tokens，协议的折叠/累加语义由下游
+     * 统计插件统一经 utils/usage-normalizer.js 处理（参见 a19d505）。
      * @param {Object} data - 上游 token_usage 数据
      * @returns {Object|null}
      */

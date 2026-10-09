@@ -107,6 +107,30 @@ describe('normalizeUsageCandidate', () => {
         })).toEqual({ promptTokens: 9, completionTokens: 1, totalTokens: 10, cachedTokens: 0 });
     });
 
+    test('原始 Claude usage 对象（顶层字段，无嵌套）', () => {
+        expect(normalizeUsageCandidate({
+            input_tokens: 1200,
+            output_tokens: 350,
+            cache_read_input_tokens: 800
+        })).toEqual({ promptTokens: 1200, completionTokens: 350, totalTokens: 1550, cachedTokens: 800 });
+    });
+
+    test('原始 Gemini usageMetadata 对象（顶层字段）', () => {
+        expect(normalizeUsageCandidate({
+            promptTokenCount: 2000,
+            candidatesTokenCount: 500,
+            cachedContentTokenCount: 1800
+        })).toEqual({ promptTokens: 2000, completionTokens: 500, totalTokens: 2500, cachedTokens: 1800 });
+    });
+
+    test('原始 Responses usage 对象（input_token_details 单数形兼容）', () => {
+        expect(normalizeUsageCandidate({
+            input_tokens: 100,
+            output_tokens: 20,
+            input_token_details: { cached_tokens: 60 }
+        })).toEqual({ promptTokens: 100, completionTokens: 20, totalTokens: 120, cachedTokens: 60 });
+    });
+
     test('数组候选自动合并（取各字段最大值）', () => {
         expect(normalizeUsageCandidate([
             { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } },
