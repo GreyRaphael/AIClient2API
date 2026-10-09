@@ -11,11 +11,6 @@
     "maxNodeModuleJsDepth": 0
   },
   "include": [
-    "types/**/*",
-    "src/convert/convert.js",
-    "src/converters/BaseConverter.js",
-    "src/converters/ConverterFactory.js",
-    "src/converters/utils.js",
-    "src/converters/type-guards.js"
+    "types/**/*"
   ]
 }
