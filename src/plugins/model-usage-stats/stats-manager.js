@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync } from 'fs';
 import path from 'path';
 import logger from '../../utils/logger.js';
 import { RateManager } from '../../utils/rate-tracker.js';
+import { toNumber, mergeUsage, extractUsage } from '../../utils/usage-normalizer.js';
 import { getBeijingDateString } from '../../utils/common.js';
 
 const STATS_STORE_FILE = path.join(process.cwd(), 'configs', 'model-usage-stats.json');
@@ -235,112 +236,6 @@ function cleanupPendingRequests() {
     }
 }
 
-function toNumber(value) {
-    return Number.isFinite(Number(value)) ? Number(value) : 0;
-}
-
-function normalizeUsageCandidate(candidate) {
-    if (!candidate || typeof candidate !== 'object') {
-        return null;
-    }
-    if (Array.isArray(candidate)) {
-        const usage = candidate.reduce((merged, item) => mergeUsage(merged, normalizeUsageCandidate(item)), {
-            promptTokens: 0,
-            completionTokens: 0,
-            totalTokens: 0,
-            cachedTokens: 0
-        });
-        const hasUsage = usage.promptTokens > 0 || usage.completionTokens > 0 || usage.totalTokens > 0 || usage.cachedTokens > 0;
-        return hasUsage ? usage : null;
-    }
-
-    const usage = candidate.usage || candidate.message?.usage || candidate.usageMetadata || candidate.response?.usage || null;
-    const reasoningTokens = toNumber(
-        candidate.completion_tokens_details?.reasoning_tokens ??
-        candidate.output_tokens_details?.reasoning_tokens ??
-        usage?.completion_tokens_details?.reasoning_tokens ??
-        usage?.output_tokens_details?.reasoning_tokens ??
-        usage?.thoughtsTokenCount
-    );
-    const promptTokens = toNumber(
-        candidate.prompt_tokens ??
-        usage?.prompt_tokens ??
-        usage?.input_tokens ??
-        usage?.promptTokenCount ??
-        usage?.inputTokenCount
-    );
-    const rawCompletionTokens = toNumber(
-        candidate.completion_tokens ??
-        usage?.completion_tokens ??
-        usage?.output_tokens ??
-        usage?.candidatesTokenCount ??
-        usage?.outputTokenCount
-    );
-    const totalTokensCandidate = toNumber(
-        candidate.total_tokens ??
-        usage?.total_tokens ??
-        usage?.totalTokenCount
-    );
-
-    // 标准 OpenAI 响应中 completion_tokens 已包含 reasoning_tokens；
-    // 仅当 totalTokens 显式大于 prompt + completion 时（如 Gemini candidatesTokenCount 未包含 thoughtsTokenCount）才叠加补齐
-    let completionTokens = rawCompletionTokens;
-    if (reasoningTokens > 0) {
-        if (totalTokensCandidate > 0 && rawCompletionTokens + promptTokens < totalTokensCandidate) {
-            completionTokens = Math.min(rawCompletionTokens + reasoningTokens, totalTokensCandidate - promptTokens);
-        } else if (totalTokensCandidate === 0 && (usage?.candidatesTokenCount !== undefined || candidate?.candidatesTokenCount !== undefined)) {
-            completionTokens += reasoningTokens;
-        }
-    }
-    const totalTokens = totalTokensCandidate;
-    const cachedTokens = toNumber(
-        candidate.cached_tokens ??
-        usage?.cached_tokens ??
-        candidate.prompt_tokens_details?.cached_tokens ??
-        candidate.input_tokens_details?.cached_tokens ??
-        usage?.prompt_tokens_details?.cached_tokens ??
-        usage?.input_tokens_details?.cached_tokens ??
-        usage?.cache_read_input_tokens ??
-        usage?.cachedContentTokenCount
-    );
-
-    const hasUsage = promptTokens > 0 || completionTokens > 0 || totalTokens > 0 || cachedTokens > 0;
-    if (!hasUsage) {
-        return null;
-    }
-
-    return {
-        promptTokens,
-        completionTokens,
-        totalTokens: totalTokens || (promptTokens + completionTokens),
-        cachedTokens
-    };
-}
-
-function mergeUsage(baseUsage, nextUsage) {
-    if (!nextUsage) {
-        return baseUsage;
-    }
-
-    return {
-        promptTokens: Math.max(baseUsage.promptTokens, nextUsage.promptTokens),
-        completionTokens: Math.max(baseUsage.completionTokens, nextUsage.completionTokens),
-        totalTokens: Math.max(baseUsage.totalTokens, nextUsage.totalTokens || (nextUsage.promptTokens + nextUsage.completionTokens)),
-        cachedTokens: Math.max(baseUsage.cachedTokens, nextUsage.cachedTokens)
-    };
-}
-
-function extractUsage(...candidates) {
-    return candidates.reduce((usage, candidate) => {
-        const normalized = normalizeUsageCandidate(candidate);
-        return mergeUsage(usage, normalized);
-    }, {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        cachedTokens: 0
-    });
-}
 
 function getPendingRequest(requestId, meta = {}) {
     ensureLoaded();
