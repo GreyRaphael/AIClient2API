@@ -1,6 +1,4 @@
 import {
-    handleModelListRequest,
-    handleContentGenerationRequest,
     API_ACTIONS,
     ENDPOINT_TYPE,
     getRequestBody,
@@ -8,6 +6,10 @@ import {
     getProtocolPrefix,
     MODEL_PROTOCOL_PREFIX
 } from '../utils/common.js';
+import {
+    handleModelListRequest,
+    handleContentGenerationRequest
+} from '../handlers/request-pipeline.js';
 import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.js';
 import logger from '../utils/logger.js';
 import busboy from 'busboy';

@@ -1,7 +1,8 @@
 import deepmerge from 'deepmerge';
 import logger from '../utils/logger.js';
 import requestContext from '../utils/context.js';
-import { handleError, getClientIp, getRequestBody } from '../utils/common.js';
+import { getClientIp, getRequestBody } from '../utils/common.js';
+import { handleError } from './request-pipeline.js';
 import { handleUIApiRequests, serveStaticFiles } from '../services/ui-manager.js';
 import { isUIPath, isUIApiPath } from '../utils/ui-utils.js';
 import { handleAPIRequests } from '../services/api-manager.js';

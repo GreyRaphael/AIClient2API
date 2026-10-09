@@ -2,7 +2,7 @@ jest.mock('open', () => ({ default: jest.fn() }));
 
 import { AntigravityApiService } from '../src/providers/gemini/antigravity-core.js';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.js';
-import { getConfiguredNotSupportedModelsFromPool } from '../src/utils/common.js';
+import { getConfiguredNotSupportedModelsFromPool } from '../src/handlers/request-pipeline.js';
 
 describe('Antigravity Provider & Pool Refactor Tests', () => {
     test('1. Model List Extraction strictly follows agentModelSorts and imageGenerationModelIds with node isolation', async () => {
@@ -179,7 +179,7 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         expect(none).toBeNull();
     });
 
-    test('6. common.js getConfiguredNotSupportedModelsFromPool delegates to ProviderPoolManager', () => {
+    test('6. getConfiguredNotSupportedModelsFromPool delegates to ProviderPoolManager', () => {
         const poolManager = new ProviderPoolManager({
             'gemini-antigravity': [
                 {
