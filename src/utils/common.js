@@ -2006,7 +2006,7 @@ async function _applySystemPromptFromFile(config, requestBody, toProvider) {
     return strategy.applySystemPromptFromFile(config, requestBody);
 }
 
-export async function _manageSystemPrompt(requestBody, provider) {
+async function _manageSystemPrompt(requestBody, provider) {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
     await strategy.manageSystemPrompt(requestBody);
 }
