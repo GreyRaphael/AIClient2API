@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
+import { StreamSessionStore } from '../stream-session.js';
 import {
     checkAndAssignOrDefault,
     mapFinishReason,
@@ -165,7 +166,7 @@ function normalizeToolName(name) {
 export class GeminiConverter extends BaseConverter {
     constructor() {
         super('gemini');
-        this.openAIResponsesStreamStates = new Map();
+        this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'gemini-converter-responses-stream' });
     }
 
     /**

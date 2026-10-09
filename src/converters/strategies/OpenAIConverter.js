@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../../utils/logger.js';
 import { BaseConverter } from '../BaseConverter.js';
+import { StreamSessionStore } from '../stream-session.js';
 import { CodexConverter } from './CodexConverter.js';
 import {
     extractAndProcessSystemMessages as extractSystemMessages,
@@ -56,8 +57,8 @@ export class OpenAIConverter extends BaseConverter {
         super('openai');
         // 创建 CodexConverter 实例用于委托
         this.codexConverter = new CodexConverter();
-        this.openAIResponsesStreamStates = new Map();
-        this.claudeStreamStates = new Map();
+        this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'openai-converter-responses-stream' });
+        this.claudeStreamStates = new StreamSessionStore({ label: 'openai-converter-claude-stream' });
     }
 
     /**
@@ -544,16 +545,6 @@ export class OpenAIConverter extends BaseConverter {
                 activeToolIndex: null,
                 createdAt: Date.now()
             });
-        }
-
-        // 定期清理过期状态（防止异常中断遗留）
-        if (this.claudeStreamStates.size > 200) {
-            const now = Date.now();
-            for (const [k, v] of this.claudeStreamStates.entries()) {
-                if (now - v.createdAt > 300000) {
-                    this.claudeStreamStates.delete(k);
-                }
-            }
         }
 
         return { stateKey, state: this.claudeStreamStates.get(stateKey) };

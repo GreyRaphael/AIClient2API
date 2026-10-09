@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import logger from '../../utils/logger.js';
 import { countTextTokens } from '../../utils/token-utils.js';
 import { BaseConverter } from '../BaseConverter.js';
+import { StreamSessionStore } from '../stream-session.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ConverterFactory } from '../ConverterFactory.js';
 
@@ -22,9 +23,9 @@ export class GrokConverter extends BaseConverter {
     constructor() {
         super('grok');
         // 用于跟踪每个请求的状态
-        this.requestStates = new Map();
+        this.requestStates = new StreamSessionStore({ label: 'grok-converter' });
         /** @type {Map<string, boolean>} 流式 Claude 转换是否已发送 message_start（按 streamRequestId） */
-        this._claudeMsgStartSent = new Map();
+        this._claudeMsgStartSent = new StreamSessionStore({ label: 'grok-converter-claude-msg-start' });
     }
 
     /**

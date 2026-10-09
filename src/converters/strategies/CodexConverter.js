@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { BaseConverter } from '../BaseConverter.js';
+import { StreamSessionStore } from '../stream-session.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
     generateResponseCreated,
@@ -21,8 +22,8 @@ import {
 export class CodexConverter extends BaseConverter {
     constructor() {
         super('codex');
-        this.streamParams = new Map(); // 用于存储流式状态，key 为响应 ID 或临时标识
-        this.requestStates = new Map(); // 用于存储请求特定的状态（如工具映射），key 为 requestId
+        this.streamParams = new StreamSessionStore({ label: 'codex-converter' }); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
+        this.requestStates = new StreamSessionStore({ label: 'codex-converter-request' }); // 用于存储请求特定的状态（如工具映射），key 为 requestId
     }
 
     _getReqState(requestId) {

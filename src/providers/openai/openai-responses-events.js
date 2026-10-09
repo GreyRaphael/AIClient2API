@@ -1,9 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
+import { StreamSessionStore } from '../../converters/stream-session.js';
 
-// 流式处理状态管理
+// 流式处理状态管理（底层存储替换为带 TTL 的 StreamSessionStore，异常中断的流状态最终自动回收）
 class StreamState {
   constructor() {
-    this.states = new Map(); // 使用Map存储不同请求的状态
+    this.states = new StreamSessionStore({ label: 'openai-responses-events' }); // 使用Map存储不同请求的状态
   }
 
   // 获取或创建状态

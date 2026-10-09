@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
+import { StreamSessionStore } from '../stream-session.js';
 import { CodexConverter } from './CodexConverter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
@@ -36,7 +37,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     constructor() {
         super(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
         this.codexConverter = new CodexConverter();
-        this.claudeStreamStates = new Map();
+        this.claudeStreamStates = new StreamSessionStore({ label: 'responses-converter-claude-stream' });
     }
 
     // =============================================================================
