@@ -6,7 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { BaseConverter } from '../BaseConverter.js';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
     generateResponseCreated,
     generateResponseInProgress,

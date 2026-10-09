@@ -16,7 +16,7 @@ import {
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_DEFAULT_TOP_P
 } from '../utils.js';
-import {MODEL_PROTOCOL_PREFIX} from '../../utils/common.js';
+import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import {
     finishToolCall,
     generateContentPartAdded,

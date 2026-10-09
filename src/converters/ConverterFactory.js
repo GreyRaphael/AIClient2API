@@ -5,7 +5,7 @@
  * 使用工厂模式管理转换器实例的创建和缓存
  */
 
-import { MODEL_PROTOCOL_PREFIX } from '../utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
 /**

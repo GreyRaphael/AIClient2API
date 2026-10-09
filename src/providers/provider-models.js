@@ -1,5 +1,5 @@
 import { convertData } from '../convert/convert.js';
-import { MODEL_PROVIDER } from '../utils/common.js';
+import { MODEL_PROVIDER } from '../utils/constants.js';
 import { CONFIG } from '../core/config-manager.js';
 
 /**

@@ -1,4 +1,5 @@
-import { API_ACTIONS, MODEL_PROTOCOL_PREFIX } from '../../utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
+import { API_ACTIONS } from '../../utils/protocol.js';
 import logger from '../../utils/logger.js';
 import { ProviderStrategy } from '../../utils/provider-strategy-base.js';
 import { applySystemPromptReplacements } from '../../converters/utils.js';

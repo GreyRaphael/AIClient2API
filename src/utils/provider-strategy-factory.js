@@ -1,4 +1,4 @@
-import { MODEL_PROTOCOL_PREFIX } from '../utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from './constants.js';
 import { GeminiStrategy } from '../providers/gemini/gemini-strategy.js';
 import { OpenAIStrategy } from '../providers/openai/openai-strategy.js';
 import { ClaudeStrategy } from '../providers/claude/claude-strategy.js';

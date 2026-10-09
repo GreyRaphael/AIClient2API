@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import logger from '../../utils/logger.js';
 import { countTextTokens } from '../../utils/token-utils.js';
 import { BaseConverter } from '../BaseConverter.js';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ConverterFactory } from '../ConverterFactory.js';
 
 /**

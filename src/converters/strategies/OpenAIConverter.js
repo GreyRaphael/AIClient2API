@@ -24,7 +24,7 @@ import {
     OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
     OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT
 } from '../utils.js';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
     generateResponseCreated,
     generateResponseInProgress,

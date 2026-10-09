@@ -5,7 +5,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
-import { MODEL_PROTOCOL_PREFIX, getProtocolPrefix } from '../utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from '../utils/constants.js';
+import { getProtocolPrefix } from '../utils/protocol.js';
 import { ConverterFactory } from '../converters/ConverterFactory.js';
 
 /**
