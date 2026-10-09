@@ -8,6 +8,7 @@ import { BaseConverter } from '../BaseConverter.js';
 import { CodexConverter } from './CodexConverter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
+    mapFinishReason as sharedMapFinishReason,
     extractAndProcessSystemMessages as extractSystemMessages,
     extractTextFromMessageContent as extractText,
     cleanJsonSchemaForOpenAI,
@@ -1448,16 +1449,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
     // =============================================================================
 
     /**
-     * 映射完成原因
+     * 映射完成原因（映射表统一收编至 converters/utils.js 的 mapFinishReason）
      */
     mapFinishReason(reason) {
-        const reasonMap = {
-            'stop': 'STOP',
-            'length': 'MAX_TOKENS',
-            'content_filter': 'SAFETY',
-            'end_turn': 'STOP'
-        };
-        return reasonMap[reason] || 'STOP';
+        return sharedMapFinishReason(reason, 'openai', 'gemini');
     }
 
     /**

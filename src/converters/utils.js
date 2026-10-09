@@ -357,6 +357,12 @@ export function mapFinishReason(reason, sourceFormat, targetFormat) {
                 length: "max_tokens",
                 content_filter: "stop_sequence",
                 tool_calls: "tool_use"
+            },
+            gemini: {
+                stop: "STOP",
+                length: "MAX_TOKENS",
+                content_filter: "SAFETY",
+                end_turn: "STOP"
             }
         },
         gemini: {
@@ -370,14 +376,35 @@ export function mapFinishReason(reason, sourceFormat, targetFormat) {
                 safety: "stop_sequence",
                 recitation: "stop_sequence",
                 other: "end_turn"
+            },
+            openai: {
+                FINISH_REASON_UNSPECIFIED: "stop",
+                STOP: "stop",
+                MAX_TOKENS: "length",
+                SAFETY: "content_filter",
+                RECITATION: "content_filter",
+                OTHER: "stop",
+                BLOCKLIST: "content_filter",
+                PROHIBITED_CONTENT: "content_filter",
+                SPII: "content_filter",
+                MALFORMED_FUNCTION_CALL: "stop",
+                MODEL_ARMOR: "content_filter"
             }
         }
     };
 
+    // 各目标协议的兜底值：映射缺失或异常时返回该协议的"正常结束"语义
+    const defaultByTarget = {
+        anthropic: "end_turn",
+        openai: "stop",
+        gemini: "STOP"
+    };
+    const fallback = defaultByTarget[targetFormat] || "end_turn";
+
     try {
-        return reasonMappings[sourceFormat][targetFormat][reason] || "end_turn";
+        return reasonMappings[sourceFormat][targetFormat][reason] || fallback;
     } catch (e) {
-        return "end_turn";
+        return fallback;
     }
 }
 

@@ -1,6 +1,7 @@
 import '../src/converters/register-converters.js';
 import { convertData } from '../src/convert/convert.js';
 import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
+import { mapFinishReason } from '../src/converters/utils.js';
 
 describe('Protocol Converters Matrix & Edge Cases', () => {
     test('Fix 1: OpenAI streaming tool_calls converts to Claude events with stop_reason=tool_use', () => {
@@ -726,3 +727,39 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
     });
 });
 
+// =============================================================================
+// mapFinishReason 共享映射表（gemini->openai / openai->gemini 收编后）
+// =============================================================================
+describe('mapFinishReason 共享映射', () => {
+    test('gemini -> openai（含扩展安全类原因）', () => {
+        expect(mapFinishReason('STOP', 'gemini', 'openai')).toBe('stop');
+        expect(mapFinishReason('MAX_TOKENS', 'gemini', 'openai')).toBe('length');
+        expect(mapFinishReason('SAFETY', 'gemini', 'openai')).toBe('content_filter');
+        expect(mapFinishReason('RECITATION', 'gemini', 'openai')).toBe('content_filter');
+        expect(mapFinishReason('BLOCKLIST', 'gemini', 'openai')).toBe('content_filter');
+        expect(mapFinishReason('PROHIBITED_CONTENT', 'gemini', 'openai')).toBe('content_filter');
+        expect(mapFinishReason('SPII', 'gemini', 'openai')).toBe('content_filter');
+        expect(mapFinishReason('MODEL_ARMOR', 'gemini', 'openai')).toBe('content_filter');
+        expect(mapFinishReason('MALFORMED_FUNCTION_CALL', 'gemini', 'openai')).toBe('stop');
+        expect(mapFinishReason('FINISH_REASON_UNSPECIFIED', 'gemini', 'openai')).toBe('stop');
+        expect(mapFinishReason('OTHER', 'gemini', 'openai')).toBe('stop');
+        expect(mapFinishReason('UNKNOWN_X', 'gemini', 'openai')).toBe('stop');
+    });
+
+    test('openai -> gemini', () => {
+        expect(mapFinishReason('stop', 'openai', 'gemini')).toBe('STOP');
+        expect(mapFinishReason('length', 'openai', 'gemini')).toBe('MAX_TOKENS');
+        expect(mapFinishReason('content_filter', 'openai', 'gemini')).toBe('SAFETY');
+        expect(mapFinishReason('end_turn', 'openai', 'gemini')).toBe('STOP');
+        expect(mapFinishReason('whatever', 'openai', 'gemini')).toBe('STOP');
+    });
+
+    test('既有 openai/gemini -> anthropic 映射与兜底不变', () => {
+        expect(mapFinishReason('stop', 'openai', 'anthropic')).toBe('end_turn');
+        expect(mapFinishReason('length', 'openai', 'anthropic')).toBe('max_tokens');
+        expect(mapFinishReason('tool_calls', 'openai', 'anthropic')).toBe('tool_use');
+        expect(mapFinishReason('STOP', 'gemini', 'anthropic')).toBe('end_turn');
+        expect(mapFinishReason('MAX_TOKENS', 'gemini', 'anthropic')).toBe('max_tokens');
+        expect(mapFinishReason('nope', 'openai', 'anthropic')).toBe('end_turn');
+    });
+});

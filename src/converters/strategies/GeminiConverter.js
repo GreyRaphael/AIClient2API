@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
 import {
     checkAndAssignOrDefault,
+    mapFinishReason,
     OPENAI_DEFAULT_MAX_TOKENS,
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_DEFAULT_TOP_P,
@@ -424,23 +425,10 @@ export class GeminiConverter extends BaseConverter {
             }
         }
 
-        // 处理finishReason
+        // 处理finishReason（映射表统一收编至 converters/utils.js 的 mapFinishReason）
         let finishReason = null;
         if (candidate.finishReason) {
-            const finishReasonMap = {
-                'FINISH_REASON_UNSPECIFIED': 'stop',
-                'STOP': 'stop',
-                'MAX_TOKENS': 'length',
-                'SAFETY': 'content_filter',
-                'RECITATION': 'content_filter',
-                'OTHER': 'stop',
-                'BLOCKLIST': 'content_filter',
-                'PROHIBITED_CONTENT': 'content_filter',
-                'SPII': 'content_filter',
-                'MALFORMED_FUNCTION_CALL': 'stop',
-                'MODEL_ARMOR': 'content_filter',
-            };
-            finishReason = finishReasonMap[candidate.finishReason] || 'stop';
+            finishReason = mapFinishReason(candidate.finishReason, 'gemini', 'openai');
         }
 
         // [FIX] 适配 Gemini 流式：Gemini 的最后一条流式消息通常不带 functionCall
