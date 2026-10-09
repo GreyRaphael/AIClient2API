@@ -864,10 +864,10 @@ registerAdapter(MODEL_PROVIDER.GROK_CLI, GrokCliApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.GROK_WEB, GrokApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.ZED, ZedApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.TRAE, TraeApiServiceAdapter);
-// registerAdapter(MODEL_PROVIDER.FORWARD_API, ForwardApiServiceAdapter);
-// registerAdapter(MODEL_PROVIDER.QWEN_API, QwenApiServiceAdapter);
-// registerAdapter(MODEL_PROVIDER.IFLOW_API, IFlowApiServiceAdapter);
-// registerAdapter(MODEL_PROVIDER.GEMINI_CLI, GeminiApiServiceAdapter);
+// 注意：FORWARD_API / QWEN_API / IFLOW_API / GEMINI_CLI 的适配器类仍然存在
+// （ForwardApiServiceAdapter / QwenApiServiceAdapter / IFlowApiServiceAdapter / GeminiApiServiceAdapter），
+// 但被上游作者刻意不注册（见 fee1065「移除这些服务」与 e261e1b「暂时停用 Gemini CLI 适配器注册」），
+// 这些提供商在请求时会被 getServiceAdapter 拒绝。如需恢复，取消此处注释并注册对应适配器。
 
 // 用于存储服务适配器单例的映射
 export const serviceInstances = {};

@@ -1802,12 +1802,6 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
         res.end(JSON.stringify(clientModelList));
     } catch (error) {
         logger.error('\n[Server] Error during model list processing:', error.stack);
-        // if (providerPoolManager && pooluuid && CONFIG.MODEL_PROVIDER !== MODEL_PROVIDER.AUTO) {
-        //     // 如果是号池模式（且非 auto 模式），并且请求处理失败，则标记当前使用的提供者为不健康
-        //     providerPoolManager.markProviderUnhealthy(CONFIG.MODEL_PROVIDER, {
-        //         uuid: pooluuid
-        //     }, error.message);
-        // }
         handleError(res, error, CONFIG.MODEL_PROVIDER, fromProvider);
     }
 }
@@ -2080,11 +2074,6 @@ function _applyCustomModelParameters(requestBody, customConfig, provider) {
             }
         }
     });
-
-    // 处理特殊的 contextLength (通常不直接发给 API，但可能被某些插件使用)
-    // if (hasConfiguredValue(customConfig.contextLength)) {
-    //     requestBody._contextLength = customConfig.contextLength;
-    // }
 }
 
 export function handleError(res, error, provider = null, fromProvider = null, req = null) {

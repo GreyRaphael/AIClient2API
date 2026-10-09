@@ -230,7 +230,7 @@ export async function handleManualOAuthCallback(req, res) {
         localUrl.protocol = 'http:';
 
         try {
-            console.log(`[OAuth Manual Callback] Sending request to local server: ${localUrl.href}`);
+            logger.debug(`[OAuth Manual Callback] Sending request to local server: ${localUrl.href}`);
             const response = await fetch(localUrl.href);
 
             if (response.ok) {

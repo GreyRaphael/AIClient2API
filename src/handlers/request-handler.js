@@ -249,20 +249,8 @@ export function createRequestHandler(config, providerPoolManager) {
                         }
                     }
 
-                    // 获取或选择 API Service 实例
+                    // 获取或选择 API Service 实例（延迟到 handleAPIRequests 内按需解析）
                     let apiService;
-                    // try {
-                    //     apiService = await getApiService(currentConfig);
-                    // } catch (error) {
-                    //     handleError(res, { statusCode: 500, message: `Failed to get API service: ${error.message}` }, currentConfig.MODEL_PROVIDER);
-                    //     const poolManager = getProviderPoolManager();
-                    //     if (poolManager) {
-                    //         poolManager.markProviderUnhealthy(currentConfig.MODEL_PROVIDER, {
-                    //             uuid: currentConfig.uuid
-                    //         });
-                    //     }
-                    //     return;
-                    // }
 
                     try {
                         // Handle API requests
