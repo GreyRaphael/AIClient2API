@@ -122,10 +122,6 @@ function initCardInteractions() {
  */
 function getAvailableRoutes() {
     return [
-            description: t('dashboard.routing.official'),
-            badge: t('dashboard.routing.official'),
-            badgeClass: 'official'
-        },
         {
             provider: 'claude-custom',
             name: t('dashboard.routing.nodeName.claude'),
@@ -192,10 +188,6 @@ function getAvailableRoutes() {
             badge: t('dashboard.routing.official'),
             badgeClass: 'official'
         },
-            description: t('dashboard.routing.oauth'),
-            badge: t('dashboard.routing.oauth'),
-            badgeClass: 'oauth'
-        },
         {
             provider: 'gemini-antigravity',
             name: t('dashboard.routing.nodeName.antigravity'),
@@ -205,14 +197,6 @@ function getAvailableRoutes() {
             },
             description: t('dashboard.routing.experimental'),
             badge: t('dashboard.routing.experimental'),
-            badgeClass: 'oauth'
-        },
-            description: t('dashboard.routing.description.qwen'),
-            badge: t('dashboard.routing.oauth'),
-            badgeClass: 'oauth'
-        },
-            description: t('dashboard.routing.oauth'),
-            badge: t('dashboard.routing.oauth'),
             badgeClass: 'oauth'
         },
         {
