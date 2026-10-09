@@ -1319,12 +1319,6 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         logger.info(`[Request Convert] Request format matches backend provider. No conversion needed.`);
     }
     
-    // 为 forward provider 添加原始请求路径作为 endpoint
-    if (requestPath && getProtocolPrefix(toProvider) === MODEL_PROTOCOL_PREFIX.FORWARD) {
-        logger.info(`[Forward API] Request path: ${requestPath}`);
-        processedRequestBody.endpoint = requestPath;
-    }
-
     // 3. Apply system prompt from file if configured.
     processedRequestBody = await _applySystemPromptFromFile(CONFIG, processedRequestBody, toProvider);
     await _manageSystemPrompt(processedRequestBody, toProvider);

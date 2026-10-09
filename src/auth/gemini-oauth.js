@@ -13,15 +13,6 @@ import { getGoogleAuthProxyConfig } from '../utils/proxy-utils.js';
  * OAuth 提供商配置
  */
 const OAUTH_PROVIDERS = {
-    'gemini-cli-oauth': {
-        clientId: '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com',
-        clientSecret: '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',
-        port: 8085,
-        credentialsDir: '.gemini',
-        credentialsFile: 'oauth_creds.json',
-        scope: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/userinfo.email'],
-        logPrefix: '[Gemini Auth]'
-    },
     'gemini-antigravity': {
         clientId: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
         clientSecret: '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',
@@ -388,16 +379,6 @@ async function handleGoogleOAuth(providerKey, currentConfig, options = {}) {
 }
 
 /**
- * 处理 Gemini CLI OAuth 授权
- * @param {Object} currentConfig - 当前配置对象
- * @param {Object} options - 额外选项
- * @returns {Promise<Object>} 返回授权URL和相关信息
- */
-export async function handleGeminiCliOAuth(currentConfig, options = {}) {
-    return handleGoogleOAuth('gemini-cli-oauth', currentConfig, options);
-}
-
-/**
  * 处理 Gemini Antigravity OAuth 授权
  * @param {Object} currentConfig - 当前配置对象
  * @param {Object} options - 额外选项
@@ -454,7 +435,7 @@ export async function checkGeminiCredentialsDuplicate(providerType, refreshToken
 
 /**
  * 批量导入 Gemini Token 并生成凭据文件（流式版本，支持实时进度回调）
- * @param {string} providerType - 提供商类型 ('gemini-cli-oauth' 或 'gemini-antigravity')
+ * @param {string} providerType - 提供商类型（当前仅 'gemini-antigravity'）
  * @param {Object[]} tokens - Token 对象数组
  * @param {Function} onProgress - 进度回调函数
  * @param {boolean} skipDuplicateCheck - 是否跳过重复检查 (默认: false)

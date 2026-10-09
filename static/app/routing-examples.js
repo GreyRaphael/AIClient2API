@@ -122,13 +122,6 @@ function initCardInteractions() {
  */
 function getAvailableRoutes() {
     return [
-        {
-            provider: 'forward-api',
-            name: t('dashboard.routing.nodeName.newapi'),
-            paths: {
-                openai: '/forward-api/v1/chat/completions',
-                claude: '/forward-api/v1/messages'
-            },
             description: t('dashboard.routing.official'),
             badge: t('dashboard.routing.official'),
             badgeClass: 'official'
@@ -199,13 +192,6 @@ function getAvailableRoutes() {
             badge: t('dashboard.routing.official'),
             badgeClass: 'official'
         },
-        {
-            provider: 'gemini-cli-oauth',
-            name: t('dashboard.routing.nodeName.gemini'),
-            paths: {
-                openai: '/gemini-cli-oauth/v1/chat/completions',
-                claude: '/gemini-cli-oauth/v1/messages'
-            },
             description: t('dashboard.routing.oauth'),
             badge: t('dashboard.routing.oauth'),
             badgeClass: 'oauth'
@@ -221,24 +207,10 @@ function getAvailableRoutes() {
             badge: t('dashboard.routing.experimental'),
             badgeClass: 'oauth'
         },
-        {
-            provider: 'openai-qwen-oauth',
-            name: t('dashboard.routing.nodeName.qwen'),
-            paths: {
-                openai: '/openai-qwen-oauth/v1/chat/completions',
-                claude: '/openai-qwen-oauth/v1/messages'
-            },
             description: t('dashboard.routing.description.qwen'),
             badge: t('dashboard.routing.oauth'),
             badgeClass: 'oauth'
         },
-        {
-            provider: 'openai-iflow',
-            name: t('dashboard.routing.nodeName.iflow'),
-            paths: {
-                openai: '/openai-iflow/v1/chat/completions',
-                claude: '/openai-iflow/v1/messages'
-            },
             description: t('dashboard.routing.oauth'),
             badge: t('dashboard.routing.oauth'),
             badgeClass: 'oauth'
@@ -417,10 +389,7 @@ async function copyCurlExample(provider, options = {}) {
         case 'qiniu':
         case 'fenno':
         case 'openai-custom':
-        case 'openai-qwen-oauth':
-        case 'openai-iflow':
         case 'openai-codex-oauth':
-        case 'forward-api':
         case 'zed':
         case 'trae':
             if (protocol === 'openai') {
@@ -444,7 +413,6 @@ async function copyCurlExample(provider, options = {}) {
             }
             break;
             
-        case 'gemini-cli-oauth':
         case 'gemini-antigravity':
             if (protocol === 'openai') {
                 curlCommand = `curl ${hostname}${path} \\
@@ -552,8 +520,6 @@ function renderRoutingExamples(providerConfigs) {
     
     // 图标映射
     const iconMap = {
-        'forward-api': 'fa-share-square',
-        'gemini-cli-oauth': 'fa-gem',
         'gemini-antigravity': 'fa-rocket',
         'openai-custom': 'fa-comments',
         'atlascloud': 'fa-cloud',
@@ -561,9 +527,7 @@ function renderRoutingExamples(providerConfigs) {
         'fenno': 'fa-code',
         'claude-custom': 'fa-brain',
         'claude-kiro-oauth': 'fa-robot',
-        'openai-qwen-oauth': 'fa-code',
         'openaiResponses-custom': 'fa-comment-alt',
-        'openai-iflow': 'fa-wind',
         'openai-codex-oauth': 'fa-keyboard',
         'grok-cli-oauth': 'fa-terminal',
         'grok-web': 'fa-search',
@@ -573,7 +537,6 @@ function renderRoutingExamples(providerConfigs) {
 
     // 默认模型映射 (用于 curl 示例)
     const modelMap = {
-        'gemini-cli-oauth': 'gemini-3-flash-preview',
         'gemini-antigravity': 'gemini-3-flash',
         'claude-custom': 'claude-sonnet-4-5',
         'claude-kiro-oauth': 'claude-sonnet-4-5',
@@ -581,13 +544,10 @@ function renderRoutingExamples(providerConfigs) {
         'atlascloud': 'gpt-5.5',
         'qiniu': 'gpt-5.5',
         'fenno': 'gpt-5.5',
-        'openai-qwen-oauth': 'qwen3-coder-plus',
-        'openai-iflow': 'qwen3-max',
         'openai-codex-oauth': 'gpt-5',
         'openaiResponses-custom': 'gpt-5.5',
         'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
-        'forward-api': 'gpt-5.5',
         'zed': 'claude-sonnet-4-5',
         'trae': 'glm-5.2'
     };

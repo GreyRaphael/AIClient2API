@@ -20,7 +20,7 @@ export const HELP_DATA = {
         { flag: "--port", default: "3000", desc: "服务器监听端口" },
         { flag: "--api-key", default: "123456", desc: "业务接口身份验证密钥" },
         { flag: "--no-ui", default: "false", desc: "禁用前端管理界面" },
-        { flag: "--model-provider", default: "gemini-cli-oauth", desc: "默认模型提供商" },
+        { flag: "--model-provider", default: "gemini-antigravity", desc: "默认模型提供商" },
         { flag: "--system-prompt-file", default: "configs/input_system_prompt.txt", desc: "系统提示词路径" },
         { flag: "--system-prompt-mode", default: "append", desc: "提示词模式 (overwrite/append)" },
         { flag: "--log-prompts", default: "none", desc: "提示词日志模式 (console/file/none)" },

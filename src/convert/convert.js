@@ -5,7 +5,6 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
-import { MODEL_PROTOCOL_PREFIX } from '../utils/constants.js';
 import { getProtocolPrefix } from '../utils/protocol.js';
 import { ConverterFactory } from '../converters/ConverterFactory.js';
 
@@ -78,12 +77,6 @@ export function convertData(data, type, fromProvider, toProvider, model, request
         // 获取协议前缀
         const fromProtocol = getProtocolPrefix(fromProvider);
         const toProtocol = getProtocolPrefix(toProvider);
-
-        // 如果目标协议为 forward，直接返回原始数据，无需转换
-        if (toProtocol === MODEL_PROTOCOL_PREFIX.FORWARD || fromProtocol === MODEL_PROTOCOL_PREFIX.FORWARD) {
-            logger.info(`[Convert] Target protocol is forward, skipping conversion`);
-            return data;
-        }
 
         // 从工厂获取转换器
         const converter = ConverterFactory.getConverter(fromProtocol);

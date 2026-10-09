@@ -52,7 +52,6 @@ export class ProviderPoolManager {
     // 默认健康检查模型配置
     // 键名必须与 MODEL_PROVIDER 常量值一致
     static DEFAULT_HEALTH_CHECK_MODELS = {
-        'gemini-cli-oauth': 'gemini-3-flash-preview',
         'gemini-antigravity': 'gemini-3-flash',
         'claude-custom': 'claude-sonnet-4-5',
         'claude-kiro-oauth': 'claude-sonnet-4-5',
@@ -60,14 +59,11 @@ export class ProviderPoolManager {
         'atlascloud': 'gpt-5.5',
         'qiniu': 'gpt-5.5',
         'fenno': 'gpt-5.5',
-        'openai-qwen-oauth': 'qwen3-coder-plus',
-        'openai-iflow': 'qwen3-max',
         'openai-codex-oauth': 'gpt-5',
         'openaiResponses-custom': 'gpt-5.5',
         'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
-        'zed': 'claude-sonnet-4-5',
-        'forward-api': 'gpt-5.5'
+        'zed': 'claude-sonnet-4-5'
     };
 
     constructor(providerPools, options = {}) {
@@ -155,14 +151,8 @@ export class ProviderPoolManager {
                 let configPath = null;
                 if (providerType.startsWith('claude-kiro')) {
                     configPath = config.KIRO_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('gemini-cli')) {
-                    configPath = config.GEMINI_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('gemini-antigravity')) {
                     configPath = config.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('openai-qwen')) {
-                    configPath = config.QWEN_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('openai-iflow')) {
-                    configPath = config.IFLOW_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('openai-codex')) {
                     configPath = config.CODEX_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('grok-cli')) {

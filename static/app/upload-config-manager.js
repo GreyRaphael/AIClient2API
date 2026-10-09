@@ -1088,18 +1088,6 @@ function detectProviderFromPath(filePath) {
             shortName: 'kiro-oauth'
         },
         {
-            patterns: ['configs/gemini/', '/gemini/', 'configs/gemini-cli/'],
-            providerType: 'gemini-cli-oauth',
-            displayName: 'Gemini CLI OAuth',
-            shortName: 'gemini-oauth'
-        },
-        {
-            patterns: ['configs/qwen/', '/qwen/'],
-            providerType: 'openai-qwen-oauth',
-            displayName: 'Qwen OAuth',
-            shortName: 'qwen-oauth'
-        },
-        {
             patterns: ['configs/antigravity/', '/antigravity/'],
             providerType: 'gemini-antigravity',
             displayName: 'Gemini Antigravity',
@@ -1116,12 +1104,6 @@ function detectProviderFromPath(filePath) {
             providerType: 'grok-cli-oauth',
             displayName: 'Grok CLI OAuth',
             shortName: 'grok-cli-oauth'
-        },
-        {
-            patterns: ['configs/iflow/', '/iflow/'],
-            providerType: 'openai-iflow',
-            displayName: 'OpenAI iFlow OAuth',
-            shortName: 'iflow-oauth'
         },
         {
             patterns: ['configs/zed/', '/zed/'],

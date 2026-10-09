@@ -769,7 +769,7 @@ async function openProviderManager(providerType, searchTerm = '') {
  */
 function generateAuthButton(providerType) {
     // 只为支持OAuth或批量导入的提供商显示授权按钮
-    const oauthProviders = ['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth', 'openai-iflow', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'];
+    const oauthProviders = ['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'];
 
     if (!oauthProviders.includes(providerType)) {
         return '';
@@ -910,8 +910,8 @@ async function handleGenerateAuthUrl(providerType) {
         return;
     }
 
-    // 如果是 Gemini OAuth 或 Antigravity，显示认证方式选择对话框
-    if (providerType === 'gemini-cli-oauth' || providerType === 'gemini-antigravity') {
+    // 如果是 Antigravity，显示认证方式选择对话框
+    if (providerType === 'gemini-antigravity') {
         showGeminiAuthMethodSelector(providerType);
         return;
     }
@@ -4245,11 +4245,8 @@ async function executeGenerateAuthUrl(providerType, extraOptions = {}) {
  */
 function getAuthFilePath(provider) {
     const authFilePaths = {
-        'gemini-cli-oauth': '~/.gemini/oauth_creds.json',
         'gemini-antigravity': '~/.antigravity/oauth_creds.json',
-        'openai-qwen-oauth': '~/.qwen/oauth_creds.json',
         'claude-kiro-oauth': '~/.aws/sso/cache/kiro-auth-token.json',
-        'openai-iflow': '~/.iflow/oauth_creds.json',
         'zed': 'configs/zed/',
         'trae': 'configs/trae/'
     };
@@ -4271,22 +4268,10 @@ function showAuthModal(authUrl, authInfo) {
     
     // 获取需要开放的端口号（从 authInfo 或当前页面 URL）
     const requiredPort = authInfo.callbackPort || authInfo.port || window.location.port || '3000';
-    const isDeviceFlow = authInfo.provider === 'openai-qwen-oauth' || (authInfo.provider === 'claude-kiro-oauth' && authInfo.authMethod === 'builder-id');
+    const isDeviceFlow = authInfo.provider === 'claude-kiro-oauth' && authInfo.authMethod === 'builder-id';
 
     let instructionsHtml = '';
-    if (authInfo.provider === 'openai-qwen-oauth') {
-        instructionsHtml = `
-            <div class="auth-instructions">
-                <h4 data-i18n="oauth.modal.steps">${t('oauth.modal.steps')}</h4>
-                <ol>
-                    <li data-i18n="oauth.modal.step1">${t('oauth.modal.step1')}</li>
-                    <li data-i18n="oauth.modal.step2.qwen">${t('oauth.modal.step2.qwen')}</li>
-                    <li data-i18n="oauth.modal.step3">${t('oauth.modal.step3')}</li>
-                    <li data-i18n="oauth.modal.step4.qwen" data-i18n-params='{"min":"${Math.floor(authInfo.expiresIn / 60)}"}'>${t('oauth.modal.step4.qwen', { min: Math.floor(authInfo.expiresIn / 60) })}</li>
-                </ol>
-            </div>
-        `;
-    } else if (authInfo.provider === 'claude-kiro-oauth') {
+    if (authInfo.provider === 'claude-kiro-oauth') {
         const methodDisplay = authInfo.authMethod === 'builder-id' ? 'AWS Builder ID' : `Social (${authInfo.socialProvider || 'Google'})`;
         const methodAccount = authInfo.authMethod === 'builder-id' ? 'AWS Builder ID' : authInfo.socialProvider || 'Google';
         instructionsHtml = `
@@ -4303,18 +4288,6 @@ function showAuthModal(authUrl, authInfo) {
                     <li data-i18n="oauth.kiro.step2" data-i18n-params='{"method":"${methodAccount}"}'>${t('oauth.kiro.step2', { method: methodAccount })}</li>
                     <li data-i18n="oauth.kiro.step3">${t('oauth.kiro.step3')}</li>
                     <li data-i18n="oauth.kiro.step4">${t('oauth.kiro.step4')}</li>
-                </ol>
-            </div>
-        `;
-    } else if (authInfo.provider === 'openai-iflow') {
-        instructionsHtml = `
-            <div class="auth-instructions">
-                <h4 data-i18n="oauth.modal.steps">${t('oauth.modal.steps')}</h4>
-                <ol>
-                    <li data-i18n="oauth.iflow.step1">${t('oauth.iflow.step1')}</li>
-                    <li data-i18n="oauth.iflow.step2">${t('oauth.iflow.step2')}</li>
-                    <li data-i18n="oauth.iflow.step3">${t('oauth.iflow.step3')}</li>
-                    <li data-i18n="oauth.iflow.step4">${t('oauth.iflow.step4')}</li>
                 </ol>
             </div>
         `;

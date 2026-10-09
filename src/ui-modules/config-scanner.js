@@ -24,11 +24,8 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
     const usedPaths = new Set(); // 存储已使用的路径，用于判断关联状态
 
     // 从配置中提取所有OAuth凭据文件路径 - 标准化路径格式
-    addToUsedPaths(usedPaths, currentConfig.GEMINI_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH);
-    addToUsedPaths(usedPaths, currentConfig.QWEN_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH);
-    addToUsedPaths(usedPaths, currentConfig.IFLOW_TOKEN_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.CODEX_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.GROK_CLI_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.ZED_OAUTH_CREDS_FILE_PATH);
@@ -43,11 +40,8 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
     if (providerPools) {
         for (const [providerType, providers] of Object.entries(providerPools)) {
             for (const provider of providers) {
-                addToUsedPaths(usedPaths, provider.GEMINI_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.KIRO_OAUTH_CREDS_FILE_PATH);
-                addToUsedPaths(usedPaths, provider.QWEN_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH);
-                addToUsedPaths(usedPaths, provider.IFLOW_TOKEN_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.CODEX_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.GROK_CLI_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.ZED_OAUTH_CREDS_FILE_PATH);
@@ -288,16 +282,6 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
     usageInfo.isUsed = true;
 
     // 检查主要配置中的使用情况
-    if (currentConfig.GEMINI_OAUTH_CREDS_FILE_PATH &&
-        (pathsEqual(relativePath, currentConfig.GEMINI_OAUTH_CREDS_FILE_PATH) ||
-         pathsEqual(relativePath, currentConfig.GEMINI_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-        usageInfo.usageType = 'main_config';
-        usageInfo.usageDetails.push({
-            type: 'Main Config',
-            location: 'Gemini OAuth credentials file path',
-            configKey: 'GEMINI_OAUTH_CREDS_FILE_PATH'
-        });
-    }
 
     if (currentConfig.KIRO_OAUTH_CREDS_FILE_PATH &&
         (pathsEqual(relativePath, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH) ||
@@ -310,27 +294,7 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
         });
     }
 
-    if (currentConfig.QWEN_OAUTH_CREDS_FILE_PATH &&
-        (pathsEqual(relativePath, currentConfig.QWEN_OAUTH_CREDS_FILE_PATH) ||
-         pathsEqual(relativePath, currentConfig.QWEN_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-        usageInfo.usageType = 'main_config';
-        usageInfo.usageDetails.push({
-            type: 'Main Config',
-            location: 'Qwen OAuth credentials file path',
-            configKey: 'QWEN_OAUTH_CREDS_FILE_PATH'
-        });
-    }
 
-    if (currentConfig.IFLOW_TOKEN_FILE_PATH &&
-        (pathsEqual(relativePath, currentConfig.IFLOW_TOKEN_FILE_PATH) ||
-         pathsEqual(relativePath, currentConfig.IFLOW_TOKEN_FILE_PATH.replace(/\\/g, '/')))) {
-        usageInfo.usageType = 'main_config';
-        usageInfo.usageDetails.push({
-            type: 'Main Config',
-            location: 'iFlow Token file path',
-            configKey: 'IFLOW_TOKEN_FILE_PATH'
-        });
-    }
 
     if (currentConfig.CODEX_OAUTH_CREDS_FILE_PATH &&
         (pathsEqual(relativePath, currentConfig.CODEX_OAUTH_CREDS_FILE_PATH) ||
@@ -377,21 +341,6 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
         for (const { provider, providerType, index } of allProviders) {
             const providerUsages = [];
 
-            if (provider.GEMINI_OAUTH_CREDS_FILE_PATH &&
-                (pathsEqual(relativePath, provider.GEMINI_OAUTH_CREDS_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.GEMINI_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-                providerUsages.push({
-                    type: 'Provider Pool',
-                    location: `Gemini OAuth credentials (node ${index + 1})`,
-                    providerType: providerType,
-                    providerIndex: index,
-                    nodeName: provider.customName,
-                    uuid: provider.uuid,
-                    isHealthy: provider.isHealthy !== false,
-                    isDisabled: provider.isDisabled === true,
-                    configKey: 'GEMINI_OAUTH_CREDS_FILE_PATH'
-                });
-            }
 
             if (provider.KIRO_OAUTH_CREDS_FILE_PATH &&
                 (pathsEqual(relativePath, provider.KIRO_OAUTH_CREDS_FILE_PATH) ||
@@ -409,21 +358,6 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
                 });
             }
 
-            if (provider.QWEN_OAUTH_CREDS_FILE_PATH &&
-                (pathsEqual(relativePath, provider.QWEN_OAUTH_CREDS_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.QWEN_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-                providerUsages.push({
-                    type: 'Provider Pool',
-                    location: `Qwen OAuth credentials (node ${index + 1})`,
-                    providerType: providerType,
-                    providerIndex: index,
-                    nodeName: provider.customName,
-                    uuid: provider.uuid,
-                    isHealthy: provider.isHealthy !== false,
-                    isDisabled: provider.isDisabled === true,
-                    configKey: 'QWEN_OAUTH_CREDS_FILE_PATH'
-                });
-            }
 
             if (provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH &&
                 (pathsEqual(relativePath, provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH) ||
@@ -441,21 +375,6 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
                 });
             }
 
-            if (provider.IFLOW_TOKEN_FILE_PATH &&
-                (pathsEqual(relativePath, provider.IFLOW_TOKEN_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.IFLOW_TOKEN_FILE_PATH.replace(/\\/g, '/')))) {
-                providerUsages.push({
-                    type: 'Provider Pool',
-                    location: `iFlow Token (node ${index + 1})`,
-                    providerType: providerType,
-                    providerIndex: index,
-                    nodeName: provider.customName,
-                    uuid: provider.uuid,
-                    isHealthy: provider.isHealthy !== false,
-                    isDisabled: provider.isDisabled === true,
-                    configKey: 'IFLOW_TOKEN_FILE_PATH'
-                });
-            }
 
             if (provider.CODEX_OAUTH_CREDS_FILE_PATH &&
                 (pathsEqual(relativePath, provider.CODEX_OAUTH_CREDS_FILE_PATH) ||

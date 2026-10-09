@@ -80,7 +80,7 @@ import { HEALTH_CHECK } from '../utils/constants.js';
  *   --host 0.0.0.0 \
  *   --port 3000 \
  *   --api-key my-secret-key \
- *   --model-provider gemini-cli-oauth \
+ *   --model-provider gemini-antigravity \
  *   --project-id my-gcp-project \
  *   --gemini-oauth-creds-file ./credentials.json \
  *   --system-prompt-file ./custom-system-prompt.txt \
@@ -92,7 +92,7 @@ import { HEALTH_CHECK } from '../utils/constants.js';
  * --host <address>                    服务器监听地址 / Server listening address (default: 0.0.0.0)
  * --port <number>                     服务器监听端口 / Server listening port (default: 3000)
  * --api-key <key>                     身份验证所需的 API 密钥 / Required API key for authentication (default: 123456)
- * --model-provider <provider[,provider...]> AI 模型提供商 / AI model provider: openai-custom, claude-custom, gemini-cli-oauth, claude-kiro-oauth
+ * --model-provider <provider[,provider...]> AI 模型提供商 / AI model provider: openai-custom, claude-custom, gemini-antigravity, claude-kiro-oauth
  * --openai-api-key <key>             OpenAI API 密钥 / OpenAI API key (for openai-custom provider)
  * --openai-base-url <url>            OpenAI API 基础 URL / OpenAI API base URL (for openai-custom provider)
  * --claude-api-key <key>             Claude API 密钥 / Claude API key (for claude-custom provider)

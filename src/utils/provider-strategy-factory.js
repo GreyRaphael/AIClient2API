@@ -4,7 +4,6 @@ import { OpenAIStrategy } from '../providers/openai/openai-strategy.js';
 import { ClaudeStrategy } from '../providers/claude/claude-strategy.js';
 import { ResponsesAPIStrategy } from '../providers/openai/openai-responses-strategy.js';
 import { CodexResponsesAPIStrategy } from '../providers/openai/codex-responses-strategy.js';
-import { ForwardStrategy } from '../providers/forward/forward-strategy.js';
 import { GrokStrategy } from '../providers/grok/grok-strategy.js';
 
 /**
@@ -23,8 +22,6 @@ class ProviderStrategyFactory {
                 return new ClaudeStrategy();
             case MODEL_PROTOCOL_PREFIX.CODEX:
                 return new CodexResponsesAPIStrategy();
-            case MODEL_PROTOCOL_PREFIX.FORWARD:
-                return new ForwardStrategy();
             case MODEL_PROTOCOL_PREFIX.GROK:
                 return new GrokStrategy();
             default:

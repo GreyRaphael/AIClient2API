@@ -15,7 +15,6 @@ export class UsageService {
     constructor() {
         this.providerHandlers = {
             [MODEL_PROVIDER.KIRO_API]: this.getKiroUsage.bind(this),
-            [MODEL_PROVIDER.GEMINI_CLI]: this.getGeminiUsage.bind(this),
             [MODEL_PROVIDER.ANTIGRAVITY]: this.getAntigravityUsage.bind(this),
             [MODEL_PROVIDER.CODEX_API]: this.getCodexUsage.bind(this),
             [MODEL_PROVIDER.GROK_WEB]: this.getGrokUsage.bind(this),
@@ -25,7 +24,6 @@ export class UsageService {
         // 映射提供商到对应的格式化函数
         this.formatters = {
             [MODEL_PROVIDER.KIRO_API]: formatKiroUsage,
-            [MODEL_PROVIDER.GEMINI_CLI]: formatGeminiUsage,
             [MODEL_PROVIDER.ANTIGRAVITY]: formatAntigravityUsage,
             [MODEL_PROVIDER.CODEX_API]: formatCodexUsage,
             [MODEL_PROVIDER.GROK_WEB]: formatGrokUsage,
@@ -160,13 +158,6 @@ export class UsageService {
      */
     async getKiroUsage(uuid = null) {
         return this._getRawUsageFromAdapter(MODEL_PROVIDER.KIRO_API, uuid);
-    }
-
-    /**
-     * 获取 Gemini CLI 提供商的用量信息
-     */
-    async getGeminiUsage(uuid = null) {
-        return this._getRawUsageFromAdapter(MODEL_PROVIDER.GEMINI_CLI, uuid);
     }
 
     /**
@@ -390,71 +381,6 @@ export function formatKiroUsage(usageData) {
         items,
         raw: usageData
     };
-}
-
-/**
- * 格式化 Gemini 用量
- */
-export function formatGeminiUsage(usageData) {
-    if (!usageData) return null;
-
-    // 检查是否为原始 API 响应 (包含 buckets 数组)
-    if (usageData.buckets && Array.isArray(usageData.buckets)) {
-        const supportedModels = getProviderModels(MODEL_PROVIDER.GEMINI_CLI);
-        const items = [];
-        let totalPercent = 0;
-        let maxResetAt = null;
-        
-        for (const bucket of usageData.buckets) {
-            // 过滤掉不在支持列表中的模型
-            if (!supportedModels.includes(bucket.modelId)) continue;
-
-            const remaining = typeof bucket.remainingFraction === 'number' ? bucket.remainingFraction : 0;
-            const percent = (1 - remaining) * 100;
-            
-            totalPercent += percent;
-            if (!maxResetAt || bucket.resetTime > maxResetAt) {
-                maxResetAt = bucket.resetTime;
-            }
-            
-            items.push({
-                id: bucket.modelId,
-                label: bucket.modelId,
-                used: percent,
-                limit: 100,
-                percent,
-                remainingPercent: Math.max(0, 100 - percent),
-                unit: 'percent',
-                status: getStatus(percent),
-                resetAt: formatTimestamp(bucket.resetTime)
-            });
-        }
-
-        // 按名称排序
-        items.sort((a, b) => a.id.localeCompare(b.id));
-
-        // 计算平均使用率作为概要 (因为各模型额度独立，用平均值更能反映整体可用性)
-        const avgUsedPercent = items.length > 0 ? totalPercent / items.length : 0;
-        const plan = parseTierId(usageData.tierId);
-
-        return {
-            summary: {
-                usedPercent: avgUsedPercent,
-                remainingPercent: Math.max(0, 100 - avgUsedPercent),
-                status: getStatus(avgUsedPercent),
-                resetAt: formatTimestamp(maxResetAt),
-                plan,
-                planClass: getPlanClass(plan),
-                unit: 'percent'
-            },
-            user: { 
-                email: usageData.account || null
-            },
-            items,
-            raw: usageData
-        };
-    }
-    return null;
 }
 
 /**

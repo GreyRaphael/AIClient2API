@@ -19,7 +19,7 @@ const TEST_SERVER_BASE_URL = 'http://localhost:3000';
 const TEST_API_KEY = '123456'; // You may need to adjust this based on your server config
 const MODEL_PROVIDER = {
     // Model provider constants
-    GEMINI_CLI: 'gemini-cli-oauth',
+    ANTIGRAVITY: 'gemini-antigravity',
     OPENAI_CUSTOM: 'openai-custom',
     ATLASCLOUD: 'atlascloud',
     QINIU: 'qiniu',
@@ -109,7 +109,7 @@ describe('API Integration Tests with HTTP Requests', () => {
                 `${TEST_SERVER_BASE_URL}/v1/chat/completions`,
                 'POST',
                 'bearer',
-                { 'model-provider': MODEL_PROVIDER.GEMINI_CLI },
+                { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY },
                 REAL_TEST_DATA.openai.nonStreamRequest
             );
 
@@ -131,7 +131,7 @@ describe('API Integration Tests with HTTP Requests', () => {
                 `${TEST_SERVER_BASE_URL}/v1/chat/completions`,
                 'POST',
                 'bearer',
-                { 'model-provider': MODEL_PROVIDER.GEMINI_CLI },
+                { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY },
                 REAL_TEST_DATA.openai.streamRequest
             );
 
@@ -489,7 +489,7 @@ describe('API Integration Tests with HTTP Requests', () => {
                 `${TEST_SERVER_BASE_URL}/v1beta/models/gemini-2.5-flash:generateContent`,
                 'POST',
                 'goog',
-                { 'model-provider': MODEL_PROVIDER.GEMINI_CLI },
+                { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY },
                 REAL_TEST_DATA.gemini.nonStreamRequest
             );
 
@@ -508,7 +508,7 @@ describe('API Integration Tests with HTTP Requests', () => {
                 `${TEST_SERVER_BASE_URL}/v1beta/models/gemini-2.5-flash:streamGenerateContent`,
                 'POST',
                 'goog',
-                { 'model-provider': MODEL_PROVIDER.GEMINI_CLI },
+                { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY },
                 REAL_TEST_DATA.gemini.streamRequest
             );
 
@@ -550,7 +550,7 @@ describe('API Integration Tests with HTTP Requests', () => {
                 `${TEST_SERVER_BASE_URL}/v1/models`,
                 'GET',
                 'bearer',
-                { 'model-provider': MODEL_PROVIDER.GEMINI_CLI }
+                { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY }
             );
 
             expect(response.status).toBe(200);
@@ -650,7 +650,7 @@ describe('API Integration Tests with HTTP Requests', () => {
                 `${TEST_SERVER_BASE_URL}/v1beta/models`,
                 'GET',
                 'goog',
-                { 'model-provider': MODEL_PROVIDER.GEMINI_CLI }
+                { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY }
             );
 
             expect(response.status).toBe(200);

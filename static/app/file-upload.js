@@ -54,17 +54,14 @@ class FileUploadHandler {
      */
     getProviderKey(provider) {
         const providerMap = {
-            'gemini-cli-oauth': 'gemini',
             'gemini-antigravity': 'antigravity',
             'claude-kiro-oauth': 'kiro',
-            'openai-qwen-oauth': 'qwen',
-            'openai-iflow': 'iflow',
             'openai-codex-oauth': 'codex',
             'grok-cli-oauth': 'grok-cli',
             'zed': 'zed',
             'trae': 'trae'
         };
-        return providerMap[provider] || 'gemini';
+        return providerMap[provider] || 'antigravity';
     }
 
     /**

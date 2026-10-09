@@ -33,18 +33,6 @@ function getBaseProviderConfigs() {
             registerUrl: 'https://www.atlascloud.ai/console/coding-plan'
         },
         { 
-            id: 'forward-api', 
-            name: 'NewAPI', 
-            icon: 'fa-share-square'
-        },
-        { 
-            id: 'gemini-cli-oauth', 
-            name: t('dashboard.routing.nodeName.gemini'), 
-            usageName: 'Gemini CLI',
-            icon: 'fa-robot',
-            defaultPath: 'configs/gemini/'
-        },
-        { 
             id: 'gemini-antigravity', 
             name: t('dashboard.routing.nodeName.antigravity'), 
             usageName: 'Antigravity',
@@ -71,18 +59,6 @@ function getBaseProviderConfigs() {
             usageName: 'Grok CLI',
             icon: 'fa-terminal',
             defaultPath: 'configs/grok-cli/'
-        },
-        { 
-            id: 'openai-qwen-oauth', 
-            name: t('dashboard.routing.nodeName.qwen'), 
-            icon: 'fa-cloud',
-            defaultPath: 'configs/qwen/'
-        },
-        { 
-            id: 'openai-iflow', 
-            name: t('dashboard.routing.nodeName.iflow'), 
-            icon: 'fa-stream',
-            defaultPath: 'configs/iflow/'
         },
         { 
             id: 'grok-web', 
@@ -248,11 +224,8 @@ function getFieldLabel(key) {
         'CLAUDE_API_KEY': 'Claude API Key',
         'CLAUDE_BASE_URL': 'Claude Base URL',
         'PROJECT_ID': t('modal.provider.field.projectId'),
-        'GEMINI_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'KIRO_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
-        'QWEN_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
-        'IFLOW_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'CODEX_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'GROK_CLI_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'GROK_COOKIE_TOKEN': t('modal.provider.field.ssoToken'),
@@ -260,22 +233,13 @@ function getFieldLabel(key) {
         'GROK_CF_BM': t('modal.provider.field.cfBm'),
 
         'GROK_USER_AGENT': t('modal.provider.field.userAgent'),
-        'GEMINI_BASE_URL': 'Gemini Base URL',
         'KIRO_BASE_URL': t('modal.provider.field.baseUrl'),
         'KIRO_REFRESH_URL': t('modal.provider.field.refreshUrl'),
         'KIRO_REFRESH_IDC_URL': t('modal.provider.field.refreshIdcUrl'),
-        'QWEN_BASE_URL': 'Qwen Base URL',
-        'QWEN_OAUTH_BASE_URL': t('modal.provider.field.oauthBaseUrl'),
         'ANTIGRAVITY_BASE_URL_DAILY': t('modal.provider.field.dailyBaseUrl'),
         'ANTIGRAVITY_BASE_URL_AUTOPUSH': t('modal.provider.field.autopushBaseUrl'),
-        'IFLOW_BASE_URL': t('modal.provider.field.iflowBaseUrl'),
         'CODEX_BASE_URL': t('modal.provider.field.codexBaseUrl'),
         'GROK_BASE_URL': t('modal.provider.field.grokBaseUrl'),
-        'FORWARD_API_KEY': 'Forward API Key',
-        'FORWARD_BASE_URL': 'Forward Base URL',
-        'FORWARD_HEADER_NAME': t('modal.provider.field.headerName'),
-        'FORWARD_HEADER_VALUE_PREFIX': t('modal.provider.field.headerPrefix'),
-        'USE_SYSTEM_PROXY_FORWARD': t('modal.provider.field.useSystemProxy')
     };
     
     return labelMap[key] || key;
@@ -373,26 +337,6 @@ function getProviderTypeFields(providerType) {
                 placeholder: 'https://api.anthropic.com/v1'
             }
         ],
-        'gemini-cli-oauth': [
-            {
-                id: 'PROJECT_ID',
-                label: t('modal.provider.field.projectId'),
-                type: 'text',
-                placeholder: t('modal.provider.field.projectId.placeholder')
-            },
-            {
-                id: 'GEMINI_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
-                type: 'text',
-                placeholder: t('modal.provider.field.oauthPath.gemini.placeholder')
-            },
-            {
-                id: 'GEMINI_BASE_URL',
-                label: `Gemini Base URL <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'https://cloudcode-pa.googleapis.com'
-            }
-        ],
         'claude-kiro-oauth': [
             {
                 id: 'KIRO_OAUTH_CREDS_FILE_PATH',
@@ -419,26 +363,6 @@ function getProviderTypeFields(providerType) {
                 placeholder: 'https://oidc.{{region}}.amazonaws.com/token'
             }
         ],
-        'openai-qwen-oauth': [
-            {
-                id: 'QWEN_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
-                type: 'text',
-                placeholder: t('modal.provider.field.oauthPath.qwen.placeholder')
-            },
-            {
-                id: 'QWEN_BASE_URL',
-                label: `Qwen Base URL <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'https://portal.qwen.ai/v1'
-            },
-            {
-                id: 'QWEN_OAUTH_BASE_URL',
-                label: `${t('modal.provider.field.oauthBaseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'https://chat.qwen.ai'
-            }
-        ],
         'gemini-antigravity': [
             {
                 id: 'PROJECT_ID',
@@ -463,20 +387,6 @@ function getProviderTypeFields(providerType) {
                 label: `${t('modal.provider.field.autopushBaseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://autopush-cloudcode-pa.sandbox.googleapis.com'
-            }
-        ],
-        'openai-iflow': [
-            {
-                id: 'IFLOW_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
-                type: 'text',
-                placeholder: t('modal.provider.field.oauthPath.iflow.placeholder')
-            },
-            {
-                id: 'IFLOW_BASE_URL',
-                label: `iFlow Base URL <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'https://iflow.cn/api'
             }
         ],
         'openai-codex-oauth': [
@@ -589,32 +499,6 @@ function getProviderTypeFields(providerType) {
                 label: `${t('modal.provider.field.statsigId')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'x-statsig-id header value'
-            }
-        ],
-        'forward-api': [
-            {
-                id: 'FORWARD_API_KEY',
-                label: t('modal.provider.field.apiKey'),
-                type: 'password',
-                placeholder: t('modal.provider.field.apiKey.placeholder')
-            },
-            {
-                id: 'FORWARD_BASE_URL',
-                label: t('modal.provider.field.baseUrl'),
-                type: 'text',
-                placeholder: 'https://api.example.com'
-            },
-            {
-                id: 'FORWARD_HEADER_NAME',
-                label: `${t('modal.provider.field.headerName')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'Authorization'
-            },
-            {
-                id: 'FORWARD_HEADER_VALUE_PREFIX',
-                label: `${t('modal.provider.field.headerPrefix')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'Bearer '
             }
         ]
     };

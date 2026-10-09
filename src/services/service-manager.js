@@ -591,13 +591,9 @@ export async function getProviderStatus(config, options = {}) {
         'qiniu': 'OPENAI_BASE_URL',
         'fenno': 'OPENAI_BASE_URL',
         'openaiResponses-custom': 'OPENAI_BASE_URL',
-        'gemini-cli-oauth': 'GEMINI_OAUTH_CREDS_FILE_PATH',
         'claude-custom': 'CLAUDE_BASE_URL',
         'claude-kiro-oauth': 'KIRO_OAUTH_CREDS_FILE_PATH',
-        'openai-qwen-oauth': 'QWEN_OAUTH_CREDS_FILE_PATH',
         'gemini-antigravity': 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH',
-        'openai-iflow': 'IFLOW_TOKEN_FILE_PATH',
-        'forward-api': 'FORWARD_BASE_URL',
         'grok-web': 'GROK_COOKIE_TOKEN',
         'grok-cli-oauth': 'GROK_CLI_OAUTH_CREDS_FILE_PATH',
         'openai-codex-oauth': 'CODEX_OAUTH_CREDS_FILE_PATH'

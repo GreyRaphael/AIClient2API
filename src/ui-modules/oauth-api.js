@@ -1,12 +1,9 @@
 import { getRequestBody } from '../utils/common.js';
 import logger from '../utils/logger.js';
 import {
-    handleGeminiCliOAuth,
     handleGeminiAntigravityOAuth,
     batchImportGeminiTokensStream,
-    handleQwenOAuth,
     handleKiroOAuth,
-    handleIFlowOAuth,
     handleCodexOAuth,
     handleGrokCliOAuth,
     handleZedOAuth,
@@ -44,27 +41,14 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
         }
 
         // 根据提供商类型生成授权链接并启动回调服务器
-        if (providerType === 'gemini-cli-oauth') {
-            const result = await handleGeminiCliOAuth(currentConfig, options);
-            authUrl = result.authUrl;
-            authInfo = result.authInfo;
-        } else if (providerType === 'gemini-antigravity') {
+        if (providerType === 'gemini-antigravity') {
             const result = await handleGeminiAntigravityOAuth(currentConfig, options);
-            authUrl = result.authUrl;
-            authInfo = result.authInfo;
-        } else if (providerType === 'openai-qwen-oauth') {
-            const result = await handleQwenOAuth(currentConfig, options);
             authUrl = result.authUrl;
             authInfo = result.authInfo;
         } else if (providerType === 'claude-kiro-oauth') {
             // Kiro OAuth 支持多种认证方式
             // options.method 可以是: 'google' | 'github' | 'builder-id'
             const result = await handleKiroOAuth(currentConfig, options);
-            authUrl = result.authUrl;
-            authInfo = result.authInfo;
-        } else if (providerType === 'openai-iflow') {
-            // iFlow OAuth 授权
-            const result = await handleIFlowOAuth(currentConfig, options);
             authUrl = result.authUrl;
             authInfo = result.authInfo;
         } else if (providerType === 'openai-codex-oauth') {

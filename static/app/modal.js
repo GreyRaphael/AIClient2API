@@ -433,7 +433,7 @@ function showProviderManagerModal(data, initialSearchTerm = '') {
                         <button class="btn btn-success" onclick="window.showAddProviderForm('${providerType}')">
                             <i class="fas fa-plus"></i> <span data-i18n="modal.provider.add">添加新提供商</span>
                         </button>
-                        ${['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth', 'openai-iflow', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'].includes(providerType) ? `
+                        ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'].includes(providerType) ? `
                         <button class="btn btn-primary generate-auth-btn-modal" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                             <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
                         </button>
@@ -571,17 +571,13 @@ function getFilteredProviders() {
             p.OPENAI_BASE_URL,
             p.CLAUDE_API_KEY,
             p.CLAUDE_BASE_URL,
-            p.GEMINI_OAUTH_CREDS_FILE_PATH,
             p.KIRO_OAUTH_CREDS_FILE_PATH,
-            p.QWEN_OAUTH_CREDS_FILE_PATH,
             p.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH,
-            p.IFLOW_OAUTH_CREDS_FILE_PATH,
             p.CODEX_OAUTH_CREDS_FILE_PATH,
             p.GROK_CLI_OAUTH_CREDS_FILE_PATH,
             p.ZED_OAUTH_CREDS_FILE_PATH,
             p.TRAE_OAUTH_CREDS_FILE_PATH,
             p.GROK_COOKIE_TOKEN,
-            p.FORWARD_API_KEY,
             p.checkModelName
         ];
         
@@ -1276,16 +1272,10 @@ function getFieldOrder(provider) {
             providerType = 'openai-custom';
         } else if (provider.CLAUDE_API_KEY && provider.CLAUDE_BASE_URL) {
             providerType = 'claude-custom';
-        } else if (provider.GEMINI_OAUTH_CREDS_FILE_PATH) {
-            providerType = 'gemini-cli-oauth';
         } else if (provider.KIRO_OAUTH_CREDS_FILE_PATH) {
             providerType = 'claude-kiro-oauth';
-        } else if (provider.QWEN_OAUTH_CREDS_FILE_PATH) {
-            providerType = 'openai-qwen-oauth';
         } else if (provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH) {
             providerType = 'gemini-antigravity';
-        } else if (provider.IFLOW_OAUTH_CREDS_FILE_PATH) {
-            providerType = 'openai-iflow';
         } else if (provider.CODEX_OAUTH_CREDS_FILE_PATH) {
             providerType = 'openai-codex-oauth';
         } else if (provider.GROK_CLI_OAUTH_CREDS_FILE_PATH) {
@@ -1296,8 +1286,6 @@ function getFieldOrder(provider) {
             providerType = 'trae';
         } else if (provider.GROK_COOKIE_TOKEN) {
             providerType = 'grok-web';
-        } else if (provider.FORWARD_API_KEY) {
-            providerType = 'forward-api';
         }
     }
 
@@ -1681,7 +1669,7 @@ function showAddProviderForm(providerType) {
             <button class="btn btn-success" onclick="window.addProvider('${providerType}')">
                 <i class="fas fa-save"></i> <span data-i18n="modal.provider.save">保存</span>
             </button>
-            ${['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth', 'openai-iflow', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'].includes(providerType) ? `
+            ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'].includes(providerType) ? `
             <button type="button" class="btn btn-primary" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                 <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
             </button>

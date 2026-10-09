@@ -42,18 +42,6 @@ export function getCustomModelConfig(modelId, provider = null) {
  * 用于前端UI选择不支持的模型
  */
 export const PROVIDER_MODELS = {
-    'gemini-cli-oauth': [
-        'gemini-3-flash-preview',
-        'gemini-2.5-flash',
-        'gemini-2.5-flash-lite',
-        'gemini-2.5-pro',
-        'gemini-3-pro-preview',
-        'gemini-3.1-pro-preview',
-        'gemini-3.1-flash-lite-preview',
-        'gemini-3.5-flash',
-        'gemini-3.6-flash',
-        'gemini-3.7-flash',
-    ],
     'gemini-antigravity': [
         'gemini-3.8-flash-high',
         'gemini-3.7-flash-high',
@@ -88,40 +76,6 @@ export const PROVIDER_MODELS = {
     'qiniu': [],
     'fenno': [],
     'openaiResponses-custom': [],
-    'openai-qwen-oauth': [
-        'coder-model',
-        'vision-model',
-        'qwen3-coder-plus',
-        'qwen3-coder-flash',
-    ],
-    'openai-iflow': [
-        // iFlow 特有模型
-        'iflow-rome-30ba3b',
-        // Qwen 模型
-        'qwen3-coder-plus',
-        'qwen3-max',
-        'qwen3-vl-plus',
-        'qwen3-max-preview',
-        'qwen3-32b',
-        'qwen3-235b-a22b-thinking-2507',
-        'qwen3-235b-a22b-instruct',
-        'qwen3-235b',
-        // Kimi 模型
-        'kimi-k2-0905',
-        'kimi-k2',
-        // GLM 模型
-        'glm-4.6',
-        // DeepSeek 模型
-        'deepseek-v3.2',
-        'deepseek-r1',
-        'deepseek-v3',
-        // 手动定义
-        'glm-4.7',
-        'glm-5',
-        'kimi-k2.5',
-        'minimax-m2.1',
-        'minimax-m2.5',
-    ],
     'openai-codex-oauth': [
         'gpt-5.3-codex-spark',
         'gpt-5.4',
@@ -152,7 +106,6 @@ export const PROVIDER_MODELS = {
         'grok-3-mini-fast',
         'grok-3'
     ],
-    'forward-api': [],
     'grok-web': [
         'grok-4.1-mini',
         'grok-4.1-thinking',

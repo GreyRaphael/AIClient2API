@@ -1,13 +1,9 @@
 import { OpenAIResponsesApiService } from './openai/openai-responses-core.js';
-import { GeminiApiService } from './gemini/gemini-core.js';
 import { AntigravityApiService } from './gemini/antigravity-core.js';
 import { OpenAIApiService } from './openai/openai-core.js';
 import { ClaudeApiService } from './claude/claude-core.js';
 import { KiroApiService } from './claude/claude-kiro.js';
-import { QwenApiService } from './openai/qwen-core.js';
-import { IFlowApiService } from './openai/iflow-core.js';
 import { CodexApiService } from './openai/codex-core.js';
-import { ForwardApiService } from './forward/forward-core.js';
 import { GrokApiService } from './grok/grok-core.js';
 import { GrokCliApiService } from './grok/grok-cli-core.js';
 import { ZedApiService } from './zed/zed-core.js';
@@ -106,78 +102,6 @@ export class ApiServiceAdapter {
     }
 }
 
-// Gemini API 服务适配器
-export class GeminiApiServiceAdapter extends ApiServiceAdapter {
-    constructor(config) {
-        super();
-        this.geminiApiService = new GeminiApiService(config);
-        // this.geminiApiService.initialize().catch(error => {
-        //     logger.error("Failed to initialize geminiApiService:", error);
-        // });
-    }
-
-    async generateContent(model, requestBody) {
-        if (!this.geminiApiService.isInitialized) {
-            logger.warn("geminiApiService not initialized, attempting to re-initialize...");
-            await this.geminiApiService.initialize();
-        }
-        return this.geminiApiService.generateContent(model, requestBody);
-    }
-
-    async *generateContentStream(model, requestBody) {
-        if (!this.geminiApiService.isInitialized) {
-            logger.warn("geminiApiService not initialized, attempting to re-initialize...");
-            await this.geminiApiService.initialize();
-        }
-        yield* this.geminiApiService.generateContentStream(model, requestBody);
-    }
-
-    async listModels() {
-        if (!this.geminiApiService.isInitialized) {
-            logger.warn("geminiApiService not initialized, attempting to re-initialize...");
-            await this.geminiApiService.initialize();
-        }
-        // Gemini Core API 的 listModels 已经返回符合 Gemini 格式的数据，所以不需要额外转换
-        return this.geminiApiService.listModels();
-    }
-
-    async refreshToken() {
-        if (!this.geminiApiService.isInitialized) {
-            await this.geminiApiService.initialize();
-        }
-        if(this.isExpiryDateNear()===true){
-            logger.info(`[Gemini] Expiry date is near, refreshing token...`);
-            await this.geminiApiService.initializeAuth(true);
-            return true;
-        }
-        return false;
-    }
-
-    async forceRefreshToken() {
-        if (!this.geminiApiService.isInitialized) {
-            await this.geminiApiService.initialize();
-        }
-        logger.info(`[Gemini] Force refreshing token...`);
-        await this.geminiApiService.initializeAuth(true);
-        return true;
-    }
-
-    isExpiryDateNear() {
-        return this.geminiApiService.isExpiryDateNear();
-    }
-
-    /**
-     * 获取用量限制信息
-     * @returns {Promise<Object>} 用量限制信息
-     */
-    async getUsageLimits() {
-        if (!this.geminiApiService.isInitialized) {
-            logger.warn("geminiApiService not initialized, attempting to re-initialize...");
-            await this.geminiApiService.initialize();
-        }
-        return this.geminiApiService.getUsageLimits();
-    }
-}
 
 // Antigravity API 服务适配器
 export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
@@ -458,120 +382,7 @@ export class KiroApiServiceAdapter extends ApiServiceAdapter {
     }
 }
 
-// Qwen API 服务适配器
-export class QwenApiServiceAdapter extends ApiServiceAdapter {
-    constructor(config) {
-        super();
-        this.qwenApiService = new QwenApiService(config);
-    }
 
-    async generateContent(model, requestBody) {
-        if (!this.qwenApiService.isInitialized) {
-            logger.warn("qwenApiService not initialized, attempting to re-initialize...");
-            await this.qwenApiService.initialize();
-        }
-        return this.qwenApiService.generateContent(model, requestBody);
-    }
-
-    async *generateContentStream(model, requestBody) {
-        if (!this.qwenApiService.isInitialized) {
-            logger.warn("qwenApiService not initialized, attempting to re-initialize...");
-            await this.qwenApiService.initialize();
-        }
-        yield* this.qwenApiService.generateContentStream(model, requestBody);
-    }
-
-    async listModels() {
-        if (!this.qwenApiService.isInitialized) {
-            logger.warn("qwenApiService not initialized, attempting to re-initialize...");
-            await this.qwenApiService.initialize();
-        }
-        return this.qwenApiService.listModels();
-    }
-
-    async refreshToken() {
-        if (!this.qwenApiService.isInitialized) {
-            await this.qwenApiService.initialize();
-        }
-        if (this.isExpiryDateNear()) {
-            logger.info(`[Qwen] Expiry date is near, refreshing token...`);
-            await this.qwenApiService._initializeAuth(true);
-            return true;
-        }
-        return false;
-    }
-
-    async forceRefreshToken() {
-        if (!this.qwenApiService.isInitialized) {
-            await this.qwenApiService.initialize();
-        }
-        logger.info(`[Qwen] Force refreshing token...`);
-        await this.qwenApiService._initializeAuth(true);
-        return true;
-    }
-
-    isExpiryDateNear() {
-        return this.qwenApiService.isExpiryDateNear();
-    }
-}
-
-// iFlow API 服务适配器
-export class IFlowApiServiceAdapter extends ApiServiceAdapter {
-    constructor(config) {
-        super();
-        this.iflowApiService = new IFlowApiService(config);
-    }
-
-    async generateContent(model, requestBody) {
-        if (!this.iflowApiService.isInitialized) {
-            logger.warn("iflowApiService not initialized, attempting to re-initialize...");
-            await this.iflowApiService.initialize();
-        }
-        return this.iflowApiService.generateContent(model, requestBody);
-    }
-
-    async *generateContentStream(model, requestBody) {
-        if (!this.iflowApiService.isInitialized) {
-            logger.warn("iflowApiService not initialized, attempting to re-initialize...");
-            await this.iflowApiService.initialize();
-        }
-        yield* this.iflowApiService.generateContentStream(model, requestBody);
-    }
-
-    async listModels() {
-        if (!this.iflowApiService.isInitialized) {
-            logger.warn("iflowApiService not initialized, attempting to re-initialize...");
-            await this.iflowApiService.initialize();
-        }
-        return this.iflowApiService.listModels();
-    }
-
-    async refreshToken() {
-        if (!this.iflowApiService.isInitialized) {
-            await this.iflowApiService.initialize();
-        }
-        if (this.isExpiryDateNear()) {
-            logger.info(`[iFlow] Expiry date is near, refreshing API key...`);
-            await this.iflowApiService.initializeAuth(true);
-            return true;
-        }
-        return false;
-    }
-
-    async forceRefreshToken() {
-        if (!this.iflowApiService.isInitialized) {
-            await this.iflowApiService.initialize();
-        }
-        logger.info(`[iFlow] Force refreshing API key...`);
-        await this.iflowApiService.initializeAuth(true);
-        return true;
-    }
-
-    isExpiryDateNear() {
-        return this.iflowApiService.isExpiryDateNear();
-    }
-
-}
 
 // Codex API 服务适配器
 export class CodexApiServiceAdapter extends ApiServiceAdapter {
@@ -638,37 +449,6 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
     }
 }
 
-// Forward API 服务适配器
-export class ForwardApiServiceAdapter extends ApiServiceAdapter {
-    constructor(config) {
-        super();
-        this.forwardApiService = new ForwardApiService(config);
-    }
-
-    async generateContent(model, requestBody) {
-        return this.forwardApiService.generateContent(model, requestBody);
-    }
-
-    async *generateContentStream(model, requestBody) {
-        yield* this.forwardApiService.generateContentStream(model, requestBody);
-    }
-
-    async listModels() {
-        return this.forwardApiService.listModels();
-    }
-
-    async refreshToken() {
-        return false;
-    }
-
-    async forceRefreshToken() {
-        return false;
-    }
-
-    isExpiryDateNear() {
-        return false;
-    }
-}
 
 // Grok API 服务适配器
 export class GrokApiServiceAdapter extends ApiServiceAdapter {
@@ -864,10 +644,7 @@ registerAdapter(MODEL_PROVIDER.GROK_CLI, GrokCliApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.GROK_WEB, GrokApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.ZED, ZedApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.TRAE, TraeApiServiceAdapter);
-// 注意：FORWARD_API / QWEN_API / IFLOW_API / GEMINI_CLI 的适配器类仍然存在
-// （ForwardApiServiceAdapter / QwenApiServiceAdapter / IFlowApiServiceAdapter / GeminiApiServiceAdapter），
-// 但被上游作者刻意不注册（见 fee1065「移除这些服务」与 e261e1b「暂时停用 Gemini CLI 适配器注册」），
-// 这些提供商在请求时会被 getServiceAdapter 拒绝。如需恢复，取消此处注释并注册对应适配器。
+// 注：FORWARD_API / QWEN_API / IFLOW_API / GEMINI_CLI 四个提供商已彻底移除（core/auth/adapter 全部删除）。
 
 // 用于存储服务适配器单例的映射
 export const serviceInstances = {};

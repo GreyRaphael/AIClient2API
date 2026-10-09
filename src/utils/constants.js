@@ -50,13 +50,11 @@ export const MODEL_PROTOCOL_PREFIX = {
     OPENAI_RESPONSES: 'openaiResponses',
     CLAUDE: 'claude',
     CODEX: 'codex',
-    FORWARD: 'forward',
     GROK: 'grok',
 };
 
 // 提供商标识符常量
 export const MODEL_PROVIDER = {
-    GEMINI_CLI: 'gemini-cli-oauth',
     ANTIGRAVITY: 'gemini-antigravity',
     OPENAI_CUSTOM: 'openai-custom',
     ATLASCLOUD: 'atlascloud',
@@ -65,10 +63,7 @@ export const MODEL_PROVIDER = {
     OPENAI_CUSTOM_RESPONSES: 'openaiResponses-custom',
     CLAUDE_CUSTOM: 'claude-custom',
     KIRO_API: 'claude-kiro-oauth',
-    QWEN_API: 'openai-qwen-oauth',
-    IFLOW_API: 'openai-iflow',
     CODEX_API: 'openai-codex-oauth',
-    FORWARD_API: 'forward-api',
     GROK_WEB: 'grok-web',
     GROK_CLI: 'grok-cli-oauth',
     ZED: 'zed',
