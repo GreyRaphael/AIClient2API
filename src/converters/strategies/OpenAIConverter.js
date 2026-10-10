@@ -705,7 +705,8 @@ export class OpenAIConverter extends BaseConverter {
                     const toolInfo = {
                         index: blockIndex,
                         id: toolCall.id || `tool_${uuidv4().replace(/-/g, '')}`,
-                        name: toolCall.function?.name || ''
+                        name: toolCall.function?.name || '',
+                        sentArgs: ''
                     };
                     state.toolBlocks.set(rawToolIndex, toolInfo);
                     state.openBlocks.add(blockIndex);
@@ -723,17 +724,37 @@ export class OpenAIConverter extends BaseConverter {
                     });
                 }
 
-                // 增量参数
-                if (toolCall.function?.arguments) {
+                // 增量参数（支持增量 delta 与快照累积式 arguments 去重/diff 下发）
+                if (toolCall.function?.arguments !== undefined && toolCall.function?.arguments !== null) {
                     const toolInfo = state.toolBlocks.get(rawToolIndex);
-                    events.push({
-                        type: "content_block_delta",
-                        index: toolInfo.index,
-                        delta: {
-                            type: "input_json_delta",
-                            partial_json: toolCall.function.arguments
-                        }
-                    });
+                    const newArgs = typeof toolCall.function.arguments === 'string'
+                        ? toolCall.function.arguments
+                        : JSON.stringify(toolCall.function.arguments);
+
+                    let deltaJson = '';
+                    if (toolInfo.sentArgs && newArgs === toolInfo.sentArgs) {
+                        // 完全相同：跳过重复下发
+                        deltaJson = '';
+                    } else if (toolInfo.sentArgs && newArgs.startsWith(toolInfo.sentArgs)) {
+                        // 新串以已发为前缀（累积快照）：只发 diff
+                        deltaJson = newArgs.slice(toolInfo.sentArgs.length);
+                        toolInfo.sentArgs = newArgs;
+                    } else {
+                        // 增量原样发送（标准 OpenAI 流）
+                        deltaJson = newArgs;
+                        toolInfo.sentArgs = (toolInfo.sentArgs || '') + newArgs;
+                    }
+
+                    if (deltaJson.length > 0) {
+                        events.push({
+                            type: "content_block_delta",
+                            index: toolInfo.index,
+                            delta: {
+                                type: "input_json_delta",
+                                partial_json: deltaJson
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -1950,6 +1971,10 @@ export class OpenAIConverter extends BaseConverter {
                 msgId: this._buildResponsesMessageItemId(responseId, 0),
                 model: model || openaiChunk?.model || 'unknown',
                 createdAt: openaiChunk?.created || Math.floor(Date.now() / 1000),
+                sequenceNumber: 0,
+                nextOutputIndex: 0,
+                reasoningOutputIndex: 0,
+                textOutputIndex: 0,
                 started: false,
                 textStarted: false,
                 reasoningStarted: false,
@@ -1986,11 +2011,22 @@ export class OpenAIConverter extends BaseConverter {
         return { stateKey, state };
     }
 
+    _pushResponsesEvents(state, events, ...eventList) {
+        for (const ev of eventList) {
+            if (ev && typeof ev === 'object') {
+                if (ev.sequence_number === undefined) {
+                    ev.sequence_number = state.sequenceNumber++;
+                }
+                events.push(ev);
+            }
+        }
+    }
+
     _ensureOpenAIResponsesStreamStarted(stateKey, state, events) {
         if (state.started) {
             return;
         }
-        events.push(
+        this._pushResponsesEvents(state, events,
             generateResponseCreated(stateKey, state.model),
             generateResponseInProgress(stateKey)
         );
@@ -2002,9 +2038,10 @@ export class OpenAIConverter extends BaseConverter {
         if (state.textStarted) {
             return;
         }
-        events.push(
-            generateOutputItemAdded(stateKey),
-            generateContentPartAdded(stateKey)
+        state.textOutputIndex = state.nextOutputIndex++;
+        this._pushResponsesEvents(state, events,
+            generateOutputItemAdded(stateKey, state.textOutputIndex),
+            generateContentPartAdded(stateKey, state.textOutputIndex)
         );
         state.textStarted = true;
     }
@@ -2014,8 +2051,9 @@ export class OpenAIConverter extends BaseConverter {
         const key = String(index);
         if (!state.toolCalls.has(key)) {
             const callId = toolCall.id || `call_${state.responseId}_${index}`;
+            const outputIndex = state.nextOutputIndex++;
             state.toolCalls.set(key, {
-                outputIndex: index,
+                outputIndex,
                 callId,
                 itemId: this._buildResponsesFunctionItemId(callId),
                 name: toolCall.function?.name || '',
@@ -2035,11 +2073,13 @@ export class OpenAIConverter extends BaseConverter {
         return toolState;
     }
 
-    _emitOpenAIResponsesToolStart(toolState, events) {
+    _emitOpenAIResponsesToolStart(state, toolState, events) {
         if (toolState.added) {
             return;
         }
-        events.push({
+        this._pushResponsesEvents(state, events, {
+            type: "response.output_item.added",
+            output_index: toolState.outputIndex,
             item: {
                 id: toolState.itemId,
                 call_id: toolState.callId,
@@ -2047,10 +2087,7 @@ export class OpenAIConverter extends BaseConverter {
                 name: toolState.name,
                 arguments: "",
                 status: "in_progress"
-            },
-            output_index: toolState.outputIndex,
-            sequence_number: 2,
-            type: "response.output_item.added"
+            }
         });
         toolState.added = true;
     }
@@ -2058,29 +2095,31 @@ export class OpenAIConverter extends BaseConverter {
     _finalizeOpenAIResponsesToolCalls(state, events) {
         for (const toolState of state.toolCalls.values()) {
             if (!toolState.added) {
-                this._emitOpenAIResponsesToolStart(toolState, events);
+                this._emitOpenAIResponsesToolStart(state, toolState, events);
             }
             if (toolState.done) {
                 continue;
             }
-            events.push({
-                type: "response.function_call_arguments.done",
-                item_id: toolState.itemId,
-                output_index: toolState.outputIndex,
-                arguments: toolState.arguments
-            });
-            events.push({
-                type: "response.output_item.done",
-                output_index: toolState.outputIndex,
-                item: {
-                    id: toolState.itemId,
-                    call_id: toolState.callId,
-                    type: "function_call",
-                    name: toolState.name,
-                    arguments: toolState.arguments,
-                    status: "completed"
+            this._pushResponsesEvents(state, events,
+                {
+                    type: "response.function_call_arguments.done",
+                    item_id: toolState.itemId,
+                    output_index: toolState.outputIndex,
+                    arguments: toolState.arguments
+                },
+                {
+                    type: "response.output_item.done",
+                    output_index: toolState.outputIndex,
+                    item: {
+                        id: toolState.itemId,
+                        call_id: toolState.callId,
+                        type: "function_call",
+                        name: toolState.name,
+                        arguments: toolState.arguments,
+                        status: "completed"
+                    }
                 }
-            });
+            );
             toolState.done = true;
         }
     }
@@ -2233,35 +2272,37 @@ export class OpenAIConverter extends BaseConverter {
         if (delta.reasoning_content) {
             this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
             if (!state.reasoningStarted) {
-                state.reasoningId = `rs_${state.responseId}_0`;
-                events.push({
-                    type: "response.output_item.added",
-                    output_index: 0,
-                    item: {
-                        id: state.reasoningId,
-                        type: "reasoning",
-                        status: "in_progress",
-                        summary: []
+                state.reasoningOutputIndex = state.nextOutputIndex++;
+                state.reasoningId = `rs_${state.responseId}_${state.reasoningOutputIndex}`;
+                this._pushResponsesEvents(state, events,
+                    {
+                        type: "response.output_item.added",
+                        output_index: state.reasoningOutputIndex,
+                        item: {
+                            id: state.reasoningId,
+                            type: "reasoning",
+                            status: "in_progress",
+                            summary: []
+                        }
+                    },
+                    {
+                        type: "response.reasoning_summary_part.added",
+                        item_id: state.reasoningId,
+                        output_index: state.reasoningOutputIndex,
+                        summary_index: 0,
+                        part: {
+                            type: "summary_text",
+                            text: ""
+                        }
                     }
-                });
-                events.push({
-                    type: "response.reasoning_summary_part.added",
-                    item_id: state.reasoningId,
-                    output_index: 0,
-                    summary_index: 0,
-                    part: {
-                        type: "summary_text",
-                        text: ""
-                    }
-                });
+                );
                 state.reasoningStarted = true;
             }
             state.reasoningText += delta.reasoning_content;
-            events.push({
+            this._pushResponsesEvents(state, events, {
                 delta: delta.reasoning_content,
                 item_id: state.reasoningId,
-                output_index: 0,
-                sequence_number: 3,
+                output_index: state.reasoningOutputIndex,
                 summary_index: 0,
                 type: "response.reasoning_summary_text.delta"
             });
@@ -2275,18 +2316,17 @@ export class OpenAIConverter extends BaseConverter {
 
                 // 如果有 function.name，说明是工具调用开始
                 if (toolCall.function && (toolCall.function.name || toolCall.id)) {
-                    this._emitOpenAIResponsesToolStart(toolState, events);
+                    this._emitOpenAIResponsesToolStart(state, toolState, events);
                 }
 
                 // 如果有 function.arguments，说明是参数增量
                 if (toolCall.function && toolCall.function.arguments) {
-                    this._emitOpenAIResponsesToolStart(toolState, events);
+                    this._emitOpenAIResponsesToolStart(state, toolState, events);
                     toolState.arguments += toolCall.function.arguments;
-                    events.push({
+                    this._pushResponsesEvents(state, events, {
                         delta: toolCall.function.arguments,
                         item_id: toolState.itemId,
                         output_index: toolState.outputIndex,
-                        sequence_number: 3,
                         type: "response.function_call_arguments.delta"
                     });
                 }
@@ -2296,49 +2336,53 @@ export class OpenAIConverter extends BaseConverter {
         // 处理普通文本内容
         if (delta.content) {
             this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-            events.push(generateOutputTextDelta(stateKey, delta.content));
+            this._pushResponsesEvents(state, events,
+                generateOutputTextDelta(stateKey, delta.content, state.textOutputIndex)
+            );
         }
 
         // 处理完成状态 - 调用 getOpenAIResponsesStreamChunkEnd
         if (choice.finish_reason) {
             this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
             if (state.reasoningStarted) {
-                events.push({
-                    type: "response.reasoning_summary_text.done",
-                    item_id: state.reasoningId,
-                    output_index: 0,
-                    summary_index: 0,
-                    text: state.reasoningText
-                });
-                events.push({
-                    type: "response.reasoning_summary_part.done",
-                    item_id: state.reasoningId,
-                    output_index: 0,
-                    summary_index: 0,
-                    part: {
-                        type: "summary_text",
+                this._pushResponsesEvents(state, events,
+                    {
+                        type: "response.reasoning_summary_text.done",
+                        item_id: state.reasoningId,
+                        output_index: state.reasoningOutputIndex,
+                        summary_index: 0,
                         text: state.reasoningText
-                    }
-                });
-                events.push({
-                    type: "response.output_item.done",
-                    output_index: 0,
-                    item: {
-                        id: state.reasoningId,
-                        type: "reasoning",
-                        status: "completed",
-                        summary: [{
+                    },
+                    {
+                        type: "response.reasoning_summary_part.done",
+                        item_id: state.reasoningId,
+                        output_index: state.reasoningOutputIndex,
+                        summary_index: 0,
+                        part: {
                             type: "summary_text",
                             text: state.reasoningText
-                        }]
+                        }
+                    },
+                    {
+                        type: "response.output_item.done",
+                        output_index: state.reasoningOutputIndex,
+                        item: {
+                            id: state.reasoningId,
+                            type: "reasoning",
+                            status: "completed",
+                            summary: [{
+                                type: "summary_text",
+                                text: state.reasoningText
+                            }]
+                        }
                     }
-                });
+                );
             }
             if (state.textStarted) {
-                events.push(
-                    generateOutputTextDone(stateKey),
-                    generateContentPartDone(stateKey),
-                    generateOutputItemDone(stateKey)
+                this._pushResponsesEvents(state, events,
+                    generateOutputTextDone(stateKey, state.textOutputIndex),
+                    generateContentPartDone(stateKey, state.textOutputIndex),
+                    generateOutputItemDone(stateKey, state.textOutputIndex)
                 );
             }
             this._finalizeOpenAIResponsesToolCalls(state, events);
@@ -2362,7 +2406,7 @@ export class OpenAIConverter extends BaseConverter {
                     }]
                 });
             }
-            events.push(completedEvent);
+            this._pushResponsesEvents(state, events, completedEvent);
 
             // 如果有 usage 信息，更新最后一个事件
             if (openaiChunk.usage && events.length > 0) {

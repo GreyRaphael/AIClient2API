@@ -168,6 +168,8 @@ export class GeminiConverter extends BaseConverter {
         super('gemini');
         this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'gemini-converter-responses-stream' });
         this.claudeStreamStates = new StreamSessionStore({ label: 'gemini-converter-claude-stream' });
+        // OpenAI 流式输出侧的稳定 chunk 标识（同一 requestId 的流共享 id/created）
+        this.openaiStreamStates = new StreamSessionStore({ label: 'gemini-converter-openai-stream' });
     }
 
     /**
@@ -214,9 +216,9 @@ export class GeminiConverter extends BaseConverter {
     convertStreamChunk(chunk, targetProtocol, model, requestId) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model);
+                return this.toOpenAIStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model);
+                return this.toClaudeStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
@@ -295,11 +297,10 @@ export class GeminiConverter extends BaseConverter {
      */
     toOpenAIResponse(geminiResponse, model) {
         const { content, reasoning_content } = this.processGeminiResponseContent(geminiResponse);
-        
+
         // 提取 tool_calls
         const toolCalls = [];
-        let finishReason = "stop";
-        
+
         if (geminiResponse && geminiResponse.candidates) {
             for (const candidate of geminiResponse.candidates) {
                 if (candidate.content && candidate.content.parts) {
@@ -310,8 +311,8 @@ export class GeminiConverter extends BaseConverter {
                                 type: 'function',
                                 function: {
                                     name: part.functionCall.name,
-                                    arguments: typeof part.functionCall.args === 'string' 
-                                        ? part.functionCall.args 
+                                    arguments: typeof part.functionCall.args === 'string'
+                                        ? part.functionCall.args
                                         : JSON.stringify(part.functionCall.args)
                                 }
                             });
@@ -320,11 +321,11 @@ export class GeminiConverter extends BaseConverter {
                 }
             }
         }
-        
-        // 如果有工具调用，设置 finish_reason 为 tool_calls
-        if (toolCalls.length > 0) {
-            finishReason = "tool_calls";
-        }
+
+        // 映射 finishReason（MAX_TOKENS->length 等），有工具调用时覆盖为 tool_calls
+        let finishReason = toolCalls.length > 0
+            ? "tool_calls"
+            : mapFinishReason(geminiResponse?.candidates?.[0]?.finishReason, 'gemini', 'openai');
         
         const message = {
             role: "assistant",
@@ -377,13 +378,30 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
+     * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
+     */
+    _getOpenAIStreamIdentity(requestId) {
+        const stateKey = requestId || 'default';
+        if (!this.openaiStreamStates.has(stateKey)) {
+            this.openaiStreamStates.set(stateKey, {
+                id: `chatcmpl-${uuidv4()}`,
+                created: Math.floor(Date.now() / 1000)
+            });
+        }
+        return { stateKey, identity: this.openaiStreamStates.get(stateKey) };
+    }
+
+    /**
      * Gemini流式响应 -> OpenAI流式响应
      */
-    toOpenAIStreamChunk(geminiChunk, model) {
+    toOpenAIStreamChunk(geminiChunk, model, requestId = null) {
         if (!geminiChunk) return null;
 
         const candidate = geminiChunk.candidates?.[0];
         if (!candidate) return null;
+
+        // OpenAI 规范要求同一次 completion 的所有 chunk 共享 id 与 created
+        const { stateKey, identity } = this._getOpenAIStreamIdentity(requestId);
 
         let content = '';
         let reasoning_content = '';
@@ -453,9 +471,9 @@ export class GeminiConverter extends BaseConverter {
         }
 
         const chunk = {
-            id: `chatcmpl-${uuidv4()}`,
+            id: identity.id,
             object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
+            created: identity.created,
             model: model,
             choices: [{
                 index: 0,
@@ -477,6 +495,11 @@ export class GeminiConverter extends BaseConverter {
                     reasoning_tokens: geminiChunk.usageMetadata.thoughtsTokenCount || 0
                 }
             };
+        }
+
+        // 流终结（带出 finishReason 的 chunk），清理稳定标识状态
+        if (candidate.finishReason) {
+            this.openaiStreamStates.delete(stateKey);
         }
 
         return chunk;

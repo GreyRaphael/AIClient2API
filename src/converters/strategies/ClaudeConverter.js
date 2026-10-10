@@ -6,6 +6,7 @@
 import {v4 as uuidv4} from 'uuid';
 import logger from '../../utils/logger.js';
 import {BaseConverter} from '../BaseConverter.js';
+import {StreamSessionStore} from '../stream-session.js';
 import {
     checkAndAssignOrDefault,
     cleanJsonSchemaForOpenAI,
@@ -51,6 +52,8 @@ function sanitizeToolId(id) {
 export class ClaudeConverter extends BaseConverter {
     constructor() {
         super('claude');
+        // OpenAI 流式输出侧的稳定 chunk 标识（同一 requestId 的流共享 id/created）
+        this.openaiStreamStates = new StreamSessionStore({ label: 'claude-converter-openai-stream' });
     }
 
     /**
@@ -97,7 +100,7 @@ export class ClaudeConverter extends BaseConverter {
     convertStreamChunk(chunk, targetProtocol, model, requestId) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model);
+                return this.toOpenAIStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.GEMINI:
                 return this.toGeminiStreamChunk(chunk, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
@@ -477,7 +480,7 @@ export class ClaudeConverter extends BaseConverter {
             message.reasoning_content = reasoningContent;
         }
 
-        // 处理 finish_reason
+        // 处理 finish_reason（兜底映射到 OpenAI 合法值，不透传 anthropic 专有词表）
         let finishReason = 'stop';
         if (claudeResponse.stop_reason === 'end_turn') {
             finishReason = 'stop';
@@ -485,8 +488,11 @@ export class ClaudeConverter extends BaseConverter {
             finishReason = 'length';
         } else if (claudeResponse.stop_reason === 'tool_use') {
             finishReason = 'tool_calls';
+        } else if (claudeResponse.stop_reason === 'refusal') {
+            finishReason = 'content_filter';
         } else if (claudeResponse.stop_reason) {
-            finishReason = claudeResponse.stop_reason;
+            // stop_sequence / pause_turn / 其他未知值统一归一为 stop
+            finishReason = 'stop';
         }
 
         return {
@@ -512,14 +518,30 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
+     * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
+     */
+    _getOpenAIStreamIdentity(requestId) {
+        const stateKey = requestId || 'default';
+        if (!this.openaiStreamStates.has(stateKey)) {
+            this.openaiStreamStates.set(stateKey, {
+                id: `chatcmpl-${uuidv4()}`,
+                created: Math.floor(Date.now() / 1000)
+            });
+        }
+        return { stateKey, identity: this.openaiStreamStates.get(stateKey) };
+    }
+
+    /**
      * Claude流式响应 -> OpenAI流式响应
      */
-    toOpenAIStreamChunk(claudeChunk, model) {
+    toOpenAIStreamChunk(claudeChunk, model, requestId = null) {
         if (!claudeChunk) return null;
 
         // 处理 Claude 流式事件
-        const chunkId = `chatcmpl-${uuidv4()}`;
-        const timestamp = Math.floor(Date.now() / 1000);
+        // OpenAI 规范要求同一次 completion 的所有 chunk 共享 id 与 created
+        const { stateKey, identity } = this._getOpenAIStreamIdentity(requestId);
+        const chunkId = identity.id;
+        const timestamp = identity.created;
 
         // message_start 事件
         if (claudeChunk.type === 'message_start') {
@@ -676,10 +698,16 @@ export class ClaudeConverter extends BaseConverter {
         // message_delta 事件
         if (claudeChunk.type === 'message_delta') {
             const stopReason = claudeChunk.delta?.stop_reason;
-            const finishReason = stopReason === 'end_turn' ? 'stop' :
-                                stopReason === 'max_tokens' ? 'length' :
-                                stopReason === 'tool_use' ? 'tool_calls' :
-                                stopReason || 'stop';
+            // 兜底一律映射到 OpenAI 合法 finish_reason，不透传 anthropic 专有词表
+            const finishReasonMap = {
+                end_turn: 'stop',
+                max_tokens: 'length',
+                tool_use: 'tool_calls',
+                stop_sequence: 'stop',
+                refusal: 'content_filter',
+                pause_turn: 'stop'
+            };
+            const finishReason = finishReasonMap[stopReason] || 'stop';
 
             const chunk = {
                 id: chunkId,
@@ -706,11 +734,14 @@ export class ClaudeConverter extends BaseConverter {
                 };
             }
 
+            // 流终结，清理稳定标识状态（后续 message_stop 返回 null）
+            this.openaiStreamStates.delete(stateKey);
             return chunk;
         }
 
         // message_stop 事件
         if (claudeChunk.type === 'message_stop') {
+            this.openaiStreamStates.delete(stateKey);
             return null;
         }
 

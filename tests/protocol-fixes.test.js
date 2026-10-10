@@ -239,3 +239,235 @@ describe('P1: zed google 路径工具调用', () => {
         expect(fr.functionResponse.response.result).toBe('结果');
     });
 });
+
+// ---------------------------------------------------------------------------
+// P2-1: Claude / Gemini -> OpenAI 流 chunk id 与 created 保持一致并在终态清理
+// ---------------------------------------------------------------------------
+describe('P2: Claude / Gemini -> OpenAI 流 chunk id/created 一致性与清理', () => {
+    test('Claude -> OpenAI 流同一次请求共享 id 和 created，并在终态清理状态', () => {
+        const converter = new ClaudeConverter();
+        const reqId = 'jest_claude_openai_identity';
+
+        const c1 = converter.toOpenAIStreamChunk({
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'hello' }
+        }, 'model-1', reqId);
+
+        const c2 = converter.toOpenAIStreamChunk({
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: ' world' }
+        }, 'model-1', reqId);
+
+        expect(c1.id).toBe(c2.id);
+        expect(c1.created).toBe(c2.created);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(true);
+
+        // 终态 message_delta 清理
+        const cEnd = converter.toOpenAIStreamChunk({
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' }
+        }, 'model-1', reqId);
+
+        expect(cEnd.id).toBe(c1.id);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+    });
+
+    test('Gemini -> OpenAI 流同一次请求共享 id 和 created，并在终态清理状态', () => {
+        const converter = new GeminiConverter();
+        const reqId = 'jest_gemini_openai_identity';
+
+        const c1 = converter.toOpenAIStreamChunk({
+            candidates: [{ content: { parts: [{ text: 'a' }] } }]
+        }, 'model-1', reqId);
+
+        const c2 = converter.toOpenAIStreamChunk({
+            candidates: [{ content: { parts: [{ text: 'b' }] } }]
+        }, 'model-1', reqId);
+
+        expect(c1.id).toBe(c2.id);
+        expect(c1.created).toBe(c2.created);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(true);
+
+        // 带 finishReason 的 chunk 触发清理
+        const cEnd = converter.toOpenAIStreamChunk({
+            candidates: [{ content: { parts: [] }, finishReason: 'STOP' }]
+        }, 'model-1', reqId);
+
+        expect(cEnd.id).toBe(c1.id);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// P2-2: OpenAIConverter -> Responses 流 output_index 与 sequence_number 递增
+// ---------------------------------------------------------------------------
+describe('P2: OpenAI -> Responses 流 output_index 与 sequence_number 递增', () => {
+    test('reasoning, text, tool_calls 分配独立 output_index，sequence_number 严格单调递增', () => {
+        const converter = new OpenAIConverter();
+        const reqId = 'jest_openai_responses_seq';
+        const model = 'gpt-4o';
+
+        const chunks = [
+            { id: 'c1', choices: [{ delta: { role: 'assistant', reasoning_content: 'think' } }] },
+            { id: 'c1', choices: [{ delta: { content: 'hello' } }] },
+            { id: 'c1', choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'fn', arguments: '{"x":1}' } }] } }] },
+            { id: 'c1', choices: [{ finish_reason: 'stop' }] }
+        ];
+
+        const events = [];
+        for (const c of chunks) {
+            events.push(...converter.toOpenAIResponsesStreamChunk(c, model, reqId));
+        }
+
+        // 验证 sequence_number 严格递增且从 0 开始
+        const seqNums = events.map(e => e.sequence_number);
+        expect(seqNums.length).toBeGreaterThan(5);
+        for (let i = 0; i < seqNums.length; i++) {
+            expect(seqNums[i]).toBe(i);
+        }
+
+        // 验证 output_index 不撞 0：reasoning, text, tool_calls 分别获得不同的 output_index
+        const reasoningAdded = events.find(e => e.type === 'response.output_item.added' && e.item?.type === 'reasoning');
+        const textAdded = events.find(e => e.type === 'response.output_item.added' && e.item?.type === 'message');
+        const funcAdded = events.find(e => e.type === 'response.output_item.added' && e.item?.type === 'function_call');
+
+        expect(reasoningAdded).toBeDefined();
+        expect(textAdded).toBeDefined();
+        expect(funcAdded).toBeDefined();
+
+        const indices = [reasoningAdded.output_index, textAdded.output_index, funcAdded.output_index];
+        const uniqueIndices = new Set(indices);
+        expect(uniqueIndices.size).toBe(3);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// P2-3: toClaudeStreamChunk 快照式 arguments 增量 diff 过滤
+// ---------------------------------------------------------------------------
+describe('P2: toClaudeStreamChunk arguments 快照式 diff 过滤', () => {
+    test('快照累积式 arguments 只下发增量，完全相同跳过重复', () => {
+        const converter = new OpenAIConverter();
+        const reqId = 'jest_tool_arg_diff';
+        const model = 'gpt-4o';
+
+        const chunks = [
+            // chunk 1: 开始工具调用 + 首段参数
+            { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'get_weather', arguments: '{"city":' } }] } }] },
+            // chunk 2: 快照式发送了全量 arguments
+            { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"city":"beijing"}' } }] } }] },
+            // chunk 3: 重复下发相同的全量 arguments
+            { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"city":"beijing"}' } }] } }] },
+            // chunk 4: 终结
+            { choices: [{ finish_reason: 'tool_calls' }] }
+        ];
+
+        const events = [];
+        for (const c of chunks) {
+            const ev = converter.toClaudeStreamChunk(c, model, reqId);
+            if (Array.isArray(ev)) events.push(...ev);
+            else if (ev) events.push(ev);
+        }
+
+        const jsonDeltas = events
+            .filter(e => e.type === 'content_block_delta' && e.delta?.type === 'input_json_delta')
+            .map(e => e.delta.partial_json);
+
+        // chunk 1 下发 '{"city":'
+        // chunk 2 仅切片下发 diff '"beijing"}'
+        // chunk 3 完全相同被忽略，不下发重复事件
+        expect(jsonDeltas).toEqual(['{"city":', '"beijing"}']);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// P2-4: 非法 finish_reason 映射合规
+// ---------------------------------------------------------------------------
+describe('P2: finish_reason 合规映射', () => {
+    test('ClaudeConverter -> OpenAI 兜底合法 finish_reason', () => {
+        const converter = new ClaudeConverter();
+        const reqId = 'jest_claude_fr';
+
+        const checkFr = (stopReason, expectedFr) => {
+            const chunk = converter.toOpenAIStreamChunk({
+                type: 'message_delta',
+                delta: { stop_reason: stopReason }
+            }, 'm', reqId);
+            expect(chunk.choices[0].finish_reason).toBe(expectedFr);
+        };
+
+        checkFr('stop_sequence', 'stop');
+        checkFr('refusal', 'content_filter');
+        checkFr('pause_turn', 'stop');
+        checkFr('unknown_reason', 'stop');
+    });
+
+    test('GeminiConverter.toOpenAIResponse 非流式 finishReason 映射', () => {
+        const converter = new GeminiConverter();
+
+        const respMaxTok = converter.toOpenAIResponse({
+            candidates: [{
+                finishReason: 'MAX_TOKENS',
+                content: { role: 'model', parts: [{ text: 'truncated' }] }
+            }]
+        }, 'm');
+        expect(respMaxTok.choices[0].finish_reason).toBe('length');
+
+        const respTool = converter.toOpenAIResponse({
+            candidates: [{
+                finishReason: 'STOP',
+                content: { role: 'model', parts: [{ functionCall: { name: 'f', args: {} } }] }
+            }]
+        }, 'm');
+        expect(respTool.choices[0].finish_reason).toBe('tool_calls');
+    });
+
+    test('zed google 流式分支 finishReason 与 functionCall 映射', async () => {
+        const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+        service.getToken = async () => 'jwt';
+
+        const makeStream = async (candidateObj) => {
+            const sse = `data: ${JSON.stringify(candidateObj)}\n\n`;
+            const spy = jest.spyOn(axios, 'request').mockResolvedValue({ data: Readable.from([sse]) });
+            try {
+                const events = [];
+                for await (const ev of service.generateContentStream('gemini-3.5-flash', { messages: [{ role: 'user', content: 'hi' }] })) {
+                    events.push(ev);
+                }
+                return events;
+            } finally {
+                spy.mockRestore();
+            }
+        };
+
+        // 1. STOP -> end_turn
+        const evStop = await makeStream({ candidates: [{ finishReason: 'STOP' }] });
+        const mdStop = evStop.find(e => e.type === 'message_delta');
+        expect(mdStop.delta.stop_reason).toBe('end_turn');
+
+        // 2. MAX_TOKENS -> max_tokens
+        const evMax = await makeStream({ candidates: [{ finishReason: 'MAX_TOKENS' }] });
+        const mdMax = evMax.find(e => e.type === 'message_delta');
+        expect(mdMax.delta.stop_reason).toBe('max_tokens');
+
+        // 3. SAFETY -> refusal
+        const evSafe = await makeStream({ candidates: [{ finishReason: 'SAFETY' }] });
+        const mdSafe = evSafe.find(e => e.type === 'message_delta');
+        expect(mdSafe.delta.stop_reason).toBe('refusal');
+
+        // 4. functionCall -> sawToolUse -> tool_use
+        const evTool = await makeStream({
+            candidates: [{
+                content: { parts: [{ functionCall: { name: 'run_cmd', args: { cmd: 'ls' } } }] },
+                finishReason: 'STOP'
+            }]
+        });
+        const toolStart = evTool.find(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use');
+        expect(toolStart).toBeDefined();
+        expect(toolStart.content_block.name).toBe('run_cmd');
+        const mdTool = evTool.find(e => e.type === 'message_delta');
+        expect(mdTool.delta.stop_reason).toBe('tool_use');
+    });
+});
+

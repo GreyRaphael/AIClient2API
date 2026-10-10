@@ -1110,6 +1110,7 @@ export class ZedApiService {
                     }
 
                     if (Array.isArray(delta.tool_calls)) {
+                        sawToolUse = true;
                         for (let i = 0; i < delta.tool_calls.length; i++) {
                             const tc = delta.tool_calls[i];
                             if (tc.function?.name) {
@@ -1141,9 +1142,10 @@ export class ZedApiService {
 
                     if (choice.finish_reason) {
                         yield* closeActiveBlock();
+                        const isToolCalls = choice.finish_reason === 'tool_calls' || sawToolUse;
                         yield {
                             type: 'message_delta',
-                            delta: { stop_reason: choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn' },
+                            delta: { stop_reason: isToolCalls ? 'tool_use' : 'end_turn' },
                             usage: obj.usage ? this._formatClaudeUsage(obj.usage) : { output_tokens: 0 }
                         };
                     }
@@ -1154,7 +1156,7 @@ export class ZedApiService {
                 if (obj.usage && (!Array.isArray(obj.choices) || obj.choices.length === 0)) {
                     yield {
                         type: 'message_delta',
-                        delta: { stop_reason: 'end_turn' },
+                        delta: { stop_reason: sawToolUse ? 'tool_use' : 'end_turn' },
                         usage: this._formatClaudeUsage(obj.usage)
                     };
                     continue;
@@ -1186,16 +1188,56 @@ export class ZedApiService {
                                         text: part.text
                                     }
                                 };
+                            } else if (part.functionCall) {
+                                sawToolUse = true;
+                                yield* closeActiveBlock();
+                                activeBlockIndex++;
+                                activeBlockType = 'tool_use';
+                                const toolId = part.functionCall.id || `call_${randomUUID().slice(0, 8)}`;
+                                yield {
+                                    type: 'content_block_start',
+                                    index: activeBlockIndex,
+                                    content_block: {
+                                        type: 'tool_use',
+                                        id: toolId,
+                                        name: part.functionCall.name,
+                                        input: {}
+                                    }
+                                };
+                                yield {
+                                    type: 'content_block_delta',
+                                    index: activeBlockIndex,
+                                    delta: {
+                                        type: 'input_json_delta',
+                                        partial_json: typeof part.functionCall.args === 'string'
+                                            ? part.functionCall.args
+                                            : JSON.stringify(part.functionCall.args || {})
+                                    }
+                                };
+                                yield* closeActiveBlock();
                             }
                         }
                     }
 
                     if (candidate.finishReason) {
                         yield* closeActiveBlock();
+                        let stopReason = 'end_turn';
+                        const fr = String(candidate.finishReason).toUpperCase();
+                        if (sawToolUse) {
+                            stopReason = 'tool_use';
+                        } else if (fr === 'STOP') {
+                            stopReason = 'end_turn';
+                        } else if (fr === 'MAX_TOKENS') {
+                            stopReason = 'max_tokens';
+                        } else if (['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'MALICIOUS'].includes(fr)) {
+                            stopReason = 'refusal';
+                        } else {
+                            stopReason = 'end_turn';
+                        }
                         yield {
                             type: 'message_delta',
                             delta: {
-                                stop_reason: candidate.finishReason === 'STOP' ? 'end_turn' : candidate.finishReason.toLowerCase()
+                                stop_reason: stopReason
                             },
                             usage: this._formatClaudeUsage(obj.usageMetadata)
                         };
