@@ -59,7 +59,8 @@ class FileUploadHandler {
             'openai-codex-oauth': 'codex',
             'grok-cli-oauth': 'grok-cli',
             'zed': 'zed',
-            'trae': 'trae'
+            'trae': 'trae',
+            'trae-agent_v3': 'trae'
         };
         return providerMap[provider] || 'antigravity';
     }

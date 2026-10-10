@@ -5,19 +5,49 @@ import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
+import { updateProviderModels, PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_AGENT_V3_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.js';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.js';
 
-const APP_ID = '6eefa01c-1036-4c7e-9ca5-d891f63bfcd8';
-const IDE_VERSION = '0.1.52';
-const IDE_VERSION_CODE = '20260811';
-const DEVICE_BRAND = '83DG';
-const OS_VERSION = 'Windows 11 Pro';
-const FUNCTION_NAME = 'chat_v3';
-// 备用通道说明（以 chat_v3 为准）：
-// - 'solo_work_lite': 长流程自主多步骤编码/修改专用通道
-// - 'chat': 早期常规对话/快速问答通道
+export const TRAE_CHANNEL_MODES = {
+    TOB_RAW_CHAT: 'tob_raw_chat',
+    AGENT_V3: 'agent_v3',
+    CUSTOM: 'custom'
+};
+
+export const TRAE_CHANNEL_PRESETS = {
+    [TRAE_CHANNEL_MODES.TOB_RAW_CHAT]: {
+        name: 'tob_raw_chat',
+        label: '企业原生直连 (ToB Raw Chat - 推荐)',
+        endpointPath: '/api/ide/v2/llm_raw_chat',
+        modelsEndpointPath: '/api/ide/v1/batch_get_detail_param',
+        defaultHost: 'https://api.enterprise.trae.cn',
+        function: 'chat',
+        appId: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
+        ideVersion: '0.208.1',
+        ideVersionCode: '20260908',
+        deviceType: 'linux',
+        osVersion: 'Linux 6.8.0',
+        deviceBrand: 'PC',
+        ideVersionType: 'stable'
+    },
+    [TRAE_CHANNEL_MODES.AGENT_V3]: {
+        name: 'agent_v3',
+        label: 'SOLO Agent 通道 (solo_work_lite)',
+        endpointPath: '/api/agent/v3/llm_utils_chat',
+        modelsEndpointPath: '/api/ide/v1/get_detail_param',
+        defaultHost: 'https://trae-api-cn.mchost.guru',
+        function: 'solo_work_lite',
+        appId: '6eefa01c-1036-4c7e-9ca5-d891f63bfcd8',
+        ideVersion: '0.1.52',
+        ideVersionCode: '20260811',
+        deviceType: 'windows',
+        osVersion: 'Windows 11 Pro',
+        deviceBrand: '83DG',
+        ideVersionType: 'stable'
+    }
+};
+
 const DEFAULT_MODEL = 'glm-5.2';
 
 /**
@@ -28,27 +58,85 @@ const CANONICAL_MODEL_ALIASES = {
     'auto': 'glm-5.2',
     'claude-3.5-sonnet': 'glm-5.2',
     'claude-3.7-sonnet': 'glm-5.2',
-    'gpt-4o': 'DeepSeek-V4-Pro',
-    'gpt-4o-mini': 'DeepSeek-V4-Flash',
-    // 官方 2.0 底层 ID 映射
+    'gpt-4o': 'deepseek-V4-Pro',
+    'gpt-4o-mini': 'DeepSeek-V4.1-Flash',
+    // 官方 2.0 用户展示名 (Slug) 与中文别名 -> 底层真实 config_name
     'deepseek-v4-pro 正式版': 'DeepSeek-V4-Pro-Official',
     'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
     'deepseek-v4-flash 正式版': 'DeepSeek-V4-Flash-Official',
     'deepseek-v4-flash-official': 'DeepSeek-V4-Flash-Official',
-    'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-Pro',
+    'deepseek-v4-flash': 'DeepSeek-V4.1-Flash', // 旧版下架模型智能降级至 4.1 Flash
+    'deepseek-v4.1-flash': 'DeepSeek-V4.1-Flash',
+    'deepseek-v4-pro': 'deepseek-V4-Pro',
+    'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-pro',
+    'doubao-seed-2.1-pro': 'Doubao-Seed-2.1-pro',
+    'doubao-seed-2.1-turbo': 'Doubao-Seed-2.1-turbo',
     'doubao-seed-code': 'Doubao_1_6',
+    'doubao_1_6': 'Doubao_1_6',
+    'doubao-seed-evolving': 'Doubao-Seed-Evolving',
+    'doubao-seed-2.0-code': 'Doubao-Seed-2.0-Code',
     'qwen3.7-plus': 'qwen-3.7-plus',
-    // 大小写敏感与官方底层 ID 规范化
-    'doubao-seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
-    'doubao-seed-2.1-turbo': 'Doubao-Seed-2.1-Turbo',
-    'deepseek-v4-pro': 'DeepSeek-V4-Pro',
-    'deepseek-v4-flash': 'DeepSeek-V4-Flash',
-    'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
-    'glm-5.3-flash': 'glm-5.3-flash',
-    'glm-5.3-flashx': 'glm-5.3-flashx',
+    'qwen-3.7-plus': 'qwen-3.7-plus',
+    'qwen3.8-max': 'qwen3.8-max',
+    'qwen3.8-flash': 'qwen3.8-max', // 下架/不存在型号智能降级
+    'glm-5': 'glm-5.2',           // 历史退役型号智能降级
+    'kimi-k2.6': 'kimi-k2.7-code', // 历史退役型号智能降级
     'kimi-k2.8': 'kimi-k2.8-preview',
     'kimi-k2.8-preview': 'kimi-k2.8-preview',
-    'qwen3.8-flash': 'qwen3.8-flash'
+    'kimi-k2.7': 'kimi-k2.7-code',
+    'kimi-k2.7-code': 'kimi-k2.7-code',
+    'kimi-k3': 'kimi-k3',
+    'glm-5.3-flash': 'glm-5.3-flash',
+    'glm-5.3-flashx': 'glm-5.3-flashx',
+    'glm-5.3': 'glm-5.3',
+    'glm-5.2': 'glm-5.2',
+    'glm-5v-turbo': 'glm-5v-turbo',
+    'step-5-preview': 'step-5-preview',
+    'minimax-m2.7': 'minimax-m2.7',
+    'minimax-m3': 'minimax-m3',
+    'mimo-v2.6-flash': 'mimo-v2.6-flash',
+    'mimo-v2.6-pro': 'mimo-v2.6-pro'
+};
+
+/**
+ * Trae Agent v3 (SOLO) 专属模型别名与重定向映射表（以全小写作为规范化键）
+ */
+export const AGENT_V3_MODEL_ALIASES = {
+    'auto': 'glm-5.2',
+    'claude-3.5-sonnet': 'glm-5.2',
+    'claude-3.7-sonnet': 'glm-5.2',
+    'gpt-4o': 'DeepSeek-V4-Pro',
+    'gpt-4o-mini': 'deepseek-v4.1-flash',
+    'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
+    'deepseek-v4-flash': 'deepseek-v4.1-flash',
+    'deepseek-v4-flash 正式版': 'DeepSeek-V4-Flash-Official',
+    'deepseek-v4-flash-official': 'DeepSeek-V4-Flash-Official',
+    'deepseek-v4-pro 正式版': 'DeepSeek-V4-Pro-Official',
+    'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
+    'deepseek-v4-pro': 'DeepSeek-V4-Pro',
+    'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-Pro',
+    'doubao-seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
+    'doubao-seed-2.1-turbo': 'Doubao-Seed-2.1-Turbo',
+    'doubao-seed-code': 'Doubao-Seed-2.0-Code',
+    'doubao-seed-evolving': 'Doubao-Seed-Evolving',
+    'doubao-seed-2.0-code': 'Doubao-Seed-2.0-Code',
+    'qwen3.7-plus': 'qwen-3.7-plus',
+    'qwen-3.7-plus': 'qwen-3.7-plus',
+    'qwen3.8-max': 'qwen3.8-max',
+    'qwen3.8-flash': 'qwen3.8-max',
+    'glm-5': 'glm-5.2',
+    'glm-5-turbo': 'glm-5-turbo',
+    'glm-5.2': 'glm-5.2',
+    'glm-5.3': 'glm-5.3',
+    'glm-5.3-flash': 'glm-5.3-flash',
+    'glm-5.3-flashx': 'glm-5.3-flashx',
+    'kimi-k2.6': 'kimi-k2.6',
+    'kimi-k2.7-code': 'kimi-k2.7-code',
+    'kimi-k3': 'kimi-k3',
+    'minimax-m3': 'minimax-m3',
+    'mimo-v2.6-flash': 'mimo-v2.6-flash',
+    'mimo-v2.6-pro': 'mimo-v2.6-pro',
+    'step-5-preview': 'step-5-preview'
 };
 
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
@@ -68,6 +156,28 @@ export class TraeApiService {
         this.authHost = (this.config.TRAE_AUTH_HOST || this.config.TRAE_HOST || this.config.TRAE_BASE_URL || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
         this.agentHost = (this.config.TRAE_AGENT_HOST || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
         this.host = this.authHost;
+
+        // 解析通道模式：支持从配置、环境变量解析，或根据 URL 特征推断，默认使用 ToB 原生直连通道
+        const configuredMode = (this.config.TRAE_CHANNEL_MODE || process.env.TRAE_CHANNEL_MODE || '').trim().toLowerCase();
+        const providerType = String(this.config.MODEL_PROVIDER || '').toLowerCase();
+        if (configuredMode === TRAE_CHANNEL_MODES.AGENT_V3 || configuredMode === 'legacy' || configuredMode === 'chat_v3' || configuredMode === 'solo' || configuredMode === 'solo_work_lite') {
+            this.channelMode = TRAE_CHANNEL_MODES.AGENT_V3;
+        } else if (configuredMode === TRAE_CHANNEL_MODES.CUSTOM) {
+            this.channelMode = TRAE_CHANNEL_MODES.CUSTOM;
+        } else if (configuredMode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || configuredMode === 'raw' || configuredMode === 'tob') {
+            this.channelMode = TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
+        } else if (providerType.includes('agent_v3')) {
+            this.channelMode = TRAE_CHANNEL_MODES.AGENT_V3;
+        } else {
+            // 自动推断：如果配置的 URL 明确指向 mchost.guru 或包含 llm_utils_chat，则使用 agent_v3
+            const urlToCheck = String(this.config.TRAE_BASE_URL || this.config.TRAE_HOST || '').toLowerCase();
+            if (urlToCheck.includes('mchost.guru') || urlToCheck.includes('llm_utils_chat')) {
+                this.channelMode = TRAE_CHANNEL_MODES.AGENT_V3;
+            } else {
+                this.channelMode = TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
+            }
+        }
+
         this.userId = null;
         this.enterpriseId = null;
         this.nickname = null;
@@ -83,8 +193,82 @@ export class TraeApiService {
 
         this.loadCredentials();
         if (this.isInitialized) {
-            updateProviderModels(MODEL_PROVIDER.TRAE, PROVIDER_MODELS.trae);
+            const targetProvider = this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3
+                ? (this.config.MODEL_PROVIDER || 'trae-agent_v3')
+                : (this.config.MODEL_PROVIDER || MODEL_PROVIDER.TRAE);
+            const defaultModels = PROVIDER_MODELS[targetProvider] || (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3 ? BASE_TRAE_AGENT_V3_MODELS : BASE_TRAE_MODELS);
+            updateProviderModels(targetProvider, defaultModels);
         }
+    }
+
+    /**
+     * 获取当前通道的完整配置信息 (端点 URL、函数名、应用 ID 与版本标识)
+     * @returns {Object}
+     */
+    getChannelConfig() {
+        if (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3) {
+            const preset = TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.AGENT_V3];
+            const baseUrl = (this.config.TRAE_BASE_URL || this.agentHost || preset.defaultHost).replace(/\/+$/, '');
+            return {
+                mode: TRAE_CHANNEL_MODES.AGENT_V3,
+                url: baseUrl.endsWith('/api/agent/v3/llm_utils_chat') ? baseUrl : `${baseUrl}/api/agent/v3/llm_utils_chat`,
+                modelsUrl: baseUrl.endsWith('/api/ide/v1/get_detail_param') ? baseUrl : `${baseUrl}/api/ide/v1/get_detail_param`,
+                function: preset.function,
+                appId: preset.appId,
+                ideVersion: preset.ideVersion,
+                ideVersionCode: preset.ideVersionCode,
+                deviceType: preset.deviceType,
+                osVersion: preset.osVersion,
+                deviceBrand: preset.deviceBrand,
+                ideVersionType: preset.ideVersionType
+            };
+        }
+
+        if (this.channelMode === TRAE_CHANNEL_MODES.CUSTOM) {
+            const rawBase = (this.config.TRAE_BASE_URL || this.authHost).replace(/\/+$/, '');
+            let isFullEndpoint = false;
+            try {
+                const parsedUrl = new URL(rawBase);
+                isFullEndpoint = Boolean(parsedUrl.pathname && parsedUrl.pathname !== '/');
+            } catch {
+                isFullEndpoint = rawBase.includes('/api/') || rawBase.includes('/chat');
+            }
+            const isLegacyPath = rawBase.includes('llm_utils_chat');
+            const url = isFullEndpoint ? rawBase : `${rawBase}/api/ide/v2/llm_raw_chat`;
+            const basePreset = isLegacyPath
+                ? TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.AGENT_V3]
+                : TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.TOB_RAW_CHAT];
+            return {
+                mode: TRAE_CHANNEL_MODES.CUSTOM,
+                url,
+                modelsUrl: isLegacyPath ? `${this.agentHost}/api/ide/v1/get_detail_param` : `${this.authHost}/api/ide/v1/batch_get_detail_param`,
+                function: isLegacyPath ? 'solo_work_lite' : 'chat',
+                appId: basePreset.appId,
+                ideVersion: basePreset.ideVersion,
+                ideVersionCode: basePreset.ideVersionCode,
+                deviceType: basePreset.deviceType,
+                osVersion: basePreset.osVersion,
+                deviceBrand: basePreset.deviceBrand,
+                ideVersionType: basePreset.ideVersionType
+            };
+        }
+
+        // 默认: tob_raw_chat
+        const preset = TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.TOB_RAW_CHAT];
+        const baseUrl = this.authHost || preset.defaultHost;
+        return {
+            mode: TRAE_CHANNEL_MODES.TOB_RAW_CHAT,
+            url: baseUrl.endsWith('/api/ide/v2/llm_raw_chat') ? baseUrl : `${baseUrl}/api/ide/v2/llm_raw_chat`,
+            modelsUrl: baseUrl.endsWith('/api/ide/v1/batch_get_detail_param') ? baseUrl : `${baseUrl}/api/ide/v1/batch_get_detail_param`,
+            function: preset.function,
+            appId: preset.appId,
+            ideVersion: preset.ideVersion,
+            ideVersionCode: preset.ideVersionCode,
+            deviceType: preset.deviceType,
+            osVersion: preset.osVersion,
+            deviceBrand: preset.deviceBrand,
+            ideVersionType: preset.ideVersionType
+        };
     }
 
     /**
@@ -92,7 +276,7 @@ export class TraeApiService {
      */
     getAccountKey() {
         const accountId = this.userId || this.nickname || this.enterpriseId || this.uuid || 'default';
-        return `${this.authHost}#${accountId}`;
+        return `${this.authHost}#${accountId}#${this.channelMode}`;
     }
 
     /**
@@ -130,18 +314,29 @@ export class TraeApiService {
         const trimmed = String(rawModel || DEFAULT_MODEL).trim();
         const lower = trimmed.toLowerCase();
 
-        // 1. 命中预设别名表（O(1) 精确匹配）
-        if (CANONICAL_MODEL_ALIASES[lower]) {
-            return CANONICAL_MODEL_ALIASES[lower];
+        // 1. auto 特殊别名
+        if (lower === 'auto') {
+            return 'glm-5.2';
         }
 
-        // 2. 匹配动态发现的模型元数据列表（忽略大小写）
+        // 2. 优先匹配当前账号/通道已动态发现的模型元数据列表（忽略大小写，优先使用当前通道的原版标识）
         const accountCache = this.getAccountCache();
         if (accountCache.metadataMap && accountCache.metadataMap.size > 0) {
             for (const key of accountCache.metadataMap.keys()) {
                 if (key.toLowerCase() === lower) {
                     return key;
                 }
+            }
+        }
+
+        // 3. 针对不同通道查阅对应的别名表
+        if (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3) {
+            if (AGENT_V3_MODEL_ALIASES[lower]) {
+                return AGENT_V3_MODEL_ALIASES[lower];
+            }
+        } else {
+            if (CANONICAL_MODEL_ALIASES[lower]) {
+                return CANONICAL_MODEL_ALIASES[lower];
             }
         }
 
@@ -281,48 +476,86 @@ export class TraeApiService {
     }
 
     /**
-     * 构造上游 SOLO 专用请求头
+     * 构造上游请求头 (按通道模式适配)
      */
     async buildHeaders(stream = false) {
         const token = await this.getToken();
-        return {
+        const channel = this.getChannelConfig();
+        const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');
+
+        const headers = {
             'Content-Type': 'application/json',
             'Accept': stream ? 'text/event-stream' : 'application/json',
-            'User-Agent': `Trae/${IDE_VERSION}`,
+            'User-Agent': `Trae/${channel.ideVersion}`,
             'Authorization': `Cloud-IDE-JWT ${token}`,
             'X-Cloudide-Token': token,
             'X-Ide-Token': token,
             'X-Uid': this.userId || '',
-            'X-App-Id': APP_ID,
-            'X-App-Version': 'default',
-            'X-Ide-Version': IDE_VERSION,
-            'X-Ide-Version-Code': IDE_VERSION_CODE,
-            'X-App-Version-Code': IDE_VERSION_CODE,
-            'X-Ide-Version-Type': 'stable',
-            'X-Device-Type': 'windows',
-            'X-OS-Version': OS_VERSION,
-            'X-Device-Brand': DEVICE_BRAND,
+            'X-App-Id': channel.appId,
+            'X-App-Version': channel.ideVersion === '0.1.52' ? 'default' : channel.ideVersion,
+            'X-Ide-Version': channel.ideVersion,
+            'X-Ide-Version-Code': channel.ideVersionCode,
+            'X-App-Version-Code': channel.ideVersionCode,
+            'X-Ide-Version-Type': channel.ideVersionType,
+            'X-Device-Type': channel.deviceType,
+            'X-OS-Version': channel.osVersion || 'Windows 11 Pro',
+            'X-Device-Brand': channel.deviceBrand || '83DG',
             'Request-Traffic-Type': 'prod',
             'X-Machine-Id': this.machineId,
             'X-Device-Id': this.deviceId
         };
+
+        if (isToB) {
+            headers['x-ide-function'] = channel.function;
+            const traceId = randomBytes(16).toString('hex');
+            const spanId = randomBytes(8).toString('hex');
+            headers['x-flow-traceparent'] = `00-${traceId}-${spanId}-01`;
+        }
+
+        return headers;
     }
 
     /**
-     * 单 pass 改写 OpenAI 请求体为 Trae SOLO 上游格式
+     * 改写 OpenAI 请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 Legacy agent_v3)
      */
     prepareRequestBody(model, requestBody) {
         const payload = JSON.parse(JSON.stringify(requestBody || {}));
         const targetModel = this.normalizeModelName(model || payload.model || DEFAULT_MODEL);
+        const channel = this.getChannelConfig();
+        const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');
 
         payload.stream = true; // 上游统一走流式通道
-        payload.function = this.modelFunctionMap.get(targetModel) || FUNCTION_NAME;
-        payload.max_mode = true; // 开启 Trae Max Mode 超大上下文 (最高 1M)
-        payload.model = targetModel;
         payload.config_name = targetModel;
 
-        // 映射并注入 Trae 2.0 原生思考深度 (light / high / extra_high)
         const modelMeta = this.modelMetadataMap.get(targetModel);
+
+        payload.model = targetModel;
+
+        if (isToB) {
+            payload.function = channel.function; // 'chat'
+            const hasMaxMode = modelMeta ? Boolean(modelMeta.max_key) : true;
+            payload.max_mode = (requestBody && typeof requestBody.max_mode === 'boolean') ? requestBody.max_mode : hasMaxMode;
+            if (payload.max_mode && modelMeta?.max_key) {
+                payload.model_name = modelMeta.max_key;
+            } else if (modelMeta?.standard_key) {
+                payload.model_name = modelMeta.standard_key;
+                payload.max_mode = false;
+            } else {
+                const isFlashOff = targetModel === 'DeepSeek-V4-Flash-Official';
+                const defaultDev = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${targetModel}__dev`;
+                const defaultMax = isFlashOff ? 'deepseek_v4_flash_official__max' : `${targetModel}__max`;
+                payload.model_name = payload.max_mode ? defaultMax : defaultDev;
+            }
+            payload.conversation_id = payload.conversation_id || randomUUID();
+            payload.session_id = payload.session_id || payload.conversation_id;
+            payload.mode_type = 0;
+            payload.access_type = 4;
+        } else {
+            payload.max_mode = true;
+            payload.function = channel.function || 'solo_work_lite';
+        }
+
+        // 映射并注入 Trae 思考深度 (light / high / extra_high)
         const rawEffort = payload.reasoning_effort || requestBody?.reasoning_effort || (modelMeta?.supports_thinking ? modelMeta.default_reasoning_effort : undefined);
         delete payload.reasoning_effort;
         if (rawEffort && (modelMeta?.supports_thinking !== false)) {
@@ -362,7 +595,7 @@ export class TraeApiService {
                     }
                 }
 
-                // 规范化 content 为 Trae 的 [{"type": "text", "text": "..."}] 结构，兼容工具返回对象等情况
+                // 规范化 content 为 Trae 的 [{"type": "text", "text": "..."}] 结构
                 if (typeof msg.content === 'string') {
                     msg.content = [{ type: 'text', text: msg.content }];
                 } else if (typeof msg.content === 'number' || typeof msg.content === 'boolean') {
@@ -388,7 +621,7 @@ export class TraeApiService {
                     msg.content = [{ type: 'text', text: '' }];
                 }
 
-                // 合并连续的 assistant 消息，防止并发 tool_calls 被切成多个 assistant 消息导致上游 4027 错误
+                // 合并连续的 assistant 消息
                 const prevMsg = mergedMessages[mergedMessages.length - 1];
                 if (prevMsg && prevMsg.role === 'assistant' && msg.role === 'assistant') {
                     if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
@@ -409,6 +642,18 @@ export class TraeApiService {
                 }
             }
             payload.messages = mergedMessages;
+
+            if (isToB && !payload.user_input) {
+                const lastUser = [...mergedMessages].reverse().find(m => m.role === 'user');
+                if (lastUser && Array.isArray(lastUser.content)) {
+                    const textItem = lastUser.content.find(c => c.type === 'text');
+                    payload.user_input = textItem?.text || '';
+                } else {
+                    payload.user_input = '';
+                }
+            }
+        } else if (isToB && !payload.user_input) {
+            payload.user_input = '';
         }
 
         // 归一化 tool_choice
@@ -489,9 +734,10 @@ export class TraeApiService {
      * 解析 Trae 的专有 SSE 事件并实时转码为 OpenAI 兼容的 chunk
      */
     async *generateContentStream(model, requestBody) {
+        const channel = this.getChannelConfig();
         const payload = this.prepareRequestBody(model, requestBody);
         const headers = await this.buildHeaders(true);
-        const url = `${this.agentHost}/api/agent/v3/llm_utils_chat`;
+        const url = channel.url;
 
         const axiosConfig = {
             method: 'POST',
@@ -503,7 +749,7 @@ export class TraeApiService {
         };
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
 
-        logger.debug(`[Trae] Streaming request to ${url} (model: ${payload.model})`);
+        logger.debug(`[Trae] Streaming request to ${url} (channel: ${channel.mode}, model: ${payload.model_name || payload.model})`);
         let response;
         try {
             response = await axios(axiosConfig);
@@ -784,35 +1030,69 @@ export class TraeApiService {
                 const newFunctionMap = new Map();
                 const mergedMap = new Map();
 
+                const channel = this.getChannelConfig();
                 const headers = await this.buildHeaders(false);
-                const batchBody = {
-                    app_id: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
-                    version_code: '20260908',
-                    functions: [FUNCTION_NAME],
-                    agent_type: 'chat',
-                    mode_type: 0,
-                    access_type: 4,
-                    show_custom_model: false
-                };
-
                 const allConfigs = [];
-                try {
-                    const axiosConfig = {
-                        method: 'POST',
-                        url: `${this.authHost}/api/ide/v1/batch_get_detail_param`,
-                        data: batchBody,
-                        headers,
-                        timeout: 8000
+
+                if (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3) {
+                    // 2. agent_v3 通道: POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param
+                    const targetUrl = channel.modelsUrl || `${this.agentHost}/api/ide/v1/get_detail_param`;
+                    const agentBody = {
+                        function: "solo_work_lite",
+                        poly_prompt: true,
+                        need_prompt: false,
+                        config_names: null,
+                        current_config_info: null,
+                        mode_type: null,
+                        agent_type: null
                     };
-                    configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
-                    const res = await axios(axiosConfig);
-                    for (const fc of res.data?.function_configs || []) {
-                        for (const item of fc.config_info_list || []) {
+                    try {
+                        const axiosConfig = {
+                            method: 'POST',
+                            url: targetUrl,
+                            data: agentBody,
+                            headers,
+                            timeout: 8000
+                        };
+                        configureAxiosProxy(axiosConfig, this.config, 'trae-agent_v3');
+                        const res = await axios(axiosConfig);
+                        for (const item of res.data?.config_info_list || []) {
                             if (item) allConfigs.push(item);
                         }
+                    } catch (agentErr) {
+                        logger.debug(`[Trae] get_detail_param failed on ${targetUrl}: ${agentErr.message}`);
                     }
-                } catch (batchErr) {
-                    logger.debug(`[Trae] batch_get_detail_param failed on ${this.authHost}: ${batchErr.message}`);
+                } else {
+                    // 1. tob_raw_chat 通道: POST https://api.enterprise.trae.cn/api/ide/v1/batch_get_detail_param
+                    const targetUrl = channel.modelsUrl || `${this.authHost}/api/ide/v1/batch_get_detail_param`;
+                    const batchBody = {
+                        app_id: channel.appId,
+                        version_code: channel.ideVersionCode,
+                        functions: ["chat"],
+                        agent_type: 'chat',
+                        mode_type: 0,
+                        access_type: 4,
+                        client_id: this.deviceId || this.machineId || 'trae-cli-client',
+                        show_custom_model: false
+                    };
+                    try {
+                        const axiosConfig = {
+                            method: 'POST',
+                            url: targetUrl,
+                            data: batchBody,
+                            headers,
+                            timeout: 8000
+                        };
+                        configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
+                        const res = await axios(axiosConfig);
+                        for (const fc of res.data?.function_configs || []) {
+                            for (const item of fc.config_info_list || []) {
+                                if (item) allConfigs.push(item);
+                            }
+                        }
+                    } catch (batchErr) {
+                        logger.debug(`[Trae] batch_get_detail_param failed on ${targetUrl}: ${batchErr.message}`);
+                    }
                 }
 
                 const excludedConfigNames = new Set([
@@ -866,8 +1146,8 @@ export class TraeApiService {
                     const displayName = item.display_config?.display_name?.trim() || item.display_name?.trim();
                     if (displayName === '-') continue;
 
-                    // 严格对齐上游真实底层规范 ID
-                    id = this.normalizeModelName(id);
+                    // 严格使用上游返回的原版真实底层 config_name
+                    id = item.config_name;
 
                     // context_window: 默认使用上游 Max 档位 (context_window_tokens.max)；若未显式提供则取可用最大档位 (如 dev / 详情最大容量)
                     const maxCtx = item.context_window_tokens?.max;
@@ -900,6 +1180,18 @@ export class TraeApiService {
                         ? mapReasoningLevel(rawDefault)
                         : (supportsThinking ? (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high') : undefined);
 
+                    // 提取底层变体键名 standard_key (__dev) 与 max_key (__max)
+                    const detailsList = Array.isArray(item.model_detail_list) && item.model_detail_list.length > 0
+                        ? item.model_detail_list
+                        : (Array.isArray(item.models) ? item.models : []);
+                    const standardVariant = detailsList.find(m => m.model_name?.endsWith('__dev'))?.model_name;
+                    const maxVariant = detailsList.find(m => m.model_name?.endsWith('__max'))?.model_name;
+                    const isFlashOff = id === 'DeepSeek-V4-Flash-Official';
+                    const fallbackDev = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${id}__dev`;
+                    const fallbackMax = isFlashOff ? 'deepseek_v4_flash_official__max' : `${id}__max`;
+                    const standardKey = standardVariant || fallbackDev;
+                    const maxKey = maxVariant || (item.context_window_tokens?.max ? fallbackMax : null);
+
                     if (mergedMap.has(id)) {
                         const prev = mergedMap.get(id);
                         if (ctx > prev.context_window) prev.context_window = ctx;
@@ -907,7 +1199,9 @@ export class TraeApiService {
                         if (supportsThinking) prev.supports_thinking = true;
                         if (effortLevels.length > prev.reasoning_effort_levels.length) prev.reasoning_effort_levels = effortLevels;
                         if (defaultEffort && !prev.default_reasoning_effort) prev.default_reasoning_effort = defaultEffort;
-                        newFunctionMap.set(id, FUNCTION_NAME);
+                        if (!prev.standard_key) prev.standard_key = standardKey;
+                        if (!prev.max_key && maxKey) prev.max_key = maxKey;
+                        newFunctionMap.set(id, channel.function);
                     } else {
                         const modelInfo = {
                             id, // 严格使用底层真实 ID (例如 DeepSeek-V4-Pro-Official)
@@ -917,20 +1211,29 @@ export class TraeApiService {
                             max_tokens: maxTok,
                             supports_thinking: supportsThinking,
                             default_reasoning_effort: defaultEffort,
-                            reasoning_effort_levels: effortLevels
+                            reasoning_effort_levels: effortLevels,
+                            standard_key: standardKey,
+                            max_key: maxKey
                         };
                         mergedMap.set(id, modelInfo);
                         newMetadataMap.set(id, modelInfo);
-                        newFunctionMap.set(id, FUNCTION_NAME);
+                        newFunctionMap.set(id, channel.function);
                     }
                 }
 
-                // 确保合并并保留核心原生基础模型 (特别是 deepseek-v4.1-flash 等直连推理端点原生支持的模型)
-                const baseModelIds = PROVIDER_MODELS.trae || ['deepseek-v4.1-flash', 'DeepSeek-V4-Flash', 'DeepSeek-V4-Pro', 'glm-5.2', 'auto'];
+                // 确保合并并保留核心原生基础模型
+                const isAgent = this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3;
+                const targetProvider = isAgent
+                    ? (this.config.MODEL_PROVIDER || 'trae-agent_v3')
+                    : (this.config.MODEL_PROVIDER || MODEL_PROVIDER.TRAE);
+                const baseModelIds = PROVIDER_MODELS[targetProvider] || (isAgent ? BASE_TRAE_AGENT_V3_MODELS : BASE_TRAE_MODELS);
                 for (const baseId of baseModelIds) {
                     if (!mergedMap.has(baseId)) {
                         const canonicalId = this.normalizeModelName(baseId);
                         const targetMeta = mergedMap.get(canonicalId);
+                        const isFlashOff = canonicalId === 'DeepSeek-V4-Flash-Official';
+                        const fallbackDev = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${canonicalId}__dev`;
+                        const fallbackMax = isFlashOff ? 'deepseek_v4_flash_official__max' : `${canonicalId}__max`;
                         const modelInfo = {
                             id: baseId,
                             name: baseId,
@@ -939,11 +1242,13 @@ export class TraeApiService {
                             max_tokens: targetMeta?.max_tokens || 64000,
                             supports_thinking: targetMeta?.supports_thinking ?? true,
                             default_reasoning_effort: targetMeta?.default_reasoning_effort || (baseId.toLowerCase().includes('kimi') ? 'xhigh' : 'high'),
-                            reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
+                            reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh'],
+                            standard_key: targetMeta?.standard_key || fallbackDev,
+                            max_key: targetMeta?.max_key || fallbackMax
                         };
                         mergedMap.set(baseId, modelInfo);
                         newMetadataMap.set(baseId, modelInfo);
-                        newFunctionMap.set(baseId, FUNCTION_NAME);
+                        newFunctionMap.set(baseId, channel.function);
                     }
                 }
 
@@ -964,7 +1269,7 @@ export class TraeApiService {
                         };
                         mergedMap.set(alias, modelInfo);
                         newMetadataMap.set(alias, modelInfo);
-                        newFunctionMap.set(alias, FUNCTION_NAME);
+                        newFunctionMap.set(alias, channel.function);
                     }
                 }
 
@@ -976,12 +1281,12 @@ export class TraeApiService {
                     accountCache.functionMap = newFunctionMap;
                     accountCache.models = modelObjects;
                     accountCache.expiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
-                    updateProviderModels(MODEL_PROVIDER.TRAE, modelIds);
-                    logger.info(`[Trae] Successfully fetched dynamic model list from upstream (${modelIds.length} models, with Max Mode 1M support): ${modelIds.join(', ')}`);
+                    updateProviderModels(targetProvider, modelIds);
+                    logger.info(`[Trae] (${targetProvider}/${this.channelMode}) Successfully fetched dynamic model list from upstream (${modelIds.length} models): ${modelIds.join(', ')}`);
                     return modelObjects;
                 }
             } catch (error) {
-                logger.warn(`[Trae] Failed to fetch remote models from ${this.authHost}: ${error.message}`);
+                logger.warn(`[Trae] Failed to fetch remote models (${this.channelMode}): ${error.message}`);
             } finally {
                 this._fetchModelsPromise = null;
             }
@@ -996,9 +1301,18 @@ export class TraeApiService {
      * 回退静态模型列表，并预热账户元数据与通道映射
      */
     _getFallbackModels() {
-        const modelIds = PROVIDER_MODELS.trae || ['glm-5.2', 'deepseek-v4.1-flash', 'DeepSeek-V4-Pro'];
+        const isAgent = this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3;
+        const targetProvider = isAgent
+            ? (this.config.MODEL_PROVIDER || 'trae-agent_v3')
+            : (this.config.MODEL_PROVIDER || MODEL_PROVIDER.TRAE);
+        const modelIds = PROVIDER_MODELS[targetProvider] || (isAgent ? BASE_TRAE_AGENT_V3_MODELS : BASE_TRAE_MODELS);
         const accountCache = this.getAccountCache();
+        const channel = this.getChannelConfig();
         const fallbackList = modelIds.map(id => {
+            const canonical = this.normalizeModelName(id);
+            const isFlashOff = canonical === 'DeepSeek-V4-Flash-Official';
+            const standardKey = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${canonical}__dev`;
+            const maxKey = isFlashOff ? 'deepseek_v4_flash_official__max' : `${canonical}__max`;
             return {
                 id,
                 name: id,
@@ -1006,7 +1320,9 @@ export class TraeApiService {
                 max_tokens: 64000,        // 默认最大
                 supports_thinking: true,
                 default_reasoning_effort: (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high'),
-                reasoning_effort_levels: ['low', 'high', 'xhigh']
+                reasoning_effort_levels: ['low', 'high', 'xhigh'],
+                standard_key: standardKey,
+                max_key: maxKey
             };
         });
 
@@ -1015,7 +1331,7 @@ export class TraeApiService {
                 accountCache.metadataMap.set(item.id, item);
             }
             if (!accountCache.functionMap.has(item.id)) {
-                accountCache.functionMap.set(item.id, FUNCTION_NAME);
+                accountCache.functionMap.set(item.id, channel.function);
             }
         }
 

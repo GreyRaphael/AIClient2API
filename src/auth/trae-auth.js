@@ -235,13 +235,17 @@ export async function saveTraeCredentials(credData, options = {}) {
     });
     logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Saved Trae credentials to ${credPath}`);
 
+    const providerType = options.providerType || 'trae';
     const relCredPath = `./configs/trae/${filename}`;
     try {
         await autoLinkProviderConfigs(CONFIG, {
             onlyCurrentCred: true,
-            credPath: relCredPath
+            credPath: relCredPath,
+            providerType: providerType,
+            customName: options.customName,
+            host: options.host || credData.host
         });
-        logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Auto-linked ${relCredPath} into provider pools`);
+        logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Auto-linked ${relCredPath} into provider pools (${providerType})`);
     } catch (err) {
         logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} Failed to auto-link ${relCredPath}: ${err.message}`);
     }
@@ -249,7 +253,7 @@ export async function saveTraeCredentials(credData, options = {}) {
     // 广播事件通知前端 UI 刷新
     try {
         broadcastEvent('oauth_success', {
-            provider: 'trae',
+            provider: providerType,
             userId: credData.userId,
             nickname: credData.nickname,
             credPath: relCredPath
@@ -394,7 +398,8 @@ export function parseTraeCallback(rawUrl) {
 export async function handleTraePATLogin({
     token,
     host = TRAE_AUTH_CONFIG.defaultHost,
-    customName
+    customName,
+    providerType = 'trae'
 } = {}) {
     if (!token || typeof token !== 'string') {
         throw new Error('A valid Personal Access Token (trae-lt-...) or Callback URL is required');
@@ -403,7 +408,7 @@ export async function handleTraePATLogin({
     const cleanToken = token.trim();
     const cleanHost = host.trim().replace(/\/+$/, '');
 
-    logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Starting login with host: ${cleanHost}`);
+    logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Starting login with host: ${cleanHost} for provider: ${providerType}`);
 
     let tokenToExchange = cleanToken;
     let callbackData = null;
@@ -476,6 +481,10 @@ export async function handleTraePATLogin({
         refreshToken,
         personalAccessToken: isPAT ? tokenToExchange : '',
         expiresAt
+    }, {
+        providerType,
+        customName,
+        host: cleanHost
     });
 
     return {

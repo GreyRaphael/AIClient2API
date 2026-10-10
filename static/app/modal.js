@@ -142,7 +142,11 @@ function collectDraftProviderConfig(providerDetail, providerType, uuid) {
 
     configSelects.forEach(select => {
         const key = select.dataset.configKey;
-        providerConfig[key] = select.value === 'true';
+        if (key === 'checkHealth' || select.dataset.valueType === 'boolean') {
+            providerConfig[key] = select.value === 'true';
+        } else {
+            providerConfig[key] = select.value;
+        }
     });
 
     if (usesManagedModelList(providerType)) {
@@ -433,7 +437,7 @@ function showProviderManagerModal(data, initialSearchTerm = '') {
                         <button class="btn btn-success" onclick="window.showAddProviderForm('${providerType}')">
                             <i class="fas fa-plus"></i> <span data-i18n="modal.provider.add">添加新提供商</span>
                         </button>
-                        ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'].includes(providerType) ? `
+                        ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae', 'trae-agent_v3'].includes(providerType) || providerType.startsWith('trae-') ? `
                         <button class="btn btn-primary generate-auth-btn-modal" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                             <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
                         </button>
@@ -1135,6 +1139,23 @@ function renderProviderConfig(provider) {
                     ${field1IsKiro ? '<small class="form-text"><i class="fas fa-info-circle"></i> ' + t('modal.provider.kiroAuthHint') + '</small>' : ''}
                 </div>
             `;
+        } else if (field1Def.type === 'select') {
+            const currentVal = (field1Value !== undefined && field1Value !== null) ? field1Value : (field1Def.defaultValue || '');
+            const optionsHtml = (field1Def.options || []).map(opt => {
+                const isSelected = String(currentVal) === String(opt.value);
+                return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${opt.label}</option>`;
+            }).join('');
+            html += `
+                <div class="config-item">
+                    <label>${field1Label}</label>
+                    <select class="form-control"
+                            data-config-key="${field1Key}"
+                            data-config-value="${currentVal}"
+                            disabled>
+                        ${optionsHtml}
+                    </select>
+                </div>
+            `;
         } else {
             html += `
                 <div class="config-item">
@@ -1195,6 +1216,23 @@ function renderProviderConfig(provider) {
                             </button>
                         </div>
                         ${field2IsKiro ? '<small class="form-text"><i class="fas fa-info-circle"></i> ' + t('modal.provider.kiroAuthHint') + '</small>' : ''}
+                    </div>
+                `;
+            } else if (field2Def.type === 'select') {
+                const currentVal = (field2Value !== undefined && field2Value !== null) ? field2Value : (field2Def.defaultValue || '');
+                const optionsHtml = (field2Def.options || []).map(opt => {
+                    const isSelected = String(currentVal) === String(opt.value);
+                    return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${opt.label}</option>`;
+                }).join('');
+                html += `
+                    <div class="config-item">
+                        <label>${field2Label}</label>
+                        <select class="form-control"
+                                data-config-key="${field2Key}"
+                                data-config-value="${currentVal}"
+                                disabled>
+                            ${optionsHtml}
+                        </select>
                     </div>
                 `;
             } else {
@@ -1260,7 +1298,7 @@ function getFieldOrder(provider) {
         'isHealthy', 'lastUsed', 'usageCount', 'errorCount', 'lastErrorTime',
         'uuid', 'isDisabled', 'lastHealthCheckTime', 'lastHealthCheckModel', 'lastErrorMessage',
         'notSupportedModels', 'supportedModels', 'refreshCount', 'needsRefresh', '_lastSelectionSeq',
-        'lastRefreshTime', 'lastSuccessTime'
+        'lastRefreshTime', 'lastSuccessTime', 'TRAE_CHANNEL_MODE'
     ];
     
     // 尝试从当前模态框上下文中获取提供商类型
@@ -1283,7 +1321,7 @@ function getFieldOrder(provider) {
         } else if (provider.ZED_OAUTH_CREDS_FILE_PATH) {
             providerType = 'zed';
         } else if (provider.TRAE_OAUTH_CREDS_FILE_PATH) {
-            providerType = 'trae';
+            providerType = (provider.TRAE_CHANNEL_MODE === 'agent_v3') ? 'trae-agent_v3' : 'trae';
         } else if (provider.GROK_COOKIE_TOKEN) {
             providerType = 'grok-web';
         }
@@ -1669,7 +1707,7 @@ function showAddProviderForm(providerType) {
             <button class="btn btn-success" onclick="window.addProvider('${providerType}')">
                 <i class="fas fa-save"></i> <span data-i18n="modal.provider.save">保存</span>
             </button>
-            ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'].includes(providerType) ? `
+            ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae', 'trae-agent_v3'].includes(providerType) || providerType.startsWith('trae-') ? `
             <button type="button" class="btn btn-primary" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                 <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
             </button>
@@ -1746,6 +1784,20 @@ function addDynamicConfigFields(form, providerType) {
             ${isKiroField ? '<small class="form-text"><i class="fas fa-info-circle"></i> ' + t('modal.provider.kiroAuthHint') + '</small>' : ''}
         </div>
     `;
+            } else if (field1.type === 'select') {
+                const currentVal = field1.value || field1.defaultValue || '';
+                const optionsHtml = (field1.options || []).map(opt => {
+                    const isSelected = String(currentVal) === String(opt.value);
+                    return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${opt.label}</option>`;
+                }).join('');
+                fields += `
+                    <div class="form-group">
+                        <label>${field1.label}</label>
+                        <select id="new${field1.id}" class="form-control">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                `;
             } else {
                 fields += `
                     <div class="form-group">
@@ -1789,6 +1841,20 @@ function addDynamicConfigFields(form, providerType) {
             ${isKiroField ? '<small class="form-text"><i class="fas fa-info-circle"></i> ' + t('modal.provider.kiroAuthHint') + '</small>' : ''}
         </div>
     `;
+                } else if (field2.type === 'select') {
+                    const currentVal = field2.value || field2.defaultValue || '';
+                    const optionsHtml = (field2.options || []).map(opt => {
+                        const isSelected = String(currentVal) === String(opt.value);
+                        return `<option value="${opt.value}" ${isSelected ? 'selected' : ''}>${opt.label}</option>`;
+                    }).join('');
+                    fields += `
+                        <div class="form-group">
+                            <label>${field2.label}</label>
+                            <select id="new${field2.id}" class="form-control">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                    `;
                 } else {
                     fields += `
                         <div class="form-group">

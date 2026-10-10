@@ -769,9 +769,9 @@ async function openProviderManager(providerType, searchTerm = '') {
  */
 function generateAuthButton(providerType) {
     // 只为支持OAuth或批量导入的提供商显示授权按钮
-    const oauthProviders = ['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae'];
+    const oauthProviders = ['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'grok-web', 'zed', 'trae', 'trae-agent_v3'];
 
-    if (!oauthProviders.includes(providerType)) {
+    if (!oauthProviders.includes(providerType) && !providerType.startsWith('trae-')) {
         return '';
     }
 
@@ -938,7 +938,7 @@ async function handleGenerateAuthUrl(providerType) {
         return;
     }
 
-    if (providerType === 'trae') {
+    if (providerType === 'trae' || providerType === 'trae-agent_v3' || providerType.startsWith('trae-')) {
         showTraeAuthSelector(providerType);
         return;
     }
@@ -1029,10 +1029,13 @@ function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
     modal.style.display = 'flex';
     modal.style.zIndex = '3100';
 
+    const isAgentV3 = providerType === 'trae-agent_v3';
+    const modalTitle = isAgentV3 ? 'Trae (agent_v3) 账号授权登录' : 'Trae (tob_raw_chat) 账号授权登录';
+
     modal.innerHTML = `
         <div class="modal-content" style="max-width: 520px;">
             <div class="modal-header">
-                <h3><i class="fas fa-bolt"></i> <span>Trae 账号授权登录</span></h3>
+                <h3><i class="${isAgentV3 ? 'fas fa-robot' : 'fas fa-bolt'}"></i> <span>${modalTitle}</span></h3>
                 <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
@@ -4248,7 +4251,8 @@ function getAuthFilePath(provider) {
         'gemini-antigravity': '~/.antigravity/oauth_creds.json',
         'claude-kiro-oauth': '~/.aws/sso/cache/kiro-auth-token.json',
         'zed': 'configs/zed/',
-        'trae': 'configs/trae/'
+        'trae': 'configs/trae/',
+        'trae-agent_v3': 'configs/trae/'
     };
     return authFilePaths[provider] || (getCurrentLanguage() === 'en-US' ? 'Unknown Path' : '未知路径');
 }
@@ -4302,7 +4306,7 @@ function showAuthModal(authUrl, authInfo) {
                 </ol>
             </div>
         `;
-    } else if (authInfo.provider === 'trae') {
+    } else if (authInfo.provider === 'trae' || authInfo.provider === 'trae-agent_v3' || authInfo.provider?.startsWith('trae-')) {
         instructionsHtml = `
             <div class="auth-instructions">
                 <h4 data-i18n="oauth.modal.steps">${t('oauth.modal.steps')}</h4>
@@ -4596,7 +4600,7 @@ function showAuthModal(authUrl, authInfo) {
                     }
 
                     // 如果是 Trae 回调，可能只粘贴了 refreshToken 或参数串
-                    if (isManualInput && authInfo.provider === 'trae' && !cleanUrlStr.includes('://')) {
+                    if (isManualInput && (authInfo.provider === 'trae' || authInfo.provider === 'trae-agent_v3' || authInfo.provider?.startsWith('trae-')) && !cleanUrlStr.includes('://')) {
                         if (!cleanUrlStr.startsWith('?')) {
                             cleanUrlStr = '?' + cleanUrlStr;
                         }

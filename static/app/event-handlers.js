@@ -422,7 +422,7 @@ async function handleGenerateCreds(event) {
  * 实际执行授权逻辑
  */
 async function proceedWithAuth(providerType, targetInputId, extraOptions = {}) {
-    if (providerType === 'trae' && typeof window.showTraeAuthSelector === 'function') {
+    if ((providerType === 'trae' || providerType === 'trae-agent_v3' || providerType.startsWith('trae-')) && typeof window.showTraeAuthSelector === 'function') {
         window.showTraeAuthSelector(providerType, { targetInputId, ...extraOptions });
         return;
     }

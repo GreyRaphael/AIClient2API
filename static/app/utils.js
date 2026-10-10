@@ -90,9 +90,18 @@ function getBaseProviderConfigs() {
         },
         { 
             id: 'trae', 
-            name: 'Trae', 
+            name: 'Trae (tob_raw_chat)', 
             usageName: 'Trae',
             icon: 'fa-bolt',
+            defaultPath: 'configs/trae/',
+            registerUrl: 'https://www.trae.cn/enterprise',
+            docUrl: 'https://docs.trae.cn/cli_login-token'
+        },
+        { 
+            id: 'trae-agent_v3', 
+            name: 'Trae (agent_v3)', 
+            usageName: 'Trae',
+            icon: 'fa-robot',
             defaultPath: 'configs/trae/',
             registerUrl: 'https://www.trae.cn/enterprise',
             docUrl: 'https://docs.trae.cn/cli_login-token'
@@ -107,6 +116,7 @@ function getBaseProviderConfigs() {
  */
 function getProviderConfigs(supportedProviders = []) {
     const baseConfigs = getBaseProviderConfigs();
+    const baseConfigIds = new Set(baseConfigs.map(c => c.id));
 
     const result = [];
     const usedIds = new Set();
@@ -117,9 +127,9 @@ function getProviderConfigs(supportedProviders = []) {
         result.push({ ...baseConfig, visible: isSupported });
         usedIds.add(baseConfig.id);
 
-        // 紧接着寻找匹配该基础 ID 的带后缀的自定义类型（例如 openai-custom-test）
+        // 紧接着寻找匹配该基础 ID 的带后缀的自定义类型（例如 openai-custom-test），排除本身就是基础配置的 providerId
         supportedProviders.forEach(providerId => {
-            if (usedIds.has(providerId)) return;
+            if (usedIds.has(providerId) || baseConfigIds.has(providerId)) return;
 
             if (providerId.startsWith(baseConfig.id + '-')) {
                 const suffix = providerId.substring(baseConfig.id.length + 1);
@@ -240,6 +250,9 @@ function getFieldLabel(key) {
         'ANTIGRAVITY_BASE_URL_AUTOPUSH': t('modal.provider.field.autopushBaseUrl'),
         'CODEX_BASE_URL': t('modal.provider.field.codexBaseUrl'),
         'GROK_BASE_URL': t('modal.provider.field.grokBaseUrl'),
+        'TRAE_CHANNEL_MODE': '通道模式 (Channel Mode)',
+        'TRAE_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
+        'TRAE_BASE_URL': 'Trae Base URL',
     };
     
     return labelMap[key] || key;
@@ -461,6 +474,20 @@ function getProviderTypeFields(providerType) {
                 label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://api.enterprise.trae.cn'
+            }
+        ],
+        'trae-agent_v3': [
+            {
+                id: 'TRAE_OAUTH_CREDS_FILE_PATH',
+                label: t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
+                type: 'text',
+                placeholder: 'configs/trae/..._oauth_creds.json'
+            },
+            {
+                id: 'TRAE_BASE_URL',
+                label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
+                type: 'text',
+                placeholder: 'https://trae-api-cn.mchost.guru'
             }
         ],
         'grok-web': [

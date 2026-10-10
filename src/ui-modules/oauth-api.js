@@ -66,7 +66,7 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
             const result = await handleZedOAuth(currentConfig, options);
             authUrl = result.authUrl;
             authInfo = result.authInfo;
-        } else if (providerType === 'trae') {
+        } else if (providerType === 'trae' || providerType === 'trae-agent_v3' || providerType.startsWith('trae-')) {
             // Trae PAT 或 Web OAuth 授权
             const { token, host, customName } = options;
             if (token) {
@@ -74,7 +74,8 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
                 const result = await handleTraePATLogin({
                     token,
                     host,
-                    customName
+                    customName,
+                    providerType
                 });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -83,7 +84,7 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
                     credPath: result.credPath,
                     accountName: result.accountName,
                     authInfo: {
-                        provider: 'trae',
+                        provider: providerType,
                         userId: result.userId,
                         nickname: result.nickname,
                         enterpriseId: result.enterpriseId,
@@ -95,9 +96,9 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
                 return true;
             } else {
                 // 未提供 Token 时，生成浏览器 Web 授权链接
-                const result = await handleTraeOAuth(currentConfig, options);
+                const result = await handleTraeOAuth(currentConfig, { ...options, providerType });
                 authUrl = result.authUrl;
-                authInfo = result.authInfo;
+                authInfo = { ...result.authInfo, provider: providerType };
             }
         } else {
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -160,11 +161,12 @@ export async function handleManualOAuthCallback(req, res) {
         }
 
         // 特殊处理 Trae OAuth / Callback 回调
-        if (provider === 'trae') {
+        if (provider === 'trae' || provider === 'trae-agent_v3' || provider.startsWith('trae-')) {
             const { handleTraePATLogin } = await import('../auth/oauth-handlers.js');
             const result = await handleTraePATLogin({
                 token: callbackUrl,
-                host: body.host
+                host: body.host,
+                providerType: provider
             });
 
             res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });

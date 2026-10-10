@@ -256,12 +256,23 @@ function getAvailableRoutes() {
         },
         {
             provider: 'trae',
-            name: 'Trae',
+            name: 'Trae (tob_raw_chat)',
             paths: {
                 openai: '/trae/v1/chat/completions',
                 claude: '/trae/v1/messages'
             },
-            description: 'Trae AI / Enterprise',
+            description: 'Trae 企业原生直连 (ToB Raw Chat)',
+            badge: 'OAuth/PAT',
+            badgeClass: 'oauth'
+        },
+        {
+            provider: 'trae-agent_v3',
+            name: 'Trae (agent_v3)',
+            paths: {
+                openai: '/trae-agent_v3/v1/chat/completions',
+                claude: '/trae-agent_v3/v1/messages'
+            },
+            description: 'Trae SOLO Agent 模式 (agent_v3)',
             badge: 'OAuth/PAT',
             badgeClass: 'oauth'
         }
@@ -376,6 +387,7 @@ async function copyCurlExample(provider, options = {}) {
         case 'openai-codex-oauth':
         case 'zed':
         case 'trae':
+        case 'trae-agent_v3':
             if (protocol === 'openai') {
                 curlCommand = `curl ${hostname}${path} \\
   -H "Content-Type: application/json" \\
@@ -516,7 +528,8 @@ function renderRoutingExamples(providerConfigs) {
         'grok-cli-oauth': 'fa-terminal',
         'grok-web': 'fa-search',
         'zed': 'fa-edit',
-        'trae': 'fa-bolt'
+        'trae': 'fa-bolt',
+        'trae-agent_v3': 'fa-robot'
     };
 
     // 默认模型映射 (用于 curl 示例)
@@ -533,7 +546,8 @@ function renderRoutingExamples(providerConfigs) {
         'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
         'zed': 'claude-sonnet-4-5',
-        'trae': 'glm-5.2'
+        'trae': 'glm-5.2',
+        'trae-agent_v3': 'glm-5.2'
     };
 
     providerConfigs.forEach(config => {

@@ -97,6 +97,29 @@ function filterMaskedData(data) {
     return result;
 }
 
+/**
+ * 校验 Trae 节点配置与选定通道模式的端点 URL 是否匹配，防止错配导致 404/400
+ */
+export function validateTraeProviderConfig(providerType, config) {
+    if (!config || (providerType !== 'trae' && providerType !== 'trae-agent_v3')) return null;
+    const mode = config.TRAE_CHANNEL_MODE;
+    if (mode === 'custom') return null;
+
+    const url = String(config.TRAE_BASE_URL || config.TRAE_HOST || '').toLowerCase();
+    if (!url) return null;
+
+    if (providerType === 'trae' || mode === 'tob_raw_chat') {
+        if (url.includes('mchost.guru') || url.includes('llm_utils_chat')) {
+            return 'ToB Raw Chat 通道不能使用 Agent v3 (mchost.guru) 地址，请检查服务地址';
+        }
+    } else if (providerType === 'trae-agent_v3' || mode === 'agent_v3') {
+        if (url.includes('enterprise.trae.cn') || url.includes('llm_raw_chat')) {
+            return 'Agent v3 通道不能使用 ToB 企业版 (enterprise.trae.cn) 地址，请检查服务地址';
+        }
+    }
+    return null;
+}
+
 function getProviderPoolsFilePath(currentConfig) {
     return currentConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
 }
@@ -657,6 +680,21 @@ async function _handleAddProvider(req, res, currentConfig, providerPoolManager, 
         providerConfig.errorCount = providerConfig.errorCount || 0;
         providerConfig.lastErrorTime = providerConfig.lastErrorTime || null;
 
+        if (providerConfig.TRAE_CHANNEL_MODE !== 'custom') {
+            if (providerType === 'trae-agent_v3') {
+                providerConfig.TRAE_CHANNEL_MODE = 'agent_v3';
+            } else if (providerType === 'trae') {
+                providerConfig.TRAE_CHANNEL_MODE = 'tob_raw_chat';
+            }
+        }
+
+        const traeValidationError = validateTraeProviderConfig(providerType, providerConfig);
+        if (traeValidationError) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: traeValidationError } }));
+            return true;
+        }
+
         const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
         let providerPools = {};
         
@@ -800,6 +838,21 @@ async function _handleUpdateProvider(req, res, currentConfig, providerPoolManage
             errorCount: existingProvider.errorCount,
             lastErrorTime: existingProvider.lastErrorTime
         };
+
+        if (existingProvider.TRAE_CHANNEL_MODE === 'custom' || filteredConfig.TRAE_CHANNEL_MODE === 'custom') {
+            updatedProvider.TRAE_CHANNEL_MODE = 'custom';
+        } else if (providerType === 'trae-agent_v3') {
+            updatedProvider.TRAE_CHANNEL_MODE = 'agent_v3';
+        } else if (providerType === 'trae') {
+            updatedProvider.TRAE_CHANNEL_MODE = 'tob_raw_chat';
+        }
+
+        const traeValidationError = validateTraeProviderConfig(providerType, updatedProvider);
+        if (traeValidationError) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: traeValidationError } }));
+            return true;
+        }
 
         providerPools[providerType][providerIndex] = updatedProvider;
 

@@ -18,7 +18,8 @@ const recommendedModelMap = {
     'grok-web': 'grok-4.3',
     'grok-cli-oauth': 'grok-4.3',
     'zed': 'claude-sonnet-4-5',
-    'trae': 'glm-5.2'
+    'trae': 'glm-5.2',
+    'trae-agent_v3': 'glm-5.2'
 };
 
 function getElement(id) {

@@ -87,7 +87,7 @@ export const PROVIDER_MAPPINGS = [
         defaultCheckModel: 'glm-5.2',
         displayName: 'Trae',
         needsProjectId: false,
-        urlKeys: ['TRAE_BASE_URL', 'TRAE_HOST']
+        urlKeys: ['TRAE_BASE_URL', 'TRAE_HOST', 'TRAE_CHANNEL_MODE']
     }
 ];
 

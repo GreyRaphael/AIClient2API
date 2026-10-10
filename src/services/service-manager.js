@@ -29,25 +29,26 @@ let providerPoolManager = null;
  */
 export async function autoLinkProviderConfigs(config, options = {}) {
     const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
-    // 确保从现有 provider_pools.json 文件加载已有配置，避免未完全初始化的 config 覆盖现有池
-    if (!config.providerPools || Object.keys(config.providerPools).length === 0) {
-        if (fs.existsSync(filePath)) {
-            try {
-                config.providerPools = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-            } catch (_) {
-                config.providerPools = config.providerPools || {};
-            }
-        } else {
-            config.providerPools = config.providerPools || {};
+    // 确保从现有 provider_pools.json 文件加载已有配置，并与内存中的池合并，避免部分初始化的 config 冲掉未包含的提供商
+    let diskPools = {};
+    if (fs.existsSync(filePath)) {
+        try {
+            diskPools = JSON.parse(fs.readFileSync(filePath, 'utf8')) || {};
+        } catch (_) {
+            diskPools = {};
         }
     }
+    config.providerPools = {
+        ...diskPools,
+        ...(config.providerPools || {})
+    };
     
     let totalNewProviders = 0;
     const allNewProviders = {};
     
     // 如果只关联当前凭证
     if (options.onlyCurrentCred && options.credPath) {
-        const result = await linkSingleCredential(config, options.credPath);
+        const result = await linkSingleCredential(config, options.credPath, options);
         if (result) {
             totalNewProviders = 1;
             allNewProviders[result.displayName] = [result.provider];
@@ -99,7 +100,20 @@ export async function autoLinkProviderConfigs(config, options = {}) {
         const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
         try {
             await withFileLock(filePath, async () => {
-                await atomicWriteFile(filePath, JSON.stringify(config.providerPools, null, 2), 'utf8');
+                let currentDiskPools = {};
+                if (fs.existsSync(filePath)) {
+                    try {
+                        currentDiskPools = JSON.parse(fs.readFileSync(filePath, 'utf8')) || {};
+                    } catch (_) {
+                        currentDiskPools = {};
+                    }
+                }
+                const mergedToSave = {
+                    ...currentDiskPools,
+                    ...config.providerPools
+                };
+                config.providerPools = mergedToSave;
+                await atomicWriteFile(filePath, JSON.stringify(mergedToSave, null, 2), 'utf8');
             });
             logger.info(`[Auto-Link] Added ${totalNewProviders} new config(s) to provider pools:`);
             for (const [displayName, providers] of Object.entries(allNewProviders)) {
@@ -133,9 +147,10 @@ export async function autoLinkProviderConfigs(config, options = {}) {
  * 关联单个凭证文件到对应的提供商
  * @param {Object} config - 服务器配置对象
  * @param {string} credPath - 凭证文件路径（相对或绝对路径）
+ * @param {Object} [options] - 可选参数
  * @returns {Promise<Object|null>} 返回关联结果或 null
  */
-async function linkSingleCredential(config, credPath) {
+async function linkSingleCredential(config, credPath, options = {}) {
     try {
         // 规范化路径
         const absolutePath = path.isAbsolute(credPath) ? credPath : path.join(process.cwd(), credPath);
@@ -170,7 +185,9 @@ async function linkSingleCredential(config, credPath) {
             return null;
         }
         
-        const { providerType, credPathKey, defaultCheckModel, displayName, needsProjectId } = matchedMapping;
+        const { providerType: defaultType, credPathKey, defaultCheckModel, displayName, needsProjectId } = matchedMapping;
+        const providerType = options.providerType || defaultType;
+        const targetDisplayName = providerType === 'trae-agent_v3' ? 'Trae (agent_v3)' : (options.providerType ? providerType : displayName);
         
         // 确保提供商类型数组存在
         if (!config.providerPools[providerType]) {
@@ -200,15 +217,25 @@ async function linkSingleCredential(config, credPath) {
             defaultCheckModel,
             needsProjectId
         });
+
+        if (providerType === 'trae-agent_v3') {
+            newProvider.TRAE_CHANNEL_MODE = 'agent_v3';
+            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://trae-api-cn.mchost.guru';
+            newProvider.customName = options.customName || 'Agent v3';
+        } else if (providerType === 'trae') {
+            newProvider.TRAE_CHANNEL_MODE = 'tob_raw_chat';
+            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://api.enterprise.trae.cn';
+            newProvider.customName = options.customName || 'ToB Raw Chat';
+        }
         
         // 添加到配置
         config.providerPools[providerType].push(newProvider);
         
-        logger.info(`[Auto-Link] Successfully linked credential: ${relativePath} to ${displayName}`);
+        logger.info(`[Auto-Link] Successfully linked credential: ${relativePath} to ${targetDisplayName}`);
         
         return {
             provider: newProvider,
-            displayName,
+            displayName: targetDisplayName,
             providerType
         };
     } catch (error) {
