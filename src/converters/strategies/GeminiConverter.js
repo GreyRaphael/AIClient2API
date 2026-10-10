@@ -167,6 +167,7 @@ export class GeminiConverter extends BaseConverter {
     constructor() {
         super('gemini');
         this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'gemini-converter-responses-stream' });
+        this.claudeStreamStates = new StreamSessionStore({ label: 'gemini-converter-claude-stream' });
     }
 
     /**
@@ -716,175 +717,224 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini流式响应 -> Claude流式响应
+     * 获取或创建 Claude 流式转换状态（按 requestId 隔离并发流）
      */
-    toClaudeStreamChunk(geminiChunk, model) {
+    _getClaudeStreamState(model, requestId) {
+        const stateKey = requestId || 'default';
+        if (!this.claudeStreamStates.has(stateKey)) {
+            this.claudeStreamStates.set(stateKey, {
+                msgStarted: false,
+                messageId: `msg_${uuidv4().replace(/-/g, '')}`,
+                nextBlockIndex: 0,
+                activeBlockIndex: -1,
+                activeBlockType: null, // 'thinking' | 'text' | 'tool_use'
+                sawToolUse: false,
+                model: model || 'unknown',
+                latestUsage: null,
+                completed: false
+            });
+        }
+        const state = this.claudeStreamStates.get(stateKey);
+        if (model) state.model = model;
+        return { stateKey, state };
+    }
+
+    /**
+     * Gemini流式响应 -> Claude流式响应
+     *
+     * 严格遵循 Anthropic Messages API SSE 事件规范：
+     * message_start -> content_block_start -> content_block_delta* -> content_block_stop -> message_delta -> message_stop
+     */
+    toClaudeStreamChunk(geminiChunk, model, requestId = null) {
         if (!geminiChunk) return null;
 
-        // 处理完整的Gemini chunk对象
-        if (typeof geminiChunk === 'object' && !Array.isArray(geminiChunk)) {
-            const candidate = geminiChunk.candidates?.[0];
-            
-            if (candidate) {
-                const parts = candidate.content?.parts;
-                
-                // thinking 和 text 块
-                if (parts && Array.isArray(parts)) {
-                    const results = [];
-                    let hasToolUse = false;
-                    
-                    for (const part of parts) {
-                        if (!part) continue;
-                        
-                        if (typeof part.text === 'string') {
-                            if (part.thought === true) {
-                                // [FIX] 这是一个 thinking 块
-                                const thinkingResult = {
-                                    type: "content_block_delta",
-                                    index: 0,
-                                    delta: {
-                                        type: "thinking_delta",
-                                        thinking: part.text
-                                    }
-                                };
-                                results.push(thinkingResult);
-                                
-                                // 如果有签名，发送 signature_delta
-                                // [FIX] 同时检查 thoughtSignature 和 thought_signature
-                                const rawSignature = part.thoughtSignature || part.thought_signature;
-                                if (rawSignature) {
-                                    let signature = rawSignature;
-                                    try {
-                                        const decoded = Buffer.from(signature, 'base64').toString('utf-8');
-                                        if (decoded && decoded.length > 0 && !decoded.includes('\ufffd')) {
-                                            signature = decoded;
-                                        }
-                                    } catch (e) {
-                                        // 解码失败，保持原样
-                                    }
-                                    results.push({
-                                        type: "content_block_delta",
-                                        index: 0,
-                                        delta: {
-                                            type: "signature_delta",
-                                            signature: signature
-                                        }
-                                    });
-                                }
-                            } else {
-                                // 普通文本
-                                results.push({
-                                    type: "content_block_delta",
-                                    index: 0,
-                                    delta: {
-                                        type: "text_delta",
-                                        text: part.text
-                                    }
-                                });
-                            }
-                        }
-                        
-                        // [FIX] 处理 functionCall
-                        if (part.functionCall) {
-                            hasToolUse = true;
-                            // [FIX] 规范化工具名称和参数映射
-                            const toolName = normalizeToolName(part.functionCall.name);
-                            const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
-                            
-                            // 发送 tool_use 开始
-                            const toolId = part.functionCall.id || `${toolName}-${uuidv4().split('-')[0]}`;
-                            results.push({
-                                type: "content_block_start",
-                                index: 0,
-                                content_block: {
-                                    type: "tool_use",
-                                    id: toolId,
-                                    name: toolName,
-                                    input: {}
-                                }
-                            });
-                            // 发送参数
-                            results.push({
-                                type: "content_block_delta",
-                                index: 0,
-                                delta: {
-                                    type: "input_json_delta",
-                                    partial_json: JSON.stringify(remappedArgs)
-                                }
-                            });
-                        }
-                    }
-                    
-                    // [FIX] 如果有工具调用，添加 message_delta 事件设置 stop_reason 为 tool_use
-                    if (hasToolUse && candidate.finishReason) {
-                        const messageDelta = {
-                            type: "message_delta",
-                            delta: {
-                                stop_reason: 'tool_use'
-                            }
-                        };
-                        if (geminiChunk.usageMetadata) {
-                            messageDelta.usage = {
-                                input_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
-                                cache_creation_input_tokens: 0,
-                                cache_read_input_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0,
-                                output_tokens: geminiChunk.usageMetadata.candidatesTokenCount || 0
-                            };
-                        }
-                        results.push(messageDelta);
-                    }
-                    
-                    // 如果有多个结果，返回数组；否则返回单个或 null
-                    if (results.length > 1) {
-                        return results;
-                    } else if (results.length === 1) {
-                        return results[0];
+        // 向后兼容：处理字符串格式（视为一个文本增量）
+        if (typeof geminiChunk === 'string') {
+            geminiChunk = { candidates: [{ content: { role: 'model', parts: [{ text: geminiChunk }] } }] };
+        }
+
+        if (typeof geminiChunk !== 'object' || Array.isArray(geminiChunk)) {
+            return null;
+        }
+
+        const { stateKey, state } = this._getClaudeStreamState(model, requestId);
+        const events = [];
+
+        // 记录 usage（filterSSEUsageMetadata 保证仅终帧保留 usageMetadata）
+        if (geminiChunk.usageMetadata) {
+            state.latestUsage = geminiChunk.usageMetadata;
+        }
+
+        const ensureMessageStart = () => {
+            if (state.msgStarted) return;
+            state.msgStarted = true;
+            events.push({
+                type: 'message_start',
+                message: {
+                    id: state.messageId,
+                    type: 'message',
+                    role: 'assistant',
+                    model: state.model,
+                    content: [],
+                    stop_reason: null,
+                    stop_sequence: null,
+                    usage: {
+                        input_tokens: state.latestUsage?.promptTokenCount || 0,
+                        output_tokens: 0
                     }
                 }
-                
-                // 处理finishReason
-                if (candidate.finishReason) {
-                    const result = {
-                        type: "message_delta",
-                        delta: {
-                            stop_reason: candidate.finishReason === 'STOP' ? 'end_turn' :
-                                       candidate.finishReason === 'MAX_TOKENS' ? 'max_tokens' :
-                                       candidate.finishReason.toLowerCase()
+            });
+        };
+
+        const closeActiveBlock = () => {
+            if (state.activeBlockType !== null) {
+                events.push({ type: 'content_block_stop', index: state.activeBlockIndex });
+                state.activeBlockType = null;
+            }
+        };
+
+        const ensureBlockStart = (blockType, contentBlock) => {
+            if (state.activeBlockType !== blockType) {
+                closeActiveBlock();
+                state.activeBlockIndex = state.nextBlockIndex++;
+                state.activeBlockType = blockType;
+                events.push({
+                    type: 'content_block_start',
+                    index: state.activeBlockIndex,
+                    content_block: contentBlock
+                });
+            }
+        };
+
+        const candidate = geminiChunk.candidates?.[0];
+        if (candidate) {
+            const parts = candidate.content?.parts;
+            if (Array.isArray(parts)) {
+                for (const part of parts) {
+                    if (!part) continue;
+
+                    // 文本 / 思考内容
+                    if (typeof part.text === 'string' && part.text.length > 0) {
+                        ensureMessageStart();
+                        if (part.thought === true) {
+                            ensureBlockStart('thinking', { type: 'thinking', thinking: '' });
+                            events.push({
+                                type: 'content_block_delta',
+                                index: state.activeBlockIndex,
+                                delta: { type: 'thinking_delta', thinking: part.text }
+                            });
+                        } else {
+                            ensureBlockStart('text', { type: 'text', text: '' });
+                            events.push({
+                                type: 'content_block_delta',
+                                index: state.activeBlockIndex,
+                                delta: { type: 'text_delta', text: part.text }
+                            });
                         }
-                    };
-                    
-                    // 添加 usage 信息
-                    if (geminiChunk.usageMetadata) {
-                        result.usage = {
-                            input_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
-                            cache_creation_input_tokens: 0,
-                            cache_read_input_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0,
-                            output_tokens: geminiChunk.usageMetadata.candidatesTokenCount || 0,
-                            prompt_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
-                            completion_tokens: geminiChunk.usageMetadata.candidatesTokenCount || 0,
-                            total_tokens: geminiChunk.usageMetadata.totalTokenCount || 0,
-                            cached_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0
-                        };
                     }
-                    
-                    return result;
+
+                    // 思考签名（可独立于 text 出现）
+                    const rawSignature = part.thoughtSignature || part.thought_signature;
+                    if (rawSignature && part.thought === true) {
+                        ensureMessageStart();
+                        ensureBlockStart('thinking', { type: 'thinking', thinking: '' });
+                        let signature = rawSignature;
+                        try {
+                            const decoded = Buffer.from(signature, 'base64').toString('utf-8');
+                            if (decoded && decoded.length > 0 && !decoded.includes('\ufffd')) {
+                                signature = decoded;
+                            }
+                        } catch (e) {
+                            // 解码失败，保持原样
+                        }
+                        events.push({
+                            type: 'content_block_delta',
+                            index: state.activeBlockIndex,
+                            delta: { type: 'signature_delta', signature }
+                        });
+                    }
+
+                    // 工具调用（Gemini 一次性返回完整参数：start -> input_json_delta -> stop）
+                    if (part.functionCall) {
+                        ensureMessageStart();
+                        state.sawToolUse = true;
+                        const toolName = normalizeToolName(part.functionCall.name);
+                        const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
+                        const toolId = part.functionCall.id || `${toolName}-${uuidv4().split('-')[0]}`;
+
+                        closeActiveBlock();
+                        state.activeBlockIndex = state.nextBlockIndex++;
+                        state.activeBlockType = 'tool_use';
+                        events.push({
+                            type: 'content_block_start',
+                            index: state.activeBlockIndex,
+                            content_block: {
+                                type: 'tool_use',
+                                id: toolId,
+                                name: toolName,
+                                input: {}
+                            }
+                        });
+                        events.push({
+                            type: 'content_block_delta',
+                            index: state.activeBlockIndex,
+                            delta: {
+                                type: 'input_json_delta',
+                                partial_json: JSON.stringify(remappedArgs)
+                            }
+                        });
+                        closeActiveBlock();
+                    }
                 }
             }
-        }
 
-        // 向后兼容：处理字符串格式
-        if (typeof geminiChunk === 'string') {
-            return {
-                type: "content_block_delta",
-                index: 0,
-                delta: {
-                    type: "text_delta",
-                    text: geminiChunk
+            // 结束原因：关闭所有块，发 message_delta + message_stop
+            if (candidate.finishReason && !state.completed) {
+                ensureMessageStart();
+                closeActiveBlock();
+
+                let stopReason = mapFinishReason(candidate.finishReason, 'gemini', 'anthropic');
+                if (state.sawToolUse && stopReason === 'end_turn') {
+                    stopReason = 'tool_use';
                 }
-            };
+
+                events.push({
+                    type: 'message_delta',
+                    delta: { stop_reason: stopReason, stop_sequence: null },
+                    usage: {
+                        input_tokens: state.latestUsage?.promptTokenCount || 0,
+                        cache_creation_input_tokens: 0,
+                        cache_read_input_tokens: state.latestUsage?.cachedContentTokenCount || 0,
+                        output_tokens: state.latestUsage?.candidatesTokenCount || 0
+                    }
+                });
+                events.push({ type: 'message_stop' });
+
+                state.completed = true;
+                this.claudeStreamStates.delete(stateKey);
+            }
+        } else if (state.latestUsage && state.msgStarted && !state.completed) {
+            // 容错：上游未带 finishReason 的纯 usage 终帧（filterSSEUsageMetadata 仅终帧保留 usage）
+            closeActiveBlock();
+            events.push({
+                type: 'message_delta',
+                delta: {
+                    stop_reason: state.sawToolUse ? 'tool_use' : 'end_turn',
+                    stop_sequence: null
+                },
+                usage: {
+                    input_tokens: state.latestUsage?.promptTokenCount || 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: state.latestUsage?.cachedContentTokenCount || 0,
+                    output_tokens: state.latestUsage?.candidatesTokenCount || 0
+                }
+            });
+            events.push({ type: 'message_stop' });
+            state.completed = true;
+            this.claudeStreamStates.delete(stateKey);
         }
 
-        return null;
+        return events.length > 0 ? events : null;
     }
 
     /**

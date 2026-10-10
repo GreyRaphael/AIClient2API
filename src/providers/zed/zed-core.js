@@ -798,6 +798,7 @@ export class ZedApiService {
         let messageStopped = false;
         let activeBlockIndex = -1;
         let activeBlockType = null; // 'thinking' | 'text' | 'tool_use'
+        let sawToolUse = false; // 流中是否出现过工具调用（closeActiveBlock 会清空 activeBlockType，需独立标志）
 
         const ensureMessageStart = function* () {
             if (!messageStarted) {
@@ -933,6 +934,7 @@ export class ZedApiService {
                             yield* closeActiveBlock();
                             activeBlockIndex++;
                             activeBlockType = 'tool_use';
+                            sawToolUse = true;
                             yield {
                                 type: 'content_block_start',
                                 index: activeBlockIndex,
@@ -962,7 +964,7 @@ export class ZedApiService {
                         yield {
                             type: 'message_delta',
                             delta: {
-                                stop_reason: activeBlockIndex >= 0 && activeBlockType === 'tool_use' ? 'tool_use' : 'end_turn'
+                                stop_reason: sawToolUse ? 'tool_use' : 'end_turn'
                             },
                             usage: this._formatClaudeUsage(obj.response?.usage)
                         };
