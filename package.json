@@ -1,6 +1,6 @@
 {
   "name": "aiclient2api",
-  "version": "3.6.0",
+  "version": "3.8.0",
   "type": "module",
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",
