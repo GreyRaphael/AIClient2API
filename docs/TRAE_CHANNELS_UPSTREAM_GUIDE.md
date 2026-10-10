@@ -171,13 +171,48 @@
   ```
 * **解析逻辑**：直接提取响应中的 `data.config_info_list[]`。
 
-### 3. 模型清洗与过滤规则
-上游接口返回的数据中包含内部调度用的占位符，系统会在提取后自动过滤以下模型：
-* `computer_use_subagent`
-* `browser_use_subagent`
-* `image_subagent`
-* `bash_subagent`
-* `edit_subagent`
+### 3. 模型清洗与过滤机制（28 与 46 个上游配置如何过滤为 25 个可用模型）
+
+经对上游接口数据逐项探测，上游原始返回的配置总数与 AIClient2API 最终呈现的 25 个模型存在以下过滤链路：
+
+#### (1) `trae` (ToB Chat, 原始 28 个 $\rightarrow$ 最终 25 个)
+* **原始返回 (28 个)**：包含 24 个正常业务大模型 + 4 个非活跃/辅助项。
+* **过滤剔除 (4 个)**：
+  1. `glm-5.1`：上游开关关闭 (`config_switch: false` / `is_invisible_to_user: true`)。
+  2. `DeepSeek-V4-Flash`：上游开关关闭（ToB 端官方统一启用带后缀的 `DeepSeek-V4-Flash-Official`）。
+  3. `summary`：内部摘要占位符，由 `excludedConfigNames` 集合拦截。
+  4. `custom_model_placeholder`：自定义模型占位符，由 `excludedConfigNames` 集合拦截。
+* **自动补齐 (1 个)**：
+  * 系统在完成有效模型探测后，自动在模型列表首位追加了 `auto` 虚拟智能路由模型。
+  * **计算式**：$28 - 4 + 1 (\text{auto}) = \mathbf{25\text{ 个}}$。
+
+#### (2) `trae-agent_v3` (`solo_work_lite`, 原始 46 个 $\rightarrow$ 最终 25 个)
+* **原始返回 (46 个)**：包含丰富但繁杂的 Agent 特化配置、外部自定义反代配置及开关关闭项。
+* **过滤剔除 (21 个)**：
+  1. **内部 Agent 占位符 (5 个)**：
+     `computer_use_subagent`、`browser_use_subagent`、`file_search_agent`、`explore_sub_agent_v2`、`summary`。此类配置是 Trae IDE 端侧 Agent 用于调度特定子智能体（如电脑控制、浏览器控制、全局文件检索）的调度句柄，无法作为普通 LLM 对话模型使用。
+  2. **自定义与外部映射模型 (13 个以 `custom_` 开头)**：
+     `custom_model_gemini`、`custom_model_placeholder`、`custom_model_1M_text`、`custom_model_1M`、`custom_model_doubao_1M`、`custom_model_doubao_256k`、`custom_model_kimi`、`custom_model_claude`、`custom_model_gpt-6`、`custom_model_gpt-5`、`custom_model_no-fc`、`custom_model_deepseek_chat`、`custom_model_deepseek_reasoner`、`custom_model_deepseek_v4`。此类项是供用户在 Trae 设置中自定义外部 API Key/反代使用的配置壳，不属于 Trae 原生模型。
+  3. **上游开关关闭项 (3 个)**：
+     `seed-code-pro-0430`、`sagitta`、`aquila`（内部试验模型，`config_switch: false`）。
+* **自动补齐 (1 个)**：追加 `auto` 虚拟路由模型。
+* **计算式**：$46 - 5 - 13 - 3 + 1 (\text{auto}) = \mathbf{25\text{ 个}}$（与系统维护的基准模型集完全对齐）。
+
+---
+
+### 4. 什么是个人版中的 `function: "chat"` (29 个旧版模型)？
+
+在向 `mchost.guru` 请求 `get_detail_param` 时，传入 `function: "chat"` 会返回 29 个模型。这是 **Trae 个人版在早期（v1/v2 时代）的初代聊天接口残留**：
+
+1. **历史背景**：
+   * 在 Trae 尚未全面进化为以 **SOLO（Agent 模式）** 为主导，且尚未推出 **`chat_v3`** 之前，Trae 个人版 IDE 侧边栏最初调用的就是这个基础的 `function: "chat"`。
+2. **模型特征（明显滞后于当前时代）**：
+   * **保留大量上代基座模型**：如 **GLM-4.6 / GLM-4.7**（当前主流为 5.2/5.3）、**MiniMax-M2 / M2.1**（当前主流为 M3）、**Kimi-K2**（当前主流为 K2.7/K3）、**Qwen-3.5**（当前主流为 3.7+/3.8）、**Doubao_1_8** 等。
+   * **完全缺失当前主流旗舰**：没有 `glm-5.3`、`mimo-v2.6-pro`、`kimi-k3`、`step-5-preview`、`DeepSeek-V4.1-Flash` 等最新模型。
+3. **Trae 聊天模式的演进三部曲**：
+   * **第 1 代（个人版早期）**：`mchost.guru` 下的 `function: "chat"`（即这 29 个旧模型），主要提供 GLM-4、MiniMax-M2 等基础代码问答。
+   * **第 2 代（个人版升级 SOLO 与 v3）**：推出了 `function: "solo_work_lite"`（46 个模型）专供 Agent，并升级了 `function: "chat_v3"`（57 个模型）作为新的侧边栏主面板。
+   * **第 3 代（企业版独立重构）**：将架构迁移至 `api.enterprise.trae.cn`，企业端重新启用了 `function: "chat"` 命名，但后端模型已全面替换为 28 个现代化新版模型，并赋予了 `access_type: 4`、`mode_type: 0` 和 `__max` 调度后缀机制。
 
 ---
 
