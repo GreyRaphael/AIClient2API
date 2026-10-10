@@ -2163,10 +2163,19 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        const hasToolCalls = message.tool_calls && message.tool_calls.length > 0;
-
         const usage = this._buildResponsesUsageFromOpenAIUsage(openaiResponse.usage);
-        const status = hasToolCalls ? 'requires_action' : (choice.finish_reason === 'stop' ? 'completed' : 'in_progress');
+        // Responses API 合法状态枚举：completed / incomplete / failed / cancelled / queued / in_progress。
+        // 注意：'requires_action' 是 Assistants API 概念，不是 Responses API 的合法 status。
+        // 工具调用输出在 Responses API 中同样以 'completed' 收尾（客户端随后提交 function_call_output）。
+        let status = 'completed';
+        let incompleteDetails = null;
+        if (choice.finish_reason === 'length') {
+            status = 'incomplete';
+            incompleteDetails = { reason: 'max_output_tokens' };
+        } else if (choice.finish_reason === 'content_filter') {
+            status = 'incomplete';
+            incompleteDetails = { reason: 'content_filter' };
+        }
 
         return {
             background: false,
@@ -2175,7 +2184,7 @@ export class OpenAIConverter extends BaseConverter {
             created_at: openaiResponse.created || Math.floor(Date.now() / 1000),
             status,
             error: null,
-            incomplete_details: null,
+            incomplete_details: incompleteDetails,
             instructions: '',
             max_output_tokens: null,
             max_tool_calls: null,

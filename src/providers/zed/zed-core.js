@@ -436,6 +436,26 @@ export class ZedApiService {
             const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
             let systemInstruction = null;
 
+            // 预扫描构建 tool_use_id -> 函数名映射（供 tool_result/functionResponse 还原名称）
+            const toolIdToName = {};
+            for (const m of rawMessages) {
+                if (m.role !== 'assistant') continue;
+                if (Array.isArray(m.content)) {
+                    for (const p of m.content) {
+                        if (p && p.type === 'tool_use' && p.id && p.name) {
+                            toolIdToName[p.id] = p.name;
+                        }
+                    }
+                }
+                if (Array.isArray(m.tool_calls)) {
+                    for (const tc of m.tool_calls) {
+                        if (tc && tc.id && tc.function?.name) {
+                            toolIdToName[tc.id] = tc.function.name;
+                        }
+                    }
+                }
+            }
+
             if (requestBody.system) {
                 const sysText = typeof requestBody.system === 'string'
                     ? requestBody.system
@@ -459,9 +479,15 @@ export class ZedApiService {
                 let role = m.role === 'assistant' ? 'model' : 'user';
                 const parts = [];
                 if (m.role === 'tool' || m.tool_call_id) {
+                    // OpenAI 风格 tool 结果消息 -> functionResponse
                     role = 'user';
                     parts.push({
-                        text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                        functionResponse: {
+                            name: toolIdToName[m.tool_call_id] || m.name || 'function',
+                            response: {
+                                result: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                            }
+                        }
                     });
                 } else if (typeof m.content === 'string') {
                     parts.push({ text: m.content });
@@ -476,11 +502,49 @@ export class ZedApiService {
                                     data: p.source.data
                                 }
                             });
-                        } else if (p.type === 'tool_result') {
+                        } else if (p.type === 'tool_use' && p.name) {
+                            // Claude 风格 assistant 工具调用 -> functionCall
+                            let args = {};
+                            if (typeof p.input === 'string') {
+                                try { args = JSON.parse(p.input); } catch (_) { args = {}; }
+                            } else if (p.input && typeof p.input === 'object') {
+                                args = p.input;
+                            }
                             parts.push({
-                                text: typeof p.content === 'string' ? p.content : JSON.stringify(p.content)
+                                functionCall: {
+                                    name: p.name,
+                                    args
+                                }
+                            });
+                        } else if (p.type === 'tool_result') {
+                            // Claude 风格 user 工具结果 -> functionResponse
+                            parts.push({
+                                functionResponse: {
+                                    name: toolIdToName[p.tool_use_id] || p.name || 'function',
+                                    response: {
+                                        result: typeof p.content === 'string' ? p.content : JSON.stringify(p.content)
+                                    }
+                                }
                             });
                         }
+                    }
+                }
+
+                // OpenAI 风格 assistant tool_calls -> functionCall
+                if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+                    for (const tc of m.tool_calls) {
+                        let args = {};
+                        try {
+                            args = typeof tc.function?.arguments === 'string'
+                                ? JSON.parse(tc.function.arguments)
+                                : (tc.function?.arguments || {});
+                        } catch (_) { /* 保持空对象 */ }
+                        parts.push({
+                            functionCall: {
+                                name: tc.function?.name || 'function',
+                                args
+                            }
+                        });
                     }
                 }
 
@@ -501,6 +565,46 @@ export class ZedApiService {
 
             if (systemInstruction) {
                 provReq.systemInstruction = systemInstruction;
+            }
+
+            // 工具定义 -> functionDeclarations；tool_choice -> functionCallingConfig
+            if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
+                provReq.tools = [{
+                    functionDeclarations: requestBody.tools
+                        .filter(t => t && t.name)
+                        .map(t => ({
+                            name: t.name,
+                            description: t.description,
+                            parameters: t.input_schema || t.parameters || { type: 'object', properties: {} }
+                        }))
+                }];
+
+                const tc = requestBody.tool_choice;
+                if (tc) {
+                    let mode = null;
+                    let allowedNames = null;
+                    if (typeof tc === 'string') {
+                        if (tc === 'auto') mode = 'AUTO';
+                        else if (tc === 'none') mode = 'NONE';
+                        else if (tc === 'any' || tc === 'required') mode = 'ANY';
+                    } else if (typeof tc === 'object') {
+                        if (tc.type === 'auto') mode = 'AUTO';
+                        else if (tc.type === 'none') mode = 'NONE';
+                        else if (tc.type === 'any') mode = 'ANY';
+                        else if (tc.type === 'tool' && tc.name) {
+                            mode = 'ANY';
+                            allowedNames = [tc.name];
+                        }
+                    }
+                    if (mode) {
+                        provReq.toolConfig = {
+                            functionCallingConfig: {
+                                mode,
+                                ...(allowedNames ? { allowedFunctionNames: allowedNames } : {})
+                            }
+                        };
+                    }
+                }
             }
 
             // 超参数与 Gemini 3.1+ 思考配置

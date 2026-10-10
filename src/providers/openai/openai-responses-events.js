@@ -333,15 +333,16 @@ function generateResponseCompleted(requestId, usage) {
       top_p: 1,
       truncation: "disabled",
       usage: usage || {
-        input_tokens: Math.floor(Math.random() * 100) + 20, // 随机值
+        // 上游未提供 usage 时回退为全零——绝不能伪造随机 token 数污染客户端用量统计
+        input_tokens: 0,
         input_tokens_details: {
-          cached_tokens: Math.floor(Math.random() * 50) // 随机值
+          cached_tokens: 0
         },
-        output_tokens: state.fullText.split('').length,
+        output_tokens: 0,
         output_tokens_details: {
           reasoning_tokens: 0
         },
-        total_tokens: Math.floor(Math.random() * 100) + 20 + state.fullText.split('').length // 随机值+文本长度
+        total_tokens: 0
       },
       user: null
     }

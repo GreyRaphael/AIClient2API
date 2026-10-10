@@ -143,3 +143,99 @@ describe('P0: Gemini -> Claude stream 事件序列合规', () => {
         expect(md.delta.stop_reason).toBe('max_tokens');
     });
 });
+
+// ---------------------------------------------------------------------------
+// P1-1: responses.completed 在无 usage 时不得伪造随机 token 数
+// ---------------------------------------------------------------------------
+describe('P1: responses.completed usage 兜底', () => {
+    test('无 usage 时全零而非随机值', () => {
+        const key = 'jest_resp_completed_usage';
+        streamStateManager.cleanup(key);
+        const ev = generateResponseCompleted(key, null);
+        expect(ev.response.usage).toEqual({
+            input_tokens: 0,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 0,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 0
+        });
+        streamStateManager.cleanup(key);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// P1-2: OpenAI -> Responses 非流式 status 合规
+// ---------------------------------------------------------------------------
+describe('P1: toOpenAIResponsesResponse status 合规', () => {
+    const converter = new OpenAIConverter();
+    const baseResp = (finishReason, extra = {}) => ({
+        id: 'chatcmpl-x',
+        created: 1700000000,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'hi', ...extra }, finish_reason: finishReason }],
+        usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }
+    });
+
+    test('stop -> completed', () => {
+        const r = converter.toOpenAIResponsesResponse(baseResp('stop'), 'm');
+        expect(r.status).toBe('completed');
+        expect(r.incomplete_details).toBeNull();
+    });
+
+    test('tool_calls -> completed (Responses API 无 requires_action)', () => {
+        const r = converter.toOpenAIResponsesResponse(baseResp('tool_calls', {
+            tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }]
+        }), 'm');
+        expect(r.status).toBe('completed');
+        expect(r.output.some(o => o.type === 'function_call')).toBe(true);
+    });
+
+    test('length -> incomplete + max_output_tokens', () => {
+        const r = converter.toOpenAIResponsesResponse(baseResp('length'), 'm');
+        expect(r.status).toBe('incomplete');
+        expect(r.incomplete_details).toEqual({ reason: 'max_output_tokens' });
+    });
+
+    test('content_filter -> incomplete + content_filter', () => {
+        const r = converter.toOpenAIResponsesResponse(baseResp('content_filter'), 'm');
+        expect(r.status).toBe('incomplete');
+        expect(r.incomplete_details).toEqual({ reason: 'content_filter' });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// P1-3: zed google 路径工具调用支持
+// ---------------------------------------------------------------------------
+describe('P1: zed google 路径工具调用', () => {
+    test('tools/tool_choice/functionCall/functionResponse 完整传递', () => {
+        const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+        const payload = service.buildPayload('gemini-3.5-flash', {
+            tools: [{ name: 'search', description: 'd', input_schema: { type: 'object', properties: { q: { type: 'string' } } } }],
+            tool_choice: { type: 'tool', name: 'search' },
+            messages: [
+                { role: 'user', content: '搜一下' },
+                { role: 'assistant', content: [
+                    { type: 'text', text: '我来搜' },
+                    { type: 'tool_use', id: 'toolu_1', name: 'search', input: { q: 'foo' } }
+                ] },
+                { role: 'user', content: [
+                    { type: 'tool_result', tool_use_id: 'toolu_1', content: '结果' }
+                ] }
+            ]
+        });
+
+        const provReq = payload.provider_request;
+        expect(payload.provider).toBe('google');
+        expect(provReq.tools).toEqual([{
+            functionDeclarations: [{ name: 'search', description: 'd', parameters: { type: 'object', properties: { q: { type: 'string' } } } }]
+        }]);
+        expect(provReq.toolConfig).toEqual({ functionCallingConfig: { mode: 'ANY', allowedFunctionNames: ['search'] } });
+
+        const allParts = provReq.contents.flatMap(c => c.parts);
+        const fc = allParts.find(p => p.functionCall);
+        expect(fc.functionCall).toEqual({ name: 'search', args: { q: 'foo' } });
+        const fr = allParts.find(p => p.functionResponse);
+        // 名称须从 tool_use_id 映射还原
+        expect(fr.functionResponse.name).toBe('search');
+        expect(fr.functionResponse.response.result).toBe('结果');
+    });
+});
