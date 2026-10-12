@@ -537,6 +537,13 @@ export class ClaudeConverter extends BaseConverter {
     toOpenAIStreamChunk(claudeChunk, model, requestId = null) {
         if (!claudeChunk) return null;
 
+        // message_stop 事件直接清理并终结，避免在已清理的情况下重新创建无用 identity 状态
+        if (claudeChunk.type === 'message_stop') {
+            const stateKey = requestId || 'default';
+            this.openaiStreamStates.delete(stateKey);
+            return null;
+        }
+
         // 处理 Claude 流式事件
         // OpenAI 规范要求同一次 completion 的所有 chunk 共享 id 与 created
         const { stateKey, identity } = this._getOpenAIStreamIdentity(requestId);
@@ -737,12 +744,6 @@ export class ClaudeConverter extends BaseConverter {
             // 流终结，清理稳定标识状态（后续 message_stop 返回 null）
             this.openaiStreamStates.delete(stateKey);
             return chunk;
-        }
-
-        // message_stop 事件
-        if (claudeChunk.type === 'message_stop') {
-            this.openaiStreamStates.delete(stateKey);
-            return null;
         }
 
         // 兼容旧格式：如果是字符串，直接作为文本内容

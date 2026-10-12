@@ -471,3 +471,50 @@ describe('P2: finish_reason 合规映射', () => {
     });
 });
 
+// ---------------------------------------------------------------------------
+// P3: 非流式 Gemini -> Claude stop_reason 规范化与 message_stop 瞬时状态清理
+// ---------------------------------------------------------------------------
+describe('P3: toClaudeResponse stop_reason 合规性与 ClaudeConverter message_stop', () => {
+    test('GeminiConverter.toClaudeResponse: STOP->end_turn, MAX_TOKENS->max_tokens, SAFETY->stop_sequence, toolUse->tool_use', () => {
+        const converter = new GeminiConverter();
+
+        const respStop = converter.toClaudeResponse({
+            candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ text: 'done' }] } }]
+        }, 'gemini-3.5-flash');
+        expect(respStop.stop_reason).toBe('end_turn');
+
+        const respMax = converter.toClaudeResponse({
+            candidates: [{ finishReason: 'MAX_TOKENS', content: { role: 'model', parts: [{ text: 'cut' }] } }]
+        }, 'gemini-3.5-flash');
+        expect(respMax.stop_reason).toBe('max_tokens');
+
+        const respSafe = converter.toClaudeResponse({
+            candidates: [{ finishReason: 'SAFETY', content: { role: 'model', parts: [{ text: 'blocked' }] } }]
+        }, 'gemini-3.5-flash');
+        expect(respSafe.stop_reason).toBe('stop_sequence');
+
+        const respTool = converter.toClaudeResponse({
+            candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ functionCall: { name: 'bash', args: {} } }] } }]
+        }, 'gemini-3.5-flash');
+        expect(respTool.stop_reason).toBe('tool_use');
+    });
+
+    test('ClaudeConverter.toOpenAIStreamChunk: message_stop 提前清理且不创建无用 identity', () => {
+        const converter = new ClaudeConverter();
+        const reqId = 'jest_claude_msg_stop_test';
+
+        // 终结前存在状态
+        converter.toOpenAIStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } }, 'm', reqId);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(true);
+
+        // message_delta 清理
+        converter.toOpenAIStreamChunk({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }, 'm', reqId);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+
+        // message_stop 不会重新生成新状态并返回 null
+        const out = converter.toOpenAIStreamChunk({ type: 'message_stop' }, 'm', reqId);
+        expect(out).toBeNull();
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+    });
+});
+

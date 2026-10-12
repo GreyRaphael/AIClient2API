@@ -701,25 +701,7 @@ export class GeminiConverter extends BaseConverter {
         if (hasToolUse) {
             stopReason = 'tool_use';
         } else if (finishReason) {
-            switch (finishReason) {
-                case 'STOP':
-                    stopReason = 'end_turn';
-                    break;
-                case 'MAX_TOKENS':
-                    stopReason = 'max_tokens';
-                    break;
-                case 'SAFETY':
-                    stopReason = 'safety';
-                    break;
-                case 'RECITATION':
-                    stopReason = 'recitation';
-                    break;
-                case 'OTHER':
-                    stopReason = 'other';
-                    break;
-                default:
-                    stopReason = 'end_turn';
-            }
+            stopReason = mapFinishReason(finishReason, 'gemini', 'anthropic');
         }
 
         return {
