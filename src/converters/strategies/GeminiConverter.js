@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
+import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import {
     checkAndAssignOrDefault,
     mapFinishReason,
@@ -716,25 +717,24 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * 获取或创建 Claude 流式转换状态（按 requestId 隔离并发流）
+     * 获取或创建 Claude 流式转换会话（按 requestId 隔离并发流）
+     * 事件序列骨架由 AnthropicSseEmitter 统一维护（sequential 单活动块语义）
      */
     _getClaudeStreamState(model, requestId) {
         const stateKey = requestId || 'default';
         if (!this.claudeStreamStates.has(stateKey)) {
             this.claudeStreamStates.set(stateKey, {
-                msgStarted: false,
-                messageId: `msg_${uuidv4().replace(/-/g, '')}`,
-                nextBlockIndex: 0,
-                activeBlockIndex: -1,
-                activeBlockType: null, // 'thinking' | 'text' | 'tool_use'
-                sawToolUse: false,
-                model: model || 'unknown',
+                emitter: new AnthropicSseEmitter({
+                    model: model || 'unknown',
+                    messageId: `msg_${uuidv4().replace(/-/g, '')}`,
+                    blockMode: 'sequential'
+                }),
                 latestUsage: null
             });
         }
-        const state = this.claudeStreamStates.get(stateKey);
-        if (model) state.model = model;
-        return { stateKey, state };
+        const entry = this.claudeStreamStates.get(stateKey);
+        if (model) entry.emitter.setModel(model);
+        return { stateKey, entry };
     }
 
     /**
@@ -755,54 +755,26 @@ export class GeminiConverter extends BaseConverter {
             return null;
         }
 
-        const { stateKey, state } = this._getClaudeStreamState(model, requestId);
+        const { stateKey, entry } = this._getClaudeStreamState(model, requestId);
+        const { emitter } = entry;
         const events = [];
 
         // 记录 usage（filterSSEUsageMetadata 保证仅终帧保留 usageMetadata）
         if (geminiChunk.usageMetadata) {
-            state.latestUsage = geminiChunk.usageMetadata;
+            entry.latestUsage = geminiChunk.usageMetadata;
         }
 
-        const ensureMessageStart = () => {
-            if (state.msgStarted) return;
-            state.msgStarted = true;
-            events.push({
-                type: 'message_start',
-                message: {
-                    id: state.messageId,
-                    type: 'message',
-                    role: 'assistant',
-                    model: state.model,
-                    content: [],
-                    stop_reason: null,
-                    stop_sequence: null,
-                    usage: {
-                        input_tokens: state.latestUsage?.promptTokenCount || 0,
-                        output_tokens: 0
-                    }
-                }
-            });
-        };
+        const ensureMessageStart = () => events.push(...emitter.ensureStarted({
+            input_tokens: entry.latestUsage?.promptTokenCount || 0,
+            output_tokens: 0
+        }));
 
-        const closeActiveBlock = () => {
-            if (state.activeBlockType !== null) {
-                events.push({ type: 'content_block_stop', index: state.activeBlockIndex });
-                state.activeBlockType = null;
-            }
-        };
-
-        const ensureBlockStart = (blockType, contentBlock) => {
-            if (state.activeBlockType !== blockType) {
-                closeActiveBlock();
-                state.activeBlockIndex = state.nextBlockIndex++;
-                state.activeBlockType = blockType;
-                events.push({
-                    type: 'content_block_start',
-                    index: state.activeBlockIndex,
-                    content_block: contentBlock
-                });
-            }
-        };
+        const buildTerminalUsage = () => ({
+            input_tokens: entry.latestUsage?.promptTokenCount || 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: entry.latestUsage?.cachedContentTokenCount || 0,
+            output_tokens: entry.latestUsage?.candidatesTokenCount || 0
+        });
 
         const candidate = geminiChunk.candidates?.[0];
         if (candidate) {
@@ -815,19 +787,11 @@ export class GeminiConverter extends BaseConverter {
                     if (typeof part.text === 'string' && part.text.length > 0) {
                         ensureMessageStart();
                         if (part.thought === true) {
-                            ensureBlockStart('thinking', { type: 'thinking', thinking: '' });
-                            events.push({
-                                type: 'content_block_delta',
-                                index: state.activeBlockIndex,
-                                delta: { type: 'thinking_delta', thinking: part.text }
-                            });
+                            const { events: openEvents } = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
+                            events.push(...openEvents, emitter.delta({ type: 'thinking_delta', thinking: part.text }));
                         } else {
-                            ensureBlockStart('text', { type: 'text', text: '' });
-                            events.push({
-                                type: 'content_block_delta',
-                                index: state.activeBlockIndex,
-                                delta: { type: 'text_delta', text: part.text }
-                            });
+                            const { events: openEvents } = emitter.openBlock('text', { type: 'text', text: '' });
+                            events.push(...openEvents, emitter.delta({ type: 'text_delta', text: part.text }));
                         }
                     }
 
@@ -835,7 +799,8 @@ export class GeminiConverter extends BaseConverter {
                     const rawSignature = part.thoughtSignature || part.thought_signature;
                     if (rawSignature && part.thought === true) {
                         ensureMessageStart();
-                        ensureBlockStart('thinking', { type: 'thinking', thinking: '' });
+                        const { events: openEvents } = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
+                        events.push(...openEvents);
                         let signature = rawSignature;
                         try {
                             const decoded = Buffer.from(signature, 'base64').toString('utf-8');
@@ -845,88 +810,49 @@ export class GeminiConverter extends BaseConverter {
                         } catch (e) {
                             // 解码失败，保持原样
                         }
-                        events.push({
-                            type: 'content_block_delta',
-                            index: state.activeBlockIndex,
-                            delta: { type: 'signature_delta', signature }
-                        });
+                        events.push(emitter.delta({ type: 'signature_delta', signature }));
                     }
 
                     // 工具调用（Gemini 一次性返回完整参数：start -> input_json_delta -> stop）
                     if (part.functionCall) {
                         ensureMessageStart();
-                        state.sawToolUse = true;
                         const toolName = normalizeToolName(part.functionCall.name);
                         const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
                         const toolId = part.functionCall.id || `${toolName}-${uuidv4().split('-')[0]}`;
 
-                        closeActiveBlock();
-                        state.activeBlockIndex = state.nextBlockIndex++;
-                        state.activeBlockType = 'tool_use';
-                        events.push({
-                            type: 'content_block_start',
-                            index: state.activeBlockIndex,
-                            content_block: {
-                                type: 'tool_use',
-                                id: toolId,
-                                name: toolName,
-                                input: {}
-                            }
+                        const { events: openEvents } = emitter.openBlock('tool_use', {
+                            type: 'tool_use',
+                            id: toolId,
+                            name: toolName,
+                            input: {}
                         });
-                        events.push({
-                            type: 'content_block_delta',
-                            index: state.activeBlockIndex,
-                            delta: {
-                                type: 'input_json_delta',
-                                partial_json: JSON.stringify(remappedArgs)
-                            }
-                        });
-                        closeActiveBlock();
+                        events.push(...openEvents, emitter.delta({
+                            type: 'input_json_delta',
+                            partial_json: JSON.stringify(remappedArgs)
+                        }));
+                        events.push(...emitter.closeActiveBlock());
                     }
                 }
             }
 
-            // 结束原因：关闭所有块，发 message_delta + message_stop（终态后状态即删除，无需完成标志）
+            // 结束原因：关闭所有块，发 message_delta + message_stop（终态后状态即删除）
             if (candidate.finishReason) {
                 ensureMessageStart();
-                closeActiveBlock();
 
                 let stopReason = mapFinishReason(candidate.finishReason, 'gemini', 'anthropic');
-                if (state.sawToolUse && stopReason === 'end_turn') {
+                if (emitter.sawToolUse && stopReason === 'end_turn') {
                     stopReason = 'tool_use';
                 }
 
-                events.push({
-                    type: 'message_delta',
-                    delta: { stop_reason: stopReason, stop_sequence: null },
-                    usage: {
-                        input_tokens: state.latestUsage?.promptTokenCount || 0,
-                        cache_creation_input_tokens: 0,
-                        cache_read_input_tokens: state.latestUsage?.cachedContentTokenCount || 0,
-                        output_tokens: state.latestUsage?.candidatesTokenCount || 0
-                    }
-                });
-                events.push({ type: 'message_stop' });
-
+                events.push(...emitter.finish({ stopReason, usage: buildTerminalUsage() }));
                 this.claudeStreamStates.delete(stateKey);
             }
-        } else if (state.latestUsage && state.msgStarted) {
+        } else if (entry.latestUsage && emitter.started) {
             // 容错：上游未带 finishReason 的纯 usage 终帧（filterSSEUsageMetadata 仅终帧保留 usage）
-            closeActiveBlock();
-            events.push({
-                type: 'message_delta',
-                delta: {
-                    stop_reason: state.sawToolUse ? 'tool_use' : 'end_turn',
-                    stop_sequence: null
-                },
-                usage: {
-                    input_tokens: state.latestUsage?.promptTokenCount || 0,
-                    cache_creation_input_tokens: 0,
-                    cache_read_input_tokens: state.latestUsage?.cachedContentTokenCount || 0,
-                    output_tokens: state.latestUsage?.candidatesTokenCount || 0
-                }
-            });
-            events.push({ type: 'message_stop' });
+            events.push(...emitter.finish({
+                stopReason: emitter.sawToolUse ? 'tool_use' : 'end_turn',
+                usage: buildTerminalUsage()
+            }));
             this.claudeStreamStates.delete(stateKey);
         }
 
