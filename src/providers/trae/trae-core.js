@@ -117,7 +117,7 @@ const CANONICAL_MODEL_ALIASES = {
 /**
  * Trae SOLO Agent 通道 (solo_work_lite) 专属模型别名与重定向映射表（以全小写作为规范化键）
  */
-export const SOLO_WORK_LITE_MODEL_ALIASES = {
+const SOLO_WORK_LITE_MODEL_ALIASES = {
     'auto': 'glm-5.2',
     'claude-3.5-sonnet': 'glm-5.2',
     'claude-3.7-sonnet': 'glm-5.2',
@@ -157,7 +157,7 @@ export const SOLO_WORK_LITE_MODEL_ALIASES = {
 /**
  * Trae Chat v3 专属模型别名与重定向映射表
  */
-export const CHAT_V3_MODEL_ALIASES = {
+const CHAT_V3_MODEL_ALIASES = {
     ...SOLO_WORK_LITE_MODEL_ALIASES,
     'qwen3.8-flash': 'qwen3.8-flash',
     'doubao-seed-code': 'Doubao-Seed-Code',
@@ -185,9 +185,9 @@ export class TraeApiService {
         // 解析通道模式：支持从配置、环境变量解析，或根据 URL 特征推断，默认使用 ToB 原生直连通道
         const configuredMode = (this.config.TRAE_CHANNEL_MODE || process.env.TRAE_CHANNEL_MODE || '').trim().toLowerCase();
         const providerType = String(this.config.MODEL_PROVIDER || '').toLowerCase();
-        if (configuredMode === TRAE_CHANNEL_MODES.CHAT_V3 || configuredMode === 'chat_v3' || providerType === 'trae-chat_v3' || providerType === 'chat_v3') {
+        if (configuredMode === TRAE_CHANNEL_MODES.CHAT_V3 || providerType === 'trae-chat_v3' || providerType === 'chat_v3') {
             this.channelMode = TRAE_CHANNEL_MODES.CHAT_V3;
-        } else if (configuredMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || configuredMode === 'solo_work_lite' || configuredMode === 'solo' || providerType === 'trae-solo_work_lite' || providerType === 'solo_work_lite') {
+        } else if (configuredMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || configuredMode === 'solo' || providerType === 'trae-solo_work_lite' || providerType === 'solo_work_lite') {
             this.channelMode = TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
         } else if (configuredMode === TRAE_CHANNEL_MODES.CUSTOM) {
             this.channelMode = TRAE_CHANNEL_MODES.CUSTOM;
@@ -237,10 +237,10 @@ export class TraeApiService {
      * 获取指定提供商的基础模型列表
      */
     getBaseModels(provider) {
-        if (provider === MODEL_PROVIDER.TRAE_CHAT_V3 || provider === 'trae-chat_v3') {
+        if (provider === MODEL_PROVIDER.TRAE_CHAT_V3) {
             return BASE_TRAE_CHAT_V3_MODELS;
         }
-        if (provider === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE || provider === 'trae-solo_work_lite') {
+        if (provider === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE) {
             return BASE_TRAE_SOLO_WORK_LITE_MODELS;
         }
         return BASE_TRAE_MODELS;
@@ -374,19 +374,21 @@ export class TraeApiService {
             }
         }
 
-        // 3. 针对不同通道查阅对应的别名表（chat_v3 仅由 channelMode 决定，无需 channel.function 回退）
-        const channel = this.getChannelConfig();
+        // 3. 针对不同通道查阅对应的别名表（chat_v3 仅由 channelMode 决定，无需 channel.function 回退；
+        //    getChannelConfig 仅在需要 function 回退判定时才调用）
         if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
             if (CHAT_V3_MODEL_ALIASES[lower]) {
                 return CHAT_V3_MODEL_ALIASES[lower];
             }
-        } else if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || channel?.function === 'solo_work_lite') {
+        } else if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) {
             if (SOLO_WORK_LITE_MODEL_ALIASES[lower]) {
                 return SOLO_WORK_LITE_MODEL_ALIASES[lower];
             }
         } else {
-            if (CANONICAL_MODEL_ALIASES[lower]) {
-                return CANONICAL_MODEL_ALIASES[lower];
+            const channel = this.getChannelConfig();
+            const aliasTable = channel?.function === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES : CANONICAL_MODEL_ALIASES;
+            if (aliasTable[lower]) {
+                return aliasTable[lower];
             }
         }
 
