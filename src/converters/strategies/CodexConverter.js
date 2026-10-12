@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
+import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
     generateResponseCreated,
@@ -1450,46 +1451,32 @@ export class CodexConverter extends BaseConverter {
         // 确保同一单例 converter 上的并发流状态完全独立。
         const stateKey = requestId || chunk.response?.id || 'default';
 
-        // response.created 携带 response.id，用它来初始化该请求的流状态
+        // response.created 携带 response.id，用它来初始化该请求的流会话
+        // 事件序列骨架由 AnthropicSseEmitter 统一维护（sequential 单活动块语义）
         if (type === 'response.created') {
             const resId = chunk.response.id;
             this.streamParams.set(stateKey, {
+                emitter: new AnthropicSseEmitter({ model, messageId: resId, blockMode: 'sequential' }),
                 model: model,
                 createdAt: Math.floor(Date.now() / 1000),
-                responseID: resId,
-                blockIndex: 0,
-                blockStarted: false,
-                currentBlockType: null,
                 emittedImageGenerationItems: new Set()
             });
-            const state = this.streamParams.get(stateKey);
-            return {
-                type: "message_start",
-                message: {
-                    id: state.responseID,
-                    type: "message",
-                    role: "assistant",
-                    content: [],
-                    model: state.model,
-                    usage: { input_tokens: 0, output_tokens: 0 }
-                }
-            };
+            const entry = this.streamParams.get(stateKey);
+            return entry.emitter.ensureStarted();
         }
 
         if (!this.streamParams.has(stateKey)) {
             // 如果还没有状态（比如没有收到 response.created 就收到了其他事件），
             // 用 chunk 中能拿到的信息初始化
             this.streamParams.set(stateKey, {
+                emitter: new AnthropicSseEmitter({ model, messageId: chunk.response?.id || stateKey, blockMode: 'sequential' }),
                 model: model,
                 createdAt: Math.floor(Date.now() / 1000),
-                responseID: chunk.response?.id || stateKey,
-                blockIndex: 0,
-                blockStarted: false,
-                currentBlockType: null,
                 emittedImageGenerationItems: new Set()
             });
         }
-        const state = this.streamParams.get(stateKey);
+        const entry = this.streamParams.get(stateKey);
+        const { emitter } = entry;
 
         // response.output_item.added 不产生 Claude 输出
         if (type === 'response.output_item.added') {
@@ -1502,91 +1489,34 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (type === 'response.reasoning_summary_text.delta') {
-            const events = [];
-            // If switching from a different block type, close the previous block first
-            if (state.blockStarted && state.currentBlockType !== 'thinking') {
-                events.push({ type: "content_block_stop", index: state.blockIndex });
-                state.blockIndex++;
-                state.blockStarted = false;
-            }
-            // Emit content_block_start on first delta for this thinking block
-            if (!state.blockStarted) {
-                events.push({
-                    type: "content_block_start",
-                    index: state.blockIndex,
-                    content_block: { type: "thinking", thinking: "" }
-                });
-                state.blockStarted = true;
-                state.currentBlockType = 'thinking';
-            }
-            events.push({
-                type: "content_block_delta",
-                index: state.blockIndex,
-                delta: { type: "thinking_delta", thinking: chunk.delta }
-            });
+            const events = emitter.ensureStarted();
+            const { events: openEvents } = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
+            events.push(...openEvents, emitter.delta({ type: 'thinking_delta', thinking: chunk.delta }));
             return events;
         }
 
         if (type === 'response.output_text.delta') {
-            const events = [];
-            // If switching from a different block type, close the previous block first
-            if (state.blockStarted && state.currentBlockType !== 'text') {
-                events.push({ type: "content_block_stop", index: state.blockIndex });
-                state.blockIndex++;
-                state.blockStarted = false;
-            }
-            // Emit content_block_start on first delta for this text block
-            if (!state.blockStarted) {
-                events.push({
-                    type: "content_block_start",
-                    index: state.blockIndex,
-                    content_block: { type: "text", text: "" }
-                });
-                state.blockStarted = true;
-                state.currentBlockType = 'text';
-            }
-            events.push({
-                type: "content_block_delta",
-                index: state.blockIndex,
-                delta: { type: "text_delta", text: chunk.delta }
-            });
+            const events = emitter.ensureStarted();
+            const { events: openEvents } = emitter.openBlock('text', { type: 'text', text: '' });
+            events.push(...openEvents, emitter.delta({ type: 'text_delta', text: chunk.delta }));
             return events;
         }
 
         if (type === 'response.output_item.done' && chunk.item?.type === 'function_call') {
-            const events = [];
-            // Close any open text/thinking block before tool_use
-            if (state.blockStarted) {
-                events.push({ type: "content_block_stop", index: state.blockIndex });
-                state.blockIndex++;
-                state.blockStarted = false;
-                state.currentBlockType = null;
-            }
-            events.push(
-                {
-                    type: "content_block_start",
-                    index: state.blockIndex,
-                    content_block: {
-                        type: "tool_use",
-                        id: chunk.item.call_id,
-                        name: this.getOriginalToolName(chunk.item.name, requestId),
-                        input: {}
-                    }
-                },
-                {
-                    type: "content_block_delta",
-                    index: state.blockIndex,
-                    delta: {
-                        type: "input_json_delta",
-                        partial_json: typeof chunk.item.arguments === 'string' ? chunk.item.arguments : JSON.stringify(chunk.item.arguments)
-                    }
-                },
-                {
-                    type: "content_block_stop",
-                    index: state.blockIndex
-                }
-            );
-            state.blockIndex++;
+            // 工具块为瞬态块：关闭当前活动块 -> start -> input_json_delta -> stop（不留活动块）
+            const events = emitter.ensureStarted();
+            events.push(...emitter.closeActiveBlock());
+            const { events: openEvents } = emitter.openBlock('tool_use', {
+                type: 'tool_use',
+                id: chunk.item.call_id,
+                name: this.getOriginalToolName(chunk.item.name, requestId),
+                input: {}
+            });
+            events.push(...openEvents, emitter.delta({
+                type: 'input_json_delta',
+                partial_json: typeof chunk.item.arguments === 'string' ? chunk.item.arguments : JSON.stringify(chunk.item.arguments)
+            }));
+            events.push(...emitter.closeActiveBlock());
             return events;
         }
 
@@ -1596,49 +1526,24 @@ export class CodexConverter extends BaseConverter {
                 return null;
             }
 
-            const events = [];
-            if (state.blockStarted) {
-                events.push({ type: "content_block_stop", index: state.blockIndex });
-                state.blockIndex++;
-                state.blockStarted = false;
-                state.currentBlockType = null;
-            }
-            events.push(
-                {
-                    type: "content_block_start",
-                    index: state.blockIndex,
-                    content_block: { type: "text", text: "" }
-                },
-                {
-                    type: "content_block_delta",
-                    index: state.blockIndex,
-                    delta: { type: "text_delta", text: imageMarkdown }
-                },
-                {
-                    type: "content_block_stop",
-                    index: state.blockIndex
-                }
-            );
-            state.blockIndex++;
+            // 图片文本块为瞬态块：关闭当前活动块后新开独立 text 块（不并入既有 text 块）
+            const events = emitter.ensureStarted();
+            events.push(...emitter.closeActiveBlock());
+            const { events: openEvents } = emitter.openBlock('text', { type: 'text', text: '' });
+            events.push(...openEvents, emitter.delta({ type: 'text_delta', text: imageMarkdown }));
+            events.push(...emitter.closeActiveBlock());
             if (chunk.item.id) {
-                state.emittedImageGenerationItems.add(chunk.item.id);
+                entry.emittedImageGenerationItems.add(chunk.item.id);
             }
             return events;
         }
 
         if (type === 'response.completed') {
-            const events = [];
-            // Close any open content block before ending the message
-            if (state.blockStarted) {
-                events.push({ type: "content_block_stop", index: state.blockIndex });
-                state.blockIndex++;
-                state.blockStarted = false;
-                state.currentBlockType = null;
-            }
+            const events = emitter.ensureStarted();
 
             const completedOutput = Array.isArray(chunk.response?.output) ? chunk.response.output : [];
             for (const item of completedOutput) {
-                if (item.type !== 'image_generation_call' || (item.id && state.emittedImageGenerationItems.has(item.id))) {
+                if (item.type !== 'image_generation_call' || (item.id && entry.emittedImageGenerationItems.has(item.id))) {
                     continue;
                 }
 
@@ -1647,36 +1552,22 @@ export class CodexConverter extends BaseConverter {
                     continue;
                 }
 
-                events.push(
-                    {
-                        type: "content_block_start",
-                        index: state.blockIndex,
-                        content_block: { type: "text", text: "" }
-                    },
-                    {
-                        type: "content_block_delta",
-                        index: state.blockIndex,
-                        delta: { type: "text_delta", text: imageMarkdown }
-                    },
-                    {
-                        type: "content_block_stop",
-                        index: state.blockIndex
-                    }
-                );
-                state.blockIndex++;
+                events.push(...emitter.closeActiveBlock());
+                const { events: openEvents } = emitter.openBlock('text', { type: 'text', text: '' });
+                events.push(...openEvents, emitter.delta({ type: 'text_delta', text: imageMarkdown }));
+                events.push(...emitter.closeActiveBlock());
             }
-            events.push(
-                {
-                    type: "message_delta",
-                    delta: { stop_reason: "end_turn" },
-                    usage: {
-                        input_tokens: chunk.response.usage?.input_tokens || 0,
-                        output_tokens: chunk.response.usage?.output_tokens || 0,
-                        cache_read_input_tokens: this.getCachedInputTokens(chunk.response.usage)
-                    }
-                },
-                { type: "message_stop" }
-            );
+
+            // stop_reason 决策：流中含 tool_use 块时为 tool_use（原实现硬编码 end_turn，
+            // 与 zed/Gemini 的 sawToolUse 修复同 bug 类；usage 字段构成保留在本类）
+            events.push(...emitter.finish({
+                stopReason: emitter.sawToolUse ? 'tool_use' : 'end_turn',
+                usage: {
+                    input_tokens: chunk.response.usage?.input_tokens || 0,
+                    output_tokens: chunk.response.usage?.output_tokens || 0,
+                    cache_read_input_tokens: this.getCachedInputTokens(chunk.response.usage)
+                }
+            }));
             // 清理该请求的流状态
             this.streamParams.delete(stateKey);
             this.requestStates.delete(stateKey);
