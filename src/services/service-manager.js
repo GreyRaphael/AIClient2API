@@ -15,6 +15,7 @@ import {
 } from '../utils/provider-utils.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
+import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
 
 // 存储 ProviderPoolManager 实例
 let providerPoolManager = null;
@@ -187,11 +188,10 @@ async function linkSingleCredential(config, credPath, options = {}) {
         
         const { providerType: defaultType, credPathKey, defaultCheckModel, displayName, needsProjectId } = matchedMapping;
         const providerType = options.providerType || defaultType;
+        const traeDefaults = TRAE_PROVIDER_DEFAULTS[providerType];
         let targetDisplayName = options.providerType ? providerType : displayName;
-        if (providerType === 'trae-solo_work_lite') {
-            targetDisplayName = 'Trae (solo_work_lite)';
-        } else if (providerType === 'trae-chat_v3') {
-            targetDisplayName = 'Trae (chat_v3)';
+        if (traeDefaults?.displayName) {
+            targetDisplayName = traeDefaults.displayName;
         }
         
         // 确保提供商类型数组存在
@@ -223,18 +223,10 @@ async function linkSingleCredential(config, credPath, options = {}) {
             needsProjectId
         });
 
-        if (providerType === 'trae-solo_work_lite') {
-            newProvider.TRAE_CHANNEL_MODE = 'solo_work_lite';
-            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://trae-api-cn.mchost.guru';
-            newProvider.customName = options.customName || 'SOLO Agent';
-        } else if (providerType === 'trae-chat_v3') {
-            newProvider.TRAE_CHANNEL_MODE = 'chat_v3';
-            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://trae-api-cn.mchost.guru';
-            newProvider.customName = options.customName || 'Chat v3';
-        } else if (providerType === 'trae') {
-            newProvider.TRAE_CHANNEL_MODE = 'tob_raw_chat';
-            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://api.enterprise.trae.cn';
-            newProvider.customName = options.customName || 'ToB Raw Chat';
+        if (traeDefaults) {
+            newProvider.TRAE_CHANNEL_MODE = traeDefaults.channelMode;
+            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || traeDefaults.baseUrl;
+            newProvider.customName = options.customName || traeDefaults.customName;
         }
         
         // 添加到配置

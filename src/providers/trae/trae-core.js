@@ -8,61 +8,16 @@ import { MODEL_PROVIDER } from '../../utils/constants.js';
 import { updateProviderModels, PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.js';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.js';
+import {
+    TRAE_CHANNEL_MODES,
+    TRAE_CHANNEL_PRESETS,
+    resolveTraeChannelMode,
+    isSoloFamilyChannel,
+    resolveAliasTableKind
+} from './trae-channel.js';
 
-export const TRAE_CHANNEL_MODES = {
-    TOB_RAW_CHAT: 'tob_raw_chat',
-    SOLO_WORK_LITE: 'solo_work_lite',
-    CHAT_V3: 'chat_v3',
-    CUSTOM: 'custom'
-};
-
-export const TRAE_CHANNEL_PRESETS = {
-    [TRAE_CHANNEL_MODES.TOB_RAW_CHAT]: {
-        name: 'tob_raw_chat',
-        label: '企业原生直连 (ToB Raw Chat - 推荐)',
-        endpointPath: '/api/ide/v2/llm_raw_chat',
-        modelsEndpointPath: '/api/ide/v1/batch_get_detail_param',
-        defaultHost: 'https://api.enterprise.trae.cn',
-        function: 'chat',
-        appId: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
-        ideVersion: '0.208.1',
-        ideVersionCode: '20260908',
-        deviceType: 'linux',
-        osVersion: 'Linux 6.8.0',
-        deviceBrand: 'PC',
-        ideVersionType: 'stable'
-    },
-    [TRAE_CHANNEL_MODES.SOLO_WORK_LITE]: {
-        name: 'solo_work_lite',
-        label: 'SOLO Agent 通道 (solo_work_lite)',
-        endpointPath: '/api/agent/v3/llm_utils_chat',
-        modelsEndpointPath: '/api/ide/v1/get_detail_param',
-        defaultHost: 'https://trae-api-cn.mchost.guru',
-        function: 'solo_work_lite',
-        appId: '6eefa01c-1036-4c7e-9ca5-d891f63bfcd8',
-        ideVersion: '0.1.52',
-        ideVersionCode: '20260811',
-        deviceType: 'windows',
-        osVersion: 'Windows 11 Pro',
-        deviceBrand: '83DG',
-        ideVersionType: 'stable'
-    },
-    [TRAE_CHANNEL_MODES.CHAT_V3]: {
-        name: 'chat_v3',
-        label: '侧边栏对话通道 (chat_v3)',
-        endpointPath: '/api/agent/v3/llm_utils_chat',
-        modelsEndpointPath: '/api/ide/v1/get_detail_param',
-        defaultHost: 'https://trae-api-cn.mchost.guru',
-        function: 'chat_v3',
-        appId: '6eefa01c-1036-4c7e-9ca5-d891f63bfcd8',
-        ideVersion: '0.1.52',
-        ideVersionCode: '20260811',
-        deviceType: 'windows',
-        osVersion: 'Windows 11 Pro',
-        deviceBrand: '83DG',
-        ideVersionType: 'stable'
-    }
-};
+// 通道模式枚举与预设已迁移至 trae-channel.js（single source of truth），此处再导出以保持兼容
+export { TRAE_CHANNEL_MODES, TRAE_CHANNEL_PRESETS };
 
 const DEFAULT_MODEL = 'glm-5.2';
 
@@ -182,30 +137,12 @@ export class TraeApiService {
         this.agentHost = (this.config.TRAE_AGENT_HOST || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
         this.host = this.authHost;
 
-        // 解析通道模式：支持从配置、环境变量解析，或根据 URL 特征推断，默认使用 ToB 原生直连通道
-        const configuredMode = (this.config.TRAE_CHANNEL_MODE || process.env.TRAE_CHANNEL_MODE || '').trim().toLowerCase();
-        const providerType = String(this.config.MODEL_PROVIDER || '').toLowerCase();
-        if (configuredMode === TRAE_CHANNEL_MODES.CHAT_V3 || providerType === 'trae-chat_v3' || providerType === 'chat_v3') {
-            this.channelMode = TRAE_CHANNEL_MODES.CHAT_V3;
-        } else if (configuredMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || configuredMode === 'solo' || providerType === 'trae-solo_work_lite' || providerType === 'solo_work_lite') {
-            this.channelMode = TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
-        } else if (configuredMode === TRAE_CHANNEL_MODES.CUSTOM) {
-            this.channelMode = TRAE_CHANNEL_MODES.CUSTOM;
-        } else if (configuredMode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || configuredMode === 'raw' || configuredMode === 'tob' || providerType === 'trae') {
-            this.channelMode = TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
-        } else {
-            // 自动推断：如果配置的 URL 明确指向 mchost.guru 或包含 llm_utils_chat，则根据 providerType 或默认使用 solo_work_lite
-            const urlToCheck = String(this.config.TRAE_BASE_URL || this.config.TRAE_HOST || '').toLowerCase();
-            if (urlToCheck.includes('mchost.guru') || urlToCheck.includes('llm_utils_chat')) {
-                if (providerType.includes('chat_v3')) {
-                    this.channelMode = TRAE_CHANNEL_MODES.CHAT_V3;
-                } else {
-                    this.channelMode = TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
-                }
-            } else {
-                this.channelMode = TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
-            }
-        }
+        // 解析通道模式：判定逻辑统一收编至 trae-channel.js 的 resolveTraeChannelMode
+        this.channelMode = resolveTraeChannelMode({
+            configuredMode: this.config.TRAE_CHANNEL_MODE || process.env.TRAE_CHANNEL_MODE,
+            providerType: this.config.MODEL_PROVIDER,
+            baseUrl: this.config.TRAE_BASE_URL || this.config.TRAE_HOST
+        });
 
         this.userId = null;
         this.enterpriseId = null;
@@ -374,22 +311,15 @@ export class TraeApiService {
             }
         }
 
-        // 3. 针对不同通道查阅对应的别名表（chat_v3 仅由 channelMode 决定，无需 channel.function 回退；
+        // 3. 针对不同通道查阅对应的别名表（选择逻辑收编至 trae-channel.js 的 resolveAliasTableKind；
         //    getChannelConfig 仅在需要 function 回退判定时才调用）
-        if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
-            if (CHAT_V3_MODEL_ALIASES[lower]) {
-                return CHAT_V3_MODEL_ALIASES[lower];
-            }
-        } else if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) {
-            if (SOLO_WORK_LITE_MODEL_ALIASES[lower]) {
-                return SOLO_WORK_LITE_MODEL_ALIASES[lower];
-            }
-        } else {
-            const channel = this.getChannelConfig();
-            const aliasTable = channel?.function === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES : CANONICAL_MODEL_ALIASES;
-            if (aliasTable[lower]) {
-                return aliasTable[lower];
-            }
+        const needsFunctionFallback = this.channelMode !== TRAE_CHANNEL_MODES.CHAT_V3 && this.channelMode !== TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
+        const aliasKind = resolveAliasTableKind(this.channelMode, needsFunctionFallback ? this.getChannelConfig()?.function : null);
+        const aliasTable = aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
+            : aliasKind === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES
+            : CANONICAL_MODEL_ALIASES;
+        if (aliasTable[lower]) {
+            return aliasTable[lower];
         }
 
         return trimmed;
@@ -1086,10 +1016,7 @@ export class TraeApiService {
                 const headers = await this.buildHeaders(false);
                 const allConfigs = [];
 
-                const isSoloOrChat = this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE ||
-                    this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3 ||
-                    channel.function === 'solo_work_lite' ||
-                    channel.function === 'chat_v3';
+                const isSoloOrChat = isSoloFamilyChannel(this.channelMode, channel.function);
                 if (isSoloOrChat) {
                     // 2. solo_work_lite / chat_v3 通道: POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param
                     const targetUrl = channel.modelsUrl || `${this.agentHost}/api/ide/v1/get_detail_param`;

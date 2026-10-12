@@ -13,6 +13,7 @@ import { broadcastEvent } from './event-broadcast.js';
 import { getRegisteredProviders, getServiceAdapter, invalidateServiceAdapter, serviceInstances } from '../providers/adapter.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.js';
+import { isTraeProviderType, isSoloFamilyProviderType, isSoloFamilyChannel, TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
 
 
 
@@ -99,10 +100,10 @@ function filterMaskedData(data) {
 
 /**
  * 校验 Trae 节点配置与选定通道模式的端点 URL 是否匹配，防止错配导致 404/400
+ * 类型/家族判定统一收编至 trae-channel.js
  */
 export function validateTraeProviderConfig(providerType, config) {
-    const isTraeType = providerType === 'trae' || providerType === 'trae-solo_work_lite' || providerType === 'trae-chat_v3';
-    if (!config || !isTraeType) return null;
+    if (!config || !isTraeProviderType(providerType)) return null;
     const mode = config.TRAE_CHANNEL_MODE;
     if (mode === 'custom') return null;
 
@@ -113,7 +114,7 @@ export function validateTraeProviderConfig(providerType, config) {
         if (url.includes('mchost.guru') || url.includes('llm_utils_chat')) {
             return 'ToB Raw Chat 通道不能使用个人版 (mchost.guru) 地址，请检查服务地址';
         }
-    } else if (providerType === 'trae-solo_work_lite' || providerType === 'trae-chat_v3' || mode === 'solo_work_lite' || mode === 'chat_v3') {
+    } else if (isSoloFamilyProviderType(providerType) || isSoloFamilyChannel(mode, null)) {
         if (url.includes('enterprise.trae.cn') || url.includes('llm_raw_chat')) {
             const label = providerType === 'trae-chat_v3' ? 'Chat v3' : 'SOLO Agent';
             return `${label} 通道不能使用 ToB 企业版 (enterprise.trae.cn) 地址，请检查服务地址`;
@@ -683,12 +684,9 @@ async function _handleAddProvider(req, res, currentConfig, providerPoolManager, 
         providerConfig.lastErrorTime = providerConfig.lastErrorTime || null;
 
         if (providerConfig.TRAE_CHANNEL_MODE !== 'custom') {
-            if (providerType === 'trae-solo_work_lite') {
-                providerConfig.TRAE_CHANNEL_MODE = 'solo_work_lite';
-            } else if (providerType === 'trae-chat_v3') {
-                providerConfig.TRAE_CHANNEL_MODE = 'chat_v3';
-            } else if (providerType === 'trae') {
-                providerConfig.TRAE_CHANNEL_MODE = 'tob_raw_chat';
+            const traeDefaults = TRAE_PROVIDER_DEFAULTS[providerType];
+            if (traeDefaults) {
+                providerConfig.TRAE_CHANNEL_MODE = traeDefaults.channelMode;
             }
         }
 
@@ -845,12 +843,11 @@ async function _handleUpdateProvider(req, res, currentConfig, providerPoolManage
 
         if (existingProvider.TRAE_CHANNEL_MODE === 'custom' || filteredConfig.TRAE_CHANNEL_MODE === 'custom') {
             updatedProvider.TRAE_CHANNEL_MODE = 'custom';
-        } else if (providerType === 'trae-solo_work_lite') {
-            updatedProvider.TRAE_CHANNEL_MODE = 'solo_work_lite';
-        } else if (providerType === 'trae-chat_v3') {
-            updatedProvider.TRAE_CHANNEL_MODE = 'chat_v3';
-        } else if (providerType === 'trae') {
-            updatedProvider.TRAE_CHANNEL_MODE = 'tob_raw_chat';
+        } else {
+            const traeDefaults = TRAE_PROVIDER_DEFAULTS[providerType];
+            if (traeDefaults) {
+                updatedProvider.TRAE_CHANNEL_MODE = traeDefaults.channelMode;
+            }
         }
 
         const traeValidationError = validateTraeProviderConfig(providerType, updatedProvider);
