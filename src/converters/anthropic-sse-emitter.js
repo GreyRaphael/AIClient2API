@@ -187,7 +187,7 @@ export class AnthropicSseEmitter {
     }
 
     /**
-     * 终结消息：确保 message_start -> 关闭所有块 -> message_delta -> message_stop（幂等，done 后为空操作）
+     * 终结消息：确保 message_start -> 兜底空内容块（若全流未开启过块）-> 关闭所有块 -> message_delta -> message_stop（幂等，done 后为空操作）
      * @param {Object} [options]
      * @param {string} [options.stopReason] - 终态原因（调用方负责映射与覆盖规则）
      * @param {Object} [options.usage] - message_delta.usage 完整对象（字段构成由调用方决定）
@@ -198,6 +198,12 @@ export class AnthropicSseEmitter {
         const events = [];
         if (!this.msgStarted) {
             events.push(...this.ensureStarted());
+        }
+        // Anthropic 规范要求消息体至少包含一个内容块；
+        // 若全流从未开启过任何块（空输出），统一兜底开启并闭合空 text 块 @0
+        if (this.nextBlockIndex === 0) {
+            const { events: openEvents } = this.openBlock('text', { type: 'text', text: '' });
+            events.push(...openEvents);
         }
         this.done = true;
         events.push(...this.closeAllBlocks());

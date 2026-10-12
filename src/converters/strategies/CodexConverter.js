@@ -1457,8 +1457,6 @@ export class CodexConverter extends BaseConverter {
             const resId = chunk.response.id;
             this.streamParams.set(stateKey, {
                 emitter: new AnthropicSseEmitter({ model, messageId: resId, blockMode: 'sequential' }),
-                model: model,
-                createdAt: Math.floor(Date.now() / 1000),
                 emittedImageGenerationItems: new Set()
             });
             const entry = this.streamParams.get(stateKey);
@@ -1470,8 +1468,6 @@ export class CodexConverter extends BaseConverter {
             // 用 chunk 中能拿到的信息初始化
             this.streamParams.set(stateKey, {
                 emitter: new AnthropicSseEmitter({ model, messageId: chunk.response?.id || stateKey, blockMode: 'sequential' }),
-                model: model,
-                createdAt: Math.floor(Date.now() / 1000),
                 emittedImageGenerationItems: new Set()
             });
         }

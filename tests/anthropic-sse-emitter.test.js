@@ -131,11 +131,22 @@ describe('finish 终结', () => {
         expect(em.finish()).toEqual([]); // 幂等
     });
 
-    test('未事先 ensureStarted 时 finish 自动补发 message_start 并紧随终态', () => {
+    test('未事先 ensureStarted 时 finish 自动补发 message_start 并兜底空文本块', () => {
         const em = new AnthropicSseEmitter({ model: 'm' });
         const events = em.finish({ stopReason: 'end_turn' });
-        expect(types(events)).toEqual(['message_start', 'message_delta', 'message_stop']);
-        expect(events[1].usage).toEqual({ output_tokens: 0 });
+        expect(types(events)).toEqual(['message_start', 'content_block_start', 'content_block_stop', 'message_delta', 'message_stop']);
+        expect(events[1]).toEqual({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+        expect(events[2]).toEqual({ type: 'content_block_stop', index: 0 });
+        expect(events[3].usage).toEqual({ output_tokens: 0 });
+    });
+
+    test('事先 ensureStarted 但无任何内容块时 finish 兜底补空 text 块 @0', () => {
+        const em = new AnthropicSseEmitter({ model: 'm' });
+        em.ensureStarted();
+        const events = em.finish({ stopReason: 'end_turn' });
+        expect(types(events)).toEqual(['content_block_start', 'content_block_stop', 'message_delta', 'message_stop']);
+        expect(events[0]).toEqual({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+        expect(events[1]).toEqual({ type: 'content_block_stop', index: 0 });
     });
 
     test('done 终态后调用 ensureStarted / openBlock 均被守卫拦截', () => {

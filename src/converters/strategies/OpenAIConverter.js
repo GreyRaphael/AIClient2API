@@ -687,12 +687,6 @@ export class OpenAIConverter extends BaseConverter {
         // 5. 处理 finish_reason (对应 content_block_stop、message_delta 和 message_stop)
         const finishReason = choice?.finish_reason;
         if (finishReason) {
-            // 如果从未开启过任何内容块（空输出），补一个空的 text block
-            if (emitter.nextBlockIndex === 0) {
-                const { events: openEvents } = emitter.openBlock('text', { type: 'text', text: '' });
-                events.push(...openEvents);
-            }
-
             let stopReason = mapFinishReason(
                 finishReason,
                 "openai",
@@ -702,7 +696,7 @@ export class OpenAIConverter extends BaseConverter {
                 stopReason = "tool_use";
             }
 
-            // finish 统一关闭所有 open 块 -> message_delta -> message_stop
+            // finish 统一兜底空块 -> 关闭所有 open 块 -> message_delta -> message_stop
             events.push(...emitter.finish({
                 stopReason,
                 usage: { output_tokens: openaiChunk.usage?.completion_tokens || 0 }
