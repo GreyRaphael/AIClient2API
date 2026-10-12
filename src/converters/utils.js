@@ -5,6 +5,7 @@
  * 提供各种协议转换所需的通用辅助函数
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
 
 // =============================================================================
@@ -340,6 +341,24 @@ export function cleanJsonSchemaForOpenAI(schema) {
         },
         cleanJsonSchemaForOpenAI
     );
+}
+
+/**
+ * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
+ * OpenAI 规范要求同一次 completion 的所有 chunk 共享 id 与 created
+ * @param {Object} store - 带 has/get/set 接口的会话存储（如 StreamSessionStore）
+ * @param {string|null} requestId - 请求 ID
+ * @returns {{stateKey: string, identity: {id: string, created: number}}}
+ */
+export function getOpenAIStreamIdentity(store, requestId) {
+    const stateKey = requestId || 'default';
+    if (!store.has(stateKey)) {
+        store.set(stateKey, {
+            id: `chatcmpl-${uuidv4()}`,
+            created: Math.floor(Date.now() / 1000)
+        });
+    }
+    return { stateKey, identity: store.get(stateKey) };
 }
 
 /**

@@ -16,7 +16,8 @@ import {
     OPENAI_DEFAULT_MAX_TOKENS,
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_DEFAULT_TOP_P,
-    sanitizeToolId
+    sanitizeToolId,
+    getOpenAIStreamIdentity
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import {
@@ -513,14 +514,7 @@ export class ClaudeConverter extends BaseConverter {
      * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
      */
     _getOpenAIStreamIdentity(requestId) {
-        const stateKey = requestId || 'default';
-        if (!this.openaiStreamStates.has(stateKey)) {
-            this.openaiStreamStates.set(stateKey, {
-                id: `chatcmpl-${uuidv4()}`,
-                created: Math.floor(Date.now() / 1000)
-            });
-        }
-        return { stateKey, identity: this.openaiStreamStates.get(stateKey) };
+        return getOpenAIStreamIdentity(this.openaiStreamStates, requestId);
     }
 
     /**

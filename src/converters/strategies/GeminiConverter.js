@@ -9,6 +9,7 @@ import { StreamSessionStore } from '../stream-session.js';
 import {
     checkAndAssignOrDefault,
     mapFinishReason,
+    getOpenAIStreamIdentity,
     OPENAI_DEFAULT_MAX_TOKENS,
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_DEFAULT_TOP_P,
@@ -381,14 +382,7 @@ export class GeminiConverter extends BaseConverter {
      * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
      */
     _getOpenAIStreamIdentity(requestId) {
-        const stateKey = requestId || 'default';
-        if (!this.openaiStreamStates.has(stateKey)) {
-            this.openaiStreamStates.set(stateKey, {
-                id: `chatcmpl-${uuidv4()}`,
-                created: Math.floor(Date.now() / 1000)
-            });
-        }
-        return { stateKey, identity: this.openaiStreamStates.get(stateKey) };
+        return getOpenAIStreamIdentity(this.openaiStreamStates, requestId);
     }
 
     /**
@@ -735,8 +729,7 @@ export class GeminiConverter extends BaseConverter {
                 activeBlockType: null, // 'thinking' | 'text' | 'tool_use'
                 sawToolUse: false,
                 model: model || 'unknown',
-                latestUsage: null,
-                completed: false
+                latestUsage: null
             });
         }
         const state = this.claudeStreamStates.get(stateKey);
@@ -893,8 +886,8 @@ export class GeminiConverter extends BaseConverter {
                 }
             }
 
-            // 结束原因：关闭所有块，发 message_delta + message_stop
-            if (candidate.finishReason && !state.completed) {
+            // 结束原因：关闭所有块，发 message_delta + message_stop（终态后状态即删除，无需完成标志）
+            if (candidate.finishReason) {
                 ensureMessageStart();
                 closeActiveBlock();
 
@@ -915,10 +908,9 @@ export class GeminiConverter extends BaseConverter {
                 });
                 events.push({ type: 'message_stop' });
 
-                state.completed = true;
                 this.claudeStreamStates.delete(stateKey);
             }
-        } else if (state.latestUsage && state.msgStarted && !state.completed) {
+        } else if (state.latestUsage && state.msgStarted) {
             // 容错：上游未带 finishReason 的纯 usage 终帧（filterSSEUsageMetadata 仅终帧保留 usage）
             closeActiveBlock();
             events.push({
@@ -935,7 +927,6 @@ export class GeminiConverter extends BaseConverter {
                 }
             });
             events.push({ type: 'message_stop' });
-            state.completed = true;
             this.claudeStreamStates.delete(stateKey);
         }
 
