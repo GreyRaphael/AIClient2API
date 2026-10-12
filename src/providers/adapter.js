@@ -649,7 +649,8 @@ registerAdapter(MODEL_PROVIDER.GROK_CLI, GrokCliApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.GROK_WEB, GrokApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.ZED, ZedApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.TRAE, TraeApiServiceAdapter);
-registerAdapter(MODEL_PROVIDER.TRAE_AGENT_V3, TraeApiServiceAdapter);
+registerAdapter(MODEL_PROVIDER.TRAE_SOLO_WORK_LITE, TraeApiServiceAdapter);
+registerAdapter(MODEL_PROVIDER.TRAE_CHAT_V3, TraeApiServiceAdapter);
 // 注：FORWARD_API / QWEN_API / IFLOW_API / GEMINI_CLI 四个提供商已彻底移除（core/auth/adapter 全部删除）。
 
 // 用于存储服务适配器单例的映射

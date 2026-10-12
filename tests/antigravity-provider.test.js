@@ -203,7 +203,7 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                     uuid: 'trae-node-1',
                     isDisabled: false,
                     isHealthy: true,
-                    notSupportedModels: ['glm-5.2', 'auto']
+                    notSupportedModels: ['glm-5.2', 'DeepSeek-V4.1-Flash']
                 }],
                 zed: [{
                     uuid: 'zed-node-1',
@@ -224,7 +224,8 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         };
         await handleGetProviderTypeModels({}, mockResTrae, mockConfig, poolManager, 'trae');
         expect(traeModels).toContain('glm-5.2');
-        expect(traeModels).toContain('auto');
+        expect(traeModels).toContain('DeepSeek-V4.1-Flash');
+        expect(traeModels).not.toContain('auto');
 
         let zedModels = [];
         const mockResZed = {

@@ -266,13 +266,24 @@ function getAvailableRoutes() {
             badgeClass: 'oauth'
         },
         {
-            provider: 'trae-agent_v3',
-            name: 'Trae (agent_v3)',
+            provider: 'trae-solo_work_lite',
+            name: 'Trae (solo_work_lite)',
             paths: {
-                openai: '/trae-agent_v3/v1/chat/completions',
-                claude: '/trae-agent_v3/v1/messages'
+                openai: '/trae-solo_work_lite/v1/chat/completions',
+                claude: '/trae-solo_work_lite/v1/messages'
             },
-            description: 'Trae SOLO Agent 模式 (agent_v3)',
+            description: 'Trae SOLO Agent 模式 (solo_work_lite)',
+            badge: 'OAuth/PAT',
+            badgeClass: 'oauth'
+        },
+        {
+            provider: 'trae-chat_v3',
+            name: 'Trae (chat_v3)',
+            paths: {
+                openai: '/trae-chat_v3/v1/chat/completions',
+                claude: '/trae-chat_v3/v1/messages'
+            },
+            description: 'Trae 侧边栏对话模式 (chat_v3)',
             badge: 'OAuth/PAT',
             badgeClass: 'oauth'
         }
@@ -387,7 +398,8 @@ async function copyCurlExample(provider, options = {}) {
         case 'openai-codex-oauth':
         case 'zed':
         case 'trae':
-        case 'trae-agent_v3':
+        case 'trae-solo_work_lite':
+        case 'trae-chat_v3':
             if (protocol === 'openai') {
                 curlCommand = `curl ${hostname}${path} \\
   -H "Content-Type: application/json" \\
@@ -529,7 +541,8 @@ function renderRoutingExamples(providerConfigs) {
         'grok-web': 'fa-search',
         'zed': 'fa-edit',
         'trae': 'fa-bolt',
-        'trae-agent_v3': 'fa-robot'
+        'trae-solo_work_lite': 'fa-robot',
+        'trae-chat_v3': 'fa-comments'
     };
 
     // 默认模型映射 (用于 curl 示例)
@@ -547,7 +560,8 @@ function renderRoutingExamples(providerConfigs) {
         'grok-cli-oauth': 'grok-4.3',
         'zed': 'claude-sonnet-4-5',
         'trae': 'glm-5.2',
-        'trae-agent_v3': 'glm-5.2'
+        'trae-solo_work_lite': 'glm-5.2',
+        'trae-chat_v3': 'glm-5.2'
     };
 
     providerConfigs.forEach(config => {

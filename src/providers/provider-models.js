@@ -143,63 +143,79 @@ export const PROVIDER_MODELS = {
         'gemini-3-flash'
     ],
     'trae': [
-        'auto',
-        'DeepSeek-V4.1-Flash',
-        'DeepSeek-V4-Pro-Official',
-        'deepseek-V4-Pro',
-        'DeepSeek-V4-Flash-Official',
         'Doubao-Seed-Evolving',
         'Doubao-Seed-2.1-pro',
         'Doubao-Seed-2.1-turbo',
         'Doubao-Seed-2.0-Code',
         'Doubao_1_6',
         'glm-5.3-flashx',
+        'step-5-preview',
         'glm-5.3-flash',
         'glm-5.3',
         'glm-5.2',
         'glm-5v-turbo',
-        'kimi-k3',
-        'kimi-k2.8-preview',
-        'kimi-k2.7-code',
-        'mimo-v2.6-pro',
-        'mimo-v2.6-flash',
         'minimax-m3',
         'minimax-m2.7',
         'qwen3.8-max',
         'qwen-3.7-plus',
-        'step-5-preview'
-    ],
-    'trae-agent_v3': [
-        'auto',
-        'deepseek-v4.1-flash',
-        'DeepSeek-V4-Flash-Official',
-        'DeepSeek-V4-Flash',
+        'kimi-k2.8-preview',
+        'kimi-k3',
+        'kimi-k2.7-code',
+        'mimo-v2.6-pro',
+        'mimo-v2.6-flash',
+        'DeepSeek-V4.1-Flash',
         'DeepSeek-V4-Pro-Official',
-        'DeepSeek-V4-Pro',
+        'deepseek-V4-Pro',
+        'DeepSeek-V4-Flash-Official'
+    ],
+    'trae-solo_work_lite': [
+        'Doubao-Seed-Evolving',
         'Doubao-Seed-2.1-Pro',
         'Doubao-Seed-2.1-Turbo',
-        'Doubao-Seed-2.0-Code',
-        'Doubao-Seed-Evolving',
+        'mimo-v2.6-flash',
+        'mimo-v2.6-pro',
+        'step-5-preview',
         'glm-5.3-flashx',
         'glm-5.3-flash',
         'glm-5.3',
         'glm-5.2',
-        'glm-5-turbo',
-        'glm-5',
+        'deepseek-v4.1-flash',
+        'DeepSeek-V4-Flash-Official',
+        'DeepSeek-V4-Pro-Official',
         'kimi-k3',
         'kimi-k2.7-code',
         'kimi-k2.6',
         'minimax-m3',
+        'qwen3.8-max',
+        'qwen-3.7-plus'
+    ],
+    'trae-chat_v3': [
+        'Doubao-Seed-Evolving',
+        'Doubao-Seed-2.1-Pro',
+        'Doubao-Seed-2.1-Turbo',
+        'Doubao-Seed-Code',
         'mimo-v2.6-flash',
         'mimo-v2.6-pro',
+        'step-5-preview',
+        'glm-5.3-flashx',
+        'glm-5.3-flash',
+        'glm-5.3',
+        'glm-5.2',
+        'deepseek-v4.1-flash',
+        'DeepSeek-V4-Flash-Official',
+        'DeepSeek-V4-Pro-Official',
+        'kimi-k3',
+        'kimi-k2.8-preview',
+        'minimax-m3',
+        'qwen3.8-flash',
         'qwen3.8-max',
-        'qwen-3.7-plus',
-        'step-5-preview'
+        'qwen-3.7-plus'
     ]
 };
 
 export const BASE_TRAE_MODELS = [...PROVIDER_MODELS.trae];
-export const BASE_TRAE_AGENT_V3_MODELS = [...PROVIDER_MODELS['trae-agent_v3']];
+export const BASE_TRAE_SOLO_WORK_LITE_MODELS = [...PROVIDER_MODELS['trae-solo_work_lite']];
+export const BASE_TRAE_CHAT_V3_MODELS = [...PROVIDER_MODELS['trae-chat_v3']];
 export const BASE_ZED_MODELS = [...PROVIDER_MODELS.zed];
 
 /**
@@ -209,18 +225,6 @@ export const BASE_ZED_MODELS = [...PROVIDER_MODELS.zed];
  */
 export function updateProviderModels(providerType, modelIds) {
     if (!providerType || !Array.isArray(modelIds) || modelIds.length === 0) return;
-    if (providerType === MODEL_PROVIDER.TRAE || providerType === 'trae') {
-        // Trae ToB 动态接口来自企业管理端点，保留核心原生基础模型并合并去重
-        const existing = PROVIDER_MODELS[providerType] || BASE_TRAE_MODELS;
-        PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_TRAE_MODELS, ...modelIds]);
-        return;
-    }
-    if (providerType === MODEL_PROVIDER.TRAE_AGENT_V3 || providerType === 'trae-agent_v3') {
-        // Trae agent_v3 动态接口来自 SOLO Agent 端点，保留核心 SOLO 原生模型并合并去重
-        const existing = PROVIDER_MODELS[providerType] || BASE_TRAE_AGENT_V3_MODELS;
-        PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_TRAE_AGENT_V3_MODELS, ...modelIds]);
-        return;
-    }
     if (providerType === MODEL_PROVIDER.ZED) {
         // Zed 动态接口仅返回当前凭证权限范围内的模型，确保保留预置的原生核心模型并合并去重
         const existing = PROVIDER_MODELS[providerType] || BASE_ZED_MODELS;

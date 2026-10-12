@@ -192,3 +192,51 @@
 - 不引入新的运行时依赖
 - 不重写 UI（`static/`、`ui-modules/` 仅做 Phase 1 的最小清理）
 - 不处理 `src/plugins-user/`（运行时生成，非仓库源码）
+
+---
+
+# 修复计划：Provider 与协议转换正确性 (P0→P2, 2026-10-10)
+
+来源：2026-10-10 静态 review 结论（zed / antigravity / trae 双通道 + 三种输出格式转换）。范围仅含 P0/P1/P2。
+
+## Phase 1 — P0
+
+### 1.1 zed open_ai 模型工具调用后 stop_reason 恒为 end_turn
+- 现状：zed-core.js `response.completed` 分支先 `closeActiveBlock()`（将 `activeBlockType` 置 null）再判断 `activeBlockType === 'tool_use'`，条件永远 false。Claude 客户端（原生直通、pipeline 无修正）收到错误的 `end_turn`。
+- 方案：新增 `sawToolUse` 标志（output_item.added function_call / choices 分支 tool_calls 处置 true），`response.completed` 用它决定 stop_reason。
+- 风险：低，仅影响 zed open_ai 流式分支。
+
+### 1.2 GeminiConverter.toClaudeStreamChunk 不是合法 Anthropic SSE
+- 现状：不发 message_start / content_block_start(text/thinking) / content_block_stop，块 index 恒 0；antigravity → /v1/messages 流式不可用。
+- 方案：按 OpenAIConverter.toClaudeStreamChunk 同款状态机重写：requestId 级 StreamSessionStore 状态；message_start；thinking/text/tool_use 块 start/delta/stop 与 index 递增；thoughtSignature→signature_delta；finishReason→mapFinishReason(gemini→anthropic)，有工具调用且 end_turn 时修正 tool_use；usageMetadata→message_delta.usage；message_delta 后补 message_stop 并清理状态；保留字符串兼容分支。
+- 风险：中——原路径本就非法，只会更合规；与 pipeline 兜底 message_stop 不重复（hasMessageStop 已置位）。
+
+## Phase 2 — P1
+
+### 2.1 responses.completed 随机假 usage
+- generateResponseCompleted 无 usage 时 Math.random 伪造 → 改全零结构。风险：低。
+
+### 2.2 OpenAIConverter.toOpenAIResponsesResponse 状态字段
+- requires_action/in_progress 非法 → stop/tool_calls=completed；length/content_filter=incomplete+incomplete_details；其余 completed。风险：低。
+
+### 2.3 zed google 路径工具调用
+- provReq.tools=[{functionDeclarations}]；tool_choice→functionCallingConfig；预扫描 tool_use_id→name；assistant tool_use→functionCall；user tool_result→functionResponse。纯增量，风险：低。
+
+## Phase 3 — P2
+
+### 3.1 Claude/Gemini→OpenAI 流 chunk id/created 不一致
+- 按 requestId 记 {id, created} 全流一致；convertStreamChunk 透传 requestId；终态清理。风险：低。
+
+### 3.2 OpenAIConverter→Responses 流 output_index 撞 0 / sequence_number 硬编码
+- state 增 nextOutputIndex/sequenceNumber/textOutputIndex/reasoningOutputIndex，各项递增分配。风险：低。
+
+### 3.3 toClaudeStreamChunk 快照式 arguments 重复下发
+- 每 tool block 记已发前缀：新串以已发为前缀只发 diff；完全相同跳过；否则按增量原样发。风险：低。
+
+### 3.4 finish_reason 非法值
+- ClaudeConverter：stop_sequence→stop、refusal→content_filter、pause_turn→stop、未知兜底 stop。
+- zed google finishReason：STOP→end_turn、MAX_TOKENS→max_tokens、SAFETY 系→refusal、其余 end_turn。
+- GeminiConverter.toOpenAIResponse 非流式：mapFinishReason(gemini→openai)，tool_calls 覆盖。风险：低。
+
+## 总验收
+- npm test 全绿 + 新增单测覆盖上述行为；node --check 通过；每 phase 独立 commit；plan.md 不入库。

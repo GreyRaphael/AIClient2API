@@ -5,13 +5,14 @@ import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { updateProviderModels, PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_AGENT_V3_MODELS } from '../provider-models.js';
+import { updateProviderModels, PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.js';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.js';
 
 export const TRAE_CHANNEL_MODES = {
     TOB_RAW_CHAT: 'tob_raw_chat',
-    AGENT_V3: 'agent_v3',
+    SOLO_WORK_LITE: 'solo_work_lite',
+    CHAT_V3: 'chat_v3',
     CUSTOM: 'custom'
 };
 
@@ -31,13 +32,28 @@ export const TRAE_CHANNEL_PRESETS = {
         deviceBrand: 'PC',
         ideVersionType: 'stable'
     },
-    [TRAE_CHANNEL_MODES.AGENT_V3]: {
-        name: 'agent_v3',
+    [TRAE_CHANNEL_MODES.SOLO_WORK_LITE]: {
+        name: 'solo_work_lite',
         label: 'SOLO Agent 通道 (solo_work_lite)',
         endpointPath: '/api/agent/v3/llm_utils_chat',
         modelsEndpointPath: '/api/ide/v1/get_detail_param',
         defaultHost: 'https://trae-api-cn.mchost.guru',
         function: 'solo_work_lite',
+        appId: '6eefa01c-1036-4c7e-9ca5-d891f63bfcd8',
+        ideVersion: '0.1.52',
+        ideVersionCode: '20260811',
+        deviceType: 'windows',
+        osVersion: 'Windows 11 Pro',
+        deviceBrand: '83DG',
+        ideVersionType: 'stable'
+    },
+    [TRAE_CHANNEL_MODES.CHAT_V3]: {
+        name: 'chat_v3',
+        label: '侧边栏对话通道 (chat_v3)',
+        endpointPath: '/api/agent/v3/llm_utils_chat',
+        modelsEndpointPath: '/api/ide/v1/get_detail_param',
+        defaultHost: 'https://trae-api-cn.mchost.guru',
+        function: 'chat_v3',
         appId: '6eefa01c-1036-4c7e-9ca5-d891f63bfcd8',
         ideVersion: '0.1.52',
         ideVersionCode: '20260811',
@@ -99,9 +115,9 @@ const CANONICAL_MODEL_ALIASES = {
 };
 
 /**
- * Trae Agent v3 (SOLO) 专属模型别名与重定向映射表（以全小写作为规范化键）
+ * Trae SOLO Agent 通道 (solo_work_lite) 专属模型别名与重定向映射表（以全小写作为规范化键）
  */
-export const AGENT_V3_MODEL_ALIASES = {
+export const SOLO_WORK_LITE_MODEL_ALIASES = {
     'auto': 'glm-5.2',
     'claude-3.5-sonnet': 'glm-5.2',
     'claude-3.7-sonnet': 'glm-5.2',
@@ -139,6 +155,20 @@ export const AGENT_V3_MODEL_ALIASES = {
     'step-5-preview': 'step-5-preview'
 };
 
+/**
+ * Trae Chat v3 专属模型别名与重定向映射表
+ */
+export const CHAT_V3_MODEL_ALIASES = {
+    ...SOLO_WORK_LITE_MODEL_ALIASES,
+    'qwen3.8-flash': 'qwen3.8-flash',
+    'doubao-seed-code': 'Doubao-Seed-Code',
+    'doubao_1_6': 'Doubao_1_6',
+    'kimi-k2.8-preview': 'kimi-k2.8-preview',
+    'glm-5.1': 'glm-5.1',
+    'glm-4.7': 'glm-4.7',
+    'minimax-m2.1': 'minimax-m2.1'
+};
+
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
 
 // 多租户/多账号隔离的缓存容器: Map<accountKey, { models: Array, expiresAt: number, metadataMap: Map, functionMap: Map }>
@@ -160,19 +190,23 @@ export class TraeApiService {
         // 解析通道模式：支持从配置、环境变量解析，或根据 URL 特征推断，默认使用 ToB 原生直连通道
         const configuredMode = (this.config.TRAE_CHANNEL_MODE || process.env.TRAE_CHANNEL_MODE || '').trim().toLowerCase();
         const providerType = String(this.config.MODEL_PROVIDER || '').toLowerCase();
-        if (configuredMode === TRAE_CHANNEL_MODES.AGENT_V3 || configuredMode === 'legacy' || configuredMode === 'chat_v3' || configuredMode === 'solo' || configuredMode === 'solo_work_lite') {
-            this.channelMode = TRAE_CHANNEL_MODES.AGENT_V3;
+        if (configuredMode === TRAE_CHANNEL_MODES.CHAT_V3 || configuredMode === 'chat_v3' || providerType === 'trae-chat_v3' || providerType === 'chat_v3') {
+            this.channelMode = TRAE_CHANNEL_MODES.CHAT_V3;
+        } else if (configuredMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || configuredMode === 'solo_work_lite' || configuredMode === 'solo' || providerType === 'trae-solo_work_lite' || providerType === 'solo_work_lite') {
+            this.channelMode = TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
         } else if (configuredMode === TRAE_CHANNEL_MODES.CUSTOM) {
             this.channelMode = TRAE_CHANNEL_MODES.CUSTOM;
-        } else if (configuredMode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || configuredMode === 'raw' || configuredMode === 'tob') {
+        } else if (configuredMode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || configuredMode === 'raw' || configuredMode === 'tob' || providerType === 'trae') {
             this.channelMode = TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
-        } else if (providerType.includes('agent_v3')) {
-            this.channelMode = TRAE_CHANNEL_MODES.AGENT_V3;
         } else {
-            // 自动推断：如果配置的 URL 明确指向 mchost.guru 或包含 llm_utils_chat，则使用 agent_v3
+            // 自动推断：如果配置的 URL 明确指向 mchost.guru 或包含 llm_utils_chat，则根据 providerType 或默认使用 solo_work_lite
             const urlToCheck = String(this.config.TRAE_BASE_URL || this.config.TRAE_HOST || '').toLowerCase();
             if (urlToCheck.includes('mchost.guru') || urlToCheck.includes('llm_utils_chat')) {
-                this.channelMode = TRAE_CHANNEL_MODES.AGENT_V3;
+                if (providerType.includes('chat_v3')) {
+                    this.channelMode = TRAE_CHANNEL_MODES.CHAT_V3;
+                } else {
+                    this.channelMode = TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
+                }
             } else {
                 this.channelMode = TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
             }
@@ -193,12 +227,33 @@ export class TraeApiService {
 
         this.loadCredentials();
         if (this.isInitialized) {
-            const targetProvider = this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3
-                ? (this.config.MODEL_PROVIDER || 'trae-agent_v3')
-                : (this.config.MODEL_PROVIDER || MODEL_PROVIDER.TRAE);
-            const defaultModels = PROVIDER_MODELS[targetProvider] || (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3 ? BASE_TRAE_AGENT_V3_MODELS : BASE_TRAE_MODELS);
+            const targetProvider = this.getTargetProvider();
+            const defaultModels = PROVIDER_MODELS[targetProvider] || this.getBaseModels(targetProvider);
             updateProviderModels(targetProvider, defaultModels);
         }
+    }
+
+    /**
+     * 获取目标 Provider 标识符
+     */
+    getTargetProvider() {
+        if (this.config.MODEL_PROVIDER) return this.config.MODEL_PROVIDER;
+        if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) return MODEL_PROVIDER.TRAE_CHAT_V3;
+        if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) return MODEL_PROVIDER.TRAE_SOLO_WORK_LITE;
+        return MODEL_PROVIDER.TRAE;
+    }
+
+    /**
+     * 获取指定提供商的基础模型列表
+     */
+    getBaseModels(provider) {
+        if (provider === MODEL_PROVIDER.TRAE_CHAT_V3 || provider === 'trae-chat_v3') {
+            return BASE_TRAE_CHAT_V3_MODELS;
+        }
+        if (provider === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE || provider === 'trae-solo_work_lite') {
+            return BASE_TRAE_SOLO_WORK_LITE_MODELS;
+        }
+        return BASE_TRAE_MODELS;
     }
 
     /**
@@ -206,11 +261,11 @@ export class TraeApiService {
      * @returns {Object}
      */
     getChannelConfig() {
-        if (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3) {
-            const preset = TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.AGENT_V3];
+        if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
+            const preset = TRAE_CHANNEL_PRESETS[this.channelMode] || TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.SOLO_WORK_LITE];
             const baseUrl = (this.config.TRAE_BASE_URL || this.agentHost || preset.defaultHost).replace(/\/+$/, '');
             return {
-                mode: TRAE_CHANNEL_MODES.AGENT_V3,
+                mode: this.channelMode,
                 url: baseUrl.endsWith('/api/agent/v3/llm_utils_chat') ? baseUrl : `${baseUrl}/api/agent/v3/llm_utils_chat`,
                 modelsUrl: baseUrl.endsWith('/api/ide/v1/get_detail_param') ? baseUrl : `${baseUrl}/api/ide/v1/get_detail_param`,
                 function: preset.function,
@@ -233,16 +288,16 @@ export class TraeApiService {
             } catch {
                 isFullEndpoint = rawBase.includes('/api/') || rawBase.includes('/chat');
             }
-            const isLegacyPath = rawBase.includes('llm_utils_chat');
+            const isSoloPath = rawBase.includes('llm_utils_chat');
             const url = isFullEndpoint ? rawBase : `${rawBase}/api/ide/v2/llm_raw_chat`;
-            const basePreset = isLegacyPath
-                ? TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.AGENT_V3]
+            const basePreset = isSoloPath
+                ? TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.SOLO_WORK_LITE]
                 : TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.TOB_RAW_CHAT];
             return {
                 mode: TRAE_CHANNEL_MODES.CUSTOM,
                 url,
-                modelsUrl: isLegacyPath ? `${this.agentHost}/api/ide/v1/get_detail_param` : `${this.authHost}/api/ide/v1/batch_get_detail_param`,
-                function: isLegacyPath ? 'solo_work_lite' : 'chat',
+                modelsUrl: isSoloPath ? `${this.agentHost}/api/ide/v1/get_detail_param` : `${this.authHost}/api/ide/v1/batch_get_detail_param`,
+                function: isSoloPath ? 'solo_work_lite' : 'chat',
                 appId: basePreset.appId,
                 ideVersion: basePreset.ideVersion,
                 ideVersionCode: basePreset.ideVersionCode,
@@ -330,9 +385,13 @@ export class TraeApiService {
         }
 
         // 3. 针对不同通道查阅对应的别名表
-        if (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3) {
-            if (AGENT_V3_MODEL_ALIASES[lower]) {
-                return AGENT_V3_MODEL_ALIASES[lower];
+        if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
+            if (CHAT_V3_MODEL_ALIASES[lower]) {
+                return CHAT_V3_MODEL_ALIASES[lower];
+            }
+        } else if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) {
+            if (SOLO_WORK_LITE_MODEL_ALIASES[lower]) {
+                return SOLO_WORK_LITE_MODEL_ALIASES[lower];
             }
         } else {
             if (CANONICAL_MODEL_ALIASES[lower]) {
@@ -516,7 +575,7 @@ export class TraeApiService {
     }
 
     /**
-     * 改写 OpenAI 请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 Legacy agent_v3)
+     * 改写 OpenAI 请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 solo_work_lite / chat_v3)
      */
     prepareRequestBody(model, requestBody) {
         const payload = JSON.parse(JSON.stringify(requestBody || {}));
@@ -1034,11 +1093,12 @@ export class TraeApiService {
                 const headers = await this.buildHeaders(false);
                 const allConfigs = [];
 
-                if (this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3) {
-                    // 2. agent_v3 通道: POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param
+                const isSoloOrChat = this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3;
+                if (isSoloOrChat) {
+                    // 2. solo_work_lite / chat_v3 通道: POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param
                     const targetUrl = channel.modelsUrl || `${this.agentHost}/api/ide/v1/get_detail_param`;
                     const agentBody = {
-                        function: "solo_work_lite",
+                        function: channel.function || "solo_work_lite",
                         poly_prompt: true,
                         need_prompt: false,
                         config_names: null,
@@ -1054,7 +1114,7 @@ export class TraeApiService {
                             headers,
                             timeout: 8000
                         };
-                        configureAxiosProxy(axiosConfig, this.config, 'trae-agent_v3');
+                        configureAxiosProxy(axiosConfig, this.config, this.getTargetProvider());
                         const res = await axios(axiosConfig);
                         for (const item of res.data?.config_info_list || []) {
                             if (item) allConfigs.push(item);
@@ -1221,58 +1281,7 @@ export class TraeApiService {
                     }
                 }
 
-                // 确保合并并保留核心原生基础模型
-                const isAgent = this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3;
-                const targetProvider = isAgent
-                    ? (this.config.MODEL_PROVIDER || 'trae-agent_v3')
-                    : (this.config.MODEL_PROVIDER || MODEL_PROVIDER.TRAE);
-                const baseModelIds = PROVIDER_MODELS[targetProvider] || (isAgent ? BASE_TRAE_AGENT_V3_MODELS : BASE_TRAE_MODELS);
-                for (const baseId of baseModelIds) {
-                    if (!mergedMap.has(baseId)) {
-                        const canonicalId = this.normalizeModelName(baseId);
-                        const targetMeta = mergedMap.get(canonicalId);
-                        const isFlashOff = canonicalId === 'DeepSeek-V4-Flash-Official';
-                        const fallbackDev = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${canonicalId}__dev`;
-                        const fallbackMax = isFlashOff ? 'deepseek_v4_flash_official__max' : `${canonicalId}__max`;
-                        const modelInfo = {
-                            id: baseId,
-                            name: baseId,
-                            display_name: baseId,
-                            context_window: targetMeta?.context_window || 1000000,
-                            max_tokens: targetMeta?.max_tokens || 64000,
-                            supports_thinking: targetMeta?.supports_thinking ?? true,
-                            default_reasoning_effort: targetMeta?.default_reasoning_effort || (baseId.toLowerCase().includes('kimi') ? 'xhigh' : 'high'),
-                            reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh'],
-                            standard_key: targetMeta?.standard_key || fallbackDev,
-                            max_key: targetMeta?.max_key || fallbackMax
-                        };
-                        mergedMap.set(baseId, modelInfo);
-                        newMetadataMap.set(baseId, modelInfo);
-                        newFunctionMap.set(baseId, channel.function);
-                    }
-                }
-
-                // 仅注入标准通用别名 auto (确保模型列表中只包含原生基础模型，动态继承目标模型的上游元数据)
-                const standardAliases = ['auto'];
-                for (const alias of standardAliases) {
-                    if (!mergedMap.has(alias)) {
-                        const target = this.normalizeModelName(alias);
-                        const targetMeta = mergedMap.get(target);
-                        const modelInfo = {
-                            id: alias,
-                            name: alias,
-                            context_window: targetMeta?.context_window || 0,
-                            max_tokens: targetMeta?.max_tokens || 0,
-                            supports_thinking: targetMeta?.supports_thinking ?? true,
-                            default_reasoning_effort: targetMeta?.default_reasoning_effort || 'high',
-                            reasoning_effort_levels: targetMeta?.reasoning_effort_levels || ['low', 'high', 'xhigh']
-                        };
-                        mergedMap.set(alias, modelInfo);
-                        newMetadataMap.set(alias, modelInfo);
-                        newFunctionMap.set(alias, channel.function);
-                    }
-                }
-
+                const targetProvider = this.getTargetProvider();
                 const modelObjects = Array.from(mergedMap.values());
                 const modelIds = Array.from(mergedMap.keys());
 
@@ -1301,11 +1310,8 @@ export class TraeApiService {
      * 回退静态模型列表，并预热账户元数据与通道映射
      */
     _getFallbackModels() {
-        const isAgent = this.channelMode === TRAE_CHANNEL_MODES.AGENT_V3;
-        const targetProvider = isAgent
-            ? (this.config.MODEL_PROVIDER || 'trae-agent_v3')
-            : (this.config.MODEL_PROVIDER || MODEL_PROVIDER.TRAE);
-        const modelIds = PROVIDER_MODELS[targetProvider] || (isAgent ? BASE_TRAE_AGENT_V3_MODELS : BASE_TRAE_MODELS);
+        const targetProvider = this.getTargetProvider();
+        const modelIds = PROVIDER_MODELS[targetProvider] || this.getBaseModels(targetProvider);
         const accountCache = this.getAccountCache();
         const channel = this.getChannelConfig();
         const fallbackList = modelIds.map(id => {

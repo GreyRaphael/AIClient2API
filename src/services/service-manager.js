@@ -187,7 +187,12 @@ async function linkSingleCredential(config, credPath, options = {}) {
         
         const { providerType: defaultType, credPathKey, defaultCheckModel, displayName, needsProjectId } = matchedMapping;
         const providerType = options.providerType || defaultType;
-        const targetDisplayName = providerType === 'trae-agent_v3' ? 'Trae (agent_v3)' : (options.providerType ? providerType : displayName);
+        let targetDisplayName = options.providerType ? providerType : displayName;
+        if (providerType === 'trae-solo_work_lite') {
+            targetDisplayName = 'Trae (solo_work_lite)';
+        } else if (providerType === 'trae-chat_v3') {
+            targetDisplayName = 'Trae (chat_v3)';
+        }
         
         // 确保提供商类型数组存在
         if (!config.providerPools[providerType]) {
@@ -218,10 +223,14 @@ async function linkSingleCredential(config, credPath, options = {}) {
             needsProjectId
         });
 
-        if (providerType === 'trae-agent_v3') {
-            newProvider.TRAE_CHANNEL_MODE = 'agent_v3';
+        if (providerType === 'trae-solo_work_lite') {
+            newProvider.TRAE_CHANNEL_MODE = 'solo_work_lite';
             newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://trae-api-cn.mchost.guru';
-            newProvider.customName = options.customName || 'Agent v3';
+            newProvider.customName = options.customName || 'SOLO Agent';
+        } else if (providerType === 'trae-chat_v3') {
+            newProvider.TRAE_CHANNEL_MODE = 'chat_v3';
+            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://trae-api-cn.mchost.guru';
+            newProvider.customName = options.customName || 'Chat v3';
         } else if (providerType === 'trae') {
             newProvider.TRAE_CHANNEL_MODE = 'tob_raw_chat';
             newProvider.TRAE_BASE_URL = options.host || options.baseUrl || 'https://api.enterprise.trae.cn';

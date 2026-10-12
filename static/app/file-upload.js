@@ -60,7 +60,8 @@ class FileUploadHandler {
             'grok-cli-oauth': 'grok-cli',
             'zed': 'zed',
             'trae': 'trae',
-            'trae-agent_v3': 'trae'
+            'trae-solo_work_lite': 'trae',
+            'trae-chat_v3': 'trae'
         };
         return providerMap[provider] || 'antigravity';
     }

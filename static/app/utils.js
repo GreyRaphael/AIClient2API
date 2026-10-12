@@ -98,10 +98,19 @@ function getBaseProviderConfigs() {
             docUrl: 'https://docs.trae.cn/cli_login-token'
         },
         { 
-            id: 'trae-agent_v3', 
-            name: 'Trae (agent_v3)', 
+            id: 'trae-solo_work_lite', 
+            name: 'Trae (solo_work_lite)', 
             usageName: 'Trae',
             icon: 'fa-robot',
+            defaultPath: 'configs/trae/',
+            registerUrl: 'https://www.trae.cn/enterprise',
+            docUrl: 'https://docs.trae.cn/cli_login-token'
+        },
+        { 
+            id: 'trae-chat_v3', 
+            name: 'Trae (chat_v3)', 
+            usageName: 'Trae',
+            icon: 'fa-comments',
             defaultPath: 'configs/trae/',
             registerUrl: 'https://www.trae.cn/enterprise',
             docUrl: 'https://docs.trae.cn/cli_login-token'
@@ -476,7 +485,21 @@ function getProviderTypeFields(providerType) {
                 placeholder: 'https://api.enterprise.trae.cn'
             }
         ],
-        'trae-agent_v3': [
+        'trae-solo_work_lite': [
+            {
+                id: 'TRAE_OAUTH_CREDS_FILE_PATH',
+                label: t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
+                type: 'text',
+                placeholder: 'configs/trae/..._oauth_creds.json'
+            },
+            {
+                id: 'TRAE_BASE_URL',
+                label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
+                type: 'text',
+                placeholder: 'https://trae-api-cn.mchost.guru'
+            }
+        ],
+        'trae-chat_v3': [
             {
                 id: 'TRAE_OAUTH_CREDS_FILE_PATH',
                 label: t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',

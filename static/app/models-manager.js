@@ -195,7 +195,8 @@ function getProviderDisplayName(providerType) {
         'grok-web': 'Grok Web',
         'zed': 'Zed (OAuth)',
         'trae': 'Trae (tob_raw_chat)',
-        'trae-agent_v3': 'Trae (agent_v3)'
+        'trae-solo_work_lite': 'Trae (solo_work_lite)',
+        'trae-chat_v3': 'Trae (chat_v3)'
     };
 
     if (displayNames[providerType]) {

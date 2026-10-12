@@ -68,7 +68,8 @@ export const MODEL_PROVIDER = {
     GROK_CLI: 'grok-cli-oauth',
     ZED: 'zed',
     TRAE: 'trae',
-    TRAE_AGENT_V3: 'trae-agent_v3',
+    TRAE_SOLO_WORK_LITE: 'trae-solo_work_lite',
+    TRAE_CHAT_V3: 'trae-chat_v3',
     AUTO: 'auto',
 };
 

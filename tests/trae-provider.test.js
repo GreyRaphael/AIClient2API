@@ -4,19 +4,43 @@ import fs from 'fs';
 import path from 'path';
 import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
-import { isRegisteredProvider } from '../src/providers/adapter.js';
+import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.js';
 import { TraeApiService } from '../src/providers/trae/trae-core.js';
 import { PROVIDER_MODELS, updateProviderModels, BASE_TRAE_MODELS } from '../src/providers/provider-models.js';
 
 describe('Trae Provider Implementation Tests', () => {
     test('Trae provider is properly registered and configured', () => {
         expect(MODEL_PROVIDER.TRAE).toBe('trae');
-        expect(isRegisteredProvider('trae')).toBe(true);
+        expect(MODEL_PROVIDER.TRAE_SOLO_WORK_LITE).toBe('trae-solo_work_lite');
+        expect(MODEL_PROVIDER.TRAE_CHAT_V3).toBe('trae-chat_v3');
+        expect(MODEL_PROVIDER.TRAE_AGENT_V3).toBeUndefined();
+
+        expect(getRegisteredProviders()).toContain('trae');
+        expect(getRegisteredProviders()).toContain('trae-solo_work_lite');
+        expect(getRegisteredProviders()).toContain('trae-chat_v3');
+        expect(getRegisteredProviders()).not.toContain('trae-agent_v3');
+        expect(PROVIDER_MODELS['trae-agent_v3']).toBeUndefined();
+
         expect(getProtocolPrefix('trae')).toBe(MODEL_PROTOCOL_PREFIX.OPENAI);
+        expect(getProtocolPrefix('trae-solo_work_lite')).toBe(MODEL_PROTOCOL_PREFIX.OPENAI);
+        expect(getProtocolPrefix('trae-chat_v3')).toBe(MODEL_PROTOCOL_PREFIX.OPENAI);
+
         expect(Array.isArray(PROVIDER_MODELS['trae'])).toBe(true);
-        expect(PROVIDER_MODELS['trae']).toContain('glm-5.2');
-        expect(PROVIDER_MODELS['trae']).toContain('deepseek-V4-Pro');
-        expect(PROVIDER_MODELS['trae']).toContain('DeepSeek-V4.1-Flash');
+        expect(Array.isArray(PROVIDER_MODELS['trae-solo_work_lite'])).toBe(true);
+        expect(Array.isArray(PROVIDER_MODELS['trae-chat_v3'])).toBe(true);
+
+        expect(PROVIDER_MODELS['trae'].length).toBe(24);
+        expect(PROVIDER_MODELS['trae-solo_work_lite'].length).toBe(19);
+        expect(PROVIDER_MODELS['trae-chat_v3'].length).toBe(20);
+
+        expect(PROVIDER_MODELS['trae']).not.toContain('auto');
+        expect(PROVIDER_MODELS['trae-solo_work_lite']).not.toContain('auto');
+        expect(PROVIDER_MODELS['trae-chat_v3']).not.toContain('auto');
+
+        expect(PROVIDER_MODELS['trae-solo_work_lite']).toContain('Doubao-Seed-2.1-Pro');
+        expect(PROVIDER_MODELS['trae-solo_work_lite']).toContain('deepseek-v4.1-flash');
+        expect(PROVIDER_MODELS['trae-chat_v3']).toContain('qwen3.8-flash');
+        expect(PROVIDER_MODELS['trae-chat_v3']).toContain('Doubao-Seed-Code');
     });
 
     test('TraeApiService.prepareRequestBody formats request for ToB raw chat upstream by default', () => {
@@ -87,13 +111,13 @@ describe('Trae Provider Implementation Tests', () => {
         });
     });
 
-    test('TraeApiService supports legacy agent_v3 channel mode', () => {
-        const legacyService = new TraeApiService({
-            uuid: 'test-trae-legacy',
-            TRAE_CHANNEL_MODE: 'agent_v3'
+    test('TraeApiService supports solo_work_lite channel mode', () => {
+        const soloService = new TraeApiService({
+            uuid: 'test-trae-solo-mode',
+            TRAE_CHANNEL_MODE: 'solo_work_lite'
         });
 
-        const prepared = legacyService.prepareRequestBody('glm-5.2', {
+        const prepared = soloService.prepareRequestBody('glm-5.2', {
             messages: [{ role: 'user', content: 'test' }]
         });
 
@@ -104,6 +128,48 @@ describe('Trae Provider Implementation Tests', () => {
         expect(prepared.stream).toBe(true);
     });
 
+    test('TraeApiService supports trae-solo_work_lite provider and function', () => {
+        const soloService = new TraeApiService({
+            uuid: 'test-trae-solo',
+            MODEL_PROVIDER: 'trae-solo_work_lite'
+        });
+
+        const channel = soloService.getChannelConfig();
+        expect(channel.mode).toBe('solo_work_lite');
+        expect(channel.function).toBe('solo_work_lite');
+        expect(channel.url).toBe('https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat');
+
+        const prepared = soloService.prepareRequestBody('glm-5.2', {
+            messages: [{ role: 'user', content: 'test' }]
+        });
+
+        expect(prepared.function).toBe('solo_work_lite');
+        expect(prepared.model).toBe('glm-5.2');
+        expect(prepared.config_name).toBe('glm-5.2');
+        expect(prepared.max_mode).toBe(true);
+    });
+
+    test('TraeApiService supports trae-chat_v3 provider and function', () => {
+        const chatService = new TraeApiService({
+            uuid: 'test-trae-chat',
+            MODEL_PROVIDER: 'trae-chat_v3'
+        });
+
+        const channel = chatService.getChannelConfig();
+        expect(channel.mode).toBe('chat_v3');
+        expect(channel.function).toBe('chat_v3');
+        expect(channel.url).toBe('https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat');
+
+        const prepared = chatService.prepareRequestBody('qwen3.8-flash', {
+            messages: [{ role: 'user', content: 'test' }]
+        });
+
+        expect(prepared.function).toBe('chat_v3');
+        expect(prepared.model).toBe('qwen3.8-flash');
+        expect(prepared.config_name).toBe('qwen3.8-flash');
+        expect(prepared.max_mode).toBe(true);
+    });
+
     test('TraeApiService channel configuration presets and URL switching', () => {
         // 1. Default ToB raw chat
         const defaultService = new TraeApiService({ uuid: 'u1' });
@@ -112,15 +178,15 @@ describe('Trae Provider Implementation Tests', () => {
         expect(defaultChannel.url).toBe('https://api.enterprise.trae.cn/api/ide/v2/llm_raw_chat');
         expect(defaultChannel.function).toBe('chat');
 
-        // 2. Legacy agent_v3
-        const agentService = new TraeApiService({
+        // 2. SOLO solo_work_lite
+        const soloService = new TraeApiService({
             uuid: 'u2',
-            TRAE_CHANNEL_MODE: 'agent_v3'
+            TRAE_CHANNEL_MODE: 'solo_work_lite'
         });
-        const agentChannel = agentService.getChannelConfig();
-        expect(agentChannel.mode).toBe('agent_v3');
-        expect(agentChannel.url).toBe('https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat');
-        expect(agentChannel.function).toBe('solo_work_lite');
+        const soloChannel = soloService.getChannelConfig();
+        expect(soloChannel.mode).toBe('solo_work_lite');
+        expect(soloChannel.url).toBe('https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat');
+        expect(soloChannel.function).toBe('solo_work_lite');
 
         // 3. Custom endpoint
         const customService = new TraeApiService({
@@ -132,12 +198,12 @@ describe('Trae Provider Implementation Tests', () => {
         expect(customChannel.mode).toBe('custom');
         expect(customChannel.url).toBe('https://my-proxy.company.internal/custom/chat');
 
-        // 4. Auto-inference from legacy URL
+        // 4. Auto-inference from SOLO URL
         const autoService = new TraeApiService({
             uuid: 'u4',
             TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat'
         });
-        expect(autoService.channelMode).toBe('agent_v3');
+        expect(autoService.channelMode).toBe('solo_work_lite');
     });
 
     test('TraeApiService correctly maps model aliases', () => {
@@ -333,21 +399,25 @@ describe('Trae Provider Implementation Tests', () => {
         expect(acc2.modelMetadataMap.has('special-model')).toBe(false);
     });
 
-    test('updateProviderModels preserves base Trae models including DeepSeek-V4.1-Flash and kimi-k2.8-preview', () => {
-        expect(BASE_TRAE_MODELS).toContain('DeepSeek-V4.1-Flash');
-        expect(BASE_TRAE_MODELS).toContain('kimi-k2.8-preview');
-        expect(PROVIDER_MODELS.trae).toContain('DeepSeek-V4.1-Flash');
-        expect(PROVIDER_MODELS.trae).toContain('kimi-k2.8-preview');
+    test('updateProviderModels updates Trae models strictly from upstream without base model force-merge', () => {
+        const originalTraeModels = [...PROVIDER_MODELS.trae];
+        try {
+            expect(BASE_TRAE_MODELS).toContain('DeepSeek-V4.1-Flash');
+            expect(BASE_TRAE_MODELS).toContain('kimi-k2.8-preview');
 
-        // 模拟上游动态返回的模型列表 (缺少 DeepSeek-V4.1-Flash 与 kimi-k2.8-preview)
-        const upstreamOnlyModels = ['DeepSeek-V4-Flash-Official', 'glm-5.3', 'kimi-k3'];
-        updateProviderModels(MODEL_PROVIDER.TRAE, upstreamOnlyModels);
+            // 模拟上游动态返回的模型列表 (缺少 DeepSeek-V4.1-Flash 与 kimi-k2.8-preview)
+            const upstreamOnlyModels = ['DeepSeek-V4-Flash-Official', 'glm-5.3', 'kimi-k3'];
+            updateProviderModels(MODEL_PROVIDER.TRAE, upstreamOnlyModels);
 
-        // 验证 base 模型没有被抹掉，且上游新模型正常合并
-        expect(PROVIDER_MODELS.trae).toContain('DeepSeek-V4.1-Flash');
-        expect(PROVIDER_MODELS.trae).toContain('kimi-k2.8-preview');
-        expect(PROVIDER_MODELS.trae).toContain('glm-5.3');
-        expect(PROVIDER_MODELS.trae).toContain('kimi-k3');
+            // 验证上游新模型严格生效，不再强行合并旧基准模型或假别名
+            expect(PROVIDER_MODELS.trae).not.toContain('DeepSeek-V4.1-Flash');
+            expect(PROVIDER_MODELS.trae).not.toContain('kimi-k2.8-preview');
+            expect(PROVIDER_MODELS.trae).toContain('glm-5.3');
+            expect(PROVIDER_MODELS.trae).toContain('kimi-k3');
+            expect(PROVIDER_MODELS.trae).toEqual(['DeepSeek-V4-Flash-Official', 'glm-5.3', 'kimi-k3']);
+        } finally {
+            PROVIDER_MODELS.trae = originalTraeModels;
+        }
     });
 
     test('TraeApiService.prepareRequestBody merges consecutive assistant messages to prevent 4027 error', () => {
@@ -502,15 +572,15 @@ describe('Trae Provider Implementation Tests', () => {
         expect(tobHeaders['x-ide-function']).toBe('chat');
         expect(tobHeaders['X-Ide-Function']).toBeUndefined();
 
-        // 2. Agent v3: windows device with Windows 11 Pro and 83DG brand
-        const agentService = new TraeApiService({ uuid: 'agent-fp-test', TRAE_CHANNEL_MODE: 'agent_v3' });
-        agentService.getToken = async () => 'test-token';
-        const agentHeaders = await agentService.buildHeaders(true);
+        // 2. SOLO solo_work_lite: windows device with Windows 11 Pro and 83DG brand
+        const soloService = new TraeApiService({ uuid: 'solo-fp-test', TRAE_CHANNEL_MODE: 'solo_work_lite' });
+        soloService.getToken = async () => 'test-token';
+        const soloHeaders = await soloService.buildHeaders(true);
 
-        expect(agentHeaders['X-Device-Type']).toBe('windows');
-        expect(agentHeaders['X-OS-Version']).toBe('Windows 11 Pro');
-        expect(agentHeaders['X-Device-Brand']).toBe('83DG');
-        expect(agentHeaders['x-ide-function']).toBeUndefined();
+        expect(soloHeaders['X-Device-Type']).toBe('windows');
+        expect(soloHeaders['X-OS-Version']).toBe('Windows 11 Pro');
+        expect(soloHeaders['X-Device-Brand']).toBe('83DG');
+        expect(soloHeaders['x-ide-function']).toBeUndefined();
     });
 
     test('autoLinkProviderConfigs preserves custom host for Trae provider node', async () => {
@@ -558,15 +628,19 @@ describe('Trae Provider Implementation Tests', () => {
 
         // 1. ToB with mchost.guru should fail
         const errTobMismatch = validateTraeProviderConfig('trae', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' });
-        expect(errTobMismatch).toContain('ToB Raw Chat 通道不能使用 Agent v3 (mchost.guru) 地址');
+        expect(errTobMismatch).toContain('ToB Raw Chat 通道不能使用个人版 (mchost.guru) 地址');
 
-        // 2. Agent v3 with enterprise.trae.cn should fail
-        const errAgentMismatch = validateTraeProviderConfig('trae-agent_v3', { TRAE_BASE_URL: 'https://api.enterprise.trae.cn' });
-        expect(errAgentMismatch).toContain('Agent v3 通道不能使用 ToB 企业版 (enterprise.trae.cn) 地址');
+        // 2. Solo / Chat with enterprise.trae.cn should fail
+        const errSoloMismatch = validateTraeProviderConfig('trae-solo_work_lite', { TRAE_BASE_URL: 'https://api.enterprise.trae.cn' });
+        expect(errSoloMismatch).toContain('SOLO Agent 通道不能使用 ToB 企业版 (enterprise.trae.cn) 地址');
+
+        const errChatMismatch = validateTraeProviderConfig('trae-chat_v3', { TRAE_BASE_URL: 'https://api.enterprise.trae.cn' });
+        expect(errChatMismatch).toContain('Chat v3 通道不能使用 ToB 企业版 (enterprise.trae.cn) 地址');
 
         // 3. Matched host should pass (null)
         expect(validateTraeProviderConfig('trae', { TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toBeNull();
-        expect(validateTraeProviderConfig('trae-agent_v3', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
+        expect(validateTraeProviderConfig('trae-solo_work_lite', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
+        expect(validateTraeProviderConfig('trae-chat_v3', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
 
         // 4. Custom channel mode bypasses restriction
         expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'custom', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
