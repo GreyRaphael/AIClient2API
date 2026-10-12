@@ -1031,6 +1031,12 @@ function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
 
     const isSolo = providerType === 'trae-solo_work_lite';
     const isChat = providerType === 'trae-chat_v3';
+    const isPersonal = isSolo || isChat;
+    const defaultHost = isPersonal ? 'https://trae-api-cn.mchost.guru' : 'https://api.enterprise.trae.cn';
+    const hostHint = isPersonal
+        ? '个人版/SOLO 默认服务地址为 <code>https://trae-api-cn.mchost.guru</code>。'
+        : '企业账号默认为 <code>https://api.enterprise.trae.cn</code>；个人海外版可改为 <code>https://api.trae.com.cn</code>。';
+
     let modalTitle = 'Trae (tob_raw_chat) 账号授权登录';
     let iconClass = 'fas fa-bolt';
     if (isSolo) {
@@ -1071,9 +1077,9 @@ function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
                     <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary);">
                         Trae 服务地址 (Host)
                     </label>
-                    <input type="text" id="traeAuthHost" value="https://api.enterprise.trae.cn" placeholder="https://api.enterprise.trae.cn" style="width: 100%; padding: 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
+                    <input type="text" id="traeAuthHost" value="${defaultHost}" placeholder="${defaultHost}" style="width: 100%; padding: 10px 12px; border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;">
                     <small style="display: block; margin-top: 5px; font-size: 12px; color: var(--text-tertiary);">
-                        企业账号默认为 <code>https://api.enterprise.trae.cn</code>；个人海外版可改为 <code>https://api.trae.com.cn</code>。
+                        ${hostHint}
                     </small>
                 </div>
 
@@ -1125,7 +1131,7 @@ function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
 
     if (webAuthBtn) {
         webAuthBtn.addEventListener('click', async () => {
-            const host = hostInput.value.trim() || 'https://api.enterprise.trae.cn';
+            const host = hostInput.value.trim() || defaultHost;
             closeModal();
             await executeGenerateAuthUrl(providerType, { host, targetInputId: extraOptions.targetInputId });
         });
@@ -1133,7 +1139,7 @@ function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
 
     const doSubmit = async () => {
         const token = tokenInput.value.trim();
-        const host = hostInput.value.trim() || 'https://api.enterprise.trae.cn';
+        const host = hostInput.value.trim() || defaultHost;
         const customName = nameInput.value.trim();
 
         if (!token) {

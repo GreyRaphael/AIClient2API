@@ -141,7 +141,6 @@ export const SOLO_WORK_LITE_MODEL_ALIASES = {
     'qwen3.8-max': 'qwen3.8-max',
     'qwen3.8-flash': 'qwen3.8-max',
     'glm-5': 'glm-5.2',
-    'glm-5-turbo': 'glm-5-turbo',
     'glm-5.2': 'glm-5.2',
     'glm-5.3': 'glm-5.3',
     'glm-5.3-flash': 'glm-5.3-flash',
@@ -162,11 +161,7 @@ export const CHAT_V3_MODEL_ALIASES = {
     ...SOLO_WORK_LITE_MODEL_ALIASES,
     'qwen3.8-flash': 'qwen3.8-flash',
     'doubao-seed-code': 'Doubao-Seed-Code',
-    'doubao_1_6': 'Doubao_1_6',
-    'kimi-k2.8-preview': 'kimi-k2.8-preview',
-    'glm-5.1': 'glm-5.1',
-    'glm-4.7': 'glm-4.7',
-    'minimax-m2.1': 'minimax-m2.1'
+    'kimi-k2.8-preview': 'kimi-k2.8-preview'
 };
 
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
@@ -226,11 +221,6 @@ export class TraeApiService {
         this._fetchModelsPromise = null;
 
         this.loadCredentials();
-        if (this.isInitialized) {
-            const targetProvider = this.getTargetProvider();
-            const defaultModels = PROVIDER_MODELS[targetProvider] || this.getBaseModels(targetProvider);
-            updateProviderModels(targetProvider, defaultModels);
-        }
     }
 
     /**
@@ -384,12 +374,13 @@ export class TraeApiService {
             }
         }
 
-        // 3. 针对不同通道查阅对应的别名表
+        // 3. 针对不同通道查阅对应的别名表（chat_v3 仅由 channelMode 决定，无需 channel.function 回退）
+        const channel = this.getChannelConfig();
         if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
             if (CHAT_V3_MODEL_ALIASES[lower]) {
                 return CHAT_V3_MODEL_ALIASES[lower];
             }
-        } else if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) {
+        } else if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || channel?.function === 'solo_work_lite') {
             if (SOLO_WORK_LITE_MODEL_ALIASES[lower]) {
                 return SOLO_WORK_LITE_MODEL_ALIASES[lower];
             }
@@ -1093,7 +1084,10 @@ export class TraeApiService {
                 const headers = await this.buildHeaders(false);
                 const allConfigs = [];
 
-                const isSoloOrChat = this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3;
+                const isSoloOrChat = this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE ||
+                    this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3 ||
+                    channel.function === 'solo_work_lite' ||
+                    channel.function === 'chat_v3';
                 if (isSoloOrChat) {
                     // 2. solo_work_lite / chat_v3 通道: POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param
                     const targetUrl = channel.modelsUrl || `${this.agentHost}/api/ide/v1/get_detail_param`;
