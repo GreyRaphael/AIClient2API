@@ -18,6 +18,8 @@ import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
+import { GrokConverter } from '../src/converters/strategies/GrokConverter.js';
+import { ConverterFactory } from '../src/converters/ConverterFactory.js';
 import { generateResponseCompleted, streamStateManager } from '../src/providers/openai/openai-responses-events.js';
 import { ZedApiService } from '../src/providers/zed/zed-core.js';
 import axios from 'axios';
@@ -541,3 +543,37 @@ describe('P3: toClaudeResponse stop_reason 合规性与 ClaudeConverter message_
     });
 });
 
+
+// ---------------------------------------------------------------------------
+// B0: Grok -> Claude 委托调用必须透传 requestId（并发流状态隔离）
+// ---------------------------------------------------------------------------
+describe('B0: Grok -> Claude 委托透传 requestId', () => {
+    test('两条无 responseId 的交错流在 OpenAIConverter 内按 requestId 隔离状态', () => {
+        const converter = new GrokConverter();
+        const openaiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.OPENAI);
+        const reqA = 'jest_grok_req_A';
+        const reqB = 'jest_grok_req_B';
+
+        // grok chunk 不含 responseId：修复前每个 chunk 生成新 uuid 作为 OpenAIConverter 状态键，
+        // 导致 message_start 每帧重发且并发流状态交叉；修复后按 requestId 稳定键控
+        const mk = (token) => ({ result: { response: { token } } });
+
+        try {
+            converter.toClaudeStreamChunk(mk('你好'), 'grok-3', reqA);
+            converter.toClaudeStreamChunk(mk('hello'), 'grok-3', reqB);
+            converter.toClaudeStreamChunk(mk('世界'), 'grok-3', reqA);
+
+            // 两条流的状态以 requestId 为键独立存在
+            expect(openaiConverter.claudeStreamStates.has(reqA)).toBe(true);
+            expect(openaiConverter.claudeStreamStates.has(reqB)).toBe(true);
+
+            // 交错推进后各自的 messageId 互不污染
+            const stateA = openaiConverter.claudeStreamStates.get(reqA);
+            const stateB = openaiConverter.claudeStreamStates.get(reqB);
+            expect(stateA.messageId).not.toBe(stateB.messageId);
+        } finally {
+            openaiConverter.claudeStreamStates.delete(reqA);
+            openaiConverter.claudeStreamStates.delete(reqB);
+        }
+    });
+});

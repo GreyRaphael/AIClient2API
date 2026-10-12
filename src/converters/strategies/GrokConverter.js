@@ -1426,7 +1426,9 @@ export class GrokConverter extends BaseConverter {
         const out = [];
 
         for (const p of pieces) {
-            const events = openaiConverter.toClaudeStreamChunk(p, model);
+            // 必须透传 requestId：否则并发流在 OpenAIConverter 内按 chunk.id/'default' 键共享状态，
+            // 且 grok chunk 缺 responseId 时每个 chunk 生成新 uuid，导致 message_start 每帧重发
+            const events = openaiConverter.toClaudeStreamChunk(p, model, requestId);
             if (!events) continue;
 
             const arr = Array.isArray(events) ? events : [events];
