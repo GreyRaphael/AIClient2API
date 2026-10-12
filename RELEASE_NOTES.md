@@ -4,6 +4,13 @@
 
 ---
 
+## ⚠️ 发布后更正 (Post-v3.8.0)
+
+- **`trae-agent_v3` 已废除并重新拆分**：发布后经上游核实，`agent_v3` 并非上游业务 `function`，仅是网关路径层级（`/api/agent/v3`）。原 `trae-agent_v3` 提供商已彻底清除，重新拆分为 **`trae-solo_work_lite`**（SOLO Agent，19 模型）与 **`trae-chat_v3`**（侧边栏 Chat，20 模型）两个独立一级提供商；同时废除动态拉取模型列表时的"基准兜底合并"与"强制追加 auto 别名"机制，模型列表 100% 对应上游真实活跃模型。详见 `docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`。
+- **协议合规修复集**：zed open_ai/google 工具调用 stop_reason 与工具能力补全、Gemini->Claude 流式事件序列合规（message_start/块 index 递增/message_stop）、Responses API 假 usage 与非法 status 修复、流式 chunk id 稳定性与 finishReason 映射合规等，详见 `CHANGELOG.md` 的 Unreleased 段。
+
+---
+
 ## 🌟 核心更新亮点 (v3.8.0)
 
 ### 1. Trae 独立双通道拆分 (重大架构升级)
