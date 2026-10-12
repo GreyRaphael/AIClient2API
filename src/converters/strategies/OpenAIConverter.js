@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import logger from '../../utils/logger.js';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
+import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { CodexConverter } from './CodexConverter.js';
 import {
     extractAndProcessSystemMessages as extractSystemMessages,
@@ -520,22 +521,27 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * 获取或创建 Claude 流式转换状态
+     * 获取或创建 Claude 流式转换会话（按 requestId 隔离并发流）
+     * 事件序列骨架由 AnthropicSseEmitter 统一维护（multi 多块并存语义）；
+     * reasoningIndex/textIndex/toolBlocks/activeToolIndex 为本机的块身份与
+     * 转移规则状态（reasoning/text 块终身只开一次，工具块按 raw index 并存）。
      */
     _getClaudeStreamState(openaiChunk, model, requestId) {
         const stateKey = requestId || (openaiChunk && openaiChunk.id) || 'default';
         if (!this.claudeStreamStates.has(stateKey)) {
             const rawMsgId = openaiChunk?.id ? String(openaiChunk.id).replace(/^chatcmpl-/, '') : uuidv4();
             this.claudeStreamStates.set(stateKey, {
-                msgStarted: false,
-                messageId: `msg_${rawMsgId.replace(/[^a-zA-Z0-9_-]/g, '')}`,
-                nextBlockIndex: 0,
-                reasoningBlock: null,
-                textBlock: null,
+                emitter: new AnthropicSseEmitter({
+                    model: model || 'unknown',
+                    messageId: `msg_${rawMsgId.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+                    blockMode: 'multi'
+                }),
+                reasoningIndex: null,
+                textIndex: null,
                 toolBlocks: new Map(),
-                openBlocks: new Set(),
                 activeToolIndex: null,
-                createdAt: Date.now()
+                // 兼容既有读取（如并发隔离测试与 Grok 委托排查）：messageId 透传自 emitter
+                get messageId() { return this.emitter.messageId; }
             });
         }
 
@@ -573,108 +579,51 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         const { stateKey, state } = this._getClaudeStreamState(openaiChunk, model, requestId);
+        const { emitter } = state;
         const events = [];
 
         // 1. 发送 message_start 事件（流开始的第一个有效 chunk 时发出）
-        if (!state.msgStarted) {
-            state.msgStarted = true;
-            events.push({
-                type: "message_start",
-                message: {
-                    id: state.messageId,
-                    type: "message",
-                    role: "assistant",
-                    content: [],
-                    model: model || openaiChunk.model || "unknown",
-                    stop_reason: null,
-                    stop_sequence: null,
-                    usage: {
-                        input_tokens: openaiChunk.usage?.prompt_tokens || 0,
-                        output_tokens: 0
-                    }
-                }
-            });
-        }
+        emitter.setModel(model || openaiChunk.model);
+        events.push(...emitter.ensureStarted({
+            input_tokens: openaiChunk.usage?.prompt_tokens || 0,
+            output_tokens: 0
+        }));
 
         const delta = choice?.delta;
 
-        // 2. 处理 reasoning_content (对应 thinking 类型的 content_block)
+        // 2. 处理 reasoning_content (对应 thinking 类型的 content_block；块终身只开一次)
         if (delta?.reasoning_content) {
-            if (!state.reasoningBlock) {
-                const blockIndex = state.nextBlockIndex++;
-                state.reasoningBlock = { index: blockIndex };
-                state.openBlocks.add(blockIndex);
-                events.push({
-                    type: "content_block_start",
-                    index: blockIndex,
-                    content_block: {
-                        type: "thinking",
-                        thinking: ""
-                    }
-                });
+            if (state.reasoningIndex === null) {
+                const { events: openEvents, index } = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
+                state.reasoningIndex = index;
+                events.push(...openEvents);
             }
-
-            events.push({
-                type: "content_block_delta",
-                index: state.reasoningBlock.index,
-                delta: {
-                    type: "thinking_delta",
-                    thinking: delta.reasoning_content
-                }
-            });
+            events.push(emitter.deltaAt(state.reasoningIndex, { type: 'thinking_delta', thinking: delta.reasoning_content }));
         }
 
-        // 3. 处理普通文本 content (对应 text 类型的 content_block)
+        // 3. 处理普通文本 content (对应 text 类型的 content_block；块终身只开一次)
         if (typeof delta?.content === 'string' && delta.content.length > 0) {
             // 如果之前有处于打开状态的 reasoning block，先关闭它
-            if (state.reasoningBlock && state.openBlocks.has(state.reasoningBlock.index)) {
-                events.push({
-                    type: "content_block_stop",
-                    index: state.reasoningBlock.index
-                });
-                state.openBlocks.delete(state.reasoningBlock.index);
+            if (state.reasoningIndex !== null) {
+                events.push(...emitter.closeBlockAt(state.reasoningIndex));
             }
 
-            if (!state.textBlock) {
-                const blockIndex = state.nextBlockIndex++;
-                state.textBlock = { index: blockIndex };
-                state.openBlocks.add(blockIndex);
-                events.push({
-                    type: "content_block_start",
-                    index: blockIndex,
-                    content_block: {
-                        type: "text",
-                        text: ""
-                    }
-                });
+            if (state.textIndex === null) {
+                const { events: openEvents, index } = emitter.openBlock('text', { type: 'text', text: '' });
+                state.textIndex = index;
+                events.push(...openEvents);
             }
-
-            events.push({
-                type: "content_block_delta",
-                index: state.textBlock.index,
-                delta: {
-                    type: "text_delta",
-                    text: delta.content
-                }
-            });
+            events.push(emitter.deltaAt(state.textIndex, { type: 'text_delta', text: delta.content }));
         }
 
-        // 4. 处理 tool_calls (对应 tool_use 类型的 content_block)
+        // 4. 处理 tool_calls (对应 tool_use 类型的 content_block；按 raw index 并存)
         if (delta?.tool_calls && Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
             // 工具调用前关闭任何仍处于打开状态的 reasoning 或 text block
-            if (state.reasoningBlock && state.openBlocks.has(state.reasoningBlock.index)) {
-                events.push({
-                    type: "content_block_stop",
-                    index: state.reasoningBlock.index
-                });
-                state.openBlocks.delete(state.reasoningBlock.index);
+            if (state.reasoningIndex !== null) {
+                events.push(...emitter.closeBlockAt(state.reasoningIndex));
             }
-            if (state.textBlock && state.openBlocks.has(state.textBlock.index)) {
-                events.push({
-                    type: "content_block_stop",
-                    index: state.textBlock.index
-                });
-                state.openBlocks.delete(state.textBlock.index);
+            if (state.textIndex !== null) {
+                events.push(...emitter.closeBlockAt(state.textIndex));
             }
 
             for (const toolCall of delta.tool_calls) {
@@ -684,36 +633,27 @@ export class OpenAIConverter extends BaseConverter {
                     // 如果存在上一个 tool block 且仍处于 open 状态，先关闭它
                     if (state.activeToolIndex !== null && state.activeToolIndex !== rawToolIndex) {
                         const prevBlock = state.toolBlocks.get(state.activeToolIndex);
-                        if (prevBlock && state.openBlocks.has(prevBlock.index)) {
-                            events.push({
-                                type: "content_block_stop",
-                                index: prevBlock.index
-                            });
-                            state.openBlocks.delete(prevBlock.index);
+                        if (prevBlock) {
+                            events.push(...emitter.closeBlockAt(prevBlock.index));
                         }
                     }
 
-                    const blockIndex = state.nextBlockIndex++;
                     const toolInfo = {
-                        index: blockIndex,
+                        index: -1, // 由 openBlock 分配后回填
                         id: toolCall.id || `tool_${uuidv4().replace(/-/g, '')}`,
                         name: toolCall.function?.name || '',
                         sentArgs: ''
                     };
-                    state.toolBlocks.set(rawToolIndex, toolInfo);
-                    state.openBlocks.add(blockIndex);
-                    state.activeToolIndex = rawToolIndex;
-
-                    events.push({
-                        type: "content_block_start",
-                        index: blockIndex,
-                        content_block: {
-                            type: "tool_use",
-                            id: toolInfo.id,
-                            name: toolInfo.name,
-                            input: {}
-                        }
+                    const { events: openEvents, index } = emitter.openBlock('tool_use', {
+                        type: 'tool_use',
+                        id: toolInfo.id,
+                        name: toolInfo.name,
+                        input: {}
                     });
+                    toolInfo.index = index;
+                    state.toolBlocks.set(rawToolIndex, toolInfo);
+                    state.activeToolIndex = rawToolIndex;
+                    events.push(...openEvents);
                 }
 
                 // 增量参数（支持增量 delta 与快照累积式 arguments 去重/diff 下发）
@@ -738,14 +678,7 @@ export class OpenAIConverter extends BaseConverter {
                     }
 
                     if (deltaJson.length > 0) {
-                        events.push({
-                            type: "content_block_delta",
-                            index: toolInfo.index,
-                            delta: {
-                                type: "input_json_delta",
-                                partial_json: deltaJson
-                            }
-                        });
+                        events.push(emitter.deltaAt(toolInfo.index, { type: 'input_json_delta', partial_json: deltaJson }));
                     }
                 }
             }
@@ -755,26 +688,10 @@ export class OpenAIConverter extends BaseConverter {
         const finishReason = choice?.finish_reason;
         if (finishReason) {
             // 如果从未开启过任何内容块（空输出），补一个空的 text block
-            if (state.nextBlockIndex === 0) {
-                events.push({
-                    type: "content_block_start",
-                    index: 0,
-                    content_block: {
-                        type: "text",
-                        text: ""
-                    }
-                });
-                state.openBlocks.add(0);
+            if (emitter.nextBlockIndex === 0) {
+                const { events: openEvents } = emitter.openBlock('text', { type: 'text', text: '' });
+                events.push(...openEvents);
             }
-
-            // 关闭所有仍在 open 状态的内容块
-            for (const openIndex of state.openBlocks) {
-                events.push({
-                    type: "content_block_stop",
-                    index: openIndex
-                });
-            }
-            state.openBlocks.clear();
 
             let stopReason = mapFinishReason(
                 finishReason,
@@ -785,20 +702,11 @@ export class OpenAIConverter extends BaseConverter {
                 stopReason = "tool_use";
             }
 
-            events.push({
-                type: "message_delta",
-                delta: {
-                    stop_reason: stopReason,
-                    stop_sequence: null
-                },
-                usage: {
-                    output_tokens: openaiChunk.usage?.completion_tokens || 0
-                }
-            });
-
-            events.push({
-                type: "message_stop"
-            });
+            // finish 统一关闭所有 open 块 -> message_delta -> message_stop
+            events.push(...emitter.finish({
+                stopReason,
+                usage: { output_tokens: openaiChunk.usage?.completion_tokens || 0 }
+            }));
 
             // 清理流状态
             this.claudeStreamStates.delete(stateKey);
