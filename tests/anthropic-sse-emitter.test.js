@@ -86,11 +86,12 @@ describe('sequential 块管理', () => {
         });
     });
 
-    test('closeActiveBlock 无活动块时为空操作', () => {
+    test('closeActiveBlock 无活动块时为空操作，关闭后 activeIndex 复位', () => {
         const em = new AnthropicSseEmitter({ model: 'm' });
         expect(em.closeActiveBlock()).toEqual([]);
         em.openBlock('text', { type: 'text', text: '' });
         expect(em.closeActiveBlock()).toEqual([{ type: 'content_block_stop', index: 0 }]);
+        expect(em.activeIndex).toBe(-1);
         expect(em.closeActiveBlock()).toEqual([]);
     });
 });
@@ -130,11 +131,18 @@ describe('finish 终结', () => {
         expect(em.finish()).toEqual([]); // 幂等
     });
 
-    test('无块时 finish 仅发 message_delta + message_stop，usage 默认 output_tokens:0', () => {
+    test('未事先 ensureStarted 时 finish 自动补发 message_start 并紧随终态', () => {
         const em = new AnthropicSseEmitter({ model: 'm' });
         const events = em.finish({ stopReason: 'end_turn' });
-        expect(types(events)).toEqual(['message_delta', 'message_stop']);
-        expect(events[0].usage).toEqual({ output_tokens: 0 });
+        expect(types(events)).toEqual(['message_start', 'message_delta', 'message_stop']);
+        expect(events[1].usage).toEqual({ output_tokens: 0 });
+    });
+
+    test('done 终态后调用 ensureStarted / openBlock 均被守卫拦截', () => {
+        const em = new AnthropicSseEmitter({ model: 'm' });
+        em.finish();
+        expect(em.ensureStarted()).toEqual([]);
+        expect(em.openBlock('text', { type: 'text', text: '' })).toEqual({ events: [], index: -1 });
     });
 });
 

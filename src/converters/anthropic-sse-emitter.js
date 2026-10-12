@@ -57,12 +57,12 @@ export class AnthropicSseEmitter {
     }
 
     /**
-     * 发送 message_start（幂等，仅首次生效）
+     * 发送 message_start（幂等，仅首次生效；已终结则为空操作）
      * @param {Object} [usage] - message_start.message.usage，默认全零
-     * @returns {Array} 产生的事件数组（空数组表示已发过）
+     * @returns {Array} 产生的事件数组（空数组表示已发过或已终结）
      */
     ensureStarted(usage = null) {
-        if (this.msgStarted) return [];
+        if (this.done || this.msgStarted) return [];
         this.msgStarted = true;
         return [{
             type: 'message_start',
@@ -88,6 +88,7 @@ export class AnthropicSseEmitter {
      * @returns {{ events: Array, index: number }} 事件数组与新块 index（同类型空操作时返回当前 index）
      */
     openBlock(type, contentBlock) {
+        if (this.done) return { events: [], index: -1 };
         const events = [];
         if (type === 'tool_use') this.sawToolUse = true;
 
@@ -151,6 +152,7 @@ export class AnthropicSseEmitter {
         if (this.blockMode === 'sequential' && this.activeType !== null) {
             const events = [{ type: 'content_block_stop', index: this.activeIndex }];
             this.activeType = null;
+            this.activeIndex = -1;
             return events;
         }
         return [];
@@ -185,7 +187,7 @@ export class AnthropicSseEmitter {
     }
 
     /**
-     * 终结消息：关闭所有块 -> message_delta -> message_stop（幂等，done 后为空操作）
+     * 终结消息：确保 message_start -> 关闭所有块 -> message_delta -> message_stop（幂等，done 后为空操作）
      * @param {Object} [options]
      * @param {string} [options.stopReason] - 终态原因（调用方负责映射与覆盖规则）
      * @param {Object} [options.usage] - message_delta.usage 完整对象（字段构成由调用方决定）
@@ -193,8 +195,12 @@ export class AnthropicSseEmitter {
      */
     finish({ stopReason = 'end_turn', usage = null } = {}) {
         if (this.done) return [];
+        const events = [];
+        if (!this.msgStarted) {
+            events.push(...this.ensureStarted());
+        }
         this.done = true;
-        const events = this.closeAllBlocks();
+        events.push(...this.closeAllBlocks());
         events.push({
             type: 'message_delta',
             delta: { stop_reason: stopReason, stop_sequence: null },

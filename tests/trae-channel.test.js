@@ -33,12 +33,15 @@ describe('resolveTraeChannelMode: 显式 configuredMode / providerType 判定', 
         expect(resolveTraeChannelMode({ providerType: 'trae' })).toBe('tob_raw_chat');
     });
 
-    test('判定优先级与构造器 if-else 顺序一致', () => {
-        // chat_v3 检查在 solo 之前
+    test('判定优先级：显式 configuredMode 始终优先于 providerType 与 URL 推断', () => {
+        // 显式 chat_v3 优先于 providerType
         expect(resolveTraeChannelMode({ configuredMode: 'chat_v3', providerType: 'trae-solo_work_lite' })).toBe('chat_v3');
-        // custom 在 tob/providerType=trae 之前
+        // 显式 custom 优先于 providerType
         expect(resolveTraeChannelMode({ configuredMode: 'custom', providerType: 'trae' })).toBe('custom');
-        // solo 在 custom 之前
+        expect(resolveTraeChannelMode({ configuredMode: 'custom', providerType: 'trae-chat_v3' })).toBe('custom');
+        // 显式 tob_raw_chat 优先于 providerType
+        expect(resolveTraeChannelMode({ configuredMode: 'tob_raw_chat', providerType: 'trae-chat_v3' })).toBe('tob_raw_chat');
+        // 显式 solo 优先于 providerType
         expect(resolveTraeChannelMode({ configuredMode: 'solo', providerType: 'trae' })).toBe('solo_work_lite');
     });
 });
@@ -47,10 +50,6 @@ describe('resolveTraeChannelMode: URL 特征自动推断', () => {
     test('mchost.guru / llm_utils_chat 推断为个人版通道', () => {
         expect(resolveTraeChannelMode({ baseUrl: 'https://trae-api-cn.mchost.guru' })).toBe('solo_work_lite');
         expect(resolveTraeChannelMode({ baseUrl: 'https://example.com/api/agent/v3/llm_utils_chat' })).toBe('solo_work_lite');
-    });
-
-    test('个人版 URL + providerType 含 chat_v3 时推断为 chat_v3', () => {
-        expect(resolveTraeChannelMode({ baseUrl: 'https://trae-api-cn.mchost.guru', providerType: 'trae-chat_v3' })).toBe('chat_v3');
     });
 
     test('无特征时默认 ToB', () => {
@@ -93,6 +92,14 @@ describe('resolveAliasTableKind', () => {
         expect(resolveAliasTableKind('tob_raw_chat', 'chat')).toBe('canonical');
         expect(resolveAliasTableKind('tob_raw_chat', undefined)).toBe('canonical');
     });
+
+    test('支持 lazy getter 且不必要时不调用', () => {
+        const getter = jest.fn(() => 'solo_work_lite');
+        expect(resolveAliasTableKind('chat_v3', getter)).toBe('chat_v3');
+        expect(getter).not.toHaveBeenCalled();
+        expect(resolveAliasTableKind('custom', getter)).toBe('solo_work_lite');
+        expect(getter).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('providerType 谓词', () => {
@@ -100,6 +107,8 @@ describe('providerType 谓词', () => {
         expect(isTraeProviderType('trae')).toBe(true);
         expect(isTraeProviderType('trae-solo_work_lite')).toBe(true);
         expect(isTraeProviderType('trae-chat_v3')).toBe(true);
+        expect(isTraeProviderType('TRAE')).toBe(true);
+        expect(isTraeProviderType('trae-chat_v3 ')).toBe(true);
         expect(isTraeProviderType('zed')).toBe(false);
         expect(isTraeProviderType('trae-agent_v3')).toBe(false); // 历史通道已废除
         expect(isTraeProviderType('')).toBe(false);
@@ -108,6 +117,7 @@ describe('providerType 谓词', () => {
     test('isSoloFamilyProviderType', () => {
         expect(isSoloFamilyProviderType('trae-solo_work_lite')).toBe(true);
         expect(isSoloFamilyProviderType('trae-chat_v3')).toBe(true);
+        expect(isSoloFamilyProviderType('TRAE-CHAT_V3')).toBe(true);
         expect(isSoloFamilyProviderType('trae')).toBe(false);
         expect(isSoloFamilyProviderType('zed')).toBe(false);
     });

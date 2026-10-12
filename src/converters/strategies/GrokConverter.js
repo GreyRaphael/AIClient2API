@@ -24,8 +24,6 @@ export class GrokConverter extends BaseConverter {
         super('grok');
         // 用于跟踪每个请求的状态
         this.requestStates = new StreamSessionStore({ label: 'grok-converter' });
-        /** @type {Map<string, boolean>} 流式 Claude 转换是否已发送 message_start（按 streamRequestId） */
-        this._claudeMsgStartSent = new StreamSessionStore({ label: 'grok-converter-claude-msg-start' });
     }
 
     /**
@@ -1420,47 +1418,18 @@ export class GrokConverter extends BaseConverter {
         const openaiPieces = this.toOpenAIStreamChunk(chunk, model, requestId);
         if (!openaiPieces) return null;
 
-        const key = requestId || '_';
         const openaiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.OPENAI);
         const pieces = Array.isArray(openaiPieces) ? openaiPieces : [openaiPieces];
         const out = [];
 
         for (const p of pieces) {
-            // 必须透传 requestId：否则并发流在 OpenAIConverter 内按 chunk.id/'default' 键共享状态，
-            // 且 grok chunk 缺 responseId 时每个 chunk 生成新 uuid，导致 message_start 每帧重发
+            // 必须透传 requestId：让 OpenAIConverter 内按 requestId 隔离并发流状态，
+            // 且 grok chunk 缺 responseId 时不会生成新 uuid 导致状态重建
             const events = openaiConverter.toClaudeStreamChunk(p, model, requestId);
             if (!events) continue;
 
             const arr = Array.isArray(events) ? events : [events];
-            for (const ev of arr) {
-                if (!this._claudeMsgStartSent.get(key)) {
-                    this._claudeMsgStartSent.set(key, true);
-                    const msgId = `msg_${String(p.id || uuidv4()).replace(/^chatcmpl-/, '')}`;
-                    out.push({
-                        type: 'message_start',
-                        message: {
-                            id: msgId,
-                            type: 'message',
-                            role: 'assistant',
-                            content: [],
-                            model: model || p.model || 'unknown',
-                            stop_reason: null,
-                            stop_sequence: null,
-                            usage: {
-                                input_tokens: 0,
-                                output_tokens: 0,
-                                cache_creation_input_tokens: 0,
-                                cache_read_input_tokens: 0
-                            }
-                        }
-                    });
-                }
-                out.push(ev);
-            }
-        }
-
-        if (chunk?.result?.response?.isDone) {
-            this._claudeMsgStartSent.delete(key);
+            out.push(...arr);
         }
 
         return out.length === 0 ? null : (out.length === 1 ? out[0] : out);

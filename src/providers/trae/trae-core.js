@@ -311,10 +311,8 @@ export class TraeApiService {
             }
         }
 
-        // 3. 针对不同通道查阅对应的别名表（选择逻辑收编至 trae-channel.js 的 resolveAliasTableKind；
-        //    getChannelConfig 仅在需要 function 回退判定时才调用）
-        const needsFunctionFallback = this.channelMode !== TRAE_CHANNEL_MODES.CHAT_V3 && this.channelMode !== TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
-        const aliasKind = resolveAliasTableKind(this.channelMode, needsFunctionFallback ? this.getChannelConfig()?.function : null);
+        // 3. 针对不同通道查阅对应的别名表（选择逻辑收编至 trae-channel.js 的 resolveAliasTableKind）
+        const aliasKind = resolveAliasTableKind(this.channelMode, () => this.getChannelConfig()?.function);
         const aliasTable = aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
             : aliasKind === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES
             : CANONICAL_MODEL_ALIASES;

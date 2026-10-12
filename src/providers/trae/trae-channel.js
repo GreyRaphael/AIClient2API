@@ -84,24 +84,23 @@ export const TRAE_CHANNEL_PRESETS = {
  */
 export function resolveTraeChannelMode({ configuredMode = '', providerType = '', baseUrl = '' } = {}) {
     const mode = String(configuredMode || '').trim().toLowerCase();
-    const ptype = String(providerType || '').toLowerCase();
+    const ptype = String(providerType || '').trim().toLowerCase();
 
-    if (mode === TRAE_CHANNEL_MODES.CHAT_V3 || ptype === 'trae-chat_v3' || ptype === 'chat_v3') {
-        return TRAE_CHANNEL_MODES.CHAT_V3;
-    }
-    if (mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || mode === 'solo' || ptype === 'trae-solo_work_lite' || ptype === 'solo_work_lite') {
-        return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
-    }
-    if (mode === TRAE_CHANNEL_MODES.CUSTOM) {
-        return TRAE_CHANNEL_MODES.CUSTOM;
-    }
-    if (mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || mode === 'raw' || mode === 'tob' || ptype === 'trae') {
-        return TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
-    }
-    // 自动推断：URL 明确指向 mchost.guru 或包含 llm_utils_chat 时为个人版通道
+    // 1. 显式配置优先
+    if (mode === TRAE_CHANNEL_MODES.CHAT_V3) return TRAE_CHANNEL_MODES.CHAT_V3;
+    if (mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || mode === 'solo') return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
+    if (mode === TRAE_CHANNEL_MODES.CUSTOM) return TRAE_CHANNEL_MODES.CUSTOM;
+    if (mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || mode === 'raw' || mode === 'tob') return TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
+
+    // 2. 提供商类型判定
+    if (ptype === MODEL_PROVIDER.TRAE_CHAT_V3 || ptype === 'chat_v3') return TRAE_CHANNEL_MODES.CHAT_V3;
+    if (ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE || ptype === 'solo_work_lite') return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
+    if (ptype === MODEL_PROVIDER.TRAE) return TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
+
+    // 3. 自动推断：URL 明确指向 mchost.guru 或包含 llm_utils_chat 时为个人版通道
     const url = String(baseUrl || '').toLowerCase();
     if (url.includes('mchost.guru') || url.includes('llm_utils_chat')) {
-        return ptype.includes('chat_v3') ? TRAE_CHANNEL_MODES.CHAT_V3 : TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
+        return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
     }
     return TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
 }
@@ -123,12 +122,13 @@ export function isSoloFamilyChannel(mode, channelFunction) {
 /**
  * 别名表选择（吸收 normalizeModelName 第 3 段逻辑）
  * @param {string} [mode] - TRAE_CHANNEL_MODES 值
- * @param {string} [channelFunction] - getChannelConfig().function（仅 CUSTOM/TOB 需要回退判定）
+ * @param {string|Function} [channelFunctionOrGetter] - getChannelConfig().function 或 lazy getter
  * @returns {'chat_v3'|'solo_work_lite'|'canonical'}
  */
-export function resolveAliasTableKind(mode, channelFunction) {
+export function resolveAliasTableKind(mode, channelFunctionOrGetter) {
     if (mode === TRAE_CHANNEL_MODES.CHAT_V3) return 'chat_v3';
     if (mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) return 'solo_work_lite';
+    const channelFunction = typeof channelFunctionOrGetter === 'function' ? channelFunctionOrGetter() : channelFunctionOrGetter;
     return channelFunction === 'solo_work_lite' ? 'solo_work_lite' : 'canonical';
 }
 
@@ -138,9 +138,10 @@ export function resolveAliasTableKind(mode, channelFunction) {
  * @returns {boolean}
  */
 export function isTraeProviderType(providerType) {
-    return providerType === MODEL_PROVIDER.TRAE ||
-        providerType === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
-        providerType === MODEL_PROVIDER.TRAE_CHAT_V3;
+    const ptype = String(providerType || '').trim().toLowerCase();
+    return ptype === MODEL_PROVIDER.TRAE ||
+        ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
+        ptype === MODEL_PROVIDER.TRAE_CHAT_V3;
 }
 
 /**
@@ -149,8 +150,9 @@ export function isTraeProviderType(providerType) {
  * @returns {boolean}
  */
 export function isSoloFamilyProviderType(providerType) {
-    return providerType === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
-        providerType === MODEL_PROVIDER.TRAE_CHAT_V3;
+    const ptype = String(providerType || '').trim().toLowerCase();
+    return ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
+        ptype === MODEL_PROVIDER.TRAE_CHAT_V3;
 }
 
 /**
