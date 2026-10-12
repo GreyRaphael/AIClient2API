@@ -9,6 +9,7 @@ import { MODEL_PROVIDER } from '../../utils/constants.js';
 import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
+import { mapFinishReason, sanitizeToolId } from '../../converters/utils.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -443,14 +444,14 @@ export class ZedApiService {
                 if (Array.isArray(m.content)) {
                     for (const p of m.content) {
                         if (p && p.type === 'tool_use' && p.id && p.name) {
-                            toolIdToName[p.id] = p.name;
+                            toolIdToName[sanitizeToolId(p.id)] = p.name;
                         }
                     }
                 }
                 if (Array.isArray(m.tool_calls)) {
                     for (const tc of m.tool_calls) {
                         if (tc && tc.id && tc.function?.name) {
-                            toolIdToName[tc.id] = tc.function.name;
+                            toolIdToName[sanitizeToolId(tc.id)] = tc.function.name;
                         }
                     }
                 }
@@ -483,7 +484,7 @@ export class ZedApiService {
                     role = 'user';
                     parts.push({
                         functionResponse: {
-                            name: toolIdToName[m.tool_call_id] || m.name || 'function',
+                            name: toolIdToName[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
                             response: {
                                 result: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
                             }
@@ -520,7 +521,7 @@ export class ZedApiService {
                             // Claude 风格 user 工具结果 -> functionResponse
                             parts.push({
                                 functionResponse: {
-                                    name: toolIdToName[p.tool_use_id] || p.name || 'function',
+                                    name: toolIdToName[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
                                     response: {
                                         result: typeof p.content === 'string' ? p.content : JSON.stringify(p.content)
                                     }
@@ -1221,19 +1222,11 @@ export class ZedApiService {
 
                     if (candidate.finishReason) {
                         yield* closeActiveBlock();
-                        let stopReason = 'end_turn';
-                        const fr = String(candidate.finishReason).toUpperCase();
-                        if (sawToolUse) {
-                            stopReason = 'tool_use';
-                        } else if (fr === 'STOP') {
-                            stopReason = 'end_turn';
-                        } else if (fr === 'MAX_TOKENS') {
-                            stopReason = 'max_tokens';
-                        } else if (['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'MALICIOUS'].includes(fr)) {
-                            stopReason = 'refusal';
-                        } else {
-                            stopReason = 'end_turn';
-                        }
+                        // 映射表统一收编至 converters/utils.js 的 mapFinishReason（SAFETY 族->refusal）；
+                        // sawToolUse 无条件优先（zed 现行外部行为保持不变）
+                        const stopReason = sawToolUse
+                            ? 'tool_use'
+                            : mapFinishReason(candidate.finishReason, 'gemini', 'anthropic');
                         yield {
                             type: 'message_delta',
                             delta: {

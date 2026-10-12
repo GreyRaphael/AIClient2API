@@ -15,6 +15,7 @@ import {
     checkAndAssignOrDefault,
     extractThinkingFromOpenAIText,
     mapFinishReason,
+    sanitizeToolId,
     cleanJsonSchemaProperties as cleanJsonSchema,
     CLAUDE_DEFAULT_MAX_TOKENS,
     CLAUDE_DEFAULT_TEMPERATURE,
@@ -38,15 +39,6 @@ import {
     generateResponseCompleted,
     streamStateManager
 } from '../../providers/openai/openai-responses-events.js';
-
-/**
- * 清洗 tool_use/functionCall ID，只保留 [a-zA-Z0-9_-] 字符
- * Claude API 要求 tool_use.id 匹配 ^[a-zA-Z0-9_-]+$
- */
-function sanitizeToolId(id) {
-    if (!id) return id;
-    return String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
-}
 
 /**
  * OpenAI转换器类

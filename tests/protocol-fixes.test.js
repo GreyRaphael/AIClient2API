@@ -238,6 +238,26 @@ describe('P1: zed google 路径工具调用', () => {
         expect(fr.functionResponse.name).toBe('search');
         expect(fr.functionResponse.response.result).toBe('结果');
     });
+
+    test('含特殊字符的工具 id 经 sanitizeToolId 清洗后仍能还原函数名', () => {
+        const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+        const payload = service.buildPayload('gemini-3.5-flash', {
+            messages: [
+                { role: 'user', content: '跑个命令' },
+                { role: 'assistant', content: [
+                    { type: 'tool_use', id: 'call_abc/def:123', name: 'run_cmd', input: { cmd: 'ls' } }
+                ] },
+                { role: 'user', content: [
+                    { type: 'tool_result', tool_use_id: 'call_abc/def:123', content: 'ok' }
+                ] }
+            ]
+        });
+
+        const allParts = payload.provider_request.contents.flatMap(c => c.parts);
+        const fr = allParts.find(p => p.functionResponse);
+        // 预扫描与查找两侧都按 sanitizeToolId 清洗，id 含 / : 等字符时名称不丢失
+        expect(fr.functionResponse.name).toBe('run_cmd');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -475,7 +495,7 @@ describe('P2: finish_reason 合规映射', () => {
 // P3: 非流式 Gemini -> Claude stop_reason 规范化与 message_stop 瞬时状态清理
 // ---------------------------------------------------------------------------
 describe('P3: toClaudeResponse stop_reason 合规性与 ClaudeConverter message_stop', () => {
-    test('GeminiConverter.toClaudeResponse: STOP->end_turn, MAX_TOKENS->max_tokens, SAFETY->stop_sequence, toolUse->tool_use', () => {
+    test('GeminiConverter.toClaudeResponse: STOP->end_turn, MAX_TOKENS->max_tokens, SAFETY 族->refusal, toolUse->tool_use', () => {
         const converter = new GeminiConverter();
 
         const respStop = converter.toClaudeResponse({
@@ -488,10 +508,13 @@ describe('P3: toClaudeResponse stop_reason 合规性与 ClaudeConverter message_
         }, 'gemini-3.5-flash');
         expect(respMax.stop_reason).toBe('max_tokens');
 
-        const respSafe = converter.toClaudeResponse({
-            candidates: [{ finishReason: 'SAFETY', content: { role: 'model', parts: [{ text: 'blocked' }] } }]
-        }, 'gemini-3.5-flash');
-        expect(respSafe.stop_reason).toBe('stop_sequence');
+        // 安全拦截类统一为 refusal（与 zed-core 路径及 Anthropic 合法词表一致）
+        for (const reason of ['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII']) {
+            const respSafe = converter.toClaudeResponse({
+                candidates: [{ finishReason: reason, content: { role: 'model', parts: [{ text: 'blocked' }] } }]
+            }, 'gemini-3.5-flash');
+            expect(respSafe.stop_reason).toBe('refusal');
+        }
 
         const respTool = converter.toClaudeResponse({
             candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ functionCall: { name: 'bash', args: {} } }] } }]

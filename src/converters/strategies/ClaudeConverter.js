@@ -15,7 +15,8 @@ import {
     GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
     OPENAI_DEFAULT_MAX_TOKENS,
     OPENAI_DEFAULT_TEMPERATURE,
-    OPENAI_DEFAULT_TOP_P
+    OPENAI_DEFAULT_TOP_P,
+    sanitizeToolId
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import {
@@ -40,15 +41,6 @@ import {
  * Claude转换器类
  * 实现Claude协议到其他协议的转换
  */
-/**
- * 清洗 tool_use/tool_result ID，只保留 [a-zA-Z0-9_-] 字符
- * Claude API 要求 tool_use.id 匹配 ^[a-zA-Z0-9_-]+$
- */
-function sanitizeToolId(id) {
-    if (!id) return id;
-    return String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
 export class ClaudeConverter extends BaseConverter {
     constructor() {
         super('claude');
