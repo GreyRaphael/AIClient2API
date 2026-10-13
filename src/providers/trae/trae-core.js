@@ -143,6 +143,9 @@ export class TraeApiService {
             providerType: this.config.MODEL_PROVIDER,
             baseUrl: this.config.TRAE_BASE_URL || this.config.TRAE_HOST
         });
+        // 别名表种类在构造后不再变化（channelMode 与 config 均固定），解析一次缓存，
+        // 避免 normalizeModelName 每次调用都重建一遍 channel config
+        this._aliasKind = resolveAliasTableKind(this.channelMode, () => this.getChannelConfig()?.function);
 
         this.userId = null;
         this.enterpriseId = null;
@@ -189,7 +192,7 @@ export class TraeApiService {
      */
     getChannelConfig() {
         if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
-            const preset = TRAE_CHANNEL_PRESETS[this.channelMode] || TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.SOLO_WORK_LITE];
+            const preset = TRAE_CHANNEL_PRESETS[this.channelMode];
             const baseUrl = (this.config.TRAE_BASE_URL || this.agentHost || preset.defaultHost).replace(/\/+$/, '');
             return {
                 mode: this.channelMode,
@@ -311,10 +314,9 @@ export class TraeApiService {
             }
         }
 
-        // 3. 针对不同通道查阅对应的别名表（选择逻辑收编至 trae-channel.js 的 resolveAliasTableKind）
-        const aliasKind = resolveAliasTableKind(this.channelMode, () => this.getChannelConfig()?.function);
-        const aliasTable = aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
-            : aliasKind === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES
+        // 3. 针对不同通道查阅对应的别名表（aliasKind 构造时已解析缓存）
+        const aliasTable = this._aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
+            : this._aliasKind === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES
             : CANONICAL_MODEL_ALIASES;
         if (aliasTable[lower]) {
             return aliasTable[lower];

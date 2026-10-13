@@ -644,6 +644,12 @@ describe('Trae Provider Implementation Tests', () => {
 
         // 4. Custom channel mode bypasses restriction
         expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'custom', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
+
+        // 5. 显式 TRAE_CHANNEL_MODE 优先于 providerType（矛盾组合按 mode 判定）
+        expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'solo_work_lite', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
+        expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'solo_work_lite', TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toContain('通道不能使用 ToB 企业版');
+        expect(validateTraeProviderConfig('trae-solo_work_lite', { TRAE_CHANNEL_MODE: 'tob_raw_chat', TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toBeNull();
+        expect(validateTraeProviderConfig('trae-solo_work_lite', { TRAE_CHANNEL_MODE: 'tob_raw_chat', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toContain('ToB Raw Chat 通道不能使用个人版');
     });
 });
 

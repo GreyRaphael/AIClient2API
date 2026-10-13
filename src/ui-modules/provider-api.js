@@ -110,15 +110,16 @@ export function validateTraeProviderConfig(providerType, config) {
     const url = String(config.TRAE_BASE_URL || config.TRAE_HOST || '').toLowerCase();
     if (!url) return null;
 
-    if (providerType === 'trae' || mode === 'tob_raw_chat') {
-        if (url.includes('mchost.guru') || url.includes('llm_utils_chat')) {
-            return 'ToB Raw Chat 通道不能使用个人版 (mchost.guru) 地址，请检查服务地址';
-        }
-    } else if (isSoloFamilyProviderType(providerType) || isSoloFamilyChannel(mode, null)) {
+    // 显式 mode 优先于 providerType（与 resolveTraeChannelMode 的「显式通道模式恒优先」原则一致）；
+    // mode 缺省时回退 providerType 家族判定
+    const isSolo = mode ? isSoloFamilyChannel(mode, null) : isSoloFamilyProviderType(providerType);
+    if (isSolo) {
         if (url.includes('enterprise.trae.cn') || url.includes('llm_raw_chat')) {
             const label = providerType === 'trae-chat_v3' ? 'Chat v3' : 'SOLO Agent';
             return `${label} 通道不能使用 ToB 企业版 (enterprise.trae.cn) 地址，请检查服务地址`;
         }
+    } else if (url.includes('mchost.guru') || url.includes('llm_utils_chat')) {
+        return 'ToB Raw Chat 通道不能使用个人版 (mchost.guru) 地址，请检查服务地址';
     }
     return null;
 }
