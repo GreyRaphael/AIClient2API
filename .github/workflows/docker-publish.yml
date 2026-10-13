@@ -59,7 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.version.outputs.version }}"
-          TITLE="${TAG} - Trae 提供商与 1M 上下文生产级支持"
+          TITLE="${TAG}"
           NOTES_ARG=""
           if [ -f "RELEASE_NOTES.md" ]; then
             NOTES_ARG="--notes-file RELEASE_NOTES.md"
