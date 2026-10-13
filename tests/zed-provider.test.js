@@ -1,6 +1,8 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
 import crypto from 'crypto';
+import { Readable } from 'stream';
+import axios from 'axios';
 import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
 import { isRegisteredProvider } from '../src/providers/adapter.js';
@@ -598,6 +600,140 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             } finally {
                 axios.request = originalRequest;
             }
+        });
+    });
+
+    describe('Zed Tool Calling & FinishReason Protocol Tests', () => {
+        test('function_call 后 response.completed 的 stop_reason 为 tool_use', async () => {
+            const service = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+            service.getToken = async () => 'fake-jwt';
+
+            const sse = [
+                'data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"get_weather"}}',
+                '',
+                'data: {"type":"response.function_call_arguments.delta","delta":"{\\"city\\":\\"bj\\"}"}',
+                '',
+                'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_1","name":"get_weather"}}',
+                '',
+                'data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5}}}',
+                ''
+            ].join('\n');
+
+            const spy = jest.spyOn(axios, 'request').mockResolvedValue({ data: Readable.from([sse]) });
+            try {
+                const events = [];
+                for await (const ev of service.generateContentStream('gpt-5.2-codex', { messages: [{ role: 'user', content: 'hi' }] })) {
+                    events.push(ev);
+                }
+                const messageDelta = events.find(e => e.type === 'message_delta');
+                expect(messageDelta).toBeDefined();
+                expect(messageDelta.delta.stop_reason).toBe('tool_use');
+                // 工具块存在且事件序列完整
+                expect(events.some(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use')).toBe(true);
+                expect(events.some(e => e.type === 'message_stop')).toBe(true);
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        test('tools/tool_choice/functionCall/functionResponse 完整传递', () => {
+            const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+            const payload = service.buildPayload('gemini-3.5-flash', {
+                tools: [{ name: 'search', description: 'd', input_schema: { type: 'object', properties: { q: { type: 'string' } } } }],
+                tool_choice: { type: 'tool', name: 'search' },
+                messages: [
+                    { role: 'user', content: '搜一下' },
+                    { role: 'assistant', content: [
+                        { type: 'text', text: '我来搜' },
+                        { type: 'tool_use', id: 'toolu_1', name: 'search', input: { q: 'foo' } }
+                    ] },
+                    { role: 'user', content: [
+                        { type: 'tool_result', tool_use_id: 'toolu_1', content: '结果' }
+                    ] }
+                ]
+            });
+
+            const provReq = payload.provider_request;
+            expect(payload.provider).toBe('google');
+            expect(provReq.tools).toEqual([{
+                functionDeclarations: [{ name: 'search', description: 'd', parameters: { type: 'object', properties: { q: { type: 'string' } } } }]
+            }]);
+            expect(provReq.toolConfig).toEqual({ functionCallingConfig: { mode: 'ANY', allowedFunctionNames: ['search'] } });
+
+            const allParts = provReq.contents.flatMap(c => c.parts);
+            const fc = allParts.find(p => p.functionCall);
+            expect(fc.functionCall).toEqual({ name: 'search', args: { q: 'foo' } });
+            const fr = allParts.find(p => p.functionResponse);
+            // 名称须从 tool_use_id 映射还原
+            expect(fr.functionResponse.name).toBe('search');
+            expect(fr.functionResponse.response.result).toBe('结果');
+        });
+
+        test('含特殊字符的工具 id 经 sanitizeToolId 清洗后仍能还原函数名', () => {
+            const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+            const payload = service.buildPayload('gemini-3.5-flash', {
+                messages: [
+                    { role: 'user', content: '跑个命令' },
+                    { role: 'assistant', content: [
+                        { type: 'tool_use', id: 'call_abc/def:123', name: 'run_cmd', input: { cmd: 'ls' } }
+                    ] },
+                    { role: 'user', content: [
+                        { type: 'tool_result', tool_use_id: 'call_abc/def:123', content: 'ok' }
+                    ] }
+                ]
+            });
+
+            const allParts = payload.provider_request.contents.flatMap(c => c.parts);
+            const fr = allParts.find(p => p.functionResponse);
+            // 预扫描与查找两侧都按 sanitizeToolId 清洗，id 含 / : 等字符时名称不丢失
+            expect(fr.functionResponse.name).toBe('run_cmd');
+        });
+
+        test('zed google 流式分支 finishReason 与 functionCall 映射', async () => {
+            const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+            service.getToken = async () => 'jwt';
+
+            const makeStream = async (candidateObj) => {
+                const sse = `data: ${JSON.stringify(candidateObj)}\n\n`;
+                const spy = jest.spyOn(axios, 'request').mockResolvedValue({ data: Readable.from([sse]) });
+                try {
+                    const events = [];
+                    for await (const ev of service.generateContentStream('gemini-3.5-flash', { messages: [{ role: 'user', content: 'hi' }] })) {
+                        events.push(ev);
+                    }
+                    return events;
+                } finally {
+                    spy.mockRestore();
+                }
+            };
+
+            // 1. STOP -> end_turn
+            const evStop = await makeStream({ candidates: [{ finishReason: 'STOP' }] });
+            const mdStop = evStop.find(e => e.type === 'message_delta');
+            expect(mdStop.delta.stop_reason).toBe('end_turn');
+
+            // 2. MAX_TOKENS -> max_tokens
+            const evMax = await makeStream({ candidates: [{ finishReason: 'MAX_TOKENS' }] });
+            const mdMax = evMax.find(e => e.type === 'message_delta');
+            expect(mdMax.delta.stop_reason).toBe('max_tokens');
+
+            // 3. SAFETY -> refusal
+            const evSafe = await makeStream({ candidates: [{ finishReason: 'SAFETY' }] });
+            const mdSafe = evSafe.find(e => e.type === 'message_delta');
+            expect(mdSafe.delta.stop_reason).toBe('refusal');
+
+            // 4. functionCall -> sawToolUse -> tool_use
+            const evTool = await makeStream({
+                candidates: [{
+                    content: { parts: [{ functionCall: { name: 'run_cmd', args: { cmd: 'ls' } } }] },
+                    finishReason: 'STOP'
+                }]
+            });
+            const toolStart = evTool.find(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use');
+            expect(toolStart).toBeDefined();
+            expect(toolStart.content_block.name).toBe('run_cmd');
+            const mdTool = evTool.find(e => e.type === 'message_delta');
+            expect(mdTool.delta.stop_reason).toBe('tool_use');
         });
     });
 });

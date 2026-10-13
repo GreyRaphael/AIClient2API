@@ -42,6 +42,7 @@
     "help": "node src/scripts/help.js",
     "example:api": "node src/scripts/example-api.js",
     "login:zed": "node src/scripts/login-zed.js",
-    "login:trae": "node src/scripts/login-trae.js"
+    "login:trae": "node src/scripts/login-trae.js",
+    "benchmark:concurrent": "node src/scripts/concurrent-test.js"
   }
 }

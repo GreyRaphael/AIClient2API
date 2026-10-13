@@ -2,6 +2,12 @@ import '../src/converters/register-converters.js';
 import { convertData } from '../src/convert/convert.js';
 import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
 import { mapFinishReason } from '../src/converters/utils.js';
+import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
+import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
+import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
+import { GrokConverter } from '../src/converters/strategies/GrokConverter.js';
+import { ConverterFactory } from '../src/converters/ConverterFactory.js';
+import { generateResponseCompleted, streamStateManager } from '../src/providers/openai/openai-responses-events.js';
 
 describe('Protocol Converters Matrix & Edge Cases', () => {
     test('Fix 1: OpenAI streaming tool_calls converts to Claude events with stop_reason=tool_use', () => {
@@ -761,5 +767,301 @@ describe('mapFinishReason 共享映射', () => {
         expect(mapFinishReason('STOP', 'gemini', 'anthropic')).toBe('end_turn');
         expect(mapFinishReason('MAX_TOKENS', 'gemini', 'anthropic')).toBe('max_tokens');
         expect(mapFinishReason('nope', 'openai', 'anthropic')).toBe('end_turn');
+    });
+});
+
+// =============================================================================
+// Responses API 状态与 Usage 规范
+// =============================================================================
+describe('OpenAI Responses API 规范断言', () => {
+    test('responses.completed 在无 usage 时全零兜底而非伪造随机数', () => {
+        const key = 'jest_resp_completed_usage';
+        streamStateManager.cleanup(key);
+        const ev = generateResponseCompleted(key, null);
+        expect(ev.response.usage).toEqual({
+            input_tokens: 0,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 0,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 0
+        });
+        streamStateManager.cleanup(key);
+    });
+
+    test('toOpenAIResponsesResponse status 合规映射（completed / incomplete）', () => {
+        const converter = new OpenAIConverter();
+        const baseResp = (finishReason, extra = {}) => ({
+            id: 'chatcmpl-x',
+            created: 1700000000,
+            choices: [{ index: 0, message: { role: 'assistant', content: 'hi', ...extra }, finish_reason: finishReason }],
+            usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }
+        });
+
+        // stop -> completed
+        expect(converter.toOpenAIResponsesResponse(baseResp('stop'), 'm').status).toBe('completed');
+
+        // tool_calls -> completed (Responses API 无 requires_action)
+        const toolResp = converter.toOpenAIResponsesResponse(baseResp('tool_calls', {
+            tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }]
+        }), 'm');
+        expect(toolResp.status).toBe('completed');
+        expect(toolResp.output.some(o => o.type === 'function_call')).toBe(true);
+
+        // length -> incomplete + max_output_tokens
+        const lenResp = converter.toOpenAIResponsesResponse(baseResp('length'), 'm');
+        expect(lenResp.status).toBe('incomplete');
+        expect(lenResp.incomplete_details).toEqual({ reason: 'max_output_tokens' });
+
+        // content_filter -> incomplete + content_filter
+        const filterResp = converter.toOpenAIResponsesResponse(baseResp('content_filter'), 'm');
+        expect(filterResp.status).toBe('incomplete');
+        expect(filterResp.incomplete_details).toEqual({ reason: 'content_filter' });
+    });
+
+    test('OpenAI -> Responses 流 output_index 独立分配且 sequence_number 严格单调递增', () => {
+        const converter = new OpenAIConverter();
+        const reqId = 'jest_openai_responses_seq';
+        const model = 'gpt-4o';
+
+        const chunks = [
+            { id: 'c1', choices: [{ delta: { role: 'assistant', reasoning_content: 'think' } }] },
+            { id: 'c1', choices: [{ delta: { content: 'hello' } }] },
+            { id: 'c1', choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'fn', arguments: '{"x":1}' } }] } }] },
+            { id: 'c1', choices: [{ finish_reason: 'stop' }] }
+        ];
+
+        const events = [];
+        for (const c of chunks) {
+            events.push(...converter.toOpenAIResponsesStreamChunk(c, model, reqId));
+        }
+
+        // 验证 sequence_number 严格递增且从 0 开始
+        const seqNums = events.map(e => e.sequence_number);
+        expect(seqNums.length).toBeGreaterThan(5);
+        for (let i = 0; i < seqNums.length; i++) {
+            expect(seqNums[i]).toBe(i);
+        }
+
+        // 验证 output_index 不撞 0：reasoning, text, tool_calls 分别获得不同的 output_index
+        const reasoningAdded = events.find(e => e.type === 'response.output_item.added' && e.item?.type === 'reasoning');
+        const textAdded = events.find(e => e.type === 'response.output_item.added' && e.item?.type === 'message');
+        const funcAdded = events.find(e => e.type === 'response.output_item.added' && e.item?.type === 'function_call');
+
+        expect(reasoningAdded).toBeDefined();
+        expect(textAdded).toBeDefined();
+        expect(funcAdded).toBeDefined();
+
+        const indices = [reasoningAdded.output_index, textAdded.output_index, funcAdded.output_index];
+        const uniqueIndices = new Set(indices);
+        expect(uniqueIndices.size).toBe(3);
+    });
+});
+
+// =============================================================================
+// 流式 Chunk ID 稳定性与终态状态清理
+// =============================================================================
+describe('流式 Chunk ID 稳定性与会话状态清理', () => {
+    test('Claude -> OpenAI 流同一次请求共享 id 和 created，并在终态清理状态', () => {
+        const converter = new ClaudeConverter();
+        const reqId = 'jest_claude_openai_identity';
+
+        const c1 = converter.toOpenAIStreamChunk({
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'hello' }
+        }, 'model-1', reqId);
+
+        const c2 = converter.toOpenAIStreamChunk({
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: ' world' }
+        }, 'model-1', reqId);
+
+        expect(c1.id).toBe(c2.id);
+        expect(c1.created).toBe(c2.created);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(true);
+
+        // 终态 message_delta 清理
+        const cEnd = converter.toOpenAIStreamChunk({
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' }
+        }, 'model-1', reqId);
+
+        expect(cEnd.id).toBe(c1.id);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+    });
+
+    test('Gemini -> OpenAI 流同一次请求共享 id 和 created，并在终态清理状态', () => {
+        const converter = new GeminiConverter();
+        const reqId = 'jest_gemini_openai_identity';
+
+        const c1 = converter.toOpenAIStreamChunk({
+            candidates: [{ content: { parts: [{ text: 'a' }] } }]
+        }, 'model-1', reqId);
+
+        const c2 = converter.toOpenAIStreamChunk({
+            candidates: [{ content: { parts: [{ text: 'b' }] } }]
+        }, 'model-1', reqId);
+
+        expect(c1.id).toBe(c2.id);
+        expect(c1.created).toBe(c2.created);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(true);
+
+        // 带 finishReason 的 chunk 触发清理
+        const cEnd = converter.toOpenAIStreamChunk({
+            candidates: [{ content: { parts: [] }, finishReason: 'STOP' }]
+        }, 'model-1', reqId);
+
+        expect(cEnd.id).toBe(c1.id);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+    });
+
+    test('ClaudeConverter.toOpenAIStreamChunk: message_stop 提前清理且不创建无用 identity', () => {
+        const converter = new ClaudeConverter();
+        const reqId = 'jest_claude_msg_stop_test';
+
+        // 终结前存在状态
+        converter.toOpenAIStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } }, 'm', reqId);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(true);
+
+        // message_delta 清理
+        converter.toOpenAIStreamChunk({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }, 'm', reqId);
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+
+        // message_stop 不会重新生成新状态并返回 null
+        const out = converter.toOpenAIStreamChunk({ type: 'message_stop' }, 'm', reqId);
+        expect(out).toBeNull();
+        expect(converter.openaiStreamStates.has(reqId)).toBe(false);
+    });
+});
+
+// =============================================================================
+// finish_reason / stop_reason 边界与合规映射
+// =============================================================================
+describe('finish_reason / stop_reason 规范化映射', () => {
+    test('ClaudeConverter -> OpenAI 兜底合法 finish_reason', () => {
+        const converter = new ClaudeConverter();
+        const reqId = 'jest_claude_fr';
+
+        const checkFr = (stopReason, expectedFr) => {
+            const chunk = converter.toOpenAIStreamChunk({
+                type: 'message_delta',
+                delta: { stop_reason: stopReason }
+            }, 'm', reqId);
+            expect(chunk.choices[0].finish_reason).toBe(expectedFr);
+        };
+
+        checkFr('stop_sequence', 'stop');
+        checkFr('refusal', 'content_filter');
+        checkFr('pause_turn', 'stop');
+        checkFr('unknown_reason', 'stop');
+    });
+
+    test('GeminiConverter.toOpenAIResponse 非流式 finishReason 映射', () => {
+        const converter = new GeminiConverter();
+
+        const respMaxTok = converter.toOpenAIResponse({
+            candidates: [{
+                finishReason: 'MAX_TOKENS',
+                content: { role: 'model', parts: [{ text: 'truncated' }] }
+            }]
+        }, 'm');
+        expect(respMaxTok.choices[0].finish_reason).toBe('length');
+
+        const respTool = converter.toOpenAIResponse({
+            candidates: [{
+                finishReason: 'STOP',
+                content: { role: 'model', parts: [{ functionCall: { name: 'f', args: {} } }] }
+            }]
+        }, 'm');
+        expect(respTool.choices[0].finish_reason).toBe('tool_calls');
+    });
+
+    test('GeminiConverter.toClaudeResponse: STOP->end_turn, MAX_TOKENS->max_tokens, SAFETY 族->refusal, toolUse->tool_use', () => {
+        const converter = new GeminiConverter();
+
+        const respStop = converter.toClaudeResponse({
+            candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ text: 'done' }] } }]
+        }, 'gemini-3.5-flash');
+        expect(respStop.stop_reason).toBe('end_turn');
+
+        const respMax = converter.toClaudeResponse({
+            candidates: [{ finishReason: 'MAX_TOKENS', content: { role: 'model', parts: [{ text: 'cut' }] } }]
+        }, 'gemini-3.5-flash');
+        expect(respMax.stop_reason).toBe('max_tokens');
+
+        // 安全拦截类统一为 refusal（与 zed-core 路径及 Anthropic 合法词表一致）
+        for (const reason of ['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII']) {
+            const respSafe = converter.toClaudeResponse({
+                candidates: [{ finishReason: reason, content: { role: 'model', parts: [{ text: 'blocked' }] } }]
+            }, 'gemini-3.5-flash');
+            expect(respSafe.stop_reason).toBe('refusal');
+        }
+
+        const respTool = converter.toClaudeResponse({
+            candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ functionCall: { name: 'bash', args: {} } }] } }]
+        }, 'gemini-3.5-flash');
+        expect(respTool.stop_reason).toBe('tool_use');
+    });
+});
+
+// =============================================================================
+// Grok -> Claude 委托透传 requestId（并发隔离）
+// =============================================================================
+describe('Grok -> Claude 委托透传 requestId', () => {
+    test('两条无 responseId 的交错流在 OpenAIConverter 内按 requestId 隔离状态且首帧仅有单个 message_start', () => {
+        const converter = new GrokConverter();
+        const openaiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.OPENAI);
+        const reqA = 'jest_grok_req_A';
+        const reqB = 'jest_grok_req_B';
+
+        // grok chunk 不含 responseId：修复前每个 chunk 生成新 uuid 作为 OpenAIConverter 状态键，
+        // 导致 message_start 每帧重发且并发流状态交叉；修复后按 requestId 稳定键控
+        const mk = (token) => ({ result: { response: { token } } });
+
+        try {
+            const eventsA1 = converter.toClaudeStreamChunk(mk('你好'), 'grok-3', reqA);
+            const eventsB1 = converter.toClaudeStreamChunk(mk('hello'), 'grok-3', reqB);
+            const eventsA2 = converter.toClaudeStreamChunk(mk('世界'), 'grok-3', reqA);
+
+            // 严格验证：首帧事件中必须仅有且只有 1 个 message_start 事件（不能有双重 message_start）
+            const startEventsA1 = eventsA1.filter(e => e.type === 'message_start');
+            expect(startEventsA1).toHaveLength(1);
+            expect(eventsA1.map(e => e.type)).toEqual([
+                'message_start',
+                'content_block_start',
+                'content_block_delta'
+            ]);
+
+            const startEventsB1 = eventsB1.filter(e => e.type === 'message_start');
+            expect(startEventsB1).toHaveLength(1);
+
+            // 后续 chunk 不应再发送 message_start
+            const arrA2 = Array.isArray(eventsA2) ? eventsA2 : [eventsA2];
+            expect(arrA2.filter(e => e.type === 'message_start')).toHaveLength(0);
+            expect(arrA2.map(e => e.type)).toEqual(['content_block_delta']);
+
+            // 两条流的状态以 requestId 为键独立存在
+            expect(openaiConverter.claudeStreamStates.has(reqA)).toBe(true);
+            expect(openaiConverter.claudeStreamStates.has(reqB)).toBe(true);
+
+            // 交错推进后各自的 messageId 互不污染
+            const stateA = openaiConverter.claudeStreamStates.get(reqA);
+            const stateB = openaiConverter.claudeStreamStates.get(reqB);
+            expect(stateA.messageId).not.toBe(stateB.messageId);
+
+            // 终帧测试：isDone 触发终态事件
+            const eventsDoneA = converter.toClaudeStreamChunk({ result: { response: { isDone: true } } }, 'grok-3', reqA);
+            const arrDoneA = Array.isArray(eventsDoneA) ? eventsDoneA : [eventsDoneA];
+            expect(arrDoneA.map(e => e.type)).toEqual([
+                'content_block_stop',
+                'message_delta',
+                'message_stop'
+            ]);
+            expect(openaiConverter.claudeStreamStates.has(reqA)).toBe(false);
+        } finally {
+            openaiConverter.claudeStreamStates.delete(reqA);
+            openaiConverter.claudeStreamStates.delete(reqB);
+        }
     });
 });

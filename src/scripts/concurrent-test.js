@@ -3,7 +3,7 @@
  * 用于测试 API 服务器在高并发场景下的性能和稳定性
  * 
  * 使用方法:
- *   node tests/concurrent-test.js [选项]
+ *   node src/scripts/concurrent-test.js [选项]
  * 
  * 选项:
  *   --url <url>           API 服务器地址 (默认: http://localhost:3000)
@@ -73,7 +73,7 @@ function parseArgs() {
 并发测试脚本 - 测试 API 服务器性能
 
 使用方法:
-  node tests/concurrent-test.js [选项]
+  node src/scripts/concurrent-test.js [选项]
 
 选项:
   --url <url>           API 服务器地址 (默认: http://localhost:3000)
