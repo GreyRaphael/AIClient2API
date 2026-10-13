@@ -369,6 +369,90 @@ async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, lo
     }
 }
 
+/**
+ * 判断上游原生负载（流式 chunk 或完整的非流式响应）是否携带「有效内容」：
+ * 文本、工具调用或内联数据。纯 thinking/reasoning（Gemini thought part、Claude
+ * thinking 事件、OpenAI reasoning_content、Responses reasoning delta）、角色帧、
+ * usage 帧、心跳帧都不算有效内容。
+ *
+ * 用途（首内容前缓冲 / 空响应重试）：上游（典型如 Antigravity 的 Gemini 3 思考模型）
+ * 经常在思考阶段后直接以 MALFORMED_FUNCTION_CALL（空工具调用）或 STOP 收尾，
+ * 整条响应只有 thinking 而没有任何有效产出。旧逻辑只有在「一个字节都没发」时才
+ * 触发空响应重试，但 thinking 增量早已下发，导致这类失败被静默放行。借助本判定，
+ * 管道可以在有效内容出现前缓冲出站帧，空转时丢弃缓冲并无损重试。
+ *
+ * 未知协议或无法判定时保守返回 true（按有效内容处理，保持旧的直接透传行为）。
+ *
+ * @param {Object} payload - 上游原生 chunk（或完整响应，二者 candidates/choices 形状一致）
+ * @param {string} toProvider - 上游 provider 类型
+ * @returns {boolean} 是否含有有效内容
+ */
+function nativePayloadHasMeaningfulContent(payload, toProvider) {
+    if (!payload || typeof payload !== 'object') return false;
+    switch (getProtocolPrefix(toProvider)) {
+        case MODEL_PROTOCOL_PREFIX.GEMINI: {
+            const parts = payload.candidates?.[0]?.content?.parts;
+            if (!Array.isArray(parts)) return false;
+            for (const part of parts) {
+                if (!part || typeof part !== 'object') continue;
+                if (part.functionCall || part.functionResponse || part.inlineData || part.inline_data || part.fileData) return true;
+                if (part.executableCode || part.codeExecutionResult) return true;
+                if (part.thought === true) continue; // 纯思考 part
+                if (typeof part.text === 'string' && part.text.length > 0) return true;
+            }
+            return false;
+        }
+        case MODEL_PROTOCOL_PREFIX.CLAUDE: {
+            // 完整消息（非流式）
+            if (payload.type === 'message' && Array.isArray(payload.content)) {
+                return payload.content.some(block =>
+                    (block?.type === 'text' && typeof block.text === 'string' && block.text.length > 0) ||
+                    block?.type === 'tool_use' || block?.type === 'server_tool_use'
+                );
+            }
+            // 流式事件
+            if (payload.type === 'content_block_start') {
+                const blockType = payload.content_block?.type;
+                return blockType === 'text' || blockType === 'tool_use' || blockType === 'server_tool_use';
+            }
+            if (payload.type === 'content_block_delta') {
+                const deltaType = payload.delta?.type;
+                return deltaType === 'text_delta' || deltaType === 'input_json_delta';
+            }
+            return false; // message_start / message_delta / ping / thinking 相关事件
+        }
+        case MODEL_PROTOCOL_PREFIX.OPENAI: {
+            const choice = payload.choices?.[0];
+            const msg = choice?.delta || choice?.message;
+            if (!msg) return false;
+            if (typeof msg.content === 'string' && msg.content.length > 0) return true;
+            if (Array.isArray(msg.content) && msg.content.some(c => (c?.type === 'text' && c.text) || c?.type === 'image_url')) return true;
+            if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) return true;
+            return false;
+        }
+        case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
+        case MODEL_PROTOCOL_PREFIX.CODEX: {
+            // 完整响应（非流式）
+            if (Array.isArray(payload.output)) {
+                return payload.output.some(item =>
+                    item?.type === 'function_call' || item?.type === 'custom_tool_call' || item?.type === 'local_shell_call' ||
+                    (item?.type === 'message' && Array.isArray(item.content) &&
+                        item.content.some(c => (c?.type === 'output_text' || c?.type === 'text') && typeof c.text === 'string' && c.text.length > 0))
+                );
+            }
+            // 流式事件
+            const type = payload.type || '';
+            if (type.includes('output_text') && typeof payload.delta === 'string' && payload.delta.length > 0) return true;
+            if (type.includes('function_call') || type.includes('tool_call') || type.includes('custom_tool_call')) return true;
+            const item = payload.item;
+            if (item && (item.type === 'function_call' || item.type === 'custom_tool_call' || item.type === 'local_shell_call')) return true;
+            return false;
+        }
+        default:
+            return true; // 未知协议：保守放行
+    }
+}
+
 export async function handleStreamRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid, customName, retryContext = null) {
     let fullResponseText = '';
     let fullResponseJson = '';
@@ -419,6 +503,34 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     let hasToolCall = false;
     let hasMessageStop = false; // 跟踪是否已经发送过结束标志（message_stop / done）
 
+    // ---- 首内容前缓冲（pre-content buffering）----
+    // 上游（典型如 Antigravity 的 Gemini 3 思考模型）可能在思考阶段后直接以
+    // MALFORMED_FUNCTION_CALL（空工具调用）或 STOP 收尾，整条流只有 thinking，
+    // 没有任何文本/工具调用。旧逻辑只有在「一个字节都没发」时才触发空响应重试，
+    // 而 thinking 增量一旦下发 anyDataSent 即置真，这类失败会被静默放行，
+    // 客户端表现为「空 turn / 没有返回结果」。
+    // 因此在首个「有效内容」（见 nativePayloadHasMeaningfulContent）出现之前，
+    // 缓冲所有出站帧而不直接下发：
+    //   - 有效内容出现 → 一次性冲刷缓冲，恢复正常透传；
+    //   - 流结束仍无有效内容 → 缓冲帧全部丢弃，抛空响应错误走统一重试
+    //     （客户端自始至终没有收到过任何 data 帧，重试对客户端透明）；
+    //   - 缓冲期间周期性发送 SSE 注释心跳（按 SSE 规范会被客户端忽略，
+    //     且不置 anyDataSent），避免长思考导致连接假死。
+    let sawMeaningfulContent = false;
+    const preContentBuffer = []; // string[]，缓存的序列化 SSE 帧
+    let lastFinishReason = '';
+    let lastFinishMessage = '';
+    const preContentHeartbeat = setInterval(() => {
+        if (sawMeaningfulContent || clientDisconnected.value || res.writableEnded) return;
+        try {
+            res.write(': keep-alive\n\n'); // SSE 注释行；不置 anyDataSent，保证空响应仍可重试
+        } catch (heartbeatErr) {
+            logger.error('[Stream] Failed to write keep-alive:', heartbeatErr.message);
+            clientDisconnected.value = true;
+        }
+    }, 15000);
+    preContentHeartbeat.unref?.();
+
     try {
         // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
         // The service returns a stream in its native format (toProvider).
@@ -441,7 +553,16 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 logger.info('[Stream] Stopping iteration due to client disconnect');
                 break;
             }
-            
+
+            // 首内容前缓冲：在转换/下发前先判定原生 chunk 是否携带有效内容
+            if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider)) {
+                sawMeaningfulContent = true;
+            }
+            // 记录上游结束原因（用于空响应诊断日志；candidates 形状对 chunk/完整响应一致）
+            const nativeCandidate = nativeChunk?.candidates?.[0];
+            if (nativeCandidate?.finishReason) lastFinishReason = nativeCandidate.finishReason;
+            if (nativeCandidate?.finishMessage) lastFinishMessage = nativeCandidate.finishMessage;
+
             // Extract text for logging purposes
             const chunkText = extractResponseText(nativeChunk, toProvider);
             if (chunkText && !Array.isArray(chunkText)) {
@@ -527,27 +648,30 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     hasMessageStop = true;
                 }
 
+                // 序列化本 chunk 的出站帧（在有效内容出现前会先进入首内容前缓冲）
+                const outFrames = [];
                 if (addEvent) {
-                    // fullOldResponseJson += chunk.type+"\n";
-                    // fullResponseJson += chunk.type+"\n";
-                    if (!clientDisconnected.value && !res.writableEnded) {
-                        try {
-                            res.write(`event: ${chunk.type}\n`);
-                            anyDataSent = true;
-                        } catch (writeErr) {
-                            logger.error('[Stream] Failed to write event:', writeErr.message);
-                            clientDisconnected.value = true;
-                            break;
-                        }
+                    outFrames.push(`event: ${chunk.type}\n`);
+                }
+                outFrames.push(`data: ${JSON.stringify(chunk)}\n\n`);
+
+                // 首内容前缓冲：有效内容出现前不直接下发，缓存起来以便上游空转时无损重试
+                const framesToWrite = [];
+                if (!sawMeaningfulContent) {
+                    preContentBuffer.push(...outFrames);
+                } else {
+                    if (preContentBuffer.length > 0) {
+                        // 首个有效内容出现：先一次性冲刷此前缓存的 thinking/角色等帧
+                        framesToWrite.push(...preContentBuffer);
+                        preContentBuffer.length = 0;
                     }
-                    // logger.info(`event: ${chunk.type}\n`);
+                    framesToWrite.push(...outFrames);
                 }
 
-                // fullOldResponseJson += JSON.stringify(chunk)+"\n";
-                // fullResponseJson += JSON.stringify(chunk)+"\n\n";
-                if (!clientDisconnected.value && !res.writableEnded) {
+                for (const frame of framesToWrite) {
+                    if (clientDisconnected.value || res.writableEnded) break;
                     try {
-                        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                        res.write(frame);
                         anyDataSent = true;
                     } catch (writeErr) {
                         logger.error('[Stream] Failed to write data:', writeErr.message);
@@ -559,11 +683,14 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             }
         }
 
-        // 上游流正常结束但一个字节都没发给客户端：这是「静默空响应」，不能算成功。
-        // 直接抛出通用空响应错误，交给下面的 isEmptyUpstreamResponse 分支做小额重试；
+        // 上游流正常结束但从未产出任何「有效内容」（文本/工具调用/内联数据）：
+        // 典型如 Antigravity 的 Gemini 3 思考阶段后直接以 MALFORMED_FUNCTION_CALL（空工具调用）
+        // 或 STOP 收尾。拜首内容前缓冲所赐，此时客户端还没有收到过任何 data 帧，
+        // 可以安全地抛空响应错误并交给下面的 isEmptyUpstreamResponse 分支做小额重试；
         // 同时避免把实际没有产出的凭证标记为健康。
         // 客户端主动断开属于正常情况，不在此列。
-        if (!anyDataSent && !clientDisconnected.value) {
+        if (!sawMeaningfulContent && !clientDisconnected.value) {
+            logger.warn(`[Stream] Upstream stream ended with no meaningful content (finishReason: ${lastFinishReason || 'unknown'}${lastFinishMessage ? `, finishMessage: ${lastFinishMessage}` : ''}). Discarded ${preContentBuffer.length} buffered frame(s) and will treat as empty upstream response.`);
             throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
         }
 
@@ -764,6 +891,9 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         }
         responseClosed = true;
     } finally {
+        // 停止首内容前缓冲的心跳定时器
+        clearInterval(preContentHeartbeat);
+
         // 释放并发插槽
         if (providerPoolManager && pooluuid) {
             providerPoolManager.releaseSlot(toProvider, pooluuid);
@@ -856,7 +986,18 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         if (requestBody.model && requestBody.model !== model) {
             model = requestBody.model;
         }
-        
+
+        // 上游空响应检测（无文本/工具调用/内联数据，纯 thinking 或无产出）：
+        // 典型如 Antigravity 的 Gemini 3 以 MALFORMED_FUNCTION_CALL（空工具调用）收尾、
+        // parts 里只有 thinking。非流式场景下尚未向客户端写入任何字节，
+        // 直接抛空响应错误走统一的 isEmptyUpstreamResponse 重试分支。
+        if (!nativePayloadHasMeaningfulContent(nativeResponse, toProvider)) {
+            const finishInfo = nativeResponse?.candidates?.[0]?.finishReason || 'unknown';
+            const finishMsg = nativeResponse?.candidates?.[0]?.finishMessage;
+            logger.warn(`[Unary] Upstream returned no meaningful content (finishReason: ${finishInfo}${finishMsg ? `, finishMessage: ${finishMsg}` : ''}). Treating as empty upstream response.`);
+            throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
+        }
+
         const responseText = extractResponseText(nativeResponse, toProvider);
 
         // Convert the response back to the client's format (fromProvider), if necessary.
