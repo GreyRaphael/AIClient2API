@@ -9,7 +9,8 @@ import { MODEL_PROVIDER } from '../../utils/constants.js';
 import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
-import { mapFinishReason, sanitizeToolId } from '../../converters/utils.js';
+// 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
+import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';

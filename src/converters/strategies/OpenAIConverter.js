@@ -1867,8 +1867,9 @@ export class OpenAIConverter extends BaseConverter {
                 createdAt: openaiChunk?.created || Math.floor(Date.now() / 1000),
                 sequenceNumber: 0,
                 nextOutputIndex: 0,
-                reasoningOutputIndex: 0,
-                textOutputIndex: 0,
+                // reasoning/text 的 outputIndex 在各自首个对应内容到来时由 nextOutputIndex 分配
+                reasoningOutputIndex: null,
+                textOutputIndex: null,
                 started: false,
                 textStarted: false,
                 reasoningStarted: false,

@@ -94,6 +94,20 @@ describe('sequential 块管理', () => {
         expect(em.activeIndex).toBe(-1);
         expect(em.closeActiveBlock()).toEqual([]);
     });
+
+    test('delta 误用守卫：无活动块时抛错（防 index:-1 非法事件）', () => {
+        const em = new AnthropicSseEmitter({ model: 'm' });
+        expect(() => em.delta({ type: 'text_delta', text: 'x' })).toThrow(/openBlock/);
+        em.openBlock('text', { type: 'text', text: '' });
+        em.closeActiveBlock();
+        expect(() => em.delta({ type: 'text_delta', text: 'x' })).toThrow(/openBlock/);
+    });
+
+    test('delta 误用守卫：multi 模式下抛错，指引改用 deltaAt', () => {
+        const em = new AnthropicSseEmitter({ model: 'm', blockMode: 'multi' });
+        em.openBlock('text', { type: 'text', text: '' });
+        expect(() => em.delta({ type: 'text_delta', text: 'x' })).toThrow(/deltaAt/);
+    });
 });
 
 describe('multi 块管理', () => {

@@ -121,8 +121,15 @@ export class AnthropicSseEmitter {
      * 在当前活动块上产生 content_block_delta（sequential 语义）
      * @param {Object} deltaObj - delta 体（如 {type:'text_delta',text:'...'}）
      * @returns {Object} 事件对象
+     * @throws {Error} multi 模式下或无活动块时抛出（误用会产生 index:-1 的非法事件）
      */
     delta(deltaObj) {
+        if (this.blockMode !== 'sequential') {
+            throw new Error("AnthropicSseEmitter: delta() 仅适用于 sequential 模式，multi 模式请使用 deltaAt(index, ...)");
+        }
+        if (this.activeIndex < 0) {
+            throw new Error('AnthropicSseEmitter: delta() 调用前需先 openBlock()（当前无活动块）');
+        }
         return {
             type: 'content_block_delta',
             index: this.activeIndex,

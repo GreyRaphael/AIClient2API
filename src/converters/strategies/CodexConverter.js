@@ -23,7 +23,7 @@ import {
 export class CodexConverter extends BaseConverter {
     constructor() {
         super('codex');
-        this.streamParams = new StreamSessionStore({ label: 'codex-converter' }); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
+        this.streamSessions = new StreamSessionStore({ label: 'codex-converter' }); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
         this.requestStates = new StreamSessionStore({ label: 'codex-converter-request' }); // 用于存储请求特定的状态（如工具映射），key 为 requestId
     }
 
@@ -1045,8 +1045,8 @@ export class CodexConverter extends BaseConverter {
         // 使用 requestId 作为 key，避免并发请求混淆
         const stateKey = requestId || chunk.response?.id || 'openai_stream_current';
         
-        if (!this.streamParams.has(stateKey)) {
-            this.streamParams.set(stateKey, {
+        if (!this.streamSessions.has(stateKey)) {
+            this.streamSessions.set(stateKey, {
                 model: model,
                 createdAt: Math.floor(Date.now() / 1000),
                 responseID: chunk.response?.id || `chatcmpl-${Date.now()}`,
@@ -1055,7 +1055,7 @@ export class CodexConverter extends BaseConverter {
                 emittedImageGenerationItems: new Set()
             });
         }
-        const state = this.streamParams.get(stateKey);
+        const state = this.streamSessions.get(stateKey);
 
         // 构建模板时使用当前状态中的值
         const buildTemplate = () => ({
@@ -1238,7 +1238,7 @@ export class CodexConverter extends BaseConverter {
                 };
             }
             // 完成后清理状态
-            this.streamParams.delete(stateKey);
+            this.streamSessions.delete(stateKey);
             this.requestStates.delete(stateKey);
             results.push(template);
             return results.length === 1 ? results[0] : results;
@@ -1258,8 +1258,8 @@ export class CodexConverter extends BaseConverter {
         const type = chunk.type;
         const resId = requestId || chunk.response?.id || 'default';
         
-        if (!this.streamParams.has(resId)) {
-            this.streamParams.set(resId, {
+        if (!this.streamSessions.has(resId)) {
+            this.streamSessions.set(resId, {
                 model: model,
                 createdAt: Math.floor(Date.now() / 1000),
                 responseID: resId,
@@ -1267,7 +1267,7 @@ export class CodexConverter extends BaseConverter {
                 eventsSent: new Set()
             });
         }
-        const state = this.streamParams.get(resId);
+        const state = this.streamSessions.get(resId);
         const events = [];
 
         if (type === 'response.created') {
@@ -1345,7 +1345,7 @@ export class CodexConverter extends BaseConverter {
                 }
             };
             events.push(completedEvent);
-            this.streamParams.delete(resId);
+            this.streamSessions.delete(resId);
             this.requestStates.delete(resId);
             return events;
         }
@@ -1360,15 +1360,15 @@ export class CodexConverter extends BaseConverter {
         const type = chunk.type;
         const resId = requestId || 'gemini_stream_current';
         
-        if (!this.streamParams.has(resId)) {
-            this.streamParams.set(resId, {
+        if (!this.streamSessions.has(resId)) {
+            this.streamSessions.set(resId, {
                 model: model,
                 createdAt: Math.floor(Date.now() / 1000),
                 responseID: chunk.response?.id || resId,
                 emittedImageGenerationItems: new Set()
             });
         }
-        const state = this.streamParams.get(resId);
+        const state = this.streamSessions.get(resId);
 
         const template = {
             candidates: [{
@@ -1432,7 +1432,7 @@ export class CodexConverter extends BaseConverter {
                 totalTokenCount: chunk.response.usage?.total_tokens || 0,
                 cachedContentTokenCount: this.getCachedInputTokens(chunk.response.usage)
             };
-            this.streamParams.delete(resId);
+            this.streamSessions.delete(resId);
             this.requestStates.delete(resId);
             return template;
         }
@@ -1455,23 +1455,23 @@ export class CodexConverter extends BaseConverter {
         // 事件序列骨架由 AnthropicSseEmitter 统一维护（sequential 单活动块语义）
         if (type === 'response.created') {
             const resId = chunk.response.id;
-            this.streamParams.set(stateKey, {
+            this.streamSessions.set(stateKey, {
                 emitter: new AnthropicSseEmitter({ model, messageId: resId, blockMode: 'sequential' }),
                 emittedImageGenerationItems: new Set()
             });
-            const entry = this.streamParams.get(stateKey);
+            const entry = this.streamSessions.get(stateKey);
             return entry.emitter.ensureStarted();
         }
 
-        if (!this.streamParams.has(stateKey)) {
+        if (!this.streamSessions.has(stateKey)) {
             // 如果还没有状态（比如没有收到 response.created 就收到了其他事件），
             // 用 chunk 中能拿到的信息初始化
-            this.streamParams.set(stateKey, {
+            this.streamSessions.set(stateKey, {
                 emitter: new AnthropicSseEmitter({ model, messageId: chunk.response?.id || stateKey, blockMode: 'sequential' }),
                 emittedImageGenerationItems: new Set()
             });
         }
-        const entry = this.streamParams.get(stateKey);
+        const entry = this.streamSessions.get(stateKey);
         const { emitter } = entry;
 
         // response.output_item.added 不产生 Claude 输出
@@ -1565,7 +1565,7 @@ export class CodexConverter extends BaseConverter {
                 }
             }));
             // 清理该请求的流状态
-            this.streamParams.delete(stateKey);
+            this.streamSessions.delete(stateKey);
             this.requestStates.delete(stateKey);
             return events;
         }

@@ -319,7 +319,8 @@ function generateResponseCompleted(requestId, usage) {
       prompt_cache_key: null,
       reasoning: {
       },
-      safety_identifier: `user-${uuidv4().replace(/-/g, '')}`, // 随机值
+      // 无真实用户标识可用，置空而非伪造随机值（与同函数 usage 全零兜底同一治理原则）
+      safety_identifier: null,
       service_tier: "default",
       status: "completed",
       store: false,

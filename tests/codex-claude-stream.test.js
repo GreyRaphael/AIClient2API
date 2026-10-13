@@ -74,7 +74,7 @@ describe('B3: Codex -> Claude 纯文本流', () => {
         expect(events[6].type).toBe('message_stop');
 
         // 双 store 均清理
-        expect(converter.streamParams.has(reqId)).toBe(false);
+        expect(converter.streamSessions.has(reqId)).toBe(false);
         expect(converter.requestStates.has(reqId)).toBe(false);
     });
 });
