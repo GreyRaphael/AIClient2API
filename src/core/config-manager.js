@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import { promises as pfs } from 'fs';
 import { DEFAULT_REQUEST_BODY_MAX_BYTES, INPUT_SYSTEM_PROMPT_FILE } from '../utils/protocol.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
+import { atomicWriteFile } from '../utils/file-lock.js';
+import { migrateLegacyTraeProviderPools, normalizeLegacyTraeProviderType } from '../providers/trae/trae-channel.js';
 import logger from '../utils/logger.js';
 
 export let CONFIG = {}; // Make CONFIG exportable
@@ -48,7 +50,8 @@ function normalizeConfiguredProviders(config) {
         if (typeof value !== 'string') {
             return;
         }
-        const trimmed = value.trim();
+        // 历史 Trae providerType 归一化（trae-agent_v3 -> trae-solo_work_lite）
+        const trimmed = normalizeLegacyTraeProviderType(value.trim());
         if (!trimmed) {
             return;
         }
@@ -275,6 +278,15 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
             const poolsData = await pfs.readFile(currentConfig.PROVIDER_POOLS_FILE_PATH, 'utf8');
             currentConfig.providerPools = JSON.parse(poolsData);
             logger.info(`[Config] Loaded provider pools from ${currentConfig.PROVIDER_POOLS_FILE_PATH}`);
+            // 一次性迁移历史 Trae 通道配置（trae-agent_v3 -> trae-solo_work_lite），并回写持久化
+            if (migrateLegacyTraeProviderPools(currentConfig.providerPools)) {
+                logger.info('[Config] Migrated legacy Trae provider pools (trae-agent_v3 -> trae-solo_work_lite)');
+                try {
+                    await atomicWriteFile(currentConfig.PROVIDER_POOLS_FILE_PATH, JSON.stringify(currentConfig.providerPools, null, 2), 'utf8');
+                } catch (writeError) {
+                    logger.warn(`[Config] Failed to persist migrated provider pools: ${writeError.message}`);
+                }
+            }
         } catch (error) {
             logger.error(`[Config Error] Failed to load provider pools from ${currentConfig.PROVIDER_POOLS_FILE_PATH}: ${error.message}`);
             currentConfig.providerPools = {};

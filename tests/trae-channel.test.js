@@ -10,7 +10,9 @@ import {
     resolveAliasTableKind,
     isTraeProviderType,
     isSoloFamilyProviderType,
-    TRAE_PROVIDER_DEFAULTS
+    TRAE_PROVIDER_DEFAULTS,
+    normalizeLegacyTraeProviderType,
+    migrateLegacyTraeProviderPools
 } from '../src/providers/trae/trae-channel.js';
 
 describe('resolveTraeChannelMode: 显式 configuredMode / providerType 判定', () => {
@@ -153,5 +155,60 @@ describe('TRAE_PROVIDER_DEFAULTS', () => {
                 expect(preset[key]).toBeTruthy();
             }
         }
+    });
+});
+
+describe('历史 trae-agent_v3 兼容迁移', () => {
+    test('resolveTraeChannelMode 容忍历史 configuredMode / providerType', () => {
+        expect(resolveTraeChannelMode({ configuredMode: 'agent_v3' })).toBe('solo_work_lite');
+        expect(resolveTraeChannelMode({ configuredMode: 'legacy' })).toBe('solo_work_lite');
+        expect(resolveTraeChannelMode({ providerType: 'trae-agent_v3' })).toBe('solo_work_lite');
+        // 历史值 + custom 显式模式时，显式 custom 仍优先
+        expect(resolveTraeChannelMode({ configuredMode: 'custom', providerType: 'trae-agent_v3' })).toBe('custom');
+    });
+
+    test('normalizeLegacyTraeProviderType', () => {
+        expect(normalizeLegacyTraeProviderType('trae-agent_v3')).toBe('trae-solo_work_lite');
+        expect(normalizeLegacyTraeProviderType(' TRAE-AGENT_V3 ')).toBe('trae-solo_work_lite');
+        expect(normalizeLegacyTraeProviderType('trae')).toBe('trae');
+        expect(normalizeLegacyTraeProviderType('trae-chat_v3')).toBe('trae-chat_v3');
+        expect(normalizeLegacyTraeProviderType('')).toBe('');
+    });
+
+    test('migrateLegacyTraeProviderPools：池键迁移 + uuid 去重', () => {
+        const pools = {
+            'trae-agent_v3': [
+                { uuid: 'a1', TRAE_CHANNEL_MODE: 'agent_v3', customName: 'Agent v3' },
+                { uuid: 'b2', TRAE_CHANNEL_MODE: 'agent_v3' }
+            ],
+            'trae-solo_work_lite': [
+                { uuid: 'b2', TRAE_CHANNEL_MODE: 'solo_work_lite' } // 已存在同 uuid 节点
+            ]
+        };
+        const changed = migrateLegacyTraeProviderPools(pools);
+        expect(changed).toBe(true);
+        expect(pools['trae-agent_v3']).toBeUndefined();
+        expect(pools['trae-solo_work_lite']).toHaveLength(2);
+        const migrated = pools['trae-solo_work_lite'].find(n => n.uuid === 'a1');
+        expect(migrated.TRAE_CHANNEL_MODE).toBe('solo_work_lite');
+    });
+
+    test('migrateLegacyTraeProviderPools：节点级历史 TRAE_CHANNEL_MODE 改写', () => {
+        const pools = {
+            'trae': [{ uuid: 't1', TRAE_CHANNEL_MODE: 'tob_raw_chat' }],
+            'trae-solo_work_lite': [{ uuid: 's1', TRAE_CHANNEL_MODE: 'legacy' }],
+            'zed': [{ uuid: 'z1', TRAE_CHANNEL_MODE: 'agent_v3' }] // 非 Trae 系不动
+        };
+        expect(migrateLegacyTraeProviderPools(pools)).toBe(true);
+        expect(pools['trae-solo_work_lite'][0].TRAE_CHANNEL_MODE).toBe('solo_work_lite');
+        expect(pools['trae'][0].TRAE_CHANNEL_MODE).toBe('tob_raw_chat');
+        expect(pools['zed'][0].TRAE_CHANNEL_MODE).toBe('agent_v3');
+    });
+
+    test('migrateLegacyTraeProviderPools：幂等（无历史配置时返回 false）', () => {
+        expect(migrateLegacyTraeProviderPools(null)).toBe(false);
+        expect(migrateLegacyTraeProviderPools({})).toBe(false);
+        const clean = { 'trae-chat_v3': [{ uuid: 'c1', TRAE_CHANNEL_MODE: 'chat_v3' }] };
+        expect(migrateLegacyTraeProviderPools(clean)).toBe(false);
     });
 });

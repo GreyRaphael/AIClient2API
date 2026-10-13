@@ -24,12 +24,86 @@ export const TRAE_CHANNEL_MODES = {
 };
 
 /**
+ * 历史已废除的 Trae providerType（v3.8.0 及更早）→ 现行 providerType 映射
+ */
+export const LEGACY_TRAE_PROVIDER_TYPES = {
+    AGENT_V3: 'trae-agent_v3'
+};
+
+const LEGACY_TRAE_PROVIDER_TYPE_MAP = {
+    [LEGACY_TRAE_PROVIDER_TYPES.AGENT_V3]: MODEL_PROVIDER.TRAE_SOLO_WORK_LITE
+};
+
+/**
+ * 历史 TRAE_CHANNEL_MODE 取值 → 现行取值映射
+ * ('agent_v3'/'legacy' 时代个人版仅 SOLO 一条业务通道，统一归入 solo_work_lite)
+ */
+const LEGACY_TRAE_CHANNEL_MODE_MAP = {
+    agent_v3: TRAE_CHANNEL_MODES.SOLO_WORK_LITE,
+    legacy: TRAE_CHANNEL_MODES.SOLO_WORK_LITE
+};
+
+/**
+ * 归一化历史 Trae providerType；非历史值原样返回
+ * @param {string} providerType
+ * @returns {string}
+ */
+export function normalizeLegacyTraeProviderType(providerType) {
+    const ptype = String(providerType || '').trim().toLowerCase();
+    return LEGACY_TRAE_PROVIDER_TYPE_MAP[ptype] || providerType;
+}
+
+/**
+ * 迁移存量 providerPools 中的历史 Trae 通道配置（v3.9.0 废除 trae-agent_v3 的兼容层）：
+ * - 池键 'trae-agent_v3' 合并迁入 'trae-solo_work_lite'（按 uuid 去重）；
+ * - 所有 Trae 系节点上历史 TRAE_CHANNEL_MODE ('agent_v3'/'legacy') 改写为 'solo_work_lite'。
+ * 纯函数：原地修改传入对象并返回是否有变更，可独立单测。
+ * @param {Object} providerPools
+ * @returns {boolean} 是否发生迁移变更
+ */
+export function migrateLegacyTraeProviderPools(providerPools) {
+    if (!providerPools || typeof providerPools !== 'object') return false;
+    let changed = false;
+
+    // 1. 池键迁移：trae-agent_v3 -> trae-solo_work_lite
+    const legacyKey = LEGACY_TRAE_PROVIDER_TYPES.AGENT_V3;
+    if (Array.isArray(providerPools[legacyKey])) {
+        const targetKey = MODEL_PROVIDER.TRAE_SOLO_WORK_LITE;
+        const target = Array.isArray(providerPools[targetKey]) ? providerPools[targetKey] : [];
+        const knownUuids = new Set(target.map(node => node && node.uuid).filter(Boolean));
+        for (const node of providerPools[legacyKey]) {
+            if (node && node.uuid && knownUuids.has(node.uuid)) continue;
+            target.push(node);
+            if (node && node.uuid) knownUuids.add(node.uuid);
+        }
+        providerPools[targetKey] = target;
+        delete providerPools[legacyKey];
+        changed = true;
+    }
+
+    // 2. 节点级历史 TRAE_CHANNEL_MODE 改写
+    for (const key of Object.keys(providerPools)) {
+        if (!isTraeProviderType(key) || !Array.isArray(providerPools[key])) continue;
+        for (const node of providerPools[key]) {
+            if (!node || typeof node !== 'object') continue;
+            const mode = String(node.TRAE_CHANNEL_MODE || '').trim().toLowerCase();
+            const migrated = LEGACY_TRAE_CHANNEL_MODE_MAP[mode];
+            if (migrated && node.TRAE_CHANNEL_MODE !== migrated) {
+                node.TRAE_CHANNEL_MODE = migrated;
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
+}
+
+/**
  * 各通道的预设配置（端点路径、默认 Host、上游 function 名与客户端指纹）
+ * 注：渠道显示名由前端 static/ 各模块自维护（与服务端判定是不同层），此处不重复存放
  */
 export const TRAE_CHANNEL_PRESETS = {
     [TRAE_CHANNEL_MODES.TOB_RAW_CHAT]: {
-        name: 'tob_raw_chat',
-        label: '企业原生直连 (ToB Raw Chat - 推荐)',
         endpointPath: '/api/ide/v2/llm_raw_chat',
         modelsEndpointPath: '/api/ide/v1/batch_get_detail_param',
         defaultHost: 'https://api.enterprise.trae.cn',
@@ -43,8 +117,6 @@ export const TRAE_CHANNEL_PRESETS = {
         ideVersionType: 'stable'
     },
     [TRAE_CHANNEL_MODES.SOLO_WORK_LITE]: {
-        name: 'solo_work_lite',
-        label: 'SOLO Agent 通道 (solo_work_lite)',
         endpointPath: '/api/agent/v3/llm_utils_chat',
         modelsEndpointPath: '/api/ide/v1/get_detail_param',
         defaultHost: 'https://trae-api-cn.mchost.guru',
@@ -58,8 +130,6 @@ export const TRAE_CHANNEL_PRESETS = {
         ideVersionType: 'stable'
     },
     [TRAE_CHANNEL_MODES.CHAT_V3]: {
-        name: 'chat_v3',
-        label: '侧边栏对话通道 (chat_v3)',
         endpointPath: '/api/agent/v3/llm_utils_chat',
         modelsEndpointPath: '/api/ide/v1/get_detail_param',
         defaultHost: 'https://trae-api-cn.mchost.guru',
@@ -88,13 +158,14 @@ export function resolveTraeChannelMode({ configuredMode = '', providerType = '',
 
     // 1. 显式配置优先
     if (mode === TRAE_CHANNEL_MODES.CHAT_V3) return TRAE_CHANNEL_MODES.CHAT_V3;
-    if (mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || mode === 'solo') return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
+    // 'agent_v3' / 'legacy' 为 v3.8.0 及更早版本的历史通道标识（实为 solo_work_lite），容忍存量配置
+    if (mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || mode === 'solo' || mode === 'agent_v3' || mode === 'legacy') return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
     if (mode === TRAE_CHANNEL_MODES.CUSTOM) return TRAE_CHANNEL_MODES.CUSTOM;
     if (mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || mode === 'raw' || mode === 'tob') return TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
 
     // 2. 提供商类型判定
     if (ptype === MODEL_PROVIDER.TRAE_CHAT_V3 || ptype === 'chat_v3') return TRAE_CHANNEL_MODES.CHAT_V3;
-    if (ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE || ptype === 'solo_work_lite') return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
+    if (ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE || ptype === 'solo_work_lite' || ptype === LEGACY_TRAE_PROVIDER_TYPES.AGENT_V3) return TRAE_CHANNEL_MODES.SOLO_WORK_LITE;
     if (ptype === MODEL_PROVIDER.TRAE) return TRAE_CHANNEL_MODES.TOB_RAW_CHAT;
 
     // 3. 自动推断：URL 明确指向 mchost.guru 或包含 llm_utils_chat 时为个人版通道
