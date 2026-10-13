@@ -99,13 +99,13 @@
 | **专有请求头** | `x-ide-function: chat`<br>`x-flow-traceparent: 00-...` | *无额外 traceparent* | *无额外 traceparent* |
 | **对话上下文标识** | 必传 `conversation_id`, `session_id` | 无需上下文 ID | 无需上下文 ID |
 | **专有请求参数** | `model_name` (如 `glm-5.2__max` 或 `__dev`), `mode_type: 0`, `access_type: 4` | 仅需 `config_name` 与 `model` | 仅需 `config_name` 与 `model` |
-| **可用模型数** | 25 个 | 25 个 | 29 个 (包含 flash/evolving/旧版等) |
+| **可用模型数** | 24 个 | 19 个 | 20 个 |
 
 ---
 
 ## 三、认证与凭证生命周期
 
-两个通道底层均共用 Trae 的账户授权凭证体系（即 `configs/trae/*_creds.json`）。
+三个通道底层均共用 Trae 的账户授权凭证体系（即 `configs/trae/*_creds.json`）。
 
 ### 1. 凭据文件结构
 ```json

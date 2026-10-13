@@ -1,13 +1,21 @@
-# AIClient-2-API v3.8.0 发布说明
+# AIClient-2-API 发布说明
 
 > 本次 **v3.8.0** 是一个重要的架构与功能升级版本。核心变更包括：将 **Trae 彻底拆分为两个完全独立的一级提供商**（`trae` 企业原生 ToB Raw Chat 与 `trae-agent_v3` SOLO Agent v3），并深度精简 WebUI 配置项；两通道各自完成 25/25 模型实机验证与动态发现；同时正式承接此前从 **v3.6.1 到 v3.7.1** 的多项重大重构与协议加固（包括下线 4 个废弃提供商、解耦循环依赖、请求管线独立、转码器流式状态机强化与 Zed 5 档思考映射）。
+
+---
+
+## 🔧 维护修复 (v3.9.1)
+
+- **存量配置无缝升级**：v3.8.0 及更早的 `trae-agent_v3` 节点配置在启动时自动迁移至 `trae-solo_work_lite`（含历史 `TRAE_CHANNEL_MODE` 改写与回写持久化），升级后不再抛 `Unsupported model provider`。
+- **发布卫生补齐**：v3.9.0 tag 指向的提交缺失版本 bump，本版补齐（package.json / CHANGELOG 对齐）。
+- **代码评审清理集**：`AnthropicSseEmitter.delta()` 误用守卫、`safety_identifier` 随机值置空、`mapFinishReason`/`sanitizeToolId` 下沉共享层消除跨层反向依赖、若干死代码清理，详见 `CHANGELOG.md` 的 v3.9.1 段。
 
 ---
 
 ## ⚠️ 发布后更正 (Post-v3.8.0)
 
 - **`trae-agent_v3` 已废除并重新拆分**：发布后经上游核实，`agent_v3` 并非上游业务 `function`，仅是网关路径层级（`/api/agent/v3`）。原 `trae-agent_v3` 提供商已彻底清除，重新拆分为 **`trae-solo_work_lite`**（SOLO Agent，19 模型）与 **`trae-chat_v3`**（侧边栏 Chat，20 模型）两个独立一级提供商；同时废除动态拉取模型列表时的"基准兜底合并"与"强制追加 auto 别名"机制，模型列表 100% 对应上游真实活跃模型。详见 `docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`。
-- **协议合规修复集**：zed open_ai/google 工具调用 stop_reason 与工具能力补全、Gemini->Claude 流式事件序列合规（message_start/块 index 递增/message_stop）、Responses API 假 usage 与非法 status 修复、流式 chunk id 稳定性与 finishReason 映射合规等，详见 `CHANGELOG.md` 的 Unreleased 段。
+- **协议合规修复集**：zed open_ai/google 工具调用 stop_reason 与工具能力补全、Gemini->Claude 流式事件序列合规（message_start/块 index 递增/message_stop）、Responses API 假 usage 与非法 status 修复、流式 chunk id 稳定性与 finishReason 映射合规等，详见 `CHANGELOG.md` 的 v3.9.0 段。
 
 ---
 
