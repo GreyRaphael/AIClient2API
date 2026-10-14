@@ -77,11 +77,8 @@ export const PROVIDER_MODELS = {
     'fenno': [],
     'openaiResponses-custom': [],
     'openai-codex-oauth': [
-        'gpt-5.3-codex-spark',
-        'gpt-5.4',
-        'gpt-5.4-mini',
+        'gpt-6-luna',
         'gpt-5.5',
-        'gpt-5.6-sol',
         'gpt-5.6-terra',
         'gpt-5.6-luna',
         'gpt-image-2',
@@ -217,6 +214,7 @@ export const BASE_TRAE_MODELS = [...PROVIDER_MODELS.trae];
 export const BASE_TRAE_SOLO_WORK_LITE_MODELS = [...PROVIDER_MODELS['trae-solo_work_lite']];
 export const BASE_TRAE_CHAT_V3_MODELS = [...PROVIDER_MODELS['trae-chat_v3']];
 export const BASE_ZED_MODELS = [...PROVIDER_MODELS.zed];
+export const BASE_CODEX_MODELS = [...PROVIDER_MODELS['openai-codex-oauth']];
 
 /**
  * 动态更新指定提供商的模型列表
@@ -229,6 +227,12 @@ export function updateProviderModels(providerType, modelIds) {
         // Zed 动态接口仅返回当前凭证权限范围内的模型，确保保留预置的原生核心模型并合并去重
         const existing = PROVIDER_MODELS[providerType] || BASE_ZED_MODELS;
         PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_ZED_MODELS, ...modelIds]);
+        return;
+    }
+    if (providerType === MODEL_PROVIDER.CODEX_API || providerType.startsWith(MODEL_PROVIDER.CODEX_API + '-')) {
+        // Codex 动态接口返回当前凭据权限范围内的模型，确保保留预置的核心模型(如 gpt-image-2 虚拟模型)并合并去重
+        const existing = PROVIDER_MODELS[providerType] || BASE_CODEX_MODELS;
+        PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_CODEX_MODELS, ...modelIds]);
         return;
     }
     PROVIDER_MODELS[providerType] = normalizeModelIds(modelIds);

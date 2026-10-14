@@ -59,7 +59,7 @@ export class ProviderPoolManager {
         'atlascloud': 'gpt-5.5',
         'qiniu': 'gpt-5.5',
         'fenno': 'gpt-5.5',
-        'openai-codex-oauth': 'gpt-5',
+        'openai-codex-oauth': 'gpt-5.5',
         'openaiResponses-custom': 'gpt-5.5',
         'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
@@ -1466,7 +1466,9 @@ export class ProviderPoolManager {
         if (!nodeConfig) return null;
         const instanceKey = `${providerType}${nodeConfig.uuid || 'default'}`;
         const adapter = serviceInstances?.[instanceKey];
-        let nodeAvailable = adapter?.antigravityApiService?.availableModels || nodeConfig.availableModels;
+        let nodeAvailable = adapter?.antigravityApiService?.availableModels ||
+                            adapter?.codexApiService?.availableModels ||
+                            nodeConfig.availableModels;
         if (typeof nodeAvailable === 'string') {
             nodeAvailable = nodeAvailable.split(',').map(s => s.trim()).filter(Boolean);
         }

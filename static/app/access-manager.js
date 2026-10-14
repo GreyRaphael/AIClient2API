@@ -13,7 +13,7 @@ const recommendedModelMap = {
     'atlascloud': 'gpt-5.5',
     'qiniu': 'gpt-5.5',
     'fenno': 'gpt-5.5',
-    'openai-codex-oauth': 'gpt-5',
+    'openai-codex-oauth': 'gpt-5.5',
     'openaiResponses-custom': 'gpt-5.5',
     'grok-web': 'grok-4.3',
     'grok-cli-oauth': 'grok-4.3',

@@ -40,7 +40,7 @@ export const PROVIDER_MAPPINGS = [
         patterns: ['configs/codex/', '/codex/', '/.codex/'],
         providerType: 'openai-codex-oauth',
         credPathKey: 'CODEX_OAUTH_CREDS_FILE_PATH',
-        defaultCheckModel: 'gpt-5.4',
+        defaultCheckModel: 'gpt-5.5',
         displayName: 'OpenAI Codex OAuth',
         needsProjectId: false,
         urlKeys: ['CODEX_BASE_URL']

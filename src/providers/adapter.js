@@ -407,8 +407,19 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         yield* this.codexApiService.generateContentStream(model, requestBody);
     }
 
-    async listModels() {
-        return this.codexApiService.listModels();
+    async listModels(force = false) {
+        return this.codexApiService.listModels(force);
+    }
+
+    /**
+     * 获取节点实际支持的可用模型列表（隔离自各账号自身的配额与上游返回）
+     * @returns {Promise<Array<string>>}
+     */
+    async getNodeAvailableModels(force = false) {
+        if (!this.codexApiService.isInitialized) {
+            await this.codexApiService.initialize();
+        }
+        return this.codexApiService.getNodeAvailableModels(force);
     }
 
     async refreshToken() {

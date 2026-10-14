@@ -447,20 +447,25 @@ function getActiveProviderModels(providerType, providerPools, providerPoolManage
 }
 
 async function warmProviderNodeModels(providerType, providerPools, currentConfig) {
-    if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
+    const isAgy = providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-');
+    const isCodex = providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-');
+    if (isAgy || isCodex) {
         try {
-            const agyNodes = providerPools[providerType] || [];
-            const activeNodes = agyNodes.filter(n => !n.isDisabled && !n.needsRefresh);
-            const probePromises = activeNodes.map(async (agyNode) => {
-                const nodeConfig = agyNode?.config || agyNode;
+            const nodes = providerPools[providerType] || [];
+            const activeNodes = nodes.filter(n => !n.isDisabled && !n.needsRefresh);
+            const probePromises = activeNodes.map(async (node) => {
+                const nodeConfig = node?.config || node;
                 const instanceKey = `${providerType}${nodeConfig?.uuid || 'default'}`;
                 const existingAdapter = serviceInstances?.[instanceKey];
-                if (existingAdapter?.antigravityApiService?.availableModels?.length > 0) {
+                const cachedModels = isAgy 
+                    ? existingAdapter?.antigravityApiService?.availableModels 
+                    : existingAdapter?.codexApiService?.availableModels;
+                if (cachedModels?.length > 0) {
                     return;
                 }
-                const agyConfig = { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType, uuid: nodeConfig?.uuid };
-                delete agyConfig.providerPools;
-                const adapter = getServiceAdapter(agyConfig);
+                const fullConfig = { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType, uuid: nodeConfig?.uuid };
+                delete fullConfig.providerPools;
+                const adapter = getServiceAdapter(fullConfig);
                 if (adapter && typeof adapter.listModels === 'function') {
                     await adapter.listModels();
                 }
@@ -470,24 +475,29 @@ async function warmProviderNodeModels(providerType, providerPools, currentConfig
                 new Promise(resolve => setTimeout(resolve, 3000))
             ]);
         } catch (e) {
-            logger.debug(`[UI API] Dynamic antigravity model warm notice: ${e.message}`);
+            logger.debug(`[UI API] Dynamic ${providerType} model warm notice: ${e.message}`);
         }
     }
 }
 
 /**
- * 触发 Zed / Trae 动态模型的异步刷新（非阻塞）
+ * 触发 Zed / Trae / Codex 动态模型的异步刷新（非阻塞）
  */
 function triggerProviderDynamicModelRefresh(providerType, providerPools, currentConfig) {
     const isZed = providerType === 'zed' || providerType.startsWith('zed-');
     const isTrae = providerType === 'trae' || providerType.startsWith('trae-');
-    if (!isZed && !isTrae) return;
+    const isCodex = providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-');
+    if (!isZed && !isTrae && !isCodex) return;
 
     try {
         const nodes = providerPools[providerType] || [];
         const node = nodes[0];
         const nodeConfig = node?.config || node;
-        const credPath = isZed ? nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH : nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH;
+        const credPath = isZed 
+            ? nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH 
+            : isCodex 
+                ? nodeConfig?.CODEX_OAUTH_CREDS_FILE_PATH 
+                : nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH;
         if (!credPath) return;
 
         const config = { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType };
@@ -521,7 +531,8 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
     const allModels = {};
 
     for (const type of allTypes) {
-        if (type === 'gemini-antigravity' || type.startsWith('gemini-antigravity-')) {
+        if (type === 'gemini-antigravity' || type.startsWith('gemini-antigravity-') ||
+            type === 'openai-codex-oauth' || type.startsWith('openai-codex-oauth-')) {
             await warmProviderNodeModels(type, providerPools, currentConfig);
         } else {
             triggerProviderDynamicModelRefresh(type, providerPools, currentConfig);
@@ -551,7 +562,8 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
         logger.warn('[UI API] Failed to load provider pools for type models:', error.message);
     }
 
-    if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
+    if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-') ||
+        providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-')) {
         await warmProviderNodeModels(providerType, providerPools, currentConfig);
     } else {
         triggerProviderDynamicModelRefresh(providerType, providerPools, currentConfig);
@@ -568,6 +580,17 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
             for (const n of agyNodes) {
                 const nodeConfig = n.config || n;
                 const nodeModels = nodeConfig.availableModels || (serviceInstances?.[`${providerType}${nodeConfig.uuid || 'default'}`]?.antigravityApiService?.availableModels);
+                if (Array.isArray(nodeModels)) {
+                    nodeModels.forEach(m => dynamicModels.add(m));
+                }
+            }
+            models = Array.from(dynamicModels).sort((a, b) => a.localeCompare(b));
+        } else if (providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-')) {
+            const codexNodes = providerPools[providerType] || [];
+            const dynamicModels = new Set(getProviderModels(providerType));
+            for (const n of codexNodes) {
+                const nodeConfig = n.config || n;
+                const nodeModels = nodeConfig.availableModels || (serviceInstances?.[`${providerType}${nodeConfig.uuid || 'default'}`]?.codexApiService?.availableModels);
                 if (Array.isArray(nodeModels)) {
                     nodeModels.forEach(m => dynamicModels.add(m));
                 }

@@ -10,14 +10,47 @@ import {getProviderPoolManager} from '../../services/service-manager.js';
 import {configureTLSSidecar, isTLSSidecarEnabledForProvider} from '../../utils/proxy-utils.js';
 import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.js';
 import {getProxyConfigForProvider} from '../../utils/proxy-utils.js';
-import {getProviderModels} from '../provider-models.js';
+import { execSync } from 'child_process';
+import {getProviderModels, updateProviderModels} from '../provider-models.js';
 import {normalizeCodexInstructions} from './codex-request-utils.js';
 
-const baseModels = getProviderModels(MODEL_PROVIDER.CODEX_API);
-const fastModels = baseModels.map(m => `${m}-fast`);
-const CODEX_MODELS = [...new Set([...baseModels, ...fastModels])];
-const CODEX_VERSION = '0.144.1';
+export const CODEX_FALLBACK_VERSION = '0.162.1';
+
+/**
+ * 动态获取或检测 Codex 客户端版本号
+ * 优先级：config.CODEX_VERSION -> env.CODEX_VERSION -> 本机 codex CLI 自动探测 -> CODEX_FALLBACK_VERSION
+ * @param {Object} [config]
+ * @returns {string}
+ */
+export function getCodexVersion(config = null) {
+    if (config?.CODEX_VERSION) {
+        return String(config.CODEX_VERSION).trim();
+    }
+    if (process.env.CODEX_VERSION) {
+        return String(process.env.CODEX_VERSION).trim();
+    }
+    try {
+        const out = execSync('codex --version', { encoding: 'utf8', timeout: 1500 });
+        const match = out.match(/(\d+\.\d+\.\d+)/);
+        if (match) {
+            return match[1];
+        }
+    } catch (_) {}
+    return CODEX_FALLBACK_VERSION;
+}
+
+export const CODEX_VERSION = getCodexVersion();
+export const CODEX_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 export const IMAGE_MODELS = new Set(['gpt-image-2']);
+
+/**
+ * 获取当前提供商配置对应的全部可用模型（含 -fast 变体）
+ */
+export function getCodexModels(providerType = MODEL_PROVIDER.CODEX_API) {
+    const baseModels = getProviderModels(providerType);
+    const fastModels = baseModels.map(m => `${m}-fast`);
+    return [...new Set([...baseModels, ...fastModels])];
+}
 
 function normalizeCodexTerminalError(parsed) {
     if (!parsed || typeof parsed !== 'object') {
@@ -136,6 +169,14 @@ export class CodexApiService {
         this.startCacheCleanup();
 
         this.imageGenTool = {type: 'image_generation', output_format: 'png'};
+
+        // 动态模型管理
+        this.modelsCache = null;
+        this.modelsExpiresAt = 0;
+        this._modelsFetchPromise = null;
+        this.modelMetadataMap = new Map();
+        this.availableModels = [];
+        this.version = CODEX_VERSION;
     }
 
     _applySidecar(axiosConfig) {
@@ -154,6 +195,11 @@ export class CodexApiService {
 
         this.isInitialized = true;
         logger.info(`[Codex] Initialization complete. Account: ${this.email || 'unknown'}`);
+
+        // 异步预热获取远端模型列表（非阻塞）
+        this.fetchRemoteModels().catch(err => {
+            logger.debug(`[Codex] Initial remote models fetch notice: ${err.message}`);
+        });
     }
 
     /**
@@ -276,13 +322,20 @@ export class CodexApiService {
             await this.initialize();
         }
 
+        let supportedModels = this.getSupportedModels();
         let selectedModel = model;
-        if (!CODEX_MODELS.includes(model)) {
+        if (!supportedModels.includes(selectedModel)) {
+            try {
+                await this.fetchRemoteModels(true);
+                supportedModels = this.getSupportedModels();
+            } catch (_) {}
+        }
+        if (!supportedModels.includes(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
-                throw new Error(`[Codex] 模型不存在: ${model}`);
+                throw new Error(`[Codex] 模型不存在: ${selectedModel}`);
             }
-            const defaultModel = CODEX_MODELS[0] || 'gpt-5.5';
-            logger.warn(`[Codex] Model '${model}' not found in supported list. Falling back to default: '${defaultModel}'`);
+            const defaultModel = supportedModels[0] || 'gpt-5.5';
+            logger.warn(`[Codex] Model '${selectedModel}' not found in supported list. Falling back to default: '${defaultModel}'`);
             selectedModel = defaultModel;
         }
 
@@ -353,13 +406,20 @@ export class CodexApiService {
             await this.initialize();
         }
 
+        let supportedModels = this.getSupportedModels();
         let selectedModel = model;
-        if (!CODEX_MODELS.includes(model)) {
+        if (!supportedModels.includes(selectedModel)) {
+            try {
+                await this.fetchRemoteModels(true);
+                supportedModels = this.getSupportedModels();
+            } catch (_) {}
+        }
+        if (!supportedModels.includes(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
-                throw new Error(`[Codex] 模型不存在: ${model}`);
+                throw new Error(`[Codex] 模型不存在: ${selectedModel}`);
             }
-            const defaultModel = CODEX_MODELS[0] || 'gpt-5.5';
-            logger.warn(`[Codex] Model '${model}' not found in supported list. Falling back to default: '${defaultModel}'`);
+            const defaultModel = supportedModels[0] || 'gpt-5.5';
+            logger.warn(`[Codex] Model '${selectedModel}' not found in supported list. Falling back to default: '${defaultModel}'`);
             selectedModel = defaultModel;
         }
 
@@ -426,14 +486,15 @@ export class CodexApiService {
      * 构建请求头
      */
     buildHeaders(cacheId, stream = true) {
+        const version = this.version || getCodexVersion(this.config);
         const headers = {
-            'version': CODEX_VERSION,
+            'version': version,
             'x-codex-beta-features': 'powershell_utf8',
             'x-oai-web-search-eligible': 'true',
             'authorization': `Bearer ${this.accessToken}`,
             'chatgpt-account-id': this.accountId,
             'content-type': 'application/json',
-            'user-agent': `codex-tui/${CODEX_VERSION} (Windows 10.0.26100; x86_64) WindowsTerminal (codex-tui; ${CODEX_VERSION})`,
+            'user-agent': `codex-tui/${version} (Windows 10.0.26100; x86_64) WindowsTerminal (codex-tui; ${version})`,
             'originator': 'codex-tui',
             'host': 'chatgpt.com',
             'Connection': 'Keep-Alive'
@@ -1009,17 +1070,159 @@ export class CodexApiService {
     }
 
     /**
-     * 列出可用模型
+     * 获取当前支持的模型列表（基础模型 + -fast 变体）
      */
-    async listModels() {
+    getSupportedModels() {
+        const targetProvider = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
+        if (Array.isArray(this.availableModels) && this.availableModels.length > 0) {
+            return this.availableModels;
+        }
+        return getCodexModels(targetProvider);
+    }
+
+    /**
+     * 获取节点专属可用模型（支持号池与节点隔离）
+     * @param {boolean} [force=false]
+     */
+    async getNodeAvailableModels(force = false) {
+        if (!this.isInitialized) {
+            await this.initialize();
+        }
+        await this.fetchRemoteModels(force);
+        return this.getSupportedModels();
+    }
+
+    /**
+     * 获取远端可用模型列表并更新缓存与全局提供商模型
+     * @param {boolean} [force=false] 是否强制刷新
+     * @returns {Promise<Array<Object>>}
+     */
+    async fetchRemoteModels(force = false) {
+        const now = Date.now();
+        if (!force && this.modelsCache && this.modelsExpiresAt > now) {
+            return this.modelsCache;
+        }
+
+        if (this._modelsFetchPromise) {
+            return this._modelsFetchPromise;
+        }
+
+        this._modelsFetchPromise = (async () => {
+            try {
+                if (!this.accessToken) {
+                    await this.loadCredentials();
+                }
+
+                if (!this.accessToken) {
+                    logger.warn('[Codex] Cannot fetch remote models: No access token available');
+                    return this.modelsCache || this._getFallbackModels();
+                }
+
+                const clientVersion = this.version || CODEX_VERSION;
+                const cleanBaseUrl = String(this.baseUrl || 'https://chatgpt.com/backend-api/codex').replace(/\/+$/, '');
+                const url = `${cleanBaseUrl}/models?client_version=${encodeURIComponent(clientVersion)}`;
+                const headers = this.buildHeaders(null, false);
+
+                const axiosRequestConfig = {
+                    method: 'get',
+                    url,
+                    headers,
+                    timeout: 15000
+                };
+                this._applySidecar(axiosRequestConfig);
+
+                const res = await axios.request(axiosRequestConfig);
+                if (res.data && Array.isArray(res.data.models)) {
+                    const rawModels = res.data.models;
+                    const modelIds = [];
+                    this.modelMetadataMap.clear();
+
+                    for (const m of rawModels) {
+                        const id = m?.slug || m?.id || m?.name;
+                        if (id && typeof id === 'string') {
+                            const trimmedId = id.trim();
+                            modelIds.push(trimmedId);
+                            this.modelMetadataMap.set(trimmedId, m);
+                        }
+                    }
+
+                    if (modelIds.length > 0) {
+                        // 保留虚拟图像模型 (gpt-image-2)
+                        const mergedBaseModels = [...new Set([...modelIds, ...Array.from(IMAGE_MODELS)])];
+                        const targetProvider = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
+
+                        // 更新全局提供商模型列表 (provider-models.js)
+                        updateProviderModels(targetProvider, mergedBaseModels);
+
+                        // 派生 -fast 变体并保存至节点 availableModels
+                        const fastModels = mergedBaseModels.map(m => `${m}-fast`);
+                        this.availableModels = [...new Set([...mergedBaseModels, ...fastModels])];
+
+                        this.modelsCache = rawModels;
+                        this.modelsExpiresAt = now + CODEX_MODELS_CACHE_TTL_MS;
+
+                        logger.info(`[Codex] Successfully updated dynamic model list (${mergedBaseModels.length} base models, ${this.availableModels.length} total): ${mergedBaseModels.join(', ')}`);
+                        return rawModels;
+                    }
+                }
+            } catch (error) {
+                if (error.response?.status === 401) {
+                    logger.info('[Codex] Received 401 while fetching remote models, triggering refresh...');
+                    this.triggerBackgroundRefresh();
+                }
+                logger.warn(`[Codex] Failed to fetch remote models from ${this.baseUrl}/models: ${error.message}`);
+            } finally {
+                this._modelsFetchPromise = null;
+            }
+
+            return this.modelsCache || this._getFallbackModels();
+        })();
+
+        return this._modelsFetchPromise;
+    }
+
+    /**
+     * 回退静态模型列表
+     */
+    _getFallbackModels() {
+        const targetProvider = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
+        const allModels = getCodexModels(targetProvider);
+        this.availableModels = allModels;
+        return allModels.map(id => ({
+            id,
+            slug: id,
+            object: 'model',
+            created: Math.floor(Date.now() / 1000),
+            owned_by: 'openai'
+        }));
+    }
+
+    /**
+     * 列出可用模型（OpenAI 兼容格式）
+     * @param {boolean} [force=false]
+     */
+    async listModels(force = false) {
+        await this.fetchRemoteModels(force);
+        const allModels = this.getSupportedModels();
         return {
             object: 'list',
-            data: CODEX_MODELS.map(id => ({
-                id,
-                object: 'model',
-                created: Math.floor(Date.now() / 1000),
-                owned_by: 'openai'
-            }))
+            data: allModels.map(id => {
+                const baseId = id.replace(/-fast$/i, '');
+                const meta = this.modelMetadataMap.get(id) || this.modelMetadataMap.get(baseId);
+                const item = {
+                    id,
+                    object: 'model',
+                    created: Math.floor(Date.now() / 1000),
+                    owned_by: 'openai'
+                };
+                if (meta) {
+                    if (meta.display_name) item.display_name = id.endsWith('-fast') ? `${meta.display_name} (Fast)` : meta.display_name;
+                    if (meta.description) item.description = meta.description;
+                    if (meta.context_window) item.context_length = meta.context_window;
+                    if (meta.max_context_window) item.max_tokens = meta.max_context_window;
+                }
+                return item;
+            })
         };
     }
 
