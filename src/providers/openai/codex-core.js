@@ -146,6 +146,28 @@ function extractSSEData(line) {
 }
 
 /**
+ * 解析 Codex OAuth AccessToken 中的元数据（如订阅类型 chatgpt_plan_type、accountId 等）
+ * @param {string} token
+ * @returns {{ planType: string, accountId: string|null, userId: string|null, exp: number|null }}
+ */
+export function parseCodexTokenMetadata(token) {
+    try {
+        const parts = String(token || '').split('.');
+        if (parts.length >= 2) {
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+            const auth = payload?.['https://api.openai.com/auth'] || {};
+            return {
+                planType: auth.chatgpt_plan_type || payload.plan_type || payload.plan || 'unknown',
+                accountId: auth.chatgpt_account_id || null,
+                userId: auth.chatgpt_user_id || auth.user_id || null,
+                exp: payload.exp ? payload.exp * 1000 : null
+            };
+        }
+    } catch (_) {}
+    return { planType: 'unknown', accountId: null, userId: null, exp: null };
+}
+
+/**
  * Codex API 服务类
  */
 export class CodexApiService {
@@ -156,6 +178,7 @@ export class CodexApiService {
         this.refreshToken = null;
         this.accountId = null;
         this.email = null;
+        this.planType = 'unknown';
         this.expiresAt = null;
         this.idToken = null;
         this.last_refresh = null;
@@ -249,13 +272,19 @@ export class CodexApiService {
             this.last_refresh = creds.last_refresh || this.last_refresh;
             this.expiresAt = new Date(creds.expired); // 注意：字段名是 expired
 
+            const tokenMeta = parseCodexTokenMetadata(this.accessToken);
+            this.planType = tokenMeta.planType || 'unknown';
+            if (!this.accountId && tokenMeta.accountId) {
+                this.accountId = tokenMeta.accountId;
+            }
+
             // 检查 token 是否需要刷新（异步触发，不阻塞加载）
             if (this.isExpiryDateNear()) {
                 this.triggerBackgroundRefresh();
             }
 
             this.isInitialized = true;
-            logger.info(`[Codex] Initialized with account: ${this.email}`);
+            logger.info(`[Codex] Initialized with account: ${this.email} (plan: ${this.planType})`);
         } catch (error) {
             logger.warn(`[Codex Auth] Failed to load credentials: ${error.message}`);
         }
@@ -688,6 +717,11 @@ export class CodexApiService {
             this.accountId = newTokens.account_id;
             this.email = newTokens.email;
             this.last_refresh = new Date().toISOString();
+
+            const tokenMeta = parseCodexTokenMetadata(this.accessToken);
+            if (tokenMeta.planType && tokenMeta.planType !== 'unknown') {
+                this.planType = tokenMeta.planType;
+            }
 
             // 关键修复：refreshCodexTokensWithRetry 返回字段名是 `expired`（ISO string），不是 `expire`
             const expiredValue = newTokens.expired || newTokens.expire || newTokens.expires_at || newTokens.expiresAt;
@@ -1141,6 +1175,16 @@ export class CodexApiService {
                         const id = m?.slug || m?.id || m?.name;
                         if (id && typeof id === 'string') {
                             const trimmedId = id.trim();
+                            // 过滤明确不支持在 API 中调用的模型
+                            if (m.supported_in_api === false) {
+                                logger.debug(`[Codex] Skipping model "${trimmedId}" because supported_in_api is false`);
+                                continue;
+                            }
+                            // 过滤需要付费升级账户才能调用的门禁模型
+                            if (m.upgrade) {
+                                logger.debug(`[Codex] Skipping model "${trimmedId}" because account upgrade is required`);
+                                continue;
+                            }
                             modelIds.push(trimmedId);
                             this.modelMetadataMap.set(trimmedId, m);
                         }

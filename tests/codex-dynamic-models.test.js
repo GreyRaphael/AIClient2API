@@ -6,7 +6,8 @@ import {
     CodexApiService,
     getCodexModels,
     CODEX_VERSION,
-    CODEX_MODELS_CACHE_TTL_MS
+    CODEX_MODELS_CACHE_TTL_MS,
+    parseCodexTokenMetadata
 } from '../src/providers/openai/codex-core.js';
 import {
     PROVIDER_MODELS,
@@ -132,6 +133,78 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         const models = service.getSupportedModels();
         expect(models).toContain('gpt-5.6-luna');
         expect(models).toContain('gpt-5.5');
+
+        service.stopCacheCleanup();
+        mockAxiosRequest.mockRestore();
+    });
+
+    test('parseCodexTokenMetadata correctly extracts planType and account metadata', () => {
+        // Construct mock JWT with planType
+        const header = Buffer.from(JSON.stringify({ alg: 'RS256' })).toString('base64url');
+        const payload = Buffer.from(JSON.stringify({
+            'https://api.openai.com/auth': {
+                chatgpt_plan_type: 'plus',
+                chatgpt_account_id: 'acc-12345'
+            },
+            exp: 1700000000
+        })).toString('base64url');
+        const mockJwt = `${header}.${payload}.mockSignature`;
+
+        const meta = parseCodexTokenMetadata(mockJwt);
+        expect(meta.planType).toBe('plus');
+        expect(meta.accountId).toBe('acc-12345');
+        expect(meta.exp).toBe(1700000000 * 1000);
+
+        // Fallback for invalid token
+        const invalidMeta = parseCodexTokenMetadata('not-a-token');
+        expect(invalidMeta.planType).toBe('unknown');
+        expect(invalidMeta.accountId).toBeNull();
+    });
+
+    test('CodexApiService filters out models with supported_in_api: false or upgrade required', async () => {
+        const service = new CodexApiService({
+            uuid: 'test-codex-filter',
+            MODEL_PROVIDER: 'openai-codex-oauth'
+        });
+
+        service.accessToken = 'test-token';
+        service.isInitialized = true;
+
+        const mockAxiosRequest = jest.spyOn(axios, 'request').mockResolvedValueOnce({
+            status: 200,
+            data: {
+                models: [
+                    {
+                        slug: 'gpt-5.6-luna',
+                        display_name: 'GPT-5.6-Luna',
+                        supported_in_api: true,
+                        upgrade: null
+                    },
+                    {
+                        slug: 'gpt-6-pro-exclusive',
+                        display_name: 'GPT-6 Pro Exclusive',
+                        supported_in_api: true,
+                        upgrade: { type: 'upgrade_plan', target_plan: 'pro' }
+                    },
+                    {
+                        slug: 'codex-internal-only',
+                        display_name: 'Internal Non-API Model',
+                        supported_in_api: false,
+                        upgrade: null
+                    }
+                ]
+            }
+        });
+
+        await service.fetchRemoteModels(true);
+        const nodeModels = await service.getNodeAvailableModels();
+
+        expect(nodeModels).toContain('gpt-5.6-luna');
+        expect(nodeModels).toContain('gpt-5.6-luna-fast');
+        // Models requiring upgrade or with supported_in_api: false must not be present
+        expect(nodeModels).not.toContain('gpt-6-pro-exclusive');
+        expect(nodeModels).not.toContain('gpt-6-pro-exclusive-fast');
+        expect(nodeModels).not.toContain('codex-internal-only');
 
         service.stopCacheCleanup();
         mockAxiosRequest.mockRestore();
