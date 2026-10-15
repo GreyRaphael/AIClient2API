@@ -7,6 +7,7 @@ import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js
 import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.js';
 import { TraeApiService } from '../src/providers/trae/trae-core.js';
 import { PROVIDER_MODELS, updateProviderModels, BASE_TRAE_MODELS } from '../src/providers/provider-models.js';
+import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.js';
 
 describe('Trae Provider Implementation Tests', () => {
     test('Trae provider is properly registered and configured', () => {
@@ -650,6 +651,56 @@ describe('Trae Provider Implementation Tests', () => {
         expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'solo_work_lite', TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toContain('通道不能使用 ToB 企业版');
         expect(validateTraeProviderConfig('trae-solo_work_lite', { TRAE_CHANNEL_MODE: 'tob_raw_chat', TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toBeNull();
         expect(validateTraeProviderConfig('trae-solo_work_lite', { TRAE_CHANNEL_MODE: 'tob_raw_chat', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toContain('ToB Raw Chat 通道不能使用个人版');
+    });
+
+    test('nativePayloadHasMeaningfulContent recognizes reasoning_content for OpenAI/Trae', () => {
+        // 1. OpenAI / Trae chunk with reasoning_content should be recognized as meaningful
+        const thinkingChunk = {
+            choices: [{
+                index: 0,
+                delta: {
+                    reasoning_content: 'Thinking about the user query...'
+                },
+                finish_reason: null
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(thinkingChunk, 'trae')).toBe(true);
+        expect(nativePayloadHasMeaningfulContent(thinkingChunk, 'openai')).toBe(true);
+
+        // 2. OpenAI / Trae chunk with reasoning field
+        const reasoningChunk = {
+            choices: [{
+                index: 0,
+                delta: {
+                    reasoning: 'Alternative reasoning field...'
+                },
+                finish_reason: null
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(reasoningChunk, 'trae')).toBe(true);
+
+        // 3. Empty delta should not be recognized as meaningful
+        const emptyChunk = {
+            choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: null
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(emptyChunk, 'trae')).toBe(false);
+
+        // 4. Gemini thought should still be bypassed to preserve Antigravity Gemini empty-thought protection
+        const geminiThinkingChunk = {
+            candidates: [{
+                content: {
+                    parts: [{
+                        thought: true,
+                        text: 'Thinking...'
+                    }]
+                }
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(geminiThinkingChunk, 'gemini-antigravity')).toBe(false);
     });
 });
 

@@ -387,7 +387,7 @@ async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, lo
  * @param {string} toProvider - 上游 provider 类型
  * @returns {boolean} 是否含有有效内容
  */
-function nativePayloadHasMeaningfulContent(payload, toProvider) {
+export function nativePayloadHasMeaningfulContent(payload, toProvider) {
     if (!payload || typeof payload !== 'object') return false;
     switch (getProtocolPrefix(toProvider)) {
         case MODEL_PROTOCOL_PREFIX.GEMINI: {
@@ -426,6 +426,10 @@ function nativePayloadHasMeaningfulContent(payload, toProvider) {
             const msg = choice?.delta || choice?.message;
             if (!msg) return false;
             if (typeof msg.content === 'string' && msg.content.length > 0) return true;
+            // 支持 OpenAI 协议中的思考增量（reasoning_content / reasoning）作为有效内容放行，
+            // 避免深度推理模型（如 Trae GLM-5.3、DeepSeek-R1）长时间思考时思考帧全被滞留在缓冲中导致下游看门狗超时断开
+            if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.length > 0) return true;
+            if (typeof msg.reasoning === 'string' && msg.reasoning.length > 0) return true;
             if (Array.isArray(msg.content) && msg.content.some(c => (c?.type === 'text' && c.text) || c?.type === 'image_url')) return true;
             if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) return true;
             return false;
@@ -694,13 +698,18 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
         }
 
-        // 流式请求成功完成，统计使用次数，错误次数重置为0
-        if (providerPoolManager && pooluuid) {
-            const customNameDisplay = customName ? `, ${customName}` : '';
-            logger.info(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}${customNameDisplay}) after successful stream request`);
-            providerPoolManager.markProviderHealthy(toProvider, {
-                uuid: pooluuid
-            });
+        // 仅在真实产出有效内容的情况下才统计使用次数并将 Provider 标记为健康；
+        // 避免客户端在首字前超时断开时误将空转节点记为成功
+        if (sawMeaningfulContent) {
+            if (providerPoolManager && pooluuid) {
+                const customNameDisplay = customName ? `, ${customName}` : '';
+                logger.info(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}${customNameDisplay}) after successful stream request`);
+                providerPoolManager.markProviderHealthy(toProvider, {
+                    uuid: pooluuid
+                });
+            }
+        } else if (clientDisconnected.value) {
+            logger.warn(`[Stream] Client disconnected before any meaningful content was received from ${toProvider} (${pooluuid || 'no-uuid'}). Discarded ${preContentBuffer.length} buffered frame(s).`);
         }
 
     }  catch (error) {
