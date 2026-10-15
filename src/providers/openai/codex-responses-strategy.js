@@ -16,12 +16,15 @@ class CodexResponsesAPIStrategy extends ProviderStrategy {
     }
 
     extractResponseText(response) {
-        if (!response.output) {
+        // 兼容两种形状：解包后的 response 本体（顶层 output），
+        // 以及 Codex 非流式返回的 response.completed 事件包装（response.response.output）
+        const output = response?.output || response?.response?.output;
+        if (!output) {
             return '';
         }
 
         // In Responses API, output is an array of items
-        for (const item of response.output) {
+        for (const item of output) {
             if (item.type === 'message' && item.content && item.content.length > 0) {
                 for (const content of item.content) {
                     if (content.type === 'output_text' && content.text) {

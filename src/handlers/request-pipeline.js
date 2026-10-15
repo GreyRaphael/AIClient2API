@@ -436,9 +436,15 @@ export function nativePayloadHasMeaningfulContent(payload, toProvider) {
         }
         case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
         case MODEL_PROTOCOL_PREFIX.CODEX: {
-            // 完整响应（非流式）
-            if (Array.isArray(payload.output)) {
-                return payload.output.some(item =>
+            // 完整响应（非流式）。注意两种形状的兼容：
+            //   - Grok 等 OPENAI_RESPONSES provider 返回解包后的 response 本体（顶层即有 output）；
+            //   - Codex 非流式返回的是 response.completed 事件包装
+            //     （{type: 'response.completed', response: {output: [...]}}），output 在 payload.response 下。
+            // 旧逻辑只看顶层 output，导致 Codex 非流式响应永远被判为空响应而误触发重试。
+            const completedOutput = Array.isArray(payload.output) ? payload.output
+                : (Array.isArray(payload.response?.output) ? payload.response.output : null);
+            if (completedOutput) {
+                return completedOutput.some(item =>
                     item?.type === 'function_call' || item?.type === 'custom_tool_call' || item?.type === 'local_shell_call' ||
                     (item?.type === 'message' && Array.isArray(item.content) &&
                         item.content.some(c => (c?.type === 'output_text' || c?.type === 'text') && typeof c.text === 'string' && c.text.length > 0))
