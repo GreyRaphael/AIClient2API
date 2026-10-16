@@ -285,7 +285,7 @@ async function handleSend() {
     if (!apiKey) return;
 
     const sysPrompt = getSystemInput()?.value.trim();
-    const reasoningEffort = getReasoningEffort()?.value || 'none';
+    const reasoningEffort = getReasoningEffort()?.value || 'high';
     const useStream = getStreamCheckbox()?.checked ?? true;
 
     // Build history for request
