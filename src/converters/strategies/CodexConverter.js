@@ -10,6 +10,7 @@ import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
+import { sortToolsByName } from '../utils.js';
 import {
     generateResponseCreated,
     generateResponseInProgress,
@@ -282,6 +283,9 @@ export class CodexConverter extends BaseConverter {
         }
         if (codexRequest.text && Object.keys(codexRequest.text).length === 0) {
             delete codexRequest.text;
+        }
+        if (codexRequest.tools && Array.isArray(codexRequest.tools)) {
+            codexRequest.tools = sortToolsByName(codexRequest.tools);
         }
     
         return codexRequest;
@@ -602,7 +606,7 @@ export class CodexConverter extends BaseConverter {
      */
     convertTools(tools, requestId) {
         const state = this._getReqState(requestId);
-        return tools.map(tool => {
+        const converted = tools.map(tool => {
             const builtinTool = this.normalizeCodexBuiltinTool(tool);
             if (builtinTool) {
                 return builtinTool;
@@ -636,6 +640,7 @@ export class CodexConverter extends BaseConverter {
 
             return result;
         });
+        return sortToolsByName(converted);
     }
 
     /**

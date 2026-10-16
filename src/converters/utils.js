@@ -7,6 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
+import configManager from '../core/config-manager.js';
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.js';
@@ -438,4 +439,82 @@ export function extractThinkingFromOpenAIText(text) {
     }
 
     return contentBlocks;
+}
+
+/**
+ * 合并相邻相同角色的 Gemini contents，满足严格交替轮次规范（user <-> model）
+ *
+ * @param {Array<Object>} contents - Gemini contents 数组，每项形如 { role: string, parts: Array }
+ * @param {Object} [rolePair] - 可选的角色归一化映射（例如 { assistant: 'model', model: 'model', user: 'user' }）
+ * @returns {Array<Object>} 合并后的 contents 数组
+ */
+export function mergeConsecutiveSameRoleContents(contents, rolePair = null) {
+    if (!Array.isArray(contents) || contents.length === 0) {
+        return [];
+    }
+
+    const validItems = contents.filter(item => item && Array.isArray(item.parts) && item.parts.length > 0);
+    const merged = [];
+
+    for (const item of validItems) {
+        const targetRole = rolePair && rolePair[item.role] ? rolePair[item.role] : item.role;
+        const last = merged[merged.length - 1];
+        if (last && last.role === targetRole) {
+            last.parts.push(...item.parts);
+        } else {
+            merged.push({
+                role: targetRole,
+                parts: [...item.parts]
+            });
+        }
+    }
+
+    return merged;
+}
+
+/**
+ * 判断是否开启 tools 数组按 name 稳定排序（消除工具顺序抖动对大模型隐式前缀缓存的干扰）
+ * @returns {boolean}
+ */
+export function isSortToolsEnabled() {
+    if (process.env.CONVERT_SORT_TOOLS !== undefined) {
+        return process.env.CONVERT_SORT_TOOLS === 'true' ||
+               process.env.CONVERT_SORT_TOOLS === '1' ||
+               process.env.CONVERT_SORT_TOOLS === 'on';
+    }
+    const val = configManager.get('CONVERT_SORT_TOOLS');
+    return val === true || val === 'true' || val === '1' || val === 'on';
+}
+
+/**
+ * 稳定排序 tools 数组（按 name 升序）
+ * 由环境变量 / 配置项 CONVERT_SORT_TOOLS 控制（默认 off）
+ *
+ * @template T
+ * @param {Array<T>} tools
+ * @returns {Array<T>}
+ */
+export function sortToolsByName(tools) {
+    if (!Array.isArray(tools) || tools.length <= 1) {
+        return tools || [];
+    }
+    if (!isSortToolsEnabled()) {
+        return tools;
+    }
+    return [...tools].sort((a, b) => {
+        const nameA = a?.name || a?.function?.name || a?.function_declarations?.[0]?.name || a?.functionDeclarations?.[0]?.name || '';
+        const nameB = b?.name || b?.function?.name || b?.function_declarations?.[0]?.name || b?.functionDeclarations?.[0]?.name || '';
+        return String(nameA).localeCompare(String(nameB));
+    });
+}
+
+/**
+ * 记录 cache_control 被跨协议转换丢弃的 debug 日志，消除静默丢弃
+ * @param {string} location - 出现位置（如 "Claude->OpenAI message content" 或 "Claude->Gemini tool"）
+ * @param {Object} itemWithCacheControl - 包含 cache_control 的对象
+ */
+export function logOmittedCacheControl(location, itemWithCacheControl) {
+    if (itemWithCacheControl && itemWithCacheControl.cache_control) {
+        logger.debug(`[CacheControl] cache_control omitted during conversion at ${location} (${JSON.stringify(itemWithCacheControl.cache_control)})`);
+    }
 }

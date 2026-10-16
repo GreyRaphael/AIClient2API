@@ -25,7 +25,9 @@ import {
     GEMINI_DEFAULT_TEMPERATURE,
     GEMINI_DEFAULT_TOP_P,
     OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
-    OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT
+    OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT,
+    mergeConsecutiveSameRoleContents,
+    sortToolsByName
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
@@ -340,7 +342,7 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         if (openaiRequest.tools?.length) {
-            claudeRequest.tools = openaiRequest.tools
+            const mappedTools = openaiRequest.tools
                 .filter(t => t && ((t.function && t.function.name) || t.name))
                 .map(t => {
                     if (t.function) {
@@ -356,6 +358,7 @@ export class OpenAIConverter extends BaseConverter {
                         input_schema: t.input_schema || { type: 'object', properties: {} }
                     };
                 });
+            claudeRequest.tools = sortToolsByName(mappedTools);
             if (claudeRequest.tools.length > 0) {
                 claudeRequest.tool_choice = this.buildClaudeToolChoice(openaiRequest.tool_choice);
             }
@@ -1156,22 +1159,8 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         // 构建 Gemini 请求（合并相邻同角色消息，严格满足 Gemini 交替轮次规范）
-        const rawContents = processedMessages.filter(item => item.parts && item.parts.length > 0);
-        const mergedContents = [];
-        for (const item of rawContents) {
-            const last = mergedContents[mergedContents.length - 1];
-            if (last && last.role === item.role) {
-                last.parts.push(...item.parts);
-            } else {
-                mergedContents.push({
-                    role: item.role,
-                    parts: [...item.parts]
-                });
-            }
-        }
-
         const geminiRequest = {
-            contents: mergedContents
+            contents: mergeConsecutiveSameRoleContents(processedMessages)
         };
 
         // 添加 model
@@ -1320,7 +1309,7 @@ export class OpenAIConverter extends BaseConverter {
             if (functionDeclarations.length > 0 || hasGoogleSearch || hasUrlContext || hasGoogleMaps) {
                 geminiRequest.tools = [];
                 if (functionDeclarations.length > 0) {
-                    geminiRequest.tools.push({ functionDeclarations });
+                    geminiRequest.tools.push({ functionDeclarations: sortToolsByName(functionDeclarations) });
                 }
                 if (hasGoogleSearch) {
                     const googleSearchTool = openaiRequest.tools.find(t => t.google_search);
@@ -1789,12 +1778,12 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理工具
         if (openaiRequest.tools) {
-            responsesRequest.tools = openaiRequest.tools.map(t => ({
+            responsesRequest.tools = sortToolsByName(openaiRequest.tools.map(t => ({
                 type: t.type || 'function',
                 name: t.function?.name,
                 description: t.function?.description,
                 parameters: t.function?.parameters
-            }));
+            })));
         }
 
         const toolChoice = this._mapOpenAIToolChoiceToResponses(openaiRequest.tool_choice);

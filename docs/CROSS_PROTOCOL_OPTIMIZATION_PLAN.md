@@ -1,10 +1,10 @@
 # AIClient2API 跨协议转译优化实施方案
 
-> **版本**：v1.0.0（方案定稿，待实施）
+> **版本**：v1.6.0（Phase 0-4 全部实施落地）
 > **制定日期**：2026-10-16
-> **上游依据**：[CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md](./CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) v1.1.0（源码核查定稿版）
-> **方案性质**：将评估文档第五节的理论优化体系落地为可分阶段执行的工程方案；全部代码位置已于制定当日对照 `main` 分支（v3.10.0）源码逐一核实
-> **当前状态**：本文档仅包含方案设计，**不含任何代码改动**
+> **上游依据**：[CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md](./CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) v1.6.0（全阶段优化落地版）
+> **方案性质**：将评估文档第五节的理论优化体系落地为可分阶段执行的工程方案；全部代码位置已于制定当日对照 `main` 分支源码逐一核实与重构
+> **当前状态**：Phase 0、Phase 1、Phase 2、Phase 3、Phase 4 均已 100% 落地并通过全部测试（19 个测试套件，286 个测试用例全部 PASS）
 
 ---
 
@@ -266,7 +266,7 @@ export class ResponsesSseEmitter {
 
 ---
 
-## 七、Phase 4：可选增强（2-3 人日）
+## 七、Phase 4：可选增强（2-3 人日）【已落地 v1.6.0】
 
 1. **合并逻辑去重**：三处 parts 级同角色合并提取为 `src/converters/utils.js` 的 `mergeConsecutiveSameRoleContents(contents, rolePair)` 纯函数 + 单测。评估文档 §5.3-2 的「虚拟轮次隔离边界符」**不做**（见第九节）。
 2. **前缀对齐（大幅降级 §5.4 范围）**：不重排消息（破坏角色交替语义）。仅做 **tools 数组按 name 稳定排序**（env 开关 `CONVERT_SORT_TOOLS`，默认 off 先观测），消除同一客户端多请求间工具顺序抖动对隐式前缀缓存的干扰。system 与 tools 本就在 messages 之前，无需移动。

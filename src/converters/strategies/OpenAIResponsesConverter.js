@@ -23,7 +23,9 @@ import {
     CLAUDE_DEFAULT_MAX_TOKENS,
     GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
     GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
-    safeParseJSON
+    safeParseJSON,
+    mergeConsecutiveSameRoleContents,
+    sortToolsByName
 } from '../utils.js';
 import {
     generateResponseCreated,
@@ -330,7 +332,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         // 处理工具
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
-            openaiRequest.tools = responsesRequest.tools
+            const mappedTools = responsesRequest.tools
                 .map(tool => {
                     if (tool.type && tool.type !== 'function') {
                         return null;
@@ -355,6 +357,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     };
                 })
                 .filter(tool => tool !== null);
+            openaiRequest.tools = sortToolsByName(mappedTools);
         }
 
         if (responsesRequest.tool_choice) {
@@ -880,7 +883,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
             const tools = responsesRequest.tools.map(tool => this._mapResponsesToolToClaude(tool)).filter(Boolean);
             if (tools.length > 0) {
-                claudeRequest.tools = tools;
+                claudeRequest.tools = sortToolsByName(tools);
             }
         }
 
@@ -1417,62 +1420,50 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         // 处理工具
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
-            geminiRequest.tools = [{
-                functionDeclarations: responsesRequest.tools
-                    .filter(tool => !tool.type || tool.type === 'function' || tool.type === 'custom')
-                    .map(tool => {
-                        const name = tool.name || tool.function?.name;
-                        const description = tool.description || tool.function?.description;
-                        let parameters = tool.parameters || tool.function?.parameters || tool.parametersJsonSchema;
+            const decls = responsesRequest.tools
+                .filter(tool => !tool.type || tool.type === 'function' || tool.type === 'custom')
+                .map(tool => {
+                    const name = tool.name || tool.function?.name;
+                    const description = tool.description || tool.function?.description;
+                    let parameters = tool.parameters || tool.function?.parameters || tool.parametersJsonSchema;
 
-                        // 针对 apply_patch 等 custom 类型工具（可能不带标准 parameters），构造明确的参数 Schema 引导 Gemini 输出内容
-                        if (!parameters || (parameters.type === 'object' && (!parameters.properties || Object.keys(parameters.properties).length === 0))) {
-                            if (name === 'apply_patch' || tool.type === 'custom') {
-                                parameters = {
-                                    type: 'object',
-                                    properties: {
-                                        patch: {
-                                            type: 'string',
-                                            description: 'The freeform patch content to apply (e.g. *** Begin Patch...)'
-                                        },
-                                        input: {
-                                            type: 'string',
-                                            description: 'The input or patch content'
-                                        }
+                    // 针对 apply_patch 等 custom 类型工具（可能不带标准 parameters），构造明确的参数 Schema 引导 Gemini 输出内容
+                    if (!parameters || (parameters.type === 'object' && (!parameters.properties || Object.keys(parameters.properties).length === 0))) {
+                        if (name === 'apply_patch' || tool.type === 'custom') {
+                            parameters = {
+                                type: 'object',
+                                properties: {
+                                    patch: {
+                                        type: 'string',
+                                        description: 'The freeform patch content to apply (e.g. *** Begin Patch...)'
                                     },
-                                    required: ['patch']
-                                };
-                            } else {
-                                parameters = { type: 'object', properties: {} };
-                            }
+                                    input: {
+                                        type: 'string',
+                                        description: 'The input or patch content'
+                                    }
+                                },
+                                required: ['patch']
+                            };
+                        } else {
+                            parameters = { type: 'object', properties: {} };
                         }
+                    }
 
-                        return {
-                            name,
-                            description,
-                            parameters
-                        };
-                    })
-                    .filter(fn => Boolean(fn.name))
+                    return {
+                        name,
+                        description,
+                        parameters
+                    };
+                })
+                .filter(fn => Boolean(fn.name));
+            geminiRequest.tools = [{
+                functionDeclarations: sortToolsByName(decls)
             }];
         }
 
         // 合并相邻同角色消息，严格满足 Gemini 交替轮次规范
         if (Array.isArray(geminiRequest.contents) && geminiRequest.contents.length > 0) {
-            const rawContents = geminiRequest.contents.filter(item => item && Array.isArray(item.parts) && item.parts.length > 0);
-            const mergedContents = [];
-            for (const item of rawContents) {
-                const last = mergedContents[mergedContents.length - 1];
-                if (last && last.role === item.role) {
-                    last.parts.push(...item.parts);
-                } else {
-                    mergedContents.push({
-                        role: item.role,
-                        parts: [...item.parts]
-                    });
-                }
-            }
-            geminiRequest.contents = mergedContents;
+            geminiRequest.contents = mergeConsecutiveSameRoleContents(geminiRequest.contents);
         }
 
         return geminiRequest;

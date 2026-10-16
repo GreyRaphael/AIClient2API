@@ -77,6 +77,16 @@ function normalizeSignatureVaultConfig(config) {
     }
 }
 
+function normalizeConvertSortToolsConfig(config) {
+    if (process.env.CONVERT_SORT_TOOLS !== undefined) {
+        config.CONVERT_SORT_TOOLS = process.env.CONVERT_SORT_TOOLS === 'true' ||
+                                    process.env.CONVERT_SORT_TOOLS === '1' ||
+                                    process.env.CONVERT_SORT_TOOLS === 'on';
+    } else {
+        config.CONVERT_SORT_TOOLS = config.CONVERT_SORT_TOOLS ?? false;
+    }
+}
+
 function normalizeConfiguredProviders(config) {
     const fallbackProvider = MODEL_PROVIDER.ANTIGRAVITY;
     const dedupedProviders = [];
@@ -299,6 +309,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     normalizeRequestBodyMaxBytes(currentConfig);
     normalizeSchemaPolyfillConfig(currentConfig);
     normalizeSignatureVaultConfig(currentConfig);
+    normalizeConvertSortToolsConfig(currentConfig);
     normalizeConfiguredProviders(currentConfig);
 
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {
@@ -411,3 +422,10 @@ export async function getSystemPromptFileContent(filePath) {
 }
 
 export { ALL_MODEL_PROVIDERS };
+
+const configManager = {
+    get: (key) => CONFIG[key],
+    getAll: () => CONFIG
+};
+
+export default configManager;

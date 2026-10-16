@@ -17,7 +17,8 @@ import {
     OPENAI_DEFAULT_TOP_P,
     CLAUDE_DEFAULT_MAX_TOKENS,
     CLAUDE_DEFAULT_TEMPERATURE,
-    CLAUDE_DEFAULT_TOP_P
+    CLAUDE_DEFAULT_TOP_P,
+    sortToolsByName
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
@@ -291,6 +292,18 @@ export class GeminiConverter extends BaseConverter {
                     }
                 }
             });
+        }
+
+        // 处理工具
+        if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
+            openaiRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(fn => ({
+                type: 'function',
+                function: {
+                    name: fn.name,
+                    description: fn.description || '',
+                    parameters: fn.parameters || fn.parametersJsonSchema || { type: 'object', properties: {} }
+                }
+            })));
         }
 
         return openaiRequest;
@@ -659,11 +672,11 @@ export class GeminiConverter extends BaseConverter {
 
         // 处理工具
         if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
-            claudeRequest.tools = geminiRequest.tools[0].functionDeclarations.map(func => ({
+            claudeRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(func => ({
                 name: func.name,
                 description: func.description || '',
                 input_schema: func.parameters || { type: 'object', properties: {} }
-            }));
+            })));
         }
 
         return claudeRequest;
@@ -1174,12 +1187,12 @@ export class GeminiConverter extends BaseConverter {
 
         // 处理工具
         if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
-            responsesRequest.tools = geminiRequest.tools[0].functionDeclarations.map(fn => ({
+            responsesRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(fn => ({
                 type: 'function',
                 name: fn.name,
                 description: fn.description,
                 parameters: fn.parameters || fn.parametersJsonSchema || { type: 'object', properties: {} }
-            }));
+            })));
         }
 
         return responsesRequest;
@@ -1843,12 +1856,12 @@ export class GeminiConverter extends BaseConverter {
 
         // 处理工具
         if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
-            codexRequest.tools = geminiRequest.tools[0].functionDeclarations.map(fn => ({
+            codexRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(fn => ({
                 type: 'function',
                 name: fn.name,
                 description: fn.description,
                 parameters: fn.parameters || { type: 'object', properties: {} }
-            }));
+            })));
         }
 
         return codexRequest;

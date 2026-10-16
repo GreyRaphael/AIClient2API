@@ -1,8 +1,8 @@
 # AIClient2API 跨协议转译评估与理论优化全景指南
 
-> **版本**：v1.5.0  
+> **版本**：v1.6.0  
 > **更新时间**：2026-10-16  
-> **修订说明**：v1.5.0 完成 Phase 3 Responses SSE Emitter 收编实施落地（见第八节修订记录）  
+> **修订说明**：v1.6.0 完成 Phase 4 可选增强实施落地（跨协议合并去重、工具稳定排序与缓存日志化，见第八节修订记录）  
 > **适用范围**：AIClient2API 网关核心转译管道、协议适配器及周边客户端工具
 
 ---
@@ -589,6 +589,30 @@ timeline
    - 新增 `tests/responses-sse-emitter.test.js`（9 个测试，涵盖基础生命周期、动态参数更新、推理思考全序、文本消息增量、多工具/自定义工具交叉、未决块自动兜底收敛及并发隔离验证）。
    - 扩充 `tests/converters.test.js`，补充 Claude ➔ Responses 与 Gemini ➔ Responses 端到端流式转换断言。
    - 既有 `tests/openai-claude-stream.test.js`、`tests/gemini-claude-stream.test.js`、`tests/codex-claude-stream.test.js` golden 测试 100% 通过且输出零变化。
+
+### v1.6.0（2026-10-16，Phase 4 实施落地修订）
+
+完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第五阶段（Phase 4 可选增强）落地：
+
+1. **合并逻辑公共提取（去重）**：
+   - 在 `src/converters/utils.js` 实现并导出纯函数 `mergeConsecutiveSameRoleContents(contents, rolePair = null)`。
+   - 全面替换 `OpenAIConverter.toGeminiRequest`、`ClaudeConverter.toGeminiRequest`、`OpenAIResponsesConverter.toGeminiRequest` 三处近乎逐字重复的内联轮次合并循环，消除代码结构冗余并确保角色归一化与交替规则严格统一。
+2. **工具列表确定性排序（前缀对齐）**：
+   - 在 `src/converters/utils.js` 实现并导出 `sortToolsByName(tools)` 与 `isSortToolsEnabled()`。
+   - 在 `src/core/config-manager.js` 注册配置与环境变量 `CONVERT_SORT_TOOLS`（默认 false/off，支持 `true`/`1`/`on` 动态开启）。
+   - 全线接入所有转换器协议发向：
+     - `OpenAIConverter`：`toClaudeRequest`、`toGeminiRequest`、`toOpenAIResponsesRequest`
+     - `ClaudeConverter`：`toOpenAIRequest`、`toGeminiRequest`、`toOpenAIResponsesRequest`、`toCodexRequest`
+     - `OpenAIResponsesConverter`：`toOpenAIRequest`、`toClaudeRequest`、`toGeminiRequest`
+     - `GeminiConverter`：`toClaudeRequest`、`toOpenAIResponsesRequest`、`toCodexRequest`、`toOpenAIRequest`
+     - `CodexConverter`：`toOpenAIRequestToCodexRequest` (`convertTools`)、`toOpenAIResponsesToCodexRequest`
+   - 不改变消息历史顺序（完全遵守协议角色交替硬约束），仅对工具列表按 `name` 做稳定升序排序，有效消除多轮对话中客户端工具顺序抖动对大模型隐式前缀缓存（Prompt Cache）命中的破坏。
+3. **Claude cache_control 显式降级与日志化**：
+   - 在 `src/converters/utils.js` 实现并导出 `logOmittedCacheControl(location, itemWithCacheControl)`。
+   - 在 `ClaudeConverter` 中，针对发往不支持显式缓存块的上游协议（OpenAI、Gemini、Responses、Codex）的降级点（`system` 数组/对象、`message` 内容块、`tool_result`、`tools` 数组），记录明确的 debug 日志，彻底消灭「静默丢弃」；同时在发往 Claude 协议上游时保持原生透传。
+4. **单测套件与零回归验证**：
+   - 新增 `tests/phase4-enhancements.test.js`（18 个单元测试全部通过，覆盖公共合并纯函数与三协议端到端集成、排序开关及多协议格式稳定排序、cache_control 日志拦截等）。
+   - 全量自动化测试用例扩充至 19 个测试套件，286 个测试用例，100% PASS。
 
 
 

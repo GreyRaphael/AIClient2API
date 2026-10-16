@@ -17,7 +17,10 @@ import {
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_DEFAULT_TOP_P,
     sanitizeToolId,
-    getOpenAIStreamIdentity
+    getOpenAIStreamIdentity,
+    mergeConsecutiveSameRoleContents,
+    sortToolsByName,
+    logOmittedCacheControl
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.js';
@@ -154,7 +157,15 @@ export class ClaudeConverter extends BaseConverter {
 
         // 添加系统消息
         if (claudeRequest.system) {
-            systemMessageContent = claudeRequest.system;
+            if (Array.isArray(claudeRequest.system)) {
+                claudeRequest.system.forEach(s => logOmittedCacheControl('Claude->OpenAI system', s));
+                systemMessageContent = this._normalizeClaudeSystem(claudeRequest.system);
+            } else if (typeof claudeRequest.system === 'object') {
+                logOmittedCacheControl('Claude->OpenAI system', claudeRequest.system);
+                systemMessageContent = this._normalizeClaudeSystem(claudeRequest.system);
+            } else {
+                systemMessageContent = claudeRequest.system;
+            }
         }
 
         // 处理消息
@@ -178,6 +189,7 @@ export class ClaudeConverter extends BaseConverter {
 
                     if (toolResultBlocks.length > 0) {
                         for (const item of toolResultBlocks) {
+                            logOmittedCacheControl('Claude->OpenAI message content', item);
                             const toolUseId = item.tool_use_id || item.id || "";
                             let contentStr = item.content || "";
                             if (typeof contentStr === 'object') {
@@ -343,6 +355,7 @@ export class ClaudeConverter extends BaseConverter {
         if (claudeRequest.tools) {
             const openaiTools = [];
             for (const tool of claudeRequest.tools) {
+                logOmittedCacheControl('Claude->OpenAI tool', tool);
                 openaiTools.push({
                     type: "function",
                     function: {
@@ -352,7 +365,7 @@ export class ClaudeConverter extends BaseConverter {
                     }
                 });
             }
-            openaiRequest.tools = openaiTools;
+            openaiRequest.tools = sortToolsByName(openaiTools);
             openaiRequest.tool_choice = "auto";
         }
 
@@ -833,6 +846,7 @@ export class ClaudeConverter extends BaseConverter {
         
         content.forEach(block => {
             if (!block) return;
+            logOmittedCacheControl('Claude->OpenAI message content', block);
             
             switch (block.type) {
                 case 'text':
@@ -972,6 +986,7 @@ export class ClaudeConverter extends BaseConverter {
                 // 数组格式的系统指令
                 const systemParts = [];
                 claudeRequest.system.forEach(systemPrompt => {
+                    logOmittedCacheControl('Claude->Gemini system', systemPrompt);
                     if (systemPrompt && systemPrompt.type === 'text' && typeof systemPrompt.text === 'string') {
                         systemParts.push({ text: systemPrompt.text });
                     }
@@ -988,6 +1003,7 @@ export class ClaudeConverter extends BaseConverter {
                     parts: [{ text: claudeRequest.system }]
                 };
             } else if (typeof claudeRequest.system === 'object') {
+                logOmittedCacheControl('Claude->Gemini system', claudeRequest.system);
                 // 对象格式的系统指令
                 geminiRequest.systemInstruction = {
                     parts: [{ text: JSON.stringify(claudeRequest.system) }]
@@ -1030,6 +1046,7 @@ export class ClaudeConverter extends BaseConverter {
                     
                     content.forEach(block => {
                         if (!block || typeof block !== 'object') return;
+                        logOmittedCacheControl('Claude->Gemini message content', block);
                         
                         switch (block.type) {
                             case 'text':
@@ -1212,19 +1229,7 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         // 合并相邻同角色消息，严格满足 Gemini 交替轮次规范
-        const mergedGeminiContents = [];
-        for (const item of rawGeminiContents) {
-            const last = mergedGeminiContents[mergedGeminiContents.length - 1];
-            if (last && last.role === item.role) {
-                last.parts.push(...item.parts);
-            } else {
-                mergedGeminiContents.push({
-                    role: item.role,
-                    parts: [...item.parts]
-                });
-            }
-        }
-        geminiRequest.contents = mergedGeminiContents;
+        geminiRequest.contents = mergeConsecutiveSameRoleContents(rawGeminiContents);
 
         // 添加生成配置
         const generationConfig = {};
@@ -1270,6 +1275,7 @@ export class ClaudeConverter extends BaseConverter {
                     logger.warn("Skipping invalid tool declaration in claudeRequest.tools.");
                     return;
                 }
+                logOmittedCacheControl('Claude->Gemini tool', tool);
 
                 // 处理 google_search 扩展
                 if (tool.google_search) {
@@ -1319,7 +1325,7 @@ export class ClaudeConverter extends BaseConverter {
             if (functionDeclarations.length > 0 || googleSearchTool || urlContextTool || googleMapsTool) {
                 geminiRequest.tools = [];
                 if (functionDeclarations.length > 0) {
-                    geminiRequest.tools.push({ functionDeclarations });
+                    geminiRequest.tools.push({ functionDeclarations: sortToolsByName(functionDeclarations) });
                 }
                 if (googleSearchTool) {
                     geminiRequest.tools.push({ googleSearch: googleSearchTool });
@@ -1949,6 +1955,12 @@ export class ClaudeConverter extends BaseConverter {
             responsesRequest.parallel_tool_calls = claudeRequest.parallel_tool_calls;
         }
 
+        if (Array.isArray(claudeRequest.system)) {
+            claudeRequest.system.forEach(s => logOmittedCacheControl('Claude->Responses system', s));
+        } else if (typeof claudeRequest.system === 'object') {
+            logOmittedCacheControl('Claude->Responses system', claudeRequest.system);
+        }
+
         const instructions = this._normalizeClaudeSystem(claudeRequest.system);
         if (instructions) {
             responsesRequest.instructions = instructions;
@@ -1975,6 +1987,7 @@ export class ClaudeConverter extends BaseConverter {
                 if (Array.isArray(content)) {
                     for (const c of content) {
                         if (!c) continue;
+                        logOmittedCacheControl('Claude->Responses message content', c);
                         if (c.type === 'text') {
                             messageContent.push({
                                 type: role === 'assistant' ? 'output_text' : 'input_text',
@@ -2047,9 +2060,10 @@ export class ClaudeConverter extends BaseConverter {
 
         // 处理工具
         if (claudeRequest.tools && Array.isArray(claudeRequest.tools)) {
+            claudeRequest.tools.forEach(tool => logOmittedCacheControl('Claude->Responses tool', tool));
             const tools = claudeRequest.tools.map(tool => this._mapClaudeToolToResponses(tool)).filter(Boolean);
             if (tools.length > 0) {
-                responsesRequest.tools = tools;
+                responsesRequest.tools = sortToolsByName(tools);
             }
         }
 
@@ -2398,7 +2412,11 @@ export class ClaudeConverter extends BaseConverter {
         if (claudeRequest.system) {
             let instructions = '';
             if (Array.isArray(claudeRequest.system)) {
+                claudeRequest.system.forEach(s => logOmittedCacheControl('Claude->Codex system', s));
                 instructions = claudeRequest.system.map(s => typeof s === 'string' ? s : s.text).join('\n');
+            } else if (typeof claudeRequest.system === 'object') {
+                logOmittedCacheControl('Claude->Codex system', claudeRequest.system);
+                instructions = claudeRequest.system;
             } else {
                 instructions = claudeRequest.system;
             }
@@ -2408,10 +2426,11 @@ export class ClaudeConverter extends BaseConverter {
         // 处理工具并构建短名称映射
         let shortMap = {};
         if (claudeRequest.tools && Array.isArray(claudeRequest.tools)) {
+            claudeRequest.tools.forEach(t => logOmittedCacheControl('Claude->Codex tool', t));
             const toolNames = claudeRequest.tools.map(t => t.name).filter(Boolean);
             shortMap = this._buildShortNameMap(toolNames);
 
-            codexRequest.tools = claudeRequest.tools.map(tool => {
+            const convertedTools = claudeRequest.tools.map(tool => {
                 // 特殊处理：将 Claude Web Search 工具映射到 Codex web_search
                 if (tool.type === "web_search_20250305") {
                     return { type: "web_search" };
@@ -2439,6 +2458,7 @@ export class ClaudeConverter extends BaseConverter {
 
                 return convertedTool;
             });
+            codexRequest.tools = sortToolsByName(convertedTools);
             codexRequest.tool_choice = "auto";
         }
 
@@ -2478,6 +2498,7 @@ export class ClaudeConverter extends BaseConverter {
 
                 if (Array.isArray(content)) {
                     for (const block of content) {
+                        logOmittedCacheControl('Claude->Codex message content', block);
                         switch (block.type) {
                             case 'text':
                                 appendTextContent(block.text);
