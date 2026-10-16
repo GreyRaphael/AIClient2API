@@ -236,7 +236,7 @@
 
 ---
 
-## 六、Phase 3：Responses SSE Emitter 收编（6-9 人日）
+## 六、Phase 3：Responses SSE Emitter 收编（6-9 人日）【已落地 v1.5.0】
 
 **新增模块**：`src/converters/responses-sse-emitter.js`，严格镜像 `AnthropicSseEmitter` 的实例化模式：
 

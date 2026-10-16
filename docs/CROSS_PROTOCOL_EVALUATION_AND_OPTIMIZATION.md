@@ -1,8 +1,8 @@
 # AIClient2API 跨协议转译评估与理论优化全景指南
 
-> **版本**：v1.4.0  
+> **版本**：v1.5.0  
 > **更新时间**：2026-10-16  
-> **修订说明**：v1.4.0 完成 Phase 2 签名金库（Signature Vault）实施落地（见第八节修订记录）  
+> **修订说明**：v1.5.0 完成 Phase 3 Responses SSE Emitter 收编实施落地（见第八节修订记录）  
 > **适用范围**：AIClient2API 网关核心转译管道、协议适配器及周边客户端工具
 
 ---
@@ -573,6 +573,22 @@ timeline
 4. **环境变量与配置**：在 `src/core/config-manager.js` 注册 `SIGNATURE_VAULT`（注入总开关，默认开启）与 `SIGNATURE_VAULT_STRIP`（剥离总开关，默认开启）。
 5. **单测套件**：新增 `tests/signature-vault.test.js`（13 个单元测试，覆盖往返自洽、篡改检测、剥离选择性、端到端思考闭环与重启降级），同步更新相关流式测试。
 6. **评级提升**：Combo 17（Claude ➔ OpenAI）、Combo 18（Claude ➔ Responses）、Combo 19（Claude ➔ Codex）评级提升至 **Tier 1**。
+
+### v1.5.0（2026-10-16，Phase 3 实施落地修订）
+
+完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第四阶段（Phase 3 Responses SSE Emitter 收编）落地：
+
+1. **统一事件发射器模块**：新增 `src/converters/responses-sse-emitter.js`，严格镜像 `AnthropicSseEmitter` 的生命周期设计，提供 `start()`、`textStart()`、`textDelta()`、`textDone()`、`reasoningStart()`、`reasoningDelta()`、`reasoningDone()`、`toolCallStart()`、`toolCallArgsDelta()`、`toolCallDone()`、`complete()` 等全生命周期幂等方法。
+2. **状态所有权收编**：将分散在全局单例 `streamStateManager` 与各 Converter 内联状态对象的控制权收编入 `ResponsesSseEmitter` 实例中，借助 `StreamSessionStore`（带 TTL 自动回收容器）实现跨并发请求的完整隔离，彻底消灭流式并发状态污染与内存泄漏隐患。
+3. **全线转换器接入**：
+   - `OpenAIConverter`：`toOpenAIResponsesStreamChunk` 全面迁移至 `ResponsesSseEmitter`，消灭 100+ 行重复状态维护逻辑。
+   - `GeminiConverter`：`toOpenAIResponsesStreamChunk` 全面迁移至 `ResponsesSseEmitter`，统合双轨思考、多工具调用与截断状态。
+   - `ClaudeConverter`：`toOpenAIResponsesStreamChunk` 接入 `ResponsesSseEmitter` 并分配实例级 `openAIResponsesStreamStates` 会话容器，修复此前思考块与文本块的 `output_index` 潜在碰撞缺陷。
+   - `OpenAIResponsesConverter`：在 `toCodexStreamChunk` 终态补充全局状态回收。
+4. **单测套件与零回归硬验收**：
+   - 新增 `tests/responses-sse-emitter.test.js`（9 个测试，涵盖基础生命周期、动态参数更新、推理思考全序、文本消息增量、多工具/自定义工具交叉、未决块自动兜底收敛及并发隔离验证）。
+   - 扩充 `tests/converters.test.js`，补充 Claude ➔ Responses 与 Gemini ➔ Responses 端到端流式转换断言。
+   - 既有 `tests/openai-claude-stream.test.js`、`tests/gemini-claude-stream.test.js`、`tests/codex-claude-stream.test.js` golden 测试 100% 通过且输出零变化。
 
 
 

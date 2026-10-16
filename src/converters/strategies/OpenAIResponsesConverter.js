@@ -1776,6 +1776,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 ...codexChunk.response
             };
             events.push(completedEvent);
+            streamStateManager.cleanup(resId);
             return events;
         }
 

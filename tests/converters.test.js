@@ -1254,4 +1254,79 @@ describe('Grok -> Claude 委托透传 requestId', () => {
             }]
         });
     });
+
+    test('Phase 3: Claude -> Responses 流式转换生命周期与输出项结构', () => {
+        const claudeConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.CLAUDE);
+        const reqId = 'jest_claude_to_responses_stream';
+        const model = 'claude-3-7-sonnet';
+
+        const chunks = [
+            { type: 'message_start', message: { id: 'msg_test_1', model: 'claude-3-7-sonnet' } },
+            { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'let me think' } },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+            { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'final answer' } },
+            { type: 'content_block_stop', index: 1 },
+            { type: 'message_delta', usage: { input_tokens: 10, output_tokens: 20 } },
+            { type: 'message_stop' }
+        ];
+
+        const events = [];
+        for (const c of chunks) {
+            events.push(...claudeConverter.toOpenAIResponsesStreamChunk(c, model, reqId));
+        }
+
+        const evTypes = events.map(e => e.type);
+        expect(evTypes).toContain('response.created');
+        expect(evTypes).toContain('response.in_progress');
+        expect(evTypes).toContain('response.reasoning_summary_text.delta');
+        expect(evTypes).toContain('response.reasoning_summary_text.done');
+        expect(evTypes).toContain('response.output_text.delta');
+        expect(evTypes).toContain('response.output_text.done');
+        expect(evTypes).toContain('response.completed');
+
+        const completed = events.find(e => e.type === 'response.completed');
+        expect(completed.response.status).toBe('completed');
+        expect(completed.response.usage.input_tokens).toBe(10);
+        expect(completed.response.usage.output_tokens).toBe(20);
+        expect(completed.response.output[0].type).toBe('reasoning');
+        expect(completed.response.output[1].type).toBe('message');
+    });
+
+    test('Phase 3: Gemini -> Responses 流式转换生命周期与输出项结构', () => {
+        const geminiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.GEMINI);
+        const reqId = 'jest_gemini_to_responses_stream';
+        const model = 'gemini-2.5-flash';
+
+        const chunks = [
+            { candidates: [{ content: { role: 'model', parts: [{ text: 'thinking text', thought: true }] } }] },
+            { candidates: [{ content: { role: 'model', parts: [{ text: 'response text', thought: false }] } }] },
+            {
+                candidates: [{ finishReason: 'STOP' }],
+                usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 8, totalTokenCount: 20 }
+            }
+        ];
+
+        const events = [];
+        for (const c of chunks) {
+            events.push(...geminiConverter.toOpenAIResponsesStreamChunk(c, model, reqId));
+        }
+
+        const evTypes = events.map(e => e.type);
+        expect(evTypes).toContain('response.created');
+        expect(evTypes).toContain('response.in_progress');
+        expect(evTypes).toContain('response.reasoning_summary_text.delta');
+        expect(evTypes).toContain('response.reasoning_summary_text.done');
+        expect(evTypes).toContain('response.output_text.delta');
+        expect(evTypes).toContain('response.output_text.done');
+        expect(evTypes).toContain('response.completed');
+
+        const completed = events.find(e => e.type === 'response.completed');
+        expect(completed.response.status).toBe('completed');
+        expect(completed.response.usage.input_tokens).toBe(12);
+        expect(completed.response.usage.output_tokens).toBe(8);
+        expect(completed.response.output[0].type).toBe('reasoning');
+        expect(completed.response.output[1].type).toBe('message');
+    });
 });

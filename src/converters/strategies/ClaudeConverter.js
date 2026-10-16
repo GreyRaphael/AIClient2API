@@ -38,6 +38,7 @@ import {
     startToolCall,
     streamStateManager
 } from '../../providers/openai/openai-responses-events.js';
+import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 
 /**
  * Claude转换器类
@@ -48,6 +49,7 @@ export class ClaudeConverter extends BaseConverter {
         super('claude');
         // OpenAI 流式输出侧的稳定 chunk 标识（同一 requestId 的流共享 id/created）
         this.openaiStreamStates = new StreamSessionStore({ label: 'claude-converter-openai-stream' });
+        this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'claude-converter-responses-stream' });
     }
 
     /**
@@ -2170,99 +2172,87 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude流式响应 -> OpenAI Responses流式响应
      */
+    _getOpenAIResponsesStreamEmitter(model, requestId) {
+        const stateKey = requestId || 'default';
+        if (!this.openAIResponsesStreamStates.has(stateKey)) {
+            const responseId = `resp_${uuidv4().replace(/-/g, '')}`;
+            const emitter = new ResponsesSseEmitter({
+                requestId: stateKey,
+                responseId,
+                model: model || 'unknown',
+                store: this.openAIResponsesStreamStates
+            });
+            this.openAIResponsesStreamStates.set(stateKey, emitter);
+        }
+
+        const emitter = this.openAIResponsesStreamStates.get(stateKey);
+        if (model) {
+            emitter.setModel(model);
+        }
+
+        return { stateKey, emitter };
+    }
+
+    /**
+     * Claude流式响应 -> OpenAI Responses流式响应
+     */
     toOpenAIResponsesStreamChunk(claudeChunk, model, requestId = null) {
         if (!claudeChunk) return [];
 
-        const stateKey = requestId || 'default';
+        const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
         const events = [];
 
         // message_start 事件 - 流开始
         if (claudeChunk.type === 'message_start') {
-            const state = streamStateManager.getOrCreateState(stateKey);
-            this._resetOpenAIResponsesStreamState(state, claudeChunk.message, model);
-            events.push(
-                generateResponseCreated(stateKey, model || claudeChunk.message?.model || 'unknown'),
-                generateResponseInProgress(stateKey),
-                generateOutputItemAdded(stateKey),
-                generateContentPartAdded(stateKey)
-            );
+            if (claudeChunk.message?.id) {
+                emitter.setResponseId(claudeChunk.message.id);
+            }
+            if (model || claudeChunk.message?.model) {
+                emitter.setModel(model || claudeChunk.message.model);
+            }
+            events.push(...emitter.start());
         }
 
         // content_block_start 事件
         if (claudeChunk.type === 'content_block_start') {
             const contentBlock = claudeChunk.content_block;
-            
-            // 对于 tool_use 类型，添加工具调用项
             if (contentBlock && contentBlock.type === 'tool_use') {
-                startToolCall(stateKey, contentBlock.id, contentBlock.name);
-                events.push({
-                    item: {
-                        id: contentBlock.id,
-                        call_id: contentBlock.id,
-                        type: "function_call",
-                        name: contentBlock.name,
-                        arguments: "",
-                        status: "in_progress"
-                    },
-                    output_index: claudeChunk.index || 0,
-                    sequence_number: 2,
-                    type: "response.output_item.added"
-                });
+                emitter.currentToolCallId = contentBlock.id;
+                events.push(...emitter.toolCallStart(contentBlock.id, contentBlock.name, { index: claudeChunk.index || 0 }));
+            } else if (contentBlock && contentBlock.type === 'thinking') {
+                events.push(...emitter.reasoningStart());
+            } else if (contentBlock && contentBlock.type === 'text') {
+                events.push(...emitter.textStart());
             }
         }
 
         // content_block_delta 事件
         if (claudeChunk.type === 'content_block_delta') {
             const delta = claudeChunk.delta;
-            
-            // 处理文本增量
             if (delta && delta.type === 'text_delta') {
-                events.push(generateOutputTextDelta(stateKey, delta.text || ""));
-            }
-            // 处理推理内容增量
-            else if (delta && delta.type === 'thinking_delta') {
-                const state = streamStateManager.getOrCreateState(stateKey);
-                const outputIndex = claudeChunk.index || 0;
-                this._ensureOpenAIResponsesReasoningStarted(state, outputIndex, events);
-                state.reasoningText += delta.thinking || "";
-                events.push({
-                    delta: delta.thinking || "",
-                    item_id: state.reasoningId,
-                    output_index: outputIndex,
-                    sequence_number: 3,
-                    summary_index: 0,
-                    type: "response.reasoning_summary_text.delta"
-                });
-            }
-            // 处理工具调用参数增量
-            else if (delta && delta.type === 'input_json_delta') {
-                const state = streamStateManager.getOrCreateState(stateKey);
-                const itemId = state.currentToolCall ? state.currentToolCall.id : 'unknown';
-                events.push(generateFunctionCallArgsDelta(
-                    stateKey, itemId, claudeChunk.index || 0, delta.partial_json || ""
-                ));
+                events.push(...emitter.textDelta(delta.text || ''));
+            } else if (delta && delta.type === 'thinking_delta') {
+                events.push(...emitter.reasoningDelta(delta.thinking || ''));
+            } else if (delta && delta.type === 'input_json_delta') {
+                const callId = emitter.currentToolCallId || (claudeChunk.index !== undefined ? claudeChunk.index : 0);
+                events.push(...emitter.toolCallArgsDelta(callId, delta.partial_json || ''));
             }
         }
 
         // content_block_stop 事件
         if (claudeChunk.type === 'content_block_stop') {
-            const state = streamStateManager.getOrCreateState(stateKey);
-            if (state.currentToolCall) {
-                const itemId = state.currentToolCall.id;
-                const outputIdx = claudeChunk.index || 0;
-                events.push(generateFunctionCallArgsDone(stateKey, itemId, outputIdx));
-                const finished = finishToolCall(stateKey);
-                if (finished) {
-                    events.push(generateFunctionCallOutputItemDone(stateKey, finished, outputIdx));
-                }
+            if (emitter.currentToolCallId) {
+                events.push(...emitter.toolCallDone(emitter.currentToolCallId));
+                emitter.currentToolCallId = null;
+            } else if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                events.push(...emitter.reasoningDone());
             }
         }
 
         // message_delta 事件 - 保存 usage 供 message_stop 使用
         if (claudeChunk.type === 'message_delta') {
             if (claudeChunk.usage) {
-                const state = streamStateManager.getOrCreateState(stateKey);
-                state.savedUsage = {
+                emitter.savedUsage = {
                     input_tokens: claudeChunk.usage.input_tokens || 0,
                     input_tokens_details: { cached_tokens: claudeChunk.usage.cache_read_input_tokens || 0 },
                     output_tokens: claudeChunk.usage.output_tokens || 0,
@@ -2270,63 +2260,20 @@ export class ClaudeConverter extends BaseConverter {
                     total_tokens: (claudeChunk.usage.input_tokens || 0) + (claudeChunk.usage.output_tokens || 0)
                 };
             }
+            if (claudeChunk.delta?.stop_reason) {
+                emitter.stopReason = claudeChunk.delta.stop_reason;
+            }
         }
 
         // message_stop 事件
         if (claudeChunk.type === 'message_stop') {
-            const state = streamStateManager.getOrCreateState(stateKey);
-            const savedUsage = state.savedUsage || null;
-            if (state.reasoningStarted) {
-                events.push({
-                    type: "response.reasoning_summary_text.done",
-                    item_id: state.reasoningId,
-                    output_index: 0,
-                    summary_index: 0,
-                    text: state.reasoningText
-                });
-                events.push({
-                    type: "response.reasoning_summary_part.done",
-                    item_id: state.reasoningId,
-                    output_index: 0,
-                    summary_index: 0,
-                    part: {
-                        type: "summary_text",
-                        text: state.reasoningText
-                    }
-                });
-                events.push({
-                    type: "response.output_item.done",
-                    output_index: 0,
-                    item: {
-                        id: state.reasoningId,
-                        type: "reasoning",
-                        status: "completed",
-                        summary: [{
-                            type: "summary_text",
-                            text: state.reasoningText
-                        }]
-                    }
-                });
+            let status = 'completed';
+            let incompleteDetails = null;
+            if (emitter.stopReason === 'max_tokens') {
+                status = 'incomplete';
+                incompleteDetails = { reason: 'max_output_tokens' };
             }
-            events.push(
-                generateOutputTextDone(stateKey),
-                generateContentPartDone(stateKey),
-                generateOutputItemDone(stateKey)
-            );
-            const completedEvent = generateResponseCompleted(stateKey, savedUsage);
-            if (state.reasoningStarted) {
-                completedEvent.response.output.unshift({
-                    id: state.reasoningId,
-                    type: "reasoning",
-                    status: "completed",
-                    summary: [{
-                        type: "summary_text",
-                        text: state.reasoningText
-                    }]
-                });
-            }
-            events.push(completedEvent);
-            streamStateManager.cleanup(stateKey);
+            events.push(...emitter.complete(emitter.savedUsage, { status, incompleteDetails }));
         }
 
         return events;

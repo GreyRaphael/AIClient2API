@@ -40,6 +40,7 @@ import {
     generateResponseCompleted,
     streamStateManager
 } from '../../providers/openai/openai-responses-events.js';
+import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 import {
     effortToClaudeBudget,
     effortToGeminiThinking,
@@ -1843,54 +1844,32 @@ export class OpenAIConverter extends BaseConverter {
         };
     }
 
-    _getOpenAIResponsesStreamState(openaiChunk, model, requestId) {
+    _getOpenAIResponsesStreamEmitter(openaiChunk, model, requestId) {
         const stateKey = requestId || openaiChunk?.id || 'default';
         if (!this.openAIResponsesStreamStates.has(stateKey)) {
             const responseId = openaiChunk?.id || `resp_${uuidv4().replace(/-/g, '')}`;
-            this.openAIResponsesStreamStates.set(stateKey, {
+            const emitter = new ResponsesSseEmitter({
+                requestId: stateKey,
                 responseId,
-                msgId: this._buildResponsesMessageItemId(responseId, 0),
                 model: model || openaiChunk?.model || 'unknown',
                 createdAt: openaiChunk?.created || Math.floor(Date.now() / 1000),
-                sequenceNumber: 0,
-                nextOutputIndex: 0,
-                // reasoning/text 的 outputIndex 在各自首个对应内容到来时由 nextOutputIndex 分配
-                reasoningOutputIndex: null,
-                textOutputIndex: null,
-                started: false,
-                textStarted: false,
-                reasoningStarted: false,
-                reasoningId: null,
-                reasoningText: '',
-                toolCalls: new Map()
+                store: this.openAIResponsesStreamStates
             });
+            this.openAIResponsesStreamStates.set(stateKey, emitter);
         }
 
-        const state = this.openAIResponsesStreamStates.get(stateKey);
-        if (openaiChunk?.id && state.responseId !== openaiChunk.id) {
-            state.responseId = openaiChunk.id;
-            state.msgId = this._buildResponsesMessageItemId(state.responseId, 0);
+        const emitter = this.openAIResponsesStreamStates.get(stateKey);
+        if (openaiChunk?.id) {
+            emitter.setResponseId(openaiChunk.id);
         }
         if (model || openaiChunk?.model) {
-            state.model = model || openaiChunk.model;
+            emitter.setModel(model || openaiChunk.model);
         }
         if (openaiChunk?.created) {
-            state.createdAt = openaiChunk.created;
+            emitter.setCreatedAt(openaiChunk.created);
         }
 
-        const coreState = streamStateManager.getOrCreateState(stateKey);
-        coreState.id = state.responseId;
-        coreState.msgId = state.msgId;
-        coreState.model = state.model;
-        coreState.startTime = state.createdAt;
-        if (!state.started) {
-            coreState.fullText = '';
-            coreState.toolCalls = [];
-            coreState.currentToolCall = null;
-            coreState.status = 'in_progress';
-        }
-
-        return { stateKey, state };
+        return { stateKey, emitter };
     }
 
     _pushResponsesEvents(state, events, ...eventList) {
@@ -2140,176 +2119,53 @@ export class OpenAIConverter extends BaseConverter {
             return [];
         }
 
-        const { stateKey, state } = this._getOpenAIResponsesStreamState(openaiChunk, model, requestId);
+        const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(openaiChunk, model, requestId);
         const choice = openaiChunk.choices[0];
         const delta = choice.delta || {};
         const events = [];
 
-        // 第一个chunk - role为assistant时调用 getOpenAIResponsesStreamChunkBegin
+        // 第一个chunk - role为assistant时确保流已启动
         if (delta.role === 'assistant') {
-            this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
+            events.push(...emitter.start());
         }
 
         // 处理 reasoning_content（推理内容）
         if (delta.reasoning_content) {
-            this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-            if (!state.reasoningStarted) {
-                state.reasoningOutputIndex = state.nextOutputIndex++;
-                state.reasoningId = `rs_${state.responseId}_${state.reasoningOutputIndex}`;
-                this._pushResponsesEvents(state, events,
-                    {
-                        type: "response.output_item.added",
-                        output_index: state.reasoningOutputIndex,
-                        item: {
-                            id: state.reasoningId,
-                            type: "reasoning",
-                            status: "in_progress",
-                            summary: []
-                        }
-                    },
-                    {
-                        type: "response.reasoning_summary_part.added",
-                        item_id: state.reasoningId,
-                        output_index: state.reasoningOutputIndex,
-                        summary_index: 0,
-                        part: {
-                            type: "summary_text",
-                            text: ""
-                        }
-                    }
-                );
-                state.reasoningStarted = true;
-            }
-            state.reasoningText += delta.reasoning_content;
-            this._pushResponsesEvents(state, events, {
-                delta: delta.reasoning_content,
-                item_id: state.reasoningId,
-                output_index: state.reasoningOutputIndex,
-                summary_index: 0,
-                type: "response.reasoning_summary_text.delta"
-            });
+            events.push(...emitter.reasoningDelta(delta.reasoning_content));
         }
 
         // 处理 tool_calls（工具调用）
         if (delta.tool_calls && delta.tool_calls.length > 0) {
             for (const toolCall of delta.tool_calls) {
-                this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-                const toolState = this._getOpenAIResponsesToolState(state, toolCall);
-
-                // 如果有 function.name，说明是工具调用开始
+                const toolIndex = toolCall.index ?? 0;
                 if (toolCall.function && (toolCall.function.name || toolCall.id)) {
-                    this._emitOpenAIResponsesToolStart(state, toolState, events);
+                    events.push(...emitter.toolCallStart(toolCall.id, toolCall.function.name, { index: toolIndex }));
                 }
-
-                // 如果有 function.arguments，说明是参数增量
                 if (toolCall.function && toolCall.function.arguments) {
-                    this._emitOpenAIResponsesToolStart(state, toolState, events);
-                    toolState.arguments += toolCall.function.arguments;
-                    this._pushResponsesEvents(state, events, {
-                        delta: toolCall.function.arguments,
-                        item_id: toolState.itemId,
-                        output_index: toolState.outputIndex,
-                        type: "response.function_call_arguments.delta"
-                    });
+                    events.push(...emitter.toolCallArgsDelta(toolIndex, toolCall.function.arguments));
                 }
             }
         }
 
         // 处理普通文本内容
         if (delta.content) {
-            this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-            this._pushResponsesEvents(state, events,
-                generateOutputTextDelta(stateKey, delta.content, state.textOutputIndex)
-            );
+            events.push(...emitter.textDelta(delta.content));
         }
 
-        // 处理完成状态 - 调用 getOpenAIResponsesStreamChunkEnd
+        // 处理完成状态
         if (choice.finish_reason) {
-            this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-            if (state.reasoningStarted) {
-                this._pushResponsesEvents(state, events,
-                    {
-                        type: "response.reasoning_summary_text.done",
-                        item_id: state.reasoningId,
-                        output_index: state.reasoningOutputIndex,
-                        summary_index: 0,
-                        text: state.reasoningText
-                    },
-                    {
-                        type: "response.reasoning_summary_part.done",
-                        item_id: state.reasoningId,
-                        output_index: state.reasoningOutputIndex,
-                        summary_index: 0,
-                        part: {
-                            type: "summary_text",
-                            text: state.reasoningText
-                        }
-                    },
-                    {
-                        type: "response.output_item.done",
-                        output_index: state.reasoningOutputIndex,
-                        item: {
-                            id: state.reasoningId,
-                            type: "reasoning",
-                            status: "completed",
-                            summary: [{
-                                type: "summary_text",
-                                text: state.reasoningText
-                            }]
-                        }
-                    }
-                );
-            }
-            if (state.textStarted) {
-                this._pushResponsesEvents(state, events,
-                    generateOutputTextDone(stateKey, state.textOutputIndex),
-                    generateContentPartDone(stateKey, state.textOutputIndex),
-                    generateOutputItemDone(stateKey, state.textOutputIndex)
-                );
-            }
-            this._finalizeOpenAIResponsesToolCalls(state, events);
-
-            const coreState = streamStateManager.getOrCreateState(stateKey);
-            coreState.toolCalls = Array.from(state.toolCalls.values()).map(toolState => ({
-                id: toolState.itemId,
-                call_id: toolState.callId,
-                name: toolState.name,
-                arguments: toolState.arguments || '{}'
-            }));
-            const completedEvent = generateResponseCompleted(stateKey, this._buildResponsesUsageFromOpenAIUsage(openaiChunk.usage));
-            if (state.reasoningStarted) {
-                completedEvent.response.output.unshift({
-                    id: state.reasoningId,
-                    type: "reasoning",
-                    status: "completed",
-                    summary: [{
-                        type: "summary_text",
-                        text: state.reasoningText
-                    }]
-                });
-            }
-            this._pushResponsesEvents(state, events, completedEvent);
-
-            // 如果有 usage 信息，更新最后一个事件
-            if (openaiChunk.usage && events.length > 0) {
-                const lastEvent = events[events.length - 1];
-                if (lastEvent.response) {
-                    lastEvent.response.usage = {
-                        input_tokens: openaiChunk.usage.prompt_tokens || 0,
-                        input_tokens_details: {
-                            cached_tokens: openaiChunk.usage.prompt_tokens_details?.cached_tokens || 0
-                        },
-                        output_tokens: openaiChunk.usage.completion_tokens || 0,
-                        output_tokens_details: {
-                            reasoning_tokens: openaiChunk.usage.completion_tokens_details?.reasoning_tokens || 0
-                        },
-                        total_tokens: openaiChunk.usage.total_tokens || 0
-                    };
-                }
+            let status = 'completed';
+            let incompleteDetails = null;
+            if (choice.finish_reason === 'length') {
+                status = 'incomplete';
+                incompleteDetails = { reason: 'max_output_tokens' };
+            } else if (choice.finish_reason === 'content_filter') {
+                status = 'incomplete';
+                incompleteDetails = { reason: 'content_filter' };
             }
 
-            streamStateManager.cleanup(stateKey);
-            this.openAIResponsesStreamStates.delete(stateKey);
+            const usage = this._buildResponsesUsageFromOpenAIUsage(openaiChunk.usage);
+            events.push(...emitter.complete(usage, { status, incompleteDetails }));
         }
 
         return events;

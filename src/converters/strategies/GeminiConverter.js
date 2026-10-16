@@ -32,6 +32,7 @@ import {
     generateResponseCompleted,
     streamStateManager
 } from '../../providers/openai/openai-responses-events.js';
+import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 
 /**
  * 修复 Gemini 返回的工具参数名称问题
@@ -1265,49 +1266,25 @@ export class GeminiConverter extends BaseConverter {
         return typeof args === 'string' ? args : JSON.stringify(args || {});
     }
 
-    _getOpenAIResponsesStreamState(model, requestId) {
+    _getOpenAIResponsesStreamEmitter(model, requestId) {
         const stateKey = requestId || 'default';
         if (!this.openAIResponsesStreamStates.has(stateKey)) {
             const responseId = `resp_${uuidv4().replace(/-/g, '')}`;
-            this.openAIResponsesStreamStates.set(stateKey, {
+            const emitter = new ResponsesSseEmitter({
+                requestId: stateKey,
                 responseId,
-                msgId: this._buildResponsesMessageItemId(responseId, 0),
-                reasoningId: this._buildResponsesReasoningItemId(responseId, 0),
                 model: model || 'unknown',
-                createdAt: Math.floor(Date.now() / 1000),
-                sequenceNumber: 0,
-                started: false,
-                textStarted: false,
-                reasoningStarted: false,
-                reasoningDone: false,
-                reasoningText: '',
-                nextOutputIndex: 0,
-                reasoningOutputIndex: 0,
-                textOutputIndex: 0,
-                completed: false,
-                savedUsage: null,
-                toolCalls: new Map()
+                store: this.openAIResponsesStreamStates
             });
+            this.openAIResponsesStreamStates.set(stateKey, emitter);
         }
 
-        const state = this.openAIResponsesStreamStates.get(stateKey);
+        const emitter = this.openAIResponsesStreamStates.get(stateKey);
         if (model) {
-            state.model = model;
+            emitter.setModel(model);
         }
 
-        const coreState = streamStateManager.getOrCreateState(stateKey);
-        coreState.id = state.responseId;
-        coreState.msgId = state.msgId;
-        coreState.model = state.model;
-        coreState.startTime = state.createdAt;
-        if (!state.started) {
-            coreState.fullText = '';
-            coreState.toolCalls = [];
-            coreState.currentToolCall = null;
-            coreState.status = 'in_progress';
-        }
-
-        return { stateKey, state };
+        return { stateKey, emitter };
     }
 
     _pushResponsesEvents(state, events, ...eventList) {
@@ -1643,14 +1620,14 @@ export class GeminiConverter extends BaseConverter {
     toOpenAIResponsesStreamChunk(geminiChunk, model, requestId = null) {
         if (!geminiChunk) return [];
 
-        const { stateKey, state } = this._getOpenAIResponsesStreamState(model, requestId);
+        const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
         const events = [];
 
         // 处理完整的Gemini chunk对象
         if (typeof geminiChunk === 'object' && !Array.isArray(geminiChunk)) {
             // 保存 usageMetadata
             if (geminiChunk.usageMetadata) {
-                state.savedUsage = {
+                emitter.savedUsage = {
                     input_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
                     input_tokens_details: {
                         cached_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0
@@ -1672,7 +1649,7 @@ export class GeminiConverter extends BaseConverter {
                 if (candidate.content?.role === 'model' && parts && parts.length > 0) {
                     const hasContent = parts.some(part => part && typeof part.text === 'string' && part.text.length > 0 && part.thought !== true);
                     if (hasContent) {
-                        this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
+                        events.push(...emitter.start());
                     }
                 }
                 
@@ -1683,42 +1660,7 @@ export class GeminiConverter extends BaseConverter {
                     if (thoughtParts.length > 0) {
                         const thoughtText = thoughtParts.map(part => part.text).join('');
                         if (thoughtText.length > 0) {
-                            this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-                            if (!state.reasoningStarted) {
-                                state.reasoningStarted = true;
-                                state.reasoningOutputIndex = state.nextOutputIndex++;
-                                this._pushResponsesEvents(state, events,
-                                    {
-                                        type: "response.output_item.added",
-                                        output_index: state.reasoningOutputIndex,
-                                        item: {
-                                            id: state.reasoningId,
-                                            type: "reasoning",
-                                            status: "in_progress",
-                                            summary: []
-                                        }
-                                    },
-                                    {
-                                        type: "response.reasoning_summary_part.added",
-                                        item_id: state.reasoningId,
-                                        output_index: state.reasoningOutputIndex,
-                                        summary_index: 0,
-                                        part: {
-                                            type: "summary_text",
-                                            text: ""
-                                        }
-                                    }
-                                );
-                            }
-                            state.reasoningText += thoughtText;
-                            this._pushResponsesEvents(state, events, {
-                                type: 'response.reasoning_summary_text.delta',
-                                item_id: state.reasoningId,
-                                response_id: state.responseId,
-                                output_index: state.reasoningOutputIndex,
-                                summary_index: 0,
-                                delta: thoughtText
-                            });
+                            events.push(...emitter.reasoningDelta(thoughtText));
                         }
                     }
 
@@ -1732,44 +1674,11 @@ export class GeminiConverter extends BaseConverter {
 
                         if (text.length > 0 && !isMeaninglessPlaceholder) {
                             // 若之前开启了思考模式且尚未闭合，先闭合思考块
-                            if (state.reasoningStarted && !state.reasoningDone) {
-                                this._pushResponsesEvents(state, events,
-                                    {
-                                        type: "response.reasoning_summary_text.done",
-                                        item_id: state.reasoningId,
-                                        output_index: state.reasoningOutputIndex,
-                                        summary_index: 0,
-                                        text: state.reasoningText
-                                    },
-                                    {
-                                        type: "response.reasoning_summary_part.done",
-                                        item_id: state.reasoningId,
-                                        output_index: state.reasoningOutputIndex,
-                                        summary_index: 0,
-                                        part: {
-                                            type: "summary_text",
-                                            text: state.reasoningText
-                                        }
-                                    },
-                                    {
-                                        type: "response.output_item.done",
-                                        output_index: state.reasoningOutputIndex,
-                                        item: {
-                                            id: state.reasoningId,
-                                            type: "reasoning",
-                                            status: "completed",
-                                            summary: [{
-                                                type: "summary_text",
-                                                text: state.reasoningText
-                                            }]
-                                        }
-                                    }
-                                );
-                                state.reasoningDone = true;
+                            if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                                events.push(...emitter.reasoningDone());
                             }
 
-                            this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-                            this._pushResponsesEvents(state, events, generateOutputTextDelta(stateKey, text, state.textOutputIndex));
+                            events.push(...emitter.textDelta(text));
                         }
                     }
 
@@ -1777,130 +1686,48 @@ export class GeminiConverter extends BaseConverter {
                     const functionParts = parts.filter(part => part && part.functionCall);
                     if (functionParts.length > 0) {
                         // 先闭合可能处于打开状态的 reasoning 块
-                        if (state.reasoningStarted && !state.reasoningDone) {
-                            this._pushResponsesEvents(state, events,
-                                {
-                                    type: "response.reasoning_summary_text.done",
-                                    item_id: state.reasoningId,
-                                    output_index: state.reasoningOutputIndex,
-                                    summary_index: 0,
-                                    text: state.reasoningText
-                                },
-                                {
-                                    type: "response.reasoning_summary_part.done",
-                                    item_id: state.reasoningId,
-                                    output_index: state.reasoningOutputIndex,
-                                    summary_index: 0,
-                                    part: {
-                                        type: "summary_text",
-                                        text: state.reasoningText
-                                    }
-                                },
-                                {
-                                    type: "response.output_item.done",
-                                    output_index: state.reasoningOutputIndex,
-                                    item: {
-                                        id: state.reasoningId,
-                                        type: "reasoning",
-                                        status: "completed",
-                                        summary: [{
-                                            type: "summary_text",
-                                            text: state.reasoningText
-                                        }]
-                                    }
-                                }
-                            );
-                            state.reasoningDone = true;
+                        if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                            events.push(...emitter.reasoningDone());
                         }
 
                         // 先闭合可能处于打开状态的 text 块
-                        if (state.textStarted) {
-                            this._pushResponsesEvents(state, events,
-                                generateOutputTextDone(stateKey, state.textOutputIndex),
-                                generateContentPartDone(stateKey, state.textOutputIndex),
-                                generateOutputItemDone(stateKey, state.textOutputIndex)
-                            );
-                            state.textStarted = false;
+                        if (emitter.textStarted && !emitter.textDoneFlag) {
+                            events.push(...emitter.textDone());
                         }
 
                         functionParts.forEach((part, index) => {
-                            const toolState = this._getGeminiResponsesToolState(state, part, index);
-                            this._emitGeminiResponsesTool(stateKey, state, toolState, events);
-                        });
+                            const callId = part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
+                            const isCustom = part.functionCall.name === 'apply_patch';
+                            let argsVal = '';
+                            if (isCustom) {
+                                const rawArgs = part.functionCall.args;
+                                if (typeof rawArgs === 'string') {
+                                    argsVal = rawArgs;
+                                } else if (rawArgs && typeof rawArgs === 'object') {
+                                    argsVal = rawArgs.patch || rawArgs.input || rawArgs.content || JSON.stringify(rawArgs);
+                                }
+                            } else {
+                                argsVal = this._stringifyGeminiFunctionArgs(part.functionCall.args);
+                            }
 
-                        const coreState = streamStateManager.getOrCreateState(stateKey);
-                        coreState.toolCalls = Array.from(state.toolCalls.values()).map(toolState => ({
-                            id: toolState.itemId,
-                            call_id: toolState.callId,
-                            type: toolState.isCustom ? 'custom_tool_call' : 'function_call',
-                            name: toolState.name,
-                            input: toolState.input || '',
-                            arguments: toolState.arguments || '{}'
-                        }));
+                            events.push(...emitter.toolCallStart(callId, part.functionCall.name, { index, isCustom }));
+                            if (argsVal) {
+                                events.push(...emitter.toolCallArgsDelta(index, argsVal));
+                            }
+                            events.push(...emitter.toolCallDone(index));
+                        });
                     }
                 }
             }
 
             // 检查是否应该完成响应（遇到 candidate.finishReason，或在已有开始状态下遇到纯 usage 帧）
-            const shouldComplete = !state.completed && (
+            const shouldComplete = !emitter.done && (
                 Boolean(candidate?.finishReason) ||
-                (!candidate && Boolean(geminiChunk.usageMetadata) && (state.started || state.textStarted || state.reasoningStarted || state.toolCalls.size > 0))
+                (!candidate && Boolean(geminiChunk.usageMetadata) && (emitter.started || emitter.textStarted || emitter.reasoningStarted || emitter.toolCalls.size > 0))
             );
 
             if (shouldComplete) {
-                state.completed = true;
-                this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-
-                // 如果有 reasoning 尚未闭合，先闭合 reasoning
-                if (state.reasoningStarted && !state.reasoningDone) {
-                    this._pushResponsesEvents(state, events,
-                        {
-                            type: "response.reasoning_summary_text.done",
-                            item_id: state.reasoningId,
-                            output_index: state.reasoningOutputIndex,
-                            summary_index: 0,
-                            text: state.reasoningText
-                        },
-                        {
-                            type: "response.reasoning_summary_part.done",
-                            item_id: state.reasoningId,
-                            output_index: state.reasoningOutputIndex,
-                            summary_index: 0,
-                            part: {
-                                type: "summary_text",
-                                text: state.reasoningText
-                            }
-                        },
-                        {
-                            type: "response.output_item.done",
-                            output_index: state.reasoningOutputIndex,
-                            item: {
-                                id: state.reasoningId,
-                                type: "reasoning",
-                                status: "completed",
-                                summary: [{
-                                    type: "summary_text",
-                                    text: state.reasoningText
-                                }]
-                            }
-                        }
-                    );
-                    state.reasoningDone = true;
-                }
-
-                if (state.textStarted) {
-                    this._pushResponsesEvents(state, events,
-                        generateOutputTextDone(stateKey, state.textOutputIndex),
-                        generateContentPartDone(stateKey, state.textOutputIndex),
-                        generateOutputItemDone(stateKey, state.textOutputIndex)
-                    );
-                    state.textStarted = false;
-                }
-
-                // 闭合所有处于进行中的工具调用
-                this._closeGeminiResponsesTools(stateKey, state, events);
-
-                const usage = state.savedUsage || {
+                const usage = emitter.savedUsage || {
                     input_tokens: geminiChunk.usageMetadata?.promptTokenCount || 0,
                     input_tokens_details: {
                         cached_tokens: geminiChunk.usageMetadata?.cachedContentTokenCount || 0
@@ -1912,29 +1739,20 @@ export class GeminiConverter extends BaseConverter {
                     total_tokens: geminiChunk.usageMetadata?.totalTokenCount || 0
                 };
 
-                const completedEvent = generateResponseCompleted(stateKey, usage);
-                if (state.reasoningStarted) {
-                    completedEvent.response.output.unshift({
-                        id: state.reasoningId,
-                        type: "reasoning",
-                        status: "completed",
-                        summary: [{
-                            type: "summary_text",
-                            text: state.reasoningText
-                        }]
-                    });
+                let status = 'completed';
+                let incompleteDetails = null;
+                if (candidate?.finishReason === 'MAX_TOKENS') {
+                    status = 'incomplete';
+                    incompleteDetails = { reason: 'max_output_tokens' };
                 }
-                this._pushResponsesEvents(state, events, completedEvent);
 
-                streamStateManager.cleanup(stateKey);
-                this.openAIResponsesStreamStates.delete(stateKey);
+                events.push(...emitter.complete(usage, { status, incompleteDetails }));
             }
         }
 
         // 向后兼容：处理字符串格式
         if (typeof geminiChunk === 'string') {
-            this._ensureOpenAIResponsesTextStarted(stateKey, state, events);
-            this._pushResponsesEvents(state, events, generateOutputTextDelta(stateKey, geminiChunk, state.textOutputIndex));
+            events.push(...emitter.textDelta(geminiChunk));
         }
 
         return events;
