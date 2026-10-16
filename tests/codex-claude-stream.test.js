@@ -92,7 +92,8 @@ describe('B3: thinking -> text 块切换', () => {
         expect(types(events)).toEqual([
             'message_start',
             'content_block_start',   // thinking @0
-            'content_block_delta',
+            'content_block_delta',   // thinking_delta
+            'content_block_delta',   // signature_delta (Phase 2 Signature Vault)
             'content_block_stop',    // thinking @0
             'content_block_start',   // text @1
             'content_block_delta',
@@ -102,7 +103,9 @@ describe('B3: thinking -> text 块切换', () => {
         ]);
         expect(events[1]).toEqual({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } });
         expect(events[2].delta).toEqual({ type: 'thinking_delta', thinking: '想一下' });
-        expect(events[4]).toEqual({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } });
+        expect(events[3].delta.type).toBe('signature_delta');
+        expect(events[3].delta.signature).toMatch(/^vsig1\./);
+        expect(events[5]).toEqual({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } });
     });
 });
 

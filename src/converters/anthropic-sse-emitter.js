@@ -17,6 +17,8 @@
  *   字段构成保留在调用方——各上游语义不同，不属于公共骨架。
  */
 
+import { mintVirtualSignature, isSignatureVaultEnabled } from './signature-vault.js';
+
 let emitterSeq = 0;
 
 export class AnthropicSseEmitter {
@@ -26,13 +28,15 @@ export class AnthropicSseEmitter {
      * @param {string} [options.messageId] - 消息 ID（默认自动生成 msg_ 前缀）
      * @param {'sequential'|'multi'} [options.blockMode] - 块管理语义
      */
-    constructor({ model = 'unknown', messageId = null, blockMode = 'sequential' } = {}) {
+    constructor({ model = 'unknown', messageId = null, blockMode = 'sequential', sessionKey = null, mintSignatures = false } = {}) {
         if (blockMode !== 'sequential' && blockMode !== 'multi') {
             throw new Error(`AnthropicSseEmitter: unknown blockMode '${blockMode}'`);
         }
         this.model = model;
         this.messageId = messageId || `msg_${Date.now().toString(36)}_${(emitterSeq++).toString(36)}`;
         this.blockMode = blockMode;
+        this.sessionKey = sessionKey;
+        this.mintSignatures = mintSignatures;
 
         this.msgStarted = false;
         this.done = false;
@@ -42,6 +46,7 @@ export class AnthropicSseEmitter {
         this.activeIndex = -1;
         this.activeType = null;
         this.openBlocks = new Map(); // multi 模式：index -> type
+        this.thinkingBlocks = new Map(); // index -> { text: string, sawSignature: boolean }
     }
 
     get started() {
@@ -99,6 +104,9 @@ export class AnthropicSseEmitter {
             events.push(...this.closeActiveBlock());
             this.activeIndex = this.nextBlockIndex++;
             this.activeType = type;
+            if (type === 'thinking') {
+                this.thinkingBlocks.set(this.activeIndex, { text: '', sawSignature: false });
+            }
             events.push({
                 type: 'content_block_start',
                 index: this.activeIndex,
@@ -109,6 +117,9 @@ export class AnthropicSseEmitter {
 
         const index = this.nextBlockIndex++;
         this.openBlocks.set(index, type);
+        if (type === 'thinking') {
+            this.thinkingBlocks.set(index, { text: '', sawSignature: false });
+        }
         events.push({
             type: 'content_block_start',
             index,
@@ -130,6 +141,13 @@ export class AnthropicSseEmitter {
         if (this.activeIndex < 0) {
             throw new Error('AnthropicSseEmitter: delta() 调用前需先 openBlock()（当前无活动块）');
         }
+        if (deltaObj?.type === 'thinking_delta') {
+            const tb = this.thinkingBlocks.get(this.activeIndex);
+            if (tb) tb.text += (deltaObj.thinking || '');
+        } else if (deltaObj?.type === 'signature_delta') {
+            const tb = this.thinkingBlocks.get(this.activeIndex);
+            if (tb) tb.sawSignature = true;
+        }
         return {
             type: 'content_block_delta',
             index: this.activeIndex,
@@ -144,6 +162,13 @@ export class AnthropicSseEmitter {
      * @returns {Object} 事件对象
      */
     deltaAt(index, deltaObj) {
+        if (deltaObj?.type === 'thinking_delta') {
+            const tb = this.thinkingBlocks.get(index);
+            if (tb) tb.text += (deltaObj.thinking || '');
+        } else if (deltaObj?.type === 'signature_delta') {
+            const tb = this.thinkingBlocks.get(index);
+            if (tb) tb.sawSignature = true;
+        }
         return {
             type: 'content_block_delta',
             index,
@@ -157,7 +182,12 @@ export class AnthropicSseEmitter {
      */
     closeActiveBlock() {
         if (this.blockMode === 'sequential' && this.activeType !== null) {
-            const events = [{ type: 'content_block_stop', index: this.activeIndex }];
+            const events = [];
+            const index = this.activeIndex;
+            if (this.activeType === 'thinking') {
+                events.push(...this._maybeMintSignature(index));
+            }
+            events.push({ type: 'content_block_stop', index });
             this.activeType = null;
             this.activeIndex = -1;
             return events;
@@ -171,8 +201,14 @@ export class AnthropicSseEmitter {
      * @returns {Array} 事件数组
      */
     closeBlockAt(index) {
+        const type = this.openBlocks.get(index);
         if (this.openBlocks.delete(index)) {
-            return [{ type: 'content_block_stop', index }];
+            const events = [];
+            if (type === 'thinking') {
+                events.push(...this._maybeMintSignature(index));
+            }
+            events.push({ type: 'content_block_stop', index });
+            return events;
         }
         return [];
     }
@@ -186,11 +222,38 @@ export class AnthropicSseEmitter {
             return this.closeActiveBlock();
         }
         const events = [];
-        for (const index of this.openBlocks.keys()) {
+        for (const [index, type] of this.openBlocks.entries()) {
+            if (type === 'thinking') {
+                events.push(...this._maybeMintSignature(index));
+            }
             events.push({ type: 'content_block_stop', index });
         }
         this.openBlocks.clear();
         return events;
+    }
+
+    /**
+     * @private
+     */
+    _maybeMintSignature(index) {
+        if (!this.mintSignatures) return [];
+        const tb = this.thinkingBlocks.get(index);
+        this.thinkingBlocks.delete(index);
+        if (!tb || tb.sawSignature) return [];
+        if (!isSignatureVaultEnabled()) return [];
+        const sig = mintVirtualSignature({
+            sessionKey: this.sessionKey || this.messageId,
+            blockIndex: index,
+            thinkingText: tb.text
+        });
+        return [{
+            type: 'content_block_delta',
+            index,
+            delta: {
+                type: 'signature_delta',
+                signature: sig
+            }
+        }];
     }
 
     /**

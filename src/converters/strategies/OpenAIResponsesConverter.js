@@ -14,6 +14,7 @@ import {
     effortToGeminiThinking,
     isGemini3Model
 } from '../thinking-budget.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import {
     mapFinishReason as sharedMapFinishReason,
     extractAndProcessSystemMessages as extractSystemMessages,
@@ -925,7 +926,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         .filter(Boolean)
                         .join('\n');
                     if (thinking) {
-                        content.push({ type: 'thinking', thinking });
+                        const block = { type: 'thinking', thinking };
+                        if (isSignatureVaultEnabled()) {
+                            block.signature = mintVirtualSignature({
+                                sessionKey: responsesResponse.id || 'responses',
+                                blockIndex: content.length,
+                                thinkingText: thinking
+                            });
+                        }
+                        content.push(block);
                     }
                 }
             });
@@ -1084,10 +1093,26 @@ export class OpenAIResponsesConverter extends BaseConverter {
             const index = this._normalizeClaudeStreamIndex(responsesChunk);
             if (!state.stoppedBlocks.has(`reasoning:${index}`)) {
                 state.stoppedBlocks.add(`reasoning:${index}`);
-                return {
+                const events = [];
+                if (isSignatureVaultEnabled()) {
+                    events.push({
+                        type: 'content_block_delta',
+                        index,
+                        delta: {
+                            type: 'signature_delta',
+                            signature: mintVirtualSignature({
+                                sessionKey: requestId || 'responses',
+                                blockIndex: index,
+                                thinkingText: ''
+                            })
+                        }
+                    });
+                }
+                events.push({
                     type: 'content_block_stop',
                     index
-                };
+                });
+                return events;
             }
             return null;
         }

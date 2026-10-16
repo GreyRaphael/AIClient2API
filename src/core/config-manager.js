@@ -59,6 +59,24 @@ function normalizeSchemaPolyfillConfig(config) {
     }
 }
 
+function normalizeSignatureVaultConfig(config) {
+    if (process.env.SIGNATURE_VAULT !== undefined) {
+        config.SIGNATURE_VAULT = process.env.SIGNATURE_VAULT !== 'false' &&
+                                 process.env.SIGNATURE_VAULT !== '0' &&
+                                 process.env.SIGNATURE_VAULT !== 'off';
+    } else {
+        config.SIGNATURE_VAULT = config.SIGNATURE_VAULT ?? true;
+    }
+
+    if (process.env.SIGNATURE_VAULT_STRIP !== undefined) {
+        config.SIGNATURE_VAULT_STRIP = process.env.SIGNATURE_VAULT_STRIP !== 'false' &&
+                                       process.env.SIGNATURE_VAULT_STRIP !== '0' &&
+                                       process.env.SIGNATURE_VAULT_STRIP !== 'off';
+    } else {
+        config.SIGNATURE_VAULT_STRIP = config.SIGNATURE_VAULT_STRIP ?? true;
+    }
+}
+
 function normalizeConfiguredProviders(config) {
     const fallbackProvider = MODEL_PROVIDER.ANTIGRAVITY;
     const dedupedProviders = [];
@@ -280,6 +298,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
 
     normalizeRequestBodyMaxBytes(currentConfig);
     normalizeSchemaPolyfillConfig(currentConfig);
+    normalizeSignatureVaultConfig(currentConfig);
     normalizeConfiguredProviders(currentConfig);
 
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {

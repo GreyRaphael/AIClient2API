@@ -20,6 +20,7 @@ import {
     getOpenAIStreamIdentity
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
+import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.js';
 import {
     finishToolCall,
     generateContentPartAdded,
@@ -119,6 +120,24 @@ export class ClaudeConverter extends BaseConverter {
         }
     }
 
+    /**
+     * 在向非 Claude 上游发送请求前剥离虚拟签名 thinking 块
+     * @private
+     */
+    _stripVirtualSignaturesFromRequest(claudeRequest, methodName = 'convert') {
+        if (!claudeRequest || typeof claudeRequest !== 'object') {
+            return claudeRequest;
+        }
+        if (Array.isArray(claudeRequest.messages) && isSignatureStrippingEnabled()) {
+            const { messages: strippedMessages, stripped } = stripVirtualSignatures(claudeRequest.messages);
+            if (stripped > 0) {
+                logger.debug(`[ClaudeConverter] ${methodName}: Stripped ${stripped} virtual signature thinking block(s)`);
+            }
+            return { ...claudeRequest, messages: strippedMessages };
+        }
+        return claudeRequest;
+    }
+
     // =========================================================================
     // Claude -> OpenAI 转换
     // =========================================================================
@@ -127,6 +146,7 @@ export class ClaudeConverter extends BaseConverter {
      * Claude请求 -> OpenAI请求
      */
     toOpenAIRequest(claudeRequest) {
+        claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toOpenAIRequest');
         const openaiMessages = [];
         let systemMessageContent = '';
 
@@ -938,6 +958,7 @@ export class ClaudeConverter extends BaseConverter {
             logger.warn("Invalid claudeRequest provided to toGeminiRequest.");
             return { contents: [] };
         }
+        claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toGeminiRequest');
 
         const geminiRequest = {
             contents: []
@@ -1903,6 +1924,7 @@ export class ClaudeConverter extends BaseConverter {
      * Claude请求 -> OpenAI Responses请求
      */
     toOpenAIResponsesRequest(claudeRequest) {
+        claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toOpenAIResponsesRequest');
         const responsesRequest = {
             model: claudeRequest.model,
             input: [],
@@ -2409,6 +2431,7 @@ export class ClaudeConverter extends BaseConverter {
      * Claude请求 -> Codex请求
      */
     toCodexRequest(claudeRequest) {
+        claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toCodexRequest');
         const codexRequest = {
             model: claudeRequest.model,
             instructions: '',

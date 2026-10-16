@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import {
     checkAndAssignOrDefault,
     mapFinishReason,
@@ -727,7 +728,9 @@ export class GeminiConverter extends BaseConverter {
                 emitter: new AnthropicSseEmitter({
                     model: model || 'unknown',
                     messageId: `msg_${uuidv4().replace(/-/g, '')}`,
-                    blockMode: 'sequential'
+                    blockMode: 'sequential',
+                    sessionKey: requestId || stateKey,
+                    mintSignatures: isSignatureVaultEnabled()
                 }),
                 latestUsage: null
             });
@@ -1026,6 +1029,12 @@ export class GeminiConverter extends BaseConverter {
                                     // 解码失败，保持原样
                                 }
                                 thinkingBlock.signature = signature;
+                            } else if (isSignatureVaultEnabled()) {
+                                thinkingBlock.signature = mintVirtualSignature({
+                                    sessionKey: geminiResponse.id || 'gemini',
+                                    blockIndex: content.length,
+                                    thinkingText: part.text
+                                });
                             }
                             content.push(thinkingBlock);
                         } else {

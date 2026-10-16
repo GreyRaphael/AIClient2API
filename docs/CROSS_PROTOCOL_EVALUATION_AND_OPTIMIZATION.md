@@ -1,8 +1,8 @@
 # AIClient2API 跨协议转译评估与理论优化全景指南
 
-> **版本**：v1.3.0  
+> **版本**：v1.4.0  
 > **更新时间**：2026-10-16  
-> **修订说明**：v1.3.0 完成 Phase 1 工具 Schema Polyfill 降级编译器实施落地（见第八节修订记录）  
+> **修订说明**：v1.4.0 完成 Phase 2 签名金库（Signature Vault）实施落地（见第八节修订记录）  
 > **适用范围**：AIClient2API 网关核心转译管道、协议适配器及周边客户端工具
 
 ---
@@ -159,9 +159,9 @@ flowchart LR
 | **14** | OpenAI Responses | `trae` (ToB) | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 双层转译瓶颈；`input` 折叠为 messages 再包装为 Trae 结构。 |
 | **15** | OpenAI Responses | `trae-solo_work_lite` | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 同上，双层转译瓶颈，面向 SOLO Agent。 |
 | **16** | OpenAI Responses | `trae-chat_v3` | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 同上，双层转译瓶颈，面向 Chat v3。 |
-| **17** | Anthropic Messages | `openai-custom` | Claude ➔ OpenAI | **Tier 2** | **Tier 1** | **Prompt Caching 显式标记丢失**；Claude 3.7 思考签名丢弃；已修复思考预算换算阈值，medium 档复活。 |
-| **18** | Anthropic Messages | `openaiResponses-custom` | Claude ➔ Responses | **Tier 2** | **Tier 1** | `system` 转 `instructions`；思考签名丢失；已统一规范五档预算换算。 |
-| **19** | Anthropic Messages | `openai-codex-oauth` | Claude ➔ Codex | **Tier 2** | **Tier 1** | 缓存控制丢失；预算映射统一；document 块占位并支持 CODEX_PDF_AS_INPUT_FILE 尝鲜。 |
+| **17** | Anthropic Messages | `openai-custom` | Claude ➔ OpenAI | **Tier 1** | **Tier 1** | **Prompt Caching 显式标记丢失**；已修复思考预算换算阈值与签名金库虚拟签名注入/剥离闭环。 |
+| **18** | Anthropic Messages | `openaiResponses-custom` | Claude ➔ Responses | **Tier 1** | **Tier 1** | `system` 转 `instructions`；已统一规范五档预算换算与签名金库虚拟签名闭环。 |
+| **19** | Anthropic Messages | `openai-codex-oauth` | Claude ➔ Codex | **Tier 1** | **Tier 1** | 缓存控制丢失；预算映射统一与签名金库虚拟签名闭环；document 块占位并支持 CODEX_PDF_AS_INPUT_FILE 尝鲜。 |
 | **20** | Anthropic Messages | `gemini-antigravity` | Claude ➔ Gemini ➔ CloudCode | **Tier 1~2** | **Tier 1~2** | 思考签名双向闭环已加固（支持 <50 字符短签名与流式 signature_delta 转发）；document 块原生 inlineData 无损适配（>20MB 兜底）；Schema Polyfill 降级编译器落地。 |
 | **21** | Anthropic Messages | `zed` | Claude ➔ Claude (Zed RPC) | **Tier 0~1** | **Tier 0** | **原生级高保真**。跳过协议转换器；zed-core 仍改写 max_tokens/system/tools/thinking 配置。 |
 | **22** | Anthropic Messages | `trae` (ToB) | Claude ➔ OpenAI ➔ Trae | **Tier 2~3** | **Tier 1~2** | 双层跨协议转译；缓存丢失；复杂工具 Schema 经两次处理易失真。 |
@@ -557,5 +557,22 @@ timeline
 3. **环境变量与配置**：在 `src/core/config-manager.js` 注册 `CONVERT_SCHEMA_POLYFILL`（默认 true）与 `CONVERT_SCHEMA_POLYFILL_MAX_DESC`（默认 1000）。
 4. **单测套件**：新增 `tests/schema-polyfill.test.js`（18 个单元测试，覆盖 $ref 展开、循环截断、超深截断、约束注入与截断、oneOf 同型异型降级、Claude Code Edit/Write 工具真实 fixture 等）。
 5. **评级提升**：Combo 04（OpenAI ➔ Gemini）与 Combo 20（Claude ➔ Gemini）复杂工具场景评级提升至 **Tier 1~2**。
+
+### v1.4.0（2026-10-16，Phase 2 实施落地修订）
+
+完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第三阶段（Phase 2 签名金库 Signature Vault）落地：
+
+1. **新增无状态签名金库**：新增 `src/converters/signature-vault.js`，实现无状态 HMAC 虚拟思考签名（前缀规范 `vsig1.<base64url(payload)>.<base64url(hmac)>`），提供 `mintVirtualSignature`、`isVirtualSignature`、`verifyVirtualSignature` 与 `stripVirtualSignatures` 核心 API。
+2. **X ➔ Claude 响应侧注入闭环**：
+   - 流式侧：`AnthropicSseEmitter` 增加思考签名自动闭环机制，在 thinking 块结束（`closeActiveBlock` / `closeBlockAt` / `closeAllBlocks`）且未收到上游真实签名时，自动补发携带 `vsig1.` 签名的 `signature_delta` 事件；在 `OpenAIConverter`、`CodexConverter`、`GeminiConverter` 流式创建 emitter 时开启注入；并在 `OpenAIResponsesConverter` 的 `reasoning_summary_text.done` 处补全 `signature_delta`。
+   - 非流式侧：在 `OpenAIConverter`、`CodexConverter`、`GeminiConverter`（无原生签名兜底）及 `OpenAIResponsesConverter` 的 `toClaudeResponse` 组装 thinking 块时注入虚拟签名。
+3. **安全剥离与容错降级**：
+   - 跨协议入口：`ClaudeConverter` 各 `toXxxRequest`（OpenAI / Gemini / Responses / Codex / Grok）入口统一调用 `stripVirtualSignatures`，整块移除虚拟签名思考块（真签名块原样保留并转译）；若 assistant 消息仅含虚拟思考且被剥离，自动剔除空消息以防上游 400 校验错误。
+   - 上游护栏：在 `request-pipeline.js` 及 `zed-core.js` 向 Claude 协议上游发送请求前无条件剥离虚拟签名，避免真实 Anthropic 节点因签名不符报错 400。
+   - 降级策略：前缀 O(1) 识别优先，即使实例重启导致 HMAC 校验失败，仍安全剥离，绝不阻断请求链路。
+4. **环境变量与配置**：在 `src/core/config-manager.js` 注册 `SIGNATURE_VAULT`（注入总开关，默认开启）与 `SIGNATURE_VAULT_STRIP`（剥离总开关，默认开启）。
+5. **单测套件**：新增 `tests/signature-vault.test.js`（13 个单元测试，覆盖往返自洽、篡改检测、剥离选择性、端到端思考闭环与重启降级），同步更新相关流式测试。
+6. **评级提升**：Combo 17（Claude ➔ OpenAI）、Combo 18（Claude ➔ Responses）、Combo 19（Claude ➔ Codex）评级提升至 **Tier 1**。
+
 
 

@@ -690,8 +690,9 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
             { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Deep reasoning started...' } }
         ]);
 
-        // Chunk 3: content_block_stop (index 0) + content_block_start (text, index 1) + content_block_delta (text_delta, index 1)
+        // Chunk 3: content_block_delta (signature_delta, index 0) + content_block_stop (index 0) + content_block_start (text, index 1) + content_block_delta (text_delta, index 1)
         expect(ev3).toEqual([
+            { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: expect.stringMatching(/^vsig1\./) } },
             { type: 'content_block_stop', index: 0 },
             { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
             { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Here is the preliminary summary.' } }

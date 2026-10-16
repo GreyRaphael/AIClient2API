@@ -13,6 +13,7 @@ import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.js';
 import { getPluginManager } from '../core/plugin-manager.js';
 import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from '../utils/constants.js';
 import { getProtocolPrefix, ENDPOINT_TYPE } from '../utils/protocol.js';
+import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../converters/signature-vault.js';
 import {
     ensureValidStatusCode,
     getRateLimitCooldownRecoveryTime,
@@ -1473,6 +1474,17 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         });
     } else {
         logger.info(`[Request Convert] Request format matches backend provider. No conversion needed.`);
+    }
+
+    // 若发往 Claude 协议前缀的上游（包括直通 claude-custom / kiro / zed），剥离虚拟签名避免服务端报 400
+    if (getProtocolPrefix(toProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE &&
+        Array.isArray(processedRequestBody.messages) &&
+        isSignatureStrippingEnabled()) {
+        const { messages: strippedMessages, stripped } = stripVirtualSignatures(processedRequestBody.messages);
+        if (stripped > 0) {
+            logger.debug(`[Request Pipeline] Stripped ${stripped} virtual signature thinking block(s) before sending to Claude upstream`);
+            processedRequestBody.messages = strippedMessages;
+        }
     }
     
     // 3. Apply system prompt from file if configured.

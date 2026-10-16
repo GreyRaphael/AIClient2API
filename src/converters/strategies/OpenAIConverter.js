@@ -46,6 +46,7 @@ import {
     isGemini3Model
 } from '../thinking-budget.js';
 import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 
 /**
  * OpenAI转换器类
@@ -442,10 +443,18 @@ export class OpenAIConverter extends BaseConverter {
         // 1. 处理 reasoning_content（推理内容）
         const reasoningContent = choice.message?.reasoning_content || "";
         if (reasoningContent) {
-            thinkingBlocks.push({
+            const block = {
                 type: "thinking",
                 thinking: reasoningContent
-            });
+            };
+            if (isSignatureVaultEnabled()) {
+                block.signature = mintVirtualSignature({
+                    sessionKey: openaiResponse.id || 'openai',
+                    blockIndex: 0,
+                    thinkingText: reasoningContent
+                });
+            }
+            thinkingBlocks.push(block);
         }
 
         // 2. 处理文本内容（支持从文本中解析 <thinking> 标签）
@@ -455,6 +464,13 @@ export class OpenAIConverter extends BaseConverter {
             if (Array.isArray(extractedContent)) {
                 for (const block of extractedContent) {
                     if (block.type === "thinking") {
+                        if (isSignatureVaultEnabled() && !block.signature) {
+                            block.signature = mintVirtualSignature({
+                                sessionKey: openaiResponse.id || 'openai',
+                                blockIndex: thinkingBlocks.length,
+                                thinkingText: block.thinking
+                            });
+                        }
                         thinkingBlocks.push(block);
                     } else if (block.type === "text") {
                         textBlocks.push(block);
@@ -533,7 +549,9 @@ export class OpenAIConverter extends BaseConverter {
                 emitter: new AnthropicSseEmitter({
                     model: model || 'unknown',
                     messageId: `msg_${rawMsgId.replace(/[^a-zA-Z0-9_-]/g, '')}`,
-                    blockMode: 'multi'
+                    blockMode: 'multi',
+                    sessionKey: requestId || stateKey,
+                    mintSignatures: isSignatureVaultEnabled()
                 }),
                 reasoningIndex: null,
                 textIndex: null,

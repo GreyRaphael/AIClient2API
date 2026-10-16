@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
     generateResponseCreated,
@@ -994,7 +995,15 @@ export class CodexConverter extends BaseConverter {
                         if (summaryItem) reasoningText = summaryItem.text;
                     }
                     if (reasoningText) {
-                        content.push({ type: "thinking", thinking: reasoningText });
+                        const block = { type: "thinking", thinking: reasoningText };
+                        if (isSignatureVaultEnabled()) {
+                            block.signature = mintVirtualSignature({
+                                sessionKey: response.id || 'codex',
+                                blockIndex: content.length,
+                                thinkingText: reasoningText
+                            });
+                        }
+                        content.push(block);
                     }
                 } else if (item.type === 'message') {
                     let contentText = '';
@@ -1456,7 +1465,13 @@ export class CodexConverter extends BaseConverter {
         if (type === 'response.created') {
             const resId = chunk.response.id;
             this.streamSessions.set(stateKey, {
-                emitter: new AnthropicSseEmitter({ model, messageId: resId, blockMode: 'sequential' }),
+                emitter: new AnthropicSseEmitter({
+                    model,
+                    messageId: resId,
+                    blockMode: 'sequential',
+                    sessionKey: requestId || stateKey,
+                    mintSignatures: isSignatureVaultEnabled()
+                }),
                 emittedImageGenerationItems: new Set()
             });
             const entry = this.streamSessions.get(stateKey);
@@ -1467,7 +1482,13 @@ export class CodexConverter extends BaseConverter {
             // 如果还没有状态（比如没有收到 response.created 就收到了其他事件），
             // 用 chunk 中能拿到的信息初始化
             this.streamSessions.set(stateKey, {
-                emitter: new AnthropicSseEmitter({ model, messageId: chunk.response?.id || stateKey, blockMode: 'sequential' }),
+                emitter: new AnthropicSseEmitter({
+                    model,
+                    messageId: chunk.response?.id || stateKey,
+                    blockMode: 'sequential',
+                    sessionKey: requestId || stateKey,
+                    mintSignatures: isSignatureVaultEnabled()
+                }),
                 emittedImageGenerationItems: new Set()
             });
         }
