@@ -42,6 +42,23 @@ function normalizeRequestBodyMaxBytes(config) {
     config.REQUEST_BODY_MAX_BYTES = configuredBytes ?? DEFAULT_REQUEST_BODY_MAX_BYTES;
 }
 
+function normalizeSchemaPolyfillConfig(config) {
+    if (process.env.CONVERT_SCHEMA_POLYFILL !== undefined) {
+        config.CONVERT_SCHEMA_POLYFILL = process.env.CONVERT_SCHEMA_POLYFILL !== 'false' &&
+                                         process.env.CONVERT_SCHEMA_POLYFILL !== '0' &&
+                                         process.env.CONVERT_SCHEMA_POLYFILL !== 'off';
+    } else {
+        config.CONVERT_SCHEMA_POLYFILL = config.CONVERT_SCHEMA_POLYFILL ?? true;
+    }
+
+    const envMaxDesc = parsePositiveInteger(process.env.CONVERT_SCHEMA_POLYFILL_MAX_DESC);
+    if (envMaxDesc !== null) {
+        config.CONVERT_SCHEMA_POLYFILL_MAX_DESC = envMaxDesc;
+    } else {
+        config.CONVERT_SCHEMA_POLYFILL_MAX_DESC = parsePositiveInteger(config.CONVERT_SCHEMA_POLYFILL_MAX_DESC) ?? 1000;
+    }
+}
+
 function normalizeConfiguredProviders(config) {
     const fallbackProvider = MODEL_PROVIDER.ANTIGRAVITY;
     const dedupedProviders = [];
@@ -262,6 +279,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     }
 
     normalizeRequestBodyMaxBytes(currentConfig);
+    normalizeSchemaPolyfillConfig(currentConfig);
     normalizeConfiguredProviders(currentConfig);
 
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {

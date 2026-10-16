@@ -149,7 +149,7 @@
 
 ---
 
-## 四、Phase 1：Schema Polyfill 降级编译器（6-8 人日）
+## 四、Phase 1：Schema Polyfill 降级编译器（6-8 人日）[已落地 v1.3.0]
 
 **新增模块**：`src/converters/schema-polyfill.js`
 

@@ -17,6 +17,7 @@ import { getProviderModels } from '../provider-models.js';
 import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.js';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
 import { cleanJsonSchemaProperties } from '../../converters/utils.js';
+import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.js';
 import { getProviderPoolManager } from '../../services/service-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
@@ -498,11 +499,11 @@ function geminiToAntigravity(modelName, payload, projectId) {
             if (tool.functionDeclarations && Array.isArray(tool.functionDeclarations)) {
                 tool.functionDeclarations.forEach((funcDecl) => {
                     if (funcDecl.parametersJsonSchema) {
-                        funcDecl.parameters = cleanJsonSchemaProperties(funcDecl.parametersJsonSchema);
+                        funcDecl.parameters = polyfillAndCleanSchemaForGemini(funcDecl.parametersJsonSchema);
                         delete funcDecl.parameters?.$schema;
                         delete funcDecl.parametersJsonSchema;
                     } else if (funcDecl.parameters) {
-                        funcDecl.parameters = cleanJsonSchemaProperties(funcDecl.parameters);
+                        funcDecl.parameters = polyfillAndCleanSchemaForGemini(funcDecl.parameters);
                     }
                 });
             }
@@ -510,10 +511,10 @@ function geminiToAntigravity(modelName, payload, projectId) {
     }
 
     if (template.request.generationConfig?.responseJsonSchema) {
-        template.request.generationConfig.responseJsonSchema = cleanJsonSchemaProperties(template.request.generationConfig.responseJsonSchema);
+        template.request.generationConfig.responseJsonSchema = polyfillAndCleanSchemaForGemini(template.request.generationConfig.responseJsonSchema);
     }
     if (template.request.generationConfig?.responseSchema) {
-        template.request.generationConfig.responseSchema = cleanJsonSchemaProperties(template.request.generationConfig.responseSchema);
+        template.request.generationConfig.responseSchema = polyfillAndCleanSchemaForGemini(template.request.generationConfig.responseSchema);
     }
 
     // 处理 Thinking 配置：

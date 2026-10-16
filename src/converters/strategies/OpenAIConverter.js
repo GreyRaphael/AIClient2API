@@ -45,6 +45,7 @@ import {
     effortToGeminiThinking,
     isGemini3Model
 } from '../thinking-budget.js';
+import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
 
 /**
  * OpenAI转换器类
@@ -1264,7 +1265,7 @@ export class OpenAIConverter extends BaseConverter {
 
                     // 处理 parameters -> parametersJsonSchema
                     if (func.parameters) {
-                        fnDecl.parametersJsonSchema = cleanJsonSchema(func.parameters);
+                        fnDecl.parametersJsonSchema = polyfillAndCleanSchemaForGemini(func.parameters);
                     } else {
                         fnDecl.parametersJsonSchema = {
                             type: 'object',
@@ -1277,7 +1278,7 @@ export class OpenAIConverter extends BaseConverter {
                     functionDeclarations.push({
                         name: String(t.name),
                         description: String(t.description || ''),
-                        parametersJsonSchema: cleanJsonSchema(t.input_schema || { type: 'object', properties: {} })
+                        parametersJsonSchema: polyfillAndCleanSchemaForGemini(t.input_schema || { type: 'object', properties: {} })
                     });
                 }
                 

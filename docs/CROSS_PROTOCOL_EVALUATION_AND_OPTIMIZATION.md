@@ -1,8 +1,8 @@
 # AIClient2API 跨协议转译评估与理论优化全景指南
 
-> **版本**：v1.2.0  
+> **版本**：v1.3.0  
 > **更新时间**：2026-10-16  
-> **修订说明**：v1.2.0 完成 Phase 0 定点修复包实施落地（损耗点 L1-L5 与 D1 统一，见第八节修订记录）  
+> **修订说明**：v1.3.0 完成 Phase 1 工具 Schema Polyfill 降级编译器实施落地（见第八节修订记录）  
 > **适用范围**：AIClient2API 网关核心转译管道、协议适配器及周边客户端工具
 
 ---
@@ -146,7 +146,7 @@ flowchart LR
 | **01** | OpenAI Chat | `openai-custom` | OpenAI ➔ OpenAI | **Tier 0** | **Tier 0** | 原生 1:1 直通，零损耗。 |
 | **02** | OpenAI Chat | `openaiResponses-custom` | OpenAI ➔ Responses | **Tier 2** | **Tier 1** | 多 system 消息被拼为顶层 instructions；事件流逆向组装。 |
 | **03** | OpenAI Chat | `openai-codex-oauth` | OpenAI ➔ Codex | **Tier 1** | **Tier 1** | 结构转为 Responses；删除清单剔除私有字段并按条件注入内置工具；本地消费流合流。 |
-| **04** | OpenAI Chat | `gemini-antigravity` | OpenAI ➔ Gemini ➔ CloudCode | **Tier 2** | **Tier 1** | 连续同角色 parts 级合并；JSON Schema 按 7 键白名单清洗；思考按模型代际双轨映射。 |
+| **04** | OpenAI Chat | `gemini-antigravity` | OpenAI ➔ Gemini ➔ CloudCode | **Tier 1~2** | **Tier 1** | 连续同角色 parts 级合并；Schema Polyfill（$ref 展开/约束自然语言化注入/oneOf 降级）+ 7 键白名单清洗；思考按模型代际双轨映射。 |
 | **05** | OpenAI Chat | `zed` | OpenAI ➔ Claude ➔ Zed RPC | **Tier 2** | **Tier 1** | 经由 Claude 格式再入 Zed 信封；连续同角色合并。 |
 | **06** | OpenAI Chat | `trae` (ToB) | OpenAI ➔ Trae Raw Chat | **Tier 1** | **Tier 1** | 同源协议轻度包装；`parameters` 转 JSON 字符串；强制 SSE。 |
 | **07** | OpenAI Chat | `trae-solo_work_lite` | OpenAI ➔ Trae SOLO | **Tier 1** | **Tier 1** | 同源协议轻度包装；个人 SOLO 专属 function 路由。 |
@@ -154,7 +154,7 @@ flowchart LR
 | **09** | OpenAI Responses | `openai-custom` | Responses ➔ OpenAI | **Tier 1~2** | **Tier 1** | `input` 结构解包为 messages，已保留 reasoning item（折入 assistant 消息）；item_reference 显式跳过并打日志；流式合流。 |
 | **10** | OpenAI Responses | `openaiResponses-custom` | Responses ➔ Responses | **Tier 0** | **Tier 0** | 原生 1:1 直通，规范完全对齐。 |
 | **11** | OpenAI Responses | `openai-codex-oauth` | Responses ➔ Codex | **Tier 1** | **Tier 1** | 同源高保真；底层皆为 Responses 协议；仅剔除私有拒收字段（删除清单制）并强制注入 reasoning/store 等配置。 |
-| **12** | OpenAI Responses | `gemini-antigravity` | Responses ➔ Gemini ➔ CloudCode | **Tier 2** | **Tier 1~2** | 非消息 item 降级；Schema 深度清洗；已恢复 reasoning.effort 到 Gemini 双轨 thinking 映射；生命周期事件映射重。 |
+| **12** | OpenAI Responses | `gemini-antigravity` | Responses ➔ Gemini ➔ CloudCode | **Tier 2** | **Tier 1~2** | 非消息 item 降级；Schema Polyfill + 深度清洗；已恢复 reasoning.effort 到 Gemini 双轨 thinking 映射；生命周期事件映射重。 |
 | **13** | OpenAI Responses | `zed` | Responses ➔ Claude ➔ Zed RPC | **Tier 2** | **Tier 1** | 双层转换；`input` 转 Claude `messages`；思考参数由 effort 按固定表换算 budget（1024~32000 五档）。 |
 | **14** | OpenAI Responses | `trae` (ToB) | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 双层转译瓶颈；`input` 折叠为 messages 再包装为 Trae 结构。 |
 | **15** | OpenAI Responses | `trae-solo_work_lite` | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 同上，双层转译瓶颈，面向 SOLO Agent。 |
@@ -162,7 +162,7 @@ flowchart LR
 | **17** | Anthropic Messages | `openai-custom` | Claude ➔ OpenAI | **Tier 2** | **Tier 1** | **Prompt Caching 显式标记丢失**；Claude 3.7 思考签名丢弃；已修复思考预算换算阈值，medium 档复活。 |
 | **18** | Anthropic Messages | `openaiResponses-custom` | Claude ➔ Responses | **Tier 2** | **Tier 1** | `system` 转 `instructions`；思考签名丢失；已统一规范五档预算换算。 |
 | **19** | Anthropic Messages | `openai-codex-oauth` | Claude ➔ Codex | **Tier 2** | **Tier 1** | 缓存控制丢失；预算映射统一；document 块占位并支持 CODEX_PDF_AS_INPUT_FILE 尝鲜。 |
-| **20** | Anthropic Messages | `gemini-antigravity` | Claude ➔ Gemini ➔ CloudCode | **Tier 2** | **Tier 1~2** | 思考签名双向闭环已加固（支持 <50 字符短签名与流式 signature_delta 转发）；document 块原生 inlineData 无损适配（>20MB 兜底）；Schema 清洗待 Phase 1 优化。 |
+| **20** | Anthropic Messages | `gemini-antigravity` | Claude ➔ Gemini ➔ CloudCode | **Tier 1~2** | **Tier 1~2** | 思考签名双向闭环已加固（支持 <50 字符短签名与流式 signature_delta 转发）；document 块原生 inlineData 无损适配（>20MB 兜底）；Schema Polyfill 降级编译器落地。 |
 | **21** | Anthropic Messages | `zed` | Claude ➔ Claude (Zed RPC) | **Tier 0~1** | **Tier 0** | **原生级高保真**。跳过协议转换器；zed-core 仍改写 max_tokens/system/tools/thinking 配置。 |
 | **22** | Anthropic Messages | `trae` (ToB) | Claude ➔ OpenAI ➔ Trae | **Tier 2~3** | **Tier 1~2** | 双层跨协议转译；缓存丢失；复杂工具 Schema 经两次处理易失真。 |
 | **23** | Anthropic Messages | `trae-solo_work_lite` | Claude ➔ OpenAI ➔ Trae | **Tier 2~3** | **Tier 1~2** | 同上，双层跨协议转译，思考特征降级为 Trae 3 档深度。 |
@@ -547,4 +547,15 @@ timeline
 3. **Responses➔OpenAI 思考项与引用项保留（0.3，解决 L3）**：请求侧 `reasoning` item 自动折入 assistant 消息（无后续则自建），`item_reference` 显式记录 debug 日志不再静默丢弃；响应侧提取 reasoning output 填充 `reasoning_content`；流式增量与 done 帧合流；Combo 09 评级提升至 Tier 1~2。
 4. **Claude document (PDF) 块全方向处理（0.4，解决 L4）**：Claude ➔ Gemini 实现原生 `inlineData` 封装（>20MB 兜底）；Claude ➔ Responses 映射为 `input_file`；Claude ➔ OpenAI / Codex 提供明确占位符与警告日志（Codex 额外支持 `CODEX_PDF_AS_INPUT_FILE` 尝鲜）。
 5. **思考签名闭环加固（0.5，解决 L5）**：放行 <50 字符短签名；流式 `toGeminiStreamChunk` 捕获 `signature_delta` 并补发带 `thoughtSignature` 的 Gemini chunk；`redacted_thinking` 降级补全 warn 日志；Combo 20 评级提升至 Tier 2。
+
+### v1.3.0（2026-10-16，Phase 1 实施落地修订）
+
+完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第二阶段（Phase 1 Schema Polyfill 降级编译器）落地：
+
+1. **Schema Polyfill 降级编译器（Phase 1）**：新增 `src/converters/schema-polyfill.js`，提供纯函数三段式流水线（`$ref` 静态内联展开、约束自然语言化注入 `[Constraints: ...]`、组合关键字 `oneOf/anyOf` 降级与 `allOf` 浅合并），并输出审计 `report`。
+2. **Gemini 接入链路贯通**：在 `OpenAIConverter.toGeminiTools` 及 `antigravity-core.js`（双模式工具声明清洗）前置接入 `polyfillAndCleanSchemaForGemini`，无缝兼容后续 7 键白名单清洗。
+3. **环境变量与配置**：在 `src/core/config-manager.js` 注册 `CONVERT_SCHEMA_POLYFILL`（默认 true）与 `CONVERT_SCHEMA_POLYFILL_MAX_DESC`（默认 1000）。
+4. **单测套件**：新增 `tests/schema-polyfill.test.js`（18 个单元测试，覆盖 $ref 展开、循环截断、超深截断、约束注入与截断、oneOf 同型异型降级、Claude Code Edit/Write 工具真实 fixture 等）。
+5. **评级提升**：Combo 04（OpenAI ➔ Gemini）与 Combo 20（Claude ➔ Gemini）复杂工具场景评级提升至 **Tier 1~2**。
+
 
