@@ -578,6 +578,7 @@ function getFilteredProviders() {
             p.KIRO_OAUTH_CREDS_FILE_PATH,
             p.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH,
             p.CODEX_OAUTH_CREDS_FILE_PATH,
+            p.CODEX_VERSION,
             p.GROK_CLI_OAUTH_CREDS_FILE_PATH,
             p.ZED_OAUTH_CREDS_FILE_PATH,
             p.TRAE_OAUTH_CREDS_FILE_PATH,

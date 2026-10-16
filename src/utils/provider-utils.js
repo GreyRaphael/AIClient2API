@@ -43,7 +43,7 @@ export const PROVIDER_MAPPINGS = [
         defaultCheckModel: 'gpt-5.5',
         displayName: 'OpenAI Codex OAuth',
         needsProjectId: false,
-        urlKeys: ['CODEX_BASE_URL']
+        urlKeys: ['CODEX_BASE_URL', 'CODEX_VERSION']
     },
     {
         // Grok CLI OAuth 配置

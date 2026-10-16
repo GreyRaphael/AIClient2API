@@ -10,36 +10,25 @@ import {getProviderPoolManager} from '../../services/service-manager.js';
 import {configureTLSSidecar, isTLSSidecarEnabledForProvider} from '../../utils/proxy-utils.js';
 import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.js';
 import {getProxyConfigForProvider} from '../../utils/proxy-utils.js';
-import { execSync } from 'child_process';
 import {getProviderModels, updateProviderModels} from '../provider-models.js';
 import {normalizeCodexInstructions} from './codex-request-utils.js';
 
 export const CODEX_FALLBACK_VERSION = '0.162.1';
 
 /**
- * 动态获取或检测 Codex 客户端版本号
- * 优先级：config.CODEX_VERSION -> env.CODEX_VERSION -> 本机 codex CLI 自动探测 -> CODEX_FALLBACK_VERSION
+ * 获取 Codex 客户端版本号
+ * 仅支持通过节点配置 CODEX_VERSION（WebUI）指定，未设置时使用 CODEX_FALLBACK_VERSION
  * @param {Object} [config]
  * @returns {string}
  */
 export function getCodexVersion(config = null) {
-    if (config?.CODEX_VERSION) {
-        return String(config.CODEX_VERSION).trim();
+    const configVersion = String(config?.CODEX_VERSION ?? '').trim();
+    if (configVersion) {
+        return configVersion;
     }
-    if (process.env.CODEX_VERSION) {
-        return String(process.env.CODEX_VERSION).trim();
-    }
-    try {
-        const out = execSync('codex --version', { encoding: 'utf8', timeout: 1500 });
-        const match = out.match(/(\d+\.\d+\.\d+)/);
-        if (match) {
-            return match[1];
-        }
-    } catch (_) {}
     return CODEX_FALLBACK_VERSION;
 }
 
-export const CODEX_VERSION = getCodexVersion();
 export const CODEX_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 export const IMAGE_MODELS = new Set(['gpt-image-2']);
 
@@ -199,7 +188,7 @@ export class CodexApiService {
         this._modelsFetchPromise = null;
         this.modelMetadataMap = new Map();
         this.availableModels = [];
-        this.version = CODEX_VERSION;
+        this.version = getCodexVersion(config);
     }
 
     _applySidecar(axiosConfig) {
@@ -515,7 +504,7 @@ export class CodexApiService {
      * 构建请求头
      */
     buildHeaders(cacheId, stream = true) {
-        const version = this.version || getCodexVersion(this.config);
+        const version = this.version;
         const headers = {
             'version': version,
             'x-codex-beta-features': 'powershell_utf8',
@@ -1152,7 +1141,7 @@ export class CodexApiService {
                     return this.modelsCache || this._getFallbackModels();
                 }
 
-                const clientVersion = this.version || CODEX_VERSION;
+                const clientVersion = this.version;
                 const cleanBaseUrl = String(this.baseUrl || 'https://chatgpt.com/backend-api/codex').replace(/\/+$/, '');
                 const url = `${cleanBaseUrl}/models?client_version=${encodeURIComponent(clientVersion)}`;
                 const headers = this.buildHeaders(null, false);

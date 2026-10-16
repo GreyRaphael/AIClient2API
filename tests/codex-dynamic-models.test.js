@@ -5,7 +5,7 @@ import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import {
     CodexApiService,
     getCodexModels,
-    CODEX_VERSION,
+    CODEX_FALLBACK_VERSION,
     CODEX_MODELS_CACHE_TTL_MS,
     parseCodexTokenMetadata
 } from '../src/providers/openai/codex-core.js';
@@ -93,7 +93,7 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         expect(mockAxiosRequest).toHaveBeenCalledTimes(1);
         const calledUrl = mockAxiosRequest.mock.calls[0][0].url;
         expect(calledUrl).toContain('/models?client_version=');
-        expect(calledUrl).toContain(CODEX_VERSION);
+        expect(calledUrl).toContain(CODEX_FALLBACK_VERSION);
 
         // Verify listModels formatting
         const list = await service.listModels();
@@ -213,4 +213,65 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         service.stopCacheCleanup();
         mockAxiosRequest.mockRestore();
     });
+
+    test('CodexApiService supports custom CODEX_VERSION per node (e.g., 0.168.1 and 0.170.0)', async () => {
+        // Node 1: version 0.168.1
+        const service1 = new CodexApiService({
+            uuid: 'test-codex-v168',
+            MODEL_PROVIDER: 'openai-codex-oauth',
+            CODEX_VERSION: '0.168.1'
+        });
+        service1.accessToken = 'mock-token-1';
+        service1.accountId = 'mock-account-1';
+        service1.isInitialized = true;
+
+        expect(service1.version).toBe('0.168.1');
+
+        const headers1 = service1.buildHeaders('test-cache-id', false);
+        expect(headers1['version']).toBe('0.168.1');
+        expect(headers1['user-agent']).toContain('codex-tui/0.168.1');
+
+        const mockAxios1 = jest.spyOn(axios, 'request').mockResolvedValueOnce({
+            status: 200,
+            data: { models: [{ slug: 'gpt-5.6-luna', supported_in_api: true }] }
+        });
+
+        await service1.fetchRemoteModels(true);
+        expect(mockAxios1).toHaveBeenCalledTimes(1);
+        const url1 = mockAxios1.mock.calls[0][0].url;
+        expect(url1).toContain('/models?client_version=0.168.1');
+
+        service1.stopCacheCleanup();
+        mockAxios1.mockRestore();
+
+        // Node 2: version 0.170.0
+        const service2 = new CodexApiService({
+            uuid: 'test-codex-v170',
+            MODEL_PROVIDER: 'openai-codex-oauth',
+            CODEX_VERSION: '0.170.0'
+        });
+        service2.accessToken = 'mock-token-2';
+        service2.accountId = 'mock-account-2';
+        service2.isInitialized = true;
+
+        expect(service2.version).toBe('0.170.0');
+
+        const headers2 = service2.buildHeaders('test-cache-id', true);
+        expect(headers2['version']).toBe('0.170.0');
+        expect(headers2['user-agent']).toContain('codex-tui/0.170.0');
+
+        const mockAxios2 = jest.spyOn(axios, 'request').mockResolvedValueOnce({
+            status: 200,
+            data: { models: [{ slug: 'gpt-6-astra', supported_in_api: true }] }
+        });
+
+        await service2.fetchRemoteModels(true);
+        expect(mockAxios2).toHaveBeenCalledTimes(1);
+        const url2 = mockAxios2.mock.calls[0][0].url;
+        expect(url2).toContain('/models?client_version=0.170.0');
+
+        service2.stopCacheCleanup();
+        mockAxios2.mockRestore();
+    });
 });
+

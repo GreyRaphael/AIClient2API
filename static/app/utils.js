@@ -258,6 +258,7 @@ function getFieldLabel(key) {
         'ANTIGRAVITY_BASE_URL_DAILY': t('modal.provider.field.dailyBaseUrl'),
         'ANTIGRAVITY_BASE_URL_AUTOPUSH': t('modal.provider.field.autopushBaseUrl'),
         'CODEX_BASE_URL': t('modal.provider.field.codexBaseUrl'),
+        'CODEX_VERSION': t('modal.provider.field.codexVersion'),
         'GROK_BASE_URL': t('modal.provider.field.grokBaseUrl'),
         'TRAE_CHANNEL_MODE': '通道模式 (Channel Mode)',
         'TRAE_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
@@ -429,6 +430,12 @@ function getProviderTypeFields(providerType) {
                 label: `${t('modal.provider.field.codexBaseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://api.openai.com/v1/codex'
+            },
+            {
+                id: 'CODEX_VERSION',
+                label: `${t('modal.provider.field.codexVersion')} <span class="optional-tag">${t('config.optional')}</span>`,
+                type: 'text',
+                placeholder: t('modal.provider.field.codexVersion.placeholder')
             }
         ],
         'grok-cli-oauth': [
