@@ -40,6 +40,11 @@ import {
     generateResponseCompleted,
     streamStateManager
 } from '../../providers/openai/openai-responses-events.js';
+import {
+    effortToClaudeBudget,
+    effortToGeminiThinking,
+    isGemini3Model
+} from '../thinking-budget.js';
 
 /**
  * OpenAI转换器类
@@ -383,14 +388,7 @@ export class OpenAIConverter extends BaseConverter {
         if (!claudeRequest.thinking && openaiRequest.reasoning_effort) {
             const effort = String(openaiRequest.reasoning_effort).toLowerCase().trim();
             if (effort !== 'none') {
-                const effortBudgetMap = {
-                    'low': 2048,
-                    'medium': 4096,
-                    'high': 8192,
-                    'xhigh': 16384,
-                    'max': 32768
-                };
-                const budget = effortBudgetMap[effort] || 4096;
+                const budget = effortToClaudeBudget(effort);
                 claudeRequest.thinking = { type: 'enabled', budget_tokens: budget };
             }
         }
@@ -1170,28 +1168,11 @@ export class OpenAIConverter extends BaseConverter {
         if (openaiRequest.reasoning_effort) {
             const effort = String(openaiRequest.reasoning_effort).toLowerCase().trim();
             if (this.modelSupportsThinking(model)) {
-                if (this.isGemini3Model(model)) {
-                    // Gemini 3 模型使用 thinkingLevel
-                    if (effort === 'none') {
-                        // 不添加 thinkingConfig
-                    } else if (effort === 'auto') {
-                        geminiRequest.generationConfig = geminiRequest.generationConfig || {};
-                        geminiRequest.generationConfig.thinkingConfig = {
-                            includeThoughts: true
-                        };
-                    } else {
-                        const level = this.validateGemini3ThinkingLevel(model, effort);
-                        if (level) {
-                            geminiRequest.generationConfig = geminiRequest.generationConfig || {};
-                            geminiRequest.generationConfig.thinkingConfig = {
-                                thinkingLevel: level
-                            };
-                        }
-                    }
-                } else if (!this.modelUsesThinkingLevels(model)) {
-                    // 使用 thinkingBudget 的模型
+                const modelFamily = this.isGemini3Model(model) ? 'gemini-3' : 'gemini-2.5';
+                const thinkingConfig = effortToGeminiThinking(effort, { modelFamily, model });
+                if (thinkingConfig) {
                     geminiRequest.generationConfig = geminiRequest.generationConfig || {};
-                    geminiRequest.generationConfig.thinkingConfig = this.applyReasoningEffortToGemini(effort);
+                    geminiRequest.generationConfig.thinkingConfig = thinkingConfig;
                 }
             }
         }
@@ -1369,9 +1350,7 @@ export class OpenAIConverter extends BaseConverter {
      * 检查是否是 Gemini 3 及以上版本模型（采用 thinkingLevel 模式）
      */
     isGemini3Model(model) {
-        if (!model) return false;
-        const m = model.toLowerCase();
-        return /^gemini-[3-9]/.test(m) || m.includes('gemini3');
+        return isGemini3Model(model);
     }
 
     /**
@@ -1399,18 +1378,7 @@ export class OpenAIConverter extends BaseConverter {
      * 将 reasoning_effort 转换为 Gemini thinkingConfig
      */
     applyReasoningEffortToGemini(effort) {
-        const effortToBudget = {
-            'low': 1024,
-            'medium': 8192,
-            'high': 24576,
-            'max': 32768,
-            'xhigh': 32768
-        };
-        const budget = effortToBudget[effort] || effortToBudget['medium'];
-        return {
-            thinkingBudget: budget,
-            includeThoughts: true
-        };
+        return effortToGeminiThinking(effort, { modelFamily: 'gemini-2.5' });
     }
 
     /**

@@ -87,4 +87,28 @@ describe('Gemini -> Claude stream 事件序列合规', () => {
         const md = (out || []).find(e => e.type === 'message_delta');
         expect(md.delta.stop_reason).toBe('max_tokens');
     });
+
+    test('thinking_delta 序列紧跟 thoughtSignature 产生 signature_delta 事件', () => {
+        const converter = new GeminiConverter();
+        const reqId = 'jest_gemini_claude_sig';
+        const model = 'gemini-3.8-flash-high';
+
+        const chunks = [
+            { candidates: [{ content: { role: 'model', parts: [{ text: 'Deep thought step 1', thought: true }] } }] },
+            { candidates: [{ content: { role: 'model', parts: [{ text: '', thought: true, thoughtSignature: 'gemini_golden_sig_xyz' }] } }] },
+            { candidates: [{ content: { role: 'model', parts: [{ text: 'Here is the result' }] } }] },
+            { candidates: [{ content: { role: 'model', parts: [] }, finishReason: 'STOP' }] }
+        ];
+
+        const all = [];
+        for (const c of chunks) {
+            const out = converter.toClaudeStreamChunk(c, model, reqId);
+            if (Array.isArray(out)) all.push(...out);
+            else if (out) all.push(out);
+        }
+
+        const sigDelta = all.find(e => e.delta?.type === 'signature_delta');
+        expect(sigDelta).toBeDefined();
+        expect(sigDelta.delta.signature).toBe('gemini_golden_sig_xyz');
+    });
 });

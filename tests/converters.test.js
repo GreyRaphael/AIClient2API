@@ -187,7 +187,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         };
 
         const oaiReq = convertData(claudeThinking, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI);
-        expect(oaiReq.reasoning_effort).toBe('high');
+        expect(oaiReq.reasoning_effort).toBe('low');
         expect(oaiReq.max_completion_tokens).toBe(4000);
         expect(oaiReq.temperature).toBeUndefined();
         expect(oaiReq.top_p).toBeUndefined();
@@ -1063,5 +1063,194 @@ describe('Grok -> Claude 委托透传 requestId', () => {
             openaiConverter.claudeStreamStates.delete(reqA);
             openaiConverter.claudeStreamStates.delete(reqB);
         }
+    });
+
+    // =========================================================================
+    // Phase 0: 定点修复包测试用例 (0.2, 0.3, 0.4, 0.5)
+    // =========================================================================
+
+    test('Phase 0.2: Responses -> Gemini 保持 reasoning.effort 配置', () => {
+        // 1. Gemini 2.5 模型测试 (thinkingBudget 双轨)
+        const responsesReq25 = {
+            model: 'gemini-2.5-flash',
+            input: [{ role: 'user', content: 'hello' }],
+            reasoning: { effort: 'low' }
+        };
+        const geminiReq25 = convertData(responsesReq25, 'request', MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES, MODEL_PROTOCOL_PREFIX.GEMINI);
+        expect(geminiReq25.generationConfig?.thinkingConfig).toEqual({
+            thinkingBudget: 1024,
+            includeThoughts: true
+        });
+
+        // 2. Gemini 3 模型测试 (thinkingLevel 双轨)
+        const responsesReq3 = {
+            model: 'gemini-3.0-flash',
+            input: [{ role: 'user', content: 'hello' }],
+            reasoning: { effort: 'high' }
+        };
+        const geminiReq3 = convertData(responsesReq3, 'request', MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES, MODEL_PROTOCOL_PREFIX.GEMINI);
+        expect(geminiReq3.generationConfig?.thinkingConfig).toEqual({
+            thinkingLevel: 'HIGH'
+        });
+    });
+
+    test('Phase 0.3: Responses -> OpenAI reasoning item 与 item_reference 保留', () => {
+        const responsesConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
+
+        // 1. 请求侧：reasoning 折入紧随其后的 assistant 消息
+        const reqWithAssistant = {
+            model: 'gpt-4o',
+            input: [
+                { type: 'reasoning', summary: 'Let me think about step 1' },
+                { type: 'message', role: 'assistant', content: 'Here is the answer' }
+            ]
+        };
+        const oaiReq1 = responsesConverter.toOpenAIRequest(reqWithAssistant);
+        expect(oaiReq1.messages).toHaveLength(1);
+        expect(oaiReq1.messages[0]).toMatchObject({
+            role: 'assistant',
+            content: 'Here is the answer',
+            reasoning_content: 'Let me think about step 1'
+        });
+
+        // 2. 请求侧：无后续 assistant 消息自建 assistant 消息
+        const reqWithoutAssistant = {
+            model: 'gpt-4o',
+            input: [
+                { type: 'reasoning', summary: 'Thinking without answer' },
+                { type: 'message', role: 'user', content: 'Next question' }
+            ]
+        };
+        const oaiReq2 = responsesConverter.toOpenAIRequest(reqWithoutAssistant);
+        expect(oaiReq2.messages).toHaveLength(2);
+        expect(oaiReq2.messages[0]).toMatchObject({
+            role: 'assistant',
+            content: '',
+            reasoning_content: 'Thinking without answer'
+        });
+        expect(oaiReq2.messages[1].role).toBe('user');
+
+        // 3. item_reference 跳过并不报错
+        const reqWithRef = {
+            model: 'gpt-4o',
+            input: [
+                { type: 'item_reference', id: 'ref_123' },
+                { type: 'message', role: 'user', content: 'hello' }
+            ]
+        };
+        const oaiReq3 = responsesConverter.toOpenAIRequest(reqWithRef);
+        expect(oaiReq3.messages).toHaveLength(1);
+        expect(oaiReq3.messages[0].content).toBe('hello');
+
+        // 4. 响应侧：reasoning output item 转换为 choices[0].message.reasoning_content
+        const responsesRes = {
+            id: 'resp_123',
+            output: [
+                { type: 'reasoning', summary: 'Thought summary text' },
+                { type: 'message', content: [{ type: 'output_text', text: 'Final answer' }] }
+            ]
+        };
+        const oaiRes = responsesConverter.toOpenAIResponse(responsesRes, 'gpt-4o');
+        expect(oaiRes.choices[0].message.reasoning_content).toBe('Thought summary text');
+        expect(oaiRes.choices[0].message.content).toBe('Final answer');
+    });
+
+    test('Phase 0.4: Claude document (PDF) 块全方向处理', () => {
+        const claudeDocReq = {
+            model: 'claude-3-7-sonnet',
+            messages: [{
+                role: 'user',
+                content: [
+                    {
+                        type: 'document',
+                        title: 'annual_report.pdf',
+                        source: {
+                            type: 'base64',
+                            media_type: 'application/pdf',
+                            data: 'JVBERi0xLjQKJ...'
+                        }
+                    },
+                    { type: 'text', text: 'Summarize this document' }
+                ]
+            }]
+        };
+
+        // 1. -> Gemini: 原生 inlineData 无损适配
+        const geminiReq = convertData(claudeDocReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.GEMINI);
+        const docPart = geminiReq.contents[0].parts.find(p => p.inlineData);
+        expect(docPart).toBeDefined();
+        expect(docPart.inlineData).toEqual({
+            mimeType: 'application/pdf',
+            data: 'JVBERi0xLjQKJ...'
+        });
+
+        // 2. -> Responses: input_file 适配
+        const responsesReq = convertData(claudeDocReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
+        const inputFilePart = responsesReq.input[0].content.find(c => c.type === 'input_file');
+        expect(inputFilePart).toBeDefined();
+        expect(inputFilePart.file_data).toBe('data:application/pdf;base64,JVBERi0xLjQKJ...');
+
+        // 3. -> OpenAI chat: 文本占位兜底
+        const openaiReq = convertData(claudeDocReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI);
+        const docTextPart = openaiReq.messages[0].content.find(c => c.type === 'text' && c.text.includes('[Document: annual_report.pdf'));
+        expect(docTextPart).toBeDefined();
+
+        // 4. -> Codex: 默认文本占位；设置 CODEX_PDF_AS_INPUT_FILE=1 走 input_file
+        const codexReq1 = convertData(claudeDocReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.CODEX);
+        const codexText = codexReq1.input[0].content.find(c => c.type === 'input_text' && c.text.includes('[Document: annual_report.pdf'));
+        expect(codexText).toBeDefined();
+
+        process.env.CODEX_PDF_AS_INPUT_FILE = '1';
+        try {
+            const codexReq2 = convertData(claudeDocReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.CODEX);
+            const codexInputFile = codexReq2.input.find(c => c.type === 'input_file');
+            expect(codexInputFile).toBeDefined();
+            expect(codexInputFile.file_data).toBe('data:application/pdf;base64,JVBERi0xLjQKJ...');
+        } finally {
+            delete process.env.CODEX_PDF_AS_INPUT_FILE;
+        }
+    });
+
+    test('Phase 0.5: Claude -> Gemini 短签名原样透传与流式 signature_delta 转发', () => {
+        const claudeConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.CLAUDE);
+
+        // 1. 短签名 (<50 字符) 请求侧原样透传
+        const shortSigReq = {
+            model: 'gemini-2.5-flash',
+            messages: [{
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', thinking: 'Short think', signature: 'short_sig_123' },
+                    { type: 'text', text: 'Answer' }
+                ]
+            }]
+        };
+        const geminiReq = claudeConverter.toGeminiRequest(shortSigReq);
+        const thinkingPart = geminiReq.contents[0].parts.find(p => p.thought);
+        expect(thinkingPart).toBeDefined();
+        expect(thinkingPart.thoughtSignature).toBe('short_sig_123');
+
+        // 2. 流式 signature_delta 转换为携带 thoughtSignature 的 Gemini chunk
+        const streamSigChunk = {
+            type: 'content_block_delta',
+            index: 0,
+            delta: {
+                type: 'signature_delta',
+                signature: 'gemini_stream_sig_abc'
+            }
+        };
+        const geminiChunk = claudeConverter.toGeminiStreamChunk(streamSigChunk, 'gemini-2.5-flash');
+        expect(geminiChunk).toMatchObject({
+            candidates: [{
+                content: {
+                    role: 'model',
+                    parts: [{
+                        text: '',
+                        thought: true,
+                        thoughtSignature: 'gemini_stream_sig_abc'
+                    }]
+                }
+            }]
+        });
     });
 });

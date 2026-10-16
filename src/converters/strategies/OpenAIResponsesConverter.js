@@ -4,10 +4,16 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import logger from '../../utils/logger.js';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
 import { CodexConverter } from './CodexConverter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
+import {
+    effortToClaudeBudget,
+    effortToGeminiThinking,
+    isGemini3Model
+} from '../thinking-budget.js';
 import {
     mapFinishReason as sharedMapFinishReason,
     extractAndProcessSystemMessages as extractSystemMessages,
@@ -166,11 +172,58 @@ export class OpenAIResponsesConverter extends BaseConverter {
             }];
         }
 
+        let pendingReasoning = '';
+        const shouldPreserveReasoning = () => {
+            return process.env.CONVERT_PRESERVE_REASONING_ITEM !== 'false' && process.env.CONVERT_PRESERVE_REASONING_ITEM !== '0';
+        };
+        const flushPendingReasoning = () => {
+            if (!pendingReasoning) return;
+            if (shouldPreserveReasoning()) {
+                openaiRequest.messages.push({
+                    role: 'assistant',
+                    content: '',
+                    reasoning_content: pendingReasoning
+                });
+            }
+            pendingReasoning = '';
+        };
+
         if (input && Array.isArray(input)) {
             input.forEach(item => {
                 const itemType = item.type || (item.role ? 'message' : '');
                 
                 switch (itemType) {
+                    case 'reasoning': {
+                        if (item.encrypted_content) {
+                            logger.debug('[OpenAIResponsesConverter] reasoning item contains encrypted_content which cannot be translated to OpenAI chat; skipping encrypted_content');
+                        }
+                        let summaryText = '';
+                        if (typeof item.summary === 'string') {
+                            summaryText = item.summary;
+                        } else if (Array.isArray(item.summary)) {
+                            summaryText = item.summary
+                                .map(s => (typeof s === 'string' ? s : (s?.text || '')))
+                                .filter(Boolean)
+                                .join('\n');
+                        } else if (typeof item.content === 'string') {
+                            summaryText = item.content;
+                        } else if (Array.isArray(item.content)) {
+                            summaryText = item.content
+                                .map(c => (typeof c === 'string' ? c : (c?.text || '')))
+                                .filter(Boolean)
+                                .join('\n');
+                        }
+                        if (summaryText) {
+                            pendingReasoning = pendingReasoning ? (pendingReasoning + '\n' + summaryText) : summaryText;
+                        }
+                        break;
+                    }
+
+                    case 'item_reference': {
+                        logger.debug(`[OpenAIResponsesConverter] item_reference item (id: ${item.id || item.item_id || 'unknown'}) cannot be resolved without server-side item storage; skipping`);
+                        break;
+                    }
+
                     case 'message': {
                         // 提取消息内容
                         let content = '';
@@ -186,20 +239,40 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         const role = item.role === 'developer' ? 'system' : item.role;
                         const lastMsg = openaiRequest.messages[openaiRequest.messages.length - 1];
 
-                        // 如果上一条已经是 assistant 消息且尚未带有 tool_calls，合并文本内容
-                        if (role === 'assistant' && lastMsg && lastMsg.role === 'assistant' && !lastMsg.tool_calls) {
-                            lastMsg.content = [lastMsg.content, content].filter(Boolean).join('\n');
-                        } else if (content || (role === 'assistant' || role === 'system')) {
-                            openaiRequest.messages.push({
-                                role: role,
-                                content: content
-                            });
+                        if (role === 'assistant') {
+                            // 如果上一条已经是 assistant 消息且尚未带有 tool_calls，合并文本内容
+                            if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.tool_calls) {
+                                lastMsg.content = [lastMsg.content, content].filter(Boolean).join('\n');
+                                if (pendingReasoning && shouldPreserveReasoning()) {
+                                    lastMsg.reasoning_content = [lastMsg.reasoning_content, pendingReasoning].filter(Boolean).join('\n');
+                                    pendingReasoning = '';
+                                }
+                            } else {
+                                const newMsg = {
+                                    role: role,
+                                    content: content
+                                };
+                                if (pendingReasoning && shouldPreserveReasoning()) {
+                                    newMsg.reasoning_content = pendingReasoning;
+                                    pendingReasoning = '';
+                                }
+                                openaiRequest.messages.push(newMsg);
+                            }
+                        } else {
+                            flushPendingReasoning();
+                            if (content || (role === 'system')) {
+                                openaiRequest.messages.push({
+                                    role: role,
+                                    content: content
+                                });
+                            }
                         }
                         break;
                     }
                     
                     case 'custom_tool_call':
                     case 'function_call': {
+                        flushPendingReasoning();
                         const toolCallObj = {
                             id: item.call_id || item.id,
                             type: 'function',
@@ -232,6 +305,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     
                     case 'custom_tool_call_output':
                     case 'function_call_output':
+                        flushPendingReasoning();
                         openaiRequest.messages.push({
                             role: 'tool',
                             tool_call_id: item.call_id || item.id,
@@ -240,6 +314,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         break;
                 }
             });
+            flushPendingReasoning();
         }
 
         // 如果有标准的 messages 字段，也支持
@@ -307,6 +382,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
             completion_tokens_details: { reasoning_tokens: 0 }
         };
 
+        let reasoningContent = '';
+
         if (responsesResponse.output && Array.isArray(responsesResponse.output)) {
             responsesResponse.output.forEach((item) => {
                 if (item.type === 'message') {
@@ -326,6 +403,26 @@ export class OpenAIResponsesConverter extends BaseConverter {
                             arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {})
                         }
                     });
+                } else if (item.type === 'reasoning') {
+                    let summaryText = '';
+                    if (typeof item.summary === 'string') {
+                        summaryText = item.summary;
+                    } else if (Array.isArray(item.summary)) {
+                        summaryText = item.summary
+                            .map(s => (typeof s === 'string' ? s : (s?.text || '')))
+                            .filter(Boolean)
+                            .join('\n');
+                    } else if (typeof item.content === 'string') {
+                        summaryText = item.content;
+                    } else if (Array.isArray(item.content)) {
+                        summaryText = item.content
+                            .map(c => (typeof c === 'string' ? c : (c?.text || '')))
+                            .filter(Boolean)
+                            .join('\n');
+                    }
+                    if (summaryText) {
+                        reasoningContent = reasoningContent ? (reasoningContent + '\n' + summaryText) : summaryText;
+                    }
                 }
             });
         }
@@ -350,6 +447,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
         if (toolCalls.length > 0) {
             message.tool_calls = toolCalls;
+        }
+        if (reasoningContent) {
+            message.reasoning_content = reasoningContent;
         }
 
         let finishReason = null;
@@ -389,8 +489,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
             delta.content = responsesChunk.delta;
         } else if (responsesChunk.type === 'response.reasoning_text.delta' ||
                    responsesChunk.type === 'response.reasoning_summary_text.delta' ||
-                   responsesChunk.type === 'response.reasoning.delta') {
+                   responsesChunk.type === 'response.reasoning.delta' ||
+                   responsesChunk.type === 'response.reasoning_summary.delta') {
             delta.reasoning_content = responsesChunk.delta;
+        } else if (responsesChunk.type === 'response.reasoning_summary_text.done' ||
+                   responsesChunk.type === 'response.reasoning_text.done' ||
+                   responsesChunk.type === 'response.reasoning.done') {
+            if (responsesChunk.delta) {
+                delta.reasoning_content = responsesChunk.delta;
+            }
         } else if (responsesChunk.type === 'response.function_call_arguments.delta') {
             delta.tool_calls = [{
                 index: responsesChunk.output_index || 0,
@@ -652,17 +759,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (effort === 'none') {
             return { type: 'disabled' };
         }
-        const budgetByEffort = {
-            minimal: 1024,
-            low: 2048,
-            medium: 8192,
-            high: 20000,
-            xhigh: 32000,
-            max: 32000
-        };
         return {
             type: 'enabled',
-            budget_tokens: budgetByEffort[effort] || 20000
+            budget_tokens: effortToClaudeBudget(effort)
         };
     }
 
@@ -1278,6 +1377,17 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
         if (responsesRequest.top_p !== undefined) {
             geminiRequest.generationConfig.topP = responsesRequest.top_p;
+        }
+
+        // 处理 reasoning.effort -> thinkingConfig
+        if (responsesRequest.reasoning?.effort) {
+            const model = responsesRequest.model || '';
+            const modelFamily = isGemini3Model(model) ? 'gemini-3' : 'gemini-2.5';
+            const thinkingConfig = effortToGeminiThinking(responsesRequest.reasoning.effort, { modelFamily, model });
+            if (thinkingConfig) {
+                geminiRequest.generationConfig = geminiRequest.generationConfig || {};
+                geminiRequest.generationConfig.thinkingConfig = thinkingConfig;
+            }
         }
 
         // 处理工具

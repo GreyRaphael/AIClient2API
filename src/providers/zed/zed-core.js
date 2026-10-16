@@ -11,6 +11,7 @@ import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
+import { effortToClaudeBudget } from '../../converters/thinking-budget.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -619,14 +620,7 @@ export class ZedApiService {
             if (thinkingBudget) {
                 generationConfig.thinkingConfig = { thinkingBudget };
             } else if (reasoningEffort && reasoningEffort !== 'none') {
-                const effortBudgetMap = {
-                    'low': 2048,
-                    'medium': 4096,
-                    'high': 8192,
-                    'xhigh': 16384,
-                    'max': 32768
-                };
-                const budget = effortBudgetMap[reasoningEffort] || 4096;
+                const budget = effortToClaudeBudget(reasoningEffort);
                 generationConfig.thinkingConfig = { thinkingBudget: budget };
             }
 
@@ -705,14 +699,7 @@ export class ZedApiService {
                     const eff = (reasoningEffort && reasoningEffort !== 'none')
                         ? String(reasoningEffort).toLowerCase().trim()
                         : (thinkingObj?.effort ? String(thinkingObj.effort).toLowerCase().trim() : 'medium');
-                    const budgetMap = {
-                        'low': 2048,
-                        'medium': 4096,
-                        'high': 8192,
-                        'xhigh': 16384,
-                        'max': 32768
-                    };
-                    budget = budgetMap[eff] || 4096;
+                    budget = effortToClaudeBudget(eff);
                 }
 
                 provReq.thinking = {

@@ -846,6 +846,20 @@ export class ClaudeConverter extends BaseConverter {
                         text: typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
                     });
                     break;
+
+                case 'document':
+                    if (block.source) {
+                        const mimeType = block.source.media_type || 'application/pdf';
+                        const data = block.source.data || '';
+                        const approxBytes = Math.floor(data.length * 0.75);
+                        const title = block.title || 'untitled';
+                        logger.warn(`[ClaudeConverter] Document block "${title}" (${mimeType}, ${approxBytes} bytes) omitted — upstream cannot receive files`);
+                        contentArray.push({
+                            type: 'text',
+                            text: `[Document: ${title} (${mimeType}, ${approxBytes} bytes) omitted — upstream cannot receive files]`
+                        });
+                    }
+                    break;
                     
                 default:
                     if (block.text) {
@@ -1009,7 +1023,10 @@ export class ClaudeConverter extends BaseConverter {
                                         thought: true
                                     };
                                     // 如果有签名，添加 thoughtSignature
-                                    if (block.signature && block.signature.length >= 50) {
+                                    if (block.signature) {
+                                        if (block.signature.length < 50) {
+                                            logger.debug(`[ClaudeConverter] Short signature detected (length: ${block.signature.length}), passing through to thoughtSignature`);
+                                        }
                                         thinkingPart.thoughtSignature = block.signature;
                                     }
                                     parts.push(thinkingPart);
@@ -1020,6 +1037,7 @@ export class ClaudeConverter extends BaseConverter {
                             case 'redacted_thinking':
                                 // 将 redacted_thinking 转换为普通文本
                                 if (block.data) {
+                                    logger.warn(`[ClaudeConverter] redacted_thinking block encountered (data size: ${block.data.length} chars), converted to text placeholder`);
                                     parts.push({ 
                                         text: `[Redacted Thinking: ${block.data}]` 
                                     });
@@ -1128,6 +1146,27 @@ export class ClaudeConverter extends BaseConverter {
                                             data: block.source.data
                                         }
                                     });
+                                }
+                                break;
+
+                            case 'document':
+                                if (block.source && block.source.type === 'base64') {
+                                    const mimeType = block.source.media_type || 'application/pdf';
+                                    const data = block.source.data || '';
+                                    const approxBytes = Math.floor(data.length * 0.75);
+                                    if (approxBytes > 20 * 1024 * 1024) {
+                                        logger.debug(`[ClaudeConverter] PDF document size (${approxBytes} bytes) exceeds Gemini 20MB limit, falling back to text placeholder`);
+                                        parts.push({
+                                            text: `[Document: ${block.title || 'untitled'} (${mimeType}, ${approxBytes} bytes) omitted — exceeds 20MB limit]`
+                                        });
+                                    } else {
+                                        parts.push({
+                                            inlineData: {
+                                                mimeType: mimeType,
+                                                data: data
+                                            }
+                                        });
+                                    }
                                 }
                                 break;
                         }
@@ -1362,7 +1401,10 @@ export class ClaudeConverter extends BaseConverter {
                             thought: true
                         };
                         // 如果有签名，添加 thoughtSignature
-                        if (block.signature && block.signature.length >= 50) {
+                        if (block.signature) {
+                            if (block.signature.length < 50) {
+                                logger.debug(`[ClaudeConverter] Short signature detected in response (length: ${block.signature.length}), passing through to thoughtSignature`);
+                            }
                             thinkingPart.thoughtSignature = block.signature;
                         }
                         parts.push(thinkingPart);
@@ -1382,7 +1424,10 @@ export class ClaudeConverter extends BaseConverter {
                         functionCallPart.functionCall.id = block.id;
                     }
                     // 添加签名（如果存在）
-                    if (block.signature && block.signature.length >= 50) {
+                    if (block.signature) {
+                        if (block.signature.length < 50) {
+                            logger.debug(`[ClaudeConverter] Short signature detected in response tool_use (length: ${block.signature.length}), passing through to thoughtSignature`);
+                        }
                         functionCallPart.thoughtSignature = block.signature;
                     }
                     parts.push(functionCallPart);
@@ -1506,10 +1551,22 @@ export class ClaudeConverter extends BaseConverter {
                     };
                 }
                 
-                // [FIX] 处理 signature_delta
+                // [FIX] 处理 signature_delta - 转发携带 thoughtSignature 的 Gemini chunk
                 if (delta && delta.type === 'signature_delta') {
-                    // 签名通常与前一个 thinking 块关联
-                    // 在流式场景中，我们可以忽略或记录
+                    if (delta.signature) {
+                        return {
+                            candidates: [{
+                                content: {
+                                    role: "model",
+                                    parts: [{
+                                        text: '',
+                                        thought: true,
+                                        thoughtSignature: delta.signature
+                                    }]
+                                }
+                            }]
+                        };
+                    }
                     return null;
                 }
                 
@@ -1905,6 +1962,17 @@ export class ClaudeConverter extends BaseConverter {
                             const imagePart = this._claudeImageToResponsesPart(c);
                             if (imagePart) {
                                 messageContent.push(imagePart);
+                            }
+                            continue;
+                        }
+                        if (c.type === 'document') {
+                            if (c.source && c.source.type === 'base64') {
+                                const mimeType = c.source.media_type || 'application/pdf';
+                                const data = c.source.data || '';
+                                messageContent.push({
+                                    type: 'input_file',
+                                    file_data: `data:${mimeType};base64,${data}`
+                                });
                             }
                             continue;
                         }
@@ -2450,6 +2518,23 @@ export class ClaudeConverter extends BaseConverter {
                                     const mediaType = block.source.media_type || block.source.mime_type || 'application/octet-stream';
                                     if (data) {
                                         appendImageContent(data, mediaType);
+                                    }
+                                }
+                                break;
+                            case 'document':
+                                if (block.source) {
+                                    const mimeType = block.source.media_type || 'application/pdf';
+                                    const data = block.source.data || block.source.base64 || '';
+                                    const approxBytes = Math.floor(data.length * 0.75);
+                                    const title = block.title || 'untitled';
+                                    if (process.env.CODEX_PDF_AS_INPUT_FILE === '1' || process.env.CODEX_PDF_AS_INPUT_FILE === 'true') {
+                                        flushMessage();
+                                        codexRequest.input.push({
+                                            type: 'input_file',
+                                            file_data: `data:${mimeType};base64,${data}`
+                                        });
+                                    } else {
+                                        appendTextContent(`[Document: ${title} (${mimeType}, ${approxBytes} bytes) omitted — upstream cannot receive files]`);
                                     }
                                 }
                                 break;

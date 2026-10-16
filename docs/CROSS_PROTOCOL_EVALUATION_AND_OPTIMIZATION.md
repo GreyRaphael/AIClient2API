@@ -1,8 +1,8 @@
 # AIClient2API 跨协议转译评估与理论优化全景指南
 
-> **版本**：v1.1.0  
+> **版本**：v1.2.0  
 > **更新时间**：2026-10-16  
-> **修订说明**：v1.1.0 依据 `src/converters/`、`src/providers/`、`src/handlers/` 源码逐条核查修订（详见文末「八、修订记录」）  
+> **修订说明**：v1.2.0 完成 Phase 0 定点修复包实施落地（损耗点 L1-L5 与 D1 统一，见第八节修订记录）  
 > **适用范围**：AIClient2API 网关核心转译管道、协议适配器及周边客户端工具
 
 ---
@@ -151,18 +151,18 @@ flowchart LR
 | **06** | OpenAI Chat | `trae` (ToB) | OpenAI ➔ Trae Raw Chat | **Tier 1** | **Tier 1** | 同源协议轻度包装；`parameters` 转 JSON 字符串；强制 SSE。 |
 | **07** | OpenAI Chat | `trae-solo_work_lite` | OpenAI ➔ Trae SOLO | **Tier 1** | **Tier 1** | 同源协议轻度包装；个人 SOLO 专属 function 路由。 |
 | **08** | OpenAI Chat | `trae-chat_v3` | OpenAI ➔ Trae Chat v3 | **Tier 1** | **Tier 1** | 同源协议轻度包装；Chat v3 专属 function 路由。 |
-| **09** | OpenAI Responses | `openai-custom` | Responses ➔ OpenAI | **Tier 2** | **Tier 1** | `input` 结构解包折叠为扁平 messages；reasoning item 与 item_reference 被丢弃；流式事件逆向合成。 |
+| **09** | OpenAI Responses | `openai-custom` | Responses ➔ OpenAI | **Tier 1~2** | **Tier 1** | `input` 结构解包为 messages，已保留 reasoning item（折入 assistant 消息）；item_reference 显式跳过并打日志；流式合流。 |
 | **10** | OpenAI Responses | `openaiResponses-custom` | Responses ➔ Responses | **Tier 0** | **Tier 0** | 原生 1:1 直通，规范完全对齐。 |
 | **11** | OpenAI Responses | `openai-codex-oauth` | Responses ➔ Codex | **Tier 1** | **Tier 1** | 同源高保真；底层皆为 Responses 协议；仅剔除私有拒收字段（删除清单制）并强制注入 reasoning/store 等配置。 |
-| **12** | OpenAI Responses | `gemini-antigravity` | Responses ➔ Gemini ➔ CloudCode | **Tier 2~3** | **Tier 1~2** | 非消息 item 降级；Schema 深度清洗；reasoning.effort 未映射完全丢失；生命周期事件映射重。 |
+| **12** | OpenAI Responses | `gemini-antigravity` | Responses ➔ Gemini ➔ CloudCode | **Tier 2** | **Tier 1~2** | 非消息 item 降级；Schema 深度清洗；已恢复 reasoning.effort 到 Gemini 双轨 thinking 映射；生命周期事件映射重。 |
 | **13** | OpenAI Responses | `zed` | Responses ➔ Claude ➔ Zed RPC | **Tier 2** | **Tier 1** | 双层转换；`input` 转 Claude `messages`；思考参数由 effort 按固定表换算 budget（1024~32000 五档）。 |
 | **14** | OpenAI Responses | `trae` (ToB) | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 双层转译瓶颈；`input` 折叠为 messages 再包装为 Trae 结构。 |
 | **15** | OpenAI Responses | `trae-solo_work_lite` | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 同上，双层转译瓶颈，面向 SOLO Agent。 |
 | **16** | OpenAI Responses | `trae-chat_v3` | Responses ➔ Chat ➔ Trae | **Tier 2** | **Tier 1** | 同上，双层转译瓶颈，面向 Chat v3。 |
-| **17** | Anthropic Messages | `openai-custom` | Claude ➔ OpenAI | **Tier 2** | **Tier 1** | **Prompt Caching 显式标记丢失**；Claude 3.7 思考签名丢弃；预算 >200 即坍缩为 high。 |
-| **18** | Anthropic Messages | `openaiResponses-custom` | Claude ➔ Responses | **Tier 2** | **Tier 1** | `system` 转 `instructions`；思考签名丢失；流式事件双向重构。 |
-| **19** | Anthropic Messages | `openai-codex-oauth` | Claude ➔ Codex | **Tier 2** | **Tier 1** | 缓存控制丢失；预算映射为 reasoning.effort；强制内置工具。 |
-| **20** | Anthropic Messages | `gemini-antigravity` | Claude ➔ Gemini ➔ CloudCode | **Tier 2~3** | **Tier 1~2** | 思考签名经 `thoughtSignature` 闭环回传（<50 字符丢弃）；document 块静默丢弃；Schema 清洗易致复杂工具调用失败。 |
+| **17** | Anthropic Messages | `openai-custom` | Claude ➔ OpenAI | **Tier 2** | **Tier 1** | **Prompt Caching 显式标记丢失**；Claude 3.7 思考签名丢弃；已修复思考预算换算阈值，medium 档复活。 |
+| **18** | Anthropic Messages | `openaiResponses-custom` | Claude ➔ Responses | **Tier 2** | **Tier 1** | `system` 转 `instructions`；思考签名丢失；已统一规范五档预算换算。 |
+| **19** | Anthropic Messages | `openai-codex-oauth` | Claude ➔ Codex | **Tier 2** | **Tier 1** | 缓存控制丢失；预算映射统一；document 块占位并支持 CODEX_PDF_AS_INPUT_FILE 尝鲜。 |
+| **20** | Anthropic Messages | `gemini-antigravity` | Claude ➔ Gemini ➔ CloudCode | **Tier 2** | **Tier 1~2** | 思考签名双向闭环已加固（支持 <50 字符短签名与流式 signature_delta 转发）；document 块原生 inlineData 无损适配（>20MB 兜底）；Schema 清洗待 Phase 1 优化。 |
 | **21** | Anthropic Messages | `zed` | Claude ➔ Claude (Zed RPC) | **Tier 0~1** | **Tier 0** | **原生级高保真**。跳过协议转换器；zed-core 仍改写 max_tokens/system/tools/thinking 配置。 |
 | **22** | Anthropic Messages | `trae` (ToB) | Claude ➔ OpenAI ➔ Trae | **Tier 2~3** | **Tier 1~2** | 双层跨协议转译；缓存丢失；复杂工具 Schema 经两次处理易失真。 |
 | **23** | Anthropic Messages | `trae-solo_work_lite` | Claude ➔ OpenAI ➔ Trae | **Tier 2~3** | **Tier 1~2** | 同上，双层跨协议转译，思考特征降级为 Trae 3 档深度。 |
@@ -537,3 +537,14 @@ timeline
 14. 新增 2.3 节「协议无关的管道护栏层（Pipeline Guardrails）」：空响应重试与首内容前缓冲、Finish Reason 工具调用修正、结束帧幂等去重。定稿时进一步勘误：明确 OpenAI 协议思考增量例外放行机制、`mapFinishReason()` 通用枚举映射归属转换层而非护栏层、Responses 终止事件名订正为 `response.completed`（原文误作 `response.done`）。
 15. 第五节各优化提案补充现状基线（`thoughtSignature` 签名闭环、缓存统计回填、现有流状态机的成熟度与分散痛点）。
 16. 定稿对齐：修正全景矩阵第 03/09/12/13/17/20 行与对应详情节的表述不一致（矩阵统一至详情节的源码核查结论，含 Combo 20 矩阵评级 Tier 3 → Tier 2~3），并统一全文的 Responses 流式事件名（`response.output_text.delta` / `response.completed`）。
+
+### v1.2.0（2026-10-16，Phase 0 实施落地修订）
+
+完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第一阶段（Phase 0 定点修复包）落地：
+
+1. **统一思考预算换算（0.1，解决 L1 与 D1）**：新增 `src/converters/thinking-budget.js`，建立五档规范表（1024/2048/8192/20000/32000）与新阈值映射（low≤2048、medium≤8192、high>8192），消灭常规预算坍缩为 high 的问题，medium 档位全面复活；统一 OpenAIConverter、ResponsesConverter、zed-core 的预算换算。
+2. **Responses➔Gemini 思考配置恢复（0.2，解决 L2）**：`toGeminiRequest` 补齐 `reasoning.effort` 转换为 Gemini 3（thinkingLevel）与 Gemini 2.5（thinkingBudget）双轨 thinkingConfig，Combo 12 评级提升至 Tier 2。
+3. **Responses➔OpenAI 思考项与引用项保留（0.3，解决 L3）**：请求侧 `reasoning` item 自动折入 assistant 消息（无后续则自建），`item_reference` 显式记录 debug 日志不再静默丢弃；响应侧提取 reasoning output 填充 `reasoning_content`；流式增量与 done 帧合流；Combo 09 评级提升至 Tier 1~2。
+4. **Claude document (PDF) 块全方向处理（0.4，解决 L4）**：Claude ➔ Gemini 实现原生 `inlineData` 封装（>20MB 兜底）；Claude ➔ Responses 映射为 `input_file`；Claude ➔ OpenAI / Codex 提供明确占位符与警告日志（Codex 额外支持 `CODEX_PDF_AS_INPUT_FILE` 尝鲜）。
+5. **思考签名闭环加固（0.5，解决 L5）**：放行 <50 字符短签名；流式 `toGeminiStreamChunk` 捕获 `signature_delta` 并补发带 `thoughtSignature` 的 Gemini chunk；`redacted_thinking` 降级补全 warn 日志；Combo 20 评级提升至 Tier 2。
+

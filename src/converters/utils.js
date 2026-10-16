@@ -10,6 +10,8 @@ import logger from '../utils/logger.js';
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.js';
+export { budgetTokensToEffort } from './thinking-budget.js';
+import { budgetTokensToEffort } from './thinking-budget.js';
 
 // =============================================================================
 // 常量定义
@@ -379,31 +381,12 @@ export function getOpenAIStreamIdentity(store, requestId) {
 
 /**
  * 根据budget_tokens智能判断OpenAI reasoning_effort等级
+ * @deprecated 请使用 thinking-budget.js 中的 budgetTokensToEffort
  * @param {number|null} budgetTokens - Anthropic thinking的budget_tokens值
  * @returns {string} OpenAI reasoning_effort等级
  */
 export function determineReasoningEffortFromBudget(budgetTokens) {
-    if (budgetTokens === null || budgetTokens === undefined) {
-        logger.info("No budget_tokens provided, defaulting to reasoning_effort='high'");
-        return "high";
-    }
-
-    const LOW_THRESHOLD = 50;
-    const HIGH_THRESHOLD = 200;
-
-    logger.debug(`Threshold configuration: low <= ${LOW_THRESHOLD}, medium <= ${HIGH_THRESHOLD}, high > ${HIGH_THRESHOLD}`);
-
-    let effort;
-    if (budgetTokens <= LOW_THRESHOLD) {
-        effort = "low";
-    } else if (budgetTokens <= HIGH_THRESHOLD) {
-        effort = "medium";
-    } else {
-        effort = "high";
-    }
-
-    logger.info(`🎯 Budget tokens ${budgetTokens} -> reasoning_effort '${effort}' (thresholds: low<=${LOW_THRESHOLD}, high<=${HIGH_THRESHOLD})`);
-    return effort;
+    return budgetTokensToEffort(budgetTokens);
 }
 
 /**

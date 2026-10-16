@@ -410,4 +410,4 @@ const logger = new Logger();
 
 // 导出实例和类
 export default logger;
-export { Logger };
+export { Logger, logger };

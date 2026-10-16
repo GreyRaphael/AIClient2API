@@ -138,10 +138,10 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             top_p: 0.9,
             max_tokens: 4096
         });
-        expect(reqMedium.thinking).toEqual({ type: 'enabled', budget_tokens: 4096 });
+        expect(reqMedium.thinking).toEqual({ type: 'enabled', budget_tokens: 8192 });
         expect(reqMedium.temperature).toBeUndefined();
         expect(reqMedium.top_p).toBeUndefined();
-        expect(reqMedium.max_tokens).toBeGreaterThan(4096);
+        expect(reqMedium.max_tokens).toBeGreaterThan(8192);
 
         // 3. xhigh and max map correctly
         const reqXhigh = converter.toClaudeRequest({
@@ -150,7 +150,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             reasoning_effort: 'xhigh',
             max_tokens: 20000
         });
-        expect(reqXhigh.thinking).toEqual({ type: 'enabled', budget_tokens: 16384 });
+        expect(reqXhigh.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
 
         const reqMax = converter.toClaudeRequest({
             model: 'claude-3-7-sonnet',
@@ -158,8 +158,8 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             reasoning_effort: 'max',
             max_tokens: 1000
         });
-        expect(reqMax.thinking).toEqual({ type: 'enabled', budget_tokens: 32768 });
-        expect(reqMax.max_tokens).toBe(32768 + 4096);
+        expect(reqMax.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
+        expect(reqMax.max_tokens).toBe(32000 + 4096);
     });
 
     test('ZedApiService.buildPayload formats Google provider request correctly for Gemini 3.1+', () => {
@@ -196,7 +196,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(provReq.generationConfig).toBeDefined();
         expect(provReq.generationConfig.temperature).toBe(0.5);
         expect(provReq.generationConfig.maxOutputTokens).toBe(8192);
-        expect(provReq.generationConfig.thinkingConfig?.thinkingBudget).toBe(8192);
+        expect(provReq.generationConfig.thinkingConfig?.thinkingBudget).toBe(20000);
     });
 
     test('ZedApiService.getToken deduplicates concurrent calls via _tokenRefreshPromise', async () => {
