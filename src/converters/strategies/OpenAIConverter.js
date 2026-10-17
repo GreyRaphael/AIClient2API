@@ -17,7 +17,6 @@ import {
     extractThinkingFromOpenAIText,
     mapFinishReason,
     sanitizeToolId,
-    cleanJsonSchemaProperties as cleanJsonSchema,
     CLAUDE_DEFAULT_MAX_TOKENS,
     CLAUDE_DEFAULT_TEMPERATURE,
     CLAUDE_DEFAULT_TOP_P,
@@ -30,18 +29,6 @@ import {
     sortToolsByName
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import {
-    generateResponseCreated,
-    generateResponseInProgress,
-    generateOutputItemAdded,
-    generateContentPartAdded,
-    generateOutputTextDone,
-    generateContentPartDone,
-    generateOutputItemDone,
-    generateOutputTextDelta,
-    generateResponseCompleted,
-    streamStateManager
-} from '../../providers/openai/openai-responses-events.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 import {
     effortToClaudeBudget,
@@ -1859,119 +1846,6 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         return { stateKey, emitter };
-    }
-
-    _pushResponsesEvents(state, events, ...eventList) {
-        for (const ev of eventList) {
-            if (ev && typeof ev === 'object') {
-                if (ev.sequence_number === undefined) {
-                    ev.sequence_number = state.sequenceNumber++;
-                }
-                events.push(ev);
-            }
-        }
-    }
-
-    _ensureOpenAIResponsesStreamStarted(stateKey, state, events) {
-        if (state.started) {
-            return;
-        }
-        this._pushResponsesEvents(state, events,
-            generateResponseCreated(stateKey, state.model),
-            generateResponseInProgress(stateKey)
-        );
-        state.started = true;
-    }
-
-    _ensureOpenAIResponsesTextStarted(stateKey, state, events) {
-        this._ensureOpenAIResponsesStreamStarted(stateKey, state, events);
-        if (state.textStarted) {
-            return;
-        }
-        state.textOutputIndex = state.nextOutputIndex++;
-        this._pushResponsesEvents(state, events,
-            generateOutputItemAdded(stateKey, state.textOutputIndex),
-            generateContentPartAdded(stateKey, state.textOutputIndex)
-        );
-        state.textStarted = true;
-    }
-
-    _getOpenAIResponsesToolState(state, toolCall) {
-        const index = toolCall.index ?? 0;
-        const key = String(index);
-        if (!state.toolCalls.has(key)) {
-            const callId = toolCall.id || `call_${state.responseId}_${index}`;
-            const outputIndex = state.nextOutputIndex++;
-            state.toolCalls.set(key, {
-                outputIndex,
-                callId,
-                itemId: this._buildResponsesFunctionItemId(callId),
-                name: toolCall.function?.name || '',
-                arguments: '',
-                added: false,
-                done: false
-            });
-        }
-        const toolState = state.toolCalls.get(key);
-        if (toolCall.id && toolState.callId !== toolCall.id) {
-            toolState.callId = toolCall.id;
-            toolState.itemId = this._buildResponsesFunctionItemId(toolCall.id);
-        }
-        if (toolCall.function?.name) {
-            toolState.name = toolCall.function.name;
-        }
-        return toolState;
-    }
-
-    _emitOpenAIResponsesToolStart(state, toolState, events) {
-        if (toolState.added) {
-            return;
-        }
-        this._pushResponsesEvents(state, events, {
-            type: "response.output_item.added",
-            output_index: toolState.outputIndex,
-            item: {
-                id: toolState.itemId,
-                call_id: toolState.callId,
-                type: "function_call",
-                name: toolState.name,
-                arguments: "",
-                status: "in_progress"
-            }
-        });
-        toolState.added = true;
-    }
-
-    _finalizeOpenAIResponsesToolCalls(state, events) {
-        for (const toolState of state.toolCalls.values()) {
-            if (!toolState.added) {
-                this._emitOpenAIResponsesToolStart(state, toolState, events);
-            }
-            if (toolState.done) {
-                continue;
-            }
-            this._pushResponsesEvents(state, events,
-                {
-                    type: "response.function_call_arguments.done",
-                    item_id: toolState.itemId,
-                    output_index: toolState.outputIndex,
-                    arguments: toolState.arguments
-                },
-                {
-                    type: "response.output_item.done",
-                    output_index: toolState.outputIndex,
-                    item: {
-                        id: toolState.itemId,
-                        call_id: toolState.callId,
-                        type: "function_call",
-                        name: toolState.name,
-                        arguments: toolState.arguments,
-                        status: "completed"
-                    }
-                }
-            );
-            toolState.done = true;
-        }
     }
 
     toOpenAIResponsesResponse(openaiResponse, model) {

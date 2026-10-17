@@ -24,23 +24,6 @@ import {
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.js';
-import {
-    finishToolCall,
-    generateContentPartAdded,
-    generateContentPartDone,
-    generateFunctionCallArgsDelta,
-    generateFunctionCallArgsDone,
-    generateFunctionCallOutputItemDone,
-    generateOutputItemAdded,
-    generateOutputItemDone,
-    generateOutputTextDelta,
-    generateOutputTextDone,
-    generateResponseCompleted,
-    generateResponseCreated,
-    generateResponseInProgress,
-    startToolCall,
-    streamStateManager
-} from '../../providers/openai/openai-responses-events.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 
 /**
@@ -1882,50 +1865,6 @@ export class ClaudeConverter extends BaseConverter {
 
     _buildResponsesMessageItemId(responseId, index = 0) {
         return responseId ? `msg_${responseId}_${index}` : `msg_${uuidv4().replace(/-/g, '')}`;
-    }
-
-    _resetOpenAIResponsesStreamState(state, claudeMessage, model) {
-        const responseId = claudeMessage?.id || state.id;
-        state.id = responseId;
-        state.msgId = this._buildResponsesMessageItemId(responseId, 0);
-        state.fullText = '';
-        state.sequenceNumber = 0;
-        state.model = model || claudeMessage?.model || state.model;
-        state.status = 'in_progress';
-        state.startTime = Math.floor(Date.now() / 1000);
-        state.toolCalls = [];
-        state.currentToolCall = null;
-        state.savedUsage = null;
-        state.reasoningId = `rs_${responseId}_0`;
-        state.reasoningStarted = false;
-        state.reasoningText = '';
-    }
-
-    _ensureOpenAIResponsesReasoningStarted(state, outputIndex, events) {
-        if (state.reasoningStarted) {
-            return;
-        }
-        events.push({
-            type: "response.output_item.added",
-            output_index: outputIndex,
-            item: {
-                id: state.reasoningId,
-                type: "reasoning",
-                status: "in_progress",
-                summary: []
-            }
-        });
-        events.push({
-            type: "response.reasoning_summary_part.added",
-            item_id: state.reasoningId,
-            output_index: outputIndex,
-            summary_index: 0,
-            part: {
-                type: "summary_text",
-                text: ""
-            }
-        });
-        state.reasoningStarted = true;
     }
 
     /**
