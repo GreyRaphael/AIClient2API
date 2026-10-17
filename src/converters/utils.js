@@ -7,7 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
-import configManager from '../core/config-manager.js';
+import { getConfigToggle } from '../core/config-manager.js';
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.js';
@@ -477,13 +477,7 @@ export function mergeConsecutiveSameRoleContents(contents, rolePair = null) {
  * @returns {boolean}
  */
 export function isSortToolsEnabled() {
-    if (process.env.CONVERT_SORT_TOOLS !== undefined) {
-        return process.env.CONVERT_SORT_TOOLS === 'true' ||
-               process.env.CONVERT_SORT_TOOLS === '1' ||
-               process.env.CONVERT_SORT_TOOLS === 'on';
-    }
-    const val = configManager.get('CONVERT_SORT_TOOLS');
-    return val === true || val === 'true' || val === '1' || val === 'on';
+    return getConfigToggle('CONVERT_SORT_TOOLS', false);
 }
 
 /**

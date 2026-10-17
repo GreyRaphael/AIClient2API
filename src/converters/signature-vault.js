@@ -15,7 +15,7 @@
 
 import crypto from 'crypto';
 import logger from '../utils/logger.js';
-import configManager from '../core/config-manager.js';
+import { getConfigToggle } from '../core/config-manager.js';
 
 let processVaultSecret = null;
 
@@ -43,39 +43,19 @@ export function setVaultSecret(newSecret = null) {
 }
 
 /**
- * 是否启用签名金库注入逻辑（默认开启，SIGNATURE_VAULT=off 时关闭）
+ * 是否启用签名金库注入逻辑（默认开启，SIGNATURE_VAULT=off/false/0 时关闭）
  * @returns {boolean}
  */
 export function isSignatureVaultEnabled() {
-    try {
-        const config = configManager.getAll();
-        if (config && config.SIGNATURE_VAULT !== undefined) {
-            return config.SIGNATURE_VAULT !== false && config.SIGNATURE_VAULT !== 'off';
-        }
-    } catch (_) {}
-    const envVal = process.env.SIGNATURE_VAULT;
-    if (envVal !== undefined) {
-        return envVal !== 'false' && envVal !== '0' && envVal !== 'off';
-    }
-    return true;
+    return getConfigToggle('SIGNATURE_VAULT', true);
 }
 
 /**
- * 是否启用虚拟签名剥离逻辑（默认开启，SIGNATURE_VAULT_STRIP=off 时关闭）
+ * 是否启用虚拟签名剥离逻辑（默认开启，SIGNATURE_VAULT_STRIP=off/false/0 时关闭）
  * @returns {boolean}
  */
 export function isSignatureStrippingEnabled() {
-    try {
-        const config = configManager.getAll();
-        if (config && config.SIGNATURE_VAULT_STRIP !== undefined) {
-            return config.SIGNATURE_VAULT_STRIP !== false && config.SIGNATURE_VAULT_STRIP !== 'off';
-        }
-    } catch (_) {}
-    const envVal = process.env.SIGNATURE_VAULT_STRIP;
-    if (envVal !== undefined) {
-        return envVal !== 'false' && envVal !== '0' && envVal !== 'off';
-    }
-    return true;
+    return getConfigToggle('SIGNATURE_VAULT_STRIP', true);
 }
 
 /**

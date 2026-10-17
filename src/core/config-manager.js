@@ -25,6 +25,67 @@ function parsePositiveInteger(value) {
     return Math.floor(parsed);
 }
 
+// =============================================================================
+// 统一开关（toggle）读取设施
+// 所有转换层功能开关（CONVERT_* / SIGNATURE_VAULT*）统一经此读取：
+//   1. env 动态覆盖优先（进程内可随时调整，测试友好）；
+//   2. 其次 CONFIG（initializeConfig 已从 config.json/env 归一化）；
+//   3. 最后落默认值。
+// 判定值集合统一：关闭值 false/'false'/'0'/'off'；开启值 true/'true'/'1'/'on'。
+// =============================================================================
+
+const TOGGLE_OFF_VALUES = new Set([false, 'false', '0', 'off']);
+const TOGGLE_ON_VALUES = new Set([true, 'true', '1', 'on']);
+
+/**
+ * 读取布尔开关。defaultOn 决定未显式设置时的语义：
+ * - defaultOn=true：除显式关闭值外一律视为开启；
+ * - defaultOn=false：仅显式开启值视为开启。
+ * @param {string} key - 配置键（与环境变量同名）
+ * @param {boolean} defaultOn - 默认极性
+ * @returns {boolean}
+ */
+export function getConfigToggle(key, defaultOn) {
+    const envVal = process.env[key];
+    if (envVal !== undefined) {
+        return defaultOn ? !TOGGLE_OFF_VALUES.has(envVal) : TOGGLE_ON_VALUES.has(envVal);
+    }
+    const confVal = CONFIG[key];
+    if (confVal !== undefined) {
+        return defaultOn ? !TOGGLE_OFF_VALUES.has(confVal) : TOGGLE_ON_VALUES.has(confVal);
+    }
+    return defaultOn;
+}
+
+/**
+ * 读取正整数配置（env 优先，其次 CONFIG，最后默认值）
+ * @param {string} key - 配置键（与环境变量同名）
+ * @param {number} defaultValue - 默认值
+ * @returns {number}
+ */
+export function getConfigPositiveInt(key, defaultValue) {
+    const envVal = parsePositiveInteger(process.env[key]);
+    if (envVal !== null) {
+        return envVal;
+    }
+    return parsePositiveInteger(CONFIG[key]) ?? defaultValue;
+}
+
+/**
+ * 将开关键归一化为布尔写入 CONFIG（供 initializeConfig 调用）
+ * @param {Object} config - 配置对象
+ * @param {string} key - 配置键
+ * @param {boolean} defaultOn - 默认极性
+ */
+function normalizeToggleConfig(config, key, defaultOn) {
+    const rawVal = process.env[key] !== undefined ? process.env[key] : config[key];
+    if (rawVal === undefined) {
+        config[key] = defaultOn;
+        return;
+    }
+    config[key] = defaultOn ? !TOGGLE_OFF_VALUES.has(rawVal) : TOGGLE_ON_VALUES.has(rawVal);
+}
+
 function normalizeRequestBodyMaxBytes(config) {
     const envBytes = parsePositiveInteger(process.env.REQUEST_BODY_MAX_BYTES);
     if (envBytes !== null) {
@@ -43,13 +104,7 @@ function normalizeRequestBodyMaxBytes(config) {
 }
 
 function normalizeSchemaPolyfillConfig(config) {
-    if (process.env.CONVERT_SCHEMA_POLYFILL !== undefined) {
-        config.CONVERT_SCHEMA_POLYFILL = process.env.CONVERT_SCHEMA_POLYFILL !== 'false' &&
-                                         process.env.CONVERT_SCHEMA_POLYFILL !== '0' &&
-                                         process.env.CONVERT_SCHEMA_POLYFILL !== 'off';
-    } else {
-        config.CONVERT_SCHEMA_POLYFILL = config.CONVERT_SCHEMA_POLYFILL ?? true;
-    }
+    normalizeToggleConfig(config, 'CONVERT_SCHEMA_POLYFILL', true);
 
     const envMaxDesc = parsePositiveInteger(process.env.CONVERT_SCHEMA_POLYFILL_MAX_DESC);
     if (envMaxDesc !== null) {
@@ -60,31 +115,16 @@ function normalizeSchemaPolyfillConfig(config) {
 }
 
 function normalizeSignatureVaultConfig(config) {
-    if (process.env.SIGNATURE_VAULT !== undefined) {
-        config.SIGNATURE_VAULT = process.env.SIGNATURE_VAULT !== 'false' &&
-                                 process.env.SIGNATURE_VAULT !== '0' &&
-                                 process.env.SIGNATURE_VAULT !== 'off';
-    } else {
-        config.SIGNATURE_VAULT = config.SIGNATURE_VAULT ?? true;
-    }
-
-    if (process.env.SIGNATURE_VAULT_STRIP !== undefined) {
-        config.SIGNATURE_VAULT_STRIP = process.env.SIGNATURE_VAULT_STRIP !== 'false' &&
-                                       process.env.SIGNATURE_VAULT_STRIP !== '0' &&
-                                       process.env.SIGNATURE_VAULT_STRIP !== 'off';
-    } else {
-        config.SIGNATURE_VAULT_STRIP = config.SIGNATURE_VAULT_STRIP ?? true;
-    }
+    normalizeToggleConfig(config, 'SIGNATURE_VAULT', true);
+    normalizeToggleConfig(config, 'SIGNATURE_VAULT_STRIP', true);
 }
 
 function normalizeConvertSortToolsConfig(config) {
-    if (process.env.CONVERT_SORT_TOOLS !== undefined) {
-        config.CONVERT_SORT_TOOLS = process.env.CONVERT_SORT_TOOLS === 'true' ||
-                                    process.env.CONVERT_SORT_TOOLS === '1' ||
-                                    process.env.CONVERT_SORT_TOOLS === 'on';
-    } else {
-        config.CONVERT_SORT_TOOLS = config.CONVERT_SORT_TOOLS ?? false;
-    }
+    normalizeToggleConfig(config, 'CONVERT_SORT_TOOLS', false);
+}
+
+function normalizePreserveReasoningItemConfig(config) {
+    normalizeToggleConfig(config, 'CONVERT_PRESERVE_REASONING_ITEM', true);
 }
 
 function normalizeConfiguredProviders(config) {
@@ -310,6 +350,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     normalizeSchemaPolyfillConfig(currentConfig);
     normalizeSignatureVaultConfig(currentConfig);
     normalizeConvertSortToolsConfig(currentConfig);
+    normalizePreserveReasoningItemConfig(currentConfig);
     normalizeConfiguredProviders(currentConfig);
 
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {

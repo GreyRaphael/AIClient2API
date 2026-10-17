@@ -15,6 +15,7 @@ import {
     isGemini3Model
 } from '../thinking-budget.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+import { getConfigToggle } from '../../core/config-manager.js';
 import {
     mapFinishReason as sharedMapFinishReason,
     extractAndProcessSystemMessages as extractSystemMessages,
@@ -177,7 +178,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         let pendingReasoning = '';
         const shouldPreserveReasoning = () => {
-            return process.env.CONVERT_PRESERVE_REASONING_ITEM !== 'false' && process.env.CONVERT_PRESERVE_REASONING_ITEM !== '0';
+            return getConfigToggle('CONVERT_PRESERVE_REASONING_ITEM', true);
         };
         const flushPendingReasoning = () => {
             if (!pendingReasoning) return;

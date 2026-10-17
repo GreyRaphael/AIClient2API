@@ -1,15 +1,14 @@
 // @ts-check
 import logger from '../utils/logger.js';
 import { cleanJsonSchemaProperties } from './utils.js';
+import { getConfigToggle, getConfigPositiveInt } from '../core/config-manager.js';
 
 /**
  * 判断 Schema Polyfill 是否启用（默认启用）
  * @returns {boolean}
  */
 export function isSchemaPolyfillEnabled() {
-    return process.env.CONVERT_SCHEMA_POLYFILL !== 'false' &&
-           process.env.CONVERT_SCHEMA_POLYFILL !== '0' &&
-           process.env.CONVERT_SCHEMA_POLYFILL !== 'off';
+    return getConfigToggle('CONVERT_SCHEMA_POLYFILL', true);
 }
 
 /**
@@ -17,8 +16,7 @@ export function isSchemaPolyfillEnabled() {
  * @returns {number}
  */
 export function getSchemaPolyfillMaxDesc() {
-    const envVal = Number(process.env.CONVERT_SCHEMA_POLYFILL_MAX_DESC);
-    return (Number.isFinite(envVal) && envVal > 0) ? Math.floor(envVal) : 1000;
+    return getConfigPositiveInt('CONVERT_SCHEMA_POLYFILL_MAX_DESC', 1000);
 }
 
 /**
