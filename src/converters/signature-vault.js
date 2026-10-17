@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 签名金库 (Signature Vault)
  *

@@ -74,7 +74,6 @@ function resolveRef(rootSchema, ref) {
  * @param {boolean} [options.injectConstraints=true] - 是否自然语言化注入约束
  * @param {number} [options.maxDescriptionLength=1000] - 整 schema description 总量字符上限
  * @param {number} [options.maxRefDepth=10] - $ref 展开最大嵌套深度
- * @param {'gemini'|'trae'} [options.dialect='gemini'] - 目标方言
  * @returns {{ schema: Object, report: { expandedRefs: number, injectedConstraints: Array<{path: string, kinds: string[]}>, collapsedOneOf: Array<{path: string}>, truncated: boolean } }}
  */
 export function polyfillSchemaForGemini(rawSchema, options = {}) {
@@ -83,7 +82,6 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
         ? options.maxDescriptionLength
         : getSchemaPolyfillMaxDesc();
     const maxRefDepth = (typeof options.maxRefDepth === 'number' && options.maxRefDepth > 0) ? options.maxRefDepth : 10;
-    const dialect = options.dialect || 'gemini';
 
     const report = {
         expandedRefs: 0,

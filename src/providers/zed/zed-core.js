@@ -12,7 +12,6 @@ import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
 import { effortToClaudeBudget } from '../../converters/thinking-budget.js';
-import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../../converters/signature-vault.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -737,13 +736,7 @@ export class ZedApiService {
         // 处理并合并连续同角色消息
         const messages = [];
         let rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
-        if (isSignatureStrippingEnabled()) {
-            const { messages: strippedMessages, stripped } = stripVirtualSignatures(rawMessages);
-            if (stripped > 0) {
-                logger.debug(`[Zed] Stripped ${stripped} virtual signature thinking block(s) before sending to Zed Cloud`);
-            }
-            rawMessages = strippedMessages;
-        }
+        // 虚拟签名剥离由 request-pipeline 对 Claude 协议前缀上游统一执行，此处无需重复
 
         for (const m of rawMessages) {
             if (m.role === 'system') {
