@@ -29,13 +29,9 @@ import {
     sortToolsByName
 } from '../utils.js';
 import {
+    createResponsesStreamState,
     generateResponseCreated,
     generateResponseInProgress,
-    generateOutputItemAdded,
-    generateContentPartAdded,
-    generateOutputTextDone,
-    generateContentPartDone,
-    generateOutputItemDone,
     generateResponseCompleted
 } from '../../providers/openai/openai-responses-events.js';
 
@@ -48,6 +44,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         super(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
         this.codexConverter = new CodexConverter();
         this.claudeStreamStates = new StreamSessionStore({ label: 'responses-converter-claude-stream' });
+        this.codexResponsesStreamStates = new StreamSessionStore({ label: 'responses-converter-codex-stream' });
     }
 
     // =============================================================================
@@ -1701,6 +1698,16 @@ export class OpenAIResponsesConverter extends BaseConverter {
     }
 
     /**
+     * 获取或创建 Codex ➔ Responses 流式规整路径的会话状态（带 TTL 自动回收）
+     */
+    _getCodexResponsesCoreState(resId, model = null) {
+        if (!this.codexResponsesStreamStates.has(resId)) {
+            this.codexResponsesStreamStates.set(resId, createResponsesStreamState({ id: resId, model }));
+        }
+        return this.codexResponsesStreamStates.get(resId);
+    }
+
+    /**
      * OpenAI Responses → Codex 流式响应转换 (实际上是 Codex 转 OpenAI Responses)
      */
     toCodexStreamChunk(codexChunk, model) {
@@ -1709,9 +1716,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
         const events = [];
 
         if (type === 'response.created') {
+            const coreState = this._getCodexResponsesCoreState(resId, model || codexChunk.response?.model);
             events.push(
-                generateResponseCreated(resId, model || codexChunk.response?.model),
-                generateResponseInProgress(resId)
+                generateResponseCreated(coreState, model || codexChunk.response?.model),
+                generateResponseInProgress(coreState)
             );
             return events;
         }
@@ -1762,13 +1770,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (type === 'response.completed') {
-            const completedEvent = generateResponseCompleted(resId);
+            const coreState = this._getCodexResponsesCoreState(resId, codexChunk.response?.model);
+            const completedEvent = generateResponseCompleted(coreState);
             completedEvent.response = {
                 ...completedEvent.response,
                 ...codexChunk.response
             };
             events.push(completedEvent);
-            streamStateManager.cleanup(resId);
+            this.codexResponsesStreamStates.delete(resId);
             return events;
         }
 

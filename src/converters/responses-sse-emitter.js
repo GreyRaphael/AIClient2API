@@ -1,6 +1,7 @@
 // @ts-check
 import { v4 as uuidv4 } from 'uuid';
 import {
+    createResponsesStreamState,
     generateResponseCreated,
     generateResponseInProgress,
     generateOutputItemAdded,
@@ -9,8 +10,7 @@ import {
     generateOutputTextDone,
     generateContentPartDone,
     generateOutputItemDone,
-    generateResponseCompleted,
-    streamStateManager
+    generateResponseCompleted
 } from '../providers/openai/openai-responses-events.js';
 
 let emitterSeq = 0;
@@ -27,9 +27,10 @@ let emitterSeq = 0;
  *
  * 设计要点：
  * - 每个请求一个实例，实例存放于各 Converter 的 StreamSessionStore（带 TTL 自动回收）。
- * - 集中收纳 outputIndex 分配、sequence_number 单调递增、状态所有权与清理。
+ * - 状态所有权完全归属实例：coreState（供纯函数事件生成器读写）与生命周期标志均
+ *   为实例字段，不再镜像写入任何全局状态管理器。
+ * - 集中收纳 outputIndex 分配、sequence_number 单调递增。
  * - 幂等守卫：重复调用 start() / done / complete() 自动忽略，不重复发送终止事件。
- * - 委托底层 openai-responses-events 生成标准事件，同时在 complete() 时自动清理全局与局部存储。
  */
 export class ResponsesSseEmitter {
     /**
@@ -48,6 +49,14 @@ export class ResponsesSseEmitter {
         this.createdAt = createdAt || Math.floor(Date.now() / 1000);
         this.store = store;
 
+        // 事件生成器读写的核心状态（纯实例字段，无全局镜像）
+        this.coreState = createResponsesStreamState({
+            id: this.responseId,
+            msgId: this.msgId,
+            model: this.model,
+            startTime: this.createdAt
+        });
+
         this.sequenceNumber = 0;
         this.nextOutputIndex = 0;
 
@@ -65,7 +74,6 @@ export class ResponsesSseEmitter {
         this.textStarted = false;
         this.textDoneFlag = false;
         this.textOutputIndex = -1;
-        this.fullText = '';
 
         // Tool calls (Function Call) 块管理: Map<key, ToolCallState>
         this.toolCalls = new Map();
@@ -83,22 +91,10 @@ export class ResponsesSseEmitter {
         events.push(event);
     }
 
-    _syncToGlobalState() {
-        const state = streamStateManager.getOrCreateState(this.requestId);
-        state.id = this.responseId;
-        state.msgId = this.msgId;
-        state.model = this.model;
-        state.startTime = this.createdAt;
-        state.fullText = this.fullText;
-        state.sequenceNumber = this.sequenceNumber;
-        return state;
-    }
-
     setModel(model) {
         if (model) {
             this.model = model;
-            const state = streamStateManager.getOrCreateState(this.requestId);
-            state.model = model;
+            this.coreState.model = model;
         }
     }
 
@@ -106,17 +102,15 @@ export class ResponsesSseEmitter {
         if (responseId && this.responseId !== responseId) {
             this.responseId = responseId;
             this.msgId = `msg_${responseId}_0`;
-            const state = streamStateManager.getOrCreateState(this.requestId);
-            state.id = responseId;
-            state.msgId = this.msgId;
+            this.coreState.id = responseId;
+            this.coreState.msgId = this.msgId;
         }
     }
 
     setCreatedAt(createdAt) {
         if (createdAt) {
             this.createdAt = createdAt;
-            const state = streamStateManager.getOrCreateState(this.requestId);
-            state.startTime = createdAt;
+            this.coreState.startTime = createdAt;
         }
     }
 
@@ -126,10 +120,9 @@ export class ResponsesSseEmitter {
     start() {
         if (this.done || this.started) return [];
         this.started = true;
-        this._syncToGlobalState();
         const events = [];
-        this._pushEvent(events, generateResponseCreated(this.requestId, this.model));
-        this._pushEvent(events, generateResponseInProgress(this.requestId));
+        this._pushEvent(events, generateResponseCreated(this.coreState, this.model));
+        this._pushEvent(events, generateResponseInProgress(this.coreState));
         return events;
     }
 
@@ -152,9 +145,8 @@ export class ResponsesSseEmitter {
         if (this.textStarted) return events;
         this.textStarted = true;
         this.textOutputIndex = this.nextOutputIndex++;
-        this._syncToGlobalState();
-        this._pushEvent(events, generateOutputItemAdded(this.requestId, this.textOutputIndex));
-        this._pushEvent(events, generateContentPartAdded(this.requestId, this.textOutputIndex));
+        this._pushEvent(events, generateOutputItemAdded(this.coreState, this.textOutputIndex));
+        this._pushEvent(events, generateContentPartAdded(this.coreState, this.textOutputIndex));
         return events;
     }
 
@@ -167,9 +159,7 @@ export class ResponsesSseEmitter {
         if (!this.textStarted) {
             events.push(...this.textStart());
         }
-        this.fullText += text;
-        this._syncToGlobalState();
-        this._pushEvent(events, generateOutputTextDelta(this.requestId, text, this.textOutputIndex));
+        this._pushEvent(events, generateOutputTextDelta(this.coreState, text, this.textOutputIndex));
         return events;
     }
 
@@ -179,11 +169,10 @@ export class ResponsesSseEmitter {
     textDone() {
         if (this.done || !this.textStarted || this.textDoneFlag) return [];
         this.textDoneFlag = true;
-        this._syncToGlobalState();
         const events = [];
-        this._pushEvent(events, generateOutputTextDone(this.requestId, this.textOutputIndex));
-        this._pushEvent(events, generateContentPartDone(this.requestId, this.textOutputIndex));
-        this._pushEvent(events, generateOutputItemDone(this.requestId, this.textOutputIndex));
+        this._pushEvent(events, generateOutputTextDone(this.coreState, this.textOutputIndex));
+        this._pushEvent(events, generateContentPartDone(this.coreState, this.textOutputIndex));
+        this._pushEvent(events, generateOutputItemDone(this.coreState, this.textOutputIndex));
         return events;
     }
 
@@ -437,9 +426,8 @@ export class ResponsesSseEmitter {
             }
         }
 
-        // 同步工具调用列表到 global state 供 generateResponseCompleted 使用
-        const coreState = streamStateManager.getOrCreateState(this.requestId);
-        coreState.toolCalls = Array.from(this.toolCalls.values()).map(ts => ({
+        // 同步工具调用列表到 coreState 供 generateResponseCompleted 使用
+        this.coreState.toolCalls = Array.from(this.toolCalls.values()).map(ts => ({
             id: ts.itemId,
             call_id: ts.callId,
             type: ts.isCustom ? 'custom_tool_call' : 'function_call',
@@ -447,7 +435,6 @@ export class ResponsesSseEmitter {
             input: ts.isCustom ? (ts.arguments || '') : undefined,
             arguments: ts.arguments || '{}'
         }));
-        coreState.fullText = this.fullText;
 
         const normalizedUsage = usage || {
             input_tokens: 0,
@@ -457,7 +444,7 @@ export class ResponsesSseEmitter {
             total_tokens: 0
         };
 
-        const completedEvent = generateResponseCompleted(this.requestId, normalizedUsage);
+        const completedEvent = generateResponseCompleted(this.coreState, normalizedUsage);
         if (this.reasoningStarted) {
             completedEvent.response.output.unshift({
                 id: this.reasoningId,
@@ -485,7 +472,6 @@ export class ResponsesSseEmitter {
     }
 
     cleanup() {
-        streamStateManager.cleanup(this.requestId);
         if (this.store && this.requestId) {
             this.store.delete(this.requestId);
         }

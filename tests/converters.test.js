@@ -7,7 +7,7 @@ import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
 import { GrokConverter } from '../src/converters/strategies/GrokConverter.js';
 import { ConverterFactory } from '../src/converters/ConverterFactory.js';
-import { generateResponseCompleted, streamStateManager } from '../src/providers/openai/openai-responses-events.js';
+import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.js';
 
 describe('Protocol Converters Matrix & Edge Cases', () => {
     test('Fix 1: OpenAI streaming tool_calls converts to Claude events with stop_reason=tool_use', () => {
@@ -776,9 +776,8 @@ describe('mapFinishReason 共享映射', () => {
 // =============================================================================
 describe('OpenAI Responses API 规范断言', () => {
     test('responses.completed 在无 usage 时全零兜底而非伪造随机数', () => {
-        const key = 'jest_resp_completed_usage';
-        streamStateManager.cleanup(key);
-        const ev = generateResponseCompleted(key, null);
+        const state = createResponsesStreamState({ id: 'jest_resp_completed_usage' });
+        const ev = generateResponseCompleted(state, null);
         expect(ev.response.usage).toEqual({
             input_tokens: 0,
             input_tokens_details: { cached_tokens: 0 },
@@ -786,7 +785,6 @@ describe('OpenAI Responses API 规范断言', () => {
             output_tokens_details: { reasoning_tokens: 0 },
             total_tokens: 0
         });
-        streamStateManager.cleanup(key);
     });
 
     test('toOpenAIResponsesResponse status 合规映射（completed / incomplete）', () => {

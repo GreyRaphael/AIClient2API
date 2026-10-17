@@ -1,66 +1,43 @@
 import { v4 as uuidv4 } from 'uuid';
-import { StreamSessionStore } from '../../converters/stream-session.js';
 
-// 流式处理状态管理（底层存储替换为带 TTL 的 StreamSessionStore，异常中断的流状态最终自动回收）
-class StreamState {
-  constructor() {
-    this.states = new StreamSessionStore({ label: 'openai-responses-events' }); // 使用Map存储不同请求的状态
-  }
+/**
+ * OpenAI Responses API 流式事件生成器（纯函数集）
+ *
+ * 设计约定（P2 重构后）：
+ * - 所有 generate* 函数均为纯函数，第一个参数显式接收调用方持有的 state 对象，
+ *   不再隐式读写任何全局/单例状态；并发隔离由调用方（Converter / ResponsesSseEmitter）
+ *   通过各自的 StreamSessionStore 保证。
+ * - state 由 createResponsesStreamState() 创建，字段约定：
+ *   { id, msgId, fullText, sequenceNumber, model, status, startTime, toolCalls, currentToolCall }
+ */
 
-  // 获取或创建状态
-  getOrCreateState(requestId) {
-    if (!this.states.has(requestId)) {
-      this.states.set(requestId, {
-        id: `resp_${uuidv4().replace(/-/g, '')}`,
-        msgId: `msg_${uuidv4().replace(/-/g, '')}`,
+/**
+ * 创建一份 Responses 流式会话状态
+ * @param {Object} [options]
+ * @param {string} [options.id] - 响应 ID（默认 resp_...）
+ * @param {string} [options.msgId] - 消息 item ID（默认 msg_...）
+ * @param {string|null} [options.model] - 模型名
+ * @param {number} [options.startTime] - 创建时间戳（秒）
+ * @returns {Object} Responses 流式会话状态
+ */
+function createResponsesStreamState({ id = null, msgId = null, model = null, startTime = null } = {}) {
+    return {
+        id: id || `resp_${uuidv4().replace(/-/g, '')}`,
+        msgId: msgId || `msg_${uuidv4().replace(/-/g, '')}`,
         fullText: '',
         sequenceNumber: 0,
-        model: null,
+        model,
         status: 'in_progress',
-        startTime: Math.floor(Date.now() / 1000),
+        startTime: startTime || Math.floor(Date.now() / 1000),
         toolCalls: [],
         currentToolCall: null
-      });
-    }
-    return this.states.get(requestId);
-  }
-
-  // 更新文本内容
-  updateText(requestId, textDelta) {
-    const state = this.getOrCreateState(requestId);
-    state.fullText += textDelta;
-    state.sequenceNumber += 1;
-    return state;
-  }
-
-  // 设置模型信息
-  setModel(requestId, model) {
-    const state = this.getOrCreateState(requestId);
-    state.model = model;
-    return state;
-  }
-
-  // 完成请求
-  completeRequest(requestId) {
-    const state = this.getOrCreateState(requestId);
-    state.status = 'completed';
-    return state;
-  }
-
-  // 清理状态
-  cleanup(requestId) {
-    this.states.delete(requestId);
-  }
+    };
 }
-
-// 创建全局流式状态管理器
-const streamStateManager = new StreamState();
 
 /**
  * Generates a response.created event
  */
-function generateResponseCreated(requestId, model) {
-  const state = streamStateManager.getOrCreateState(requestId);
+function generateResponseCreated(state, model) {
   if (model) {
     state.model = model;
   }
@@ -99,9 +76,7 @@ function generateResponseCreated(requestId, model) {
 /**
  * Generates a response.in_progress event
  */
-function generateResponseInProgress(requestId) {
-  const state = streamStateManager.getOrCreateState(requestId);
-
+function generateResponseInProgress(state) {
   return {
     type: 'response.in_progress',
     response: {
@@ -137,9 +112,7 @@ function generateResponseInProgress(requestId) {
 /**
  * Generates a response.output_item.added event
  */
-function generateOutputItemAdded(requestId, outputIndex = 0) {
-  const state = streamStateManager.getOrCreateState(requestId);
-
+function generateOutputItemAdded(state, outputIndex = 0) {
   return {
     type: 'response.output_item.added',
     output_index: outputIndex,
@@ -157,9 +130,7 @@ function generateOutputItemAdded(requestId, outputIndex = 0) {
 /**
  * Generates a response.content_part.added event
  */
-function generateContentPartAdded(requestId, outputIndex = 0) {
-  const state = streamStateManager.getOrCreateState(requestId);
-
+function generateContentPartAdded(state, outputIndex = 0) {
   return {
     type: 'response.content_part.added',
     item_id: state.msgId,
@@ -177,8 +148,7 @@ function generateContentPartAdded(requestId, outputIndex = 0) {
 /**
  * Generates a response.output_text.delta event
  */
-function generateOutputTextDelta(requestId, delta, outputIndex = 0) {
-  const state = streamStateManager.getOrCreateState(requestId);
+function generateOutputTextDelta(state, delta, outputIndex = 0) {
   state.fullText += delta;
 
   return {
@@ -195,9 +165,7 @@ function generateOutputTextDelta(requestId, delta, outputIndex = 0) {
 /**
  * Generates a response.output_text.done event
  */
-function generateOutputTextDone(requestId, outputIndex = 0) {
-  const state = streamStateManager.getOrCreateState(requestId);
-
+function generateOutputTextDone(state, outputIndex = 0) {
   return {
     type: 'response.output_text.done',
     item_id: state.msgId,
@@ -211,9 +179,7 @@ function generateOutputTextDone(requestId, outputIndex = 0) {
 /**
  * Generates a response.content_part.done event
  */
-function generateContentPartDone(requestId, outputIndex = 0) {
-  const state = streamStateManager.getOrCreateState(requestId);
-
+function generateContentPartDone(state, outputIndex = 0) {
   return {
     type: 'response.content_part.done',
     item_id: state.msgId,
@@ -231,9 +197,7 @@ function generateContentPartDone(requestId, outputIndex = 0) {
 /**
  * Generates a response.output_item.done event
  */
-function generateOutputItemDone(requestId, outputIndex = 0) {
-  const state = streamStateManager.getOrCreateState(requestId);
-
+function generateOutputItemDone(state, outputIndex = 0) {
   return {
     type: 'response.output_item.done',
     output_index: outputIndex,
@@ -258,9 +222,7 @@ function generateOutputItemDone(requestId, outputIndex = 0) {
 /**
  * Generates a response.completed event
  */
-function generateResponseCompleted(requestId, usage) {
-  const state = streamStateManager.getOrCreateState(requestId);
-
+function generateResponseCompleted(state, usage) {
   return {
     type: 'response.completed',
     response: {
@@ -350,50 +312,7 @@ function generateResponseCompleted(requestId, usage) {
   };
 }
 
-
-function startToolCall(requestId, toolCallId, name) {
-  const state = streamStateManager.getOrCreateState(requestId);
-  state.currentToolCall = { id: toolCallId, call_id: toolCallId, name: name, arguments: '' };
-}
-
-function appendToolCallArgs(requestId, delta) {
-  const state = streamStateManager.getOrCreateState(requestId);
-  if (state.currentToolCall) state.currentToolCall.arguments += delta;
-}
-
-function finishToolCall(requestId) {
-  const state = streamStateManager.getOrCreateState(requestId);
-  if (state.currentToolCall) {
-    state.toolCalls.push({...state.currentToolCall});
-    const finished = state.currentToolCall;
-    state.currentToolCall = null;
-    return finished;
-  }
-  return null;
-}
-
-function generateFunctionCallArgsDelta(requestId, itemId, outputIndex, delta) {
-  appendToolCallArgs(requestId, delta);
-  return { type: 'response.function_call_arguments.delta', item_id: itemId, output_index: outputIndex, delta: delta };
-}
-
-function generateFunctionCallArgsDone(requestId, itemId, outputIndex) {
-  const state = streamStateManager.getOrCreateState(requestId);
-  const args = state.currentToolCall ? state.currentToolCall.arguments : '{}';
-  return { type: 'response.function_call_arguments.done', item_id: itemId, output_index: outputIndex, arguments: args };
-}
-
-function generateFunctionCallOutputItemDone(requestId, toolCall, outputIndex) {
-  return {
-    type: 'response.output_item.done', output_index: outputIndex,
-    item: { id: toolCall.id, call_id: toolCall.call_id || toolCall.id, type: 'function_call',
-      name: toolCall.name, arguments: toolCall.arguments || '{}', status: 'completed' }
-  };
-}
-
-// 导出流式状态管理器以供外部使用
-export { streamStateManager, generateResponseCreated, generateResponseInProgress,
+export { createResponsesStreamState, generateResponseCreated, generateResponseInProgress,
   generateOutputItemAdded, generateContentPartAdded, generateOutputTextDelta,
   generateOutputTextDone, generateContentPartDone, generateOutputItemDone,
-  generateResponseCompleted, startToolCall, appendToolCallArgs, finishToolCall,
-  generateFunctionCallArgsDelta, generateFunctionCallArgsDone, generateFunctionCallOutputItemDone };
+  generateResponseCompleted };

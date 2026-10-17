@@ -12,6 +12,7 @@ import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vaul
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { sortToolsByName } from '../utils.js';
 import {
+    createResponsesStreamState,
     generateResponseCreated,
     generateResponseInProgress,
     generateOutputItemAdded,
@@ -1277,6 +1278,7 @@ export class CodexConverter extends BaseConverter {
                 model: model,
                 createdAt: Math.floor(Date.now() / 1000),
                 responseID: resId,
+                coreState: createResponsesStreamState({ id: resId, model: model || null }),
                 functionCallIndex: -1,
                 eventsSent: new Set()
             });
@@ -1287,9 +1289,11 @@ export class CodexConverter extends BaseConverter {
         if (type === 'response.created') {
             state.responseID = chunk.response.id;
             state.model = chunk.response.model || state.model;
+            state.coreState.id = state.responseID;
+            state.coreState.model = state.model;
             events.push(
-                generateResponseCreated(state.responseID, state.model),
-                generateResponseInProgress(state.responseID)
+                generateResponseCreated(state.coreState, state.model),
+                generateResponseInProgress(state.coreState)
             );
             return events;
         }
@@ -1305,11 +1309,11 @@ export class CodexConverter extends BaseConverter {
 
         if (type === 'response.output_text.delta') {
             if (!state.eventsSent.has('output_item_added')) {
-                events.push(generateOutputItemAdded(state.responseID));
+                events.push(generateOutputItemAdded(state.coreState));
                 state.eventsSent.add('output_item_added');
             }
             if (!state.eventsSent.has('content_part_added')) {
-                events.push(generateContentPartAdded(state.responseID));
+                events.push(generateContentPartAdded(state.coreState));
                 state.eventsSent.add('content_part_added');
             }
             events.push({
@@ -1342,11 +1346,11 @@ export class CodexConverter extends BaseConverter {
 
         if (type === 'response.completed') {
             events.push(
-                generateOutputTextDone(state.responseID),
-                generateContentPartDone(state.responseID),
-                generateOutputItemDone(state.responseID)
+                generateOutputTextDone(state.coreState),
+                generateContentPartDone(state.coreState),
+                generateOutputItemDone(state.coreState)
             );
-            const completedEvent = generateResponseCompleted(state.responseID);
+            const completedEvent = generateResponseCompleted(state.coreState);
             completedEvent.response.usage = {
                 input_tokens: chunk.response.usage?.input_tokens || 0,
                 output_tokens: chunk.response.usage?.output_tokens || 0,

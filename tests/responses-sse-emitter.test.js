@@ -8,7 +8,6 @@
 
 import { ResponsesSseEmitter } from '../src/converters/responses-sse-emitter.js';
 import { StreamSessionStore } from '../src/converters/stream-session.js';
-import { streamStateManager } from '../src/providers/openai/openai-responses-events.js';
 
 const types = (events) => events.map(e => e.type);
 
@@ -226,9 +225,8 @@ describe('complete() 终结与幂等', () => {
         expect(outputTypes).toContain('message');
         expect(outputTypes).toContain('function_call');
 
-        // 验证 store 与全局状态自动清理
+        // 验证 store 自动清理（状态所有权已收归实例，无全局镜像）
         expect(store.has(reqId)).toBe(false);
-        expect(streamStateManager.states.has(reqId)).toBe(false);
 
         // 重复调用 complete 为空操作
         expect(emitter.complete()).toEqual([]);
