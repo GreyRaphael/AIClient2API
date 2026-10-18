@@ -1,30 +1,44 @@
-# AIClient-2-API 发布说明 (v3.10.0)
+# AIClient-2-API 发布说明 (v3.14.1)
 
-> 本次 **v3.10.0** 是一次针对 **OpenAI Codex OAuth 体系的重大功能增强与流式处理韧性加固版本**。核心更新包括：**Codex 动态模型发现与自动同步**（支持 GPT-6 Luna / Astra / Sol 全新系列）、**WebUI 节点级客户端版本号独立配置**（告别子进程同步阻塞与环境暗箱探测）、**账号订阅类型解析与权限门禁过滤**，以及**非流式空响应误判与思考增量放行等关键协议修复**。
+> 本次 **v3.14.1** 是 **跨协议转译优化系列（Phase 0-4）的合辑发布**。依据 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 全部落地：**思考预算换算统一与 medium 档复活**、**Schema Polyfill 降级编译器**、**签名金库（无状态 HMAC 虚拟思考签名）**、**Responses SSE Emitter 状态所有权收编**，以及**合并去重 / 工具稳定排序 / 缓存日志化**可选增强。过程里程碑标签：`v3.10.1`（Phase 0 定点修复）、`v3.11.0`（Phase 1）、`v3.12.0`（Phase 2）、`v3.13.0`（Phase 3）、`v3.14.0`（Phase 4），消除全部已确认 Tier 3 损耗因素。
 
 ---
 
-## 🌟 核心更新亮点 (v3.10.0)
+## 🌟 核心更新亮点 (v3.14.1)
 
-### 1. OpenAI Codex OAuth 动态模型同步与全系列新模型支持
-- **动态模型发现**：通过调用上游 `/backend-api/codex/models?client_version=...` 接口实时获取账号允许调用的模型清单，自动派生 `-fast` 变体与保留 `gpt-image-2` 虚拟图像模型。
-- **基准模型库扩充**：预置基准模型全面集成 `gpt-6-luna`、`gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-sol` 等全新一代模型。
-- **权限安全过滤**：自动解析 OAuth AccessToken 中的 `chatgpt_plan_type` 订阅类型，精准识别并过滤 `supported_in_api: false` 及需升级付费计划（`upgrade`）的门禁模型，杜绝用户调用未授权模型报错。
+### 1. Phase 0 定点修复包（里程碑 v3.10.1）
+- **思考预算换算统一**：新增 `thinking-budget.js`，新阈值 `low<=2048 / medium<=8192 / high>8192`，修复常规预算全部坍缩为 `high` 的正确性 bug；四份漂移换算表归一，Gemini 3 / 2.5 双轨映射集中管理。
+- **Responses 方向思考链修复**：Responses→Gemini 恢复 `reasoning.effort` → thinkingConfig；Responses→OpenAI 保留 reasoning item（折入 assistant 消息）与响应侧 `reasoning_content` 回填，`item_reference` 显式日志跳过，消灭静默蒸发。
+- **Claude document 块四方向落地**：→Gemini 原生 inlineData 无损、→Responses input_file、→Codex 占位（`CODEX_PDF_AS_INPUT_FILE=1` 尝鲜）、→OpenAI 占位 + warn。
+- **思考签名闭环加固**：短签名放行、流式 `signature_delta` 转发携带 thoughtSignature 的 Gemini chunk、`redacted_thinking` 降级告警。
 
-### 2. WebUI 节点级客户端版本配置与底层去阻塞优化
-- **WebUI 节点级版本配置**：在「提供商管理」的 Codex 节点编辑表单中新增 `CODEX_VERSION` 输入项，支持多账号独立配置版本；留空默认使用官方基准版本（`0.162.1`）。
-- **即时生效与缓存失效**：编辑保存版本号时立即销毁旧缓存，下次请求无缝按新版本号向远端同步最新模型。
-- **彻底消除主线程阻塞**：完全剔除 `child_process.execSync` 同步命令探测，执行耗时降低至 0.001ms 纯内存级别，消除了主事件循环卡顿与跨环境探测漂移的隐患。
+### 2. Phase 1 Schema Polyfill 降级编译器（里程碑 v3.11.0）
+- **`$ref` 静态展开**：循环检测 + 深度上限 10，超限安全坍缩；剥离 `$defs`/`definitions`/`$schema`/`$id`。
+- **约束自然语言化注入**：pattern/format/default/数值边界等 12 类被剥除约束以 `[Constraints: k=v]` 注入 description，原始描述永不裁剪；`oneOf`/`anyOf`/`allOf` 组合关键字降级。
+- **可开关可回滚**：`CONVERT_SCHEMA_POLYFILL`（默认 on）、`CONVERT_SCHEMA_POLYFILL_MAX_DESC`（默认 1000），复杂工具调用失败主因消除。
 
-### 3. 流式协议健壮性与连接健康度判定修复
-- **非流式空响应校验修复**：修复 Codex 非流式调用中有效响应被错误识别为空响应、进而触发 5 次不必要重试并报错的问题。
-- **思考增量完整放行**：完整透传 OpenAI 协议下的 reasoning delta 思考增量，思维链展示更加流畅。
-- **客户端断开保护**：用户提前中断请求不再误扣提供商健康度，避免号池误熔断。
-- **空响应异常拦截**：严密捕获上游思考后空响应（`MALFORMED_FUNCTION_CALL`），防止静默放行异常流。
+### 3. Phase 2 签名金库 Signature Vault（里程碑 v3.12.0）
+- **无状态 HMAC 虚拟签名**：`vsig1.<payload>.<hmac>` 格式，进程级密钥（`SIGNATURE_VAULT_SECRET` 或启动随机），无存储无 TTL。
+- **注入/剥离闭环**：X→Claude 响应侧自动补签，Claude→非 Claude 四方向及 Claude 协议上游管道层无条件剥离虚拟签名，真签名永不剥离；HMAC 失败仍按前缀安全剥离，永不阻断请求。
+- **组合 17/18/19 达 Tier 1**：Claude Code CLI 接非 Claude 上游的多轮思考 + 工具调用体验完整。
+
+### 4. Phase 3 Responses SSE Emitter 收编（里程碑 v3.13.0）
+- **新增 `ResponsesSseEmitter`**：严格镜像 `AnthropicSseEmitter` 生命周期，start/text/reasoning/toolCall/complete 全幂等。
+- **状态所有权收编**：全局单例 `streamStateManager` 彻底消除，并发隔离全量依托 `StreamSessionStore`；事件生成器纯函数化。
+- **三转换器迁移零回归**：OpenAI / Gemini / Claude 的 Responses 流式方向全量接入，既有 golden 流式测试 100% 通过。
+
+### 5. Phase 4 可选增强 + 加固收尾（里程碑 v3.14.0）
+- **合并去重**：三处 parts 级同角色合并提取为 `mergeConsecutiveSameRoleContents` 纯函数。
+- **工具稳定排序**：`CONVERT_SORT_TOOLS`（默认 off）消除工具顺序抖动对隐式前缀缓存的干扰；`cache_control` 丢弃补 debug 日志。
+- **质量收尾**：清理遗留死代码 436 行、转换开关统一经 config-manager、新增 5 个测试套件，**全量 19 套件 288 用例通过**。
 
 ---
 
 ## 🔧 历史版本回顾
+
+### v3.10.0 (2026-10-16)
+- **Codex OAuth 体系增强**：动态模型发现与自动同步（GPT-6 Luna / Astra / Sol 全系列）、WebUI 节点级客户端版本号独立配置、账号订阅类型解析与权限门禁过滤。
+- **流式韧性修复**：非流式空响应误判修复、思考增量完整放行、客户端断开保护与空响应异常拦截。
 
 ### v3.9.1 (2026-10-13)
 - **存量配置无缝升级**：v3.8.0 及更早的 `trae-agent_v3` 节点配置在启动时自动迁移至 `trae-solo_work_lite`（含历史 `TRAE_CHANNEL_MODE` 改写与回写持久化），升级后不再抛 `Unsupported model provider`。
@@ -33,6 +47,3 @@
 ### v3.9.0 (2026-10-13)
 - **Trae 通道重构**：重新确立 `trae-solo_work_lite`（SOLO Agent，19 模型）与 `trae-chat_v3`（侧边栏 Chat，20 模型）两个独立一级提供商。
 - **协议合规修复集**：Zed 工具能力补全、Gemini->Claude 流式事件序列合规、Responses API 状态修正等。
-
-### v3.8.0 (2026-10-10)
-- **Trae 独立双通道拆分**：将 Trae 正式拆分为两个完全独立的一级提供商（`trae` 与 `trae-agent_v3`），完成双通道 50/50 模型实测。

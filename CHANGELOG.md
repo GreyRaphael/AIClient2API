@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v3.14.1] - 2026-10-18
+
+> 跨协议转译优化系列（依据 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`，Phase 0-4 全部落地 + 加固收尾）。过程里程碑标签：`v3.10.1`（Phase 0）、`v3.11.0`（Phase 1）、`v3.12.0`（Phase 2）、`v3.13.0`（Phase 3）、`v3.14.0`（Phase 4）。
+
+### Added (新增)
+- **Schema Polyfill 降级编译器**（Phase 1，里程碑 v3.11.0）：
+  - 新增 `src/converters/schema-polyfill.js`，`$ref` 静态内联展开（循环检测 + 深度上限 10，超限安全坍缩）。
+  - 被白名单剥除的约束（pattern/format/default/const/数值边界/长度/items 等 12 类）以 `[Constraints: k=v]` 格式注入 description，单字段 200 字符、整 schema 1000 字符双重上限，原始描述永不裁剪。
+  - `oneOf`/`anyOf` 同型保留 type、异型删除 type 并注入分支摘要；`allOf` 浅合并 properties/required 并集。
+  - env 开关 `CONVERT_SCHEMA_POLYFILL`（默认 on）与 `CONVERT_SCHEMA_POLYFILL_MAX_DESC`（默认 1000）。
+- **签名金库 Signature Vault**（Phase 2，里程碑 v3.12.0）：
+  - 新增 `src/converters/signature-vault.js`，无状态 HMAC 虚拟思考签名（`vsig1.<payload>.<hmac>`），进程级密钥（`SIGNATURE_VAULT_SECRET` 或启动随机生成），无 TTL。
+  - X→Claude 响应侧（AnthropicSseEmitter + 各非流式组装路径）自动为无签名 thinking 块补签；Claude→非 Claude 四方向入口及 Claude 协议上游管道层无条件剥离虚拟签名，真签名永不剥离。
+  - HMAC 校验失败仍按前缀安全剥离，永不因签名问题阻断请求；`SIGNATURE_VAULT` / `SIGNATURE_VAULT_STRIP` 独立开关。
+- **Responses SSE Emitter 状态所有权收编**（Phase 3，里程碑 v3.13.0）：
+  - 新增 `src/converters/responses-sse-emitter.js`，严格镜像 `AnthropicSseEmitter` 生命周期（start/textDelta/reasoningDelta/toolCall*/complete 全幂等）。
+  - 全局单例 `streamStateManager` 彻底消除，流式状态收编实例字段 + `StreamSessionStore` 并发隔离；`openai-responses-events.js` 事件生成器纯函数化。
+  - OpenAI / Gemini / Claude 三转换器 Responses 流式方向全量迁移，既有 golden 流式测试零回归。
+- **跨协议可选增强**（Phase 4，里程碑 v3.14.0）：
+  - 三处 parts 级同角色合并逻辑提取为 `mergeConsecutiveSameRoleContents` 纯函数。
+  - tools 数组按 name 稳定排序（env `CONVERT_SORT_TOOLS`，默认 off），消除工具顺序抖动对隐式前缀缓存的干扰。
+  - `cache_control` 跨协议丢弃补 debug 日志（`logOmittedCacheControl`），消灭静默丢弃。
+
+### Fixed (修复)
+- **Phase 0 定点修复包**（里程碑 v3.10.1）：
+  - 统一思考预算换算：新阈值 `low<=2048 / medium<=8192 / high>8192`，修复常规预算全量坍缩为 high、medium 档名存实亡的问题；四份漂移换算表归一至 `src/converters/thinking-budget.js`。
+  - Responses→Gemini 思考配置恢复：`toGeminiRequest` 按 `reasoning.effort` 生成 thinkingConfig（Gemini 3 thinkingLevel / 2.5 thinkingBudget 双轨）。
+  - Responses→OpenAI 保留 reasoning item（折入 assistant 消息，`CONVERT_PRESERVE_REASONING_ITEM` 默认 on）与响应侧 `reasoning_content` 回填；`item_reference` 显式 debug 日志跳过。
+  - Claude document 块四方向处理：→Gemini 原生 inlineData（>20MB 占位降级）、→Responses input_file、→Codex 占位（`CODEX_PDF_AS_INPUT_FILE=1` 尝鲜）、→OpenAI 占位 + warn 告警。
+  - 思考签名闭环加固：<50 字符短签名放行 + debug、流式 `signature_delta` 转发携带 thoughtSignature 的 Gemini chunk、`redacted_thinking` 占位 + warn。
+
+### Changed (变更)
+- **加固收尾（P0-P3）**：清理 Phase 1/3 遗留死代码 436 行；所有转换层功能开关（`CONVERT_*` / `SIGNATURE_VAULT*`）统一经 `config-manager` 读取；Responses 事件生成器切断全局状态镜像；`polyfillSchemaForGemini` 补齐 `dialect` 预留接口。
+- **测试体系**：新增 thinking-budget / schema-polyfill / signature-vault / responses-sse-emitter / phase4-enhancements 五个测试套件，全量 19 套件 288 用例通过。
+
 ## [v3.10.0] - 2026-10-16
 
 ### Added (新增)
