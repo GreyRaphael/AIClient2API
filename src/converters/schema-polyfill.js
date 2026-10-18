@@ -74,6 +74,7 @@ function resolveRef(rootSchema, ref) {
  * @param {boolean} [options.injectConstraints=true] - 是否自然语言化注入约束
  * @param {number} [options.maxDescriptionLength=1000] - 整 schema description 总量字符上限
  * @param {number} [options.maxRefDepth=10] - $ref 展开最大嵌套深度
+ * @param {'gemini'|'trae'} [options.dialect='gemini'] - 目标方言（预留接口：Trae 通道本期不接入，行为同 'gemini'）
  * @returns {{ schema: Object, report: { expandedRefs: number, injectedConstraints: Array<{path: string, kinds: string[]}>, collapsedOneOf: Array<{path: string}>, truncated: boolean } }}
  */
 export function polyfillSchemaForGemini(rawSchema, options = {}) {
@@ -82,6 +83,12 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
         ? options.maxDescriptionLength
         : getSchemaPolyfillMaxDesc();
     const maxRefDepth = (typeof options.maxRefDepth === 'number' && options.maxRefDepth > 0) ? options.maxRefDepth : 10;
+    // dialect 预留接口：Trae 通道（trae-core.js parameters 字符串化处）本期不接入，
+    // 两种方言当前行为一致；显式传入 'trae' 时记录一次 debug 便于观测未来接入点。
+    const dialect = options.dialect === 'trae' ? 'trae' : 'gemini';
+    if (dialect === 'trae') {
+        logger.debug("[SchemaPolyfill] dialect='trae' is a reserved interface; Trae channel is not integrated yet, behaving as 'gemini'");
+    }
 
     const report = {
         expandedRefs: 0,

@@ -434,4 +434,28 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(cleaned.properties.filter.description).toContain('pattern=^[a-zA-Z0-9_-]+$; maxLength=50');
         });
     });
+
+    describe('6. dialect 预留接口', () => {
+        const constraintSchema = {
+            type: 'object',
+            properties: {
+                code: { type: 'string', pattern: '^[A-Z]{3}-[0-9]{4}$', minLength: 8 }
+            }
+        };
+
+        test("默认 dialect 为 'gemini'，显式传 'gemini' 行为一致", () => {
+            const { schema: base, report: baseReport } = polyfillSchemaForGemini(constraintSchema);
+            const { schema: explicit, report: explicitReport } = polyfillSchemaForGemini(constraintSchema, { dialect: 'gemini' });
+            expect(explicit).toEqual(base);
+            expect(explicitReport).toEqual(baseReport);
+        });
+
+        test("显式传 'trae'：接口可用且当前行为与 'gemini' 一致", () => {
+            const { schema: base, report: baseReport } = polyfillSchemaForGemini(constraintSchema);
+            const { schema: trae, report: traeReport } = polyfillSchemaForGemini(constraintSchema, { dialect: 'trae' });
+            expect(trae).toEqual(base);
+            expect(traeReport).toEqual(baseReport);
+            expect(trae.properties.code.description).toContain('[Constraints:');
+        });
+    });
 });
