@@ -120,6 +120,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
                 plainTextToken: plainText,
                 systemId,
                 version,
+                organizationId: tokenExchangeResult.organizationId,
                 jwtToken: tokenExchangeResult.token,
                 expiresAt: tokenExchangeResult.expiresAt,
                 currentConfig
@@ -282,6 +283,7 @@ export async function handleZedOAuthCallback(rawInput, sessionId = null, current
         plainTextToken: plainText,
         systemId: session.systemId,
         version: session.version,
+        organizationId: tokenExchangeResult.organizationId,
         jwtToken: tokenExchangeResult.token,
         expiresAt: tokenExchangeResult.expiresAt,
         currentConfig
@@ -306,6 +308,7 @@ async function saveZedCredentials({
     plainTextToken,
     systemId,
     version,
+    organizationId,
     jwtToken,
     expiresAt,
     currentConfig
@@ -326,6 +329,7 @@ async function saveZedCredentials({
         user_id: userId,
         access_token: plainTextToken,
         system_id: systemId,
+        organization_id: organizationId,
         version: version,
         jwt_token: jwtToken,
         expires_at: expiresAt,

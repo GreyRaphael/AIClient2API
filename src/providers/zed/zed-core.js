@@ -16,6 +16,7 @@ import { effortToClaudeBudget, effortToGeminiThinking } from '../../converters/t
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
 export const ZED_MODELS_URL = 'https://cloud.zed.dev/models';
+export const ZED_USERS_ME_URL = 'https://cloud.zed.dev/client/users/me';
 export const ZED_FALLBACK_SYSTEM_ID = '6b87ab66-af2c-49c7-b986-ef4c27c9e1fb';
 export const ZED_FALLBACK_VERSION = '0.222.4+stable.147.b385025df963c9e8c3f74cc4dadb1c4b29b3c6f0';
 export const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
@@ -40,28 +41,77 @@ export function parseJwtExpiresAt(token) {
     return expiresAt;
 }
 
+function buildZedAuthHeaders({ userId, accessToken, systemId }) {
+    return {
+        'Authorization': `${userId} ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Zed-System-Id': systemId || ZED_FALLBACK_SYSTEM_ID
+    };
+}
+
+/**
+ * 从 /client/users/me 解析默认组织 ID。
+ * Zed 的 /client/llm_tokens 现在要求请求体携带 organization_id。
+ * @param {Object} params
+ * @param {string} params.userId
+ * @param {string} params.accessToken
+ * @param {string} [params.systemId]
+ * @param {Object} [params.config]
+ * @returns {Promise<string>}
+ */
+export async function fetchZedOrganizationId({ userId, accessToken, systemId, config }) {
+    if (!userId || !accessToken) {
+        throw new Error('Zed user_id and access_token are required to resolve organization id');
+    }
+
+    const axiosConfig = {
+        method: 'get',
+        url: ZED_USERS_ME_URL,
+        headers: buildZedAuthHeaders({ userId, accessToken, systemId }),
+        timeout: 15000
+    };
+
+    configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
+
+    const response = await axios.request(axiosConfig);
+    const data = response.data || {};
+
+    if (data.default_organization_id) {
+        return data.default_organization_id;
+    }
+
+    const organizations = Array.isArray(data.organizations) ? data.organizations : [];
+    const organization = organizations.find(org => org?.is_personal) || organizations[0];
+    if (organization?.id) {
+        return organization.id;
+    }
+
+    throw new Error('Zed organization id not found in /client/users/me response. Please sign in again.');
+}
+
 /**
  * 向 Zed cloud 请求短效 LLM token 并解析过期时间
  * @param {Object} params
  * @param {string} params.userId
  * @param {string} params.accessToken
  * @param {string} [params.systemId]
+ * @param {string} [params.organizationId] 未提供时自动从 /client/users/me 解析
  * @param {Object} [params.config]
- * @returns {Promise<{ token: string, expiresAt: number }>}
+ * @returns {Promise<{ token: string, expiresAt: number, organizationId: string }>}
  */
-export async function exchangeZedToken({ userId, accessToken, systemId, config }) {
+export async function exchangeZedToken({ userId, accessToken, systemId, organizationId, config }) {
     if (!userId || !accessToken) {
         throw new Error('Zed user_id and access_token are required for token exchange');
     }
 
+    const resolvedOrganizationId = organizationId
+        || await fetchZedOrganizationId({ userId, accessToken, systemId, config });
+
     const axiosConfig = {
         method: 'post',
         url: ZED_TOKEN_URL,
-        headers: {
-            'Authorization': `${userId} ${accessToken}`,
-            'Content-Type': 'application/json',
-            'X-Zed-System-Id': systemId || ZED_FALLBACK_SYSTEM_ID
-        },
+        headers: buildZedAuthHeaders({ userId, accessToken, systemId }),
+        data: { organization_id: resolvedOrganizationId },
         timeout: 15000
     };
 
@@ -75,7 +125,7 @@ export async function exchangeZedToken({ userId, accessToken, systemId, config }
     }
 
     const expiresAt = parseJwtExpiresAt(token);
-    return { token, expiresAt };
+    return { token, expiresAt, organizationId: resolvedOrganizationId };
 }
 
 /**
@@ -234,15 +284,17 @@ export class ZedApiService {
 
                 logger.info(`[Zed] Requesting new LLM token from ${ZED_TOKEN_URL}...`);
 
-                const { token, expiresAt } = await exchangeZedToken({
+                const { token, expiresAt, organizationId } = await exchangeZedToken({
                     userId: this.userId,
                     accessToken: this.accessToken,
                     systemId: this.systemId,
+                    organizationId: this.organizationId,
                     config: this.config
                 });
 
                 this.jwtToken = token;
                 this.jwtExpiresAt = expiresAt;
+                this.organizationId = organizationId;
 
                 logger.info(`[Zed] Successfully acquired LLM token, expires at: ${new Date(this.jwtExpiresAt).toISOString()}`);
                 await this.saveCredentials();

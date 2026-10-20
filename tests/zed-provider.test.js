@@ -9,7 +9,11 @@ import { isRegisteredProvider, ZedApiServiceAdapter } from '../src/providers/ada
 import {
     ZedApiService,
     getZedVersionFromSystem,
-    getZedProviderForModel
+    getZedProviderForModel,
+    exchangeZedToken,
+    fetchZedOrganizationId,
+    ZED_TOKEN_URL,
+    ZED_USERS_ME_URL
 } from '../src/providers/zed/zed-core.js';
 import { PROVIDER_MODELS } from '../src/providers/provider-models.js';
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
@@ -217,6 +221,76 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(provReq.generationConfig.thinkingConfig.thinkingBudget).toBeUndefined();
     });
 
+    describe('Zed token exchange organization scoping', () => {
+        const originalRequest = axios.request;
+
+        afterEach(() => {
+            axios.request = originalRequest;
+        });
+
+        test('exchangeZedToken resolves default organization and sends it in the request body', async () => {
+            const requests = [];
+            axios.request = jest.fn().mockImplementation(async (config) => {
+                requests.push(config);
+                if (config.url === ZED_USERS_ME_URL) {
+                    return {
+                        data: {
+                            user: { legacy_user_id: 1 },
+                            default_organization_id: 'org_default',
+                            organizations: [{ id: 'org_default', is_personal: true }]
+                        }
+                    };
+                }
+                return { data: { token: 'header.eyJleHAiOjE5OTk5OTk5OTl9.sig' } };
+            });
+
+            const result = await exchangeZedToken({
+                userId: '1',
+                accessToken: 'token',
+                systemId: 'sys'
+            });
+
+            expect(result.organizationId).toBe('org_default');
+            expect(requests.map(r => r.url)).toEqual([ZED_USERS_ME_URL, ZED_TOKEN_URL]);
+            expect(requests[1].data).toEqual({ organization_id: 'org_default' });
+            expect(requests[1].headers.Authorization).toBe('1 token');
+        });
+
+        test('fetchZedOrganizationId falls back to the personal organization', async () => {
+            axios.request = jest.fn().mockResolvedValue({
+                data: {
+                    organizations: [
+                        { id: 'org_team', is_personal: false },
+                        { id: 'org_personal', is_personal: true }
+                    ]
+                }
+            });
+
+            await expect(fetchZedOrganizationId({
+                userId: '1',
+                accessToken: 'token'
+            })).resolves.toBe('org_personal');
+        });
+
+        test('exchangeZedToken skips /client/users/me when organization id is provided', async () => {
+            const requests = [];
+            axios.request = jest.fn().mockImplementation(async (config) => {
+                requests.push(config);
+                return { data: { token: 'header.eyJleHAiOjE5OTk5OTk5OTl9.sig' } };
+            });
+
+            const result = await exchangeZedToken({
+                userId: '1',
+                accessToken: 'token',
+                organizationId: 'org_known'
+            });
+
+            expect(result.organizationId).toBe('org_known');
+            expect(requests.map(r => r.url)).toEqual([ZED_TOKEN_URL]);
+            expect(requests[0].data).toEqual({ organization_id: 'org_known' });
+        });
+    });
+
     test('ZedApiService.getToken deduplicates concurrent calls via _tokenRefreshPromise', async () => {
         const zedService = new ZedApiService({
             uuid: 'test-uuid',
@@ -236,6 +310,9 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         const axios = (await import('axios')).default;
         const originalRequest = axios.request;
         axios.request = jest.fn().mockImplementation(async (config) => {
+            if (config.url === ZED_USERS_ME_URL) {
+                return { data: { default_organization_id: 'org_test' } };
+            }
             if (config.url?.includes('llm_tokens')) {
                 tokenExchangeCount++;
                 await new Promise(r => setTimeout(r, 20));
