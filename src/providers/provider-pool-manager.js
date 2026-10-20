@@ -6,48 +6,16 @@ import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { convertData } from '../convert/convert.js';
 
 import {
-    getConfiguredSupportedModels,
-    getCustomModelListProvider,
-    getProviderModels,
-    normalizeModelIds,
-    usesManagedModelList
+    getCustomModelListProvider
 } from './provider-models.js';
 import {
     nodeSupportsModel,
     resolveNodeCapability,
+    resolveProviderCapability,
     resolveProviderCapabilityWithRefresh
 } from './model-capability.js';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';
 import { ENDPOINT_TYPE } from '../utils/common.js';
-
-function getCustomModelAliasesForProvider(config, providerType) {
-    const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
-    return new Set(
-        customModels
-            .filter(model => {
-                if (model?.enabled === false) return false;
-                const listProvider = getCustomModelListProvider(model);
-                return model?.alias &&
-                    model.alias !== model.id &&
-                    listProvider &&
-                    (listProvider === providerType || providerType.startsWith(listProvider + '-'));
-            })
-            .map(model => model.alias)
-    );
-}
-
-function getCustomModelIdsForProvider(config, providerType) {
-    const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
-    return customModels
-        .filter(model => {
-            if (model?.enabled === false) return false;
-            const listProvider = getCustomModelListProvider(model);
-            return model?.id &&
-                listProvider &&
-                (listProvider === providerType || providerType.startsWith(listProvider + '-'));
-        })
-        .map(model => model.id);
-}
 
 /**
  * Manages a pool of API service providers, handling their health and selection.
@@ -1055,6 +1023,35 @@ export class ProviderPoolManager {
     }
 
     /**
+     * 判断某个 providerType 的活跃节点是否支持目标模型。
+     * 用于 fallback chain / model fallback mapping 的预检。
+     * @private
+     */
+    _providerTypeSupportsModel(providerType, requestedModel, options = {}) {
+        const nodes = this.providerStatus[providerType] || [];
+        if (nodes.length === 0) {
+            return false;
+        }
+
+        const capability = resolveProviderCapability(providerType, nodes);
+        const knownNodes = capability.nodes.filter(node => node.known);
+        if (knownNodes.length === 0) {
+            return true;
+        }
+
+        const models = new Set();
+        for (const node of knownNodes) {
+            const list = options.allowUnselectedModel
+                ? node.candidateModels
+                : node.selectedModels;
+            for (const model of list) {
+                models.add(model);
+            }
+        }
+        return models.has(requestedModel);
+    }
+
+    /**
      * 实际执行 provider 选择的内部方法（同步执行，由锁保护）
      * @private
      */
@@ -1083,34 +1080,25 @@ export class ProviderPoolManager {
                 rawModelName = requestedModel.substring(requestedModel.indexOf('/') + 1);
             }
             const modelFilteredProviders = availableAndHealthyProviders.filter(p => {
-                const supportedModels = getConfiguredSupportedModels(providerType, p.config);
-                if (supportedModels.length > 0) {
-                    return supportedModels.includes(requestedModel) || supportedModels.includes(rawModelName);
-                }
-
-                // 通用节点专属能力守卫：若节点已有可靠发现结果，严格核对其是否实际支持
-                // 自定义模型的 actualModel 可能与上游发现列表中的 ID 不同（如 glm-5.3 -> ZHIPU/GLM-5.3），
-                // 因此同时用自定义模型映射中的 ID / alias 做候选匹配。
                 const capability = resolveNodeCapability(providerType, p.config);
-                if (capability.known) {
-                    const cleanRequested = (requestedModel || '').replace(/^models\//, '');
-                    const cleanRaw = (rawModelName || '').replace(/^models\//, '');
-                    const modelCandidates = [
-                        cleanRequested,
-                        cleanRaw,
-                        ...this._getCustomModelRoutingCandidates(providerType, cleanRequested)
-                    ].filter(Boolean);
-                    if (!modelCandidates.some(model => nodeSupportsModel(capability, model))) {
-                        return false;
-                    }
-                }
-
-                // 如果提供商没有配置 notSupportedModels，则认为它支持所有模型
-                if (!p.config.notSupportedModels || !Array.isArray(p.config.notSupportedModels)) {
+                if (!capability.known) {
                     return true;
                 }
-                // 检查 notSupportedModels 数组中是否包含请求的模型，如果包含则排除
-                return !p.config.notSupportedModels.includes(requestedModel) && !p.config.notSupportedModels.includes(rawModelName);
+
+                // 通用节点专属能力守卫：若节点已有可靠发现结果，严格核对其是否实际支持。
+                // 自定义模型的 actualModel 可能与上游发现列表中的 ID 不同（如 glm-5.3 -> ZHIPU/GLM-5.3），
+                // 因此同时用自定义模型映射中的 ID / alias 做候选匹配。
+                const cleanRequested = (requestedModel || '').replace(/^models\//, '');
+                const cleanRaw = (rawModelName || '').replace(/^models\//, '');
+                const modelCandidates = [
+                    cleanRequested,
+                    cleanRaw,
+                    ...this._getCustomModelRoutingCandidates(providerType, cleanRequested)
+                ].filter(Boolean);
+                const models = options.allowUnselectedModel
+                    ? capability.candidateModels
+                    : capability.selectedModels;
+                return modelCandidates.some(model => nodeSupportsModel(capability, model, models));
             });
 
             if (modelFilteredProviders.length === 0) {
@@ -1189,8 +1177,7 @@ export class ProviderPoolManager {
                 const fallbackProtocol = getProtocolPrefix(currentType);
                 if (primaryProtocol !== fallbackProtocol) continue;
 
-                const supportedModels = getProviderModels(currentType);
-                if (supportedModels.length > 0 && !supportedModels.includes(requestedModel)) continue;
+                if (!this._providerTypeSupportsModel(currentType, requestedModel, options)) continue;
             }
 
             // 尝试获取插槽
@@ -1242,8 +1229,7 @@ export class ProviderPoolManager {
                              const fallbackProtocol = getProtocolPrefix(fallbackType);
                              if (targetProtocol !== fallbackProtocol) continue;
                              
-                             const supportedModels = getProviderModels(fallbackType);
-                             if (supportedModels.length > 0 && !supportedModels.includes(targetModel)) continue;
+                             if (!this._providerTypeSupportsModel(fallbackType, targetModel, options)) continue;
                              
                              try {
                                 const fallbackSelectedConfig = await this.acquireSlot(fallbackType, targetModel, options);
@@ -1333,8 +1319,7 @@ export class ProviderPoolManager {
                 }
 
                 // 检查 fallback 类型是否支持请求的模型
-                const supportedModels = getProviderModels(currentType);
-                if (supportedModels.length > 0 && !supportedModels.includes(requestedModel)) {
+                if (!this._providerTypeSupportsModel(currentType, requestedModel, options)) {
                     this._log('debug', `Skipping fallback type ${currentType}: model ${requestedModel} not supported`);
                     continue;
                 }
@@ -1399,8 +1384,7 @@ export class ProviderPoolManager {
                              if (targetProtocol !== fallbackProtocol) continue;
                              
                              // 检查模型支持
-                             const supportedModels = getProviderModels(fallbackType);
-                             if (supportedModels.length > 0 && !supportedModels.includes(targetModel)) continue;
+                             if (!this._providerTypeSupportsModel(fallbackType, targetModel, options)) continue;
                              
                              const fallbackSelectedConfig = await this.selectProvider(fallbackType, targetModel, options);
                              if (fallbackSelectedConfig) {
@@ -1496,10 +1480,10 @@ export class ProviderPoolManager {
      * @param {object} [options]
      * @returns {string[]|null}
      */
-    getNodeAvailableModels(providerType, nodeConfig, options = {}) {
+    getNodeAvailableModels(providerType, nodeConfig) {
         if (!nodeConfig) return null;
-        const capability = resolveNodeCapability(providerType, nodeConfig, options);
-        return capability.known ? capability.models : null;
+        const capability = resolveNodeCapability(providerType, nodeConfig);
+        return capability.known ? capability.selectedModels : null;
     }
 
     /**
@@ -1513,20 +1497,10 @@ export class ProviderPoolManager {
     getActiveProviderModels(providerType, rawNodesOverride = null, options = {}) {
         const rawProviders = rawNodesOverride || this.providerStatus[providerType] || this.providerPools?.[providerType] || [];
         if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
-            return getProviderModels(providerType);
+            return [];
         }
 
-        const capability = resolveProviderCapabilityWithRefresh(providerType, rawProviders, options);
-        if (capability.models.length > 0) {
-            return capability.models;
-        }
-
-        if (usesManagedModelList(providerType)) {
-            const defaultModel = ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS[providerType];
-            return defaultModel ? [defaultModel] : [];
-        }
-
-        return capability.models;
+        return resolveProviderCapabilityWithRefresh(providerType, rawProviders, options).models;
     }
 
     /**
@@ -1550,29 +1524,9 @@ export class ProviderPoolManager {
                     continue;
                 }
 
-                const customAliases = getCustomModelAliasesForProvider(this.globalConfig, providerType);
-                const customModelIds = getCustomModelIdsForProvider(this.globalConfig, providerType);
+                // 单一事实来源：分组最终集 = 活跃节点选择集并集 ∪ 该分组的自定义模型
+                const models = this.getActiveProviderModels(providerType, activeNodes);
 
-                const configuredSupportedModels = normalizeModelIds(
-                    activeNodes.flatMap(providerStatus =>
-                        getConfiguredSupportedModels(providerType, providerStatus.config)
-                    )
-                );
-
-                let models = [];
-                if (customModelIds.length > 0 && configuredSupportedModels.length === 0) {
-                    // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，且节点未配置 supportedModels，优先使用"自定义模型管理"中的数据
-                    models = normalizeModelIds(customModelIds);
-                } else if (configuredSupportedModels.length > 0) {
-                    // 2. 如果节点配置了 supportedModels，合并自定义模型
-                    models = normalizeModelIds([...configuredSupportedModels, ...customModelIds]);
-                } else {
-                    // 3. 否则使用号池活跃节点动态聚合的模型列表（单一事实来源）
-                    const poolActiveModels = this.getActiveProviderModels(providerType, activeNodes);
-                    models = normalizeModelIds(poolActiveModels.filter(model => !customAliases.has(model)));
-                }
-
-                // 单一事实来源：Model Capability resolver 已处理托管/动态/静态 provider 的差异
                 for (const model of models) {
                     allModels.push({
                         id: `${providerType}:${model}`,

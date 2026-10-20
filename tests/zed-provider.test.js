@@ -248,17 +248,13 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         }
     });
 
-    test('updateProviderModels merges and protects BASE_ZED_MODELS', async () => {
-        const { BASE_ZED_MODELS, updateProviderModels } = await import('../src/providers/provider-models.js');
+    test('静态基线保持不可变，动态发现结果只走能力缓存', async () => {
+        const { BASE_ZED_MODELS } = await import('../src/providers/provider-models.js');
         expect(Array.isArray(BASE_ZED_MODELS)).toBe(true);
         expect(BASE_ZED_MODELS).toContain('claude-sonnet-5');
         expect(BASE_ZED_MODELS).toContain('claude-sonnet-4-5');
 
-        // Dynamically update with a subset or custom model
-        updateProviderModels(MODEL_PROVIDER.ZED, ['custom-dynamic-zed-model']);
-        expect(PROVIDER_MODELS['zed']).toContain('custom-dynamic-zed-model');
-        expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-5');
-        expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-4-5');
+        expect(PROVIDER_MODELS['zed']).toEqual(BASE_ZED_MODELS);
     });
 
     test('ZedApiService.fetchRemoteModels deduplicates concurrent calls via _modelsFetchPromise', async () => {

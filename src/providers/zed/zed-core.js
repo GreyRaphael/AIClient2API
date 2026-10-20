@@ -6,7 +6,7 @@ import path from 'path';
 import os from 'os';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
+import { PROVIDER_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）

@@ -333,7 +333,10 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
         }
     }
 
-    const customModels = getCustomModelIdsForProvider(CONFIG.customModels, providerType);
+    // 分组没有任何活跃节点时不暴露任何模型（含自定义模型），避免出现“列表可见但无人可服务”
+    const customModels = contributors.length > 0
+        ? getCustomModelIdsForProvider(CONFIG.customModels, providerType)
+        : [];
     for (const model of customModels) {
         modelSet.add(model);
     }
@@ -361,7 +364,7 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
  * - 节点没有可靠发现结果时不做守卫（保持既有行为，避免阻断新模型）；
  * - 有发现结果时，支持 -high / -thinking 后缀兼容。
  */
-export function nodeSupportsModel(capability, model) {
+export function nodeSupportsModel(capability, model, models = null) {
     if (!capability || !capability.known) return true;
     const requested = String(model || '').replace(/^models\//, '');
     if (!requested) return true;
@@ -371,7 +374,8 @@ export function nodeSupportsModel(capability, model) {
         `${requested}-high`,
         `${requested}-thinking`
     ]);
-    return capability.models.some(item => candidates.has(item));
+    const modelList = Array.isArray(models) ? models : capability.models;
+    return modelList.some(item => candidates.has(item));
 }
 
 function isBackgroundRefreshEnabled() {

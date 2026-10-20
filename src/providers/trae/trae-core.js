@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { updateProviderModels, PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.js';
+import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.js';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.js';
 import {

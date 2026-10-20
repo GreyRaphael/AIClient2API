@@ -2,19 +2,17 @@ import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.js';
 import { getRequestBody } from '../utils/common.js';
 import {
-    extractModelIdsFromNativeList,
-    getConfiguredSupportedModels,
-    normalizeModelIds,
-    usesManagedModelList
+    normalizeModelIds
 } from '../providers/provider-models.js';
 import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath, addToUsedPaths, isPathUsed, pathsEqual } from '../utils/provider-utils.js';
 import { broadcastEvent } from './event-broadcast.js';
-import { getRegisteredProviders, getServiceAdapter, invalidateServiceAdapter, serviceInstances } from '../providers/adapter.js';
+import { getRegisteredProviders, invalidateServiceAdapter } from '../providers/adapter.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.js';
 import { isTraeProviderType, isSoloFamilyProviderType, isSoloFamilyChannel, TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
 import {
     ensureProviderCapability,
+    refreshNodeCapability,
     refreshProviderCapabilities,
     resolveNodeCapability
 } from '../providers/model-capability.js';
@@ -169,16 +167,17 @@ async function runProviderHealthCheck(providerPoolManager, providerType, provide
     const providerConfig = providerStatus.config;
 
     try {
-        // 对于管理模型列表的提供商，如果配置了支持的模型，从中挑选一个用于健康检查
+        // 未显式配置 checkModelName 时，从节点选择集中挑选一个轻量模型用于健康检查
         let checkModelName = providerConfig.checkModelName;
-        if (!checkModelName && usesManagedModelList(providerType)) {
-            const supportedModels = getConfiguredSupportedModels(providerType, providerConfig);
-            if (supportedModels.length > 0) {
+        if (!checkModelName) {
+            const capability = resolveNodeCapabilityMeta(providerType, providerConfig);
+            const selectedModels = capability?.selectedModels || [];
+            if (selectedModels.length > 0) {
                 // 优先挑选常见的/轻量级的模型，或者直接取第一个
-                checkModelName = supportedModels.find(m =>
+                checkModelName = selectedModels.find(m =>
                     m.includes('flash') || m.includes('mini') || m.includes('3.5') || m.includes('small')
-                ) || supportedModels[0];
-                logger.info(`[UI API] Selected model ${checkModelName} for health check of managed provider ${providerConfig.uuid}`);
+                ) || selectedModels[0];
+                logger.info(`[UI API] Selected model ${checkModelName} for health check of ${providerConfig.uuid}`);
             }
         }
 
@@ -249,16 +248,60 @@ async function runProviderHealthCheck(providerPoolManager, providerType, provide
  */
 function resolveNodeCapabilityMeta(providerType, providerConfig) {
     if (!providerType || !providerConfig) return null;
-    return resolveNodeCapability(providerType, providerConfig, { includeDisabled: true });
+    return resolveNodeCapability(providerType, providerConfig);
 }
 
 function applyCapabilityMeta(target, capability) {
     if (!target || !capability) return target;
+    target.candidateModels = capability.candidateModels;
+    target.selectedModels = capability.selectedModels;
+    target.selectionMode = capability.selectionMode;
     target.modelsSource = capability.source;
     target.modelsFetchedAt = capability.fetchedAt;
     target.modelsStale = capability.stale;
     target.modelsLastError = capability.entry?.lastError || null;
     return target;
+}
+
+// 旧模型选择字段：保存时统一剥离，避免写回配置文件
+const LEGACY_MODEL_FIELDS = [
+    'notSupportedModels',
+    'disabledModels',
+    'availableModels',
+    'discoveredModels',
+    'modelsFetchedAt',
+    'modelsSource'
+];
+
+/**
+ * 归一化节点配置中的模型选择字段：
+ * - 剥离旧字段与运行时元数据；
+ * - supportedModels / supportedModelsBaseline 做精确去重（大小写敏感）。
+ */
+function normalizeModelSelectionFields(providerConfig) {
+    const normalized = { ...providerConfig };
+
+    for (const field of LEGACY_MODEL_FIELDS) {
+        delete normalized[field];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalized, 'supportedModels')) {
+        if (normalized.supportedModels === null || normalized.supportedModels === undefined) {
+            delete normalized.supportedModels;
+        } else {
+            normalized.supportedModels = normalizeModelIds(normalized.supportedModels);
+        }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalized, 'supportedModelsBaseline')) {
+        if (normalized.supportedModelsBaseline === null || normalized.supportedModelsBaseline === undefined) {
+            delete normalized.supportedModelsBaseline;
+        } else {
+            normalized.supportedModelsBaseline = normalizeModelIds(normalized.supportedModelsBaseline);
+        }
+    }
+
+    return normalized;
 }
 
 /**
@@ -355,9 +398,6 @@ export async function handleGetProviderType(req, res, currentConfig, providerPoo
     const sanitizedProviders = await Promise.all(providers.map(async p => {
         const sanitized = sanitizeProviderData(p, true);
         const capability = resolveNodeCapabilityMeta(providerType, p);
-        if (capability?.known) {
-            sanitized.availableModels = capability.candidateModels;
-        }
         applyCapabilityMeta(sanitized, capability);
         return sanitized;
     }));
@@ -422,14 +462,9 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
             ? providerPoolManager.providerStatus[type]
             : (providerPools[type] || []);
         const capability = await ensureProviderCapability(type, nodes, {
-            mode: 'display',
             reason: 'read-through'
         });
-        let models = capability.models;
-        if (models.length === 0 && usesManagedModelList(type) && providerPoolManager?.getActiveProviderModels) {
-            models = providerPoolManager.getActiveProviderModels(type, nodes);
-        }
-        return [type, models];
+        return [type, capability.models];
     }));
 
     for (const [type, models] of resolved) {
@@ -440,36 +475,6 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(allModels));
-    return true;
-}
-
-/**
- * 获取特定提供商类型的候选模型列表。
- * 使用 includeDisabled=true，保留用户排除项，供 Provider 弹窗的 notSupportedModels 选择器使用。
- */
-export async function handleGetProviderTypeModels(req, res, currentConfig, providerPoolManager, providerType) {
-    let providerPools = {};
-    try {
-        providerPools = loadProviderPools(currentConfig, providerPoolManager);
-    } catch (error) {
-        logger.warn('[UI API] Failed to load provider pools for type models:', error.message);
-    }
-
-    const nodes = providerPoolManager?.providerStatus?.[providerType] || providerPools[providerType] || [];
-    const capability = await ensureProviderCapability(providerType, nodes, {
-        includeDisabled: true,
-        reason: 'read-through'
-    });
-    let models = capability.models;
-    if (models.length === 0 && usesManagedModelList(providerType) && providerPoolManager?.getActiveProviderModels) {
-        models = providerPoolManager.getActiveProviderModels(providerType, nodes, { includeDisabled: true });
-    }
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-        providerType,
-        models
-    }));
     return true;
 }
 
@@ -519,16 +524,12 @@ export async function handleRefreshProviderModels(req, res, currentConfig, provi
 }
 
 /**
- * Detect available models for a specific provider node.
+ * 刷新指定节点的上游模型能力，并返回候选集与选择集。
+ * 任意 provider 均可调用：有动态发现能力的 provider 走 adapter 刷新，
+ * 静态 provider 返回静态基线（source=static）。
  */
 export async function handleDetectProviderModels(req, res, currentConfig, providerPoolManager, providerType, providerUuid) {
     try {
-        if (!usesManagedModelList(providerType)) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: `Model detection is not supported for provider type: ${providerType}` } }));
-            return true;
-        }
-
         const body = await getRequestBody(req);
         const draftConfig = normalizeProviderConfigFields(filterMaskedData(body?.providerConfig || {}));
 
@@ -536,30 +537,20 @@ export async function handleDetectProviderModels(req, res, currentConfig, provid
         const providers = providerPools[providerType] || [];
         const existingProvider = providers.find(provider => provider.uuid === providerUuid) || {};
 
-        const detectionUuid = `${providerUuid}-detect-models`;
-        const instanceKey = `${providerType}${detectionUuid}`;
-        const tempConfig = {
-            ...currentConfig,
+        const nodeConfig = {
             ...existingProvider,
             ...draftConfig,
-            MODEL_PROVIDER: providerType,
-            uuid: detectionUuid
+            uuid: providerUuid
         };
-        delete tempConfig.providerPools;
 
-        let models = [];
-        try {
-            delete serviceInstances[instanceKey];
-            const serviceAdapter = getServiceAdapter(tempConfig);
-            if (typeof serviceAdapter.listModels !== 'function') {
-                throw new Error(`Provider ${providerType} does not support model detection`);
-            }
+        await refreshNodeCapability(providerType, nodeConfig, {
+            force: true,
+            reason: 'ui-detect'
+        });
 
-            const nativeModels = await serviceAdapter.listModels();
-            models = extractModelIdsFromNativeList(nativeModels, providerType);
-        } finally {
-            delete serviceInstances[instanceKey];
-        }
+        const capability = resolveNodeCapabilityMeta(providerType, nodeConfig);
+        const models = capability?.candidateModels || [];
+        const selectedModels = capability?.selectedModels || [];
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -568,7 +559,9 @@ export async function handleDetectProviderModels(req, res, currentConfig, provid
             uuid: providerUuid,
             count: models.length,
             models,
-            selectedModels: getConfiguredSupportedModels(providerType, existingProvider)
+            selectedModels,
+            source: capability?.source || null,
+            fetchedAt: capability?.fetchedAt || 0
         }));
         return true;
     } catch (error) {
@@ -646,12 +639,10 @@ async function _handleAddProvider(req, res, currentConfig, providerPoolManager, 
             providerPools[providerType] = [];
         }
         
-        // 过滤掉脱敏字段
-        const filteredConfig = normalizeProviderConfigFields(filterMaskedData(providerConfig));
-        if (usesManagedModelList(providerType)) {
-            filteredConfig.supportedModels = normalizeModelIds(filteredConfig.supportedModels);
-            filteredConfig.notSupportedModels = [];
-        }
+        // 过滤掉脱敏字段与旧模型选择字段（新节点默认“跟随上游全选”）
+        const filteredConfig = normalizeModelSelectionFields(
+            normalizeProviderConfigFields(filterMaskedData(providerConfig))
+        );
         providerPools[providerType].push(filteredConfig);
 
         // Save to file
@@ -748,20 +739,11 @@ async function _handleUpdateProvider(req, res, currentConfig, providerPoolManage
         // Update provider while preserving certain fields
         const existingProvider = providers[providerIndex];
         
-        // 过滤掉传入配置中的脱敏占位符，避免覆盖真实数据
-        const filteredConfig = normalizeProviderConfigFields(filterMaskedData(providerConfig));
-        // 模型发现结果属于运行时缓存，禁止通过配置保存回写
-        delete filteredConfig.availableModels;
-        delete filteredConfig.discoveredModels;
-        delete filteredConfig.modelsFetchedAt;
-        delete filteredConfig.modelsSource;
-        if (usesManagedModelList(providerType)) {
-            filteredConfig.supportedModels = normalizeModelIds(filteredConfig.supportedModels);
-            filteredConfig.notSupportedModels = [];
-        } else {
-            // 只保留用户显式排除项，不再按实时列表裁剪
-            filteredConfig.notSupportedModels = normalizeModelIds(filteredConfig.notSupportedModels);
-        }
+        // 过滤掉传入配置中的脱敏占位符与旧模型选择字段；
+        // supportedModels / supportedModelsBaseline 是唯一的模型选择意图，运行时元数据禁止回写
+        const filteredConfig = normalizeModelSelectionFields(
+            normalizeProviderConfigFields(filterMaskedData(providerConfig))
+        );
         
         const updatedProvider = {
             ...existingProvider,

@@ -7,9 +7,11 @@ import {
     MemoryCapabilityStore,
     capabilityKey,
     resetCapabilityStore,
+    resolveNodeCapability,
     setCapabilityStore
 } from '../src/providers/model-capability.js';
-import { handleGetProviderModels, handleGetProviderTypeModels } from '../src/ui-modules/provider-api.js';
+import { handleGetProviderModels, handleGetProviders } from '../src/ui-modules/provider-api.js';
+import { CONFIG } from '../src/core/config-manager.js';
 
 function createResponse() {
     return {
@@ -60,16 +62,20 @@ describe('Model capability endpoint consistency', () => {
 
     afterEach(() => {
         resetCapabilityStore();
+        delete CONFIG.customModels;
     });
 
-    test('trae 动态模型在 /api/provider-models 与类型端点中均可见', async () => {
+    test('trae 动态模型在 /api/provider-models 与 /api/providers 节点能力中均可见', async () => {
         const allRes = createResponse();
         await handleGetProviderModels({}, allRes, { providerPools: manager.providerPools }, manager);
         expect(parseResponse(allRes).trae).toContain(model);
 
-        const typeRes = createResponse();
-        await handleGetProviderTypeModels({}, typeRes, { providerPools: manager.providerPools }, manager, 'trae');
-        expect(parseResponse(typeRes).models).toContain(model);
+        const providersRes = createResponse();
+        await handleGetProviders({}, providersRes, { providerPools: manager.providerPools }, manager);
+        const node = parseResponse(providersRes).providers.trae[0];
+        expect(node.candidateModels).toContain(model);
+        expect(node.selectedModels).toContain(model);
+        expect(node.selectionMode).toBe('all');
     });
 
     test('/auto/v1/models 聚合结果包含 trae:DeepSeek-V4.1-Flash-1017', async () => {
@@ -105,8 +111,79 @@ describe('Model capability endpoint consistency', () => {
         });
         customManager.initializeProviderStatus();
 
-        const selected = await customManager.selectProvider('openai-custom', 'ZHIPU/GLM-5.3');
+        const selected = await customManager.selectProvider('openai-custom', 'ZHIPU/GLM-5.3', { allowUnselectedModel: true });
         expect(selected?.uuid).toBe(customUuid);
-        expect(await customManager.selectProvider('openai-custom', 'not-supported-model')).toBeNull();
+        expect(await customManager.selectProvider('openai-custom', 'not-supported-model', { allowUnselectedModel: true })).toBeNull();
+    });
+
+    test('显式选择：未勾选的模型不可路由，但候选集仍保留', async () => {
+        store.setEntry(
+            capabilityKey('trae', { uuid }),
+            liveEntry([model, 'glm-5.3'])
+        );
+
+        const explicitManager = new ProviderPoolManager({
+            trae: [{
+                uuid,
+                isDisabled: false,
+                isHealthy: true,
+                supportedModels: [model],
+                supportedModelsBaseline: [model, 'glm-5.3']
+            }]
+        }, { globalConfig: {} });
+        explicitManager.initializeProviderStatus();
+
+        const capability = resolveNodeCapability('trae', {
+            uuid,
+            supportedModels: [model],
+            supportedModelsBaseline: [model, 'glm-5.3']
+        });
+        expect(capability.selectionMode).toBe('explicit');
+        expect(capability.candidateModels).toContain('glm-5.3');
+        expect(capability.selectedModels).toEqual([model]);
+
+        expect((await explicitManager.selectProvider('trae', model))?.uuid).toBe(uuid);
+        expect(await explicitManager.selectProvider('trae', 'glm-5.3')).toBeNull();
+    });
+
+    test('上游新增模型在显式选择下自动可见并可路由', async () => {
+        store.setEntry(
+            capabilityKey('trae', { uuid }),
+            liveEntry([model, 'glm-5.3', 'brand-new-model'])
+        );
+
+        const explicitManager = new ProviderPoolManager({
+            trae: [{
+                uuid,
+                isDisabled: false,
+                isHealthy: true,
+                supportedModels: [model],
+                supportedModelsBaseline: [model, 'glm-5.3']
+            }]
+        }, { globalConfig: {} });
+        explicitManager.initializeProviderStatus();
+
+        const allRes = createResponse();
+        await handleGetProviderModels({}, allRes, { providerPools: explicitManager.providerPools }, explicitManager);
+        expect(parseResponse(allRes).trae).toContain('brand-new-model');
+        expect(parseResponse(allRes).trae).not.toContain('glm-5.3');
+
+        expect((await explicitManager.selectProvider('trae', 'brand-new-model'))?.uuid).toBe(uuid);
+    });
+
+    test('分组最终集并入自定义模型，但不进入节点候选', async () => {
+        CONFIG.customModels = [
+            { id: 'custom-trae-model', provider: 'trae', actualModel: 'actual-trae-model', enabled: true }
+        ];
+
+        const allRes = createResponse();
+        await handleGetProviderModels({}, allRes, { providerPools: manager.providerPools }, manager);
+        const models = parseResponse(allRes).trae;
+        expect(models).toContain('custom-trae-model');
+        expect(models).toContain(model);
+
+        const capability = resolveNodeCapability('trae', { uuid });
+        expect(capability.candidateModels).not.toContain('custom-trae-model');
+        expect(capability.selectedModels).not.toContain('custom-trae-model');
     });
 });

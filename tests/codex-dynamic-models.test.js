@@ -30,16 +30,13 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         expect(BASE_CODEX_MODELS).not.toContain('gpt-image-2');
     });
 
-    test('updateProviderModels merges BASE_CODEX_MODELS with dynamic modelIds', () => {
-        const dynamicModels = ['gpt-reserve', 'codex-auto-review', 'gpt-5.6-luna'];
-        updateProviderModels('openai-codex-oauth', dynamicModels);
-
+    test('静态基线保持不可变，动态发现结果只走能力缓存', () => {
         const currentModels = getProviderModels('openai-codex-oauth');
-        expect(currentModels).toContain('gpt-reserve');
-        expect(currentModels).toContain('codex-auto-review');
+
         expect(currentModels).toContain('gpt-5.6-luna');
         expect(currentModels).toContain('gpt-5.5');
         expect(currentModels).not.toContain('gpt-image-2');
+        expect(PROVIDER_MODELS['openai-codex-oauth']).toEqual(BASE_CODEX_MODELS);
     });
 
     test('getCodexModels generates base models without virtual gpt-image-2 or -fast variants', () => {
