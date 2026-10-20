@@ -971,7 +971,7 @@ export class ProviderPoolManager {
      *
      * 注意：此方法现在返回 Promise，使用互斥锁确保并发安全。
      *
-     * @param {string} providerType - The type of provider to select (e.g., 'gemini-cli', 'openai-custom').
+     * @param {string} providerType - The type of provider to select (e.g., 'gemini-antigravity', 'openai-custom').
      * @param {string} [requestedModel] - Optional. The model name to filter providers by.
      * @returns {Promise<object|null>} The selected provider's configuration, or null if no healthy provider is found.
      */

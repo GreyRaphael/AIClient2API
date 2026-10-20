@@ -54,65 +54,36 @@ import { HEALTH_CHECK } from '../utils/constants.js';
  * node src/api-server.js
  * 
  * 服务器配置 / Server Configuration:
- * node src/api-server.js --host 0.0.0.0 --port 8080 --api-key your-secret-key
- * 
- * OpenAI 提供商 / OpenAI Provider:
- * node src/api-server.js --model-provider openai-custom --openai-api-key sk-xxx --openai-base-url https://api.openai.com/v1
- * 
- * Claude 提供商 / Claude Provider:
- * node src/api-server.js --model-provider claude-custom --claude-api-key sk-ant-xxx --claude-base-url https://api.anthropic.com
- * 
- * Gemini 提供商（使用 Base64 凭据的 OAuth）/ Gemini Provider (OAuth with Base64 credentials):
- * node src/api-server.js --model-provider gemini-cli --gemini-oauth-creds-base64 eyJ0eXBlIjoi... --project-id your-project-id
- * 
- * Gemini 提供商（使用凭据文件的 OAuth）/ Gemini Provider (OAuth with credentials file):
- * node src/api-server.js --model-provider gemini-cli --gemini-oauth-creds-file /path/to/credentials.json --project-id your-project-id
- * 
+ * node src/services/api-server.js --host 0.0.0.0 --port 8080 --api-key your-secret-key
+ *
+ * 指定默认提供商 / Specify default provider:
+ * node src/services/api-server.js --model-provider gemini-antigravity
+ *
+ * 使用号池配置 / Use provider pools:
+ * node src/services/api-server.js --provider-pools-file configs/provider_pools.json
+ *
  * 系统提示管理 / System Prompt Management:
- * node src/api-server.js --system-prompt-file custom-prompt.txt --system-prompt-mode append
- * 
+ * node src/services/api-server.js --system-prompt-file custom-prompt.txt --system-prompt-mode append
+ *
  * 日志配置 / Logging Configuration:
- * node src/api-server.js --log-prompts console
- * node src/api-server.js --log-prompts file --prompt-log-base-name my-logs
- * 
- * 完整示例 / Complete Example:
- * node src/api-server.js \
- *   --host 0.0.0.0 \
- *   --port 3000 \
- *   --api-key my-secret-key \
- *   --model-provider gemini-antigravity \
- *   --project-id my-gcp-project \
- *   --gemini-oauth-creds-file ./credentials.json \
- *   --system-prompt-file ./custom-system-prompt.txt \
- *   --system-prompt-mode overwrite \
- *   --log-prompts file \
- *   --prompt-log-base-name api-logs
- * 
+ * node src/services/api-server.js --log-prompts console
+ * node src/services/api-server.js --log-prompts file --prompt-log-base-name my-logs
+ *
  * 命令行参数 / Command Line Parameters:
  * --host <address>                    服务器监听地址 / Server listening address (default: 0.0.0.0)
  * --port <number>                     服务器监听端口 / Server listening port (default: 3000)
  * --api-key <key>                     身份验证所需的 API 密钥 / Required API key for authentication (default: 123456)
- * --model-provider <provider[,provider...]> AI 模型提供商 / AI model provider: openai-custom, claude-custom, gemini-antigravity, claude-kiro-oauth
- * --openai-api-key <key>             OpenAI API 密钥 / OpenAI API key (for openai-custom provider)
- * --openai-base-url <url>            OpenAI API 基础 URL / OpenAI API base URL (for openai-custom provider)
- * --claude-api-key <key>             Claude API 密钥 / Claude API key (for claude-custom provider)
- * --claude-base-url <url>            Claude API 基础 URL / Claude API base URL (for claude-custom provider)
- * --gemini-oauth-creds-base64 <b64>  Gemini OAuth 凭据的 Base64 字符串 / Gemini OAuth credentials as Base64 string
- * --gemini-oauth-creds-file <path>   Gemini OAuth 凭据 JSON 文件路径 / Path to Gemini OAuth credentials JSON file
- * --kiro-oauth-creds-base64 <b64>    Kiro OAuth 凭据的 Base64 字符串 / Kiro OAuth credentials as Base64 string
- * --kiro-oauth-creds-file <path>     Kiro OAuth 凭据 JSON 文件路径 / Path to Kiro OAuth credentials JSON file
- * --qwen-oauth-creds-file <path>     Qwen OAuth 凭据 JSON 文件路径 / Path to Qwen OAuth credentials JSON file
- * --project-id <id>                  Google Cloud 项目 ID / Google Cloud Project ID (for gemini-cli provider)
- * --system-prompt-file <path>        系统提示文件路径 / Path to system prompt file (default: configs/input_system_prompt.txt)
- * --system-prompt-mode <mode>        系统提示模式 / System prompt mode: overwrite or append (default: overwrite)
- * --log-prompts <mode>               提示日志模式 / Prompt logging mode: console, file, or none (default: none)
- * --prompt-log-base-name <name>      提示日志文件基础名称 / Base name for prompt log files (default: prompt_log)
- * --request-max-retries <number>     API 请求失败时，自动重试的最大次数。 / Max retries for API requests on failure (default: 3)
- * --request-base-delay <number>      自动重试之间的基础延迟时间（毫秒）。每次重试后延迟会增加。 / Base delay in milliseconds between retries, increases with each retry (default: 1000)
- * --cron-near-minutes <number>       OAuth 令牌刷新任务计划的间隔时间（分钟）。 / Interval for OAuth token refresh task in minutes (default: 15)
- * --cron-refresh-token <boolean>     是否开启 OAuth 令牌自动刷新任务 / Whether to enable automatic OAuth token refresh task (default: true)
- * --provider-pools-file <path>       提供商号池配置文件路径 / Path to provider pools configuration file (default: null)
- * --no-ui                           禁用前端管理界面 / Disable frontend management UI
+ * --model-provider <provider>         AI 模型提供商 / AI model provider
+ * --provider-pools-file <path>        提供商号池配置文件路径 / Path to provider pools configuration file
+ * --custom-models-file <path>         自定义模型配置文件路径 / Path to custom models configuration file
+ * --system-prompt-file <path>         系统提示文件路径 / Path to system prompt file (default: configs/input_system_prompt.txt)
+ * --system-prompt-mode <mode>         系统提示模式 / System prompt mode: overwrite or append (default: overwrite)
+ * --log-prompts <mode>                提示日志模式 / Prompt logging mode: console, file, or none (default: none)
+ * --prompt-log-base-name <name>       提示日志文件基础名称 / Base name for prompt log files (default: prompt_log)
+ * --request-max-retries <number>      API 请求失败时，自动重试的最大次数 / Max retries for API requests (default: 3)
+ * --cron-near-minutes <number>        OAuth 令牌刷新任务计划的间隔时间（分钟）/ OAuth token refresh interval in minutes (default: 15)
+ * --cron-refresh-token <boolean>      是否开启 OAuth 令牌自动刷新任务 / Whether to enable automatic OAuth token refresh (default: true)
+ * --no-ui                            禁用前端管理界面 / Disable frontend management UI
  *
  */
 
