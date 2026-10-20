@@ -1,49 +1,190 @@
-# AIClient-2-API 发布说明 (v3.14.1)
+# AIClient-2-API 发布说明 (v3.17.0)
 
-> 本次 **v3.14.1** 是 **跨协议转译优化系列（Phase 0-4）的合辑发布**。依据 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 全部落地：**思考预算换算统一与 medium 档复活**、**Schema Polyfill 降级编译器**、**签名金库（无状态 HMAC 虚拟思考签名）**、**Responses SSE Emitter 状态所有权收编**，以及**合并去重 / 工具稳定排序 / 缓存日志化**可选增强。过程里程碑标签：`v3.10.1`（Phase 0 定点修复）、`v3.11.0`（Phase 1）、`v3.12.0`（Phase 2）、`v3.13.0`（Phase 3）、`v3.14.0`（Phase 4），消除全部已确认 Tier 3 损耗因素。
-
----
-
-## 🌟 核心更新亮点 (v3.14.1)
-
-### 1. Phase 0 定点修复包（里程碑 v3.10.1）
-- **思考预算换算统一**：新增 `thinking-budget.js`，新阈值 `low<=2048 / medium<=8192 / high>8192`，修复常规预算全部坍缩为 `high` 的正确性 bug；四份漂移换算表归一，Gemini 3 / 2.5 双轨映射集中管理。
-- **Responses 方向思考链修复**：Responses→Gemini 恢复 `reasoning.effort` → thinkingConfig；Responses→OpenAI 保留 reasoning item（折入 assistant 消息）与响应侧 `reasoning_content` 回填，`item_reference` 显式日志跳过，消灭静默蒸发。
-- **Claude document 块四方向落地**：→Gemini 原生 inlineData 无损、→Responses input_file、→Codex 占位（`CODEX_PDF_AS_INPUT_FILE=1` 尝鲜）、→OpenAI 占位 + warn。
-- **思考签名闭环加固**：短签名放行、流式 `signature_delta` 转发携带 thoughtSignature 的 Gemini chunk、`redacted_thinking` 降级告警。
-
-### 2. Phase 1 Schema Polyfill 降级编译器（里程碑 v3.11.0）
-- **`$ref` 静态展开**：循环检测 + 深度上限 10，超限安全坍缩；剥离 `$defs`/`definitions`/`$schema`/`$id`。
-- **约束自然语言化注入**：pattern/format/default/数值边界等 12 类被剥除约束以 `[Constraints: k=v]` 注入 description，原始描述永不裁剪；`oneOf`/`anyOf`/`allOf` 组合关键字降级。
-- **可开关可回滚**：`CONVERT_SCHEMA_POLYFILL`（默认 on）、`CONVERT_SCHEMA_POLYFILL_MAX_DESC`（默认 1000），复杂工具调用失败主因消除。
-
-### 3. Phase 2 签名金库 Signature Vault（里程碑 v3.12.0）
-- **无状态 HMAC 虚拟签名**：`vsig1.<payload>.<hmac>` 格式，进程级密钥（`SIGNATURE_VAULT_SECRET` 或启动随机），无存储无 TTL。
-- **注入/剥离闭环**：X→Claude 响应侧自动补签，Claude→非 Claude 四方向及 Claude 协议上游管道层无条件剥离虚拟签名，真签名永不剥离；HMAC 失败仍按前缀安全剥离，永不阻断请求。
-- **组合 17/18/19 达 Tier 1**：Claude Code CLI 接非 Claude 上游的多轮思考 + 工具调用体验完整。
-
-### 4. Phase 3 Responses SSE Emitter 收编（里程碑 v3.13.0）
-- **新增 `ResponsesSseEmitter`**：严格镜像 `AnthropicSseEmitter` 生命周期，start/text/reasoning/toolCall/complete 全幂等。
-- **状态所有权收编**：全局单例 `streamStateManager` 彻底消除，并发隔离全量依托 `StreamSessionStore`；事件生成器纯函数化。
-- **三转换器迁移零回归**：OpenAI / Gemini / Claude 的 Responses 流式方向全量接入，既有 golden 流式测试 100% 通过。
-
-### 5. Phase 4 可选增强 + 加固收尾（里程碑 v3.14.0）
-- **合并去重**：三处 parts 级同角色合并提取为 `mergeConsecutiveSameRoleContents` 纯函数。
-- **工具稳定排序**：`CONVERT_SORT_TOOLS`（默认 off）消除工具顺序抖动对隐式前缀缓存的干扰；`cache_control` 丢弃补 debug 日志。
-- **质量收尾**：清理遗留死代码 436 行、转换开关统一经 config-manager、新增 5 个测试套件，**全量 19 套件 288 用例通过**。
+> 本次 **v3.17.0** 汇总 `v3.14.1` 之后的全部变更，核心是**节点模型配置从“排除不支持模型”迁移为“正向勾选启用模型”**，并同步收敛模型代际、路由守卫、能力缓存与文档结构。
+>
+> 过程里程碑标签：
+> - `v3.15.0`：模型能力统一与路由基础
+> - `v3.16.0`：正向模型选择
+> - `v3.16.1`：Zed Gemini 3+ 思考配置修复
+> - `v3.17.0`：模型代际收敛与文档清理（本次正式发布）
 
 ---
 
-## 🔧 历史版本回顾
+## 🌟 核心更新亮点
 
-### v3.10.0 (2026-10-16)
-- **Codex OAuth 体系增强**：动态模型发现与自动同步（GPT-6 Luna / Astra / Sol 全系列）、WebUI 节点级客户端版本号独立配置、账号订阅类型解析与权限门禁过滤。
-- **流式韧性修复**：非流式空响应误判修复、思考增量完整放行、客户端断开保护与空响应异常拦截。
+### 1. 正向模型选择（重点）
 
-### v3.9.1 (2026-10-13)
-- **存量配置无缝升级**：v3.8.0 及更早的 `trae-agent_v3` 节点配置在启动时自动迁移至 `trae-solo_work_lite`（含历史 `TRAE_CHANNEL_MODE` 改写与回写持久化），升级后不再抛 `Unsupported model provider`。
-- **代码评审清理集**：`AnthropicSseEmitter.delta()` 误用守卫、`safety_identifier` 随机值置空、`mapFinishReason`/`sanitizeToolId` 下沉共享层消除跨层反向依赖。
+节点模型配置不再维护“不支持模型”黑名单，改为直接勾选要使用的模型：
 
-### v3.9.0 (2026-10-13)
-- **Trae 通道重构**：重新确立 `trae-solo_work_lite`（SOLO Agent，19 模型）与 `trae-chat_v3`（侧边栏 Chat，20 模型）两个独立一级提供商。
-- **协议合规修复集**：Zed 工具能力补全、Gemini->Claude 流式事件序列合规、Responses API 状态修正等。
+- **候选来自上游 `model_list`**，默认全选。
+- 取消勾选即表示该节点不使用该模型。
+- 新增 `supportedModelsBaseline`：上游后续新增的模型默认自动选中。
+- **分组最终模型列表** = 活跃节点选择集并集 ∪ 该分组的自定义模型。
+- 自定义模型只参与分组最终集与路由，**不会进入节点候选列表**。
+- `model_id` 全程大小写敏感，`Model` 与 `model` 视为两个模型。
+- 节点候选只与上游列表一致；上游删除模型后自动从选择集消失。
+
+配置示例：
+
+```json
+{
+  "uuid": "node-1",
+  "supportedModels": ["gemini-3.8-flash-high", "claude-sonnet-4-6"],
+  "supportedModelsBaseline": ["gemini-3.8-flash-high", "claude-sonnet-4-6", "gemini-3.1-pro-high"]
+}
+```
+
+- `supportedModels` 缺失：跟随上游全选。
+- `supportedModels` 为数组：显式选择集。
+- `supportedModelsBaseline`：上次保存时的候选快照，用于识别新增模型。
+
+### 2. 模型列表与端点统一
+
+以下入口现在统一使用同一份分组最终集：
+
+- `/api/provider-models`
+- `/api/providers`
+- `/auto/v1/models`
+- `/{provider}/v1/models`
+- Playground 模型下拉框
+
+同时：
+
+- `/api/providers` 节点新增 `candidateModels`、`selectedModels`、`selectionMode`、`modelsSource` 等元数据。
+- `detect-models` 改为任意 provider 均可调用的能力刷新入口。
+- 删除旧的 `GET /api/provider-models/{type}`。
+
+### 3. 路由与能力缓存修复
+
+- 路由守卫改用节点 `selectedModels`。
+- 自定义模型按 `actualModel` 走 `candidateModels` 校验，避免“列表可见但不可用”。
+- 补齐非流式凭证重试中的自定义模型路由意图。
+- 冷启动刷新失败且无历史发现时回退静态基线，不把失败的空结果当成可靠发现。
+- 保存 provider 时清除旧字段与运行时模型元数据，避免 spread 残留。
+
+### 4. 模型代际收敛
+
+当前项目只保证以下模型家族的新代际：
+
+- OpenAI：GPT-5+
+- Anthropic：Claude 4+
+- Google：Gemini 3+
+
+同步清理：
+
+- 删除 Claude 3 回退模型列表。
+- 删除 Zed 对 `o1/o3` 的判断。
+- 删除 Trae 中 `claude-3.5/3.7`、`gpt-4o` 系列旧别名。
+- 删除 Gemini 2.5 `thinkingBudget` 双轨，统一使用 `thinkingLevel`。
+- 删除 `gemini-cli-oauth`、`openai-qwen-oauth`、`openai-iflow` 在配置示例、UI 文案、config-scanner 与 CLI 注释中的残留。
+
+### 5. Zed Gemini 3+ 修复
+
+修复 Playground 默认 `reasoning_effort=high` 时 `zed:gemini-4-argon` 报错：
+
+```text
+Zed API error (500):
+```
+
+原因：Zed 的 Gemini 分支把 `reasoning_effort` 转成了 `thinkingBudget`，而 Gemini 3+ 只接受 `thinkingLevel`。
+
+修复后：
+
+```json
+{ "thinkingConfig": { "thinkingLevel": "HIGH" } }
+```
+
+Zed 实际调用验证通过。
+
+### 6. 文档与工程清理
+
+- 新增 `docs/CROSS_PROTOCOL_ARCHITECTURE.md` 作为当前跨协议架构入口。
+- 已实施方案归档到 `docs/archive/`：
+  - `MODEL_CAPABILITY_UNIFICATION_PLAN.md`
+  - `POSITIVE_MODEL_SELECTION_PLAN.md`
+  - `CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`
+  - `CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`
+- `CONVERTER_STREAM_DESIGN.md` 状态更新为“已落地”。
+- 修复 `PROVIDER_ADAPTER_GUIDE.md` 中失效的相对链接。
+- 更新配置示例、OpenClaw/OpenCode 示例、教程字段与 API 文档。
+
+---
+
+## ⚠️ 破坏性变更
+
+本次发布明确不考虑向后兼容，以下内容已移除：
+
+- 节点配置中的 `notSupportedModels`
+- 节点配置中的 `disabledModels`
+- 节点配置中的 `availableModels`
+- `includeDisabled` 选项
+- `GET /api/provider-models/{type}`
+- `updateProviderModels()`
+- 旧 GPT-4 / Claude 3 / Gemini 2.5 兼容分支与旧模型别名
+
+升级后：
+
+- 旧排除项不再生效，所有上游模型默认启用。
+- 节点 `availableModels` 不再读取。
+- 需要重新在节点配置中勾选要使用的模型。
+
+---
+
+## 🚀 升级步骤
+
+1. 备份配置：
+
+```bash
+cp configs/provider_pools.json configs/provider_pools.json.bak
+```
+
+2. 清理旧字段（默认 dry-run）：
+
+```bash
+node src/scripts/purge-legacy-model-fields.js
+```
+
+确认后落盘：
+
+```bash
+node src/scripts/purge-legacy-model-fields.js --write
+```
+
+3. 重启服务。
+
+4. 打开“提供商池管理”，进入节点编辑：
+
+- 候选模型默认全选；
+- 取消不需要的模型；
+- 保存后写入 `supportedModels` 与 `supportedModelsBaseline`。
+
+5. 浏览器强制刷新，确保加载新的前端资源与 i18n 文案。
+
+---
+
+## 🧪 验证结果
+
+- `npm test`：**21 suites / 326 tests 全绿**
+- `tests/static-syntax.test.js`：26 tests 全绿
+- 文档本地链接检查：**0 个失效链接**
+- 32 个 provider/model 组合冒烟通过
+- Zed `gemini-4-argon` 在 `reasoning_effort=high` 下验证通过
+
+---
+
+## 🐳 Docker
+
+发布后 Docker 镜像标签：
+
+- `docker.io/<DOCKERHUB_USERNAME>/aiclient-2-api:3.17.0`
+- `docker.io/<DOCKERHUB_USERNAME>/aiclient-2-api:latest`
+
+---
+
+## 📚 相关文档
+
+- [当前跨协议架构](docs/CROSS_PROTOCOL_ARCHITECTURE.md)
+- [Provider 接入指南](docs/PROVIDER_ADAPTER_GUIDE.md)
+- [流式转换设计](docs/CONVERTER_STREAM_DESIGN.md)
+- [Trae 三通道指南](docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md)
+- [历史方案归档](docs/archive/)

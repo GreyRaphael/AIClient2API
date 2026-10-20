@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v3.17.0] - 2026-10-20
+
+> 本次发布汇总 `v3.14.1` 之后的全部变更。过程里程碑标签：`v3.15.0`（模型能力统一）、`v3.16.0`（正向模型选择）、`v3.16.1`（Zed Gemini 3+ 修复）。
+
+### Added (新增)
+
+- **节点正向模型选择**：
+  - 节点候选来自上游 `model_list`，默认全选；取消勾选即表示该节点不使用该模型。
+  - 新增 `supportedModelsBaseline`，上游后续新增模型默认自动选中。
+  - 分组最终模型列表 = 活跃节点选择集并集 ∪ 该分组的自定义模型。
+  - 自定义模型只参与分组最终集与路由，不进入节点候选列表。
+  - model_id 全程大小写敏感。
+- **统一的模型能力与路由读取**：
+  - `resolveNodeCapability()` 输出 `candidateModels` / `selectedModels` / `selectionMode`。
+  - `/api/providers` 节点新增候选集、选择集与能力来源元数据。
+  - `detect-models` 改为任意 provider 均可刷新的能力刷新入口。
+- **一次性旧字段清理脚本**：
+  - 新增 `src/scripts/purge-legacy-model-fields.js`，默认 dry-run，`--write` 才落盘。
+- **跨协议架构入口**：
+  - 新增 `docs/CROSS_PROTOCOL_ARCHITECTURE.md`，收敛当前协议链路、模型代际、流式状态与硬约束。
+
+### Changed (变更)
+
+- **模型代际收敛**：GPT-5+、Claude 4+、Gemini 3+；删除 Claude 3 回退、Zed o1/o3、Trae 旧 GPT/Claude 别名。
+- **Gemini 思考配置统一**：删除 Gemini 2.5 `thinkingBudget` 双轨，统一为 `thinkingLevel`。
+- **文档治理**：已实施方案归档到 `docs/archive/`；修复 Adapter Guide 的失效相对链接；更新配置示例、OpenClaw/OpenCode 示例与教程字段。
+- **已移除 provider 清理**：删除 `gemini-cli-oauth`、`openai-qwen-oauth`、`openai-iflow` 在配置示例、UI 文案、config-scanner 与 CLI 注释中的残留。
+
+### Fixed (修复)
+
+- **Zed Gemini 3+ 思考配置**：`reasoning_effort` 正确映射为 `thinkingConfig.thinkingLevel`，修复 `gemini-4-argon` 等模型返回 500 的问题。
+- **冷启动能力缓存**：刷新失败且无历史发现时回退静态基线，不把失败的空结果当成可靠发现。
+- **自定义模型路由**：补齐非流式凭证重试的路由意图；自定义模型 `actualModel` 不再被上游候选集误拦截。
+- **保存残留**：provider 更新时清除旧负向字段与运行时模型元数据，避免 spread 残留。
+
+### Removed (移除)
+
+- 移除 `notSupportedModels`、`disabledModels`、节点 `availableModels` 与 `includeDisabled`。
+- 移除 `GET /api/provider-models/{type}`。
+- 移除 `updateProviderModels()`、`getConfiguredNotSupportedModels*`、`filterNotSupportedModelsFromModelList()` 等旧逻辑。
+
+### Verification
+
+- `npm test`：21 suites / 326 tests 全绿。
+- 文档本地链接检查：0 个失效链接。
+- 32 个 provider/model 组合冒烟通过；Zed `gemini-4-argon` 在 `reasoning_effort=high` 下验证通过。
+
 ## [v3.14.1] - 2026-10-18
 
 > 跨协议转译优化系列（依据 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`，Phase 0-4 全部落地 + 加固收尾）。过程里程碑标签：`v3.10.1`（Phase 0）、`v3.11.0`（Phase 1）、`v3.12.0`（Phase 2）、`v3.13.0`（Phase 3）、`v3.14.0`（Phase 4）。
