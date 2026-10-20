@@ -1,6 +1,6 @@
 # 正向模型选择方案（Positive Model Selection）
 
-- 状态：已实施
+- 状态：已实施（归档保留为历史决策与实施记录）
 - 日期：2026-10-20
 - 范围：`src/providers/**`、`src/handlers/request-pipeline.js`、`src/ui-modules/**`、`static/app/**`、配置样例、测试与文档
 - 目标：把节点模型配置从“排除不支持模型”改为“勾选要使用的模型”，并让分组最终模型列表在所有入口保持一致
@@ -458,8 +458,8 @@ F_group = dedupeCaseSensitive(S_group ∪ M_group)
 - `static/components/section-tutorial.html:287` 的 `notSupportedModels` 行
 - `docs/ANTIGRAVITY_NOTES.md:97-101` 的负向过滤说明
 - `docs/PROVIDER_ADAPTER_GUIDE.md:160-169` 的字段说明
-- `docs/MODEL_CAPABILITY_UNIFICATION_PLAN.md` 中 `disabledModels` / `notSupportedModels` / `availableModels` 的旧语义
-  - 建议在文首增加“已被 `POSITIVE_MODEL_SELECTION_PLAN.md` 取代”的说明；
+- `docs/archive/MODEL_CAPABILITY_UNIFICATION_PLAN.md` 中 `disabledModels` / `notSupportedModels` / `availableModels` 的旧语义
+  - 建议在文首增加“已被正向模型选择方案取代”的说明；
   - 若要求彻底清除，则直接改写相关章节，不保留旧字段描述。
 
 ---
@@ -787,7 +787,7 @@ npm test
 - `static/components/section-tutorial.html`
 - `docs/ANTIGRAVITY_NOTES.md`
 - `docs/PROVIDER_ADAPTER_GUIDE.md`
-- `docs/MODEL_CAPABILITY_UNIFICATION_PLAN.md`
+- `docs/archive/MODEL_CAPABILITY_UNIFICATION_PLAN.md`
 - 其余残留测试
 
 **内容**
@@ -860,4 +860,4 @@ npm test
 | `01eb591` | 冷启动失败回退基线、保存时清除旧字段残留 |
 | `8f1d6b7` | 编辑态刷新后复选框可用、刷新保留当前勾选 |
 
-验证结果：`npm test` 21 suites / 325 tests 全绿；`tests/static-syntax.test.js` 26 tests 全绿。
+验证结果：`npm test` 21 suites / 326 tests 全绿；`tests/static-syntax.test.js` 26 tests 全绿。

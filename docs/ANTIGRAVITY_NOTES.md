@@ -1,4 +1,4 @@
-# Antigravity 架构与 Gemini 3.7 模型映射及思考机制说明
+# Antigravity 架构、Gemini 模型映射与思考机制说明
 
 本文档记录了关于 AIClient2API 中 Google Antigravity Provider 的模型发现、上游映射以及 Thinking（思考级别）处理机制的核心要点。
 

@@ -1,8 +1,8 @@
-> 历史说明：本方案中基于负向排除的模型选择语义已被 `docs/POSITIVE_MODEL_SELECTION_PLAN.md` 取代。当前实现采用正向 `supportedModels` + `supportedModelsBaseline`，节点候选只来自上游发现或静态基线，自定义模型只在分组最终集中并入。
+> 历史说明：本方案中基于负向排除的模型选择语义已被 `docs/archive/POSITIVE_MODEL_SELECTION_PLAN.md` 取代。当前实现采用正向 `supportedModels` + `supportedModelsBaseline`，节点候选只来自上游发现或静态基线，自定义模型只在分组最终集中并入。
 
 # 模型能力统一方案（Model Capability Unification）
 
-- 状态：待评审
+- 状态：历史归档（已实施，已被正向模型选择方案取代）
 - 范围：`src/providers/**`、`src/ui-modules/provider-api.js`、`src/handlers/request-pipeline.js`、`src/providers/provider-pool-manager.js`
 - 目标：消除“上游模型已更新，但模型列表 / Playground / 路由校验不同步”的一类问题
 - 非目标：实时同步、上游协议变更自动适配、模型可调用性探测
@@ -601,7 +601,7 @@ npm run test:integration
 
 验证结果：
 
-- `npm test`：21 suites / 314 tests 全绿。
+- `npm test`：21 suites / 326 tests 全绿。
 - `tests/model-capability.test.js`：解析优先级、空结果、TTL、退避、单飞、持久化、托管/静态策略。
 - `tests/model-capability-endpoints.test.js`：`trae:DeepSeek-V4.1-Flash-1017` 在 `/api/provider-models`、`/api/provider-models/trae`、`/auto/v1/models` 与路由选点中一致可见。
 - `npm run test:integration` 依赖本地运行实例的 `TEST_API_KEY` 与配置一致；当前验证环境的运行实例使用不同 Key，需先对齐后再执行。

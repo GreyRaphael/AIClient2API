@@ -1,6 +1,7 @@
 # Converter 流式转换共享层设计
 
-> 状态：**设计稿（待评审）** ｜ 2026-10-09
+> 状态：**已落地**（设计稿保留为历史记录）｜ 2026-10-09
+> 实现：`src/converters/stream-session.js`、`src/converters/responses-sse-emitter.js`、`src/converters/anthropic-sse-emitter.js`
 > 对应 plan.md Phase 4。目标读者：实施本设计的开发者。
 
 ## 1. 背景与问题

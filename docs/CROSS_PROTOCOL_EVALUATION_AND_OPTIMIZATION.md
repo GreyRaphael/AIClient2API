@@ -612,7 +612,7 @@ timeline
    - 在 `ClaudeConverter` 中，针对发往不支持显式缓存块的上游协议（OpenAI、Gemini、Responses、Codex）的降级点（`system` 数组/对象、`message` 内容块、`tool_result`、`tools` 数组），记录明确的 debug 日志，彻底消灭「静默丢弃」；同时在发往 Claude 协议上游时保持原生透传。
 4. **单测套件与零回归验证**：
    - 新增 `tests/phase4-enhancements.test.js`（18 个单元测试全部通过，覆盖公共合并纯函数与三协议端到端集成、排序开关及多协议格式稳定排序、cache_control 日志拦截等）。
-   - 全量自动化测试用例扩充至 19 个测试套件，286 个测试用例，100% PASS。
+   - 全量自动化测试用例扩充至 21 个测试套件，326 个测试用例，100% PASS。
 
 
 

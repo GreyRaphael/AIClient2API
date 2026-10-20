@@ -4,7 +4,7 @@
 > **制定日期**：2026-10-16
 > **上游依据**：[CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md](./CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) v1.6.0（全阶段优化落地版）
 > **方案性质**：将评估文档第五节的理论优化体系落地为可分阶段执行的工程方案；全部代码位置已于制定当日对照 `main` 分支源码逐一核实与重构
-> **当前状态**：Phase 0、Phase 1、Phase 2、Phase 3、Phase 4 均已 100% 落地并通过全部测试（19 个测试套件，286 个测试用例全部 PASS）
+> **当前状态**：Phase 0、Phase 1、Phase 2、Phase 3、Phase 4 均已 100% 落地并通过全部测试（21 个测试套件，326 个测试用例全部 PASS）
 
 ---
 
@@ -96,7 +96,7 @@
 - `OpenAIResponsesConverter.js:647-667` — 替换。
 - `src/providers/zed/zed-core.js:622-628, 708-714` — 替换。
 
-**测试**：新增 `tests/thinking-budget.test.js`——五档往返映射、`budget→effort` 边界值（2047/2048/2049、8192/8193）、null 默认行为、Gemini 3 vs 2.5 分流。`tests/converters.test.js` 中对旧阈值有断言的用例同步更新。
+**测试**：新增 `tests/thinking-budget.test.js`——五档往返映射、`budget→effort` 边界值（2047/2048/2049、8192/8193）、null 默认行为、Gemini 3+ thinkingLevel 映射。`tests/converters.test.js` 中对旧阈值有断言的用例同步更新。
 
 **回滚**：调用点集中在 4 个文件，git revert 单 commit 即可。
 
