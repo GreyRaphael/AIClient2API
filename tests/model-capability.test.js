@@ -280,6 +280,20 @@ describe('Model Capability', () => {
         expect(capability.stale).toBe(true);
     });
 
+    test('冷启动刷新失败时回退静态基线，不把失败空结果当成可靠发现', async () => {
+        const adapter = {
+            getNodeAvailableModels: jest.fn().mockRejectedValue(new Error('auth failed'))
+        };
+
+        await refreshNodeCapability('trae', { uuid: 'cold-node' }, { adapter });
+
+        const capability = resolveNodeCapability('trae', { uuid: 'cold-node' });
+        expect(capability.known).toBe(false);
+        expect(capability.source).toBe(CAPABILITY_SOURCE.BASELINE);
+        expect(capability.candidateModels.length).toBeGreaterThan(0);
+        expect(capability.selectedModels).toEqual(capability.candidateModels);
+    });
+
     test('同一节点的并发刷新单飞', async () => {
         let release;
         const gate = new Promise(resolve => { release = resolve; });

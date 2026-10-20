@@ -270,7 +270,12 @@ const LEGACY_MODEL_FIELDS = [
     'availableModels',
     'discoveredModels',
     'modelsFetchedAt',
-    'modelsSource'
+    'modelsSource',
+    'modelsStale',
+    'modelsLastError',
+    'candidateModels',
+    'selectedModels',
+    'selectionMode'
 ];
 
 /**
@@ -754,6 +759,11 @@ async function _handleUpdateProvider(req, res, currentConfig, providerPoolManage
             errorCount: existingProvider.errorCount,
             lastErrorTime: existingProvider.lastErrorTime
         };
+
+        // 旧配置中可能残留负向字段或运行时元数据，保存时一并清除
+        for (const field of LEGACY_MODEL_FIELDS) {
+            delete updatedProvider[field];
+        }
 
         if (existingProvider.TRAE_CHANNEL_MODE === 'custom' || filteredConfig.TRAE_CHANNEL_MODE === 'custom') {
             updatedProvider.TRAE_CHANNEL_MODE = 'custom';

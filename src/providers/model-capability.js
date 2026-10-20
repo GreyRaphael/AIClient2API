@@ -270,7 +270,14 @@ export function resolveNodeCapability(providerType, nodeConfig = {}) {
     let fetchedAt = 0;
     let known = false;
 
-    if (entry) {
+    // 冷启动刷新失败时，缓存里可能只有失败元数据（fetchedAt=0 且 models 为空）。
+    // 这种情况不能把“空结果”当成可靠发现，否则会遮蔽静态基线。
+    const hasUsableDiscovery = Boolean(entry) && (
+        (entry.fetchedAt || 0) > 0 ||
+        (Array.isArray(entry.models) && entry.models.length > 0)
+    );
+
+    if (hasUsableDiscovery) {
         candidateModels = normalizeModelIds(entry.models || []);
         source = entry.source || CAPABILITY_SOURCE.LIVE;
         fetchedAt = entry.fetchedAt || 0;
