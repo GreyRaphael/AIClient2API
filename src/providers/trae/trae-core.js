@@ -542,12 +542,15 @@ export class TraeApiService {
         delete payload.reasoning_effort;
         if (rawEffort && (modelMeta?.supports_thinking !== false)) {
             const effortLower = String(rawEffort).toLowerCase();
-            if (effortLower === 'low' || effortLower === 'light') {
-                payload.reasoning_effort_level = 'light';
-            } else if (effortLower === 'xhigh' || effortLower === 'extra_high' || effortLower === 'max' || effortLower === 'ultra') {
-                payload.reasoning_effort_level = 'extra_high';
-            } else {
-                payload.reasoning_effort_level = 'high';
+            const thinkingDisabled = effortLower === 'none' || effortLower === 'off' || effortLower === 'false';
+            if (!thinkingDisabled) {
+                if (effortLower === 'low' || effortLower === 'light' || effortLower === 'minimal') {
+                    payload.reasoning_effort_level = 'light';
+                } else if (effortLower === 'xhigh' || effortLower === 'extra_high' || effortLower === 'max' || effortLower === 'ultra') {
+                    payload.reasoning_effort_level = 'extra_high';
+                } else {
+                    payload.reasoning_effort_level = 'high';
+                }
             }
         }
 

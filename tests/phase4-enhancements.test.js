@@ -434,4 +434,31 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
             expect(calls.some(msg => msg.includes('Claude->Gemini tool'))).toBe(true);
         });
     });
+
+    describe('4.4 Codex reasoning effort 透传', () => {
+        test('显式 null 不写入 effort，显式等级原样保留', () => {
+            const converter = new CodexConverter();
+
+            const fromResponses = converter.toOpenAIResponsesToCodexRequest({
+                model: 'gpt-5',
+                input: [],
+                reasoning_effort: null
+            }, 'test-null');
+            expect(fromResponses.reasoning.effort).toBeUndefined();
+
+            const fromOpenAI = converter.toOpenAIRequestToCodexRequest({
+                model: 'gpt-5',
+                messages: [],
+                reasoning_effort: null
+            }, 'test-null');
+            expect(fromOpenAI.reasoning.effort).toBeUndefined();
+
+            const explicit = converter.toOpenAIResponsesToCodexRequest({
+                model: 'gpt-5',
+                input: [],
+                reasoning_effort: 'high'
+            }, 'test-high');
+            expect(explicit.reasoning.effort).toBe('high');
+        });
+    });
 });

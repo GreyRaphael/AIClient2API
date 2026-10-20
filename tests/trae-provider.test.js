@@ -101,6 +101,18 @@ describe('Trae Provider Implementation Tests', () => {
         expect(reqWithEffort.reasoning_effort_level).toBe('extra_high');
         expect(reqWithEffort.reasoning_effort).toBeUndefined();
 
+        const reqNone = traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'none'
+        });
+        expect(reqNone.reasoning_effort_level).toBeUndefined();
+
+        const reqMinimal = traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'minimal'
+        });
+        expect(reqMinimal.reasoning_effort_level).toBe('light');
+
         // Check message formatting
         expect(prepared.messages[0].content).toEqual([{ type: 'text', text: 'You are a helpful assistant' }]);
         expect(prepared.messages[1].content).toEqual([{ type: 'text', text: 'Hello' }]);

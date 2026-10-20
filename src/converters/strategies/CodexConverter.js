@@ -23,6 +23,16 @@ import {
     generateResponseCompleted
 } from '../../providers/openai/openai-responses-events.js';
 
+/**
+ * 提取并规范化 reasoning effort：
+ * - 同时兼容 reasoning_effort 与 reasoning.effort；
+ * - null 视为“未提供”，避免向上游发送 effort: null。
+ */
+function resolveReasoningEffort(source) {
+    const effort = source?.reasoning_effort ?? source?.reasoning?.effort;
+    return effort === null ? undefined : effort;
+}
+
 export class CodexConverter extends BaseConverter {
     constructor() {
         super('codex');
@@ -243,8 +253,9 @@ export class CodexConverter extends BaseConverter {
         delete codexRequest.user;
         
         // 添加 reasoning 配置
+        const effort = resolveReasoningEffort(responsesRequest);
         codexRequest.reasoning = {
-          "effort": responsesRequest.reasoning_effort || responsesRequest.reasoning?.effort || "medium",
+          ...(effort !== undefined ? { effort } : {}),
           "summary": responsesRequest.reasoning?.summary || "auto"
         };
         
@@ -299,6 +310,7 @@ export class CodexConverter extends BaseConverter {
         // 构建工具名称映射
         this.buildToolNameMap(data.tools || [], requestId);
 
+        const userEffort = resolveReasoningEffort(data);
         const codexRequest = {
             model: data.model,
             instructions: this.buildInstructions(data),
@@ -307,7 +319,7 @@ export class CodexConverter extends BaseConverter {
             store: false,
             metadata: data.metadata || {},
             reasoning: {
-                effort: data.reasoning_effort || data.reasoning?.effort || 'medium',
+                ...(userEffort !== undefined ? { effort: userEffort } : {}),
                 summary: data.reasoning?.summary || 'auto'
             },
             parallel_tool_calls: true,
