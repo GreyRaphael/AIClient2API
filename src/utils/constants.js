@@ -73,17 +73,6 @@ export const MODEL_PROVIDER = {
     AUTO: 'auto',
 };
 
-// 图像生成模型常量
-export const SUPPORTED_IMAGE_MODELS = new Set([
-    'gpt-image-2',
-    'grok-imagine-image-quality',
-    'grok-imagine-image',
-    'grok-imagine-image-pro',
-    'grok-imagine-1.0',
-    'grok-imagine-1.0-edit',
-    'gemini-3.1-flash-image'
-]);
-
 // UI 相关的路径常量
 export const UI_PATHS = {
     // 静态文件和基础路径前缀

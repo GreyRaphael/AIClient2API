@@ -13,7 +13,6 @@ import {
 import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.js';
 import logger from '../utils/logger.js';
 import busboy from 'busboy';
-import { SUPPORTED_IMAGE_MODELS } from '../utils/constants.js';
 import { convertData } from '../convert/convert.js';
 
 const IMAGE_GEN_MAX_N = 4;
@@ -135,7 +134,7 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
             codexRequestBody = virtualOpenAIRequest;
         } else {
             const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES });
-            model = body.model || 'gpt-image-2';
+            model = body.model;
             response_format = body.response_format || 'b64_json';
             size = body.size;
             aspect_ratio = body.aspect_ratio || body.aspectRatio;
@@ -144,9 +143,9 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
             n = Math.min(Math.max(1, parseInt(body.n) || 1), IMAGE_GEN_MAX_N);
             const prompt = body.prompt;
 
-            if (!SUPPORTED_IMAGE_MODELS.has(model)) {
+            if (!model) {
                 res.writeHead(400, {'Content-Type': 'application/json'});
-                res.end(JSON.stringify({error: {message: `model '${model}' is not supported; supported image models: ${[...SUPPORTED_IMAGE_MODELS].join(', ')}`, type: 'invalid_request_error'}}));
+                res.end(JSON.stringify({error: {message: 'model is required', type: 'invalid_request_error'}}));
                 return;
             }
 
@@ -474,7 +473,7 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
         const form = await parseMultipartForm(req);
         const { fields, files } = form;
 
-        const model = fields.model || 'gpt-image-2';
+        const model = fields.model;
         const prompt = fields.prompt;
         const response_format = fields.response_format || 'b64_json';
         const size = fields.size;
@@ -485,10 +484,10 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
 
         logger.info(`[Image Edits] Received request: model=${model}, n=${n}, response_format=${response_format}, hasPrompt=${!!prompt}, imageCount=${imageFiles.length}${size ? `, size=${size}` : ''}, fields=${JSON.stringify(Object.keys(fields))}, fileKeys=${JSON.stringify(Object.keys(files))}`);
 
-        if (!SUPPORTED_IMAGE_MODELS.has(model)) {
-            logger.warn(`[Image Edits] Unsupported model: ${model}`);
+        if (!model) {
+            logger.warn('[Image Edits] Missing required field: model');
             res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: `model '${model}' is not supported; supported image models: ${[...SUPPORTED_IMAGE_MODELS].join(', ')}`, type: 'invalid_request_error' } }));
+            res.end(JSON.stringify({ error: { message: 'model is required', type: 'invalid_request_error' } }));
             return;
         }
 
