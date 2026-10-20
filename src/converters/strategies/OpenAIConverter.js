@@ -32,8 +32,7 @@ import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 import {
     effortToClaudeBudget,
-    effortToGeminiThinking,
-    isGemini3Model
+    effortToGeminiThinking
 } from '../thinking-budget.js';
 import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
@@ -1164,41 +1163,10 @@ export class OpenAIConverter extends BaseConverter {
         if (openaiRequest.reasoning_effort) {
             const effort = String(openaiRequest.reasoning_effort).toLowerCase().trim();
             if (this.modelSupportsThinking(model)) {
-                const modelFamily = this.isGemini3Model(model) ? 'gemini-3' : 'gemini-2.5';
-                const thinkingConfig = effortToGeminiThinking(effort, { modelFamily, model });
+                const thinkingConfig = effortToGeminiThinking(effort);
                 if (thinkingConfig) {
                     geminiRequest.generationConfig = geminiRequest.generationConfig || {};
                     geminiRequest.generationConfig.thinkingConfig = thinkingConfig;
-                }
-            }
-        }
-
-        // 处理 extra_body.google.thinking_config（Cherry Studio 扩展）
-        if (!openaiRequest.reasoning_effort && openaiRequest.extra_body?.google?.thinking_config) {
-            const tc = openaiRequest.extra_body.google.thinking_config;
-            if (this.modelSupportsThinking(model) && !this.modelUsesThinkingLevels(model)) {
-                geminiRequest.generationConfig = geminiRequest.generationConfig || {};
-                geminiRequest.generationConfig.thinkingConfig = geminiRequest.generationConfig.thinkingConfig || {};
-                
-                let setBudget = false;
-                let budget = 0;
-                
-                if (tc.thinkingBudget !== undefined) {
-                    budget = parseInt(tc.thinkingBudget, 10);
-                    geminiRequest.generationConfig.thinkingConfig.thinkingBudget = budget;
-                    setBudget = true;
-                } else if (tc.thinking_budget !== undefined) {
-                    budget = parseInt(tc.thinking_budget, 10);
-                    geminiRequest.generationConfig.thinkingConfig.thinkingBudget = budget;
-                    setBudget = true;
-                }
-                
-                if (tc.includeThoughts !== undefined) {
-                    geminiRequest.generationConfig.thinkingConfig.includeThoughts = tc.includeThoughts;
-                } else if (tc.include_thoughts !== undefined) {
-                    geminiRequest.generationConfig.thinkingConfig.includeThoughts = tc.include_thoughts;
-                } else if (setBudget && budget !== 0) {
-                    geminiRequest.generationConfig.thinkingConfig.includeThoughts = true;
                 }
             }
         }
@@ -1339,42 +1307,7 @@ export class OpenAIConverter extends BaseConverter {
     modelSupportsThinking(model) {
         if (!model) return false;
         const m = model.toLowerCase();
-        return m.includes('2.5') || m.includes('thinking') || m.includes('2.0-flash-thinking') || /^gemini-[3-9]/.test(m) || m.includes('gemini3');
-    }
-
-    /**
-     * 检查是否是 Gemini 3 及以上版本模型（采用 thinkingLevel 模式）
-     */
-    isGemini3Model(model) {
-        return isGemini3Model(model);
-    }
-
-    /**
-     * 检查模型是否使用 thinking levels（而不是 budget）
-     */
-    modelUsesThinkingLevels(model) {
-        if (!model) return false;
-        // Gemini 3 模型使用 levels，其他使用 budget
-        return this.isGemini3Model(model);
-    }
-
-    /**
-     * 验证 Gemini 3 thinking level
-     */
-    validateGemini3ThinkingLevel(model, effort) {
-        const validLevels = ['low', 'medium', 'high'];
-        const normalizedEffort = (effort === 'max' || effort === 'xhigh') ? 'high' : effort;
-        if (!validLevels.includes(normalizedEffort)) {
-            return null;
-        }
-        return normalizedEffort.toUpperCase();
-    }
-
-    /**
-     * 将 reasoning_effort 转换为 Gemini thinkingConfig
-     */
-    applyReasoningEffortToGemini(effort) {
-        return effortToGeminiThinking(effort, { modelFamily: 'gemini-2.5' });
+        return /^gemini-[3-9]/.test(m) || m.includes('gemini3');
     }
 
     /**
@@ -1462,16 +1395,6 @@ export class OpenAIConverter extends BaseConverter {
                     config.responseSchema = response_format.json_schema.schema;
                 }
             }
-        }
-
-        // Gemini 2.5 and thinking models require responseModalities: ["TEXT"]
-        // But this parameter cannot be added when using tools (causes 400 error)
-        const hasTools = tools && Array.isArray(tools) && tools.length > 0;
-        if (!hasTools && model && (model.includes('2.5') || model.includes('thinking') || model.includes('2.0-flash-thinking'))) {
-            logger.info(`[OpenAI->Gemini] Adding responseModalities: ["TEXT"] for model: ${model}`);
-            config.responseModalities = ["TEXT"];
-        } else if (hasTools && model && (model.includes('2.5') || model.includes('thinking') || model.includes('2.0-flash-thinking'))) {
-            logger.info(`[OpenAI->Gemini] Skipping responseModalities for model ${model} because tools are present`);
         }
 
         return config;

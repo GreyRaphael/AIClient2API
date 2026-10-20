@@ -19,18 +19,6 @@ export const CANONICAL_CLAUDE_BUDGET = {
 };
 
 /**
- * Gemini 2.5 系双轨预算表
- */
-export const GEMINI_25_BUDGET = {
-    minimal: 1024,
-    low: 1024,
-    medium: 8192,
-    high: 24576,
-    max: 32768,
-    xhigh: 32768
-};
-
-/**
  * 根据 Claude budget_tokens 转换为 OpenAI 系 reasoning_effort 等级
  * 新阈值：low <= 2048, medium <= 8192, high > 8192
  * 
@@ -75,55 +63,33 @@ export function effortToClaudeBudget(effort) {
 }
 
 /**
- * 检查是否是 Gemini 3 及以上版本模型（采用 thinkingLevel 模式）
- * 
- * @param {string|null|undefined} model - 模型名称
- * @returns {boolean}
- */
-export function isGemini3Model(model) {
-    if (!model) return false;
-    const m = model.toLowerCase();
-    return /^gemini-[3-9]/.test(m) || m.includes('gemini3');
-}
-
-/**
- * 将 reasoning_effort 转换为 Gemini thinkingConfig
- * 支持 Gemini 3: thinkingLevel / Gemini 2.5: thinkingBudget 双轨
- * 
+ * 将 reasoning_effort 转换为 Gemini 3+ thinkingConfig。
+ *
+ * 当前项目只支持 Gemini 3 及以上模型，统一使用 thinkingLevel，
+ * 不再维护 Gemini 2.5 的 thinkingBudget 分支。
+ *
  * @param {string|null|undefined} effort - reasoning_effort 或 reasoning.effort 等级
- * @param {{ modelFamily?: string, model?: string }} [options={}] - 模型家族或模型名称
  * @returns {Object|null} Gemini thinkingConfig 对象或 null
  */
-export function effortToGeminiThinking(effort, options = {}) {
+export function effortToGeminiThinking(effort) {
     const eff = String(effort || '').toLowerCase().trim();
     if (!eff || eff === 'none') {
         return null;
     }
 
-    const { modelFamily, model } = options;
-    const isGemini3 = modelFamily === 'gemini-3' ||
-                      modelFamily === '3' ||
-                      (model && isGemini3Model(model)) ||
-                      (typeof modelFamily === 'string' && isGemini3Model(modelFamily));
-
-    if (isGemini3) {
-        if (eff === 'auto') {
-            return { includeThoughts: true };
-        }
-        const normalizedEffort = (eff === 'max' || eff === 'xhigh') ? 'high' : (eff === 'minimal' ? 'low' : eff);
-        const validLevels = ['low', 'medium', 'high'];
-        if (!validLevels.includes(normalizedEffort)) {
-            return null;
-        }
-        return {
-            thinkingLevel: normalizedEffort.toUpperCase()
-        };
+    if (eff === 'auto') {
+        return { includeThoughts: true };
     }
 
-    // Gemini 2.5 / default 双轨表
-    const budget = GEMINI_25_BUDGET[eff] || GEMINI_25_BUDGET.medium;
+    const normalizedEffort = (eff === 'max' || eff === 'xhigh')
+        ? 'high'
+        : (eff === 'minimal' ? 'low' : eff);
+    const validLevels = ['low', 'medium', 'high'];
+    if (!validLevels.includes(normalizedEffort)) {
+        return null;
+    }
+
     return {
-        thinkingBudget: budget,
-        includeThoughts: true
+        thinkingLevel: normalizedEffort.toUpperCase()
     };
 }

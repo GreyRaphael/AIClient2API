@@ -258,7 +258,6 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         // 验证未来版本均被识别为支持 thinking levels
         ['gemini-3.9-flash-high', 'gemini-3.10-flash-high', 'gemini-4.0-flash-high', 'gemini-3.9-flash'].forEach(m => {
             expect(openaiConverter.modelSupportsThinking(m)).toBe(true);
-            expect(openaiConverter.modelUsesThinkingLevels(m)).toBe(true);
         });
 
         const req = {
@@ -1069,19 +1068,17 @@ describe('Grok -> Claude 委托透传 requestId', () => {
     // =========================================================================
 
     test('Phase 0.2: Responses -> Gemini 保持 reasoning.effort 配置', () => {
-        // 1. Gemini 2.5 模型测试 (thinkingBudget 双轨)
-        const responsesReq25 = {
-            model: 'gemini-2.5-flash',
+        // Gemini 3+ 统一使用 thinkingLevel
+        const responsesReqLow = {
+            model: 'gemini-3.8-flash-high',
             input: [{ role: 'user', content: 'hello' }],
             reasoning: { effort: 'low' }
         };
-        const geminiReq25 = convertData(responsesReq25, 'request', MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES, MODEL_PROTOCOL_PREFIX.GEMINI);
-        expect(geminiReq25.generationConfig?.thinkingConfig).toEqual({
-            thinkingBudget: 1024,
-            includeThoughts: true
+        const geminiReqLow = convertData(responsesReqLow, 'request', MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES, MODEL_PROTOCOL_PREFIX.GEMINI);
+        expect(geminiReqLow.generationConfig?.thinkingConfig).toEqual({
+            thinkingLevel: 'LOW'
         });
 
-        // 2. Gemini 3 模型测试 (thinkingLevel 双轨)
         const responsesReq3 = {
             model: 'gemini-3.0-flash',
             input: [{ role: 'user', content: 'hello' }],
