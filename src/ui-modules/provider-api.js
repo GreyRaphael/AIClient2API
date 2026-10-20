@@ -34,6 +34,8 @@ function sanitizeProviderData(provider, maskSensitive = false) {
         for (const key in sanitized) {
             // 排除已知非敏感字段
             if (key === 'uuid' || key === 'customName' || key === 'isHealthy' || key === 'isDisabled' || key === 'needsRefresh') continue;
+            // 模型能力元数据不是敏感信息，避免 "modelsSource" 被 SSO 规则误判打码
+            if (key.startsWith('models')) continue;
             
             const val = sanitized[key];
             if (typeof val !== 'string' || !val) continue;
