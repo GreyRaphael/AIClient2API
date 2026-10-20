@@ -1,3 +1,5 @@
+> 历史评估快照（v1.6.0，2026-10-16）。当前高层架构与维护入口见 [`docs/CROSS_PROTOCOL_ARCHITECTURE.md`](../CROSS_PROTOCOL_ARCHITECTURE.md)。
+
 # AIClient2API 跨协议转译评估与理论优化全景指南
 
 > **版本**：v1.6.0  
@@ -540,7 +542,7 @@ timeline
 
 ### v1.2.0（2026-10-16，Phase 0 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第一阶段（Phase 0 定点修复包）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第一阶段（Phase 0 定点修复包）落地：
 
 1. **统一思考预算换算（0.1，解决 L1 与 D1）**：新增 `src/converters/thinking-budget.js`，建立五档规范表（1024/2048/8192/20000/32000）与新阈值映射（low≤2048、medium≤8192、high>8192），消灭常规预算坍缩为 high 的问题，medium 档位全面复活；统一 OpenAIConverter、ResponsesConverter、zed-core 的预算换算。
 2. **Responses➔Gemini 思考配置恢复（0.2，解决 L2）**：`toGeminiRequest` 补齐 `reasoning.effort` 转换为 Gemini 3（thinkingLevel）与 Gemini 2.5（thinkingBudget）双轨 thinkingConfig，Combo 12 评级提升至 Tier 2。
@@ -550,7 +552,7 @@ timeline
 
 ### v1.3.0（2026-10-16，Phase 1 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第二阶段（Phase 1 Schema Polyfill 降级编译器）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第二阶段（Phase 1 Schema Polyfill 降级编译器）落地：
 
 1. **Schema Polyfill 降级编译器（Phase 1）**：新增 `src/converters/schema-polyfill.js`，提供纯函数三段式流水线（`$ref` 静态内联展开、约束自然语言化注入 `[Constraints: ...]`、组合关键字 `oneOf/anyOf` 降级与 `allOf` 浅合并），并输出审计 `report`。
 2. **Gemini 接入链路贯通**：在 `OpenAIConverter.toGeminiTools` 及 `antigravity-core.js`（双模式工具声明清洗）前置接入 `polyfillAndCleanSchemaForGemini`，无缝兼容后续 7 键白名单清洗。
@@ -560,7 +562,7 @@ timeline
 
 ### v1.4.0（2026-10-16，Phase 2 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第三阶段（Phase 2 签名金库 Signature Vault）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第三阶段（Phase 2 签名金库 Signature Vault）落地：
 
 1. **新增无状态签名金库**：新增 `src/converters/signature-vault.js`，实现无状态 HMAC 虚拟思考签名（前缀规范 `vsig1.<base64url(payload)>.<base64url(hmac)>`），提供 `mintVirtualSignature`、`isVirtualSignature`、`verifyVirtualSignature` 与 `stripVirtualSignatures` 核心 API。
 2. **X ➔ Claude 响应侧注入闭环**：
@@ -576,7 +578,7 @@ timeline
 
 ### v1.5.0（2026-10-16，Phase 3 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第四阶段（Phase 3 Responses SSE Emitter 收编）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第四阶段（Phase 3 Responses SSE Emitter 收编）落地：
 
 1. **统一事件发射器模块**：新增 `src/converters/responses-sse-emitter.js`，严格镜像 `AnthropicSseEmitter` 的生命周期设计，提供 `start()`、`textStart()`、`textDelta()`、`textDone()`、`reasoningStart()`、`reasoningDelta()`、`reasoningDone()`、`toolCallStart()`、`toolCallArgsDelta()`、`toolCallDone()`、`complete()` 等全生命周期幂等方法。
 2. **状态所有权收编**：将分散在全局单例 `streamStateManager` 与各 Converter 内联状态对象的控制权收编入 `ResponsesSseEmitter` 实例中，借助 `StreamSessionStore`（带 TTL 自动回收容器）实现跨并发请求的完整隔离，彻底消灭流式并发状态污染与内存泄漏隐患。
@@ -592,7 +594,7 @@ timeline
 
 ### v1.6.0（2026-10-16，Phase 4 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第五阶段（Phase 4 可选增强）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第五阶段（Phase 4 可选增强）落地：
 
 1. **合并逻辑公共提取（去重）**：
    - 在 `src/converters/utils.js` 实现并导出纯函数 `mergeConsecutiveSameRoleContents(contents, rolePair = null)`。

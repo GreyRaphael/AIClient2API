@@ -1,3 +1,5 @@
+> 历史实施记录（v1.6.0，Phase 0-4 已落地）。当前高层架构与维护入口见 [`docs/CROSS_PROTOCOL_ARCHITECTURE.md`](../CROSS_PROTOCOL_ARCHITECTURE.md)。
+
 # AIClient2API 跨协议转译优化实施方案
 
 > **版本**：v1.6.0（Phase 0-4 全部实施落地）
@@ -315,7 +317,7 @@ export class ResponsesSseEmitter {
 1. Phase 0 作为独立 PR（bug fix 性质，可快速合入发布）；
 2. Phase 1、2 各自独立 PR；
 3. Phase 3 按转换器分 3-4 个 PR；
-4. **每阶段完成后同步更新评估文档** `CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md` 的全景矩阵评级与第八节修订记录（沿用 v1.0.0→v1.1.0 的修订惯例），保持「评估—优化」双文档闭环。
+4. **每阶段完成后同步更新评估文档** `docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md` 的全景矩阵评级与第八节修订记录（沿用 v1.0.0→v1.1.0 的修订惯例），保持「评估—优化」双文档闭环。
 
 ---
 
