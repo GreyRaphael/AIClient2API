@@ -585,3 +585,25 @@ npm run test:integration
 - [ ] 端点一致性测试通过。
 - [ ] 重启后缓存 rehydrate 正常。
 - [ ] 文档与 Provider 现状矩阵已更新。
+
+---
+
+## 13. 实施记录
+
+| 提交 | 内容 | 状态 |
+|---|---|---|
+| `5797cd7` | 新增本方案文档 | ✅ |
+| `b415cd4` | C1：模型能力层与 Memory/File 缓存存储 | ✅ |
+| `dfcaef1` | C2：Adapter 节点模型能力契约收敛 | ✅ |
+| `8a73737` | C3：统一读取路径、删除集合差反推、移除全局动态写入 | ✅ |
+| `6d81d2f` | C4：SWR、启动预热、定时刷新、显式刷新接口 | ✅ |
+| `90eccf9` | C5：托管/静态/Zed 策略、UI 元数据、Adapter 指南 | ✅ |
+
+验证结果：
+
+- `npm test`：21 suites / 314 tests 全绿。
+- `tests/model-capability.test.js`：解析优先级、空结果、TTL、退避、单飞、持久化、托管/静态策略。
+- `tests/model-capability-endpoints.test.js`：`trae:DeepSeek-V4.1-Flash-1017` 在 `/api/provider-models`、`/api/provider-models/trae`、`/auto/v1/models` 与路由选点中一致可见。
+- `npm run test:integration` 依赖本地运行实例的 `TEST_API_KEY` 与配置一致；当前验证环境的运行实例使用不同 Key，需先对齐后再执行。
+
+运行期新增缓存文件：`configs/model-capability-cache.json`（仅成功发现结果，权限 600，可安全删除）。
