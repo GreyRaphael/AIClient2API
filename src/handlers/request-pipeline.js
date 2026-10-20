@@ -1050,8 +1050,11 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
                 // 动态导入以避免循环依赖
                 const { getApiServiceWithFallback } = await import('../services/service-manager.js');
                 // 使用 acquireSlot: true 以占用新凭证的并发插槽
-                const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: true });
-                
+                const result = await getApiServiceWithFallback(CONFIG, model, {
+                    acquireSlot: true,
+                    allowUnselectedModel: Boolean(CONFIG.customConfig)
+                });
+
                 if (result && result.service && result.uuid !== pooluuid) {
                     logger.info(`[Unary Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
                     
