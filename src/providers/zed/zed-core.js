@@ -11,7 +11,7 @@ import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
-import { effortToClaudeBudget } from '../../converters/thinking-budget.js';
+import { effortToClaudeBudget, effortToGeminiThinking, isGemini3Model } from '../../converters/thinking-budget.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -618,10 +618,28 @@ export class ZedApiService {
             const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
             const thinkingBudget = requestBody.thinking?.budget_tokens;
             if (thinkingBudget) {
-                generationConfig.thinkingConfig = { thinkingBudget };
+                if (isGemini3Model(model)) {
+                    // Gemini 3+ 只接受 thinkingLevel（MINIMAL/LOW/MEDIUM/HIGH），
+                    // 传 thinkingBudget 会被上游以 500 拒绝。
+                    const effort = thinkingBudget <= 2048
+                        ? 'low'
+                        : thinkingBudget <= 4096
+                            ? 'medium'
+                            : 'high';
+                    const thinkingConfig = effortToGeminiThinking(effort, { model });
+                    if (thinkingConfig) generationConfig.thinkingConfig = thinkingConfig;
+                } else {
+                    generationConfig.thinkingConfig = { thinkingBudget };
+                }
             } else if (reasoningEffort && reasoningEffort !== 'none') {
-                const budget = effortToClaudeBudget(reasoningEffort);
-                generationConfig.thinkingConfig = { thinkingBudget: budget };
+                const thinkingConfig = effortToGeminiThinking(reasoningEffort, { model });
+                if (thinkingConfig) {
+                    generationConfig.thinkingConfig = thinkingConfig;
+                } else {
+                    // 非 Gemini 3 的兜底：沿用 budget 语义
+                    const budget = effortToClaudeBudget(reasoningEffort);
+                    generationConfig.thinkingConfig = { thinkingBudget: budget };
+                }
             }
 
             if (Object.keys(generationConfig).length > 0) {

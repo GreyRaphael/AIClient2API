@@ -196,7 +196,26 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(provReq.generationConfig).toBeDefined();
         expect(provReq.generationConfig.temperature).toBe(0.5);
         expect(provReq.generationConfig.maxOutputTokens).toBe(8192);
-        expect(provReq.generationConfig.thinkingConfig?.thinkingBudget).toBe(20000);
+        // Gemini 3+ 使用 thinkingLevel，不能使用 thinkingBudget
+        expect(provReq.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'HIGH' });
+        expect(provReq.generationConfig.thinkingConfig.thinkingBudget).toBeUndefined();
+    });
+
+    test('ZedApiService.buildPayload maps gemini-4-argon reasoning_effort to thinkingLevel', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        const payload = zedService.buildPayload('gemini-4-argon', {
+            messages: [{ role: 'user', content: 'hi' }],
+            reasoning_effort: 'high'
+        });
+
+        const provReq = payload.provider_request;
+        expect(payload.provider).toBe('google');
+        expect(provReq.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'HIGH' });
+        expect(provReq.generationConfig.thinkingConfig.thinkingBudget).toBeUndefined();
     });
 
     test('ZedApiService.getToken deduplicates concurrent calls via _tokenRefreshPromise', async () => {
