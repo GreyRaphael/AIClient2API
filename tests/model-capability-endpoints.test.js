@@ -23,6 +23,16 @@ function parseResponse(res) {
     return JSON.parse(res.end.mock.calls[0][0]);
 }
 
+function liveEntry(models) {
+    return {
+        models,
+        fetchedAt: Date.now(),
+        source: CAPABILITY_SOURCE.LIVE,
+        lastError: null,
+        consecutiveFailures: 0
+    };
+}
+
 describe('Model capability endpoint consistency', () => {
     let store;
     let manager;
@@ -71,5 +81,32 @@ describe('Model capability endpoint consistency', () => {
         expect(manager.getNodeAvailableModels('trae', { uuid })).toContain(model);
         const selected = await manager.selectProvider('trae', model);
         expect(selected?.uuid).toBe(uuid);
+    });
+
+    test('自定义模型 actualModel 与上游发现 ID 不一致时仍可路由', async () => {
+        const customUuid = 'openai-custom-node-1';
+        store.setEntry(
+            capabilityKey('openai-custom', { uuid: customUuid }),
+            liveEntry(['glm-5.3'])
+        );
+
+        const customManager = new ProviderPoolManager({
+            'openai-custom': [{ uuid: customUuid, isDisabled: false, isHealthy: true }]
+        }, {
+            globalConfig: {
+                customModels: [{
+                    id: 'glm-5.3',
+                    provider: 'openai-custom',
+                    actualProvider: 'openai-custom',
+                    actualModel: 'ZHIPU/GLM-5.3',
+                    enabled: true
+                }]
+            }
+        });
+        customManager.initializeProviderStatus();
+
+        const selected = await customManager.selectProvider('openai-custom', 'ZHIPU/GLM-5.3');
+        expect(selected?.uuid).toBe(customUuid);
+        expect(await customManager.selectProvider('openai-custom', 'not-supported-model')).toBeNull();
     });
 });

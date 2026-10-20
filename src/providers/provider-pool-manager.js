@@ -1030,6 +1030,31 @@ export class ProviderPoolManager {
     }
 
     /**
+     * 获取与请求模型等价的自定义模型候选名（id / alias / actualModel / model）。
+     * 用于能力守卫兼容 actualModel 与上游发现 ID 不一致的场景。
+     * @private
+     */
+    _getCustomModelRoutingCandidates(providerType, requestedModel) {
+        if (!requestedModel) return [];
+        const customModels = Array.isArray(this.globalConfig?.customModels)
+            ? this.globalConfig.customModels
+            : [];
+        const candidates = new Set();
+
+        for (const model of customModels) {
+            if (!model || model.enabled === false) continue;
+            const listProvider = getCustomModelListProvider(model);
+            if (!(listProvider === providerType || providerType.startsWith(listProvider + '-'))) continue;
+
+            const names = [model.id, model.alias, model.actualModel, model.model].filter(Boolean);
+            if (!names.includes(requestedModel)) continue;
+            names.forEach(name => candidates.add(name));
+        }
+
+        return Array.from(candidates);
+    }
+
+    /**
      * 实际执行 provider 选择的内部方法（同步执行，由锁保护）
      * @private
      */
@@ -1064,11 +1089,18 @@ export class ProviderPoolManager {
                 }
 
                 // 通用节点专属能力守卫：若节点已有可靠发现结果，严格核对其是否实际支持
+                // 自定义模型的 actualModel 可能与上游发现列表中的 ID 不同（如 glm-5.3 -> ZHIPU/GLM-5.3），
+                // 因此同时用自定义模型映射中的 ID / alias 做候选匹配。
                 const capability = resolveNodeCapability(providerType, p.config);
                 if (capability.known) {
                     const cleanRequested = (requestedModel || '').replace(/^models\//, '');
                     const cleanRaw = (rawModelName || '').replace(/^models\//, '');
-                    if (!nodeSupportsModel(capability, cleanRequested) && !nodeSupportsModel(capability, cleanRaw)) {
+                    const modelCandidates = [
+                        cleanRequested,
+                        cleanRaw,
+                        ...this._getCustomModelRoutingCandidates(providerType, cleanRequested)
+                    ].filter(Boolean);
+                    if (!modelCandidates.some(model => nodeSupportsModel(capability, model))) {
                         return false;
                     }
                 }
