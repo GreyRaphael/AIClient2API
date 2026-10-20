@@ -825,30 +825,39 @@ npm test
 
 ---
 
-## 11. 当前代码索引（写方案时）
+## 11. 实施后代码索引
 
 | 主题 | 位置 |
 |---|---|
-| 负向字段读取 | `src/providers/model-capability.js:117-122` |
-| 节点能力解析 | `src/providers/model-capability.js:263-353` |
-| 减法应用 | `src/providers/model-capability.js:332-334` |
-| 分组能力聚合 | `src/providers/model-capability.js:361-399` |
-| 路由守卫 | `src/providers/model-capability.js:406-417` |
-| 静态基线/自定义注入 | `src/providers/provider-models.js:353-382` |
-| `updateProviderModels` | `src/providers/provider-models.js:226-241` |
-| 路由选点 | `src/providers/provider-pool-manager.js:1061-1114` |
-| display 聚合 | `src/providers/provider-pool-manager.js:1513-1530` |
-| `/auto` 聚合 | `src/providers/provider-pool-manager.js:1537-1619` |
-| 负向排除聚合 | `src/handlers/request-pipeline.js:39-69` |
-| 负向过滤 | `src/handlers/request-pipeline.js:78-109` |
-| 单 provider 模型列表 | `src/handlers/request-pipeline.js:1262-1301` |
-| Provider 节点 API | `src/ui-modules/provider-api.js:267-335` |
-| `/api/provider-models` | `src/ui-modules/provider-api.js:405-444` |
-| `/api/provider-models/{type}` | `src/ui-modules/provider-api.js:450-474` |
-| `detect-models` | `src/ui-modules/provider-api.js:524-579` |
-| 新增/更新保存 | `src/ui-modules/provider-api.js:651-655`、`753-764` |
-| 前端节点配置 | `static/app/modal.js:1264-1288` |
-| 前端负向选择器 | `static/app/modal.js:2284-2316` |
-| 前端保存收集 | `static/app/modal.js:129-162` |
-| i18n 负向文案 | `static/app/i18n.js:752-764`、`2044-2056` |
-| UI 路由 | `src/services/ui-manager.js:161-176` |
+| 节点选择集计算 | `src/providers/model-capability.js:236-260` |
+| 节点能力解析 | `src/providers/model-capability.js:263-311` |
+| 分组最终集聚合 | `src/providers/model-capability.js:320-364` |
+| 路由守卫 | `src/providers/model-capability.js:374-386` |
+| 自定义模型分组辅助 | `src/providers/provider-models.js:267-279` |
+| 正向选择配置读取 | `src/providers/provider-models.js:324-326` |
+| 纯静态基线 | `src/providers/provider-models.js:334-350` |
+| 路由选点 | `src/providers/provider-pool-manager.js:1058-1115` |
+| 节点/分组模型聚合 | `src/providers/provider-pool-manager.js:1497-1548` |
+| 单 provider 模型列表 | `src/handlers/request-pipeline.js:1188-1198` |
+| 自定义模型候选透传 | `src/handlers/request-pipeline.js:750` |
+| Provider 节点 API | `src/ui-modules/provider-api.js:311-356` |
+| `/api/provider-models` | `src/ui-modules/provider-api.js:450-486` |
+| `detect-models` 能力刷新 | `src/ui-modules/provider-api.js:536-580` |
+| 保存字段归一化 | `src/ui-modules/provider-api.js:286-315` |
+| 前端节点正向复选框 | `static/app/modal.js:167-240` |
+| 前端刷新上游模型 | `static/app/modal.js:266-315` |
+| 前端保存收集 | `static/app/modal.js:317-340` |
+| 旧字段清理脚本 | `src/scripts/purge-legacy-model-fields.js` |
+
+### 实施记录
+
+| 提交 | 内容 |
+|---|---|
+| `d7e59c4` | 能力层正向选择、`supportedModelsBaseline`、删除负向读取 |
+| `f70c78b` | 分组最终集聚合、路由/端点统一、detect-models 与保存逻辑 |
+| `8012f43` | 节点正向复选框、刷新上游模型、删除负向 UI |
+| `084ec40` | 旧字段清理脚本、配置示例、README 与文档更新 |
+| `01eb591` | 冷启动失败回退基线、保存时清除旧字段残留 |
+| `8f1d6b7` | 编辑态刷新后复选框可用、刷新保留当前勾选 |
+
+验证结果：`npm test` 21 suites / 325 tests 全绿；`tests/static-syntax.test.js` 26 tests 全绿。
