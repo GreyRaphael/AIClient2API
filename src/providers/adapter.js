@@ -211,6 +211,18 @@ export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
         return this.openAIApiService.listModels();
     }
 
+    /**
+     * 获取节点可用模型（托管 provider 在 supportedModels 为空时用于自动发现）
+     * @returns {Promise<Array<string>>}
+     */
+    async getNodeAvailableModels() {
+        const payload = await this.openAIApiService.listModels();
+        const list = Array.isArray(payload)
+            ? payload
+            : (Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload?.models) ? payload.models : []));
+        return list.map(item => item?.id || item?.name).filter(Boolean);
+    }
+
     async refreshToken() {
         // OpenAI API keys are typically static and do not require refreshing.
         return false;
@@ -249,6 +261,18 @@ export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
         return this.openAIResponsesApiService.listModels();
     }
 
+    /**
+     * 获取节点可用模型（托管 provider 在 supportedModels 为空时用于自动发现）
+     * @returns {Promise<Array<string>>}
+     */
+    async getNodeAvailableModels() {
+        const payload = await this.openAIResponsesApiService.listModels();
+        const list = Array.isArray(payload)
+            ? payload
+            : (Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload?.models) ? payload.models : []));
+        return list.map(item => item?.id || item?.name).filter(Boolean);
+    }
+
     async refreshToken() {
         // OpenAI API keys are typically static and do not require refreshing.
         return false;
@@ -285,6 +309,18 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
     async listModels() {
         // The adapter now returns the native model list from the underlying service.
         return this.claudeApiService.listModels();
+    }
+
+    /**
+     * 获取节点可用模型（托管 provider 在 supportedModels 为空时用于自动发现）
+     * @returns {Promise<Array<string>>}
+     */
+    async getNodeAvailableModels() {
+        const payload = await this.claudeApiService.listModels();
+        const list = Array.isArray(payload)
+            ? payload
+            : (Array.isArray(payload?.models) ? payload.models : (Array.isArray(payload?.data) ? payload.data : []));
+        return list.map(item => item?.id || item?.name).filter(Boolean);
     }
 
     async refreshToken() {

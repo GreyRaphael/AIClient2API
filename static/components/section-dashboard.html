@@ -157,11 +157,14 @@
         <div class="routing-examples-panel" style="margin-top: 1rem; border-top: none;">
             <!-- 可用模型列表 -->
             <div class="models-section" style="margin-top: 0;">
-                <div class="models-description">
+                <div class="models-description" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;">
                     <div class="highlight-note">
                         <i class="fas fa-info-circle"></i>
                         <span data-i18n="models.note">点击模型名称可直接复制到剪贴板</span>
                     </div>
+                    <button class="btn-small btn-edit" onclick="window.refreshModelCapabilities()" title="强制刷新模型能力（绕过 TTL）">
+                        <i class="fas fa-sync-alt"></i> 刷新模型
+                    </button>
                 </div>
                 
                 <!-- Models Container -->

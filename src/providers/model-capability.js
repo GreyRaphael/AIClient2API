@@ -314,9 +314,9 @@ export function resolveNodeCapability(providerType, nodeConfig = {}, options = {
         ? baseModels
         : baseModels.filter(model => !disabledSet.has(model));
     const ttl = getTtlMs(providerType);
-    const stale = dynamic
-        ? (!known || Boolean(entry?.lastError) || (Date.now() - fetchedAt) > ttl)
-        : false;
+    const stale = entry
+        ? (Boolean(entry.lastError) || (Date.now() - fetchedAt) > ttl)
+        : dynamic;
 
     return {
         key,

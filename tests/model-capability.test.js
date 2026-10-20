@@ -272,6 +272,32 @@ describe('Model Capability', () => {
         expect(() => stopCapabilityRefreshLoop()).not.toThrow();
     });
 
+    test('托管 provider 空 supportedModels 时通过 adapter 发现并进入 live 缓存', async () => {
+        const adapter = {
+            getNodeAvailableModels: jest.fn().mockResolvedValue(['discovered-model'])
+        };
+        const node = { uuid: 'managed-1', supportedModels: [], checkModelName: 'glm-5.2' };
+
+        expect(resolveNodeCapability('openai-custom', node).known).toBe(false);
+
+        const entry = await refreshNodeCapability('openai-custom', node, { adapter });
+        expect(entry.models).toEqual(['discovered-model']);
+
+        const capability = resolveNodeCapability('openai-custom', node);
+        expect(capability.known).toBe(true);
+        expect(capability.source).toBe(CAPABILITY_SOURCE.LIVE);
+        expect(capability.models).toContain('discovered-model');
+        expect(capability.models).toContain('glm-5.2');
+    });
+
+    test('静态 provider 标记 source=static 且不参与路由守卫', () => {
+        const capability = resolveNodeCapability('claude-kiro-oauth', { uuid: 'kiro-1' });
+        expect(capability.source).toBe(CAPABILITY_SOURCE.STATIC);
+        expect(capability.known).toBe(false);
+        expect(capability.models.length).toBeGreaterThan(0);
+        expect(nodeSupportsModel(capability, 'non-existent-model')).toBe(true);
+    });
+
     test('FileCapabilityStore 只持久化成功发现结果并可重新加载', async () => {
         const dir = mkdtempSync(path.join(os.tmpdir(), 'model-capability-flush-'));
         const filePath = path.join(dir, 'cache.json');

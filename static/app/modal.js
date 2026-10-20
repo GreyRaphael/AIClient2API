@@ -876,7 +876,13 @@ function renderProviderDetailList(providers) {
         const toggleButtonIcon = isDisabled ? 'fas fa-play' : 'fas fa-ban';
         const toggleButtonClass = isDisabled ? 'btn-success' : 'btn-warning';
         const needsRefresh = !!provider.needsRefresh;
-        
+        const modelsSource = provider.modelsSource || '';
+        const modelsFetchedAt = provider.modelsFetchedAt ? new Date(provider.modelsFetchedAt).toLocaleString() : '';
+        const modelsStale = !!provider.modelsStale;
+        const modelCapabilityHtml = modelsSource
+            ? `<span class="model-capability-status" title="${modelsFetchedAt || '-'}"><i class="fas fa-database"></i> 模型来源: ${modelsSource}${modelsStale ? ' (stale)' : ''}</span> |`
+            : '';
+
         // 构建错误信息显示
         let errorInfoHtml = '';
         if (!isHealthy && provider.lastErrorMessage) {
@@ -912,6 +918,7 @@ function renderProviderDetailList(providers) {
                             <span data-i18n="modal.provider.lastUsed">最后使用</span>: ${lastUsed}
                         </div>
                         <div class="provider-health-meta">
+                            ${modelCapabilityHtml}
                             <span class="health-check-time">
                                 <i class="fas fa-clock"></i>
                                 <span data-i18n="modal.provider.lastCheck">最后检测</span>: ${lastHealthCheckTime}

@@ -140,3 +140,37 @@
 2.  **安全性**：不要在 Core 代码中硬编码 Key，始终从 `config` 中读取动态注入的凭据。
 3.  **异常捕获**：Core 代码必须抛出标准错误（包含 status），以便号池管理器识别并自动隔离失效账号。401/403 错误通常触发 UUID 刷新或凭据切换。
 4.  **异步刷新**：利用 V2 架构的读写分离，耗时的认证逻辑应放入 `refreshToken` 并在后台异步执行。
+
+---
+
+## 6. 模型能力契约（Model Capability）
+
+模型列表的唯一读取入口是 `src/providers/model-capability.js`。新增或修改 Provider 时，请遵循以下约定：
+
+### 6.1 Adapter 契约
+
+在 Adapter 中实现 `getNodeAvailableModels(force = false)`：
+
+| Provider 类型 | 实现要求 |
+|---|---|
+| `gemini-antigravity` | 返回实例 `availableModels`，必要时 `initialize()` |
+| `openai-codex-oauth` | 返回 `getSupportedModels()`，必要时 `fetchRemoteModels()` |
+| `trae` / `trae-solo_work_lite` / `trae-chat_v3` | 返回 `listModels()` 的模型 ID |
+| `zed` | 返回当前实例 `modelsCache` 的模型 ID |
+| 托管 provider（`openai-custom` 等） | 返回上游 `/models` 的模型 ID；`supportedModels` 非空时由配置优先 |
+| 静态 provider（Kiro / Grok Web / Grok CLI） | 返回 `null`，由静态基线兜底 |
+
+### 6.2 数据分层
+
+- **配置（provider_pools.json）**：只存用户意图（`supportedModels`、`notSupportedModels`）。
+- **运行时缓存（`configs/model-capability-cache.json`）**：只存成功发现结果，按 `providerType:uuid` 隔离。
+- **静态基线（`PROVIDER_MODELS`）**：只做冷启动/无发现时的兜底，标记 `source=baseline|static`。
+
+禁止把动态发现结果写回 `provider_pools.json`，也禁止在读取时用集合差反推“不支持模型”。
+
+### 6.3 刷新与路由
+
+- 读路径统一走 `resolveProviderCapability` / `resolveProviderCapabilityWithRefresh`。
+- 刷新统一走 `refreshNodeCapability` / `refreshProviderCapabilities`，单飞 + TTL + 指数退避。
+- `display` 语义返回活跃节点并集；`routing` 语义按节点 `known` 能力过滤。
+- 健康检查与模型刷新解耦；不要依赖健康检查来更新模型列表。

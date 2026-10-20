@@ -327,10 +327,25 @@ async function refreshModels() {
     await initModelsManager();
 }
 
+/**
+ * 刷新模型能力（强制绕过 TTL），然后重新加载模型列表
+ */
+async function refreshModelCapabilities() {
+    try {
+        await apiClient.post('/provider-models/refresh');
+        modelsCache = null;
+        await initModelsManager();
+    } catch (error) {
+        console.error('[Models Manager] Failed to refresh model capabilities:', error);
+        throw error;
+    }
+}
+
 // 导出到全局作用域供 HTML 调用
 window.toggleProviderModels = toggleProviderModels;
 window.copyModelName = copyModelName;
 window.refreshModels = refreshModels;
+window.refreshModelCapabilities = refreshModelCapabilities;
 
 // 监听组件加载完成事件
 window.addEventListener('componentsLoaded', () => {
@@ -341,6 +356,7 @@ window.addEventListener('componentsLoaded', () => {
 export {
     initModelsManager,
     refreshModels,
+    refreshModelCapabilities,
     fetchProviderModels,
     updateModelsProviderConfigs
 };
