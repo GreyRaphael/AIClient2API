@@ -30,15 +30,98 @@ export function getCodexVersion(config = null) {
 }
 
 export const CODEX_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
-export const IMAGE_MODELS = new Set(['gpt-image-2']);
 
 /**
- * 获取当前提供商配置对应的全部可用模型（含 -fast 变体）
+ * 规范化 Codex 模型的推理强度 (reasoning effort)
+ * 支持将多种别名映射为上游标准等级，并在提供模型能力时收敛到受支持等级。
+ * @param {string|null|undefined} effort
+ * @param {string} [defaultEffort='medium']
+ * @param {Array<string|object>|null} [supportedLevels=null]
+ * @returns {string}
+ */
+export function normalizeCodexReasoningEffort(effort, defaultEffort = 'medium', supportedLevels = null) {
+    const canonicalOrder = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+    const canonicalSet = new Set(canonicalOrder);
+    const normalizedDefault = String(defaultEffort || 'medium').trim().toLowerCase();
+
+    const supported = Array.isArray(supportedLevels)
+        ? new Set(supportedLevels
+            .map(level => (typeof level === 'string'
+                ? level
+                : (level?.effort ?? level?.level ?? level?.value)))
+            .filter(Boolean)
+            .map(level => String(level).trim().toLowerCase()))
+        : null;
+
+    let candidate;
+    if (effort === null || effort === undefined || effort === '') {
+        candidate = normalizedDefault;
+    } else {
+        const str = String(effort).trim().toLowerCase();
+        switch (str) {
+            case 'none':
+            case 'off':
+            case 'false':
+                candidate = 'none';
+                break;
+            case 'minimal':
+                candidate = 'minimal';
+                break;
+            case 'low':
+                candidate = 'low';
+                break;
+            case 'medium':
+                candidate = 'medium';
+                break;
+            case 'high':
+                candidate = 'high';
+                break;
+            case 'xhigh':
+            case 'extra_high':
+            case 'extra-high':
+            case 'very_high':
+                candidate = 'xhigh';
+                break;
+            case 'max':
+            case 'maximum':
+                candidate = 'max';
+                break;
+            default:
+                candidate = normalizedDefault;
+        }
+    }
+
+    if (!canonicalSet.has(candidate)) {
+        candidate = canonicalSet.has(normalizedDefault) ? normalizedDefault : 'medium';
+    }
+
+    if (!supported || supported.size === 0) {
+        return candidate;
+    }
+
+    if (supported.has(candidate)) {
+        return candidate;
+    }
+
+    // 就近降级/升级：优先选择不高于请求等级的受支持值，其次选择更高等级
+    const candidateIndex = canonicalOrder.indexOf(candidate);
+    for (let i = candidateIndex; i >= 0; i--) {
+        if (supported.has(canonicalOrder[i])) return canonicalOrder[i];
+    }
+    for (let i = candidateIndex + 1; i < canonicalOrder.length; i++) {
+        if (supported.has(canonicalOrder[i])) return canonicalOrder[i];
+    }
+
+    return supported.has(normalizedDefault)
+        ? normalizedDefault
+        : (canonicalOrder.find(level => supported.has(level)) || 'medium');
+}
+
+/**
+ * 获取当前提供商配置对应的全部可用模型
  */
 export function getCodexModels(providerType = MODEL_PROVIDER.CODEX_API) {
-    const baseModels = getProviderModels(providerType);
-    const fastModels = baseModels.map(m => `${m}-fast`);
-    return [...new Set([...baseModels, ...fastModels])];
+    return getProviderModels(providerType);
 }
 
 function normalizeCodexTerminalError(parsed) {
@@ -179,8 +262,6 @@ export class CodexApiService {
         // 会话缓存管理
         this.conversationCache = new Map(); // key: model-userId, value: {id, expire}
         this.startCacheCleanup();
-
-        this.imageGenTool = {type: 'image_generation', output_format: 'png'};
 
         // 动态模型管理
         this.modelsCache = null;
@@ -561,16 +642,10 @@ export class CodexApiService {
         // 明确会话维度：优先使用 session_id 或 conversation_id，其次 user_id
         const sessionId = metadata.session_id || metadata.conversation_id || metadata.user_id || 'default';
 
-        // 判断是否为 fast 模型并确定默认值
-        const normalizedModel = String(model || '').trim();
-        const isFastModel = /-fast$/i.test(normalizedModel);
-        const upstreamModel = isFastModel ? normalizedModel.replace(/-fast$/i, '') : normalizedModel;
-        const defaultServiceTier = isFastModel ? 'priority' : 'default';
-        const defaultReasoningEffort = isFastModel ? 'xhigh' : 'medium';
-
-        // 图像生成模型：gpt-image-2 通过 image_generation 工具 + gpt-5.5 实现
-        const isImageModel = IMAGE_MODELS.has(upstreamModel);
-        const effectiveUpstreamModel = isImageModel ? 'gpt-5.5' : upstreamModel;
+        // 规范化模型名称
+        const upstreamModel = String(model || '').trim();
+        const isImageModel = /^gpt-image-/i.test(upstreamModel);
+        let effectiveUpstreamModel = upstreamModel;
 
         const cleanedBody = {...requestBody};
         delete cleanedBody.metadata;
@@ -582,25 +657,38 @@ export class CodexApiService {
         // Codex 接受顶层 instructions，但拒绝 input 中的 system/developer 消息。
         normalizeCodexInstructions(cleanedBody);
 
-        // 【关键修复】确保传给上游的模型名称不带 -fast 后缀
-        // 即使 originalRequestBody 中已经带了 model，这里也必须覆盖
-        cleanedBody.model = effectiveUpstreamModel;
-
         if (isImageModel) {
-            // 图像模型：强制使用 image_generation 工具，不加 web_search
+            // 图片模型是否可用由上游 /backend-api/codex/models 决定（免费账号通常不返回）。
+            if (!Array.isArray(this.availableModels) || this.availableModels.length === 0) {
+                try {
+                    await this.fetchRemoteModels();
+                } catch {
+                    // 保持后续的统一错误提示
+                }
+            }
+            const availableModels = this.getSupportedModels();
+            if (!availableModels.includes(upstreamModel)) {
+                throw new Error(
+                    `Codex image model '${upstreamModel}' is not available for the current account. ` +
+                    `The upstream /backend-api/codex/models list does not include it; ` +
+                    `available models: ${availableModels.join(', ') || '(none)'}`
+                );
+            }
+
+            // 直接使用真实 upstreamModel，不再硬编码改写为 gpt-5.5
+            effectiveUpstreamModel = upstreamModel;
             const imageToolConfig = {type: 'image_generation'};
             if (cleanedBody._imageSize) {
                 imageToolConfig.size = cleanedBody._imageSize;
             }
             delete cleanedBody._imageSize;
             cleanedBody.tools = [imageToolConfig];
-            // 服务器要求 instructions 非空
             if (!cleanedBody.instructions?.trim()) {
                 cleanedBody.instructions = 'You are a helpful assistant.';
             }
-            logger.info(`[Codex] Image model detected: ${upstreamModel} -> ${effectiveUpstreamModel} with image_generation tool${imageToolConfig.size ? `, size=${imageToolConfig.size}` : ''}`);
+            logger.info(`[Codex] Image model detected: ${upstreamModel} with image_generation tool${imageToolConfig.size ? `, size=${imageToolConfig.size}` : ''}`);
         } else {
-            // 为普通 Codex 模型增加默认工具
+            // 普通 Codex 模型默认补充 web_search 工具
             if (!cleanedBody.tools) {
                 cleanedBody.tools = [];
             }
@@ -609,18 +697,24 @@ export class CodexApiService {
                 if (!hasWebSearch) {
                     cleanedBody.tools.push({type: 'web_search'});
                 }
-                if (!upstreamModel.endsWith('spark')) {
-                    const hasImageGen = cleanedBody.tools.some(t => t.type === 'image_generation');
-                    if (!hasImageGen) {
-                        cleanedBody.tools.push(this.imageGenTool);
-                    }
-                }
             }
         }
 
-        if (isFastModel) {
-            logger.info(`[Codex] Detected -fast model: ${normalizedModel} -> ${upstreamModel}, service_tier: ${cleanedBody.service_tier || defaultServiceTier}`);
-        }
+        // 传给上游真实模型名称
+        cleanedBody.model = effectiveUpstreamModel;
+
+        // 推理等级 (reasoning_effort) 动态合理映射
+        const inputEffort = requestBody.reasoning_effort ?? requestBody.reasoning?.effort ?? cleanedBody.reasoning_effort ?? cleanedBody.reasoning?.effort;
+        const rawEffort = inputEffort;
+
+        const modelMeta = this.modelMetadataMap?.get(upstreamModel);
+        const defaultEffort = modelMeta?.default_reasoning_level || 'medium';
+        const supportedEfforts = Array.isArray(modelMeta?.supported_reasoning_levels)
+            ? modelMeta.supported_reasoning_levels
+            : null;
+        const targetEffort = normalizeCodexReasoningEffort(rawEffort, defaultEffort, supportedEfforts);
+
+        const requestedServiceTier = cleanedBody.service_tier;
 
         // 生成会话缓存键
         // 弱化 model 依赖，以提升同会话跨模型的缓存命中率
@@ -646,16 +740,16 @@ export class CodexApiService {
             store: cleanedBody.store ?? false,
             parallel_tool_calls: cleanedBody.parallel_tool_calls ?? true,
             include: cleanedBody.include || ['reasoning.encrypted_content'],
-            service_tier: cleanedBody.service_tier || defaultServiceTier,
             reasoning: {
                 ...cleanedBody.reasoning,
-                effort: isFastModel ? defaultReasoningEffort : (cleanedBody.reasoning?.effort === 'minimal' ? 'none' : (cleanedBody.reasoning?.effort || defaultReasoningEffort)),
+                effort: targetEffort,
                 summary: cleanedBody.reasoning?.summary || 'auto',
             },
             stream,
             prompt_cache_key: cache.id
         };
 
+        delete result.reasoning_effort;
         delete result.messages;
         if (!result.instructions) {
             result.instructions = '';
@@ -664,7 +758,9 @@ export class CodexApiService {
             delete result.parallel_tool_calls;
         }
 
-        if (result.service_tier !== 'priority') {
+        if (requestedServiceTier === 'priority') {
+            result.service_tier = 'priority';
+        } else {
             delete result.service_tier;
         }
 
@@ -1093,7 +1189,7 @@ export class CodexApiService {
     }
 
     /**
-     * 获取当前支持的模型列表（基础模型 + -fast 变体）
+     * 获取当前支持的模型列表（仅上游发现结果，不注入虚拟图片模型或 -fast 变体）
      */
     getSupportedModels() {
         const targetProvider = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
@@ -1180,17 +1276,12 @@ export class CodexApiService {
                     }
 
                     if (modelIds.length > 0) {
-                        // 保留虚拟图像模型 (gpt-image-2)
-                        const mergedBaseModels = [...new Set([...modelIds, ...Array.from(IMAGE_MODELS)])];
-
-                        // 派生 -fast 变体并保存至节点 availableModels
-                        const fastModels = mergedBaseModels.map(m => `${m}-fast`);
-                        this.availableModels = [...new Set([...mergedBaseModels, ...fastModels])];
+                        this.availableModels = [...new Set(modelIds)];
 
                         this.modelsCache = rawModels;
                         this.modelsExpiresAt = now + CODEX_MODELS_CACHE_TTL_MS;
 
-                        logger.info(`[Codex] Successfully updated dynamic model list (${mergedBaseModels.length} base models, ${this.availableModels.length} total): ${mergedBaseModels.join(', ')}`);
+                        logger.info(`[Codex] Successfully updated dynamic model list (${this.availableModels.length} models): ${this.availableModels.join(', ')}`);
                         return rawModels;
                     }
                 }
@@ -1236,8 +1327,7 @@ export class CodexApiService {
         return {
             object: 'list',
             data: allModels.map(id => {
-                const baseId = id.replace(/-fast$/i, '');
-                const meta = this.modelMetadataMap.get(id) || this.modelMetadataMap.get(baseId);
+                const meta = this.modelMetadataMap.get(id);
                 const item = {
                     id,
                     object: 'model',
@@ -1245,7 +1335,7 @@ export class CodexApiService {
                     owned_by: 'openai'
                 };
                 if (meta) {
-                    if (meta.display_name) item.display_name = id.endsWith('-fast') ? `${meta.display_name} (Fast)` : meta.display_name;
+                    if (meta.display_name) item.display_name = meta.display_name;
                     if (meta.description) item.description = meta.description;
                     if (meta.context_window) item.context_length = meta.context_window;
                     if (meta.max_context_window) item.max_tokens = meta.max_context_window;

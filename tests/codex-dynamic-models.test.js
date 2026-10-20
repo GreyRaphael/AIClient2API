@@ -7,7 +7,8 @@ import {
     getCodexModels,
     CODEX_FALLBACK_VERSION,
     CODEX_MODELS_CACHE_TTL_MS,
-    parseCodexTokenMetadata
+    parseCodexTokenMetadata,
+    normalizeCodexReasoningEffort
 } from '../src/providers/openai/codex-core.js';
 import {
     PROVIDER_MODELS,
@@ -26,7 +27,7 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         expect(BASE_CODEX_MODELS).toContain('gpt-5.5');
         expect(BASE_CODEX_MODELS).toContain('gpt-5.6-luna');
         expect(BASE_CODEX_MODELS).toContain('gpt-5.6-terra');
-        expect(BASE_CODEX_MODELS).toContain('gpt-image-2');
+        expect(BASE_CODEX_MODELS).not.toContain('gpt-image-2');
     });
 
     test('updateProviderModels merges BASE_CODEX_MODELS with dynamic modelIds', () => {
@@ -38,17 +39,17 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         expect(currentModels).toContain('codex-auto-review');
         expect(currentModels).toContain('gpt-5.6-luna');
         expect(currentModels).toContain('gpt-5.5');
-        expect(currentModels).toContain('gpt-image-2');
+        expect(currentModels).not.toContain('gpt-image-2');
     });
 
-    test('getCodexModels generates base models and -fast variants', () => {
+    test('getCodexModels generates base models without virtual gpt-image-2 or -fast variants', () => {
         const models = getCodexModels('openai-codex-oauth');
         expect(models).toContain('gpt-5.6-luna');
-        expect(models).toContain('gpt-5.6-luna-fast');
+        expect(models).not.toContain('gpt-5.6-luna-fast');
         expect(models).toContain('gpt-5.5');
-        expect(models).toContain('gpt-5.5-fast');
-        expect(models).toContain('gpt-image-2');
-        expect(models).toContain('gpt-image-2-fast');
+        expect(models).not.toContain('gpt-5.5-fast');
+        expect(models).not.toContain('gpt-image-2');
+        expect(models).not.toContain('gpt-image-2-fast');
     });
 
     test('CodexApiService.fetchRemoteModels parses remote models and updates cache', async () => {
@@ -104,15 +105,14 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         expect(lunaModel.context_length).toBe(1000000);
 
         const lunaFastModel = list.data.find(m => m.id === 'gpt-5.6-luna-fast');
-        expect(lunaFastModel).toBeDefined();
-        expect(lunaFastModel.display_name).toBe('GPT-5.6-Luna (Fast)');
+        expect(lunaFastModel).toBeUndefined();
 
         // Verify getNodeAvailableModels
         const nodeModels = await service.getNodeAvailableModels();
         expect(nodeModels).toContain('gpt-5.6-luna');
-        expect(nodeModels).toContain('gpt-5.6-luna-fast');
+        expect(nodeModels).not.toContain('gpt-5.6-luna-fast');
         expect(nodeModels).toContain('gpt-reserve');
-        expect(nodeModels).toContain('gpt-reserve-fast');
+        expect(nodeModels).not.toContain('gpt-reserve-fast');
 
         service.stopCacheCleanup();
         mockAxiosRequest.mockRestore();
@@ -204,7 +204,7 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         const nodeModels = await service.getNodeAvailableModels();
 
         expect(nodeModels).toContain('gpt-5.6-luna');
-        expect(nodeModels).toContain('gpt-5.6-luna-fast');
+        expect(nodeModels).not.toContain('gpt-5.6-luna-fast');
         // Models requiring upgrade or with supported_in_api: false must not be present
         expect(nodeModels).not.toContain('gpt-6-pro-exclusive');
         expect(nodeModels).not.toContain('gpt-6-pro-exclusive-fast');
@@ -272,6 +272,101 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
 
         service2.stopCacheCleanup();
         mockAxios2.mockRestore();
+    });
+
+    test('normalizeCodexReasoningEffort maps effort levels and aliases correctly', () => {
+        expect(normalizeCodexReasoningEffort('none')).toBe('none');
+        expect(normalizeCodexReasoningEffort('minimal')).toBe('minimal');
+        expect(normalizeCodexReasoningEffort('off')).toBe('none');
+        expect(normalizeCodexReasoningEffort('low')).toBe('low');
+        expect(normalizeCodexReasoningEffort('medium')).toBe('medium');
+        expect(normalizeCodexReasoningEffort('high')).toBe('high');
+        expect(normalizeCodexReasoningEffort('xhigh')).toBe('xhigh');
+        expect(normalizeCodexReasoningEffort('extra_high')).toBe('xhigh');
+        expect(normalizeCodexReasoningEffort('extra-high')).toBe('xhigh');
+        expect(normalizeCodexReasoningEffort('max')).toBe('max');
+        expect(normalizeCodexReasoningEffort('maximum')).toBe('max');
+        expect(normalizeCodexReasoningEffort(undefined, 'high')).toBe('high');
+        expect(normalizeCodexReasoningEffort(null)).toBe('medium');
+        expect(normalizeCodexReasoningEffort('unknown-level')).toBe('medium');
+    });
+
+    test('normalizeCodexReasoningEffort respects model supported levels', () => {
+        expect(normalizeCodexReasoningEffort('max', 'medium', ['low', 'medium', 'high'])).toBe('high');
+        expect(normalizeCodexReasoningEffort('max', 'medium', ['xhigh'])).toBe('xhigh');
+        expect(normalizeCodexReasoningEffort('minimal', 'medium', ['low', 'medium'])).toBe('low');
+        expect(normalizeCodexReasoningEffort('none', 'medium', ['minimal', 'low'])).toBe('minimal');
+        expect(normalizeCodexReasoningEffort('high', 'medium', [{ effort: 'low' }, { effort: 'high' }])).toBe('high');
+        expect(normalizeCodexReasoningEffort('max', 'low', ['low', 'medium'])).toBe('medium');
+    });
+
+    test('prepareRequestBody maps user input reasoning_effort and service_tier properly', async () => {
+        const service = new CodexApiService({
+            uuid: 'test-codex-effort',
+            MODEL_PROVIDER: 'openai-codex-oauth'
+        });
+
+        // 1. User passes explicit reasoning_effort: "high"
+        const body1 = await service.prepareRequestBody('gpt-6-luna', {
+            reasoning_effort: 'high',
+            messages: [{ role: 'user', content: 'hello' }]
+        }, true);
+
+        expect(body1.model).toBe('gpt-6-luna');
+        expect(body1.reasoning.effort).toBe('high');
+        expect(body1.service_tier).toBeUndefined();
+        expect(body1.reasoning_effort).toBeUndefined();
+        // Tools should only contain default web_search, not image_generation
+        expect(body1.tools).toEqual([{ type: 'web_search' }]);
+
+        // 2. User passes explicit reasoning: { effort: 'minimal' } -> preserved
+        const body2 = await service.prepareRequestBody('gpt-6-luna', {
+            reasoning: { effort: 'minimal' },
+            service_tier: 'priority',
+            messages: [{ role: 'user', content: 'hello' }]
+        }, true);
+
+        expect(body2.model).toBe('gpt-6-luna');
+        expect(body2.reasoning.effort).toBe('minimal');
+        expect(body2.service_tier).toBe('priority');
+
+        service.stopCacheCleanup();
+    });
+
+    test('prepareRequestBody respects model metadata and gates image models by discovered list', async () => {
+        const service = new CodexApiService({
+            uuid: 'test-codex-metadata',
+            MODEL_PROVIDER: 'openai-codex-oauth'
+        });
+        service.modelMetadataMap = new Map([
+            ['gpt-6-luna', {
+                default_reasoning_level: 'low',
+                supported_reasoning_levels: ['low', 'high']
+            }]
+        ]);
+
+        const body = await service.prepareRequestBody('gpt-6-luna', {
+            messages: [{ role: 'user', content: 'hello' }]
+        }, true);
+
+        expect(body.reasoning.effort).toBe('low');
+
+        // 当前账号的 /backend-api/codex/models 未返回 gpt-image-2 时必须明确拒绝
+        service.availableModels = ['gpt-6-luna'];
+        await expect(service.prepareRequestBody('gpt-image-2', {
+            messages: [{ role: 'user', content: 'hello' }]
+        }, true)).rejects.toThrow(/not available for the current account/);
+
+        // 上游模型列表包含 gpt-image-2 时，仍支持图片生成（直接使用真实模型名 + image_generation）
+        service.availableModels = ['gpt-image-2', 'gpt-6-luna'];
+        const imageBody = await service.prepareRequestBody('gpt-image-2', {
+            messages: [{ role: 'user', content: 'draw a cat' }],
+            _imageSize: '1024x1024'
+        }, true);
+        expect(imageBody.model).toBe('gpt-image-2');
+        expect(imageBody.tools).toEqual([{ type: 'image_generation', size: '1024x1024' }]);
+
+        service.stopCacheCleanup();
     });
 });
 

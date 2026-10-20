@@ -84,7 +84,6 @@ export const PROVIDER_MODELS = {
         'gpt-5.6-terra',
         'gpt-5.6-luna',
         'gpt-5.5',
-        'gpt-image-2',
     ],
     'grok-cli-oauth': [
         'grok-build-0.1',
@@ -233,7 +232,7 @@ export function updateProviderModels(providerType, modelIds) {
         return;
     }
     if (providerType === MODEL_PROVIDER.CODEX_API || providerType.startsWith(MODEL_PROVIDER.CODEX_API + '-')) {
-        // Codex 动态接口返回当前凭据权限范围内的模型，确保保留预置的核心模型(如 gpt-image-2 虚拟模型)并合并去重
+        // Codex 动态接口返回当前凭据权限范围内的模型，确保保留预置的基础模型并合并去重
         const existing = PROVIDER_MODELS[providerType] || BASE_CODEX_MODELS;
         PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_CODEX_MODELS, ...modelIds]);
         return;
