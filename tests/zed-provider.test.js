@@ -5,7 +5,7 @@ import { Readable } from 'stream';
 import axios from 'axios';
 import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
-import { isRegisteredProvider } from '../src/providers/adapter.js';
+import { isRegisteredProvider, ZedApiServiceAdapter } from '../src/providers/adapter.js';
 import {
     ZedApiService,
     getZedVersionFromSystem,
@@ -734,6 +734,42 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             expect(toolStart.content_block.name).toBe('run_cmd');
             const mdTool = evTool.find(e => e.type === 'message_delta');
             expect(mdTool.delta.stop_reason).toBe('tool_use');
+        });
+    });
+
+    describe('Zed Node Model Capability Tests', () => {
+        test('getNodeAvailableModels returns ids from the current node modelsCache', async () => {
+            const adapter = new ZedApiServiceAdapter({ uuid: 'zed-node-1' });
+            adapter.zedApiService = {
+                listModels: jest.fn().mockResolvedValue({
+                    data: [
+                        { id: 'claude-sonnet-5-5' },
+                        { id: 'gpt-5-nano' },
+                        { name: 'fallback-name' }
+                    ]
+                })
+            };
+
+            await expect(adapter.getNodeAvailableModels()).resolves.toEqual([
+                'claude-sonnet-5-5',
+                'gpt-5-nano',
+                'fallback-name'
+            ]);
+        });
+
+        test('getNodeAvailableModels(force) refreshes before listing', async () => {
+            const adapter = new ZedApiServiceAdapter({ uuid: 'zed-node-1' });
+            const fetchRemoteModels = jest.fn().mockResolvedValue([]);
+            const listModels = jest.fn().mockResolvedValue({
+                data: [{ id: 'model-after-force' }]
+            });
+            adapter.zedApiService = { fetchRemoteModels, listModels };
+
+            const models = await adapter.getNodeAvailableModels(true);
+
+            expect(fetchRemoteModels).toHaveBeenCalledWith(true);
+            expect(listModels).toHaveBeenCalledTimes(1);
+            expect(models).toEqual(['model-after-force']);
         });
     });
 });

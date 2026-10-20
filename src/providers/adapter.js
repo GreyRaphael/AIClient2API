@@ -161,11 +161,14 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
 
     /**
      * 获取节点实际支持的可用模型列表（隔离自各账号自身的配额与上游返回）
+     * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels() {
+    async getNodeAvailableModels(force = false) {
         if (!this.antigravityApiService.isInitialized) {
             await this.antigravityApiService.initialize();
+        } else if (force && typeof this.antigravityApiService.fetchAvailableModels === 'function') {
+            await this.antigravityApiService.fetchAvailableModels();
         }
         return this.antigravityApiService.availableModels || [];
     }
@@ -581,6 +584,22 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
         return this.zedApiService.listModels();
     }
 
+    /**
+     * 获取节点实际支持的可用模型列表（来自当前 Zed 账号的 modelsCache）
+     * @param {boolean} [force=false] 是否强制刷新
+     * @returns {Promise<Array<string>>}
+     */
+    async getNodeAvailableModels(force = false) {
+        if (force && typeof this.zedApiService.fetchRemoteModels === 'function') {
+            await this.zedApiService.fetchRemoteModels(true);
+        }
+        const res = await this.zedApiService.listModels();
+        const list = Array.isArray(res?.data)
+            ? res.data
+            : (Array.isArray(res?.models) ? res.models : []);
+        return list.map(model => model?.id || model?.name).filter(Boolean);
+    }
+
     async refreshToken() {
         if (this.isExpiryDateNear()) {
             logger.info('[Zed] Expiry date is near, refreshing LLM token...');
@@ -621,9 +640,17 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
         return this.traeApiService.listModels();
     }
 
-    async getNodeAvailableModels() {
+    /**
+     * 获取节点实际支持的可用模型列表
+     * @param {boolean} [force=false] 是否强制忽略缓存
+     * @returns {Promise<Array<string>>}
+     */
+    async getNodeAvailableModels(force = false) {
+        if (force && typeof this.traeApiService.fetchRemoteModels === 'function') {
+            await this.traeApiService.fetchRemoteModels(true);
+        }
         const res = await this.traeApiService.listModels();
-        return (res?.data || []).map(m => m.id);
+        return (res?.data || []).map(m => m.id).filter(Boolean);
     }
 
     async refreshToken() {

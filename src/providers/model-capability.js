@@ -451,7 +451,7 @@ export async function refreshNodeCapability(providerType, nodeConfig, options = 
                 return existing;
             }
 
-            const result = await resolvedAdapter.getNodeAvailableModels({ force });
+            const result = await resolvedAdapter.getNodeAvailableModels(force);
             if (!Array.isArray(result)) {
                 return existing;
             }
