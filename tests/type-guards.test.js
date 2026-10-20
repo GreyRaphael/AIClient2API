@@ -10,12 +10,12 @@ describe('Cross-Protocol Type Guards & Schema Validation', () => {
     describe('isOpenAIRequest', () => {
         test('identifies valid OpenAI chat completion requests', () => {
             expect(isOpenAIRequest({
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 messages: [{ role: 'user', content: 'hello' }]
             })).toBe(true);
 
             expect(isOpenAIRequest({
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 messages: []
             })).toBe(true);
         });
@@ -24,7 +24,7 @@ describe('Cross-Protocol Type Guards & Schema Validation', () => {
             expect(isOpenAIRequest(null)).toBe(false);
             expect(isOpenAIRequest(undefined)).toBe(false);
             expect(isOpenAIRequest('string')).toBe(false);
-            expect(isOpenAIRequest({ model: 'gpt-4o' })).toBe(false);
+            expect(isOpenAIRequest({ model: 'gpt-5.5' })).toBe(false);
             expect(isOpenAIRequest({ messages: 'not an array' })).toBe(false);
             expect(isOpenAIRequest({ messages: [{ noRole: 'here' }] })).toBe(false);
         });
@@ -33,12 +33,12 @@ describe('Cross-Protocol Type Guards & Schema Validation', () => {
     describe('isClaudeRequest', () => {
         test('identifies valid Claude messages requests', () => {
             expect(isClaudeRequest({
-                model: 'claude-3-5-sonnet-20241022',
+                model: 'claude-sonnet-4-5-20250929',
                 messages: [{ role: 'user', content: 'hello' }]
             })).toBe(true);
 
             expect(isClaudeRequest({
-                model: 'claude-3-5-sonnet-20241022',
+                model: 'claude-sonnet-4-5-20250929',
                 messages: [{ role: 'assistant', content: 'hi' }]
             })).toBe(true);
         });
@@ -76,12 +76,12 @@ describe('Cross-Protocol Type Guards & Schema Validation', () => {
     describe('isOpenAIResponsesRequest', () => {
         test('identifies valid OpenAI responses requests', () => {
             expect(isOpenAIResponsesRequest({
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 input: 'generate a greeting'
             })).toBe(true);
 
             expect(isOpenAIResponsesRequest({
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 instructions: 'system instructions'
             })).toBe(true);
         });

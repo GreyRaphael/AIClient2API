@@ -49,9 +49,9 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
             usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
         };
 
-        const events1 = convertData(chunk1, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'gpt-4o', streamReqId);
-        const events2 = convertData(chunk2, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'gpt-4o', streamReqId);
-        const events3 = convertData(chunk3, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'gpt-4o', streamReqId);
+        const events1 = convertData(chunk1, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'gpt-5.5', streamReqId);
+        const events2 = convertData(chunk2, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'gpt-5.5', streamReqId);
+        const events3 = convertData(chunk3, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'gpt-5.5', streamReqId);
 
         expect(events1).toEqual(expect.arrayContaining([
             expect.objectContaining({
@@ -178,7 +178,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
     test('Fix 5: Claude thinking mode deletes temperature and top_p for OpenAI reasoning model compatibility', () => {
         const claudeThinking = {
-            model: 'o3-mini',
+            model: 'gpt-5.5',
             messages: [{ role: 'user', content: 'Solve problem' }],
             thinking: { type: 'enabled', budget_tokens: 2048 },
             temperature: 0.8,
@@ -294,7 +294,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
         // 2. 端到端协议转换测试：OpenAI 工具转 Gemini 工具
         const openaiReqWithTools = {
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash-high',
             messages: [{ role: 'user', content: 'check status' }],
             tools: [{
                 type: 'function',
@@ -328,7 +328,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
     test('Fix 10: OpenAI Responses input with parallel function_calls correctly merges into a single assistant message for OpenAI', () => {
         const responsesReq = {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             input: [
                 { type: 'message', role: 'user', content: 'Run two tools' },
                 {
@@ -380,7 +380,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
     test('Fix 11: OpenAI Responses input with parallel tool calls and assistant text merges into alternating Gemini contents with IDs', () => {
         const responsesReq = {
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash-high',
             input: [
                 { type: 'message', role: 'user', content: 'Search and read' },
                 {
@@ -442,7 +442,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
     test('Fix 12: OpenAI request with assistant text and tool_calls preserves text in OpenAI Responses conversion', () => {
         const openaiReq = {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             messages: [
                 { role: 'user', content: 'What is the system status?' },
                 {
@@ -478,7 +478,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
     test('Fix 13: OpenAI request with assistant text and tool_calls preserves text in Claude conversion', () => {
         const openaiReq = {
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [
                 { role: 'user', content: 'Inspect the codebase' },
                 {
@@ -506,7 +506,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
     test('Fix 14: Claude request with parallel tool_use and assistant text preserves all tools and explanation in OpenAI request', () => {
         const claudeReq = {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             messages: [
                 { role: 'user', content: 'Compare weather in Paris and London' },
                 {
@@ -545,7 +545,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
 
     test('Fix 15: Claude user message with tool_result and instructional text splits into tool and user messages and filters orphans', () => {
         const claudeReq = {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             messages: [
                 { role: 'user', content: 'Find files' },
                 {
@@ -588,7 +588,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
             id: 'chatcmpl-canonical-order-test',
             object: 'chat.completion',
             created: 1700000000,
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             choices: [{
                 index: 0,
                 message: {
@@ -606,7 +606,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
             usage: { prompt_tokens: 30, completion_tokens: 50, total_tokens: 80 }
         };
 
-        const claudeResp = convertData(openaiResp, 'response', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet');
+        const claudeResp = convertData(openaiResp, 'response', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6');
 
         expect(claudeResp.role).toBe('assistant');
         expect(claudeResp.stop_reason).toBe('tool_use');
@@ -672,11 +672,11 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
             usage: { prompt_tokens: 15, completion_tokens: 25, total_tokens: 40 }
         };
 
-        const ev1 = convertData(chunk1, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
-        const ev2 = convertData(chunk2, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
-        const ev3 = convertData(chunk3, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
-        const ev4 = convertData(chunk4, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
-        const ev5 = convertData(chunk5, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-3-7-sonnet', streamReqId);
+        const ev1 = convertData(chunk1, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
+        const ev2 = convertData(chunk2, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
+        const ev3 = convertData(chunk3, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
+        const ev4 = convertData(chunk4, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
+        const ev5 = convertData(chunk5, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
 
         // Chunk 1: message_start
         expect(ev1).toHaveLength(1);
@@ -819,7 +819,7 @@ describe('OpenAI Responses API 规范断言', () => {
     test('OpenAI -> Responses 流 output_index 独立分配且 sequence_number 严格单调递增', () => {
         const converter = new OpenAIConverter();
         const reqId = 'jest_openai_responses_seq';
-        const model = 'gpt-4o';
+        const model = 'gpt-5.5';
 
         const chunks = [
             { id: 'c1', choices: [{ delta: { role: 'assistant', reasoning_content: 'think' } }] },
@@ -1095,7 +1095,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
 
         // 1. 请求侧：reasoning 折入紧随其后的 assistant 消息
         const reqWithAssistant = {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             input: [
                 { type: 'reasoning', summary: 'Let me think about step 1' },
                 { type: 'message', role: 'assistant', content: 'Here is the answer' }
@@ -1111,7 +1111,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
 
         // 2. 请求侧：无后续 assistant 消息自建 assistant 消息
         const reqWithoutAssistant = {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             input: [
                 { type: 'reasoning', summary: 'Thinking without answer' },
                 { type: 'message', role: 'user', content: 'Next question' }
@@ -1128,7 +1128,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
 
         // 3. item_reference 跳过并不报错
         const reqWithRef = {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             input: [
                 { type: 'item_reference', id: 'ref_123' },
                 { type: 'message', role: 'user', content: 'hello' }
@@ -1146,14 +1146,14 @@ describe('Grok -> Claude 委托透传 requestId', () => {
                 { type: 'message', content: [{ type: 'output_text', text: 'Final answer' }] }
             ]
         };
-        const oaiRes = responsesConverter.toOpenAIResponse(responsesRes, 'gpt-4o');
+        const oaiRes = responsesConverter.toOpenAIResponse(responsesRes, 'gpt-5.5');
         expect(oaiRes.choices[0].message.reasoning_content).toBe('Thought summary text');
         expect(oaiRes.choices[0].message.content).toBe('Final answer');
     });
 
     test('Phase 0.4: Claude document (PDF) 块全方向处理', () => {
         const claudeDocReq = {
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [{
                 role: 'user',
                 content: [
@@ -1212,7 +1212,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
 
         // 1. 短签名 (<50 字符) 请求侧原样透传
         const shortSigReq = {
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash-high',
             messages: [{
                 role: 'assistant',
                 content: [
@@ -1235,7 +1235,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
                 signature: 'gemini_stream_sig_abc'
             }
         };
-        const geminiChunk = claudeConverter.toGeminiStreamChunk(streamSigChunk, 'gemini-2.5-flash');
+        const geminiChunk = claudeConverter.toGeminiStreamChunk(streamSigChunk, 'gemini-3.8-flash-high');
         expect(geminiChunk).toMatchObject({
             candidates: [{
                 content: {
@@ -1253,10 +1253,10 @@ describe('Grok -> Claude 委托透传 requestId', () => {
     test('Phase 3: Claude -> Responses 流式转换生命周期与输出项结构', () => {
         const claudeConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.CLAUDE);
         const reqId = 'jest_claude_to_responses_stream';
-        const model = 'claude-3-7-sonnet';
+        const model = 'claude-sonnet-4-6';
 
         const chunks = [
-            { type: 'message_start', message: { id: 'msg_test_1', model: 'claude-3-7-sonnet' } },
+            { type: 'message_start', message: { id: 'msg_test_1', model: 'claude-sonnet-4-6' } },
             { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
             { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'let me think' } },
             { type: 'content_block_stop', index: 0 },
@@ -1292,7 +1292,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
     test('Phase 3: Gemini -> Responses 流式转换生命周期与输出项结构', () => {
         const geminiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.GEMINI);
         const reqId = 'jest_gemini_to_responses_stream';
-        const model = 'gemini-2.5-flash';
+        const model = 'gemini-3.8-flash-high';
 
         const chunks = [
             { candidates: [{ content: { role: 'model', parts: [{ text: 'thinking text', thought: true }] } }] },

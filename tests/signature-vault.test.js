@@ -155,7 +155,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
             const vsig = mintVirtualSignature({ sessionKey: 's1', blockIndex: 0, thinkingText: '旧虚拟思考' });
 
             const claudeReq = {
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 messages: [
                     { role: 'user', content: '你好' },
                     {
@@ -183,7 +183,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
             const realSig = 'anthropic_official_sig_xyz';
 
             const claudeReq = {
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 messages: [
                     { role: 'user', content: '你好' },
                     {
@@ -220,7 +220,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
                 usage: { prompt_tokens: 10, completion_tokens: 20 }
             };
 
-            const claudeResp = converter.toClaudeResponse(oaiResp, 'claude-3-7-sonnet');
+            const claudeResp = converter.toClaudeResponse(oaiResp, 'claude-sonnet-4-6');
             expect(claudeResp.content).toHaveLength(2);
             const thinkingBlock = claudeResp.content[0];
             expect(thinkingBlock.type).toBe('thinking');
@@ -232,7 +232,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
         test('流式 toClaudeStreamChunk 在 thinking 块收尾时产出 signature_delta', () => {
             const converter = new OpenAIConverter();
             const reqId = 'jest_oa_stream_vault_test';
-            const model = 'claude-3-7-sonnet';
+            const model = 'claude-sonnet-4-6';
 
             const chunks = [
                 { id: 'chatcmpl-1', choices: [{ index: 0, delta: { reasoning_content: '思考第一步' }, finish_reason: null }] },
@@ -310,7 +310,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
                 }]
             };
 
-            const claudeResp = converter.toClaudeResponse(oaiResp, 'claude-3-7-sonnet');
+            const claudeResp = converter.toClaudeResponse(oaiResp, 'claude-sonnet-4-6');
             expect(claudeResp.content[0].type).toBe('thinking');
             expect(claudeResp.content[0].signature).toBeUndefined();
         });
@@ -322,7 +322,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
             const vsig = mintVirtualSignature({ sessionKey: 's', blockIndex: 0, thinkingText: 't' });
             const converter = new ClaudeConverter();
             const req = {
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 messages: [
                     {
                         role: 'assistant',

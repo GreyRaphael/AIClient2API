@@ -20,7 +20,7 @@ const drive = (converter, chunks, model, reqId) => {
 };
 const types = (events) => events.map((e) => e.type);
 
-const MODEL = 'gpt-4o';
+const MODEL = 'gpt-5.5';
 
 const textChunk = (id, text, extra = {}) => ({
     id,

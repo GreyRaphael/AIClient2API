@@ -120,7 +120,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
         // 1. none does not set thinking
         const reqNone = converter.toClaudeRequest({
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'none',
             temperature: 0.7
@@ -130,7 +130,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
         // 2. medium sets budget_tokens, deletes temperature/top_p, elevates max_tokens if <= budget
         const reqMedium = converter.toClaudeRequest({
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'medium',
             temperature: 0.7,
@@ -144,7 +144,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
         // 3. xhigh and max map correctly
         const reqXhigh = converter.toClaudeRequest({
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'xhigh',
             max_tokens: 20000
@@ -152,7 +152,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(reqXhigh.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
 
         const reqMax = converter.toClaudeRequest({
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'max',
             max_tokens: 1000

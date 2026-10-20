@@ -207,7 +207,7 @@ flowchart LR
 - **详细评估**：
   - **严格交替合并**：Gemini 强制要求 `contents` 中 `user` 和 `model` 严格交替。OpenAI 允许的连续 `user` 提问会被内联合并逻辑（存在于 `OpenAIConverter` / `ClaudeConverter` / `OpenAIResponsesConverter` 三处 `toGeminiRequest` 中，无独立 `mergeConsecutiveMessages` 函数）在 **parts 数组级**合并为一个 content——各段文本仍保留为独立 part，并非文本拼接，单轮语义界限弱化但未完全湮灭。
   - **Schema 强剪切**：Gemini Protobuf 无法反序列化复杂 JSON Schema，`cleanJsonSchemaProperties`（`converters/utils.js`）按 **7 键白名单**（`type` / `description` / `properties` / `required` / `enum` / `items` / `nullable`）清洗，`patternProperties`、`default`、`oneOf`、`$ref`、`pattern`、`format`、数值/长度边界等全部被剥离，导致工具定义的边界约束丢失。
-  - **思考配置双轨映射**：`reasoning_effort`（none/low/medium/high/xhigh）按模型代际分流——Gemini 3 系映射为 `thinkingConfig.thinkingLevel: LOW/MEDIUM/HIGH`（`none` 则不下发 thinkingConfig）；gemini-2.5 系映射为 `thinkingBudget` 数值预算（low→1024 / medium→8192 / high→24576 / max·xhigh→32768）并附 `includeThoughts: true`。离散档位存在量化步长折损。
+  - **思考配置统一映射**：`reasoning_effort`（none/low/medium/high/xhigh）统一映射为 Gemini 3+ 的 `thinkingConfig.thinkingLevel: LOW/MEDIUM/HIGH`（`none` 则不下发 thinkingConfig；`max/xhigh` 收敛为 HIGH；`minimal` 收敛为 LOW）。不再维护 Gemini 2.5 的 `thinkingBudget` 分支。
 
 #### 05. OpenAI Chat ➔ `zed`
 - **协议链路**：`OpenAI Chat ➔ Claude Messages ➔ Zed Cloud RPC`

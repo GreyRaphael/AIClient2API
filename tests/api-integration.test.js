@@ -32,13 +32,13 @@ const MODEL_PROVIDER = {
 const REAL_TEST_DATA = {
     openai: {
         nonStreamRequest: {
-            model: "gemini-2.5-flash",
+            model: "gemini-3.8-flash-high",
             messages: [
                 { role: "user", content: "Hello, what is 2+2?" }
             ]
         },
         streamRequest: {
-            model: "gemini-2.5-flash", 
+            model: "gemini-3.8-flash-high", 
             messages: [
                 { role: "user", content: "Hello, what is 2+2?" }
             ],
@@ -207,7 +207,7 @@ describe('API Integration Tests with HTTP Requests', () => {
         });
 
         test('OpenAI /v1/chat/completions non-streaming with Qiniu provider', async () => {
-            REAL_TEST_DATA.openai.nonStreamRequest.model = "gpt-4o";
+            REAL_TEST_DATA.openai.nonStreamRequest.model = "gpt-5.5";
             const response = await makeRequest(
                 `${TEST_SERVER_BASE_URL}/v1/chat/completions`,
                 'POST',
@@ -228,7 +228,7 @@ describe('API Integration Tests with HTTP Requests', () => {
         });
 
         test('OpenAI /v1/chat/completions non-streaming with Fenno provider', async () => {
-            REAL_TEST_DATA.openai.nonStreamRequest.model = "gpt-4o";
+            REAL_TEST_DATA.openai.nonStreamRequest.model = "gpt-5.5";
             const response = await makeRequest(
                 `${TEST_SERVER_BASE_URL}/v1/chat/completions`,
                 'POST',
@@ -486,7 +486,7 @@ describe('API Integration Tests with HTTP Requests', () => {
         // npx jest ./tests/api-integration.test.js -t "Gemini /v1beta/models/{model}:generateContent"
         test('Gemini /v1beta/models/{model}:generateContent', async () => {
             const response = await makeRequest(
-                `${TEST_SERVER_BASE_URL}/v1beta/models/gemini-2.5-flash:generateContent`,
+                `${TEST_SERVER_BASE_URL}/v1beta/models/gemini-3.8-flash-high:generateContent`,
                 'POST',
                 'goog',
                 { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY },
@@ -505,7 +505,7 @@ describe('API Integration Tests with HTTP Requests', () => {
         // npx jest ./tests/api-integration.test.js -t "Gemini /v1beta/models/{model}:streamGenerateContent"
         test('Gemini /v1beta/models/{model}:streamGenerateContent', async () => {
             const response = await makeRequest(
-                `${TEST_SERVER_BASE_URL}/v1beta/models/gemini-2.5-flash:streamGenerateContent`,
+                `${TEST_SERVER_BASE_URL}/v1beta/models/gemini-3.8-flash-high:streamGenerateContent`,
                 'POST',
                 'goog',
                 { 'model-provider': MODEL_PROVIDER.ANTIGRAVITY },

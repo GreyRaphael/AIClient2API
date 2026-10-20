@@ -27,10 +27,6 @@ const DEFAULT_MODEL = 'glm-5.2';
 const CANONICAL_MODEL_ALIASES = {
     // 常用别名映射
     'auto': 'glm-5.2',
-    'claude-3.5-sonnet': 'glm-5.2',
-    'claude-3.7-sonnet': 'glm-5.2',
-    'gpt-4o': 'deepseek-V4-Pro',
-    'gpt-4o-mini': 'DeepSeek-V4.1-Flash',
     // 官方 2.0 用户展示名 (Slug) 与中文别名 -> 底层真实 config_name
     'deepseek-v4-pro 正式版': 'DeepSeek-V4-Pro-Official',
     'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
