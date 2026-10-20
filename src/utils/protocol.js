@@ -13,7 +13,7 @@ import { MODEL_PROTOCOL_PREFIX } from './constants.js';
 /**
  * Extracts the protocol prefix from a given model provider string.
  * This is used to determine if two providers belong to the same underlying protocol (e.g., gemini, openai, claude).
- * @param {string} provider - The model provider string (e.g., 'gemini-cli', 'openai-custom').
+ * @param {string} provider - The model provider string (e.g., 'gemini-antigravity', 'openai-custom').
  * @returns {string} The protocol prefix (e.g., 'gemini', 'openai', 'claude').
  */
 export function getProtocolPrefix(provider) {

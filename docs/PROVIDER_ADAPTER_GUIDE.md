@@ -23,7 +23,7 @@
 ## 2. 后端核心实现
 
 ### 2.1 定义常量
-修改 [`src/utils/common.js`](src/utils/common.js)，在 `MODEL_PROVIDER` 中添加新 key（格式建议：`协议-名称-类型`）。
+修改 [`src/utils/common.js`](../src/utils/common.js)，在 `MODEL_PROVIDER` 中添加新 key（格式建议：`协议-名称-类型`）。
 
 ### 2.2 核心 Service (Core)
 在 `src/providers/` 下创建新目录并实现 `NewProviderApiService` 类。
@@ -31,14 +31,14 @@
 **可选功能**：若支持用量查询，需实现 `getUsageLimits()`；若支持 Token 统计，需实现 `countTokens()`。
 
 ### 2.3 注册适配器
-在 [`src/providers/adapter.js`](src/providers/adapter.js) 中：
+在 [`src/providers/adapter.js`](../src/providers/adapter.js) 中：
 1. 继承 `ApiServiceAdapter` 实现特定提供商的适配器类。
 2. 适配器类需按需重写 `generateContent`, `generateContentStream`, `listModels`, `getUsageLimits`, `countTokens`, `refreshToken` 等方法，并转发给核心 Service。
 3. 在 `getServiceAdapter` 工厂方法中添加对应的 `switch` 分支，根据 `MODEL_PROVIDER` 返回实例。
 
 ### 2.4 模型与号池默认配置
-*   **模型列表**：在 [`src/providers/provider-models.js`](src/providers/provider-models.js) 的 `PROVIDER_MODELS` 对象中添加默认支持的模型 ID。
-*   **健康检查默认值**：在 [`src/providers/provider-pool-manager.js`](src/providers/provider-pool-manager.js) 的以下位置配置：
+*   **模型列表**：在 [`src/providers/provider-models.js`](../src/providers/provider-models.js) 的 `PROVIDER_MODELS` 对象中添加默认支持的模型 ID。
+*   **健康检查默认值**：在 [`src/providers/provider-pool-manager.js`](../src/providers/provider-pool-manager.js) 的以下位置配置：
     *   `DEFAULT_HEALTH_CHECK_MODELS`：指定用于健康检查的默认模型。
     *   `checkAndRefreshExpiringNodes`：指定凭据文件路径键名。
     *   `_buildHealthCheckRequests`：若有特殊请求格式需求，需在此添加逻辑。
@@ -47,30 +47,30 @@
 
 ## 3. 前端界面调整
 
-### 3.1 字段定义与元数据 ([`static/app/utils.js`](static/app/utils.js))
+### 3.1 字段定义与元数据 ([`static/app/utils.js`](../static/app/utils.js))
 在 `getProviderTypeFields` 函数中定义该提供商所需的配置字段（如 API Key, Base URL, 凭据路径等），指定字段类型和占位符。
 
-### 3.2 字段显示顺序 ([`static/app/modal.js`](static/app/modal.js))
+### 3.2 字段显示顺序 ([`static/app/modal.js`](../static/app/modal.js))
 在 `getFieldOrder` 函数的 `fieldOrderMap` 中添加新提供商的字段显示顺序。
 
-### 3.3 号池显示逻辑 ([`static/app/provider-manager.js`](static/app/provider-manager.js))
+### 3.3 号池显示逻辑 ([`static/app/provider-manager.js`](../static/app/provider-manager.js))
 *   **显示顺序**：将新标识和显示名称添加到 `providerConfigs` 数组。
 *   **授权按钮**：若支持 OAuth，在 `generateAuthButton` 的 `oauthProviders` 数组中添加标识。
 *   **认证逻辑**：若支持 OAuth 或批量导入，需在 `handleGenerateAuthUrl` 中实现相应的触发逻辑（如弹出认证方式选择器）。
 
-### 3.4 凭据上传路由 ([`static/app/file-upload.js`](static/app/file-upload.js))
+### 3.4 凭据上传路由 ([`static/app/file-upload.js`](../static/app/file-upload.js))
 *   修改 `getProviderKey`，建立提供商标识与 `configs/` 子目录名的映射（例如：`new-provider-api` -> `new-provider`）。
 
 ### 3.5 凭据文件管理筛选器
 需要在以下三个位置添加新提供商的筛选支持：
 
-#### 3.5.1 HTML 筛选器选项 ([`static/components/section-upload-config.html`](static/components/section-upload-config.html))
+#### 3.5.1 HTML 筛选器选项 ([`static/components/section-upload-config.html`](../static/components/section-upload-config.html))
 在 `id="configProviderFilter"` 的 `<select>` 元素中添加新的 `<option>`：
 ```html
 <option value="new-provider-type" data-i18n="upload.providerFilter.newProvider">New Provider OAuth</option>
 ```
 
-#### 3.5.2 JavaScript 提供商映射 ([`static/app/upload-config-manager.js`](static/app/upload-config-manager.js))
+#### 3.5.2 JavaScript 提供商映射 ([`static/app/upload-config-manager.js`](../static/app/upload-config-manager.js))
 在 `detectProviderFromPath()` 函数的 `providerMappings` 数组中添加映射关系：
 ```javascript
 {
@@ -81,7 +81,7 @@
 }
 ```
 
-#### 3.5.3 多语言文案 ([`static/app/i18n.js`](static/app/i18n.js))
+#### 3.5.3 多语言文案 ([`static/app/i18n.js`](../static/app/i18n.js))
 在中文和英文的翻译对象中添加筛选器、配置项、认证步骤等相关文案：
 ```javascript
 // 中文版本 (zh-CN)
@@ -93,14 +93,14 @@
 'config.newProvider.apiKey': 'API Key',
 ```
 
-### 3.6 配置管理界面 ([`static/components/section-config.html`](static/components/section-config.html))
+### 3.6 配置管理界面 ([`static/components/section-config.html`](../static/components/section-config.html))
 *   **必须添加**：在 `id="modelProvider"`（初始化提供商选择）容器中添加对应的 `provider-tag` 按钮。
 *   **可选添加**：在 `id="proxyProviders"`（代理开关）中同步添加。
 
-### 3.7 路由调用示例 ([`static/app/routing-examples.js`](static/app/routing-examples.js))
+### 3.7 路由调用示例 ([`static/app/routing-examples.js`](../static/app/routing-examples.js))
 在 `routingConfigs` 数组中添加该提供商的路径定义，并在 `generateCurlExample` 中处理协议转换逻辑说明。
 
-### 3.8 指南与教程 ([`static/components/section-guide.html`](static/components/section-guide.html))
+### 3.8 指南与教程 ([`static/components/section-guide.html`](../static/components/section-guide.html))
 *   在"支持的模型提供商"中添加新提供商的介绍和支持情况（Badge）。
 *   在"客户端配置指南"中补充该提供商的调用路径提示。
 
@@ -110,10 +110,10 @@
 
 为确保新提供商的功能完整（如多账号自动切换、用量监控），**必须**在以下位置建立映射：
 
-### 4.1 凭据路径键名映射 ([`src/services/service-manager.js`](src/services/service-manager.js))
+### 4.1 凭据路径键名映射 ([`src/services/service-manager.js`](../src/services/service-manager.js))
 在 `getServiceAdapter` 逻辑相关的 `credPathKey` 映射中，指定该提供商对应的配置文件路径键名。
 
-### 4.2 自动关联工具 ([`src/utils/provider-utils.js`](src/utils/provider-utils.js))
+### 4.2 自动关联工具 ([`src/utils/provider-utils.js`](../src/utils/provider-utils.js))
 在 `CONFIG_FILE_PATTERNS` 数组中添加配置，以便系统能根据文件路径自动识别并关联凭据：
 ```javascript
 {
@@ -123,14 +123,14 @@
 }
 ```
 
-### 4.3 用量统计映射 ([`src/ui-modules/usage-api.js`](src/ui-modules/usage-api.js))
+### 4.3 用量统计映射 ([`src/ui-modules/usage-api.js`](../src/ui-modules/usage-api.js))
 *   将标识添加到 `supportedProviders` 数组。
 *   在 `credPathKey` 映射中添加路径键名，以便前端能展示每个账号的配额/用量。
 *   在 `getAdapterUsage` 中根据需要处理原始数据的格式化。
 
 ### 4.4 OAuth 处理器
 *   **处理器逻辑**：在 `src/auth/oauth-handlers.js` 中导出处理函数。
-*   **路由分发**：在 [`src/ui-modules/oauth-api.js`](src/ui-modules/oauth-api.js) 的 `handleGenerateAuthUrl` 中分发到相应的处理器。
+*   **路由分发**：在 [`src/ui-modules/oauth-api.js`](../src/ui-modules/oauth-api.js) 的 `handleGenerateAuthUrl` 中分发到相应的处理器。
 *   **回调处理**：若涉及 HTTP 回调，需在 `src/auth/` 下实现回调服务器逻辑。
 
 ---
@@ -162,11 +162,11 @@
 
 ### 6.2 数据分层
 
-- **配置（provider_pools.json）**：只存用户意图（`supportedModels`、`notSupportedModels`）。
+- **配置（provider_pools.json）**：只存用户意图（`supportedModels` 与用于识别新增模型的 `supportedModelsBaseline`）。
 - **运行时缓存（`configs/model-capability-cache.json`）**：只存成功发现结果，按 `providerType:uuid` 隔离。
 - **静态基线（`PROVIDER_MODELS`）**：只做冷启动/无发现时的兜底，标记 `source=baseline|static`。
 
-禁止把动态发现结果写回 `provider_pools.json`，也禁止在读取时用集合差反推“不支持模型”。
+禁止把动态发现结果写回 `provider_pools.json`。节点候选集只来自上游发现或静态基线，自定义模型只在分组最终集中并入。
 
 ### 6.3 刷新与路由
 

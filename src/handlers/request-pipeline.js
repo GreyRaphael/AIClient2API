@@ -24,89 +24,9 @@ import {
 import {
     getCustomModelConfig,
     getCustomModelActualProvider,
-    getCustomModelListProvider,
-    normalizeModelIds
+    getCustomModelListProvider
 } from '../providers/provider-models.js';
-import { resolveProviderCapability } from '../providers/model-capability.js';
-
-/**
- * 获取指定提供商类型下，所有有效节点均排除（或指定节点排除）的不支持模型列表
- * @param {object} providerPoolManager - 提供商池管理器
- * @param {string} providerType - 提供商类型
- * @param {string|null} pooluuid - 指定节点 UUID
- * @returns {string[]} 聚合后的不支持模型列表
- */
-export function getConfiguredNotSupportedModelsFromPool(providerPoolManager, providerType, pooluuid = null) {
-    const nodes = providerPoolManager?.providerStatus?.[providerType];
-    if (!Array.isArray(nodes) || nodes.length === 0) {
-        return [];
-    }
-
-    const readDisabledModels = (config) => normalizeModelIds(
-        config?.disabledModels ?? config?.notSupportedModels ?? []
-    );
-
-    if (pooluuid) {
-        const targetNode = nodes.find(n => (n.config?.uuid || n.uuid) === pooluuid);
-        if (targetNode) {
-            return readDisabledModels(targetNode.config || targetNode);
-        }
-    }
-
-    const activeNodes = nodes.filter(n => !(n.config || n).isDisabled);
-    if (activeNodes.length === 0) {
-        return [];
-    }
-
-    const firstNodeExcluded = readDisabledModels(activeNodes[0].config || activeNodes[0]);
-    if (firstNodeExcluded.length === 0) {
-        return [];
-    }
-
-    return firstNodeExcluded.filter(model =>
-        activeNodes.every(n => readDisabledModels(n.config || n).includes(model))
-    );
-}
-
-/**
- * 从模型列表响应中过滤掉不支持的模型
- * @param {object} clientModelList - 客户端模型列表对象
- * @param {string[]} notSupportedModels - 需要排除的模型列表
- * @param {string} listEndpointType - 端点类型
- * @returns {object} 过滤后的模型列表
- */
-function filterNotSupportedModelsFromModelList(clientModelList, notSupportedModels, listEndpointType) {
-    if (!clientModelList || !Array.isArray(notSupportedModels) || notSupportedModels.length === 0) {
-        return clientModelList;
-    }
-
-    const excludedSet = new Set(notSupportedModels.map(m => m.trim().toLowerCase()));
-
-    if (listEndpointType === ENDPOINT_TYPE.OPENAI_MODEL_LIST) {
-        if (Array.isArray(clientModelList.data)) {
-            return {
-                ...clientModelList,
-                data: clientModelList.data.filter(item => {
-                    const modelId = (item?.id || '').trim().toLowerCase();
-                    return !excludedSet.has(modelId);
-                })
-            };
-        }
-    } else if (listEndpointType === ENDPOINT_TYPE.GEMINI_MODEL_LIST) {
-        if (Array.isArray(clientModelList.models)) {
-            return {
-                ...clientModelList,
-                models: clientModelList.models.filter(item => {
-                    const name = (item?.name || '').replace(/^models\//, '').trim().toLowerCase();
-                    const baseModelId = (item?.baseModelId || '').trim().toLowerCase();
-                    return !excludedSet.has(name) && !excludedSet.has(baseModelId);
-                })
-            };
-        }
-    }
-
-    return clientModelList;
-}
+import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.js';
 
 function getCustomModelEntriesForProvider(config, providerType = null, options = {}) {
     const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
@@ -331,7 +251,10 @@ async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, lo
     try {
         // 动态导入以避免循环依赖
         const { getApiServiceWithFallback } = await import('../services/service-manager.js');
-        const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: true });
+        const result = await getApiServiceWithFallback(CONFIG, model, {
+            acquireSlot: true,
+            allowUnselectedModel: Boolean(CONFIG.customConfig)
+        });
 
         if (result && result.service) {
             logger.info(`${logPrefix} Retrying empty ${providerLabel} response with credential: ${result.uuid} (provider: ${result.actualProviderType})`);
@@ -825,8 +748,11 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 // 动态导入以避免循环依赖
                 const { getApiServiceWithFallback } = await import('../services/service-manager.js');
                 // 使用 acquireSlot: true 以占用新凭证的并发插槽
-                const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: true });
-                
+                const result = await getApiServiceWithFallback(CONFIG, model, {
+                    acquireSlot: true,
+                    allowUnselectedModel: Boolean(CONFIG.customConfig)
+                });
+
                 if (result && result.service && result.uuid !== pooluuid) {
                     logger.info(`[Stream Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
                     
@@ -1124,8 +1050,11 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
                 // 动态导入以避免循环依赖
                 const { getApiServiceWithFallback } = await import('../services/service-manager.js');
                 // 使用 acquireSlot: true 以占用新凭证的并发插槽
-                const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: true });
-                
+                const result = await getApiServiceWithFallback(CONFIG, model, {
+                    acquireSlot: true,
+                    allowUnselectedModel: Boolean(CONFIG.customConfig)
+                });
+
                 if (result && result.service && result.uuid !== pooluuid) {
                     logger.info(`[Unary Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
                     
@@ -1264,35 +1193,14 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
             logger.info(`[ModelList] Aggregating models for 'auto' mode...`);
             clientModelList = await providerPoolManager.getAllAvailableModels(endpointType);
         } else {
-            // --- 单提供商逻辑 ---
+            // --- 单提供商逻辑：统一使用分组最终集（节点选择并集 ∪ 自定义模型） ---
             const toProvider = CONFIG.MODEL_PROVIDER;
-            const customEntries = getCustomModelEntriesForProvider(CONFIG, toProvider);
-            const customModelIds = customEntries.map(e => e.modelId || e.id);
-
-            // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，完全使用"自定义模型管理"中的数据
-            if (customModelIds.length > 0) {
-                const uniqueCustomModels = normalizeModelIds(customModelIds);
-                logger.info(`[ModelList] Using exclusively custom models for ${toProvider}: ${uniqueCustomModels.join(', ')}`);
-                clientModelList = buildConfiguredModelListResponse(uniqueCustomModels, toProvider, endpointType);
-            } else {
-                // 2. 统一走 Model Capability resolver（托管/动态/静态 provider 同一口径）
-                const nodes = providerPoolManager?.providerStatus?.[toProvider]?.length
-                    ? providerPoolManager.providerStatus[toProvider]
-                    : (providerPoolManager?.providerPools?.[toProvider] || CONFIG.providerPools?.[toProvider] || []);
-                const capability = resolveProviderCapability(toProvider, nodes, { includeDisabled: false });
-                logger.info(`[ModelList] Using capability models for ${toProvider}: ${capability.models.length} models (source=${capability.source}, stale=${capability.stale})`);
-                clientModelList = buildConfiguredModelListResponse(capability.models, toProvider, endpointType);
-            }
-
-            // 过滤 notSupportedModels（从号池节点或配置中获取）
-            const pooledNotSupportedModels = getConfiguredNotSupportedModelsFromPool(providerPoolManager, toProvider, pooluuid);
-            const directNotSupportedModels = Array.isArray(CONFIG?.notSupportedModels) ? CONFIG.notSupportedModels : [];
-            const configuredNotSupportedModels = normalizeModelIds([...pooledNotSupportedModels, ...directNotSupportedModels]);
-
-            if (configuredNotSupportedModels.length > 0) {
-                logger.info(`[ModelList] Filtering out notSupportedModels for ${toProvider}: ${configuredNotSupportedModels.join(', ')}`);
-                clientModelList = filterNotSupportedModelsFromModelList(clientModelList, configuredNotSupportedModels, endpointType);
-            }
+            const nodes = providerPoolManager?.providerStatus?.[toProvider]?.length
+                ? providerPoolManager.providerStatus[toProvider]
+                : (providerPoolManager?.providerPools?.[toProvider] || CONFIG.providerPools?.[toProvider] || []);
+            const capability = resolveProviderCapabilityWithRefresh(toProvider, nodes);
+            logger.info(`[ModelList] Using capability models for ${toProvider}: ${capability.models.length} models (source=${capability.source}, stale=${capability.stale})`);
+            clientModelList = buildConfiguredModelListResponse(capability.models, toProvider, endpointType);
         }
 
         if (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO) {
@@ -1379,7 +1287,10 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     const shouldSelectByPool = providerPoolManager && (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO || (CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]));
     if (!service || shouldSelectByPool) {
         const { getApiServiceWithFallback } = await import('../services/service-manager.js');
-        const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: shouldSelectByPool });
+        const result = await getApiServiceWithFallback(CONFIG, model, {
+            acquireSlot: shouldSelectByPool,
+            allowUnselectedModel: Boolean(customModelConfig)
+        });
 
         service = result.service;
         toProvider = result.actualProviderType;

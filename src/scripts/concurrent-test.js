@@ -11,7 +11,7 @@
  *   --concurrency <n>     并发数 (默认: 10)
  *   --requests <n>        总请求数 (默认: 100)
  *   --endpoint <path>     测试端点 (默认: /v1/chat/completions)
- *   --model <model>       模型名称 (默认: gpt-4)
+ *   --model <model>       模型名称 (默认: gpt-5.5)
  *   --stream              使用流式响应 (默认: false)
  *   --timeout <ms>        请求超时时间 (默认: 60000)
  *   --verbose             显示详细日志
@@ -30,7 +30,7 @@ function parseArgs() {
         totalRequests: 100,
         rpm: 0,
         endpoint: '/v1/chat/completions',
-        model: 'gpt-4',
+        model: 'gpt-5.5',
         stream: false,
         timeout: 60000,
         verbose: false
@@ -81,7 +81,7 @@ function parseArgs() {
   --concurrency <n>     并发数 (默认: 10)
   --requests <n>        总请求数 (默认: 100)
   --endpoint <path>     测试端点 (默认: /v1/chat/completions)
-  --model <model>       模型名称 (默认: gpt-4)
+  --model <model>       模型名称 (默认: gpt-5.5)
   --stream              使用流式响应 (默认: false)
   --timeout <ms>        请求超时时间 (默认: 60000)
   --verbose             显示详细日志

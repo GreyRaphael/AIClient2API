@@ -6,7 +6,7 @@ import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
 import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.js';
 import { TraeApiService } from '../src/providers/trae/trae-core.js';
-import { PROVIDER_MODELS, updateProviderModels, BASE_TRAE_MODELS } from '../src/providers/provider-models.js';
+import { PROVIDER_MODELS, BASE_TRAE_MODELS } from '../src/providers/provider-models.js';
 import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.js';
 
 describe('Trae Provider Implementation Tests', () => {
@@ -224,11 +224,11 @@ describe('Trae Provider Implementation Tests', () => {
             uuid: 'test-trae-uuid'
         });
 
-        const p1 = traeService.prepareRequestBody('claude-3.5-sonnet', {});
+        const p1 = traeService.prepareRequestBody('auto', {});
         expect(p1.model).toBe('glm-5.2');
 
-        const p2 = traeService.prepareRequestBody('gpt-4o', {});
-        expect(p2.model).toBe('deepseek-V4-Pro');
+        const p2 = traeService.prepareRequestBody('qwen3.8-flash', {});
+        expect(p2.model).toBe('qwen3.8-max');
 
         const p3 = traeService.prepareRequestBody('glm-5.3', {});
         expect(p3.model).toBe('glm-5.3');
@@ -412,25 +412,12 @@ describe('Trae Provider Implementation Tests', () => {
         expect(acc2.modelMetadataMap.has('special-model')).toBe(false);
     });
 
-    test('updateProviderModels updates Trae models strictly from upstream without base model force-merge', () => {
-        const originalTraeModels = [...PROVIDER_MODELS.trae];
-        try {
-            expect(BASE_TRAE_MODELS).toContain('DeepSeek-V4.1-Flash');
-            expect(BASE_TRAE_MODELS).toContain('kimi-k2.8-preview');
+    test('静态基线保持不可变，上游发现结果只写入能力缓存', () => {
+        expect(BASE_TRAE_MODELS).toContain('DeepSeek-V4.1-Flash');
+        expect(BASE_TRAE_MODELS).toContain('kimi-k2.8-preview');
 
-            // 模拟上游动态返回的模型列表 (缺少 DeepSeek-V4.1-Flash 与 kimi-k2.8-preview)
-            const upstreamOnlyModels = ['DeepSeek-V4-Flash-Official', 'glm-5.3', 'kimi-k3'];
-            updateProviderModels(MODEL_PROVIDER.TRAE, upstreamOnlyModels);
-
-            // 验证上游新模型严格生效，不再强行合并旧基准模型或假别名
-            expect(PROVIDER_MODELS.trae).not.toContain('DeepSeek-V4.1-Flash');
-            expect(PROVIDER_MODELS.trae).not.toContain('kimi-k2.8-preview');
-            expect(PROVIDER_MODELS.trae).toContain('glm-5.3');
-            expect(PROVIDER_MODELS.trae).toContain('kimi-k3');
-            expect(PROVIDER_MODELS.trae).toEqual(['DeepSeek-V4-Flash-Official', 'glm-5.3', 'kimi-k3']);
-        } finally {
-            PROVIDER_MODELS.trae = originalTraeModels;
-        }
+        // 动态发现不再改写全局 PROVIDER_MODELS
+        expect(PROVIDER_MODELS.trae).toEqual(BASE_TRAE_MODELS);
     });
 
     test('TraeApiService.prepareRequestBody merges consecutive assistant messages to prevent 4027 error', () => {

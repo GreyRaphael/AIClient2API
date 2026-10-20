@@ -2,9 +2,37 @@ jest.mock('open', () => ({ default: jest.fn() }));
 
 import { AntigravityApiService } from '../src/providers/gemini/antigravity-core.js';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.js';
-import { getConfiguredNotSupportedModelsFromPool } from '../src/handlers/request-pipeline.js';
+import {
+    CAPABILITY_SOURCE,
+    MemoryCapabilityStore,
+    capabilityKey,
+    resetCapabilityStore,
+    setCapabilityStore
+} from '../src/providers/model-capability.js';
+import { CONFIG } from '../src/core/config-manager.js';
+
+function seedNodeModels(providerType, nodesByUuid) {
+    const nodes = {};
+    for (const [uuid, models] of Object.entries(nodesByUuid)) {
+        nodes[capabilityKey(providerType, { uuid })] = {
+            providerType,
+            uuid,
+            models,
+            fetchedAt: Date.now(),
+            source: CAPABILITY_SOURCE.LIVE,
+            lastError: null,
+            consecutiveFailures: 0
+        };
+    }
+    setCapabilityStore(new MemoryCapabilityStore(nodes));
+}
 
 describe('Antigravity Provider & Pool Refactor Tests', () => {
+    afterEach(() => {
+        resetCapabilityStore();
+        delete CONFIG.customModels;
+    });
+
     test('1. Model List Extraction strictly follows agentModelSorts and imageGenerationModelIds with node isolation', async () => {
         const service1 = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy1.json', uuid: 'node-1' });
         service1.authClient = {
@@ -96,33 +124,18 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
     });
 
     test('4. ProviderPoolManager active models aggregation respects node health and disabled state', () => {
+        seedNodeModels('gemini-antigravity', {
+            'node-1': ['gemini-3.8-flash-high', 'claude-sonnet-4-6'],
+            'node-2': ['claude-sonnet-5-5-high'],
+            'node-3': ['gemini-3.1-pro-high']
+        });
+
         const poolManager = new ProviderPoolManager({});
         poolManager.providerStatus = {
             'gemini-antigravity': [
-                {
-                    config: {
-                        uuid: 'node-1',
-                        isDisabled: false,
-                        isHealthy: true,
-                        availableModels: ['gemini-3.8-flash-high', 'claude-sonnet-4-6']
-                    }
-                },
-                {
-                    config: {
-                        uuid: 'node-2',
-                        isDisabled: true, // 禁用节点
-                        isHealthy: true,
-                        availableModels: ['claude-sonnet-5-5-high']
-                    }
-                },
-                {
-                    config: {
-                        uuid: 'node-3',
-                        isDisabled: false,
-                        isHealthy: false, // 亚健康/离线节点
-                        availableModels: ['gemini-3.1-pro-high']
-                    }
-                }
+                { config: { uuid: 'node-1', isDisabled: false, isHealthy: true } },
+                { config: { uuid: 'node-2', isDisabled: true, isHealthy: true } }, // 禁用节点
+                { config: { uuid: 'node-3', isDisabled: false, isHealthy: false } } // 亚健康/离线节点
             ]
         };
 
@@ -140,24 +153,19 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
     });
 
     test('5. ProviderPoolManager.selectProvider uses generic node capability guard', async () => {
+        seedNodeModels('gemini-antigravity', {
+            'node-a': ['gemini-3.8-flash-high'],
+            'node-b': ['claude-sonnet-5-5-high']
+        });
+
         const poolManager = new ProviderPoolManager({});
         const nodeA = {
             name: 'Node A',
-            config: {
-                uuid: 'node-a',
-                isDisabled: false,
-                isHealthy: true,
-                availableModels: ['gemini-3.8-flash-high']
-            }
+            config: { uuid: 'node-a', isDisabled: false, isHealthy: true }
         };
         const nodeB = {
             name: 'Node B',
-            config: {
-                uuid: 'node-b',
-                isDisabled: false,
-                isHealthy: true,
-                availableModels: ['claude-sonnet-5-5-high']
-            }
+            config: { uuid: 'node-b', isDisabled: false, isHealthy: true }
         };
 
         poolManager.providerStatus = {
@@ -179,98 +187,45 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         expect(none).toBeNull();
     });
 
-    test('6. getConfiguredNotSupportedModelsFromPool delegates to ProviderPoolManager', () => {
+    test('6. 节点候选集只来自上游发现', () => {
+        seedNodeModels('trae', {
+            'trae-node-1': ['glm-5.2', 'DeepSeek-V4.1-Flash']
+        });
+
         const poolManager = new ProviderPoolManager({
-            'gemini-antigravity': [
-                {
-                    uuid: 'mock-pool-node-1',
-                    isDisabled: false,
-                    isHealthy: true,
-                    notSupportedModels: ['gemini-1.5-flash', 'gemini-1.5-pro']
-                }
-            ]
+            trae: [{
+                uuid: 'trae-node-1',
+                isDisabled: false,
+                isHealthy: true
+            }]
         }, { maxErrorCount: 10 });
 
-        const excluded = getConfiguredNotSupportedModelsFromPool(poolManager, 'gemini-antigravity', 'mock-pool-node-1');
-        expect(excluded).toEqual(expect.arrayContaining(['gemini-1.5-flash', 'gemini-1.5-pro']));
+        const activeModels = poolManager.getActiveProviderModels('trae');
+        expect(activeModels).toContain('glm-5.2');
+        expect(activeModels).toContain('DeepSeek-V4.1-Flash');
+        expect(activeModels).not.toContain('auto');
     });
 
-    test('7. handleGetProviderTypeModels returns full candidate model list for Trae and Zed without filtering notSupportedModels', async () => {
-        const { handleGetProviderTypeModels } = await import('../src/ui-modules/provider-api.js');
-        const mockConfig = {
-            providerPools: {
-                trae: [{
-                    uuid: 'trae-node-1',
-                    isDisabled: false,
-                    isHealthy: true,
-                    notSupportedModels: ['glm-5.2', 'DeepSeek-V4.1-Flash']
-                }],
-                zed: [{
-                    uuid: 'zed-node-1',
-                    isDisabled: false,
-                    isHealthy: true,
-                    notSupportedModels: ['claude-sonnet-4-5']
-                }]
-            }
-        };
-        const poolManager = new ProviderPoolManager(mockConfig.providerPools, { maxErrorCount: 10 });
+    test('7. 节点候选集默认全选，分组最终集并入自定义模型', () => {
+        seedNodeModels('openai-custom', {
+            'custom-bot-1': ['glm-5.2']
+        });
 
-        let traeModels = [];
-        const mockResTrae = {
-            writeHead: jest.fn(),
-            end: (data) => {
-                traeModels = JSON.parse(data).models;
-            }
-        };
-        await handleGetProviderTypeModels({}, mockResTrae, mockConfig, poolManager, 'trae');
-        expect(traeModels).toContain('glm-5.2');
-        expect(traeModels).toContain('DeepSeek-V4.1-Flash');
-        expect(traeModels).not.toContain('auto');
-
-        let zedModels = [];
-        const mockResZed = {
-            writeHead: jest.fn(),
-            end: (data) => {
-                zedModels = JSON.parse(data).models;
-            }
-        };
-        await handleGetProviderTypeModels({}, mockResZed, mockConfig, poolManager, 'zed');
-        expect(zedModels).toContain('claude-sonnet-4-5');
-    });
-
-    test('8. getActiveProviderModels and handleGetProviderTypeModels fall back to checkModelName and custom models for managed providers', async () => {
-        const { handleGetProviderTypeModels } = await import('../src/ui-modules/provider-api.js');
-        const { CONFIG } = await import('../src/core/config-manager.js');
         CONFIG.customModels = [
             { id: 'custom-glm-model', provider: 'openai-custom', enabled: true }
         ];
 
-        const mockConfig = {
-            providerPools: {
-                'openai-custom': [{
-                    uuid: 'custom-bot-1',
-                    isDisabled: false,
-                    isHealthy: true,
-                    checkModelName: 'glm-5.2',
-                    supportedModels: []
-                }]
-            }
-        };
-        const poolManager = new ProviderPoolManager(mockConfig.providerPools, { maxErrorCount: 10 });
+        const poolManager = new ProviderPoolManager({
+            'openai-custom': [{
+                uuid: 'custom-bot-1',
+                isDisabled: false,
+                isHealthy: true,
+                checkModelName: 'glm-5.2'
+            }]
+        }, { maxErrorCount: 10 });
 
         const activeModels = poolManager.getActiveProviderModels('openai-custom');
         expect(activeModels).toContain('glm-5.2');
         expect(activeModels).toContain('custom-glm-model');
-
-        let endpointModels = [];
-        const mockRes = {
-            writeHead: jest.fn(),
-            end: (data) => {
-                endpointModels = JSON.parse(data).models;
-            }
-        };
-        await handleGetProviderTypeModels({}, mockRes, mockConfig, poolManager, 'openai-custom');
-        expect(endpointModels).toContain('glm-5.2');
-        expect(endpointModels).toContain('custom-glm-model');
     });
 });

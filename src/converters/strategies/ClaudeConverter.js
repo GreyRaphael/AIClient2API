@@ -389,7 +389,7 @@ export class ClaudeConverter extends BaseConverter {
                 }
             }
             openaiRequest.max_completion_tokens = maxCompletionTokens;
-            // OpenAI 推理模型（o1/o3-mini 等）不允许自定义 temperature 和 top_p，自动剥离避免 400
+            // OpenAI 推理模型（GPT-5+ 等）不允许自定义 temperature 和 top_p，自动剥离避免 400
             delete openaiRequest.temperature;
             delete openaiRequest.top_p;
         }

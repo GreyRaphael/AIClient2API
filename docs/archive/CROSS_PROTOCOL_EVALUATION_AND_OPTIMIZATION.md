@@ -1,3 +1,5 @@
+> 历史评估快照（v1.6.0，2026-10-16）。当前高层架构与维护入口见 [`docs/CROSS_PROTOCOL_ARCHITECTURE.md`](../CROSS_PROTOCOL_ARCHITECTURE.md)。
+
 # AIClient2API 跨协议转译评估与理论优化全景指南
 
 > **版本**：v1.6.0  
@@ -207,7 +209,7 @@ flowchart LR
 - **详细评估**：
   - **严格交替合并**：Gemini 强制要求 `contents` 中 `user` 和 `model` 严格交替。OpenAI 允许的连续 `user` 提问会被内联合并逻辑（存在于 `OpenAIConverter` / `ClaudeConverter` / `OpenAIResponsesConverter` 三处 `toGeminiRequest` 中，无独立 `mergeConsecutiveMessages` 函数）在 **parts 数组级**合并为一个 content——各段文本仍保留为独立 part，并非文本拼接，单轮语义界限弱化但未完全湮灭。
   - **Schema 强剪切**：Gemini Protobuf 无法反序列化复杂 JSON Schema，`cleanJsonSchemaProperties`（`converters/utils.js`）按 **7 键白名单**（`type` / `description` / `properties` / `required` / `enum` / `items` / `nullable`）清洗，`patternProperties`、`default`、`oneOf`、`$ref`、`pattern`、`format`、数值/长度边界等全部被剥离，导致工具定义的边界约束丢失。
-  - **思考配置双轨映射**：`reasoning_effort`（none/low/medium/high/xhigh）按模型代际分流——Gemini 3 系映射为 `thinkingConfig.thinkingLevel: LOW/MEDIUM/HIGH`（`none` 则不下发 thinkingConfig）；gemini-2.5 系映射为 `thinkingBudget` 数值预算（low→1024 / medium→8192 / high→24576 / max·xhigh→32768）并附 `includeThoughts: true`。离散档位存在量化步长折损。
+  - **思考配置统一映射**：`reasoning_effort`（none/low/medium/high/xhigh）统一映射为 Gemini 3+ 的 `thinkingConfig.thinkingLevel: LOW/MEDIUM/HIGH`（`none` 则不下发 thinkingConfig；`max/xhigh` 收敛为 HIGH；`minimal` 收敛为 LOW）。不再维护 Gemini 2.5 的 `thinkingBudget` 分支。
 
 #### 05. OpenAI Chat ➔ `zed`
 - **协议链路**：`OpenAI Chat ➔ Claude Messages ➔ Zed Cloud RPC`
@@ -540,7 +542,7 @@ timeline
 
 ### v1.2.0（2026-10-16，Phase 0 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第一阶段（Phase 0 定点修复包）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第一阶段（Phase 0 定点修复包）落地：
 
 1. **统一思考预算换算（0.1，解决 L1 与 D1）**：新增 `src/converters/thinking-budget.js`，建立五档规范表（1024/2048/8192/20000/32000）与新阈值映射（low≤2048、medium≤8192、high>8192），消灭常规预算坍缩为 high 的问题，medium 档位全面复活；统一 OpenAIConverter、ResponsesConverter、zed-core 的预算换算。
 2. **Responses➔Gemini 思考配置恢复（0.2，解决 L2）**：`toGeminiRequest` 补齐 `reasoning.effort` 转换为 Gemini 3（thinkingLevel）与 Gemini 2.5（thinkingBudget）双轨 thinkingConfig，Combo 12 评级提升至 Tier 2。
@@ -550,7 +552,7 @@ timeline
 
 ### v1.3.0（2026-10-16，Phase 1 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第二阶段（Phase 1 Schema Polyfill 降级编译器）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第二阶段（Phase 1 Schema Polyfill 降级编译器）落地：
 
 1. **Schema Polyfill 降级编译器（Phase 1）**：新增 `src/converters/schema-polyfill.js`，提供纯函数三段式流水线（`$ref` 静态内联展开、约束自然语言化注入 `[Constraints: ...]`、组合关键字 `oneOf/anyOf` 降级与 `allOf` 浅合并），并输出审计 `report`。
 2. **Gemini 接入链路贯通**：在 `OpenAIConverter.toGeminiTools` 及 `antigravity-core.js`（双模式工具声明清洗）前置接入 `polyfillAndCleanSchemaForGemini`，无缝兼容后续 7 键白名单清洗。
@@ -560,7 +562,7 @@ timeline
 
 ### v1.4.0（2026-10-16，Phase 2 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第三阶段（Phase 2 签名金库 Signature Vault）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第三阶段（Phase 2 签名金库 Signature Vault）落地：
 
 1. **新增无状态签名金库**：新增 `src/converters/signature-vault.js`，实现无状态 HMAC 虚拟思考签名（前缀规范 `vsig1.<base64url(payload)>.<base64url(hmac)>`），提供 `mintVirtualSignature`、`isVirtualSignature`、`verifyVirtualSignature` 与 `stripVirtualSignatures` 核心 API。
 2. **X ➔ Claude 响应侧注入闭环**：
@@ -576,7 +578,7 @@ timeline
 
 ### v1.5.0（2026-10-16，Phase 3 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第四阶段（Phase 3 Responses SSE Emitter 收编）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第四阶段（Phase 3 Responses SSE Emitter 收编）落地：
 
 1. **统一事件发射器模块**：新增 `src/converters/responses-sse-emitter.js`，严格镜像 `AnthropicSseEmitter` 的生命周期设计，提供 `start()`、`textStart()`、`textDelta()`、`textDone()`、`reasoningStart()`、`reasoningDelta()`、`reasoningDone()`、`toolCallStart()`、`toolCallArgsDelta()`、`toolCallDone()`、`complete()` 等全生命周期幂等方法。
 2. **状态所有权收编**：将分散在全局单例 `streamStateManager` 与各 Converter 内联状态对象的控制权收编入 `ResponsesSseEmitter` 实例中，借助 `StreamSessionStore`（带 TTL 自动回收容器）实现跨并发请求的完整隔离，彻底消灭流式并发状态污染与内存泄漏隐患。
@@ -592,7 +594,7 @@ timeline
 
 ### v1.6.0（2026-10-16，Phase 4 实施落地修订）
 
-完成优化方案 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第五阶段（Phase 4 可选增强）落地：
+完成优化方案 `docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md` 第五阶段（Phase 4 可选增强）落地：
 
 1. **合并逻辑公共提取（去重）**：
    - 在 `src/converters/utils.js` 实现并导出纯函数 `mergeConsecutiveSameRoleContents(contents, rolePair = null)`。
@@ -612,7 +614,7 @@ timeline
    - 在 `ClaudeConverter` 中，针对发往不支持显式缓存块的上游协议（OpenAI、Gemini、Responses、Codex）的降级点（`system` 数组/对象、`message` 内容块、`tool_result`、`tools` 数组），记录明确的 debug 日志，彻底消灭「静默丢弃」；同时在发往 Claude 协议上游时保持原生透传。
 4. **单测套件与零回归验证**：
    - 新增 `tests/phase4-enhancements.test.js`（18 个单元测试全部通过，覆盖公共合并纯函数与三协议端到端集成、排序开关及多协议格式稳定排序、cache_control 日志拦截等）。
-   - 全量自动化测试用例扩充至 19 个测试套件，286 个测试用例，100% PASS。
+   - 全量自动化测试用例扩充至 21 个测试套件，326 个测试用例，100% PASS。
 
 
 

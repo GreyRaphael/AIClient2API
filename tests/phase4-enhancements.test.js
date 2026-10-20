@@ -107,7 +107,7 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
         test('端到端集成：OpenAIConverter.toGeminiRequest 连续 user/assistant 消息合并', () => {
             const converter = new OpenAIConverter();
             const openaiReq = {
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3.8-flash-high',
                 messages: [
                     { role: 'user', content: 'hello' },
                     { role: 'user', content: 'world' },
@@ -128,7 +128,7 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
         test('端到端集成：ClaudeConverter.toGeminiRequest 连续相同角色消息合并', () => {
             const converter = new ClaudeConverter();
             const claudeReq = {
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3.8-flash-high',
                 messages: [
                     { role: 'user', content: 'query 1' },
                     { role: 'user', content: 'query 2' },
@@ -153,7 +153,7 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
         test('端到端集成：OpenAIResponsesConverter.toGeminiRequest 连续相同角色消息合并', () => {
             const converter = new OpenAIResponsesConverter();
             const responsesReq = {
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3.8-flash-high',
                 input: [
                     {
                         type: 'message',
@@ -253,24 +253,24 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
 
             // 1. 关闭时顺序保持原样
             process.env.CONVERT_SORT_TOOLS = 'false';
-            const claudeReqUnsorted = converter.toClaudeRequest({ model: 'claude-3-7-sonnet', messages: [], tools: inputTools });
+            const claudeReqUnsorted = converter.toClaudeRequest({ model: 'claude-sonnet-4-6', messages: [], tools: inputTools });
             expect(claudeReqUnsorted.tools.map(t => t.name)).toEqual(['z_tool', 'a_tool']);
 
-            const geminiReqUnsorted = converter.toGeminiRequest({ model: 'gemini-2.5-flash', messages: [], tools: inputTools });
+            const geminiReqUnsorted = converter.toGeminiRequest({ model: 'gemini-3.8-flash-high', messages: [], tools: inputTools });
             expect(geminiReqUnsorted.tools[0].functionDeclarations.map(t => t.name)).toEqual(['z_tool', 'a_tool']);
 
-            const respReqUnsorted = converter.toOpenAIResponsesRequest({ model: 'gpt-4o', messages: [], tools: inputTools });
+            const respReqUnsorted = converter.toOpenAIResponsesRequest({ model: 'gpt-5.5', messages: [], tools: inputTools });
             expect(respReqUnsorted.tools.map(t => t.name)).toEqual(['z_tool', 'a_tool']);
 
             // 2. 开启时顺序按 name 升序排序
             process.env.CONVERT_SORT_TOOLS = 'true';
-            const claudeReqSorted = converter.toClaudeRequest({ model: 'claude-3-7-sonnet', messages: [], tools: inputTools });
+            const claudeReqSorted = converter.toClaudeRequest({ model: 'claude-sonnet-4-6', messages: [], tools: inputTools });
             expect(claudeReqSorted.tools.map(t => t.name)).toEqual(['a_tool', 'z_tool']);
 
-            const geminiReqSorted = converter.toGeminiRequest({ model: 'gemini-2.5-flash', messages: [], tools: inputTools });
+            const geminiReqSorted = converter.toGeminiRequest({ model: 'gemini-3.8-flash-high', messages: [], tools: inputTools });
             expect(geminiReqSorted.tools[0].functionDeclarations.map(t => t.name)).toEqual(['a_tool', 'z_tool']);
 
-            const respReqSorted = converter.toOpenAIResponsesRequest({ model: 'gpt-4o', messages: [], tools: inputTools });
+            const respReqSorted = converter.toOpenAIResponsesRequest({ model: 'gpt-5.5', messages: [], tools: inputTools });
             expect(respReqSorted.tools.map(t => t.name)).toEqual(['a_tool', 'z_tool']);
         });
 
@@ -285,15 +285,15 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
             process.env.CONVERT_SORT_TOOLS = 'true';
 
             // Claude -> OpenAI
-            const oaiReq = converter.toOpenAIRequest({ model: 'gpt-4o', messages: [], tools: claudeTools });
+            const oaiReq = converter.toOpenAIRequest({ model: 'gpt-5.5', messages: [], tools: claudeTools });
             expect(oaiReq.tools.map(t => t.function.name)).toEqual(['create_user', 'update_user']);
 
             // Claude -> Gemini
-            const geminiReq = converter.toGeminiRequest({ model: 'gemini-2.5-flash', messages: [], tools: claudeTools });
+            const geminiReq = converter.toGeminiRequest({ model: 'gemini-3.8-flash-high', messages: [], tools: claudeTools });
             expect(geminiReq.tools[0].functionDeclarations.map(t => t.name)).toEqual(['create_user', 'update_user']);
 
             // Claude -> Responses
-            const respReq = converter.toOpenAIResponsesRequest({ model: 'gpt-4o', messages: [], tools: claudeTools });
+            const respReq = converter.toOpenAIResponsesRequest({ model: 'gpt-5.5', messages: [], tools: claudeTools });
             expect(respReq.tools.map(t => t.name)).toEqual(['create_user', 'update_user']);
 
             // Claude -> Codex
@@ -310,13 +310,13 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
                 { type: 'function', name: 'delete_logs' }
             ];
 
-            const oaiReq = respConverter.toOpenAIRequest({ model: 'gpt-4o', input: [], tools: respTools });
+            const oaiReq = respConverter.toOpenAIRequest({ model: 'gpt-5.5', input: [], tools: respTools });
             expect(oaiReq.tools.map(t => t.function.name)).toEqual(['delete_logs', 'search_logs']);
 
-            const claudeReq = respConverter.toClaudeRequest({ model: 'claude-3-7-sonnet', input: [], tools: respTools });
+            const claudeReq = respConverter.toClaudeRequest({ model: 'claude-sonnet-4-6', input: [], tools: respTools });
             expect(claudeReq.tools.map(t => t.name)).toEqual(['delete_logs', 'search_logs']);
 
-            const geminiReq = respConverter.toGeminiRequest({ model: 'gemini-2.5-flash', input: [], tools: respTools });
+            const geminiReq = respConverter.toGeminiRequest({ model: 'gemini-3.8-flash-high', input: [], tools: respTools });
             expect(geminiReq.tools[0].functionDeclarations.map(t => t.name)).toEqual(['delete_logs', 'search_logs']);
 
             // GeminiConverter 验证
@@ -328,13 +328,13 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
                 ]
             }];
 
-            const g2Claude = geminiConverter.toClaudeRequest({ model: 'claude-3-7-sonnet', contents: [], tools: geminiTools });
+            const g2Claude = geminiConverter.toClaudeRequest({ model: 'claude-sonnet-4-6', contents: [], tools: geminiTools });
             expect(g2Claude.tools.map(t => t.name)).toEqual(['audit_security', 'write_code']);
 
-            const g2Resp = geminiConverter.toOpenAIResponsesRequest({ model: 'gpt-4o', contents: [], tools: geminiTools });
+            const g2Resp = geminiConverter.toOpenAIResponsesRequest({ model: 'gpt-5.5', contents: [], tools: geminiTools });
             expect(g2Resp.tools.map(t => t.name)).toEqual(['audit_security', 'write_code']);
 
-            const g2Oai = geminiConverter.toOpenAIRequest({ model: 'gpt-4o', contents: [], tools: geminiTools });
+            const g2Oai = geminiConverter.toOpenAIRequest({ model: 'gpt-5.5', contents: [], tools: geminiTools });
             expect(g2Oai.tools.map(t => t.function.name)).toEqual(['audit_security', 'write_code']);
         });
     });
@@ -372,7 +372,7 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
         test('端到端集成：Claude 转换至 OpenAI 时，丢弃的 cache_control 触发日志', () => {
             const converter = new ClaudeConverter();
             const claudeReq = {
-                model: 'gpt-4o',
+                model: 'gpt-5.5',
                 system: [
                     { type: 'text', text: 'System prompt', cache_control: { type: 'ephemeral' } }
                 ],
@@ -405,7 +405,7 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
         test('端到端集成：Claude 转换至 Gemini 时，丢弃的 cache_control 触发日志', () => {
             const converter = new ClaudeConverter();
             const claudeReq = {
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3.8-flash-high',
                 system: [
                     { type: 'text', text: 'System prompt', cache_control: { type: 'ephemeral' } }
                 ],

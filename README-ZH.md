@@ -577,18 +577,19 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 - 确保代理服务稳定可用，否则可能影响服务质量
 - SOCKS5 代理通常比 HTTP 代理性能更好
 
-#### 2. 模型过滤配置
+#### 2. 模型选择配置
 
-支持通过 `notSupportedModels` 配置排除不支持的模型，系统会自动跳过这些提供商。
+节点模型采用正向勾选：候选来自上游 `model_list`，默认全选；取消勾选即表示该节点不使用该模型。上游后续新增的模型会自动选中。
 
-**配置方式**：在 `configs/provider_pools.json` 中为提供商添加 `notSupportedModels` 字段：
+**配置方式**：在“提供商池管理”中编辑节点即可，保存后写入 `configs/provider_pools.json`：
 
 ```json
 {
   "gemini-antigravity": [
     {
       "uuid": "provider-1",
-      "notSupportedModels": ["gemini-3.0-pro", "gemini-3.5-flash"],
+      "supportedModels": ["gemini-3.8-flash-high", "claude-sonnet-4-6"],
+      "supportedModelsBaseline": ["gemini-3.8-flash-high", "claude-sonnet-4-6", "gemini-3.1-pro-high"],
       "checkHealth": true
     }
   ]
@@ -596,8 +597,10 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 ```
 
 **工作原理**：
-- 当请求特定模型时，系统会自动过滤掉配置了该模型为不支持的提供商
-- 只有支持该模型的提供商才会被选中处理请求
+- `supportedModels` 是用户显式启用的模型集合；字段缺失表示跟随上游全选。
+- `supportedModelsBaseline` 是上次保存时的上游候选快照，用于识别之后新增的模型并自动选中。
+- 分组最终模型列表 = 活跃节点选择集并集 ∪ 该分组的自定义模型。
+- 节点候选列表只包含上游模型，自定义模型不会出现在节点候选里。
 
 **使用场景**：
 - 某些账号因配额或权限限制无法访问特定模型
@@ -743,7 +746,7 @@ kill -9 <PID>
 - **检查模型名称**：确保使用正确的模型名称（区分大小写）
 - **检查提供商支持**：确认当前配置的提供商支持该模型
 - **检查账号权限**：某些高级模型可能需要特定账号权限
-- **配置模型过滤**：使用 `notSupportedModels` 排除不支持的模型
+- **检查节点模型选择**：在“提供商池管理”中确认该模型已在节点候选里被勾选
 
 ### 7. Web UI 无法访问
 

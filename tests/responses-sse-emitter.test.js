@@ -16,13 +16,13 @@ describe('ResponsesSseEmitter 基础生命周期', () => {
         const emitter = new ResponsesSseEmitter({
             requestId: 'req_test_start',
             responseId: 'resp_custom_1',
-            model: 'gpt-4o'
+            model: 'gpt-5.5'
         });
 
         const events = emitter.start();
         expect(types(events)).toEqual(['response.created', 'response.in_progress']);
         expect(events[0].response.id).toBe('resp_custom_1');
-        expect(events[0].response.model).toBe('gpt-4o');
+        expect(events[0].response.model).toBe('gpt-5.5');
         expect(events[0].sequence_number).toBe(0);
         expect(events[1].sequence_number).toBe(1);
 
@@ -35,13 +35,13 @@ describe('ResponsesSseEmitter 基础生命周期', () => {
 
     test('setModel, setResponseId, setCreatedAt 动态更新', () => {
         const emitter = new ResponsesSseEmitter({ requestId: 'req_test_setters' });
-        emitter.setModel('gpt-4o-mini');
+        emitter.setModel('gpt-5-mini');
         emitter.setResponseId('resp_changed');
         emitter.setCreatedAt(1700000000);
 
         const events = emitter.start();
         expect(events[0].response.id).toBe('resp_changed');
-        expect(events[0].response.model).toBe('gpt-4o-mini');
+        expect(events[0].response.model).toBe('gpt-5-mini');
         expect(events[0].response.created_at).toBe(1700000000);
 
         emitter.cleanup();

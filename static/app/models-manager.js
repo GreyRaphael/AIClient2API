@@ -233,8 +233,6 @@ function getProviderIcon(providerType) {
         'gemini': 'fas fa-gem',
         'claude': 'fas fa-robot',
         'openai': 'fas fa-brain',
-        'qwen': 'fas fa-brain',
-        'iflow': 'fas fa-brain',
         'forward': 'fas fa-share-square',
         'grok': 'fas fa-search'
     };

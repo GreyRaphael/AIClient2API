@@ -90,19 +90,15 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
             const type = providerMapping.providerType;
             if (type.includes('kiro')) oauthProvider = 'kiro';
             else if (type.includes('gemini')) oauthProvider = 'gemini';
-            else if (type.includes('qwen')) oauthProvider = 'qwen';
             else if (type.includes('antigravity')) oauthProvider = 'antigravity';
             else if (type.includes('codex')) oauthProvider = 'codex';
-            else if (type.includes('iflow')) oauthProvider = 'iflow';
             else if (type.includes('zed')) oauthProvider = 'zed';
         } else {
             // 兜底逻辑
             if (normalizedPath.includes('/kiro/') || normalizedPath.includes('kiro-auth-token')) oauthProvider = 'kiro';
             else if (normalizedPath.includes('/gemini/') || normalizedPath.includes('/.gemini/')) oauthProvider = 'gemini';
-            else if (normalizedPath.includes('/qwen/')) oauthProvider = 'qwen';
             else if (normalizedPath.includes('/antigravity/') || normalizedPath.includes('/.antigravity/')) oauthProvider = 'antigravity';
             else if (normalizedPath.includes('/codex/') || normalizedPath.includes('/.codex/')) oauthProvider = 'codex';
-            else if (normalizedPath.includes('/iflow/')) oauthProvider = 'iflow';
             else if (normalizedPath.includes('/zed/') || normalizedPath.includes('/.zed/')) oauthProvider = 'zed';
         }
 

@@ -31,10 +31,9 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
     test('getZedProviderForModel maps model prefix to upstream provider correctly', () => {
         expect(getZedProviderForModel('claude-sonnet-4-5')).toBe('anthropic');
-        expect(getZedProviderForModel('claude-3-7-sonnet')).toBe('anthropic');
+        expect(getZedProviderForModel('claude-sonnet-4-6')).toBe('anthropic');
         expect(getZedProviderForModel('gpt-5.4-latest')).toBe('open_ai');
         expect(getZedProviderForModel('gpt-5.2-codex')).toBe('open_ai');
-        expect(getZedProviderForModel('o1-preview')).toBe('open_ai');
         expect(getZedProviderForModel('gemini-3.1-pro')).toBe('google');
         expect(getZedProviderForModel('gemini-3.5-flash')).toBe('google');
         expect(getZedProviderForModel('unknown-model')).toBe('anthropic');
@@ -121,7 +120,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
         // 1. none does not set thinking
         const reqNone = converter.toClaudeRequest({
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'none',
             temperature: 0.7
@@ -131,7 +130,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
         // 2. medium sets budget_tokens, deletes temperature/top_p, elevates max_tokens if <= budget
         const reqMedium = converter.toClaudeRequest({
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'medium',
             temperature: 0.7,
@@ -145,7 +144,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
         // 3. xhigh and max map correctly
         const reqXhigh = converter.toClaudeRequest({
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'xhigh',
             max_tokens: 20000
@@ -153,7 +152,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(reqXhigh.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
 
         const reqMax = converter.toClaudeRequest({
-            model: 'claude-3-7-sonnet',
+            model: 'claude-sonnet-4-6',
             messages: [{ role: 'user', content: 'hello' }],
             reasoning_effort: 'max',
             max_tokens: 1000
@@ -196,7 +195,26 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(provReq.generationConfig).toBeDefined();
         expect(provReq.generationConfig.temperature).toBe(0.5);
         expect(provReq.generationConfig.maxOutputTokens).toBe(8192);
-        expect(provReq.generationConfig.thinkingConfig?.thinkingBudget).toBe(20000);
+        // Gemini 3+ 使用 thinkingLevel，不能使用 thinkingBudget
+        expect(provReq.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'HIGH' });
+        expect(provReq.generationConfig.thinkingConfig.thinkingBudget).toBeUndefined();
+    });
+
+    test('ZedApiService.buildPayload maps gemini-4-argon reasoning_effort to thinkingLevel', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        const payload = zedService.buildPayload('gemini-4-argon', {
+            messages: [{ role: 'user', content: 'hi' }],
+            reasoning_effort: 'high'
+        });
+
+        const provReq = payload.provider_request;
+        expect(payload.provider).toBe('google');
+        expect(provReq.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'HIGH' });
+        expect(provReq.generationConfig.thinkingConfig.thinkingBudget).toBeUndefined();
     });
 
     test('ZedApiService.getToken deduplicates concurrent calls via _tokenRefreshPromise', async () => {
@@ -248,17 +266,13 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         }
     });
 
-    test('updateProviderModels merges and protects BASE_ZED_MODELS', async () => {
-        const { BASE_ZED_MODELS, updateProviderModels } = await import('../src/providers/provider-models.js');
+    test('静态基线保持不可变，动态发现结果只走能力缓存', async () => {
+        const { BASE_ZED_MODELS } = await import('../src/providers/provider-models.js');
         expect(Array.isArray(BASE_ZED_MODELS)).toBe(true);
         expect(BASE_ZED_MODELS).toContain('claude-sonnet-5');
         expect(BASE_ZED_MODELS).toContain('claude-sonnet-4-5');
 
-        // Dynamically update with a subset or custom model
-        updateProviderModels(MODEL_PROVIDER.ZED, ['custom-dynamic-zed-model']);
-        expect(PROVIDER_MODELS['zed']).toContain('custom-dynamic-zed-model');
-        expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-5');
-        expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-4-5');
+        expect(PROVIDER_MODELS['zed']).toEqual(BASE_ZED_MODELS);
     });
 
     test('ZedApiService.fetchRemoteModels deduplicates concurrent calls via _modelsFetchPromise', async () => {

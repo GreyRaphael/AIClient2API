@@ -6,12 +6,12 @@ import path from 'path';
 import os from 'os';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { updateProviderModels, PROVIDER_MODELS } from '../provider-models.js';
+import { PROVIDER_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
-import { effortToClaudeBudget } from '../../converters/thinking-budget.js';
+import { effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -100,7 +100,7 @@ export function getZedProviderForModel(model, metadataMap = null) {
     if (m.startsWith('claude')) {
         return 'anthropic';
     }
-    if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) {
+    if (m.startsWith('gpt-')) {
         return 'open_ai';
     }
     if (m.startsWith('gemini')) {
@@ -618,10 +618,20 @@ export class ZedApiService {
             const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
             const thinkingBudget = requestBody.thinking?.budget_tokens;
             if (thinkingBudget) {
-                generationConfig.thinkingConfig = { thinkingBudget };
+                // Gemini 3+ 只接受 thinkingLevel（MINIMAL/LOW/MEDIUM/HIGH），
+                // 传 thinkingBudget 会被上游以 500 拒绝。
+                const effort = thinkingBudget <= 2048
+                    ? 'low'
+                    : thinkingBudget <= 4096
+                        ? 'medium'
+                        : 'high';
+                const thinkingConfig = effortToGeminiThinking(effort);
+                if (thinkingConfig) generationConfig.thinkingConfig = thinkingConfig;
             } else if (reasoningEffort && reasoningEffort !== 'none') {
-                const budget = effortToClaudeBudget(reasoningEffort);
-                generationConfig.thinkingConfig = { thinkingBudget: budget };
+                const thinkingConfig = effortToGeminiThinking(reasoningEffort);
+                if (thinkingConfig) {
+                    generationConfig.thinkingConfig = thinkingConfig;
+                }
             }
 
             if (Object.keys(generationConfig).length > 0) {

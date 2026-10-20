@@ -209,7 +209,6 @@ function modelSupportsThinking(modelName) {
     if (!modelName) return false;
     const name = modelName.toLowerCase();
     return /^gemini-[3-9]/.test(name) ||
-           name.startsWith('gemini-2.5-') ||
            name.includes('-thinking') ||
            name.includes('-high') ||
            isClaude55(name);
@@ -529,8 +528,8 @@ function geminiToAntigravity(modelName, payload, projectId) {
         template.request.generationConfig.thinkingConfig.thinkingLevel = modelName.endsWith('-high') ? 'high' : 'high';
         template.request.generationConfig.thinkingConfig.includeThoughts = true;
         delete template.request.generationConfig.thinkingConfig.thinkingBudget;
-    } else if (isClaudeModel || modelName.startsWith('gemini-2.5-')) {
-        // 对于传统 Claude (如 claude-opus-4-6-thinking) 和 Gemini 2.5 等使用 budget 的模型，若存在 thinkingLevel 则转为 thinkingBudget
+    } else if (isClaudeModel) {
+        // 对于传统 Claude (如 claude-opus-4-6-thinking) 等使用 budget 的模型，若存在 thinkingLevel 则转为 thinkingBudget
         if (template.request.generationConfig?.thinkingConfig?.thinkingLevel) {
             delete template.request.generationConfig.thinkingConfig.thinkingLevel;
             template.request.generationConfig.thinkingConfig.thinkingBudget = -1;

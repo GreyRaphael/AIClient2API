@@ -28,9 +28,9 @@ Quick configuration guide for using AIClient2API with OpenClaw.
   },
   agents: {
     defaults: {
-      model: { primary: "aiclient2api/gemini-3-flash-preview" },
+      model: { primary: "aiclient2api/gemini-3.8-flash-high" },
       models: {
-        "aiclient2api/gemini-3-flash-preview": { alias: "Gemini 3 Flash" }
+        "aiclient2api/gemini-3.8-flash-high": { alias: "Gemini 3 Flash" }
       }
     }
   },
@@ -43,7 +43,7 @@ Quick configuration guide for using AIClient2API with OpenClaw.
         api: "openai-completions",
         models: [
           {
-            id: "gemini-3-flash-preview",
+            id: "gemini-3.8-flash-high",
             name: "Gemini 3 Flash Preview",
             reasoning: false,
             input: ["text", "image"],
@@ -127,7 +127,7 @@ Specify a specific provider via routing parameters:
       
       // Gemini CLI (OpenAI Protocol)
       "aiclient2api-gemini": {
-        baseUrl: "http://localhost:3000/gemini-cli-oauth/v1",
+        baseUrl: "http://localhost:3000/gemini-antigravity/v1",
         apiKey: "${AICLIENT2API_KEY}",
         api: "openai-completions",
         models: [...]
@@ -156,7 +156,7 @@ Specify a specific provider via routing parameters:
       model: {
         primary: "aiclient2api/claude-sonnet-4-5",
         fallbacks: [
-          "aiclient2api/gemini-3-flash-preview"
+          "aiclient2api/gemini-3.8-flash-high"
         ]
       }
     }
@@ -176,7 +176,7 @@ openclaw models list
 openclaw models set aiclient2api/claude-sonnet-4-5
 
 # Chat with specific model
-openclaw chat --model aiclient2api/gemini-3-flash-preview "your question"
+openclaw chat --model aiclient2api/gemini-3.8-flash-high "your question"
 ```
 
 ---

@@ -286,11 +286,6 @@ export class ClaudeApiService {
             { id: "claude-4-sonnet", name: "claude-4-sonnet" },
             { id: "claude-sonnet-4-20250514", name: "claude-sonnet-4-20250514" },
             { id: "claude-opus-4-20250514", name: "claude-opus-4-20250514" },
-            { id: "claude-3-7-sonnet-20250219", name: "claude-3-7-sonnet-20250219" },
-            { id: "claude-3-5-sonnet-20241022", name: "claude-3-5-sonnet-20241022" },
-            { id: "claude-3-5-haiku-20241022", name: "claude-3-5-haiku-20241022" },
-            { id: "claude-3-opus-20240229", name: "claude-3-opus-20240229" },
-            { id: "claude-3-haiku-20240307", name: "claude-3-haiku-20240307" },
         ];
 
         return { models: models.map(m => ({ name: m.name })) };

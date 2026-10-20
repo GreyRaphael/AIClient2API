@@ -1,10 +1,12 @@
+> 历史实施记录（v1.6.0，Phase 0-4 已落地）。当前高层架构与维护入口见 [`docs/CROSS_PROTOCOL_ARCHITECTURE.md`](../CROSS_PROTOCOL_ARCHITECTURE.md)。
+
 # AIClient2API 跨协议转译优化实施方案
 
 > **版本**：v1.6.0（Phase 0-4 全部实施落地）
 > **制定日期**：2026-10-16
 > **上游依据**：[CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md](./CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) v1.6.0（全阶段优化落地版）
 > **方案性质**：将评估文档第五节的理论优化体系落地为可分阶段执行的工程方案；全部代码位置已于制定当日对照 `main` 分支源码逐一核实与重构
-> **当前状态**：Phase 0、Phase 1、Phase 2、Phase 3、Phase 4 均已 100% 落地并通过全部测试（19 个测试套件，286 个测试用例全部 PASS）
+> **当前状态**：Phase 0、Phase 1、Phase 2、Phase 3、Phase 4 均已 100% 落地并通过全部测试（21 个测试套件，326 个测试用例全部 PASS）
 
 ---
 
@@ -96,7 +98,7 @@
 - `OpenAIResponsesConverter.js:647-667` — 替换。
 - `src/providers/zed/zed-core.js:622-628, 708-714` — 替换。
 
-**测试**：新增 `tests/thinking-budget.test.js`——五档往返映射、`budget→effort` 边界值（2047/2048/2049、8192/8193）、null 默认行为、Gemini 3 vs 2.5 分流。`tests/converters.test.js` 中对旧阈值有断言的用例同步更新。
+**测试**：新增 `tests/thinking-budget.test.js`——五档往返映射、`budget→effort` 边界值（2047/2048/2049、8192/8193）、null 默认行为、Gemini 3+ thinkingLevel 映射。`tests/converters.test.js` 中对旧阈值有断言的用例同步更新。
 
 **回滚**：调用点集中在 4 个文件，git revert 单 commit 即可。
 
@@ -315,7 +317,7 @@ export class ResponsesSseEmitter {
 1. Phase 0 作为独立 PR（bug fix 性质，可快速合入发布）；
 2. Phase 1、2 各自独立 PR；
 3. Phase 3 按转换器分 3-4 个 PR；
-4. **每阶段完成后同步更新评估文档** `CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md` 的全景矩阵评级与第八节修订记录（沿用 v1.0.0→v1.1.0 的修订惯例），保持「评估—优化」双文档闭环。
+4. **每阶段完成后同步更新评估文档** `docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md` 的全景矩阵评级与第八节修订记录（沿用 v1.0.0→v1.1.0 的修订惯例），保持「评估—优化」双文档闭环。
 
 ---
 

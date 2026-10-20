@@ -2,10 +2,8 @@ import {
     budgetTokensToEffort,
     effortToClaudeBudget,
     effortToGeminiThinking,
-    isGemini3Model,
     EFFORT_LEVELS,
-    CANONICAL_CLAUDE_BUDGET,
-    GEMINI_25_BUDGET
+    CANONICAL_CLAUDE_BUDGET
 } from '../src/converters/thinking-budget.js';
 
 describe('thinking-budget 思考预算与等级换算', () => {
@@ -73,36 +71,18 @@ describe('thinking-budget 思考预算与等级换算', () => {
         expect(effortToClaudeBudget(null)).toBe(0);
     });
 
-    test('isGemini3Model 识别', () => {
-        expect(isGemini3Model('gemini-3.0-flash')).toBe(true);
-        expect(isGemini3Model('gemini-3.1-pro-preview')).toBe(true);
-        expect(isGemini3Model('gemini-3.9-flash-high')).toBe(true);
-        expect(isGemini3Model('gemini-4.0-flash')).toBe(true);
-        expect(isGemini3Model('gemini3-flash')).toBe(true);
+    test('effortToGeminiThinking 统一输出 thinkingLevel', () => {
+        expect(effortToGeminiThinking('low')).toEqual({ thinkingLevel: 'LOW' });
+        expect(effortToGeminiThinking('medium')).toEqual({ thinkingLevel: 'MEDIUM' });
+        expect(effortToGeminiThinking('high')).toEqual({ thinkingLevel: 'HIGH' });
+        expect(effortToGeminiThinking('minimal')).toEqual({ thinkingLevel: 'LOW' });
+        expect(effortToGeminiThinking('max')).toEqual({ thinkingLevel: 'HIGH' });
+        expect(effortToGeminiThinking('xhigh')).toEqual({ thinkingLevel: 'HIGH' });
+        expect(effortToGeminiThinking('auto')).toEqual({ includeThoughts: true });
 
-        expect(isGemini3Model('gemini-2.5-pro')).toBe(false);
-        expect(isGemini3Model('gemini-2.0-flash')).toBe(false);
-        expect(isGemini3Model('gpt-4o')).toBe(false);
-        expect(isGemini3Model(null)).toBe(false);
-    });
-
-    test('effortToGeminiThinking 双轨分流 (Gemini 3 vs 2.5)', () => {
-        // Gemini 3 系 (thinkingLevel)
-        expect(effortToGeminiThinking('low', { modelFamily: 'gemini-3' })).toEqual({ thinkingLevel: 'LOW' });
-        expect(effortToGeminiThinking('medium', { model: 'gemini-3.0-pro' })).toEqual({ thinkingLevel: 'MEDIUM' });
-        expect(effortToGeminiThinking('high', { modelFamily: 'gemini-3' })).toEqual({ thinkingLevel: 'HIGH' });
-        expect(effortToGeminiThinking('minimal', { modelFamily: 'gemini-3' })).toEqual({ thinkingLevel: 'LOW' });
-        expect(effortToGeminiThinking('max', { modelFamily: 'gemini-3' })).toEqual({ thinkingLevel: 'HIGH' });
-        expect(effortToGeminiThinking('xhigh', { modelFamily: 'gemini-3' })).toEqual({ thinkingLevel: 'HIGH' });
-        expect(effortToGeminiThinking('auto', { modelFamily: 'gemini-3' })).toEqual({ includeThoughts: true });
-        expect(effortToGeminiThinking('none', { modelFamily: 'gemini-3' })).toBeNull();
-
-        // Gemini 2.5 系 (thinkingBudget)
-        expect(effortToGeminiThinking('low', { model: 'gemini-2.5-flash' })).toEqual({ thinkingBudget: 1024, includeThoughts: true });
-        expect(effortToGeminiThinking('medium', { model: 'gemini-2.5-pro' })).toEqual({ thinkingBudget: 8192, includeThoughts: true });
-        expect(effortToGeminiThinking('high', { model: 'gemini-2.5-pro' })).toEqual({ thinkingBudget: 24576, includeThoughts: true });
-        expect(effortToGeminiThinking('xhigh', { model: 'gemini-2.5-flash' })).toEqual({ thinkingBudget: 32768, includeThoughts: true });
-        expect(effortToGeminiThinking('max', { model: 'gemini-2.5-flash' })).toEqual({ thinkingBudget: 32768, includeThoughts: true });
-        expect(effortToGeminiThinking('none', { model: 'gemini-2.5-flash' })).toBeNull();
+        expect(effortToGeminiThinking('none')).toBeNull();
+        expect(effortToGeminiThinking('')).toBeNull();
+        expect(effortToGeminiThinking(null)).toBeNull();
+        expect(effortToGeminiThinking('unsupported')).toBeNull();
     });
 });

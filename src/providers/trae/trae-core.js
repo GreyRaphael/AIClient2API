@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { updateProviderModels, PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.js';
+import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.js';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.js';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.js';
 import {
@@ -27,10 +27,6 @@ const DEFAULT_MODEL = 'glm-5.2';
 const CANONICAL_MODEL_ALIASES = {
     // 常用别名映射
     'auto': 'glm-5.2',
-    'claude-3.5-sonnet': 'glm-5.2',
-    'claude-3.7-sonnet': 'glm-5.2',
-    'gpt-4o': 'deepseek-V4-Pro',
-    'gpt-4o-mini': 'DeepSeek-V4.1-Flash',
     // 官方 2.0 用户展示名 (Slug) 与中文别名 -> 底层真实 config_name
     'deepseek-v4-pro 正式版': 'DeepSeek-V4-Pro-Official',
     'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
@@ -74,10 +70,6 @@ const CANONICAL_MODEL_ALIASES = {
  */
 const SOLO_WORK_LITE_MODEL_ALIASES = {
     'auto': 'glm-5.2',
-    'claude-3.5-sonnet': 'glm-5.2',
-    'claude-3.7-sonnet': 'glm-5.2',
-    'gpt-4o': 'DeepSeek-V4-Pro',
-    'gpt-4o-mini': 'deepseek-v4.1-flash',
     'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
     'deepseek-v4-flash': 'deepseek-v4.1-flash',
     'deepseek-v4-flash 正式版': 'DeepSeek-V4-Flash-Official',

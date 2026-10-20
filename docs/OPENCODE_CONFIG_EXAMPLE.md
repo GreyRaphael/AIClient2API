@@ -32,33 +32,14 @@
                 "apiKey": "123456"
             },
             "models": {
-                "gemini-2.5-flash-preview": {
-                    "name": "gemini-2.5-flash-antigravity"
+                "gemini-3.8-flash-high": {
+                    "name": "gemini-3.8-flash-high-antigravity"
                 },
-                "gemini-3-flash-preview": {
+                "gemini-3.8-flash-high": {
                     "name": "gemini-3-flash-antigravity"
                 },
-                "gemini-3-pro-preview": {
+                "gemini-3.1-pro-high": {
                     "name": "gemini-3-pro-antigravity"
-                }
-            }
-        },
-        "gemini-cli": {
-            "npm": "@ai-sdk/google",
-            "name": "AIClient2API-geminicli",
-            "options": {
-                "baseURL": "http://localhost:3000/v1beta",
-                "apiKey": "123456"
-            },
-            "models": {
-                "gemini-2.5-flash-preview": {
-                    "name": "gemini-2.5-flash-geminicli"
-                },
-                "gemini-3-flash-preview": {
-                    "name": "gemini-3-flash-geminicli"
-                },
-                "gemini-3-pro-preview": {
-                    "name": "gemini-3-pro-geminicli"
                 }
             }
         }
@@ -70,7 +51,7 @@
 ## 配置重点解释
 
 ### 1. `provider` (服务提供商配置)
-这是配置的核心部分，每个键（如 `kiro`, `gemini-cli`）代表一个独立的服务提供商实例。
+这是配置的核心部分，每个键（如 `kiro`, `gemini-antigravity`）代表一个独立的服务提供商实例。
 
 *   **`npm` (SDK 适配器)**:
     *   指定底层使用的 AI SDK。例如：
@@ -90,9 +71,7 @@
     *   **重点**: 这里的键名必须与服务端实际支持的模型标识符一致。
 
 ### 2. 区分同类型的不同实例
-在示例中，有两个 `gemini` 相关的配置：`gemini-antigravity` 和 `gemini-cli`。
-*   它们虽然都使用 `@ai-sdk/google`，但通过不同的 `baseURL` 区分。
-*   这允许您在同一配置中接入来自不同网关或环境的同类模型，并通过自定义的 `name`（如 `gemini-2.5-flash-antigravity` vs `gemini-2.5-flash-geminicli`）在前端进行区分。
+`gemini-antigravity` 使用 `@ai-sdk/google`，通过其 `baseURL` 接入 Gemini 协议。若需要接入多个实例，可为每个实例使用不同的 `name` 进行区分。
 
 ### 3. `$schema`
 *   用于提供 JSON 模式验证。在支持的编辑器（如 VS Code）中，它可以为您提供自动补全和实时错误检查。

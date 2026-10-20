@@ -11,8 +11,7 @@ import { CodexConverter } from './CodexConverter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
     effortToClaudeBudget,
-    effortToGeminiThinking,
-    isGemini3Model
+    effortToGeminiThinking
 } from '../thinking-budget.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import { getConfigToggle } from '../../core/config-manager.js';
@@ -1407,9 +1406,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         // 处理 reasoning.effort -> thinkingConfig
         if (responsesRequest.reasoning?.effort) {
-            const model = responsesRequest.model || '';
-            const modelFamily = isGemini3Model(model) ? 'gemini-3' : 'gemini-2.5';
-            const thinkingConfig = effortToGeminiThinking(responsesRequest.reasoning.effort, { modelFamily, model });
+            const thinkingConfig = effortToGeminiThinking(responsesRequest.reasoning.effort);
             if (thinkingConfig) {
                 geminiRequest.generationConfig = geminiRequest.generationConfig || {};
                 geminiRequest.generationConfig.thinkingConfig = thinkingConfig;

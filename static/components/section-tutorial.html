@@ -264,14 +264,14 @@
                                 <td data-i18n="tutorial.pool.node.uuid">节点唯一标识，自动生成</td>
                             </tr>
                             <tr>
-                                <td><code>name</code></td>
+                                <td><code>customName</code></td>
                                 <td>string</td>
                                 <td data-i18n="tutorial.pool.node.name">节点自定义名称</td>
                             </tr>
                             <tr>
-                                <td><code>oauthCredsFilePath</code></td>
+                                <td><code>ANTIGRAVITY_OAUTH_CREDS_FILE_PATH</code> / <code>KIRO_OAUTH_CREDS_FILE_PATH</code></td>
                                 <td>string</td>
-                                <td data-i18n="tutorial.pool.node.oauth">OAuth 凭据文件路径</td>
+                                <td data-i18n="tutorial.pool.node.oauth">提供商专属的 OAuth 凭据文件路径</td>
                             </tr>
                             <tr>
                                 <td><code>checkHealth</code></td>
@@ -279,17 +279,17 @@
                                 <td data-i18n="tutorial.pool.node.health">是否启用健康检查</td>
                             </tr>
                             <tr>
-                                <td><code>checkModel</code></td>
+                                <td><code>checkModelName</code></td>
                                 <td>string</td>
                                 <td data-i18n="tutorial.pool.node.model">健康检查使用的模型</td>
                             </tr>
                             <tr>
-                                <td><code>notSupportedModels</code></td>
+                                <td><code>supportedModels</code></td>
                                 <td>array</td>
-                                <td data-i18n="tutorial.pool.node.unsupported">该节点不支持的模型列表</td>
+                                <td data-i18n="tutorial.pool.node.supported">该节点启用的模型列表（缺省表示跟随上游全选）</td>
                             </tr>
                             <tr>
-                                <td><code>disabled</code></td>
+                                <td><code>isDisabled</code></td>
                                 <td>boolean</td>
                                 <td data-i18n="tutorial.pool.node.disabled">是否禁用该节点</td>
                             </tr>
@@ -304,17 +304,18 @@
     "gemini-antigravity": [
         {
             "uuid": "antigravity-account-1",
-            "name": "Antigravity Account 1",
-            "oauthCredsFilePath": "configs/antigravity/oauth_creds_1.json",
+            "customName": "Antigravity Account 1",
+            "ANTIGRAVITY_OAUTH_CREDS_FILE_PATH": "configs/antigravity/oauth_creds_1.json",
             "checkHealth": true,
-            "checkModel": "gemini-3-flash"
+            "checkModelName": "gemini-3.8-flash-high",
+            "supportedModels": ["gemini-3.8-flash-high"]
         }
     ],
     "claude-kiro-oauth": [
         {
             "uuid": "kiro-account-1",
-            "name": "Kiro Account 1",
-            "oauthCredsFilePath": "configs/kiro/kiro-auth-token.json",
+            "customName": "Kiro Account 1",
+            "KIRO_OAUTH_CREDS_FILE_PATH": "configs/kiro/kiro-auth-token.json",
             "checkHealth": true
         }
     ]
@@ -334,7 +335,6 @@
                 <p data-i18n="tutorial.fallback.chain.desc">在 config.json 中配置 providerFallbackChain，指定每个提供商类型的备用类型：</p>
                 <pre><code>{
     "providerFallbackChain": {
-        "gemini-antigravity": ["claude-custom"],
         "claude-kiro-oauth": ["claude-custom"],
         "claude-custom": ["claude-kiro-oauth"]
     }
