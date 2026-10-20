@@ -251,7 +251,10 @@ async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, lo
     try {
         // 动态导入以避免循环依赖
         const { getApiServiceWithFallback } = await import('../services/service-manager.js');
-        const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: true });
+        const result = await getApiServiceWithFallback(CONFIG, model, {
+            acquireSlot: true,
+            allowUnselectedModel: Boolean(CONFIG.customConfig)
+        });
 
         if (result && result.service) {
             logger.info(`${logPrefix} Retrying empty ${providerLabel} response with credential: ${result.uuid} (provider: ${result.actualProviderType})`);
@@ -1281,7 +1284,10 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     const shouldSelectByPool = providerPoolManager && (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO || (CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]));
     if (!service || shouldSelectByPool) {
         const { getApiServiceWithFallback } = await import('../services/service-manager.js');
-        const result = await getApiServiceWithFallback(CONFIG, model, { acquireSlot: shouldSelectByPool });
+        const result = await getApiServiceWithFallback(CONFIG, model, {
+            acquireSlot: shouldSelectByPool,
+            allowUnselectedModel: Boolean(customModelConfig)
+        });
 
         service = result.service;
         toProvider = result.actualProviderType;

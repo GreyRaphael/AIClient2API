@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { CONFIG } from '../core/config-manager.js';
 import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.js';
 import logger from '../utils/logger.js';
 import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.js';
@@ -1004,9 +1005,19 @@ export class ProviderPoolManager {
      */
     _getCustomModelRoutingCandidates(providerType, requestedModel) {
         if (!requestedModel) return [];
-        const customModels = Array.isArray(this.globalConfig?.customModels)
-            ? this.globalConfig.customModels
-            : [];
+        // globalConfig 在部分启动路径下可能不是 CONFIG 本体，合并两处自定义模型来源
+        const configuredCustomModels = [
+            ...(Array.isArray(this.globalConfig?.customModels) ? this.globalConfig.customModels : []),
+            ...(Array.isArray(CONFIG.customModels) ? CONFIG.customModels : [])
+        ];
+        const customModels = [];
+        const seenIds = new Set();
+        for (const model of configuredCustomModels) {
+            const id = model?.id;
+            if (!id || seenIds.has(id)) continue;
+            seenIds.add(id);
+            customModels.push(model);
+        }
         const candidates = new Set();
 
         for (const model of customModels) {
@@ -1031,6 +1042,11 @@ export class ProviderPoolManager {
         const nodes = this.providerStatus[providerType] || [];
         if (nodes.length === 0) {
             return false;
+        }
+
+        // 自定义模型显式路由：只要目标 provider 有对应自定义模型映射，就不做上游候选守卫
+        if (options.allowUnselectedModel && this._getCustomModelRoutingCandidates(providerType, requestedModel).length > 0) {
+            return true;
         }
 
         const capability = resolveProviderCapability(providerType, nodes);
@@ -1080,20 +1096,26 @@ export class ProviderPoolManager {
                 rawModelName = requestedModel.substring(requestedModel.indexOf('/') + 1);
             }
             const modelFilteredProviders = availableAndHealthyProviders.filter(p => {
+                const cleanRequested = (requestedModel || '').replace(/^models\//, '');
+                const cleanRaw = (rawModelName || '').replace(/^models\//, '');
+                const customCandidates = this._getCustomModelRoutingCandidates(providerType, cleanRequested);
+
+                // 自定义模型是用户显式创建的路由意图；即使其 actualModel 未出现在上游发现列表，
+                // 也允许节点尝试处理，避免“分组列表可见但无法路由”。
+                if (options.allowUnselectedModel && customCandidates.length > 0) {
+                    return true;
+                }
+
                 const capability = resolveNodeCapability(providerType, p.config);
                 if (!capability.known) {
                     return true;
                 }
 
                 // 通用节点专属能力守卫：若节点已有可靠发现结果，严格核对其是否实际支持。
-                // 自定义模型的 actualModel 可能与上游发现列表中的 ID 不同（如 glm-5.3 -> ZHIPU/GLM-5.3），
-                // 因此同时用自定义模型映射中的 ID / alias 做候选匹配。
-                const cleanRequested = (requestedModel || '').replace(/^models\//, '');
-                const cleanRaw = (rawModelName || '').replace(/^models\//, '');
                 const modelCandidates = [
                     cleanRequested,
                     cleanRaw,
-                    ...this._getCustomModelRoutingCandidates(providerType, cleanRequested)
+                    ...customCandidates
                 ].filter(Boolean);
                 const models = options.allowUnselectedModel
                     ? capability.candidateModels

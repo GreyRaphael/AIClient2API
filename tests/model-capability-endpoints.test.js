@@ -116,6 +116,38 @@ describe('Model capability endpoint consistency', () => {
         expect(await customManager.selectProvider('openai-custom', 'not-supported-model', { allowUnselectedModel: true })).toBeNull();
     });
 
+    test('自定义模型 actualModel 不在上游候选时仍可按显式路由意图选中节点', async () => {
+        const customUuid = 'openai-custom-node-2';
+        store.setEntry(
+            capabilityKey('openai-custom', { uuid: customUuid }),
+            liveEntry(['legacy-model'])
+        );
+
+        const customManager = new ProviderPoolManager({
+            'openai-custom': [{ uuid: customUuid, isDisabled: false, isHealthy: true }]
+        }, {
+            globalConfig: {
+                customModels: [{
+                    id: 'my-custom-deepseek',
+                    provider: 'openai-custom',
+                    actualProvider: 'openai-custom',
+                    actualModel: 'deepseek-v4.1-flash',
+                    enabled: true
+                }]
+            }
+        });
+        customManager.initializeProviderStatus();
+
+        const selected = await customManager.selectProvider(
+            'openai-custom',
+            'deepseek-v4.1-flash',
+            { allowUnselectedModel: true }
+        );
+        expect(selected?.uuid).toBe(customUuid);
+
+        expect(await customManager.selectProvider('openai-custom', 'deepseek-v4.1-flash')).toBeNull();
+    });
+
     test('显式选择：未勾选的模型不可路由，但候选集仍保留', async () => {
         store.setEntry(
             capabilityKey('trae', { uuid }),
