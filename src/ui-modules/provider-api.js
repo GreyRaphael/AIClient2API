@@ -4,7 +4,6 @@ import { getRequestBody } from '../utils/common.js';
 import {
     extractModelIdsFromNativeList,
     getConfiguredSupportedModels,
-    getProviderModels,
     normalizeModelIds,
     usesManagedModelList
 } from '../providers/provider-models.js';
@@ -14,6 +13,10 @@ import { getRegisteredProviders, getServiceAdapter, invalidateServiceAdapter, se
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.js';
 import { isTraeProviderType, isSoloFamilyProviderType, isSoloFamilyChannel, TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
+import {
+    resolveNodeCapability,
+    resolveProviderCapabilityWithRefresh
+} from '../providers/model-capability.js';
 
 
 
@@ -142,23 +145,6 @@ function loadProviderPools(currentConfig, providerPoolManager) {
     return JSON.parse(readFileSync(filePath, 'utf-8'));
 }
 
-function getManagedSupportedModels(providerType, providers = []) {
-    const nodeModels = providers.flatMap(provider => {
-        const cfg = provider?.config || provider;
-        if (Array.isArray(cfg?.supportedModels) && cfg.supportedModels.length > 0) {
-            return cfg.supportedModels;
-        }
-        const fallback = [];
-        if (cfg?.checkModelName) fallback.push(cfg.checkModelName);
-        let available = cfg?.availableModels;
-        if (typeof available === 'string') available = available.split(',').map(s => s.trim()).filter(Boolean);
-        if (Array.isArray(available)) fallback.push(...available);
-        return fallback;
-    });
-    const customModels = getProviderModels(providerType);
-    return normalizeModelIds([...nodeModels, ...customModels]);
-}
-
 async function persistProviderStatusToFile(currentConfig, providerPoolManager) {
     const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
     const providerPools = {};
@@ -256,41 +242,20 @@ async function runProviderHealthCheck(providerPoolManager, providerType, provide
 }
 
 /**
- * 解析特定节点实际可用模型列表（隔离自各账号自身的配额与探测结果）
+ * 解析特定节点的模型能力（同步，来自 Model Capability 缓存）
  */
-async function resolveNodeAvailableModels(providerType, providerConfig, currentConfig) {
+function resolveNodeCapabilityMeta(providerType, providerConfig) {
     if (!providerType || !providerConfig) return null;
-    const uuid = providerConfig.uuid || 'default';
-    const instanceKey = `${providerType}${uuid}`;
-    let adapter = serviceInstances[instanceKey];
-    if (!adapter) {
-        try {
-            const nodeConfig = providerConfig?.config || providerConfig;
-            const fullConfig = {
-                ...currentConfig,
-                ...nodeConfig,
-                MODEL_PROVIDER: providerType,
-                uuid
-            };
-            delete fullConfig.providerPools;
-            adapter = getServiceAdapter(fullConfig);
-        } catch (e) {
-            logger.debug(`[UI API] Failed to obtain adapter for node ${instanceKey}: ${e.message}`);
-        }
-    }
-    if (adapter) {
-        if (typeof adapter.getNodeAvailableModels === 'function') {
-            try {
-                const models = await adapter.getNodeAvailableModels();
-                if (Array.isArray(models) && models.length > 0) {
-                    return models;
-                }
-            } catch (e) {
-                logger.debug(`[UI API] Error getting node available models for ${instanceKey}: ${e.message}`);
-            }
-        }
-    }
-    return null;
+    return resolveNodeCapability(providerType, providerConfig, { includeDisabled: true });
+}
+
+function applyCapabilityMeta(target, capability) {
+    if (!target || !capability) return target;
+    target.modelsSource = capability.source;
+    target.modelsFetchedAt = capability.fetchedAt;
+    target.modelsStale = capability.stale;
+    target.modelsLastError = capability.entry?.lastError || null;
+    return target;
 }
 
 /**
@@ -311,10 +276,11 @@ export async function handleGetProviders(req, res, currentConfig, providerPoolMa
                     activeRequests: p.state?.activeCount || 0,
                     waitingRequests: p.state?.waitingCount || 0
                 };
-                const nodeModels = await resolveNodeAvailableModels(type, p.config, currentConfig);
-                if (Array.isArray(nodeModels) && nodeModels.length > 0) {
-                    item.availableModels = nodeModels;
+                const capability = resolveNodeCapabilityMeta(type, p.config);
+                if (capability?.known) {
+                    item.availableModels = capability.candidateModels;
                 }
+                applyCapabilityMeta(item, capability);
                 return item;
             }));
         }
@@ -337,10 +303,11 @@ export async function handleGetProviders(req, res, currentConfig, providerPoolMa
                                 activeRequests: 0,
                                 waitingRequests: 0
                             };
-                            const nodeModels = await resolveNodeAvailableModels(type, p, currentConfig);
-                            if (Array.isArray(nodeModels) && nodeModels.length > 0) {
-                                item.availableModels = nodeModels;
+                            const capability = resolveNodeCapabilityMeta(type, p);
+                            if (capability?.known) {
+                                item.availableModels = capability.candidateModels;
                             }
+                            applyCapabilityMeta(item, capability);
                             return item;
                         }));
                     } else if (!providerStatus[type]) {
@@ -384,10 +351,11 @@ export async function handleGetProviderType(req, res, currentConfig, providerPoo
     const providers = providerPools[providerType] || [];
     const sanitizedProviders = await Promise.all(providers.map(async p => {
         const sanitized = sanitizeProviderData(p, true);
-        const nodeModels = await resolveNodeAvailableModels(providerType, p, currentConfig);
-        if (Array.isArray(nodeModels) && nodeModels.length > 0) {
-            sanitized.availableModels = nodeModels;
+        const capability = resolveNodeCapabilityMeta(providerType, p);
+        if (capability?.known) {
+            sanitized.availableModels = capability.candidateModels;
         }
+        applyCapabilityMeta(sanitized, capability);
         return sanitized;
     }));
 
@@ -428,92 +396,8 @@ export async function handleGetSupportedProviders(req, res, currentConfig, provi
     return true;
 }
 
-function getActiveProviderModels(providerType, providerPools, providerPoolManager) {
-    if (providerPoolManager?.getActiveProviderModels) {
-        return providerPoolManager.getActiveProviderModels(providerType, providerPools?.[providerType]);
-    }
-    const rawProviders = providerPools?.[providerType] || [];
-    if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
-        return getProviderModels(providerType);
-    }
-    const activeNodes = rawProviders.filter(p => !p.isDisabled);
-    if (activeNodes.length === 0) {
-        return [];
-    }
-    if (usesManagedModelList(providerType)) {
-        return getManagedSupportedModels(providerType, activeNodes);
-    }
-    return getProviderModels(providerType);
-}
-
-async function warmProviderNodeModels(providerType, providerPools, currentConfig) {
-    const isAgy = providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-');
-    const isCodex = providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-');
-    if (isAgy || isCodex) {
-        try {
-            const nodes = providerPools[providerType] || [];
-            const activeNodes = nodes.filter(n => !n.isDisabled && !n.needsRefresh);
-            const probePromises = activeNodes.map(async (node) => {
-                const nodeConfig = node?.config || node;
-                const instanceKey = `${providerType}${nodeConfig?.uuid || 'default'}`;
-                const existingAdapter = serviceInstances?.[instanceKey];
-                const cachedModels = isAgy 
-                    ? existingAdapter?.antigravityApiService?.availableModels 
-                    : existingAdapter?.codexApiService?.availableModels;
-                if (cachedModels?.length > 0) {
-                    return;
-                }
-                const fullConfig = { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType, uuid: nodeConfig?.uuid };
-                delete fullConfig.providerPools;
-                const adapter = getServiceAdapter(fullConfig);
-                if (adapter && typeof adapter.listModels === 'function') {
-                    await adapter.listModels();
-                }
-            });
-            await Promise.race([
-                Promise.allSettled(probePromises),
-                new Promise(resolve => setTimeout(resolve, 3000))
-            ]);
-        } catch (e) {
-            logger.debug(`[UI API] Dynamic ${providerType} model warm notice: ${e.message}`);
-        }
-    }
-}
-
 /**
- * 触发 Zed / Trae / Codex 动态模型的异步刷新（非阻塞）
- */
-function triggerProviderDynamicModelRefresh(providerType, providerPools, currentConfig) {
-    const isZed = providerType === 'zed' || providerType.startsWith('zed-');
-    const isTrae = providerType === 'trae' || providerType.startsWith('trae-');
-    const isCodex = providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-');
-    if (!isZed && !isTrae && !isCodex) return;
-
-    try {
-        const nodes = providerPools[providerType] || [];
-        const node = nodes[0];
-        const nodeConfig = node?.config || node;
-        const credPath = isZed 
-            ? nodeConfig?.ZED_OAUTH_CREDS_FILE_PATH 
-            : isCodex 
-                ? nodeConfig?.CODEX_OAUTH_CREDS_FILE_PATH 
-                : nodeConfig?.TRAE_OAUTH_CREDS_FILE_PATH;
-        if (!credPath) return;
-
-        const config = { ...currentConfig, ...nodeConfig, MODEL_PROVIDER: providerType };
-        const adapter = getServiceAdapter(config);
-        if (adapter && typeof adapter.listModels === 'function') {
-            adapter.listModels().catch(e => {
-                logger.debug(`[UI API] Dynamic ${providerType} model refresh notice: ${e.message}`);
-            });
-        }
-    } catch (e) {
-        logger.debug(`[UI API] Dynamic ${providerType} model refresh notice: ${e.message}`);
-    }
-}
-
-/**
- * 获取所有提供商的可用模型（支持动态配置组，并过滤号池中排除的模型）
+ * 获取所有提供商的可用模型（display 口径，统一走 Model Capability）
  */
 export async function handleGetProviderModels(req, res, currentConfig, providerPoolManager) {
     const registeredProviders = getRegisteredProviders();
@@ -531,20 +415,18 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
     const allModels = {};
 
     for (const type of allTypes) {
-        if (type === 'gemini-antigravity' || type.startsWith('gemini-antigravity-') ||
-            type === 'openai-codex-oauth' || type.startsWith('openai-codex-oauth-')) {
-            await warmProviderNodeModels(type, providerPools, currentConfig);
-        } else {
-            triggerProviderDynamicModelRefresh(type, providerPools, currentConfig);
+        const nodes = providerPoolManager?.providerStatus?.[type]?.length
+            ? providerPoolManager.providerStatus[type]
+            : (providerPools[type] || []);
+        const capability = resolveProviderCapabilityWithRefresh(type, nodes, { mode: 'display' });
+        let models = capability.models;
+        if (models.length === 0 && usesManagedModelList(type) && providerPoolManager?.getActiveProviderModels) {
+            models = providerPoolManager.getActiveProviderModels(type, nodes);
         }
-    }
-
-    allTypes.forEach(type => {
-        const models = getActiveProviderModels(type, providerPools, providerPoolManager);
-        if (models && models.length > 0) {
+        if (models.length > 0) {
             allModels[type] = models;
         }
-    });
+    }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(allModels));
@@ -552,7 +434,8 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
 }
 
 /**
- * 获取特定提供商类型的可用模型
+ * 获取特定提供商类型的候选模型列表。
+ * 使用 includeDisabled=true，保留用户排除项，供 Provider 弹窗的 notSupportedModels 选择器使用。
  */
 export async function handleGetProviderTypeModels(req, res, currentConfig, providerPoolManager, providerType) {
     let providerPools = {};
@@ -562,47 +445,13 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
         logger.warn('[UI API] Failed to load provider pools for type models:', error.message);
     }
 
-    if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-') ||
-        providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-')) {
-        await warmProviderNodeModels(providerType, providerPools, currentConfig);
-    } else {
-        triggerProviderDynamicModelRefresh(providerType, providerPools, currentConfig);
+    const nodes = providerPoolManager?.providerStatus?.[providerType] || providerPools[providerType] || [];
+    const capability = resolveProviderCapabilityWithRefresh(providerType, nodes, { includeDisabled: true });
+    let models = capability.models;
+    if (models.length === 0 && usesManagedModelList(providerType) && providerPoolManager?.getActiveProviderModels) {
+        models = providerPoolManager.getActiveProviderModels(providerType, nodes, { includeDisabled: true });
     }
 
-    let models = [];
-    try {
-        const providerPools = loadProviderPools(currentConfig, providerPoolManager);
-        if (usesManagedModelList(providerType)) {
-            models = getManagedSupportedModels(providerType, providerPools[providerType] || []);
-        } else if (providerType === 'gemini-antigravity' || providerType.startsWith('gemini-antigravity-')) {
-            const agyNodes = providerPools[providerType] || [];
-            const dynamicModels = new Set(getProviderModels(providerType));
-            for (const n of agyNodes) {
-                const nodeConfig = n.config || n;
-                const nodeModels = nodeConfig.availableModels || (serviceInstances?.[`${providerType}${nodeConfig.uuid || 'default'}`]?.antigravityApiService?.availableModels);
-                if (Array.isArray(nodeModels)) {
-                    nodeModels.forEach(m => dynamicModels.add(m));
-                }
-            }
-            models = Array.from(dynamicModels).sort((a, b) => a.localeCompare(b));
-        } else if (providerType === 'openai-codex-oauth' || providerType.startsWith('openai-codex-oauth-')) {
-            const codexNodes = providerPools[providerType] || [];
-            const dynamicModels = new Set(getProviderModels(providerType));
-            for (const n of codexNodes) {
-                const nodeConfig = n.config || n;
-                const nodeModels = nodeConfig.availableModels || (serviceInstances?.[`${providerType}${nodeConfig.uuid || 'default'}`]?.codexApiService?.availableModels);
-                if (Array.isArray(nodeModels)) {
-                    nodeModels.forEach(m => dynamicModels.add(m));
-                }
-            }
-            models = Array.from(dynamicModels).sort((a, b) => a.localeCompare(b));
-        } else {
-            models = getProviderModels(providerType);
-        }
-    } catch (error) {
-        logger.warn('[UI API] Failed to load provider models for type:', error.message);
-        models = getProviderModels(providerType);
-    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         providerType,
@@ -843,16 +692,17 @@ async function _handleUpdateProvider(req, res, currentConfig, providerPoolManage
         
         // 过滤掉传入配置中的脱敏占位符，避免覆盖真实数据
         const filteredConfig = normalizeProviderConfigFields(filterMaskedData(providerConfig));
+        // 模型发现结果属于运行时缓存，禁止通过配置保存回写
+        delete filteredConfig.availableModels;
+        delete filteredConfig.discoveredModels;
+        delete filteredConfig.modelsFetchedAt;
+        delete filteredConfig.modelsSource;
         if (usesManagedModelList(providerType)) {
             filteredConfig.supportedModels = normalizeModelIds(filteredConfig.supportedModels);
             filteredConfig.notSupportedModels = [];
         } else {
+            // 只保留用户显式排除项，不再按实时列表裁剪
             filteredConfig.notSupportedModels = normalizeModelIds(filteredConfig.notSupportedModels);
-            // 若节点具备明确的 availableModels，剔除其根本不支持的无关模型
-            const nodeAvailable = await resolveNodeAvailableModels(providerType, existingProvider, currentConfig);
-            if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
-                filteredConfig.notSupportedModels = filteredConfig.notSupportedModels.filter(m => nodeAvailable.includes(m));
-            }
         }
         
         const updatedProvider = {

@@ -1213,7 +1213,6 @@ export class TraeApiService {
                     accountCache.functionMap = newFunctionMap;
                     accountCache.models = modelObjects;
                     accountCache.expiresAt = now + TRAE_MODELS_CACHE_TTL_MS;
-                    updateProviderModels(targetProvider, modelIds);
                     logger.info(`[Trae] (${targetProvider}/${this.channelMode}) Successfully fetched dynamic model list from upstream (${modelIds.length} models): ${modelIds.join(', ')}`);
                     return modelObjects;
                 }

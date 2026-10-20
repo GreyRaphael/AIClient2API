@@ -248,7 +248,8 @@ export function getCapabilityStore() {
 /**
  * 解析单个节点的模型能力（同步，不发起网络请求）。
  */
-export function resolveNodeCapability(providerType, nodeConfig = {}) {
+export function resolveNodeCapability(providerType, nodeConfig = {}, options = {}) {
+    const { includeDisabled = false } = options;
     const key = capabilityKey(providerType, nodeConfig);
     const entry = getCapabilityStore().getEntry(key);
     const legacyModels = readLegacyModels(nodeConfig);
@@ -304,10 +305,14 @@ export function resolveNodeCapability(providerType, nodeConfig = {}) {
     } else {
         baseModels = baseline;
         source = dynamic ? CAPABILITY_SOURCE.BASELINE : CAPABILITY_SOURCE.STATIC;
-        known = !dynamic;
+        // 没有发现记录时不做路由守卫：静态 provider 的别名/映射可能在 resolver 之外处理，
+        // 动态 provider 也需要放行新模型，避免基线误拦截。
+        known = false;
     }
 
-    const models = baseModels.filter(model => !disabledSet.has(model));
+    const models = includeDisabled
+        ? baseModels
+        : baseModels.filter(model => !disabledSet.has(model));
     const ttl = getTtlMs(providerType);
     const stale = dynamic
         ? (!known || Boolean(entry?.lastError) || (Date.now() - fetchedAt) > ttl)
@@ -317,6 +322,7 @@ export function resolveNodeCapability(providerType, nodeConfig = {}) {
         key,
         uuid: nodeConfig?.uuid || null,
         models,
+        candidateModels: baseModels,
         discovered,
         source,
         fetchedAt,
@@ -334,7 +340,7 @@ export function resolveNodeCapability(providerType, nodeConfig = {}) {
  * mode='routing'：返回每个节点的能力，由调用方按 model 过滤。
  */
 export function resolveProviderCapability(providerType, nodes = [], options = {}) {
-    const { includeUnhealthy = false } = options;
+    const { includeUnhealthy = false, includeDisabled = false } = options;
     const configs = (Array.isArray(nodes) ? nodes : [])
         .map(node => node?.config || node)
         .filter(Boolean)
@@ -342,7 +348,7 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
         .filter(config => includeUnhealthy || config.isHealthy !== false);
 
     const nodeCapabilities = configs.map(config => ({
-        ...resolveNodeCapability(providerType, config),
+        ...resolveNodeCapability(providerType, config, { includeDisabled }),
         config
     }));
 
@@ -351,7 +357,10 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
 
     const modelSet = new Set();
     for (const capability of contributors) {
-        for (const model of capability.models) {
+        const models = includeDisabled
+            ? (capability.candidateModels || capability.models)
+            : capability.models;
+        for (const model of models) {
             modelSet.add(model);
         }
     }

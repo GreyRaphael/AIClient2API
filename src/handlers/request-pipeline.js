@@ -22,31 +22,12 @@ import {
     getErrorStatusCode
 } from '../utils/common.js';
 import {
-    usesManagedModelList,
-    getConfiguredSupportedModels,
     getCustomModelConfig,
     getCustomModelActualProvider,
     getCustomModelListProvider,
-    getProviderModels,
     normalizeModelIds
 } from '../providers/provider-models.js';
-
-/**
- * 获取指定提供商类型下，所有节点配置的已选模型列表（去重聚合）
- * @param {object} providerPoolManager - 提供商池管理器
- * @param {string} providerType - 提供商类型
- * @returns {string[]} 聚合后的模型 ID 列表
- */
-function getConfiguredSupportedModelsFromPool(providerPoolManager, providerType) {
-    if (!providerPoolManager?.providerStatus?.[providerType]) {
-        return [];
-    }
-
-    return [...new Set(
-        providerPoolManager.providerStatus[providerType]
-            .flatMap(providerStatus => getConfiguredSupportedModels(providerType, providerStatus.config))
-    )].sort((a, b) => a.localeCompare(b));
-}
+import { resolveProviderCapability } from '../providers/model-capability.js';
 
 /**
  * 获取指定提供商类型下，所有有效节点均排除（或指定节点排除）的不支持模型列表
@@ -56,39 +37,34 @@ function getConfiguredSupportedModelsFromPool(providerPoolManager, providerType)
  * @returns {string[]} 聚合后的不支持模型列表
  */
 export function getConfiguredNotSupportedModelsFromPool(providerPoolManager, providerType, pooluuid = null) {
-    if (!providerPoolManager) return [];
-    if (typeof providerPoolManager.getEffectiveExcludedModels === 'function') {
-        return providerPoolManager.getEffectiveExcludedModels(providerType, pooluuid);
-    }
-
-    if (!providerPoolManager?.providerStatus?.[providerType]) {
-        return [];
-    }
-
-    const nodes = providerPoolManager.providerStatus[providerType];
+    const nodes = providerPoolManager?.providerStatus?.[providerType];
     if (!Array.isArray(nodes) || nodes.length === 0) {
         return [];
     }
 
+    const readDisabledModels = (config) => normalizeModelIds(
+        config?.disabledModels ?? config?.notSupportedModels ?? []
+    );
+
     if (pooluuid) {
-        const targetNode = nodes.find(n => n.config?.uuid === pooluuid);
+        const targetNode = nodes.find(n => (n.config?.uuid || n.uuid) === pooluuid);
         if (targetNode) {
-            return normalizeModelIds(targetNode.config?.notSupportedModels || []);
+            return readDisabledModels(targetNode.config || targetNode);
         }
     }
 
-    const activeNodes = nodes.filter(n => !n.config?.isDisabled);
+    const activeNodes = nodes.filter(n => !(n.config || n).isDisabled);
     if (activeNodes.length === 0) {
-        return normalizeModelIds(getProviderModels(providerType));
+        return [];
     }
 
-    const firstNodeExcluded = normalizeModelIds(activeNodes[0].config?.notSupportedModels || []);
+    const firstNodeExcluded = readDisabledModels(activeNodes[0].config || activeNodes[0]);
     if (firstNodeExcluded.length === 0) {
         return [];
     }
 
     return firstNodeExcluded.filter(model =>
-        activeNodes.every(n => (n.config?.notSupportedModels || []).includes(model))
+        activeNodes.every(n => readDisabledModels(n.config || n).includes(model))
     );
 }
 
@@ -1292,43 +1268,20 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
             const toProvider = CONFIG.MODEL_PROVIDER;
             const customEntries = getCustomModelEntriesForProvider(CONFIG, toProvider);
             const customModelIds = customEntries.map(e => e.modelId || e.id);
-            const pooledSupportedModels = getConfiguredSupportedModelsFromPool(providerPoolManager, toProvider);
-            const configuredSupportedModels = pooledSupportedModels.length > 0
-                ? pooledSupportedModels
-                : getConfiguredSupportedModels(toProvider, CONFIG);
 
             // 1. 如果"自定义模型管理"针对实际列表提供商设置了模型，完全使用"自定义模型管理"中的数据
             if (customModelIds.length > 0) {
                 const uniqueCustomModels = normalizeModelIds(customModelIds);
                 logger.info(`[ModelList] Using exclusively custom models for ${toProvider}: ${uniqueCustomModels.join(', ')}`);
                 clientModelList = buildConfiguredModelListResponse(uniqueCustomModels, toProvider, endpointType);
-            } else if (usesManagedModelList(toProvider) && configuredSupportedModels.length > 0) {
-                // 2. 如果是托管提供商且号池中明确配置了 supportedModels
-                logger.info(`[ModelList] Returning configured supported models for ${toProvider}: ${configuredSupportedModels.join(', ')}`);
-                clientModelList = buildConfiguredModelListResponse(configuredSupportedModels, toProvider, endpointType);
             } else {
-                // 3. 如果"自定义模型管理"没有针对该提供商设置，使用源头的 /v1/models 列表
-                let resolvedService = service;
-                if (!resolvedService) {
-                    const { getApiService } = await import('../services/service-manager.js');
-                    resolvedService = await getApiService(CONFIG, null, { skipUsageCount: true });
-                }
-
-                if (!resolvedService || typeof resolvedService.listModels !== 'function') {
-                    throw new Error(`[ModelList] Service adapter is unavailable or does not implement listModels() for provider: ${toProvider}`);
-                }
-
-                // 1. Get the model list in the backend's native format.
-                const nativeModelList = await resolvedService.listModels();
-
-                // 2. Convert the model list to the client's expected format, if necessary.
-                clientModelList = nativeModelList;
-                if (!getProtocolPrefix(toProvider).includes(getProtocolPrefix(fromProvider))) {
-                    logger.info(`[ModelList Convert] Converting model list from ${toProvider} to ${fromProvider}`);
-                    clientModelList = convertData(nativeModelList, 'modelList', toProvider, fromProvider);
-                } else {
-                    logger.info(`[ModelList Convert] Model list format matches. No conversion needed.`);
-                }
+                // 2. 统一走 Model Capability resolver（托管/动态/静态 provider 同一口径）
+                const nodes = providerPoolManager?.providerStatus?.[toProvider]?.length
+                    ? providerPoolManager.providerStatus[toProvider]
+                    : (providerPoolManager?.providerPools?.[toProvider] || CONFIG.providerPools?.[toProvider] || []);
+                const capability = resolveProviderCapability(toProvider, nodes, { includeDisabled: false });
+                logger.info(`[ModelList] Using capability models for ${toProvider}: ${capability.models.length} models (source=${capability.source}, stale=${capability.stale})`);
+                clientModelList = buildConfiguredModelListResponse(capability.models, toProvider, endpointType);
             }
 
             // 过滤 notSupportedModels（从号池节点或配置中获取）

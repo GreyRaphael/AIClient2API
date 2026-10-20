@@ -1389,8 +1389,6 @@ export class ZedApiService {
                     if (modelIds.length > 0) {
                         this.modelsCache = rawModels;
                         this.modelsExpiresAt = Date.now() + ZED_MODELS_CACHE_TTL_MS;
-                        // 同步更新全局 PROVIDER_MODELS['zed']（受 BASE_ZED_MODELS 合并保护）
-                        updateProviderModels(MODEL_PROVIDER.ZED, modelIds);
                         logger.info(`[Zed] Successfully updated dynamic model list from cloud.zed.dev (${modelIds.length} models): ${modelIds.join(', ')}`);
                         return rawModels;
                     }

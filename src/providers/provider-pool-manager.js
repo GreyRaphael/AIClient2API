@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter, serviceInstances } from './adapter.js';
+import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.js';
 import logger from '../utils/logger.js';
 import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
@@ -7,12 +7,16 @@ import { convertData } from '../convert/convert.js';
 
 import {
     getConfiguredSupportedModels,
-    getConfiguredNotSupportedModels,
     getCustomModelListProvider,
     getProviderModels,
     normalizeModelIds,
     usesManagedModelList
 } from './provider-models.js';
+import {
+    nodeSupportsModel,
+    resolveNodeCapability,
+    resolveProviderCapabilityWithRefresh
+} from './model-capability.js';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';
 import { ENDPOINT_TYPE } from '../utils/common.js';
 
@@ -1059,17 +1063,12 @@ export class ProviderPoolManager {
                     return supportedModels.includes(requestedModel) || supportedModels.includes(rawModelName);
                 }
 
-                // 通用节点专属能力守卫：若节点已明确自身可用模型列表，严格核对其是否实际支持
-                const nodeAvailable = this.getNodeAvailableModels(providerType, p.config);
-                if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
+                // 通用节点专属能力守卫：若节点已有可靠发现结果，严格核对其是否实际支持
+                const capability = resolveNodeCapability(providerType, p.config);
+                if (capability.known) {
                     const cleanRequested = (requestedModel || '').replace(/^models\//, '');
                     const cleanRaw = (rawModelName || '').replace(/^models\//, '');
-                    const isSupportedByNode = nodeAvailable.some(m =>
-                        m === cleanRequested || m === cleanRaw ||
-                        m === `${cleanRequested}-high` || m === `${cleanRaw}-high` ||
-                        m === `${cleanRequested}-thinking` || m === `${cleanRaw}-thinking`
-                    );
-                    if (!isSupportedByNode) {
+                    if (!nodeSupportsModel(capability, cleanRequested) && !nodeSupportsModel(capability, cleanRaw)) {
                         return false;
                     }
                 }
@@ -1457,143 +1456,45 @@ export class ProviderPoolManager {
     }
 
     /**
-     * 获取节点的可用模型列表（优先从运行中的适配器获取，降级到配置中的 availableModels）
-     * @param {string} providerType 
-     * @param {object} nodeConfig 
+     * 获取节点的可用模型列表（唯一读取入口：Model Capability）
+     * - 有可靠发现结果（live / legacy persisted）时返回节点模型；
+     * - 没有任何发现结果时返回 null，表示“不做节点级路由守卫”。
+     * @param {string} providerType
+     * @param {object} nodeConfig
+     * @param {object} [options]
      * @returns {string[]|null}
      */
-    getNodeAvailableModels(providerType, nodeConfig) {
+    getNodeAvailableModels(providerType, nodeConfig, options = {}) {
         if (!nodeConfig) return null;
-        const instanceKey = `${providerType}${nodeConfig.uuid || 'default'}`;
-        const adapter = serviceInstances?.[instanceKey];
-        let nodeAvailable = adapter?.antigravityApiService?.availableModels ||
-                            adapter?.codexApiService?.availableModels ||
-                            nodeConfig.availableModels;
-        if (typeof nodeAvailable === 'string') {
-            nodeAvailable = nodeAvailable.split(',').map(s => s.trim()).filter(Boolean);
-        }
-        if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
-            return nodeAvailable;
-        }
-        return null;
+        const capability = resolveNodeCapability(providerType, nodeConfig, options);
+        return capability.known ? capability.models : null;
     }
 
     /**
-     * 获取指定提供商类型下所有活跃节点支持的可用模型并集（单一事实来源）
-     * @param {string} providerType 
-     * @param {Array} [rawNodesOverride] 
+     * 获取指定提供商类型下所有活跃节点的模型并集。
+     * 这是 display 语义的唯一入口，内部委托 Model Capability resolver。
+     * @param {string} providerType
+     * @param {Array} [rawNodesOverride]
+     * @param {object} [options]
      * @returns {string[]}
      */
-    getActiveProviderModels(providerType, rawNodesOverride = null) {
+    getActiveProviderModels(providerType, rawNodesOverride = null, options = {}) {
         const rawProviders = rawNodesOverride || this.providerStatus[providerType] || this.providerPools?.[providerType] || [];
         if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
             return getProviderModels(providerType);
         }
 
-        const activeNodes = rawProviders.filter(p => {
-            const cfg = p.config || p;
-            return !cfg.isDisabled && (cfg.isHealthy !== false);
-        });
-
-        if (activeNodes.length === 0) {
-            return [];
+        const capability = resolveProviderCapabilityWithRefresh(providerType, rawProviders, options);
+        if (capability.models.length > 0) {
+            return capability.models;
         }
 
         if (usesManagedModelList(providerType)) {
-            const nodeModels = activeNodes.flatMap(p => {
-                const cfg = p.config || p;
-                if (Array.isArray(cfg.supportedModels) && cfg.supportedModels.length > 0) {
-                    return cfg.supportedModels;
-                }
-                const fallback = [];
-                if (cfg.checkModelName) fallback.push(cfg.checkModelName);
-                const available = this.getNodeAvailableModels(providerType, cfg);
-                if (Array.isArray(available)) fallback.push(...available);
-                return fallback;
-            });
-            const customModels = getProviderModels(providerType);
-            const combined = normalizeModelIds([...nodeModels, ...customModels]);
-            if (combined.length > 0) {
-                return combined;
-            }
             const defaultModel = ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS[providerType];
             return defaultModel ? [defaultModel] : [];
         }
 
-        const activeModelsSet = new Set();
-        let hasNodeSpecificModels = false;
-
-        for (const node of activeNodes) {
-            const nodeConfig = node.config || node;
-            const notSupported = normalizeModelIds(nodeConfig.notSupportedModels || []);
-            const nodeAvailable = this.getNodeAvailableModels(providerType, nodeConfig);
-
-            if (Array.isArray(nodeAvailable) && nodeAvailable.length > 0) {
-                hasNodeSpecificModels = true;
-                nodeAvailable.forEach(m => {
-                    if (!notSupported.includes(m)) {
-                        activeModelsSet.add(m);
-                    }
-                });
-            }
-        }
-
-        if (hasNodeSpecificModels) {
-            return Array.from(activeModelsSet).sort((a, b) => a.localeCompare(b));
-        }
-
-        // 静态通用提供商：排除被所有活跃节点共同排除的模型
-        const defaultModels = getProviderModels(providerType);
-        const firstNodeConfig = activeNodes[0].config || activeNodes[0];
-        const firstNodeExcluded = normalizeModelIds(firstNodeConfig.notSupportedModels || []);
-        const commonExcluded = firstNodeExcluded.filter(model =>
-            activeNodes.every(n => {
-                const cfg = n.config || n;
-                return (cfg.notSupportedModels || []).includes(model);
-            })
-        );
-
-        if (commonExcluded.length > 0) {
-            return defaultModels.filter(m => !commonExcluded.includes(m));
-        }
-        return defaultModels;
-    }
-
-    /**
-     * 计算指定提供商在号池中的有效排除模型列表 (用于从响应中过滤掉不支持的模型)
-     * @param {string} providerType 
-     * @param {string} [pooluuid] 
-     * @returns {string[]}
-     */
-    getEffectiveExcludedModels(providerType, pooluuid = null) {
-        const rawProviders = this.providerStatus[providerType] || this.providerPools?.[providerType] || [];
-        if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
-            return [];
-        }
-
-        if (pooluuid) {
-            const targetNode = rawProviders.find(n => (n.config?.uuid || n.uuid) === pooluuid);
-            if (targetNode) {
-                const cfg = targetNode.config || targetNode;
-                return normalizeModelIds(cfg.notSupportedModels || []);
-            }
-        }
-
-        const activeNodes = rawProviders.filter(p => {
-            const cfg = p.config || p;
-            return !cfg.isDisabled && (cfg.isHealthy !== false);
-        });
-
-        if (activeNodes.length === 0) {
-            return normalizeModelIds(getProviderModels(providerType));
-        }
-
-        const activeModels = this.getActiveProviderModels(providerType, rawProviders);
-        const allKnownModels = getProviderModels(providerType);
-        const activeModelsSet = new Set(activeModels);
-
-        const excluded = allKnownModels.filter(m => !activeModelsSet.has(m));
-        return normalizeModelIds(excluded);
+        return capability.models;
     }
 
     /**
@@ -1639,42 +1540,7 @@ export class ProviderPoolManager {
                     models = normalizeModelIds(poolActiveModels.filter(model => !customAliases.has(model)));
                 }
 
-                // 如果"自定义模型管理"没有设置且模型列表仍为空，尝试从源头服务获取
-                // 只有在号池中有活跃节点时才尝试获取
-                if (customModelIds.length === 0 && models.length === 0 && activeNodes.length > 0) {
-                    try {
-                        // 确定使用的配置：优先使用号池中第一个活跃节点的配置
-                        let targetConfig = activeNodes[0].config;
-
-                        const tempConfig = {
-                            ...this.globalConfig,
-                            ...targetConfig,
-                            MODEL_PROVIDER: providerType
-                        };
-                        delete tempConfig.providerPools;
-                        const serviceAdapter = getServiceAdapter(tempConfig);
-                        
-                        if (typeof serviceAdapter.listModels === 'function') {
-                            const nativeModels = await serviceAdapter.listModels();
-                            // 统一转换为 OpenAI 格式以便提取 ID
-                            const convertedData = convertData(nativeModels, 'modelList', providerType, MODEL_PROVIDER.OPENAI_CUSTOM);
-                            if (convertedData && Array.isArray(convertedData.data)) {
-                                const fetchedModels = convertedData.data.map(m => m.id);
-                                if (fetchedModels.length > 0) {
-                                    models = fetchedModels;
-                                    const effectiveExcluded = this.getEffectiveExcludedModels(providerType);
-                                    if (effectiveExcluded.length > 0) {
-                                        models = models.filter(m => !effectiveExcluded.includes(m));
-                                    }
-                                }
-                            }
-                        }
-                    } catch (err) {
-                        this._log('debug', `Failed to fetch model list for ${providerType} from service: ${err.message}`);
-                        // 保持原有的 models (可能是硬编码的空列表或 getProviderModels 返回的结果)
-                    }
-                }
-
+                // 单一事实来源：Model Capability resolver 已处理托管/动态/静态 provider 的差异
                 for (const model of models) {
                     allModels.push({
                         id: `${providerType}:${model}`,

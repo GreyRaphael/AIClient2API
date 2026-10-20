@@ -10,7 +10,7 @@ import {getProviderPoolManager} from '../../services/service-manager.js';
 import {configureTLSSidecar, isTLSSidecarEnabledForProvider} from '../../utils/proxy-utils.js';
 import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.js';
 import {getProxyConfigForProvider} from '../../utils/proxy-utils.js';
-import {getProviderModels, updateProviderModels} from '../provider-models.js';
+import {getProviderModels} from '../provider-models.js';
 import {normalizeCodexInstructions} from './codex-request-utils.js';
 
 export const CODEX_FALLBACK_VERSION = '0.162.1';
@@ -1182,10 +1182,6 @@ export class CodexApiService {
                     if (modelIds.length > 0) {
                         // 保留虚拟图像模型 (gpt-image-2)
                         const mergedBaseModels = [...new Set([...modelIds, ...Array.from(IMAGE_MODELS)])];
-                        const targetProvider = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
-
-                        // 更新全局提供商模型列表 (provider-models.js)
-                        updateProviderModels(targetProvider, mergedBaseModels);
 
                         // 派生 -fast 变体并保存至节点 availableModels
                         const fastModels = mergedBaseModels.map(m => `${m}-fast`);
