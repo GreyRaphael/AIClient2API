@@ -66,6 +66,19 @@ describe('Model Capability', () => {
         expect(capability.discovered).toEqual(['new-model']);
     });
 
+    test('动态 provider 的 live 结果保留用户自定义模型', () => {
+        CONFIG.customModels = [
+            { id: 'custom-trae-model', provider: 'trae', enabled: true }
+        ];
+        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['live-model']));
+
+        const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
+
+        expect(capability.models).toContain('live-model');
+        expect(capability.models).toContain('custom-trae-model');
+        expect(capability.discovered).toEqual(['live-model']);
+    });
+
     test('成功发现但结果为空时返回空集合，不回退基线', () => {
         store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry([]));
 

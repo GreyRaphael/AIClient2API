@@ -4,6 +4,7 @@ import logger from '../utils/logger.js';
 import { CONFIG } from '../core/config-manager.js';
 import {
     getConfiguredSupportedModels,
+    getCustomModelListProvider,
     getProviderModels,
     normalizeModelIds,
     usesManagedModelList
@@ -123,6 +124,17 @@ function getDisabledModels(nodeConfig) {
 function getBaselineModels(providerType) {
     // getProviderModels 会注入用户自定义模型；静态基线本身在 provider-models.js 中保持不可变。
     return normalizeModelIds(getProviderModels(providerType));
+}
+
+function getConfiguredCustomModelIds(providerType) {
+    const customModels = Array.isArray(CONFIG.customModels) ? CONFIG.customModels : [];
+    return customModels
+        .filter(model => {
+            if (!model || model.enabled === false || !model.id) return false;
+            const listProvider = getCustomModelListProvider(model);
+            return listProvider === providerType || providerType.startsWith(listProvider + '-');
+        })
+        .map(model => model.id);
 }
 
 function pickSource(sources) {
@@ -286,19 +298,26 @@ export function resolveNodeCapability(providerType, nodeConfig = {}, options = {
                 source = CAPABILITY_SOURCE.PERSISTED;
                 known = true;
             } else {
-                candidates.push(...baseline);
                 source = CAPABILITY_SOURCE.CONFIGURED;
             }
+            // 托管 provider 始终保留自定义模型（baseline 中包含注入项）
+            candidates.push(...baseline);
             baseModels = normalizeModelIds(candidates);
         }
     } else if (entry) {
-        baseModels = normalizeModelIds(entry.models || []);
-        discovered = baseModels;
+        baseModels = normalizeModelIds([
+            ...(entry.models || []),
+            ...getConfiguredCustomModelIds(providerType)
+        ]);
+        discovered = normalizeModelIds(entry.models || []);
         source = entry.source || CAPABILITY_SOURCE.LIVE;
         fetchedAt = entry.fetchedAt || 0;
         known = true;
     } else if (legacyModels) {
-        baseModels = legacyModels;
+        baseModels = normalizeModelIds([
+            ...legacyModels,
+            ...getConfiguredCustomModelIds(providerType)
+        ]);
         discovered = legacyModels;
         source = CAPABILITY_SOURCE.PERSISTED;
         known = true;
