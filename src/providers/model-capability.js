@@ -4,7 +4,7 @@ import logger from '../utils/logger.js';
 import { CONFIG } from '../core/config-manager.js';
 import {
     getConfiguredSupportedModels,
-    getCustomModelListProvider,
+    getCustomModelIdsForProvider,
     getProviderModels,
     normalizeModelIds,
     usesManagedModelList
@@ -14,9 +14,10 @@ import {
  * 模型能力层（Model Capability）
  *
  * 设计原则：
- * - 配置只存“用户意图”（disabledModels / supportedModels）；
+ * - 配置只存“用户意图”（supportedModels / supportedModelsBaseline）；
  * - 模型发现结果只存“运行时缓存”（per providerType:uuid）；
- * - 静态基线只做最后兜底，并显式标记 source，避免伪装成实时结果。
+ * - 节点候选集只来自上游发现或静态基线，不注入自定义模型；
+ * - 自定义模型只在分组最终集中并入。
  *
  * 该模块是模型列表的唯一读取入口，端点、路由、健康检查都不应再自行推导模型集合。
  */
@@ -25,7 +26,6 @@ export const CAPABILITY_SOURCE = {
     LIVE: 'live',
     PERSISTED: 'persisted',
     BASELINE: 'baseline',
-    CONFIGURED: 'configured',
     STATIC: 'static'
 };
 
@@ -54,9 +54,8 @@ const DYNAMIC_PROVIDERS = new Set([
 ]);
 
 const SOURCE_PRIORITY = {
-    [CAPABILITY_SOURCE.LIVE]: 5,
-    [CAPABILITY_SOURCE.PERSISTED]: 4,
-    [CAPABILITY_SOURCE.CONFIGURED]: 3,
+    [CAPABILITY_SOURCE.LIVE]: 4,
+    [CAPABILITY_SOURCE.PERSISTED]: 3,
     [CAPABILITY_SOURCE.STATIC]: 2,
     [CAPABILITY_SOURCE.BASELINE]: 1
 };
@@ -103,38 +102,8 @@ function getColdStartTimeoutMs() {
     return DEFAULT_COLD_START_TIMEOUT_MS;
 }
 
-function readLegacyModels(nodeConfig) {
-    const raw = nodeConfig?.availableModels;
-    if (Array.isArray(raw)) {
-        return normalizeModelIds(raw);
-    }
-    if (typeof raw === 'string' && raw.trim()) {
-        return normalizeModelIds(raw.split(','));
-    }
-    return null;
-}
-
-function getDisabledModels(nodeConfig) {
-    const raw = nodeConfig?.disabledModels ?? nodeConfig?.notSupportedModels;
-    if (Array.isArray(raw)) return normalizeModelIds(raw);
-    if (typeof raw === 'string' && raw.trim()) return normalizeModelIds(raw.split(','));
-    return [];
-}
-
 function getBaselineModels(providerType) {
-    // getProviderModels 会注入用户自定义模型；静态基线本身在 provider-models.js 中保持不可变。
     return normalizeModelIds(getProviderModels(providerType));
-}
-
-function getConfiguredCustomModelIds(providerType) {
-    const customModels = Array.isArray(CONFIG.customModels) ? CONFIG.customModels : [];
-    return customModels
-        .filter(model => {
-            if (!model || model.enabled === false || !model.id) return false;
-            const listProvider = getCustomModelListProvider(model);
-            return listProvider === providerType || providerType.startsWith(listProvider + '-');
-        })
-        .map(model => model.id);
 }
 
 function pickSource(sources) {
@@ -258,80 +227,63 @@ export function getCapabilityStore() {
 }
 
 /**
+ * 计算节点选择集。
+ *
+ * - supportedModels 缺失：跟随上游候选全选；
+ * - supportedModels 为数组：保留显式选择，并自动吸收相对上次候选快照的新模型；
+ * - 结果始终与当前候选集取交集，确保节点候选只与上游 model_list 一致。
+ */
+function resolveSelectedModels(providerType, nodeConfig, candidateModels) {
+    if (!Array.isArray(nodeConfig?.supportedModels)) {
+        return {
+            selectedModels: candidateModels,
+            selectionMode: 'all'
+        };
+    }
+
+    const supportedModels = getConfiguredSupportedModels(providerType, nodeConfig);
+    const baselineModels = Array.isArray(nodeConfig?.supportedModelsBaseline)
+        ? normalizeModelIds(nodeConfig.supportedModelsBaseline)
+        : candidateModels;
+    const baselineSet = new Set(baselineModels);
+    const newModels = candidateModels.filter(model => !baselineSet.has(model));
+    const candidateSet = new Set(candidateModels);
+    const selectedModels = normalizeModelIds([...supportedModels, ...newModels])
+        .filter(model => candidateSet.has(model));
+
+    return {
+        selectedModels,
+        selectionMode: 'explicit'
+    };
+}
+
+/**
  * 解析单个节点的模型能力（同步，不发起网络请求）。
  */
-export function resolveNodeCapability(providerType, nodeConfig = {}, options = {}) {
-    const { includeDisabled = false } = options;
+export function resolveNodeCapability(providerType, nodeConfig = {}) {
     const key = capabilityKey(providerType, nodeConfig);
     const entry = getCapabilityStore().getEntry(key);
-    const legacyModels = readLegacyModels(nodeConfig);
-    const baseline = getBaselineModels(providerType);
-    const managed = usesManagedModelList(providerType);
-    const supportedModels = managed
-        ? getConfiguredSupportedModels(providerType, nodeConfig)
-        : [];
-    const disabledModels = getDisabledModels(nodeConfig);
-    const disabledSet = new Set(disabledModels);
     const dynamic = isDynamicProvider(providerType);
 
-    let baseModels = [];
-    let discovered = null;
+    let candidateModels = [];
     let source = CAPABILITY_SOURCE.BASELINE;
     let fetchedAt = 0;
     let known = false;
 
-    if (managed) {
-        if (supportedModels.length > 0) {
-            baseModels = normalizeModelIds([...supportedModels, ...baseline]);
-            source = CAPABILITY_SOURCE.CONFIGURED;
-            known = true;
-        } else {
-            const candidates = [];
-            if (nodeConfig?.checkModelName) candidates.push(nodeConfig.checkModelName);
-            if (entry) {
-                candidates.push(...(entry.models || []));
-                source = entry.source || CAPABILITY_SOURCE.PERSISTED;
-                fetchedAt = entry.fetchedAt || 0;
-                known = true;
-            } else if (legacyModels) {
-                candidates.push(...legacyModels);
-                source = CAPABILITY_SOURCE.PERSISTED;
-                known = true;
-            } else {
-                source = CAPABILITY_SOURCE.CONFIGURED;
-            }
-            // 托管 provider 始终保留自定义模型（baseline 中包含注入项）
-            candidates.push(...baseline);
-            baseModels = normalizeModelIds(candidates);
-        }
-    } else if (entry) {
-        baseModels = normalizeModelIds([
-            ...(entry.models || []),
-            ...getConfiguredCustomModelIds(providerType)
-        ]);
-        discovered = normalizeModelIds(entry.models || []);
+    if (entry) {
+        candidateModels = normalizeModelIds(entry.models || []);
         source = entry.source || CAPABILITY_SOURCE.LIVE;
         fetchedAt = entry.fetchedAt || 0;
         known = true;
-    } else if (legacyModels) {
-        baseModels = normalizeModelIds([
-            ...legacyModels,
-            ...getConfiguredCustomModelIds(providerType)
-        ]);
-        discovered = legacyModels;
-        source = CAPABILITY_SOURCE.PERSISTED;
-        known = true;
     } else {
-        baseModels = baseline;
+        candidateModels = getBaselineModels(providerType);
         source = dynamic ? CAPABILITY_SOURCE.BASELINE : CAPABILITY_SOURCE.STATIC;
         // 没有发现记录时不做路由守卫：静态 provider 的别名/映射可能在 resolver 之外处理，
         // 动态 provider 也需要放行新模型，避免基线误拦截。
         known = false;
     }
 
-    const models = includeDisabled
-        ? baseModels
-        : baseModels.filter(model => !disabledSet.has(model));
+    const { selectedModels, selectionMode } = resolveSelectedModels(providerType, nodeConfig, candidateModels);
     const ttl = getTtlMs(providerType);
     const stale = entry
         ? (Boolean(entry.lastError) || (Date.now() - fetchedAt) > ttl)
@@ -340,14 +292,14 @@ export function resolveNodeCapability(providerType, nodeConfig = {}, options = {
     return {
         key,
         uuid: nodeConfig?.uuid || null,
-        models,
-        candidateModels: baseModels,
-        discovered,
+        models: selectedModels,
+        candidateModels,
+        selectedModels,
+        selectionMode,
         source,
         fetchedAt,
         stale,
         known,
-        disabledModels,
         entry
     };
 }
@@ -355,11 +307,11 @@ export function resolveNodeCapability(providerType, nodeConfig = {}, options = {
 /**
  * 解析一个 providerType 下所有节点的能力（同步）。
  *
- * mode='display'：活跃节点能力并集；已知能力的节点优先，避免“无能力节点”的基线污染。
- * mode='routing'：返回每个节点的能力，由调用方按 model 过滤。
+ * 分组最终集 = 活跃节点选择集的并集 ∪ 该分组的自定义模型。
+ * 已知能力的节点优先，避免“无能力节点”的静态基线污染实时列表。
  */
 export function resolveProviderCapability(providerType, nodes = [], options = {}) {
-    const { includeUnhealthy = false, includeDisabled = false } = options;
+    const { includeUnhealthy = false } = options;
     const configs = (Array.isArray(nodes) ? nodes : [])
         .map(node => node?.config || node)
         .filter(Boolean)
@@ -367,7 +319,7 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
         .filter(config => includeUnhealthy || config.isHealthy !== false);
 
     const nodeCapabilities = configs.map(config => ({
-        ...resolveNodeCapability(providerType, config, { includeDisabled }),
+        ...resolveNodeCapability(providerType, config),
         config
     }));
 
@@ -376,12 +328,14 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
 
     const modelSet = new Set();
     for (const capability of contributors) {
-        const models = includeDisabled
-            ? (capability.candidateModels || capability.models)
-            : capability.models;
-        for (const model of models) {
+        for (const model of capability.selectedModels) {
             modelSet.add(model);
         }
+    }
+
+    const customModels = getCustomModelIdsForProvider(CONFIG.customModels, providerType);
+    for (const model of customModels) {
+        modelSet.add(model);
     }
 
     const models = Array.from(modelSet).sort((a, b) => a.localeCompare(b));
@@ -391,6 +345,10 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
     return {
         models,
         nodes: nodeCapabilities,
+        customModels,
+        selectionMode: contributors.length > 0 && contributors.every(capability => capability.selectionMode === 'explicit')
+            ? 'explicit'
+            : 'all',
         source: pickSource(contributors.map(capability => capability.source)),
         fetchedAt,
         stale,

@@ -218,28 +218,6 @@ export const BASE_TRAE_CHAT_V3_MODELS = [...PROVIDER_MODELS['trae-chat_v3']];
 export const BASE_ZED_MODELS = [...PROVIDER_MODELS.zed];
 export const BASE_CODEX_MODELS = [...PROVIDER_MODELS['openai-codex-oauth']];
 
-/**
- * 动态更新指定提供商的模型列表
- * @param {string} providerType 
- * @param {Array<string>} modelIds 
- */
-export function updateProviderModels(providerType, modelIds) {
-    if (!providerType || !Array.isArray(modelIds) || modelIds.length === 0) return;
-    if (providerType === MODEL_PROVIDER.ZED) {
-        // Zed 动态接口仅返回当前凭证权限范围内的模型，确保保留预置的原生核心模型并合并去重
-        const existing = PROVIDER_MODELS[providerType] || BASE_ZED_MODELS;
-        PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_ZED_MODELS, ...modelIds]);
-        return;
-    }
-    if (providerType === MODEL_PROVIDER.CODEX_API || providerType.startsWith(MODEL_PROVIDER.CODEX_API + '-')) {
-        // Codex 动态接口返回当前凭据权限范围内的模型，确保保留预置的基础模型并合并去重
-        const existing = PROVIDER_MODELS[providerType] || BASE_CODEX_MODELS;
-        PROVIDER_MODELS[providerType] = normalizeModelIds([...existing, ...BASE_CODEX_MODELS, ...modelIds]);
-        return;
-    }
-    PROVIDER_MODELS[providerType] = normalizeModelIds(modelIds);
-}
-
 export const MANAGED_MODEL_LIST_PROVIDERS = [
     'openai-custom',
     'openaiResponses-custom',
@@ -282,9 +260,19 @@ export function getCustomModelListProvider(modelConfig) {
     return modelConfig?.provider || getCustomModelActualProvider(modelConfig);
 }
 
-export function customModelMatchesProvider(modelConfig, providerType) {
-    const listProvider = getCustomModelListProvider(modelConfig);
-    return listProvider === providerType || (listProvider && providerType.startsWith(listProvider + '-'));
+/**
+ * 获取归属指定 providerType 的启用自定义模型 ID。
+ * 仅用于分组最终集与路由，不参与节点候选列表。
+ */
+export function getCustomModelIdsForProvider(customModels, providerType) {
+    const models = Array.isArray(customModels) ? customModels : [];
+    return normalizeModelIds(models
+        .filter(model => model && model.enabled !== false && model.id)
+        .filter(model => {
+            const listProvider = getCustomModelListProvider(model);
+            return listProvider && (listProvider === providerType || providerType.startsWith(listProvider + '-'));
+        })
+        .map(model => model.id));
 }
 
 function extractModelIdsFromListShape(modelList) {
@@ -334,19 +322,12 @@ export function extractModelIdsFromNativeList(modelList, providerType) {
 }
 
 export function getConfiguredSupportedModels(providerType, providerConfig = {}) {
-    if (!usesManagedModelList(providerType)) {
-        return [];
-    }
-
     return normalizeModelIds(providerConfig?.supportedModels);
 }
 
-export function getConfiguredNotSupportedModels(providerType, providerConfig = {}) {
-    return normalizeModelIds(providerConfig?.notSupportedModels);
-}
-
 /**
- * 获取指定提供商类型支持的模型列表
+ * 获取指定提供商类型的纯静态基线模型列表。
+ * 该列表只来自 PROVIDER_MODELS，不注入自定义模型；自定义模型由分组最终集统一处理。
  * @param {string} providerType - 提供商类型
  * @returns {Array<string>} 模型列表
  */
@@ -362,20 +343,6 @@ export function getProviderModels(providerType) {
                 break;
             }
         }
-    }
-
-    // 注入自定义模型
-    if (CONFIG.customModels && Array.isArray(CONFIG.customModels)) {
-        CONFIG.customModels.forEach(m => {
-            if (m && m.enabled === false) return;
-            // 匹配模型列表归属提供商或其后缀分组
-            if (customModelMatchesProvider(m, providerType)) {
-                // 注入 ID
-                if (!models.includes(m.id)) {
-                    models.push(m.id);
-                }
-            }
-        });
     }
 
     return normalizeModelIds(models);

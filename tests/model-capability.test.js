@@ -30,12 +30,20 @@ function liveEntry(models, extra = {}) {
     };
 }
 
-describe('Model Capability', () => {
-    let store;
+function setNodeModels(providerType, uuid, models) {
+    setCapabilityStoreEntry(capabilityKey(providerType, { uuid }), liveEntry(models));
+}
 
+let activeStore;
+
+function setCapabilityStoreEntry(key, entry) {
+    activeStore.setEntry(key, entry);
+}
+
+describe('Model Capability', () => {
     beforeEach(() => {
-        store = new MemoryCapabilityStore();
-        setCapabilityStore(store);
+        activeStore = new MemoryCapabilityStore();
+        setCapabilityStore(activeStore);
     });
 
     afterEach(() => {
@@ -49,11 +57,13 @@ describe('Model Capability', () => {
         expect(capability.source).toBe(CAPABILITY_SOURCE.BASELINE);
         expect(capability.known).toBe(false);
         expect(capability.stale).toBe(true);
-        expect(capability.models).toContain('DeepSeek-V4.1-Flash');
+        expect(capability.candidateModels).toContain('DeepSeek-V4.1-Flash');
+        expect(capability.selectedModels).toEqual(capability.candidateModels);
+        expect(capability.selectionMode).toBe('all');
     });
 
-    test('live 发现结果优先于基线与 legacy 快照', () => {
-        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['new-model']));
+    test('live 发现结果优先于静态基线与旧快照字段', () => {
+        setNodeModels('trae', 'node-1', ['new-model']);
 
         const capability = resolveNodeCapability('trae', {
             uuid: 'node-1',
@@ -62,69 +72,121 @@ describe('Model Capability', () => {
 
         expect(capability.source).toBe(CAPABILITY_SOURCE.LIVE);
         expect(capability.known).toBe(true);
-        expect(capability.models).toEqual(['new-model']);
-        expect(capability.discovered).toEqual(['new-model']);
-    });
-
-    test('动态 provider 的 live 结果保留用户自定义模型', () => {
-        CONFIG.customModels = [
-            { id: 'custom-trae-model', provider: 'trae', enabled: true }
-        ];
-        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['live-model']));
-
-        const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
-
-        expect(capability.models).toContain('live-model');
-        expect(capability.models).toContain('custom-trae-model');
-        expect(capability.discovered).toEqual(['live-model']);
+        expect(capability.candidateModels).toEqual(['new-model']);
+        expect(capability.selectedModels).toEqual(['new-model']);
+        expect(capability.selectedModels).not.toContain('legacy-model');
     });
 
     test('成功发现但结果为空时返回空集合，不回退基线', () => {
-        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry([]));
+        setNodeModels('trae', 'node-1', []);
 
         const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
 
         expect(capability.known).toBe(true);
-        expect(capability.models).toEqual([]);
+        expect(capability.candidateModels).toEqual([]);
+        expect(capability.selectedModels).toEqual([]);
     });
 
-    test('legacy availableModels 作为 persisted 缓存读取', () => {
-        const capability = resolveNodeCapability('trae', {
-            uuid: 'node-1',
-            availableModels: 'model-b,model-a'
-        });
+    test('supportedModels 缺失表示跟随上游全选', () => {
+        setNodeModels('trae', 'node-1', ['model-b', 'model-a']);
 
-        expect(capability.source).toBe(CAPABILITY_SOURCE.PERSISTED);
-        expect(capability.known).toBe(true);
-        expect(capability.models).toEqual(['model-a', 'model-b']);
+        const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
+
+        expect(capability.selectionMode).toBe('all');
+        expect(capability.selectedModels).toEqual(['model-a', 'model-b']);
     });
 
-    test('disabledModels / notSupportedModels 只做减法', () => {
+    test('supportedModels 显式子集只保留勾选项', () => {
+        setNodeModels('trae', 'node-1', ['model-a', 'model-b', 'model-c']);
+
         const capability = resolveNodeCapability('trae', {
             uuid: 'node-1',
-            availableModels: ['model-a', 'model-b'],
-            notSupportedModels: ['model-b', 'model-never-exists']
+            supportedModels: ['model-a', 'model-c'],
+            supportedModelsBaseline: ['model-a', 'model-b', 'model-c']
         });
 
-        expect(capability.models).toEqual(['model-a']);
-        expect(capability.disabledModels).toEqual(['model-b', 'model-never-exists']);
+        expect(capability.selectionMode).toBe('explicit');
+        expect(capability.candidateModels).toEqual(['model-a', 'model-b', 'model-c']);
+        expect(capability.selectedModels).toEqual(['model-a', 'model-c']);
+    });
+
+    test('上游新增模型在显式选择下默认选中', () => {
+        setNodeModels('trae', 'node-1', ['model-a', 'model-b', 'model-new']);
+
+        const capability = resolveNodeCapability('trae', {
+            uuid: 'node-1',
+            supportedModels: ['model-a'],
+            supportedModelsBaseline: ['model-a', 'model-b']
+        });
+
+        expect(capability.selectedModels).toEqual(['model-a', 'model-new']);
+    });
+
+    test('上游删除模型后从选择集消失', () => {
+        setNodeModels('trae', 'node-1', ['model-a']);
+
+        const capability = resolveNodeCapability('trae', {
+            uuid: 'node-1',
+            supportedModels: ['model-a', 'model-b'],
+            supportedModelsBaseline: ['model-a', 'model-b']
+        });
+
+        expect(capability.selectedModels).toEqual(['model-a']);
+    });
+
+    test('model_id 大小写敏感', () => {
+        setNodeModels('trae', 'node-1', ['Model', 'model']);
+
+        const capability = resolveNodeCapability('trae', {
+            uuid: 'node-1',
+            supportedModels: ['Model', 'model'],
+            supportedModelsBaseline: ['Model', 'model']
+        });
+
+        expect(capability.candidateModels).toHaveLength(2);
+        expect(capability.candidateModels).toEqual(expect.arrayContaining(['Model', 'model']));
+        expect(capability.selectedModels).toHaveLength(2);
+        expect(capability.selectedModels).toEqual(expect.arrayContaining(['Model', 'model']));
+    });
+
+    test('节点候选集不注入自定义模型，分组最终集才并入', () => {
+        CONFIG.customModels = [
+            { id: 'custom-trae-model', provider: 'trae', enabled: true }
+        ];
+        setNodeModels('trae', 'node-1', ['live-model']);
+
+        const nodeCapability = resolveNodeCapability('trae', { uuid: 'node-1' });
+        expect(nodeCapability.candidateModels).toEqual(['live-model']);
+        expect(nodeCapability.selectedModels).not.toContain('custom-trae-model');
+
+        const groupCapability = resolveProviderCapability('trae', [
+            { uuid: 'node-1', isDisabled: false, isHealthy: true }
+        ]);
+        expect(groupCapability.customModels).toEqual(['custom-trae-model']);
+        expect(groupCapability.models).toContain('live-model');
+        expect(groupCapability.models).toContain('custom-trae-model');
     });
 
     test('TTL 过期后标记 stale，但保留 last-known 模型', () => {
-        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['model-a'], { fetchedAt: 0 }));
+        setNodeModels('trae', 'node-1', ['model-a']);
+        activeStore.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['model-a'], { fetchedAt: 0 }));
 
         const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
 
         expect(capability.stale).toBe(true);
-        expect(capability.models).toEqual(['model-a']);
+        expect(capability.selectedModels).toEqual(['model-a']);
     });
 
-    test('providerType 聚合为活跃节点并集，排除 disabled / unhealthy 节点', () => {
+    test('providerType 聚合为活跃节点选择集并集，排除 disabled / unhealthy 节点', () => {
+        setNodeModels('gemini-antigravity', 'a', ['m1', 'm2']);
+        setNodeModels('gemini-antigravity', 'b', ['m2', 'm3']);
+        setNodeModels('gemini-antigravity', 'c', ['m4']);
+        setNodeModels('gemini-antigravity', 'd', ['m5']);
         const nodes = [
-            { config: { uuid: 'a', isDisabled: false, isHealthy: true, availableModels: ['m1', 'm2'] } },
-            { config: { uuid: 'b', isDisabled: false, isHealthy: true, availableModels: ['m2', 'm3'] } },
-            { config: { uuid: 'c', isDisabled: true, isHealthy: true, availableModels: ['m4'] } },
-            { config: { uuid: 'd', isDisabled: false, isHealthy: false, availableModels: ['m5'] } }
+            { config: { uuid: 'a', isDisabled: false, isHealthy: true } },
+            { config: { uuid: 'b', isDisabled: false, isHealthy: true } },
+            { config: { uuid: 'c', isDisabled: true, isHealthy: true } },
+            { config: { uuid: 'd', isDisabled: false, isHealthy: false } }
         ];
 
         const capability = resolveProviderCapability('gemini-antigravity', nodes);
@@ -138,7 +200,7 @@ describe('Model Capability', () => {
         const unknown = resolveNodeCapability('trae', { uuid: 'node-1' });
         expect(nodeSupportsModel(unknown, 'any-new-model')).toBe(true);
 
-        store.setEntry(capabilityKey('trae', { uuid: 'node-2' }), liveEntry(['model-a-high']));
+        setNodeModels('trae', 'node-2', ['model-a-high']);
         const known = resolveNodeCapability('trae', { uuid: 'node-2' });
 
         expect(nodeSupportsModel(known, 'model-a-high')).toBe(true);
@@ -146,34 +208,31 @@ describe('Model Capability', () => {
         expect(nodeSupportsModel(known, 'model-b')).toBe(false);
     });
 
-    test('托管 provider：supportedModels 优先，空配置回退 checkModelName / 自定义模型', () => {
-        CONFIG.customModels = [
-            { id: 'custom-openai-model', provider: 'openai-custom', enabled: true }
-        ];
+    test('托管 provider 的正向选择只作用于发现结果', () => {
+        setNodeModels('openai-custom', 'managed-1', ['configured-model', 'other-model']);
 
         const configured = resolveNodeCapability('openai-custom', {
             uuid: 'managed-1',
-            supportedModels: ['configured-model']
+            supportedModels: ['configured-model'],
+            supportedModelsBaseline: ['configured-model', 'other-model']
         });
-        expect(configured.source).toBe(CAPABILITY_SOURCE.CONFIGURED);
-        expect(configured.models).toContain('configured-model');
-        expect(configured.models).toContain('custom-openai-model');
+        expect(configured.source).toBe(CAPABILITY_SOURCE.LIVE);
+        expect(configured.selectedModels).toEqual(['configured-model']);
 
         const fallback = resolveNodeCapability('openai-custom', {
             uuid: 'managed-2',
-            checkModelName: 'glm-5.2',
-            supportedModels: []
+            checkModelName: 'glm-5.2'
         });
-        expect(fallback.models).toContain('glm-5.2');
-        expect(fallback.models).toContain('custom-openai-model');
+        expect(fallback.candidateModels).not.toContain('glm-5.2');
+        expect(fallback.selectedModels).toEqual(fallback.candidateModels);
     });
 
     test('缓存序列化只持久化成功发现结果', () => {
-        store.setEntry('a', liveEntry(['x']));
-        store.setEntry('b', { models: ['y'], source: CAPABILITY_SOURCE.PERSISTED, fetchedAt: 0 });
-        store.setEntry('c', liveEntry(['z'], { lastError: 'boom' }));
+        activeStore.setEntry('a', liveEntry(['x']));
+        activeStore.setEntry('b', { models: ['y'], source: CAPABILITY_SOURCE.PERSISTED, fetchedAt: 0 });
+        activeStore.setEntry('c', liveEntry(['z'], { lastError: 'boom' }));
 
-        expect(Object.keys(store.toJSON().nodes)).toEqual(['a']);
+        expect(Object.keys(activeStore.toJSON().nodes)).toEqual(['a']);
     });
 
     test('FileCapabilityStore 对损坏文件容错', () => {
@@ -200,11 +259,11 @@ describe('Model Capability', () => {
         expect(entry.models).toEqual(['model-a', 'model-b']);
 
         const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
-        expect(capability.models).toEqual(['model-a', 'model-b']);
+        expect(capability.selectedModels).toEqual(['model-a', 'model-b']);
     });
 
     test('refreshNodeCapability 失败时保留 last-known 并退避', async () => {
-        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['last-known']));
+        setNodeModels('trae', 'node-1', ['last-known']);
         const adapter = {
             getNodeAvailableModels: jest.fn().mockRejectedValue(new Error('boom'))
         };
@@ -217,7 +276,7 @@ describe('Model Capability', () => {
         expect(entry.nextRefreshAt).toBeGreaterThan(Date.now());
 
         const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
-        expect(capability.models).toEqual(['last-known']);
+        expect(capability.selectedModels).toEqual(['last-known']);
         expect(capability.stale).toBe(true);
     });
 
@@ -251,14 +310,6 @@ describe('Model Capability', () => {
         expect(capability.models).toEqual(['model-a']);
     });
 
-    test('includeDisabled 返回候选列表，默认返回应用排除后的列表', () => {
-        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['model-a', 'model-b']));
-        const node = { uuid: 'node-1', notSupportedModels: ['model-b'] };
-
-        expect(resolveNodeCapability('trae', node).models).toEqual(['model-a']);
-        expect(resolveNodeCapability('trae', node, { includeDisabled: true }).models).toEqual(['model-a', 'model-b']);
-    });
-
     test('warmProviderCapabilities 刷新号池中的所有启用节点', async () => {
         const adapter = {
             getNodeAvailableModels: jest.fn().mockResolvedValue(['warm-model'])
@@ -275,7 +326,7 @@ describe('Model Capability', () => {
         await warmProviderCapabilities(manager, { adapter, reason: 'startup' });
 
         expect(adapter.getNodeAvailableModels).toHaveBeenCalledTimes(1);
-        expect(resolveNodeCapability('trae', { uuid: 'node-1' }).models).toEqual(['warm-model']);
+        expect(resolveNodeCapability('trae', { uuid: 'node-1' }).selectedModels).toEqual(['warm-model']);
         expect(resolveNodeCapability('trae', { uuid: 'node-2' }).known).toBe(false);
     });
 
@@ -285,29 +336,11 @@ describe('Model Capability', () => {
         expect(() => stopCapabilityRefreshLoop()).not.toThrow();
     });
 
-    test('托管 provider 空 supportedModels 时通过 adapter 发现并进入 live 缓存', async () => {
-        const adapter = {
-            getNodeAvailableModels: jest.fn().mockResolvedValue(['discovered-model'])
-        };
-        const node = { uuid: 'managed-1', supportedModels: [], checkModelName: 'glm-5.2' };
-
-        expect(resolveNodeCapability('openai-custom', node).known).toBe(false);
-
-        const entry = await refreshNodeCapability('openai-custom', node, { adapter });
-        expect(entry.models).toEqual(['discovered-model']);
-
-        const capability = resolveNodeCapability('openai-custom', node);
-        expect(capability.known).toBe(true);
-        expect(capability.source).toBe(CAPABILITY_SOURCE.LIVE);
-        expect(capability.models).toContain('discovered-model');
-        expect(capability.models).toContain('glm-5.2');
-    });
-
     test('静态 provider 标记 source=static 且不参与路由守卫', () => {
         const capability = resolveNodeCapability('claude-kiro-oauth', { uuid: 'kiro-1' });
         expect(capability.source).toBe(CAPABILITY_SOURCE.STATIC);
         expect(capability.known).toBe(false);
-        expect(capability.models.length).toBeGreaterThan(0);
+        expect(capability.selectedModels.length).toBeGreaterThan(0);
         expect(nodeSupportsModel(capability, 'non-existent-model')).toBe(true);
     });
 
