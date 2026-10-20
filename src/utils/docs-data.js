@@ -140,7 +140,7 @@ async function chat(prompt) {
             'Authorization': 'Bearer 123456' // 替换为你的 --api-key
         },
         body: JSON.stringify({
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-5.5',
             messages: [{ role: 'user', content: prompt }]
         })
     });

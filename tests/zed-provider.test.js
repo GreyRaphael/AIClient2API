@@ -31,10 +31,9 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
     test('getZedProviderForModel maps model prefix to upstream provider correctly', () => {
         expect(getZedProviderForModel('claude-sonnet-4-5')).toBe('anthropic');
-        expect(getZedProviderForModel('claude-3-7-sonnet')).toBe('anthropic');
+        expect(getZedProviderForModel('claude-sonnet-4-6')).toBe('anthropic');
         expect(getZedProviderForModel('gpt-5.4-latest')).toBe('open_ai');
         expect(getZedProviderForModel('gpt-5.2-codex')).toBe('open_ai');
-        expect(getZedProviderForModel('o1-preview')).toBe('open_ai');
         expect(getZedProviderForModel('gemini-3.1-pro')).toBe('google');
         expect(getZedProviderForModel('gemini-3.5-flash')).toBe('google');
         expect(getZedProviderForModel('unknown-model')).toBe('anthropic');

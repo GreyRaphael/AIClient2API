@@ -583,7 +583,7 @@ const translations = {
         'config.save': '保存配置',
         'config.reset': '重置',
         'config.placeholder.nodeName': '例如: 我的节点1',
-        'config.placeholder.model': '例如: gpt-3.5-turbo',
+        'config.placeholder.model': '例如: gpt-5.5',
         
         // Upload Config
         'upload.title': '凭据文件管理',
@@ -769,7 +769,7 @@ const translations = {
         'modal.provider.customName': '自定义名称',
         'modal.provider.customNamePlaceholder': '节点自定义名称',
         'modal.provider.checkModelName': '检查模型名称',
-        'modal.provider.checkModelPlaceholder': '例如: gpt-3.5-turbo',
+        'modal.provider.checkModelPlaceholder': '例如: gpt-5.5',
         'modal.provider.concurrencyPlaceholder': '最大并发，默认 0 不限制',
         'modal.provider.queuePlaceholder': '最大队列，默认 0 不限制',
         'modal.provider.unlimitedPlaceholder': '默认 0 不限制',
@@ -1055,10 +1055,10 @@ const translations = {
         'customModels.form.temperature': '温度 (Temperature)',
         'customModels.form.topP': 'Top P',
         'customModels.form.description': '模型描述',
-        'customModels.form.placeholder.id': '例如: my-custom-gpt-4',
+        'customModels.form.placeholder.id': '例如: my-custom-gpt-5',
         'customModels.form.placeholder.name': '给模型起个好听的名字',
-        'customModels.form.placeholder.alias': '例如: gpt-4 (调用此名称会自动映射)',
-        'customModels.form.placeholder.actual': '例如: gpt-4-0613',
+        'customModels.form.placeholder.alias': '例如: gpt-5.5 (调用此名称会自动映射)',
+        'customModels.form.placeholder.actual': '例如: gpt-5.5',
         'customModels.form.placeholder.desc': '简要描述该模型的用途...',
 
         // Models
@@ -1878,7 +1878,7 @@ const translations = {
         'config.save': 'Save Configuration',
         'config.reset': 'Reset',
         'config.placeholder.nodeName': 'e.g.: My Node 1',
-        'config.placeholder.model': 'e.g.: gpt-3.5-turbo',
+        'config.placeholder.model': 'e.g.: gpt-5.5',
         
         // Upload Config
         'upload.title': 'Credential Files Management',
@@ -2064,7 +2064,7 @@ const translations = {
         'modal.provider.customName': 'Custom Name',
         'modal.provider.customNamePlaceholder': 'Custom node name',
         'modal.provider.checkModelName': 'Check Model Name',
-        'modal.provider.checkModelPlaceholder': 'e.g.: gpt-3.5-turbo',
+        'modal.provider.checkModelPlaceholder': 'e.g.: gpt-5.5',
         'modal.provider.concurrencyPlaceholder': 'Max concurrency; 0 means unlimited',
         'modal.provider.queuePlaceholder': 'Max queue size; 0 means unlimited',
         'modal.provider.unlimitedPlaceholder': '0 means unlimited',
@@ -2349,10 +2349,10 @@ const translations = {
         'customModels.form.temperature': 'Temperature',
         'customModels.form.topP': 'Top P',
         'customModels.form.description': 'Description',
-        'customModels.form.placeholder.id': 'e.g.: my-custom-gpt-4',
+        'customModels.form.placeholder.id': 'e.g.: my-custom-gpt-5',
         'customModels.form.placeholder.name': 'Enter a friendly name',
-        'customModels.form.placeholder.alias': 'e.g.: gpt-4 (auto-mapped)',
-        'customModels.form.placeholder.actual': 'e.g.: gpt-4-0613',
+        'customModels.form.placeholder.alias': 'e.g.: gpt-5.5 (auto-mapped)',
+        'customModels.form.placeholder.actual': 'e.g.: gpt-5.5',
         'customModels.form.placeholder.desc': 'Brief description of this model...',
 
         // Models

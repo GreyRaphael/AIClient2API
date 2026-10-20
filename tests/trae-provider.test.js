@@ -224,11 +224,11 @@ describe('Trae Provider Implementation Tests', () => {
             uuid: 'test-trae-uuid'
         });
 
-        const p1 = traeService.prepareRequestBody('claude-3.5-sonnet', {});
+        const p1 = traeService.prepareRequestBody('auto', {});
         expect(p1.model).toBe('glm-5.2');
 
-        const p2 = traeService.prepareRequestBody('gpt-4o', {});
-        expect(p2.model).toBe('deepseek-V4-Pro');
+        const p2 = traeService.prepareRequestBody('qwen3.8-flash', {});
+        expect(p2.model).toBe('qwen3.8-max');
 
         const p3 = traeService.prepareRequestBody('glm-5.3', {});
         expect(p3.model).toBe('glm-5.3');

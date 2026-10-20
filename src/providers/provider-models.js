@@ -39,7 +39,7 @@ export function getCustomModelConfig(modelId, provider = null) {
 
 /**
  * 各提供商支持的模型列表
- * 用于前端UI选择不支持的模型
+ * 用于节点候选与静态基线
  */
 export const PROVIDER_MODELS = {
     'gemini-antigravity': [

@@ -74,10 +74,6 @@ const CANONICAL_MODEL_ALIASES = {
  */
 const SOLO_WORK_LITE_MODEL_ALIASES = {
     'auto': 'glm-5.2',
-    'claude-3.5-sonnet': 'glm-5.2',
-    'claude-3.7-sonnet': 'glm-5.2',
-    'gpt-4o': 'DeepSeek-V4-Pro',
-    'gpt-4o-mini': 'deepseek-v4.1-flash',
     'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
     'deepseek-v4-flash': 'deepseek-v4.1-flash',
     'deepseek-v4-flash 正式版': 'DeepSeek-V4-Flash-Official',

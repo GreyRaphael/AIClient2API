@@ -100,7 +100,7 @@ export function getZedProviderForModel(model, metadataMap = null) {
     if (m.startsWith('claude')) {
         return 'anthropic';
     }
-    if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) {
+    if (m.startsWith('gpt-')) {
         return 'open_ai';
     }
     if (m.startsWith('gemini')) {

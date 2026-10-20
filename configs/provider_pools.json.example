@@ -62,11 +62,11 @@
       "errorCount": 0,
       "lastErrorTime": null,
       "supportedModels": [
-        "gpt-4o"
+        "gpt-5.5"
       ],
       "supportedModelsBaseline": [
-        "gpt-4o",
-        "gpt-4-turbo"
+        "gpt-5.5",
+        "gpt-5.6-luna"
       ]
     },
     {
@@ -239,7 +239,7 @@
       "IFLOW_TOKEN_FILE_PATH": "./configs/iflow/iflow_token.json",
       "IFLOW_BASE_URL": "https://apis.iflow.cn/v1",
       "uuid": "11223344-5566-7788-99aa-bbccddeeff00",
-      "checkModelName": "gpt-4o",
+      "checkModelName": "gpt-5.5",
       "checkHealth": false,
       "isHealthy": true,
       "isDisabled": false,
@@ -253,7 +253,7 @@
       "IFLOW_TOKEN_FILE_PATH": "./configs/iflow/iflow_token2.json",
       "IFLOW_BASE_URL": "https://apis.iflow.cn/v1",
       "uuid": "aabbccdd-eeff-0011-2233-445566778899",
-      "checkModelName": "gpt-4o",
+      "checkModelName": "gpt-5.5",
       "checkHealth": false,
       "isHealthy": true,
       "isDisabled": false,

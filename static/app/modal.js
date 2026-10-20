@@ -1575,7 +1575,7 @@ function showAddProviderForm(providerType) {
             </div>
             <div class="form-group">
                 <label><span data-i18n="modal.provider.checkModelName">检查模型名称</span> <span class="optional-mark" data-i18n="config.optional">(选填)</span></label>
-                <input type="text" id="newCheckModelName" data-i18n="modal.provider.checkModelName" placeholder="例如: gpt-3.5-turbo">
+                <input type="text" id="newCheckModelName" data-i18n="modal.provider.checkModelName" placeholder="例如: gpt-5.5">
             </div>
             <div class="form-group">
                 <label data-i18n="modal.provider.healthCheckLabel">健康检查</label>
