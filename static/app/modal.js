@@ -283,10 +283,15 @@ async function refreshNodeModels(providerType, uuid, event) {
         );
 
         if (container) {
-            writeSelectionModels(container, 'candidateModels', response.models || []);
-            const selected = Array.isArray(response.selectedModels)
-                ? response.selectedModels
-                : (response.models || []);
+            const refreshedCandidates = normalizeModelList(response.models || []);
+            const previousCandidates = readSelectionModels(container, 'candidateModels');
+            const previousSelected = readSelectionModels(container, 'selectedModels');
+            // 保留用户当前勾选；刷新后新增的上游模型默认选中
+            const newModels = refreshedCandidates.filter(model => !previousCandidates.includes(model));
+            const selected = normalizeModelList([...previousSelected, ...newModels])
+                .filter(model => refreshedCandidates.includes(model));
+
+            writeSelectionModels(container, 'candidateModels', refreshedCandidates);
             writeSelectionModels(container, 'selectedModels', selected);
             writeSelectionModels(container, 'originalModels', selected);
             container.dataset.modelsSource = response.source || '';
@@ -1299,6 +1304,9 @@ function editProvider(uuid, event) {
             select.disabled = false;
         });
         
+        // 添加编辑状态类
+        providerDetail.classList.add('editing');
+
         // 启用模型选择控件
         setModelSelectionEditing(uuid, true);
 
@@ -1314,10 +1322,7 @@ function editProvider(uuid, event) {
                 });
             }
         }
-        
-        // 添加编辑状态类
-        providerDetail.classList.add('editing');
-        
+
         // 替换编辑按钮为保存和取消按钮，不显示禁用/启用按钮
         const actionsGroup = providerDetail.querySelector('.provider-actions-group');
         
