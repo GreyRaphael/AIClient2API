@@ -16,6 +16,7 @@ import {
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
 import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
+import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../providers/model-capability.js';
 
 // 存储 ProviderPoolManager 实例
 let providerPoolManager = null;
@@ -330,6 +331,12 @@ export async function initApiService(config, isReady = false) {
             providerPoolManager.warmupNodes().catch(err => {
                 logger.error(`[Initialization] Warmup failed: ${err.message}`);
             });
+
+            // 模型能力启动预热：rehydrate 缓存后后台刷新所有启用节点
+            warmProviderCapabilities(providerPoolManager, { reason: 'startup' }).catch(err => {
+                logger.debug(`[Initialization] Model capability warmup notice: ${err.message}`);
+            });
+            startCapabilityRefreshLoop(providerPoolManager);
 
             // 检查并刷新即将过期的节点（异步调用，不阻塞启动）
             providerPoolManager.checkAndRefreshExpiringNodes().catch(err => {

@@ -12,7 +12,10 @@ import {
     resetCapabilityStore,
     resolveNodeCapability,
     resolveProviderCapability,
-    setCapabilityStore
+    setCapabilityStore,
+    startCapabilityRefreshLoop,
+    stopCapabilityRefreshLoop,
+    warmProviderCapabilities
 } from '../src/providers/model-capability.js';
 import { CONFIG } from '../src/core/config-manager.js';
 
@@ -233,5 +236,56 @@ describe('Model Capability', () => {
 
         expect(capability.known).toBe(true);
         expect(capability.models).toEqual(['model-a']);
+    });
+
+    test('includeDisabled 返回候选列表，默认返回应用排除后的列表', () => {
+        store.setEntry(capabilityKey('trae', { uuid: 'node-1' }), liveEntry(['model-a', 'model-b']));
+        const node = { uuid: 'node-1', notSupportedModels: ['model-b'] };
+
+        expect(resolveNodeCapability('trae', node).models).toEqual(['model-a']);
+        expect(resolveNodeCapability('trae', node, { includeDisabled: true }).models).toEqual(['model-a', 'model-b']);
+    });
+
+    test('warmProviderCapabilities 刷新号池中的所有启用节点', async () => {
+        const adapter = {
+            getNodeAvailableModels: jest.fn().mockResolvedValue(['warm-model'])
+        };
+        const manager = {
+            providerStatus: {
+                trae: [
+                    { config: { uuid: 'node-1', isDisabled: false, isHealthy: true } },
+                    { config: { uuid: 'node-2', isDisabled: true, isHealthy: true } }
+                ]
+            }
+        };
+
+        await warmProviderCapabilities(manager, { adapter, reason: 'startup' });
+
+        expect(adapter.getNodeAvailableModels).toHaveBeenCalledTimes(1);
+        expect(resolveNodeCapability('trae', { uuid: 'node-1' }).models).toEqual(['warm-model']);
+        expect(resolveNodeCapability('trae', { uuid: 'node-2' }).known).toBe(false);
+    });
+
+    test('测试环境不启动定时刷新循环', () => {
+        const manager = { providerStatus: {} };
+        expect(startCapabilityRefreshLoop(manager)).toBeNull();
+        expect(() => stopCapabilityRefreshLoop()).not.toThrow();
+    });
+
+    test('FileCapabilityStore 只持久化成功发现结果并可重新加载', async () => {
+        const dir = mkdtempSync(path.join(os.tmpdir(), 'model-capability-flush-'));
+        const filePath = path.join(dir, 'cache.json');
+        try {
+            const fileStore = new FileCapabilityStore(filePath);
+            fileStore.setEntry('trae:node-1', liveEntry(['persisted-model']));
+            fileStore.setEntry('trae:node-2', { models: [], source: CAPABILITY_SOURCE.PERSISTED, lastError: 'boom' });
+            await fileStore.flush();
+
+            const reloaded = new FileCapabilityStore(filePath);
+            expect(reloaded.getEntry('trae:node-1')?.models).toEqual(['persisted-model']);
+            expect(reloaded.getEntry('trae:node-2')).toBeNull();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

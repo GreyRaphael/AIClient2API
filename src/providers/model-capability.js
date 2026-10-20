@@ -563,6 +563,7 @@ export async function ensureProviderCapability(providerType, nodes = [], options
             refreshProviderCapabilities(providerType, nodes, { ...options, force: false, reason: options.reason || 'cold-start' }),
             new Promise(resolve => {
                 timer = setTimeout(resolve, timeoutMs);
+                if (timer.unref) timer.unref();
             })
         ]).catch(() => {});
         if (timer) clearTimeout(timer);
@@ -570,3 +571,50 @@ export async function ensureProviderCapability(providerType, nodes = [], options
 
     return resolveProviderCapability(providerType, nodes, options);
 }
+
+function getProviderNodeEntries(providerPoolManager) {
+    return Object.entries(providerPoolManager?.providerStatus || {})
+        .filter(([, nodes]) => Array.isArray(nodes) && nodes.length > 0);
+}
+
+/**
+ * 刷新号池中所有 providerType 的启用节点（启动预热与定时任务共用）。
+ */
+export async function warmProviderCapabilities(providerPoolManager, options = {}) {
+    const { force = false, reason = 'startup' } = options;
+    const entries = getProviderNodeEntries(providerPoolManager);
+    await Promise.allSettled(entries.map(([providerType, nodes]) =>
+        refreshProviderCapabilities(providerType, nodes, { ...options, force, reason })
+    ));
+}
+
+let capabilityRefreshTimer = null;
+
+/**
+ * 启动周期性模型能力刷新。
+ * 与健康检查解耦，默认 15 分钟；测试环境自动禁用。
+ */
+export function startCapabilityRefreshLoop(providerPoolManager, options = {}) {
+    stopCapabilityRefreshLoop();
+    if (!isBackgroundRefreshEnabled()) return null;
+
+    const configured = Number(CONFIG.MODEL_CACHE_REFRESH_INTERVAL_MS);
+    const intervalMs = Number.isFinite(configured) && configured > 0
+        ? configured
+        : 15 * 60 * 1000;
+
+    capabilityRefreshTimer = setInterval(() => {
+        warmProviderCapabilities(providerPoolManager, { reason: 'scheduled' })
+            .catch(error => logger.debug(`[ModelCapability] Scheduled refresh failed: ${error.message}`));
+    }, intervalMs);
+    if (capabilityRefreshTimer.unref) capabilityRefreshTimer.unref();
+    return capabilityRefreshTimer;
+}
+
+export function stopCapabilityRefreshLoop() {
+    if (capabilityRefreshTimer) {
+        clearInterval(capabilityRefreshTimer);
+        capabilityRefreshTimer = null;
+    }
+}
+

@@ -14,8 +14,9 @@ import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.js';
 import { isTraeProviderType, isSoloFamilyProviderType, isSoloFamilyChannel, TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
 import {
-    resolveNodeCapability,
-    resolveProviderCapabilityWithRefresh
+    ensureProviderCapability,
+    refreshProviderCapabilities,
+    resolveNodeCapability
 } from '../providers/model-capability.js';
 
 
@@ -414,15 +415,22 @@ export async function handleGetProviderModels(req, res, currentConfig, providerP
     const allTypes = [...new Set([...registeredProviders, ...poolTypes])];
     const allModels = {};
 
-    for (const type of allTypes) {
+    const resolved = await Promise.all(allTypes.map(async type => {
         const nodes = providerPoolManager?.providerStatus?.[type]?.length
             ? providerPoolManager.providerStatus[type]
             : (providerPools[type] || []);
-        const capability = resolveProviderCapabilityWithRefresh(type, nodes, { mode: 'display' });
+        const capability = await ensureProviderCapability(type, nodes, {
+            mode: 'display',
+            reason: 'read-through'
+        });
         let models = capability.models;
         if (models.length === 0 && usesManagedModelList(type) && providerPoolManager?.getActiveProviderModels) {
             models = providerPoolManager.getActiveProviderModels(type, nodes);
         }
+        return [type, models];
+    }));
+
+    for (const [type, models] of resolved) {
         if (models.length > 0) {
             allModels[type] = models;
         }
@@ -446,7 +454,10 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
     }
 
     const nodes = providerPoolManager?.providerStatus?.[providerType] || providerPools[providerType] || [];
-    const capability = resolveProviderCapabilityWithRefresh(providerType, nodes, { includeDisabled: true });
+    const capability = await ensureProviderCapability(providerType, nodes, {
+        includeDisabled: true,
+        reason: 'read-through'
+    });
     let models = capability.models;
     if (models.length === 0 && usesManagedModelList(providerType) && providerPoolManager?.getActiveProviderModels) {
         models = providerPoolManager.getActiveProviderModels(providerType, nodes, { includeDisabled: true });
@@ -458,6 +469,51 @@ export async function handleGetProviderTypeModels(req, res, currentConfig, provi
         models
     }));
     return true;
+}
+
+/**
+ * 显式刷新模型能力（强制忽略 TTL），供 UI / 运维使用。
+ */
+export async function handleRefreshProviderModels(req, res, currentConfig, providerPoolManager) {
+    try {
+        let providerPools = {};
+        try {
+            providerPools = loadProviderPools(currentConfig, providerPoolManager);
+        } catch (error) {
+            logger.warn('[UI API] Failed to load provider pools for refresh:', error.message);
+        }
+
+        const allTypes = [...new Set([...getRegisteredProviders(), ...Object.keys(providerPools)])];
+        const results = {};
+
+        await Promise.all(allTypes.map(async type => {
+            const nodes = providerPoolManager?.providerStatus?.[type]?.length
+                ? providerPoolManager.providerStatus[type]
+                : (providerPools[type] || []);
+            const entries = await refreshProviderCapabilities(type, nodes, {
+                force: true,
+                reason: 'manual'
+            });
+            results[type] = entries
+                .filter(Boolean)
+                .map(entry => ({
+                    uuid: entry.uuid || null,
+                    modelCount: Array.isArray(entry.models) ? entry.models.length : 0,
+                    source: entry.source,
+                    fetchedAt: entry.fetchedAt || 0,
+                    lastError: entry.lastError || null
+                }));
+        }));
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, results }));
+        return true;
+    } catch (error) {
+        logger.error('[UI API] Refresh provider models failed:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: error.message } }));
+        return true;
+    }
 }
 
 /**

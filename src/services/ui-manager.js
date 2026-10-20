@@ -163,6 +163,11 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         return await providerApi.handleGetProviderModels(req, res, currentConfig, providerPoolManager);
     }
 
+    // Force refresh model capability (bypass TTL)
+    if (method === 'POST' && pathParam === '/api/provider-models/refresh') {
+        return await providerApi.handleRefreshProviderModels(req, res, currentConfig, providerPoolManager);
+    }
+
     // Get available models for a specific provider type
     const providerModelsMatch = pathParam.match(/^\/api\/provider-models\/([^\/]+)$/);
     if (method === 'GET' && providerModelsMatch) {
