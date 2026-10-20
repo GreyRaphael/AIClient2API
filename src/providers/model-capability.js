@@ -567,8 +567,10 @@ export function resolveProviderCapabilityWithRefresh(providerType, nodes = [], o
 export async function ensureProviderCapability(providerType, nodes = [], options = {}) {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (capability.known) {
-        refreshProviderCapabilities(providerType, nodes, { ...options, reason: options.reason || 'refresh' })
-            .catch(() => {});
+        if (capability.stale) {
+            refreshProviderCapabilities(providerType, nodes, { ...options, reason: options.reason || 'refresh' })
+                .catch(() => {});
+        }
         return capability;
     }
 

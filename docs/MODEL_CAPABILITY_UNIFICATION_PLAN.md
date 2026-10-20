@@ -309,7 +309,7 @@ MODEL_CACHE_TTL_MS = {
 2. `notSupportedModels` 作为 `disabledModels` 读取；写入期可双写。
 3. `PROVIDER_MODELS` 静态化，动态结果只进能力缓存。
 4. 下一版本删除 `availableModels` 字段与 `notSupportedModels` 双写。
-5. 提供 `MODEL_CAPABILITY_MODE=legacy|unified` 开关，默认 `unified`，可一键回退读路径。
+5. 回滚：通过 revert 对应提交恢复旧读路径；不保留运行时 `legacy` 双路径，避免两套逻辑再次分叉。
 
 迁移完成后，节点配置只包含用户意图，不再被运行时状态污染。
 
@@ -453,7 +453,7 @@ curl -s -H "Authorization: Bearer $API_KEY" http://127.0.0.1:3000/auto/v1/models
 curl -s -H "Authorization: Bearer $API_KEY" http://127.0.0.1:3000/trae/v1/models
 ```
 
-**回滚**：`MODEL_CAPABILITY_MODE=legacy` 切回旧读路径；迁移字段保留。
+**回滚**：`git revert` 本提交即可恢复旧读路径；迁移字段保留。
 
 ---
 
@@ -517,7 +517,7 @@ npm run test:integration
 # 手工冒烟：切换 provider、刷新模型、观察 source/stale 展示
 ```
 
-**回滚**：UI 元数据为增量改动，可直接回退；策略变更通过 `MODEL_CAPABILITY_MODE` 切换。
+**回滚**：UI 元数据为增量改动，可直接回退；策略变更可 revert C5。
 
 ---
 
@@ -528,7 +528,7 @@ npm run test:integration
 | 上游限流 | TTL + 随机抖动 + 退避；失败保留 last-known |
 | 首次请求变慢 | 仅冷启动允许有限等待；其余 SWR |
 | 多账号差异 | 节点级缓存；display 并集、routing 逐节点 |
-| 迁移遗漏 | `availableModels` 保留一个版本；`legacy` 开关 |
+| 迁移遗漏 | `availableModels` 保留一个版本；回滚使用 `git revert` |
 | 测试写真实配置 | `persist:false` + `MemoryStore`；CI 断言文件 mtime |
 | 静态 provider 被误判 | `source=static` 明确标记，文档说明 |
 
