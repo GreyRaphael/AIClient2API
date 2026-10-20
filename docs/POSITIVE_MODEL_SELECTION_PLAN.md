@@ -1,6 +1,6 @@
 # 正向模型选择方案（Positive Model Selection）
 
-- 状态：已确认，待实施
+- 状态：已实施
 - 日期：2026-10-20
 - 范围：`src/providers/**`、`src/handlers/request-pipeline.js`、`src/ui-modules/**`、`static/app/**`、配置样例、测试与文档
 - 目标：把节点模型配置从“排除不支持模型”改为“勾选要使用的模型”，并让分组最终模型列表在所有入口保持一致
@@ -557,7 +557,7 @@ F_group = dedupeCaseSensitive(S_group ∪ M_group)
 
 ### 6.2 配置清理
 
-提供一次性清理脚本（建议 `scripts/purge-legacy-model-fields.js`）：
+提供一次性清理脚本（建议 `src/scripts/purge-legacy-model-fields.js`）：
 
 ```text
 读取 configs/provider_pools.json
@@ -781,7 +781,7 @@ npm test
 
 **改动**
 
-- `scripts/purge-legacy-model-fields.js`（新增）
+- `src/scripts/purge-legacy-model-fields.js`（新增）
 - `configs/provider_pools.json.example`
 - `README.md` / `README-ZH.md` / `README-JA.md`
 - `static/components/section-tutorial.html`
@@ -800,8 +800,8 @@ npm test
 **验证**
 
 ```bash
-node scripts/purge-legacy-model-fields.js          # dry-run
-node scripts/purge-legacy-model-fields.js --write  # 确认后执行
+node src/scripts/purge-legacy-model-fields.js          # dry-run
+node src/scripts/purge-legacy-model-fields.js --write  # 确认后执行
 rg "notSupportedModels|disabledModels|getConfiguredNotSupportedModels|renderNotSupportedModelsSelector|handleGetProviderTypeModels|updateProviderModels" src static tests configs README* docs
 npm test
 ```

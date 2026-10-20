@@ -2495,7 +2495,7 @@ const translations = {
         'tutorial.pool.node.oauth': 'OAuth credentials file path',
         'tutorial.pool.node.health': 'Enable health check',
         'tutorial.pool.node.model': 'Model used for health check',
-        'tutorial.pool.node.unsupported': 'List of unsupported models for this node',
+        'tutorial.pool.node.supported': 'Models enabled on this node (absent means follow the upstream list with all selected)',
         'tutorial.pool.node.disabled': 'Whether to disable this node',
         'tutorial.pool.example.title': 'Configuration Example',
         'tutorial.fallback.title': 'Fallback Configuration',

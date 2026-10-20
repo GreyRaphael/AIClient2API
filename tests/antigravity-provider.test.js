@@ -187,7 +187,7 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         expect(none).toBeNull();
     });
 
-    test('6. 节点候选集只来自上游发现，不受旧排除字段影响', () => {
+    test('6. 节点候选集只来自上游发现', () => {
         seedNodeModels('trae', {
             'trae-node-1': ['glm-5.2', 'DeepSeek-V4.1-Flash']
         });
@@ -196,8 +196,7 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
             trae: [{
                 uuid: 'trae-node-1',
                 isDisabled: false,
-                isHealthy: true,
-                notSupportedModels: ['glm-5.2', 'DeepSeek-V4.1-Flash']
+                isHealthy: true
             }]
         }, { maxErrorCount: 10 });
 

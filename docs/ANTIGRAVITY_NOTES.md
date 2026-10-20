@@ -94,11 +94,12 @@ Antigravity Provider 在底层（`antigravity-core.js`）采用了**根据客户
 
 ---
 
-## 五、Web 前端 `notSupportedModels` 联动过滤机制
+## 五、Web 前端正向模型选择机制
 
-在前端「提供商池管理」中勾选的“不支持的模型”（`notSupportedModels`），现已与 `/v1/models` 和 `/v1beta/models` 端点完成联动：
-* **单提供商模式**：若节点或配置中指定了 `notSupportedModels`，系统在组装模型列表时会自动将对应的模型剔除。
-* **Auto 聚合模式**：当某个提供商类型下的所有有效节点均排除了某些模型时，`getAllAvailableModels()` 会自动从聚合结果中剔除这部分模型，确保客户端获取到的模型列表与前端配置严格一致。
+前端「提供商池管理」中的节点模型配置采用正向勾选：
+* **单提供商模式**：节点选择集来自上游 `model_list`，未勾选的模型不会出现在 `/v1/models` 与 `/v1beta/models`。
+* **Auto 聚合模式**：分组最终列表为活跃节点选择集的并集，并自动并入该分组的自定义模型；自定义模型不会进入节点候选列表。
+* **新增模型**：上游新增的模型通过 `supportedModelsBaseline` 识别，默认自动选中。
 
 ---
 

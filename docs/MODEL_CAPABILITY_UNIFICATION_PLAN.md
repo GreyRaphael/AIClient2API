@@ -1,3 +1,5 @@
+> 历史说明：本方案中基于负向排除的模型选择语义已被 `docs/POSITIVE_MODEL_SELECTION_PLAN.md` 取代。当前实现采用正向 `supportedModels` + `supportedModelsBaseline`，节点候选只来自上游发现或静态基线，自定义模型只在分组最终集中并入。
+
 # 模型能力统一方案（Model Capability Unification）
 
 - 状态：待评审
@@ -23,7 +25,7 @@
 
 模型列表同时被当作“用户配置”“运行时缓存”“静态基线”使用，且有多条读取路径：
 
-1. **节点 `availableModels` 是持久化快照，但没有刷新写入路径**
+1. **节点模型快照曾是持久化字段，但没有刷新写入路径**
    - 仅由历史 UI 保存写入，当前代码只读不写；
    - 对 trae 而言，它在 `getNodeAvailableModels()` 中优先于动态结果
      （`src/providers/provider-pool-manager.js:1465-1479`）。
@@ -54,9 +56,9 @@
 
 | Provider | 动态发现 | 动态结果存放 | 聚合读取 | 陈旧快照遮蔽 | 结论 |
 |---|---|---|---|---|---|
-| `trae` / `trae-solo_work_lite` / `trae-chat_v3` | `fetchRemoteModels()`（仅 `listModels` 触发） | 全局 `PROVIDER_MODELS`（整体替换） | 节点 `availableModels` 优先 | **是，持续存在** | 确认同类 bug |
-| `gemini-antigravity` | `initialize()` 内 `fetchAvailableModels()` | 实例 `availableModels` | 实例优先，未初始化回退快照/基线 | 仅初始化前 | 健康检查/预热后自动恢复 |
-| `openai-codex-oauth` | `initialize()` 异步预热 | 实例 `availableModels` + 全局合并 | 实例优先，未初始化回退快照 | 仅初始化前 | 与 antigravity 同类 |
+| `trae` / `trae-solo_work_lite` / `trae-chat_v3` | `fetchRemoteModels()`（仅 `listModels` 触发） | 全局 `PROVIDER_MODELS`（整体替换） | 节点旧快照优先 | **是，持续存在** | 确认同类 bug |
+| `gemini-antigravity` | `initialize()` 内 `fetchAvailableModels()` | 实例模型缓存 | 实例优先，未初始化回退快照/基线 | 仅初始化前 | 健康检查/预热后自动恢复 |
+| `openai-codex-oauth` | `initialize()` 异步预热 | 实例模型缓存 + 全局合并 | 实例优先，未初始化回退快照 | 仅初始化前 | 与 antigravity 同类 |
 | `zed` | 获取 token 时后台刷新 | 实例 `modelsCache` + 全局并集 | 全局 `PROVIDER_MODELS` | 无快照遮蔽 | 新增可同步；下线不生效、节点差异丢失 |
 | `claude-kiro-oauth` | 无（静态 `KIRO_MODELS`） | 无 | 静态 | — | 不会自动同步 |
 | `grok-web` | 无（静态 `GROK_MODELS`） | 无 | 静态 | — | 不会自动同步 |
@@ -116,18 +118,18 @@
 ```js
 {
   uuid,
-  disabledModels: [],        // 用户显式排除；迁移期兼容 notSupportedModels
-  supportedModels: [],       // 仅托管 provider 使用
-  modelAliases: {},          // 可选：用户显式别名
+  supportedModels: [],              // 正向白名单；字段缺失表示跟随上游全选
+  supportedModelsBaseline: [],      // 上次保存时的上游候选快照，用于识别新增模型
+  modelAliases: {},                 // 可选：用户显式别名
 }
 ```
 
-`availableModels` 标记为 deprecated：迁移后再忽略，不参与任何读取。
+节点候选集只来自上游发现或静态基线，不再读取节点旧快照字段。
 
 #### 静态基线（不可变）
 
 - `PROVIDER_MODELS` 保留为基线，建议语义重命名为 `BASELINE_PROVIDER_MODELS`（保留旧导出别名）；
-- 动态发现**不再调用** `updateProviderModels()`；
+- 动态发现**不再改写**全局静态基线；
 - `getBaselineModels(providerType)` 只返回基线 + 静态内置模型。
 
 ### 3.2 解析器 API
@@ -146,7 +148,7 @@ export const CAPABILITY_SOURCE = {
 /** 同步：立即返回，不发起网络请求 */
 export function resolveNodeCapability(providerType, nodeConfig) {
   return {
-    models,        // 应用 disabledModels 后
+    models,        // 应用节点选择集后
     discovered,    // 原始发现集合
     source,        // live | persisted | baseline | configured | static
     fetchedAt,     // 0 表示未知
@@ -177,12 +179,12 @@ export async function refreshProviderCapabilities(providerType, nodes, { force =
 1. 托管 provider 且 supportedModels 非空  → configured
 2. 存在发现记录（live / persisted）       → 使用记录
 3. 否则                                   → baseline
-最后统一减去 disabledModels
+最后按 supportedModels 与 supportedModelsBaseline 计算选择集
 ```
 
 注意：
 
-- 只有 `supportedModels` 为空时才进入发现/基线链路；
+- `supportedModels` 缺失时跟随上游全选；显式数组时保留选择并自动吸收新增模型；
 - 发现记录存在但 `models` 为空时，返回空集合，**不回退基线**；
 - `baseline` 的 `known = false`（动态 provider）或 `true`（静态 provider）。
 
@@ -192,7 +194,7 @@ export async function refreshProviderCapabilities(providerType, nodes, { force =
 
 | Provider | 实现 |
 |---|---|
-| `gemini-antigravity` | 返回实例 `availableModels`；必要时 `initialize()`；支持 `force` |
+| `gemini-antigravity` | 返回实例模型缓存；必要时 `initialize()`；支持 `force` |
 | `openai-codex-oauth` | 返回 `getSupportedModels()`；必要时 `fetchRemoteModels()` |
 | `trae*` | 返回 `listModels()` 的 id 列表 |
 | `zed` | 返回实例 `modelsCache` 的 id 列表；必要时 `fetchRemoteModels()` |
@@ -251,7 +253,7 @@ MODEL_CACHE_TTL_MS = {
 
 | 场景 | 规则 |
 |---|---|
-| **display**（模型列表 / Playground / `/auto/v1/models`） | 活跃节点 `models` 的并集，已应用各自 `disabledModels` |
+| **display**（模型列表 / Playground / `/auto/v1/models`） | 活跃节点选择集的并集，并并入分组自定义模型 |
 | **routing**（`_doSelectProvider` / `/{provider}/v1/models`） | 只保留 `known && models.includes(requested)` 的节点；`known=false` 时不做守卫 |
 | **managed** | `supportedModels` 非空 → 用它；否则按发现/基线 |
 | **静态 provider** | baseline，`source='static'`，不发起发现 |
@@ -292,24 +294,20 @@ MODEL_CACHE_TTL_MS = {
 - `provider-api.js` 的 `getManagedSupportedModels()`、`getActiveProviderModels()`、`resolveNodeAvailableModels()` 中重复逻辑
 - `provider-api.js` 的 `warmProviderNodeModels()`（`449-481`）
 - `provider-api.js` 的 `triggerProviderDynamicModelRefresh()`（`486-513`）
-- 动态 provider 的 `updateProviderModels()` 调用：
+- 动态 provider 改写全局静态基线的调用点：
   - `src/providers/trae/trae-core.js:1216`
   - `src/providers/zed/zed-core.js:1393`
   - `src/providers/openai/codex-core.js:1188`
-- 保存 provider 时对 `notSupportedModels` 的实时列表裁剪（`src/ui-modules/provider-api.js:851-855`）
-- 节点配置 `availableModels` 的读写
+- 旧负向模型选择字段与节点旧快照字段的读写
 
 ---
 
 ## 6. 迁移方案
 
-1. 启动时扫描 `provider_pools.json`：
-   - 若节点存在 `availableModels`，写入能力缓存，`source='persisted'`、`fetchedAt=0`；
-   - 原字段保留但忽略，便于回滚。
-2. `notSupportedModels` 作为 `disabledModels` 读取；写入期可双写。
-3. `PROVIDER_MODELS` 静态化，动态结果只进能力缓存。
-4. 下一版本删除 `availableModels` 字段与 `notSupportedModels` 双写。
-5. 回滚：通过 revert 对应提交恢复旧读路径；不保留运行时 `legacy` 双路径，避免两套逻辑再次分叉。
+1. `provider_pools.json` 只读取 `supportedModels` / `supportedModelsBaseline`，不读取任何负向字段或节点旧快照。
+2. `PROVIDER_MODELS` 静态化，动态结果只进能力缓存。
+3. 旧字段由一次性清理脚本删除，不保留运行时兼容分支。
+4. 回滚：通过 revert 对应提交恢复旧读路径；旧配置字段需从备份恢复。
 
 迁移完成后，节点配置只包含用户意图，不再被运行时状态污染。
 
@@ -331,7 +329,8 @@ MODEL_CACHE_TTL_MS = {
 ### 单元测试
 
 - 优先级：live > persisted > baseline；空发现结果不回退基线。
-- `disabledModels` 只做减法，永不新增排除项。
+- 正向选择：`supportedModels` 缺失表示全选，数组表示显式选择。
+- 上游新增模型通过 `supportedModelsBaseline` 自动选中。
 - display 并集 / routing 节点级过滤 / `known=false` 不守卫。
 - 单飞、TTL、退避、失败保留 last-known。
 - 缓存文件损坏时不抛错。
@@ -368,7 +367,8 @@ MODEL_CACHE_TTL_MS = {
 
 - [ ] 解析优先级正确：`configured > live/persisted > baseline`。
 - [ ] 发现记录存在但 `models: []` 时返回空集合，不回退基线。
-- [ ] `disabledModels` 只做减法，不产生新的排除项。
+- [ ] `supportedModels` 缺失时全选；显式数组时只返回勾选项。
+- [ ] 上游新增模型自动进入选择集。
 - [ ] 缓存存储支持原子写入、损坏文件容错、`MemoryStore` 注入。
 - [ ] 不修改任何现有调用方；`npm test` 全绿。
 - [ ] 测试过程零真实文件写入（可用文件 mtime 断言）。
@@ -393,7 +393,7 @@ npm test
 - 为 `trae*`、`zed` 实现 `getNodeAvailableModels()`。
 - 确认 antigravity / codex 的实现支持 `force`。
 - 静态 provider 与托管 provider 明确返回 `null`。
-- 删除动态 provider 对 `updateProviderModels()` 的调用。
+- 删除动态 provider 对全局静态基线的写入。
 
 **验收清单**
 
@@ -412,7 +412,7 @@ npx jest tests/zed-provider.test.js tests/codex-dynamic-models.test.js --forceEx
 npm test
 ```
 
-**回滚**：恢复 `updateProviderModels()` 调用与 adapter 方法；C1 不受影响。
+**回滚**：恢复全局静态基线写入与 adapter 方法；C1 不受影响。
 
 ---
 
@@ -423,15 +423,15 @@ npm test
 - pool manager / provider-api / request-pipeline 全部切换到 capability resolver。
 - 删除 `getEffectiveExcludedModels()` 与 `commonExcluded` 推导。
 - 删除 `/api/provider-models/{type}` 的独立分支。
-- 启动迁移：`availableModels` → 能力缓存。
-- 移除保存 provider 时对 `notSupportedModels` 的裁剪。
+- 节点候选集只来自上游发现或静态基线。
+- 保存 provider 时只写 `supportedModels` / `supportedModelsBaseline`。
 
 **验收清单**
 
 - [ ] 五个入口对同一缓存快照返回一致结果（见第 8 节集成测试）。
 - [ ] `getEffectiveExcludedModels()` 已删除，代码中无集合差反推。
-- [ ] `availableModels` 迁移后仅被忽略，不再参与读取；UI 保存不会写回。
-- [ ] `notSupportedModels` 保存时原样保留，不被实时列表裁剪。
+- [ ] 节点旧快照字段不再参与读取；UI 保存不会写回。
+- [ ] 旧负向字段不再被读取或写入。
 - [ ] Trae 缓存含 `DeepSeek-V4.1-Flash-1017` 时：
   - `/api/provider-models` 可见；
   - `/api/provider-models/trae` 可见；
@@ -528,7 +528,7 @@ npm run test:integration
 | 上游限流 | TTL + 随机抖动 + 退避；失败保留 last-known |
 | 首次请求变慢 | 仅冷启动允许有限等待；其余 SWR |
 | 多账号差异 | 节点级缓存；display 并集、routing 逐节点 |
-| 迁移遗漏 | `availableModels` 保留一个版本；回滚使用 `git revert` |
+| 迁移遗漏 | 使用一次性清理脚本删除旧字段；回滚使用 `git revert` 并恢复配置备份 |
 | 测试写真实配置 | `persist:false` + `MemoryStore`；CI 断言文件 mtime |
 | 静态 provider 被误判 | `source=static` 明确标记，文档说明 |
 
@@ -574,13 +574,13 @@ npm run test:integration
 
 - 日志：`logs/app-2026-10-20.log` 中 antigravity 健康检查后 `Fetching available models...` → 列表收敛。
 - 日志：`logs/app-2026-10-19.log:18481` 中 `/trae/v1/models` 将 `DeepSeek-V4.1-Flash-1017` 加入排除集。
-- 实测：`/api/provider-models` 的 trae 为 10 个，`/api/provider-models/trae` 为 22 个（含 `-1017`）。
+- 实测：`/api/provider-models` 与 `/api/providers` 的节点选择集保持一致。
 
 ### C. 迁移检查表
 
 - [ ] 已生成本地能力缓存文件。
-- [ ] 旧 `availableModels` 已迁移且不再被读取。
-- [ ] `notSupportedModels` 语义已标注为用户排除。
+- [ ] 节点旧快照字段已不再被读取。
+- [ ] 旧负向字段已从配置中清除。
 - [ ] `PROVIDER_MODELS` 不再被动态写入。
 - [ ] 端点一致性测试通过。
 - [ ] 重启后缓存 rehydrate 正常。

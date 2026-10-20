@@ -13,7 +13,6 @@ import {
 import {
     PROVIDER_MODELS,
     BASE_CODEX_MODELS,
-    updateProviderModels,
     getProviderModels
 } from '../src/providers/provider-models.js';
 

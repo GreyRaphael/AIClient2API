@@ -162,11 +162,11 @@
 
 ### 6.2 数据分层
 
-- **配置（provider_pools.json）**：只存用户意图（`supportedModels`、`notSupportedModels`）。
+- **配置（provider_pools.json）**：只存用户意图（`supportedModels` 与用于识别新增模型的 `supportedModelsBaseline`）。
 - **运行时缓存（`configs/model-capability-cache.json`）**：只存成功发现结果，按 `providerType:uuid` 隔离。
 - **静态基线（`PROVIDER_MODELS`）**：只做冷启动/无发现时的兜底，标记 `source=baseline|static`。
 
-禁止把动态发现结果写回 `provider_pools.json`，也禁止在读取时用集合差反推“不支持模型”。
+禁止把动态发现结果写回 `provider_pools.json`。节点候选集只来自上游发现或静态基线，自定义模型只在分组最终集中并入。
 
 ### 6.3 刷新与路由
 

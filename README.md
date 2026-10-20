@@ -578,18 +578,19 @@ This project supports flexible proxy configuration, allowing you to configure a 
 - Ensure the proxy service is stable and available, otherwise it may affect service quality
 - SOCKS5 proxy usually performs better than HTTP proxy
 
-#### 2. Model Filtering Configuration
+#### 2. Model Selection Configuration
 
-Support excluding unsupported models through `notSupportedModels` configuration, the system will automatically skip these providers.
+Node models use positive selection: candidates come from the upstream `model_list` and are all selected by default. Unchecking a model means the node will not use it. Models added upstream later are selected automatically.
 
-**Configuration**: Add `notSupportedModels` field for providers in `configs/provider_pools.json`:
+**Configuration**: Edit the node in "Provider Pool Management"; the result is stored in `configs/provider_pools.json`:
 
 ```json
 {
   "gemini-antigravity": [
     {
       "uuid": "provider-1",
-      "notSupportedModels": ["gemini-3.0-pro", "gemini-3.5-flash"],
+      "supportedModels": ["gemini-3.8-flash-high", "claude-sonnet-4-6"],
+      "supportedModelsBaseline": ["gemini-3.8-flash-high", "claude-sonnet-4-6", "gemini-3.1-pro-high"],
       "checkHealth": true
     }
   ]
@@ -597,8 +598,10 @@ Support excluding unsupported models through `notSupportedModels` configuration,
 ```
 
 **How It Works**:
-- When requesting a specific model, the system automatically filters out providers that have configured the model as unsupported
-- Only providers that support the model will be selected to handle the request
+- `supportedModels` is the explicit set of models enabled on the node; if the field is absent, the node follows the upstream list with everything selected.
+- `supportedModelsBaseline` is the upstream candidate snapshot at the last save, used to detect and auto-select newly added models.
+- The group's final model list is the union of active node selections and the group's custom models.
+- Node candidates contain upstream models only; custom models never appear in node candidates.
 
 **Use Cases**:
 - Some accounts cannot access specific models due to quota or permission restrictions
@@ -744,7 +747,7 @@ Or modify the port configuration in `configs/config.json` to use a different por
 - **Check Model Name**: Ensure you're using the correct model name (case-sensitive)
 - **Check Provider Support**: Confirm the currently configured provider supports that model
 - **Check Account Permissions**: Some advanced models may require specific account permissions
-- **Configure Model Filtering**: Use `notSupportedModels` to exclude unsupported models
+- **Check Node Model Selection**: In "Provider Pool Management", confirm the model is checked in the node candidates
 
 ### 7. Web UI Cannot Be Accessed
 
