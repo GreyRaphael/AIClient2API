@@ -100,8 +100,21 @@ export class OpenAIApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
-        // OpenAI 的流式请求需要将 stream 设置为 true
-        const streamRequestBody = { ...body, stream: true };
+        // OpenAI 的流式请求需要将 stream 设置为 true。
+        // _includeUsageForConversion 是内部标记（跨协议转换时需要 usage），不能发送到上游。
+        // 个别 OpenAI 兼容上游不识别 stream_options，可通过 OPENAI_STREAM_INCLUDE_USAGE=off 关闭。
+        const includeUsageRaw = this.config?.OPENAI_STREAM_INCLUDE_USAGE ?? process.env.OPENAI_STREAM_INCLUDE_USAGE;
+        const includeUsageEnabled = includeUsageRaw === undefined
+            || !['0', 'false', 'off', 'no'].includes(String(includeUsageRaw).toLowerCase());
+        const shouldMergeFinishUsage = body._includeUsageForConversion === true && includeUsageEnabled;
+        const { _includeUsageForConversion: _includeUsageMarker, ...cleanBody } = body;
+        const streamRequestBody = { ...cleanBody, stream: true };
+        if (shouldMergeFinishUsage) {
+            streamRequestBody.stream_options = {
+                ...(cleanBody.stream_options || {}),
+                include_usage: true
+            };
+        }
 
         try {
             const axiosConfig = {
@@ -115,6 +128,9 @@ export class OpenAIApiService {
 
             const stream = response.data;
             let buffer = '';
+            // include_usage 的 usage 帧在 finish 帧之后到达。跨协议转换时先暂存 finish，
+            // 等 usage 帧到达后合并，避免 Claude / Responses 下游拿到全零 usage。
+            let pendingFinishChunk = null;
 
             for await (const chunk of stream) {
                 buffer += chunk.toString();
@@ -126,11 +142,34 @@ export class OpenAIApiService {
                     if (line.startsWith('data:')) {
                         const jsonData = line.substring(5).trim();
                         if (jsonData === '[DONE]') {
+                            if (pendingFinishChunk) {
+                                yield pendingFinishChunk;
+                                pendingFinishChunk = null;
+                            }
                             return; // Stream finished
                         }
                         try {
                             const parsedChunk = JSON.parse(jsonData);
-                            yield parsedChunk;
+                            if (shouldMergeFinishUsage && pendingFinishChunk) {
+                                const isUsageOnly = (!Array.isArray(parsedChunk.choices) || parsedChunk.choices.length === 0)
+                                    && parsedChunk.usage;
+                                if (isUsageOnly) {
+                                    pendingFinishChunk.usage = parsedChunk.usage;
+                                    yield pendingFinishChunk;
+                                    pendingFinishChunk = null;
+                                    continue;
+                                }
+                                yield pendingFinishChunk;
+                                pendingFinishChunk = null;
+                            }
+
+                            const hasFinishReason = Array.isArray(parsedChunk.choices)
+                                && parsedChunk.choices.some(choice => choice?.finish_reason);
+                            if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
+                                pendingFinishChunk = parsedChunk;
+                            } else {
+                                yield parsedChunk;
+                            }
                         } catch (e) {
                             logger.warn("[OpenAIApiService] Failed to parse stream chunk JSON:", e.message, "Data:", jsonData);
                         }
@@ -138,6 +177,11 @@ export class OpenAIApiService {
                         // Empty line, end of an event
                     }
                 }
+            }
+
+            // 上游未发送 [DONE] 或 usage 帧时，仍要交付已暂存的 finish 帧。
+            if (pendingFinishChunk) {
+                yield pendingFinishChunk;
             }
         } catch (error) {
             const status = error.response?.status;

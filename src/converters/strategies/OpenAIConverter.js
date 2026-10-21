@@ -446,6 +446,25 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
+     * OpenAI usage -> Anthropic usage。
+     * OpenAI 的 prompt_tokens 已包含 cached_tokens，而 Anthropic 的 input_tokens
+     * 不包含缓存命中部分，需要从总量中扣除，缓存命中单独放在 cache_read_input_tokens。
+     * @private
+     */
+    _openAIUsageToClaude(usage = {}) {
+        const promptTokens = usage?.prompt_tokens || 0;
+        const cachedTokens = usage?.prompt_tokens_details?.cached_tokens
+            ?? usage?.cached_tokens
+            ?? 0;
+        return {
+            input_tokens: Math.max(0, promptTokens - cachedTokens),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: cachedTokens,
+            output_tokens: usage?.completion_tokens || 0
+        };
+    }
+
+    /**
      * OpenAI响应 -> Claude响应
      */
     toClaudeResponse(openaiResponse, model) {
@@ -458,12 +477,7 @@ export class OpenAIConverter extends BaseConverter {
                 model: model || "unknown",
                 stop_reason: "end_turn",
                 stop_sequence: null,
-                usage: {
-                    input_tokens: openaiResponse?.usage?.prompt_tokens || 0,
-                    cache_creation_input_tokens: 0,
-                    cache_read_input_tokens: openaiResponse?.usage?.prompt_tokens_details?.cached_tokens || 0,
-                    output_tokens: openaiResponse?.usage?.completion_tokens || 0
-                }
+                usage: this._openAIUsageToClaude(openaiResponse?.usage)
             };
         }
 
@@ -558,12 +572,7 @@ export class OpenAIConverter extends BaseConverter {
             model: model || openaiResponse.model || "unknown",
             stop_reason: stopReason,
             stop_sequence: null,
-            usage: {
-                input_tokens: openaiResponse.usage?.prompt_tokens || 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: openaiResponse.usage?.prompt_tokens_details?.cached_tokens || 0,
-                output_tokens: openaiResponse.usage?.completion_tokens || 0
-            }
+            usage: this._openAIUsageToClaude(openaiResponse?.usage)
         };
     }
 
@@ -641,10 +650,15 @@ export class OpenAIConverter extends BaseConverter {
 
         // 1. 发送 message_start 事件（流开始的第一个有效 chunk 时发出）
         emitter.setModel(model || openaiChunk.model);
-        events.push(...emitter.ensureStarted({
-            input_tokens: openaiChunk.usage?.prompt_tokens || 0,
+        const startUsage = this._openAIUsageToClaude(openaiChunk.usage);
+        const messageStartUsage = {
+            input_tokens: startUsage.input_tokens,
             output_tokens: 0
-        }));
+        };
+        if (startUsage.cache_read_input_tokens > 0) {
+            messageStartUsage.cache_read_input_tokens = startUsage.cache_read_input_tokens;
+        }
+        events.push(...emitter.ensureStarted(messageStartUsage));
 
         const delta = choice?.delta;
 
@@ -754,10 +768,11 @@ export class OpenAIConverter extends BaseConverter {
             }
 
             // finish 统一兜底空块 -> 关闭所有 open 块 -> message_delta -> message_stop
+            const mappedUsage = this._openAIUsageToClaude(openaiChunk.usage);
             const finishUsage = openaiChunk.usage ? {
-                input_tokens: openaiChunk.usage.prompt_tokens || 0,
-                output_tokens: openaiChunk.usage.completion_tokens || 0,
-                cache_read_input_tokens: openaiChunk.usage.prompt_tokens_details?.cached_tokens || 0
+                input_tokens: mappedUsage.input_tokens,
+                output_tokens: mappedUsage.output_tokens,
+                cache_read_input_tokens: mappedUsage.cache_read_input_tokens
             } : { output_tokens: 0 };
             events.push(...emitter.finish({
                 stopReason,
