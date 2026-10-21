@@ -122,6 +122,29 @@ export class ClaudeConverter extends BaseConverter {
     // =========================================================================
 
     /**
+     * Anthropic usage -> OpenAI usage。
+     * Anthropic 的 input_tokens 不包含 cache_creation / cache_read，
+     * 而 OpenAI 的 prompt_tokens 是输入总量，必须把缓存侧 token 加回去。
+     * @private
+     */
+    _claudeUsageToOpenAI(usage = {}) {
+        const cacheRead = usage?.cache_read_input_tokens || 0;
+        const cacheCreation = usage?.cache_creation_input_tokens || 0;
+        const promptTokens = (usage?.input_tokens || 0) + cacheRead + cacheCreation;
+        const completionTokens = usage?.output_tokens || 0;
+        return {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens,
+            // 兼容既有客户端读取的顶层 cached_tokens（标准字段仍是 prompt_tokens_details）。
+            cached_tokens: cacheRead,
+            prompt_tokens_details: {
+                cached_tokens: cacheRead
+            }
+        };
+    }
+
+    /**
      * Claude请求 -> OpenAI请求
      */
     toOpenAIRequest(claudeRequest) {
@@ -501,15 +524,7 @@ export class ClaudeConverter extends BaseConverter {
                     },
                     finish_reason: "stop",
                 }],
-                usage: {
-                    prompt_tokens: claudeResponse.usage?.input_tokens || 0,
-                    completion_tokens: claudeResponse.usage?.output_tokens || 0,
-                    total_tokens: (claudeResponse.usage?.input_tokens || 0) + (claudeResponse.usage?.output_tokens || 0),
-                    cached_tokens: claudeResponse.usage?.cache_read_input_tokens || 0,
-                    prompt_tokens_details: {
-                        cached_tokens: claudeResponse.usage?.cache_read_input_tokens || 0
-                    }
-                },
+                usage: this._claudeUsageToOpenAI(claudeResponse?.usage),
             };
         }
 
@@ -592,15 +607,7 @@ export class ClaudeConverter extends BaseConverter {
                 message: message,
                 finish_reason: finishReason,
             }],
-            usage: {
-                prompt_tokens: claudeResponse.usage?.input_tokens || 0,
-                completion_tokens: claudeResponse.usage?.output_tokens || 0,
-                total_tokens: (claudeResponse.usage?.input_tokens || 0) + (claudeResponse.usage?.output_tokens || 0),
-                cached_tokens: claudeResponse.usage?.cache_read_input_tokens || 0,
-                prompt_tokens_details: {
-                    cached_tokens: claudeResponse.usage?.cache_read_input_tokens || 0
-                }
-            },
+            usage: this._claudeUsageToOpenAI(claudeResponse?.usage),
         };
     }
 
@@ -640,8 +647,12 @@ export class ClaudeConverter extends BaseConverter {
         if (claudeChunk.type === 'message_start') {
             // Anthropic 的 message_delta.usage 通常只含 output_tokens，
             // 输入侧用量必须在 message_start 保存，终结帧再合并。
-            identity.promptTokens = claudeChunk.message?.usage?.input_tokens || 0;
-            identity.cachedTokens = claudeChunk.message?.usage?.cache_read_input_tokens || 0;
+            const startUsage = claudeChunk.message?.usage || {};
+            identity.cachedTokens = startUsage.cache_read_input_tokens || 0;
+            identity.cacheCreationTokens = startUsage.cache_creation_input_tokens || 0;
+            identity.promptTokens = (startUsage.input_tokens || 0)
+                + identity.cachedTokens
+                + identity.cacheCreationTokens;
             return {
                 id: chunkId,
                 object: "chat.completion.chunk",
@@ -820,9 +831,18 @@ export class ClaudeConverter extends BaseConverter {
             };
 
             if(claudeChunk.usage){
-                const promptTokens = claudeChunk.usage.input_tokens ?? identity.promptTokens ?? 0;
+                const cachedTokens = claudeChunk.usage.cache_read_input_tokens
+                    ?? identity.cachedTokens
+                    ?? 0;
+                const cacheCreationTokens = claudeChunk.usage.cache_creation_input_tokens
+                    ?? identity.cacheCreationTokens
+                    ?? 0;
+                // message_delta 通常只带 output_tokens；若它重复携带 input_tokens，
+                // 这里的 input_tokens 仍是“未含缓存”的基础值，需要加回缓存侧。
+                const promptTokens = claudeChunk.usage.input_tokens !== undefined
+                    ? claudeChunk.usage.input_tokens + cachedTokens + cacheCreationTokens
+                    : (identity.promptTokens ?? 0);
                 const completionTokens = claudeChunk.usage.output_tokens || 0;
-                const cachedTokens = claudeChunk.usage.cache_read_input_tokens ?? identity.cachedTokens ?? 0;
                 chunk.usage = {
                     prompt_tokens: promptTokens,
                     completion_tokens: completionTokens,
@@ -1337,7 +1357,13 @@ export class ClaudeConverter extends BaseConverter {
         if (claudeRequest.top_k !== undefined) {
             generationConfig.topK = claudeRequest.top_k;
         }
-        
+        // Gemini 原生支持 stopSequences；此前该字段在 Claude -> Gemini 方向被静默丢弃。
+        if (claudeRequest.stop_sequences !== undefined) {
+            generationConfig.stopSequences = Array.isArray(claudeRequest.stop_sequences)
+                ? claudeRequest.stop_sequences
+                : [claudeRequest.stop_sequences];
+        }
+
         // 处理 thinking 配置 - 统一映射到 Gemini 3+ thinkingLevel
         const thinkingType = claudeRequest.thinking?.type;
         if (thinkingType === 'enabled' || thinkingType === 'adaptive') {
@@ -1870,6 +1896,7 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         const incomplete = claudeResponse.stop_reason === 'max_tokens';
+        const openaiUsage = this._claudeUsageToOpenAI(claudeResponse?.usage);
 
         return {
             background: false,
@@ -1901,15 +1928,15 @@ export class ClaudeConverter extends BaseConverter {
             top_p: 1,
             truncation: "disabled",
             usage: {
-                input_tokens: claudeResponse.usage?.input_tokens || 0,
+                input_tokens: openaiUsage.prompt_tokens,
                 input_tokens_details: {
-                    cached_tokens: claudeResponse.usage?.cache_read_input_tokens || 0
+                    cached_tokens: openaiUsage.prompt_tokens_details.cached_tokens
                 },
-                output_tokens: claudeResponse.usage?.output_tokens || 0,
+                output_tokens: openaiUsage.completion_tokens,
                 output_tokens_details: {
                     reasoning_tokens: 0
                 },
-                total_tokens: (claudeResponse.usage?.input_tokens || 0) + (claudeResponse.usage?.output_tokens || 0)
+                total_tokens: openaiUsage.total_tokens
             },
             user: null
         };
@@ -1922,11 +1949,17 @@ export class ClaudeConverter extends BaseConverter {
      */
     _mergeClaudeUsage(previous, usage) {
         const prev = previous || {};
-        const inputTokens = usage?.input_tokens ?? prev.input_tokens ?? 0;
-        const outputTokens = usage?.output_tokens ?? prev.output_tokens ?? 0;
         const cachedTokens = usage?.cache_read_input_tokens
             ?? prev.input_tokens_details?.cached_tokens
             ?? 0;
+        // 内部字段只用于跨帧合并，输出前会被 _toResponsesUsage 清理。
+        const cacheCreationTokens = usage?.cache_creation_input_tokens
+            ?? prev.cache_creation_input_tokens
+            ?? 0;
+        const inputTokens = usage?.input_tokens !== undefined
+            ? usage.input_tokens + cachedTokens + cacheCreationTokens
+            : (prev.input_tokens ?? 0);
+        const outputTokens = usage?.output_tokens ?? prev.output_tokens ?? 0;
         return {
             input_tokens: inputTokens,
             input_tokens_details: { cached_tokens: cachedTokens },
@@ -1934,8 +1967,19 @@ export class ClaudeConverter extends BaseConverter {
             output_tokens_details: {
                 reasoning_tokens: prev.output_tokens_details?.reasoning_tokens || 0
             },
-            total_tokens: inputTokens + outputTokens
+            total_tokens: inputTokens + outputTokens,
+            cache_creation_input_tokens: cacheCreationTokens
         };
+    }
+
+    /**
+     * 清理仅用于合并的 Anthropic 内部字段，避免非标准字段泄露到 Responses usage。
+     * @private
+     */
+    _toResponsesUsage(usage) {
+        if (!usage) return usage;
+        const { cache_creation_input_tokens, ...clean } = usage;
+        return clean;
     }
 
     /**
@@ -2050,7 +2094,7 @@ export class ClaudeConverter extends BaseConverter {
                 status = 'incomplete';
                 incompleteDetails = { reason: 'max_output_tokens' };
             }
-            events.push(...emitter.complete(emitter.savedUsage, { status, incompleteDetails }));
+            events.push(...emitter.complete(this._toResponsesUsage(emitter.savedUsage), { status, incompleteDetails }));
         }
 
         return events;
@@ -2278,6 +2322,14 @@ export class ClaudeConverter extends BaseConverter {
                                     const mediaType = block.source.media_type || block.source.mime_type || 'application/octet-stream';
                                     if (data) {
                                         appendImageContent(data, mediaType);
+                                    } else if (block.source.type === 'url' && block.source.url) {
+                                        // Responses/Codex 的 input_image 支持远程 URL，不能静默丢弃整块。
+                                        currentMessage.content.push({
+                                            type: 'input_image',
+                                            image_url: block.source.url
+                                        });
+                                    } else {
+                                        logger.warn('[ClaudeConverter] Claude->Codex image block dropped: neither base64 data nor URL is available');
                                     }
                                 }
                                 break;
@@ -2287,14 +2339,20 @@ export class ClaudeConverter extends BaseConverter {
                                     const data = block.source.data || block.source.base64 || '';
                                     const approxBytes = Math.floor(data.length * 0.75);
                                     const title = block.title || 'untitled';
-                                    if (process.env.CODEX_PDF_AS_INPUT_FILE === '1' || process.env.CODEX_PDF_AS_INPUT_FILE === 'true') {
+                                    if (data && (process.env.CODEX_PDF_AS_INPUT_FILE === '1' || process.env.CODEX_PDF_AS_INPUT_FILE === 'true')) {
                                         flushMessage();
                                         codexRequest.input.push({
                                             type: 'input_file',
                                             file_data: `data:${mimeType};base64,${data}`
                                         });
-                                    } else {
+                                    } else if (!data && block.source.type === 'url' && block.source.url) {
+                                        // Codex 没有稳定的远程 document 输入形态，保留可追踪的 URL 文本兜底。
+                                        logger.warn(`[ClaudeConverter] Claude->Codex document URL cannot be sent as a file, preserving URL text: ${block.source.url}`);
+                                        appendTextContent(`[Document: ${title} (${block.source.url})]`);
+                                    } else if (data) {
                                         appendTextContent(`[Document: ${title} (${mimeType}, ${approxBytes} bytes) omitted — upstream cannot receive files]`);
+                                    } else {
+                                        logger.warn(`[ClaudeConverter] Claude->Codex document block dropped: ${title} has no base64 data or URL`);
                                     }
                                 }
                                 break;

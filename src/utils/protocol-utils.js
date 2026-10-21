@@ -30,7 +30,8 @@ export function mapFinishReason(reason, sourceFormat, targetFormat) {
             anthropic: {
                 stop: "end_turn",
                 length: "max_tokens",
-                content_filter: "stop_sequence",
+                // stop_sequence 表示命中用户 stop 序列，语义不同；内容过滤应映射为 refusal。
+                content_filter: "refusal",
                 tool_calls: "tool_use"
             }
         },

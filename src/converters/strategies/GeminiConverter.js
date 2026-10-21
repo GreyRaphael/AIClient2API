@@ -674,16 +674,8 @@ export class GeminiConverter extends BaseConverter {
         let hasToolUse = false;
 
         for (const candidate of geminiResponse.candidates) {
-            if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-                if (candidate.finishMessage) {
-                    content.push({
-                        type: 'text',
-                        text: `Error: ${candidate.finishMessage}`
-                    });
-                }
-                continue;
-            }
-
+            // 非 STOP（如 MAX_TOKENS / SAFETY）也可能携带部分有效内容，
+            // 不能整段丢弃；先保留 parts，再追加 finishMessage 诊断文本。
             if (candidate.content && candidate.content.parts) {
                 for (const part of candidate.content.parts) {
                     // 处理 thinking 块
@@ -763,6 +755,13 @@ export class GeminiConverter extends BaseConverter {
                         content.push(toolUseBlock);
                     }
                 }
+            }
+
+            if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishMessage) {
+                content.push({
+                    type: 'text',
+                    text: `Error: ${candidate.finishMessage}`
+                });
             }
         }
 
@@ -863,12 +862,26 @@ export class GeminiConverter extends BaseConverter {
         }
         output.push(...toolCalls);
 
+        const finishReason = geminiResponse?.candidates?.[0]?.finishReason;
+        let status = 'completed';
+        let incompleteDetails = null;
+        if (finishReason === 'MAX_TOKENS') {
+            status = 'incomplete';
+            incompleteDetails = { reason: 'max_output_tokens' };
+        } else if (finishReason === 'SAFETY' || finishReason === 'RECITATION'
+            || finishReason === 'BLOCKLIST' || finishReason === 'PROHIBITED_CONTENT'
+            || finishReason === 'SPII' || finishReason === 'MODEL_ARMOR'
+            || finishReason === 'MALFORMED_FUNCTION_CALL') {
+            status = 'incomplete';
+            incompleteDetails = { reason: 'content_filter' };
+        }
+
         const response = {
             background: false,
             created_at: Math.floor(Date.now() / 1000),
             error: null,
             id: responseId,
-            incomplete_details: null,
+            incomplete_details: incompleteDetails,
             max_output_tokens: null,
             max_tool_calls: null,
             metadata: {},
@@ -881,7 +894,7 @@ export class GeminiConverter extends BaseConverter {
             reasoning: {},
             safety_identifier: "user-" + uuidv4().replace(/-/g, ''),
             service_tier: "default",
-            status: "completed",
+            status,
             store: false,
             temperature: 1,
             text: {
