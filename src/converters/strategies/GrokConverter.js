@@ -17,10 +17,6 @@ import { ConverterFactory } from '../ConverterFactory.js';
  * 实现Grok协议到其他协议的转换
  */
 export class GrokConverter extends BaseConverter {
-    // 静态属性，确保所有实例共享最新的基础 URL 和 UUID 配置
-    static sharedRequestBaseUrl = "";
-    static sharedUuid = null;
-
     constructor() {
         super('grok');
         // 用于跟踪每个请求的状态
@@ -29,29 +25,11 @@ export class GrokConverter extends BaseConverter {
     }
 
     /**
-     * 设置请求的基础 URL
-     */
-    setRequestBaseUrl(baseUrl) {
-        if (baseUrl) {
-            GrokConverter.sharedRequestBaseUrl = baseUrl;
-        }
-    }
-
-    /**
-     * 设置账号的 UUID
-     */
-    setUuid(uuid) {
-        if (uuid) {
-            GrokConverter.sharedUuid = uuid;
-        }
-    }
-
-    /**
      * 为 assets.grok.com 域名的资源 URL 添加 uuid 参数，并转换为本地代理 URL
      */
     _appendSsoToken(url, state = null) {
-        const requestBaseUrl = state?.requestBaseUrl || GrokConverter.sharedRequestBaseUrl;
-        const uuid = state?.uuid || GrokConverter.sharedUuid;
+        const requestBaseUrl = state?.requestBaseUrl || '';
+        const uuid = state?.uuid || null;
 
         if (!url || !uuid) return url;
         
@@ -84,7 +62,7 @@ export class GrokConverter extends BaseConverter {
      * 在文本中查找并替换所有 Grok 资源链接为绝对代理链接
      */
     _processGrokAssetsInText(text, state = null) {
-        const uuid = state?.uuid || GrokConverter.sharedUuid;
+        const uuid = state?.uuid || null;
         if (!text || !uuid) return text;
         
         // 匹配 assets.grok.com, imagine-public.x.ai 或 grok.com 的 URL

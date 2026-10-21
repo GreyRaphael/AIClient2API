@@ -24,8 +24,6 @@ import { budgetTokensToEffort } from './thinking-budget.js';
 export const OPENAI_DEFAULT_MAX_TOKENS = 128000;
 export const OPENAI_DEFAULT_TEMPERATURE = 1;
 export const OPENAI_DEFAULT_TOP_P = 0.95;
-export const OPENAI_DEFAULT_INPUT_TOKEN_LIMIT = 32768;
-export const OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT = 128000;
 
 // =============================================================================
 // Claude 相关常量
@@ -40,8 +38,6 @@ export const CLAUDE_DEFAULT_TOP_P = 0.95;
 export const GEMINI_DEFAULT_MAX_TOKENS = 65534;
 export const GEMINI_DEFAULT_TEMPERATURE = 1;
 export const GEMINI_DEFAULT_TOP_P = 0.95;
-export const GEMINI_DEFAULT_INPUT_TOKEN_LIMIT = 32768;
-export const GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT = 65534;
 
 // =============================================================================
 // 通用辅助函数

@@ -486,20 +486,13 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 if (chunk.type === 'message_delta' && (chunk.delta?.stop_reason === 'tool_use' || chunk.stop_reason === 'tool_use')) {
                     hasToolCall = true;
                 }
-                // Gemini 格式
-                if (chunk.candidates?.[0]?.content?.parts?.some(p => p.functionCall)) {
-                    hasToolCall = true;
-                }
 
-                // 如果之前有工具调用，且当前 chunk 是正常结束，修正为 tool_calls / tool_use / FINISH_REASON_TOOL_CALLS
+                // 如果之前有工具调用，且当前 chunk 是正常结束，修正为 tool_calls / tool_use
                 if (hasToolCall && needsConversion) {
                     if (chunk.choices?.[0]?.finish_reason === 'stop') {
                         chunk.choices[0].finish_reason = 'tool_calls';
                     } else if (chunk.type === 'message_delta' && chunk.delta?.stop_reason === 'end_turn') {
                         chunk.delta.stop_reason = 'tool_use';
-                    } else if (chunk.candidates?.[0]?.finishReason === 'STOP' || chunk.candidates?.[0]?.finishReason === 'stop') {
-                        // 修正 Gemini 原生格式的结束原因
-                        chunk.candidates[0].finishReason = 'TOOL_CALLS';
                     }
                 }
 
@@ -513,8 +506,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     chunk?.type === 'message_stop' ||
                     chunk?.type === 'done' ||
                     chunk?.type === 'response.completed' ||
-                    chunk?.type === 'response.incomplete' ||
-                    chunk?.candidates?.some(candidate => candidate?.finishReason)
+                    chunk?.type === 'response.incomplete'
                 ) {
                     hasMessageStop = true;
                 }

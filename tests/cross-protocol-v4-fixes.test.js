@@ -5,6 +5,7 @@ import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js
 import { CodexConverter } from '../src/converters/strategies/CodexConverter.js';
 import { GrokConverter } from '../src/converters/strategies/GrokConverter.js';
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
+import { ResponsesSseEmitter } from '../src/converters/responses-sse-emitter.js';
 
 const LONG_TOOL = 'mcp__github__very_long_tool_name_that_exceeds_sixty_four_characters_for_sure_yes';
 
@@ -376,5 +377,36 @@ describe('v4 P2 regressions', () => {
             response: { id: resId, status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
         }, 'gpt-5');
         expect(converter.openaiChatStreamStates.has(resId)).toBe(false);
+    });
+});
+
+describe('v4 P3 cleanup regressions', () => {
+    test('P3-1 Codex -> Responses 透传时仍能还原长工具名', () => {
+        const responses = new OpenAIResponsesConverter();
+        const codex = new CodexConverter();
+        const reqId = 'p3_codex_responses_name';
+        const request = responses.toCodexRequest({
+            model: 'gpt-5-codex',
+            input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+            tools: [{ type: 'function', name: LONG_TOOL, description: 'long', parameters: { type: 'object', properties: {} } }]
+        }, reqId);
+
+        expect(request.tools[0].name).not.toBe(LONG_TOOL);
+        const chunk = {
+            type: 'response.output_item.done',
+            output_index: 0,
+            item: {
+                type: 'function_call',
+                call_id: 'call_1',
+                name: request.tools[0].name,
+                arguments: '{}'
+            }
+        };
+        const returned = codex.toOpenAIResponsesStreamChunk(chunk, 'gpt-5-codex', reqId);
+        expect(returned.item.name).toBe(LONG_TOOL);
+    });
+
+    test('P3-3 ResponsesSseEmitter 不再暴露未使用的 pushEvents', () => {
+        expect(typeof ResponsesSseEmitter.prototype.pushEvents).toBe('undefined');
     });
 });

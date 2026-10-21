@@ -5,6 +5,7 @@
 - 评估基线：`npm test -- --runInBand` = 20 suites / 309 tests 全绿
 - 历史快照：[`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md)
 - 架构入口：[`docs/CROSS_PROTOCOL_ARCHITECTURE.md`](./CROSS_PROTOCOL_ARCHITECTURE.md)
+- 修复状态：P1 / P2 / P3 清单已按优先级落地，回归基线更新为 **21 suites / 327 tests 全绿**（2026-10-21）。
 
 ---
 
@@ -116,14 +117,16 @@ v4 下游只保留三种客户端协议：
 
 ### P1-4 OpenAI Chat → OpenAI Responses 请求侧字段丢失与非法图像形状
 
+> 修复后说明：`stop` / `seed` 不属于 Responses API 支持字段，属于协议硬约束，不强行透传。
+
 - `src/converters/strategies/OpenAIConverter.js:1364-1480`
-- `max_completion_tokens` 被忽略；`stop`、`seed`、`response_format`、`user`、`metadata`、`stream_options` 未传递。
+- `max_completion_tokens` 被忽略；`response_format`、`metadata`、`service_tier` 未传递。
 - `input_image.image_url` 被赋值为对象 `{ url }`（`:1446-1451`），Responses 期望 URL 字符串。
 
 ### P1-5 Claude → OpenAI Chat：tool_choice 固定 auto，停止序列/采样参数丢失
 
 - `src/converters/strategies/ClaudeConverter.js:337`：`openaiRequest.tool_choice = "auto"`。
-- `stop_sequences`、`top_k`、`metadata` 未映射。
+- `stop_sequences`、`metadata` 未映射；`top_k` 不属于 OpenAI Chat 支持字段（硬约束）。
 
 ### P1-6 Grok → OpenAI Responses 流式事件不符合规范
 
@@ -149,6 +152,8 @@ v4 下游只保留三种客户端协议：
 ---
 
 ## 5. P2 级问题（语义保真与鲁棒性）
+
+> 以下为修复前的问题描述与源码位置；对应修复已在第 7 节标记完成。
 
 ### P2-1 OpenAI 系上游 token 限制字段
 
@@ -244,38 +249,38 @@ pipeline 未为 OpenAI 协议上游注入 `stream_options.include_usage`；Claud
 
 ## 7. 修复清单
 
-### P1
+### P1（已完成）
 
-- [ ] P1-1 统一 `ResponsesSseEmitter` 工具 key，修复 Claude → Responses 重复工具项。
-- [ ] P1-2 OpenAI → Gemini 多 system 拼接，而不是覆盖。
-- [ ] P1-3 Responses → OpenAI：补图像、`text.format`、`tool_choice` 形状、reasoning 模型 token 字段。
-- [ ] P1-4 OpenAI → Responses：补 `max_completion_tokens` / `stop` / `seed` / `response_format`，修正 `input_image.image_url`。
-- [ ] P1-5 Claude → OpenAI：映射 `tool_choice`、`stop_sequences`、`top_k`，URL 图像不要整条丢消息。
-- [ ] P1-6 Grok → Responses 改用 `ResponsesSseEmitter` 或严格按规范构造事件。
-- [ ] P1-7 Codex：请求/响应共用同一个 request key，并让 Claude → Codex 持久化反向工具名映射。
-- [ ] P1-8 OpenAI → Claude 流式：usage-only 帧只更新 usage，不重建 `message_start`。
+- [x] P1-1 统一 `ResponsesSseEmitter` 工具 key，修复 Claude → Responses 重复工具项。
+- [x] P1-2 OpenAI → Gemini 多 system 拼接，而不是覆盖。
+- [x] P1-3 Responses → OpenAI：补图像、`text.format`、`tool_choice` 形状、reasoning 模型 token 字段。
+- [x] P1-4 OpenAI → Responses：补 `max_completion_tokens` / `response_format` / `metadata` / `service_tier`，修正 `input_image.image_url`；`stop`/`seed` 按 Responses 协议硬约束不强行透传。
+- [x] P1-5 Claude → OpenAI：映射 `tool_choice`、`stop_sequences`、`metadata`，URL 图像不再整条丢消息；`top_k` 按 Chat 协议硬约束不强行透传。
+- [x] P1-6 Grok → Responses 改用 `ResponsesSseEmitter`，输出标准生命周期事件。
+- [x] P1-7 Codex：请求/响应共用同一个 requestId；Codex 请求状态跨实例共享；Claude → Codex 持久化反向工具名映射。
+- [x] P1-8 OpenAI → Claude 流式：usage-only 帧只更新/忽略，不再重建 `message_start`。
 
-### P2
+### P2（已完成）
 
-- [ ] P2-1 reasoning 模型使用 `max_completion_tokens`。
-- [ ] P2-2 Claude → Gemini 改用 `effortToGeminiThinking`，处理 `adaptive`。
-- [ ] P2-3 补齐 `required` / `any` / Responses→Gemini 的 `tool_choice`。
-- [ ] P2-4 URL 图片/文档增加 `fileData` / `image_url` / 占位文本兜底。
-- [ ] P2-5 Gemini → Responses 非流式输出标准 reasoning item。
-- [ ] P2-6 映射 `response.incomplete` / `response.failed` / `error`。
-- [ ] P2-7 处理 Responses → Claude / Claude → Responses 的签名与 `encrypted_content` 回放策略。
-- [ ] P2-8 提前关闭 reasoning/text 块，修正事件顺序。
-- [ ] P2-9 处理流式 usage-only 帧；评估是否注入 `stream_options.include_usage`。
-- [ ] P2-10 `_streamHasToolCalls` 收编到请求级 store。
+- [x] P2-1 reasoning 模型使用 `max_completion_tokens`。
+- [x] P2-2 Claude → Gemini 改用 `effortToGeminiThinking`，处理 `adaptive`；Claude → Codex 同步支持 adaptive。
+- [x] P2-3 补齐 `required` / `any` / Responses→Gemini 的 `tool_choice`。
+- [x] P2-4 URL 图片/文档增加 `fileData` / `image_url` / 占位文本兜底。
+- [x] P2-5 Gemini → Responses 非流式输出标准 reasoning item。
+- [x] P2-6 映射 `response.incomplete`；`response.failed` / `error` 向上抛出，交由管道返回错误。
+- [x] P2-7 Responses → Claude 跳过无 Anthropic 签名的 reasoning；Claude → Responses 的 reasoning 回放由 `CONVERT_PRESERVE_REASONING_ITEM` 控制。
+- [x] P2-8 提前关闭 reasoning/text 块，修正事件顺序。
+- [x] P2-9 安全处理 usage-only 尾帧；`stream_options.include_usage` 注入因兼容性风险暂不默认开启。
+- [x] P2-10 `_streamHasToolCalls` 收编为 `StreamSessionStore`，移除非法 `requires_action` 判断。
 
-### P3
+### P3（已完成）
 
-- [ ] P3-1 删除 `CodexConverter` 的 `if(true)` 死块与无效导入。
-- [ ] P3-2 删除 `OpenAIConverter.toGrokRequest` 占位解构。
-- [ ] P3-3 删除 `ResponsesSseEmitter.pushEvents` 与未使用常量。
-- [ ] P3-4 删除 `request-pipeline` 中不可达的 Gemini 下游分支。
-- [ ] P3-5 收敛 Grok 静态共享状态。
-- [ ] P3-6 补关键回归测试：Claude→Responses 工具流、OpenAI→Gemini 多 system、Responses↔OpenAI 图像/参数、Codex 长工具名、Responses 终止事件、Grok→Responses 事件结构、URL 多模态。
+- [x] P3-1 删除 `CodexConverter` 的 `if(true)` 死块与无效导入。
+- [x] P3-2 删除 `OpenAIConverter.toGrokRequest` 占位解构。
+- [x] P3-3 删除 `ResponsesSseEmitter.pushEvents` 与未使用常量。
+- [x] P3-4 删除 `request-pipeline` 中不可达的 Gemini 下游分支。
+- [x] P3-5 移除 Grok 静态共享 UUID / baseUrl，改为请求级响应状态。
+- [x] P3-6 补关键回归测试：Claude→Responses 工具流、OpenAI→Gemini 多 system、Responses↔OpenAI 图像/参数、Codex 长工具名、Responses 终止事件、Grok→Responses 事件结构、URL 多模态、thinkingLevel/adaptive、事件顺序与状态回收。
 
 ---
 
@@ -291,3 +296,13 @@ v4.0.0 的转译架构比 v1.6.0 评估时更收敛、更可维护：不可达�
 - 多模态 URL 资源存在大面积静默丢弃。
 
 建议按本文件第 7 节的 P1 → P2 → P3 顺序整改，并为每条修复补对应回归测试。
+
+### 修复后状态
+
+上述 P1 / P2 / P3 清单已全部落地：
+
+- P1 修复了 Claude → Responses 重复工具项、OpenAI → Gemini 多 system 丢失、Responses ↔ OpenAI 参数/图像、Claude → OpenAI tool_choice、Grok → Responses 事件、Codex 长工具名、usage-only 帧重复 `message_start`。
+- P2 修复了 thinkingLevel/adaptive、tool_choice 缺口、URL 多模态、Gemini → Responses reasoning item、终止/错误事件、签名回放策略、事件顺序、usage 与请求级状态。
+- P3 清理了 Codex 死代码、Grok 占位解构、未使用 Emitter API/常量、pipeline 不可达 Gemini 分支、Grok 静态共享状态，并补充了 18 个针对性回归测试。
+
+回归基线：`npm test -- --runInBand` = **21 suites / 327 tests 全绿**。

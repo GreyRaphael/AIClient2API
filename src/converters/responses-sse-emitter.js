@@ -413,17 +413,6 @@ export class ResponsesSseEmitter {
     }
 
     /**
-     * 压入外部自定义事件并自动补充 sequence_number
-     */
-    pushEvents(...eventList) {
-        const events = [];
-        for (const ev of eventList) {
-            this._pushEvent(events, ev);
-        }
-        return events;
-    }
-
-    /**
      * 终结整个流，闭合未决块并发送 response.completed（幂等）
      */
     complete(usage = null, options = {}) {
