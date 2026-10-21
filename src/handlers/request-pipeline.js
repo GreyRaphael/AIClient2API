@@ -1229,7 +1229,8 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         const { getApiServiceWithFallback } = await import('../services/service-manager.js');
         const result = await getApiServiceWithFallback(CONFIG, model, {
             acquireSlot: shouldSelectByPool,
-            allowUnselectedModel: Boolean(customModelConfig)
+            allowUnselectedModel: Boolean(customModelConfig),
+            customModelConfig: customModelConfig || null
         });
 
         service = result.service;

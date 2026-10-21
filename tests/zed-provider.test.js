@@ -366,14 +366,14 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(payloadBudget.provider_request.output_config).toEqual({ effort: 'medium' });
         expect(payloadBudget.provider_request.temperature).toBeUndefined();
 
-        // 3. Without thinking (no thinking or output_config injected)
+        // 3. Without thinking: claude-sonnet-5-5 deprecates temperature, so it is stripped
         const payloadNoThinking = zedService.buildPayload('claude-sonnet-5-5', {
             messages: [{ role: 'user', content: 'hello' }],
             temperature: 0.5
         });
         expect(payloadNoThinking.provider_request.thinking).toBeUndefined();
         expect(payloadNoThinking.provider_request.output_config).toBeUndefined();
-        expect(payloadNoThinking.provider_request.temperature).toBe(0.5);
+        expect(payloadNoThinking.provider_request.temperature).toBeUndefined();
     });
 
     test('ZedApiService.generateContentStream extracts detailed error when upstream returns error stream', async () => {

@@ -48,7 +48,7 @@ describe('Gemini -> Claude stream 事件序列合规', () => {
         // 4. tool_use 参数经 input_json_delta 下发
         const argDelta = all.find(e => e.type === 'content_block_delta' && e.delta?.type === 'input_json_delta');
         expect(argDelta).toBeDefined();
-        expect(JSON.parse(argDelta.delta.partial_json)).toEqual({ pattern: 'foo', path: '.' });
+        expect(JSON.parse(argDelta.delta.partial_json)).toEqual({ query: 'foo' });
 
         // 5. message_delta stop_reason 为 tool_use，usage 正确映射
         const messageDelta = all.find(e => e.type === 'message_delta');

@@ -121,6 +121,8 @@ function normalizeSignatureVaultConfig(config) {
 
 function normalizeConvertSortToolsConfig(config) {
     normalizeToggleConfig(config, 'CONVERT_SORT_TOOLS', false);
+    normalizeToggleConfig(config, 'CONVERT_CLAUDE_CODE_TOOL_HEURISTICS', false);
+    normalizeToggleConfig(config, 'GEMINI_PASS_MAX_OUTPUT_TOKENS', false);
 }
 
 function normalizePreserveReasoningItemConfig(config) {

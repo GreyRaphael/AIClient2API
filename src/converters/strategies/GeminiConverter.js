@@ -15,16 +15,27 @@ import {
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
+import { getConfigToggle } from '../../core/config-manager.js';
 import {
     isCustomTool,
     extractCustomToolInput
 } from '../custom-tool-registry.js';
 
 /**
+ * Claude Code 专用工具参数启发式开关。
+ * 默认关闭，避免通用网关把普通客户端的同名工具静默改名/改参数。
+ * @returns {boolean}
+ */
+function isClaudeCodeToolHeuristicsEnabled() {
+    return getConfigToggle('CONVERT_CLAUDE_CODE_TOOL_HEURISTICS', false);
+}
+
+/**
  * 修复 Gemini 返回的工具参数名称问题
  * Gemini 有时会使用不同的参数名称，需要映射到 Claude Code 期望的格式
  */
 function remapFunctionCallArgs(toolName, args) {
+    if (!isClaudeCodeToolHeuristicsEnabled()) return args;
     if (!args || typeof args !== 'object') return args;
     
     const remappedArgs = { ...args };
@@ -141,11 +152,10 @@ function remapFunctionCallArgs(toolName, args) {
  */
 function normalizeToolName(name) {
     if (!name) return name;
-    
-    const nameLower = name.toLowerCase();
-    if (nameLower === 'search') {
-        return 'Grep';
-    }
+    if (!isClaudeCodeToolHeuristicsEnabled()) return name;
+
+    // 注意：不再把通用名称 "search" 改名为 "Grep"。
+    // 名称映射只允许在 Claude Code 专用启发式开启时处理已知别名。
     return name;
 }
 

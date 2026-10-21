@@ -1045,7 +1045,8 @@ export class ProviderPoolManager {
         }
 
         // 自定义模型显式路由：只要目标 provider 有对应自定义模型映射，就不做上游候选守卫
-        if (options.allowUnselectedModel && this._getCustomModelRoutingCandidates(providerType, requestedModel).length > 0) {
+        if (options.allowUnselectedModel &&
+            (options.customModelConfig || this._getCustomModelRoutingCandidates(providerType, requestedModel).length > 0)) {
             return true;
         }
 
@@ -1087,8 +1088,10 @@ export class ProviderPoolManager {
             p.config.isHealthy && !p.config.isDisabled && !p.config.needsRefresh
         );
 
-        // 如果指定了模型，则排除不支持该模型的提供商
-        if (requestedModel) {
+        // 自定义模型是用户显式创建的路由意图；即使其 actualModel 未出现在上游发现列表，
+        // 也允许节点尝试处理，避免“分组列表可见但无法路由”。
+        const skipModelFilter = Boolean(options.allowUnselectedModel && options.customModelConfig);
+        if (requestedModel && !skipModelFilter) {
             let rawModelName = requestedModel;
             if (requestedModel.includes(':')) {
                 rawModelName = requestedModel.substring(requestedModel.indexOf(':') + 1);

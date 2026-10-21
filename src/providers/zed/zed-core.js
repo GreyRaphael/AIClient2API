@@ -22,6 +22,20 @@ export const ZED_FALLBACK_VERSION = '0.222.4+stable.147.b385025df963c9e8c3f74cc4
 export const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 
 /**
+ * 部分 Claude 5.x 模型在 Zed 通道已弃用 temperature，
+ * 且不支持强制 tool_choice（type: tool / any）。
+ * @param {string} model
+ * @returns {boolean}
+ */
+function modelRejectsTemperature(model) {
+    return /claude-(sonnet|opus|haiku)-5(-5)?/.test(String(model || '').toLowerCase());
+}
+
+function modelRejectsForcedToolChoice(model) {
+    return modelRejectsTemperature(model);
+}
+
+/**
  * 解析 JWT 过期时间 (毫秒时间戳)，解析失败或未包含 exp 时兜底 1 小时
  * @param {string} token 
  * @returns {number}
@@ -664,7 +678,9 @@ export class ZedApiService {
 
             // 超参数与 Gemini 3.1+ 思考配置
             const generationConfig = {};
-            if (requestBody.temperature !== undefined) generationConfig.temperature = requestBody.temperature;
+            if (requestBody.temperature !== undefined && !modelRejectsTemperature(model)) {
+                generationConfig.temperature = requestBody.temperature;
+            }
             if (requestBody.max_tokens) generationConfig.maxOutputTokens = requestBody.max_tokens;
 
             const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
@@ -705,9 +721,10 @@ export class ZedApiService {
         const provReq = {
             model: model,
             max_tokens: maxTokens,
-            temperature: requestBody.temperature,
+            temperature: modelRejectsTemperature(model) ? undefined : requestBody.temperature,
             stream: true
         };
+        if (provReq.temperature === undefined) delete provReq.temperature;
 
         if (requestBody.system) {
             provReq.system = typeof requestBody.system === 'string'
@@ -792,6 +809,11 @@ export class ZedApiService {
                 }
             } else if (typeof requestBody.tool_choice === 'object') {
                 provReq.tool_choice = requestBody.tool_choice;
+            }
+            if (modelRejectsForcedToolChoice(model) &&
+                (provReq.tool_choice?.type === 'tool' || provReq.tool_choice?.type === 'any')) {
+                logger.warn(`[Zed] Model ${model} does not support forced tool_choice; downgrading to auto`);
+                provReq.tool_choice = { type: 'auto' };
             }
         }
 

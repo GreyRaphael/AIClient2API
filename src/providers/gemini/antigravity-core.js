@@ -22,6 +22,7 @@ import { getProviderPoolManager } from '../../services/service-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.js';
+import { getConfigToggle } from '../../core/config-manager.js';
 
 // --- Constants ---
 const CREDENTIALS_DIR = '.antigravity';
@@ -485,7 +486,13 @@ function geminiToAntigravity(modelName, payload, projectId) {
             template.request.generationConfig.maxOutputTokens = 64000;
         }
     } else if (template.request.generationConfig?.maxOutputTokens !== undefined) {
-        delete template.request.generationConfig.maxOutputTokens;
+        if (getConfigToggle('GEMINI_PASS_MAX_OUTPUT_TOKENS', false)) {
+            // 显式允许透传；若 CloudCode 拒绝，调用方会收到上游 400。
+            logger.debug(`[Antigravity] Passing maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'}`);
+        } else {
+            logger.warn(`[Antigravity] Dropping maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'}; CloudCode may ignore output token limits (set GEMINI_PASS_MAX_OUTPUT_TOKENS=true to try pass-through)`);
+            delete template.request.generationConfig.maxOutputTokens;
+        }
     }
 
     if (template.request.tools && Array.isArray(template.request.tools)) {

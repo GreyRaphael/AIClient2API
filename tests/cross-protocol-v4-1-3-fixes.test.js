@@ -1,6 +1,8 @@
 import { describe, test, expect } from '@jest/globals';
 import { aggregateChatCompletionChunks } from '../src/providers/openai/openai-core.js';
 import { OpenAIResponsesConverter } from '../src/converters/strategies/OpenAIResponsesConverter.js';
+import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
+import { ZedApiService } from '../src/providers/zed/zed-core.js';
 
 const flat = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);
 
@@ -36,6 +38,54 @@ describe('v4.1.3 P0: 非流式 SSE 聚合', () => {
     test('空 chunk 返回 null', () => {
         expect(aggregateChatCompletionChunks([])).toBeNull();
         expect(aggregateChatCompletionChunks(null)).toBeNull();
+    });
+});
+
+describe('v4.1.3 P1: Gemini→Claude 工具启发式默认关闭', () => {
+    test('普通 search 工具不再被改名为 Grep，参数保持不变', () => {
+        const converter = new GeminiConverter();
+        const out = converter.toClaudeResponse({
+            candidates: [{
+                content: { parts: [{ functionCall: { id: 'c1', name: 'search', args: { query: 'foo', paths: ['/a', '/b'] } } }] },
+                finishReason: 'STOP'
+            }],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 }
+        }, 'm');
+
+        const tool = out.content.find(block => block.type === 'tool_use');
+        expect(tool.name).toBe('search');
+        expect(tool.input).toEqual({ query: 'foo', paths: ['/a', '/b'] });
+    });
+});
+
+describe('v4.1.3 P1: Zed Claude 5.5 能力门控', () => {
+    const tool = { name: 'f', description: 'f', input_schema: { type: 'object', properties: {} } };
+
+    test('claude-sonnet-5-5 删除 temperature 并降级强制 tool_choice', () => {
+        const service = new ZedApiService({});
+        const payload = service.buildPayload('claude-sonnet-5-5', {
+            max_tokens: 100,
+            temperature: 0.2,
+            messages: [{ role: 'user', content: 'hi' }],
+            tools: [tool],
+            tool_choice: { type: 'tool', name: 'f' }
+        });
+        expect(payload.provider_request.temperature).toBeUndefined();
+        expect(payload.provider_request.tool_choice).toEqual({ type: 'auto' });
+        expect(payload.provider_request.tools).toHaveLength(1);
+    });
+
+    test('claude-sonnet-4-6 仍保留 temperature 与强制 tool_choice', () => {
+        const service = new ZedApiService({});
+        const payload = service.buildPayload('claude-sonnet-4-6', {
+            max_tokens: 100,
+            temperature: 0.2,
+            messages: [{ role: 'user', content: 'hi' }],
+            tools: [tool],
+            tool_choice: { type: 'tool', name: 'f' }
+        });
+        expect(payload.provider_request.temperature).toBe(0.2);
+        expect(payload.provider_request.tool_choice).toEqual({ type: 'tool', name: 'f' });
     });
 });
 
