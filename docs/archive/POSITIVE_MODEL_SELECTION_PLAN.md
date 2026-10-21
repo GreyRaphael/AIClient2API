@@ -454,7 +454,7 @@ F_group = dedupeCaseSensitive(S_group ∪ M_group)
 
 ### 4.5 文档与前端静态页
 
-- `README.md`、`README-ZH.md`、`README-JA.md` 中所有 `notSupportedModels` 配置说明
+- `README.md`、`README-ZH.md` 中所有 `notSupportedModels` 配置说明
 - `static/components/section-tutorial.html:287` 的 `notSupportedModels` 行
 - `docs/ANTIGRAVITY_NOTES.md:97-101` 的负向过滤说明
 - `docs/PROVIDER_ADAPTER_GUIDE.md:160-169` 的字段说明
@@ -783,7 +783,7 @@ npm test
 
 - `src/scripts/purge-legacy-model-fields.js`（新增）
 - `configs/provider_pools.json.example`
-- `README.md` / `README-ZH.md` / `README-JA.md`
+- `README.md` / `README-ZH.md`
 - `static/components/section-tutorial.html`
 - `docs/ANTIGRAVITY_NOTES.md`
 - `docs/PROVIDER_ADAPTER_GUIDE.md`

@@ -36,7 +36,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/justlovemaki/AIClient-2-API.svg?style=flat&label=Star)](https://github.com/justlovemaki/AIClient-2-API/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/justlovemaki/AIClient-2-API.svg)](https://github.com/justlovemaki/AIClient-2-API/issues)
 
-[**🔧 OpenClaw 配置**](./docs/OPENCLAW_CONFIG_GUIDE-ZH.md) | [**👉 中文**](./README-ZH.md) | [English](./README.md) | [日本語](./README-JA.md) | [**📚 完整文档**](https://aiproxy.justlikemaki.vip/zh/)
+[**👉 中文**](./README-ZH.md) | [English](./README.md) | [**📚 完整文档**](https://aiproxy.justlikemaki.vip/zh/)
 
 </div>
 
@@ -214,7 +214,7 @@
 
 ### 🤖 AI 优先，Agent 交互支持
 
-> **AI 优先设计**：本项目原生支持与 OpenClaw, Hermes, Claude Code 等主流 AI Agent 的高效交互。
+> **AI 优先设计**：本项目原生支持与 Hermes, Claude Code 等主流 AI Agent 的高效交互。
 >
 > **💡 快速指令**：你可以直接对 AI 说下面这句话，它将自动掌握本项目的所有用法：
 >

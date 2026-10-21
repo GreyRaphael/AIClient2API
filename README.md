@@ -36,7 +36,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/justlovemaki/AIClient-2-API.svg?style=flat&label=Star)](https://github.com/justlovemaki/AIClient-2-API/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/justlovemaki/AIClient-2-API.svg)](https://github.com/justlovemaki/AIClient-2-API/issues)
 
-[**🔧 OpenClaw Config**](./docs/OPENCLAW_CONFIG_GUIDE.md) | [中文](./README-ZH.md) | [**👉 English**](./README.md) | [日本語](./README-JA.md) | [**📚 Documentation**](https://aiproxy.justlikemaki.vip/en/)
+[中文](./README-ZH.md) | [**👉 English**](./README.md) | [**📚 Documentation**](https://aiproxy.justlikemaki.vip/en/)
 
 </div>
 
@@ -215,7 +215,7 @@
 
 ### 🤖 AI-First, Agent Interaction Support
 
-> **AI-First Design**: This project natively supports efficient interaction with mainstream AI Agents such as OpenClaw, Hermes, and Claude Code.
+> **AI-First Design**: This project natively supports efficient interaction with mainstream AI Agents such as Hermes and Claude Code.
 >
 > **💡 Quick Command**: You can tell the AI this sentence directly, and it will automatically master all usage of this project:
 >
