@@ -415,8 +415,8 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             model = requestBody.model;
         }
         const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
-        // 为每个请求生成唯一 ID，用于在单例 converter 中隔离并发流状态
-        const streamRequestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        // 请求与响应转换共用同一个 requestId，确保 Codex 等转换器的工具名反向映射可以命中。
+        const streamRequestId = retryContext?.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
         for await (const nativeChunk of nativeStream) {
             // 检查客户端是否已断开连接
@@ -847,7 +847,8 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
     const maxRetries = retryContext?.maxRetries ?? 5;
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG;
-    
+    const responseRequestId = retryContext?.requestId || null;
+
     try{
         // The service returns the response in its native format (toProvider).
         const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
@@ -878,7 +879,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         let clientResponse = nativeResponse;
         if (needsConversion) {
             logger.info(`[Response Convert] Converting response from ${toProvider} to ${fromProvider}`);
-            clientResponse = convertData(nativeResponse, 'response', toProvider, fromProvider, model);
+            clientResponse = convertData(nativeResponse, 'response', toProvider, fromProvider, model, responseRequestId);
         }
 
         // 监控钩子：非流式响应
@@ -1172,6 +1173,8 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     };
 
     const fromProvider = clientProviderMap[endpointType];
+    // 请求转换与响应/流式转换共用同一个 ID（Codex 工具名反向映射依赖它）。
+    const conversationRequestId = CONFIG._monitorRequestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     // 使用实际的提供商类型（可能是 fallback 后的类型）
     let toProvider = CONFIG.actualProviderType || CONFIG.MODEL_PROVIDER;
     let actualUuid = pooluuid;
@@ -1258,7 +1261,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     if (getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider)) {
         logger.info(`[Request Convert] Converting request from ${fromProvider} to ${toProvider}`);
         const preConvertBody = processedRequestBody;
-        processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider);
+        processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId);
 
         // 保持以 _ 开头的内部属性（如 _monitorRequestId, _requestBaseUrl）
         Object.keys(preConvertBody).forEach(key => {
@@ -1303,7 +1306,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     // - 凭证切换重试：凭证被标记不健康后切换到其他凭证
     // 当没有不同的健康凭证可用时，重试会自动停止
     const credentialSwitchMaxRetries = CONFIG.CREDENTIAL_SWITCH_MAX_RETRIES || 5;
-    const retryContext = { CONFIG, currentRetry: 0, maxRetries: credentialSwitchMaxRetries };
+    const retryContext = { CONFIG, currentRetry: 0, maxRetries: credentialSwitchMaxRetries, requestId: conversationRequestId };
     
     if (isStream) {
         await handleStreamRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, actualUuid, actualCustomName, retryContext);

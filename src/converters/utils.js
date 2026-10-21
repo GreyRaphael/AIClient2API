@@ -473,6 +473,18 @@ export function mergeConsecutiveSameRoleContents(contents, rolePair = null) {
 }
 
 /**
+ * 判断模型是否属于 OpenAI 推理模型家族（GPT-5+ / o1-o9）。
+ * 该类模型在 Chat Completions 中要求使用 max_completion_tokens，传 max_tokens 可能 400。
+ * @param {string|null|undefined} model
+ * @returns {boolean}
+ */
+export function isOpenAIReasoningModel(model) {
+    if (!model) return false;
+    const m = String(model).trim().toLowerCase();
+    return /(^|[-_/])gpt-5(?:[.-]|$)/.test(m) || /(^|[-_/])o[1-9](?:[-_.]|$)/.test(m);
+}
+
+/**
  * 判断是否开启 tools 数组按 name 稳定排序（消除工具顺序抖动对大模型隐式前缀缓存的干扰）
  * @returns {boolean}
  */

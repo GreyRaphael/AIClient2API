@@ -17,6 +17,7 @@ import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vaul
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
     cleanJsonSchemaForOpenAI,
+    isOpenAIReasoningModel,
     CLAUDE_DEFAULT_MAX_TOKENS,
     safeParseJSON,
     mergeConsecutiveSameRoleContents,
@@ -42,7 +43,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换请求到目标协议
      */
-    convertRequest(data, toProtocol) {
+    convertRequest(data, toProtocol, requestId) {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIRequest(data);
@@ -51,7 +52,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             case MODEL_PROTOCOL_PREFIX.GEMINI:
                 return this.toGeminiRequest(data);
             case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexRequest(data);
+                return this.toCodexRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.GROK:
                 return this.toGrokRequest(data);
             default:
@@ -118,6 +119,33 @@ export class OpenAIResponsesConverter extends BaseConverter {
             openaiRequest.max_tokens = responsesRequest.max_output_tokens;
         } else if (responsesRequest.max_tokens !== undefined) {
             openaiRequest.max_tokens = responsesRequest.max_tokens;
+        }
+        // GPT-5+/o 系列 Chat Completions 要求 max_completion_tokens。
+        if (openaiRequest.max_tokens !== undefined && isOpenAIReasoningModel(responsesRequest.model)) {
+            openaiRequest.max_completion_tokens = openaiRequest.max_tokens;
+            delete openaiRequest.max_tokens;
+        }
+        if (responsesRequest.metadata !== undefined) {
+            openaiRequest.metadata = responsesRequest.metadata;
+        }
+        if (responsesRequest.service_tier !== undefined) {
+            openaiRequest.service_tier = responsesRequest.service_tier;
+        }
+        // Responses text.format -> Chat response_format
+        if (responsesRequest.text?.format) {
+            const format = responsesRequest.text.format;
+            if (format.type === 'json_object') {
+                openaiRequest.response_format = { type: 'json_object' };
+            } else if (format.type === 'json_schema' && format.schema) {
+                openaiRequest.response_format = {
+                    type: 'json_schema',
+                    json_schema: {
+                        name: format.name || 'response',
+                        schema: format.schema,
+                        ...(format.strict !== undefined ? { strict: format.strict } : {})
+                    }
+                };
+            }
         }
         if (responsesRequest.top_p !== undefined) {
             openaiRequest.top_p = responsesRequest.top_p;
@@ -199,24 +227,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     }
 
                     case 'message': {
-                        // 提取消息内容
-                        let content = '';
-                        if (Array.isArray(item.content)) {
-                            content = item.content
-                                .filter(c => c.type === 'input_text' || c.type === 'output_text')
-                                .map(c => c.text)
-                                .join('\n');
-                        } else if (typeof item.content === 'string') {
-                            content = item.content;
-                        }
-                        
+                        // 保留文本、图片与文件占位，避免只过滤 text 导致多模态静默丢失
+                        const content = this._responsesMessageContentToOpenAI(item.content);
                         const role = item.role === 'developer' ? 'system' : item.role;
                         const lastMsg = openaiRequest.messages[openaiRequest.messages.length - 1];
 
                         if (role === 'assistant') {
-                            // 如果上一条已经是 assistant 消息且尚未带有 tool_calls，合并文本内容
+                            // 如果上一条已经是 assistant 消息且尚未带有 tool_calls，合并内容
                             if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.tool_calls) {
-                                lastMsg.content = [lastMsg.content, content].filter(Boolean).join('\n');
+                                lastMsg.content = this._mergeOpenAIContent(lastMsg.content, content);
                                 if (pendingReasoning && shouldPreserveReasoning()) {
                                     lastMsg.reasoning_content = [lastMsg.reasoning_content, pendingReasoning].filter(Boolean).join('\n');
                                     pendingReasoning = '';
@@ -234,7 +253,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
                             }
                         } else {
                             flushPendingReasoning();
-                            if (content || (role === 'system')) {
+                            const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content);
+                            if (hasContent || (role === 'system')) {
                                 openaiRequest.messages.push({
                                     role: role,
                                     content: content
@@ -332,7 +352,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesRequest.tool_choice) {
-            openaiRequest.tool_choice = responsesRequest.tool_choice;
+            const mappedToolChoice = this._mapResponsesToolChoiceToOpenAI(responsesRequest.tool_choice);
+            if (mappedToolChoice !== undefined) {
+                openaiRequest.tool_choice = mappedToolChoice;
+            }
         }
 
         const reasoningEffort = responsesRequest.reasoning?.effort || responsesRequest.reasoning_effort;
@@ -529,6 +552,107 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         return chunkObj;
+    }
+
+    /**
+     * Responses tool_choice -> OpenAI Chat Completions tool_choice
+     */
+    _mapResponsesToolChoiceToOpenAI(toolChoice) {
+        if (!toolChoice) {
+            return undefined;
+        }
+        if (typeof toolChoice === 'string') {
+            return toolChoice;
+        }
+        if (toolChoice.type === 'function') {
+            const name = toolChoice.name || toolChoice.function?.name;
+            return name ? { type: 'function', function: { name } } : undefined;
+        }
+        return undefined;
+    }
+
+    /**
+     * Responses input message content -> OpenAI Chat message content.
+     * 纯文本返回 string；含图片/文件时返回 content parts 数组，避免静默丢失。
+     * @param {string|Array|Object} content
+     * @returns {string|Array}
+     */
+    _responsesMessageContentToOpenAI(content) {
+        if (content === null || content === undefined) {
+            return '';
+        }
+        if (typeof content === 'string') {
+            return content;
+        }
+        if (!Array.isArray(content)) {
+            return this._stringifyContentValue(content);
+        }
+
+        const parts = [];
+        let hasNonText = false;
+        for (const part of content) {
+            if (!part) continue;
+            if (typeof part === 'string') {
+                if (part) parts.push({ type: 'text', text: part });
+                continue;
+            }
+            if (part.type === 'input_text' || part.type === 'output_text' || part.type === 'text') {
+                if (part.text !== undefined && part.text !== null) {
+                    parts.push({ type: 'text', text: String(part.text) });
+                }
+                continue;
+            }
+            if (part.type === 'refusal') {
+                const refusal = part.refusal ?? part.text;
+                if (refusal) parts.push({ type: 'text', text: String(refusal) });
+                continue;
+            }
+            if (part.type === 'input_image' || part.type === 'image_url') {
+                const url = typeof part.image_url === 'string' ? part.image_url : (part.image_url?.url || part.url);
+                if (url) {
+                    hasNonText = true;
+                    parts.push({ type: 'image_url', image_url: { url } });
+                }
+                continue;
+            }
+            if (part.type === 'input_file' || part.type === 'file') {
+                const label = part.filename || part.file_id || part.file_url || part.file?.filename || 'file';
+                hasNonText = true;
+                parts.push({ type: 'text', text: `[File: ${label}]` });
+                continue;
+            }
+            const fallback = part.text ?? part.content;
+            if (fallback !== undefined && fallback !== null) {
+                parts.push({ type: 'text', text: this._stringifyContentValue(fallback) });
+            }
+        }
+
+        if (parts.length === 0) {
+            return '';
+        }
+        if (!hasNonText && parts.every(p => p.type === 'text')) {
+            return parts.map(p => p.text).join('\n');
+        }
+        return parts;
+    }
+
+    /**
+     * 合并相邻 assistant 文本/多模态内容，保留数组语义。
+     */
+    _mergeOpenAIContent(existing, incoming) {
+        if (incoming === '' || incoming === null || incoming === undefined) {
+            return existing;
+        }
+        if (existing === '' || existing === null || existing === undefined) {
+            return incoming;
+        }
+        if (typeof existing === 'string' && typeof incoming === 'string') {
+            return `${existing}\n${incoming}`;
+        }
+        const toParts = (value) => Array.isArray(value)
+            ? value
+            : [{ type: 'text', text: String(value) }];
+        return [...toParts(existing), ...toParts(incoming)];
     }
 
     // =============================================================================
@@ -1443,8 +1567,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * OpenAI Responses → Codex 请求转换
      */
-    toCodexRequest(responsesRequest) {
-        return this.codexConverter.toOpenAIResponsesToCodexRequest(responsesRequest);
+    toCodexRequest(responsesRequest, requestId = null) {
+        return this.codexConverter.toOpenAIResponsesToCodexRequest(responsesRequest, requestId);
     }
 
     /**

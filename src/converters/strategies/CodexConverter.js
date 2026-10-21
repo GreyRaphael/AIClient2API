@@ -11,17 +11,6 @@ import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { sortToolsByName } from '../utils.js';
-import {
-    createResponsesStreamState,
-    generateResponseCreated,
-    generateResponseInProgress,
-    generateOutputItemAdded,
-    generateContentPartAdded,
-    generateOutputTextDone,
-    generateContentPartDone,
-    generateOutputItemDone,
-    generateResponseCompleted
-} from '../../providers/openai/openai-responses-events.js';
 
 /**
  * 提取并规范化 reasoning effort：
@@ -33,11 +22,16 @@ function resolveReasoningEffort(source) {
     return effort === null ? undefined : effort;
 }
 
+// 请求侧工具名映射必须跨 CodexConverter 实例共享：
+// 请求转换可能由 OpenAIConverter / OpenAIResponsesConverter / ClaudeConverter 内的实例登记，
+// 响应转换则由 ConverterFactory 的 CodexConverter 单例查询。按 requestId 隔离并带 TTL 回收。
+const sharedRequestStates = new StreamSessionStore({ label: 'codex-converter-request' });
+
 export class CodexConverter extends BaseConverter {
     constructor() {
         super('codex');
         this.streamSessions = new StreamSessionStore({ label: 'codex-converter' }); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
-        this.requestStates = new StreamSessionStore({ label: 'codex-converter-request' }); // 用于存储请求特定的状态（如工具映射），key 为 requestId
+        this.requestStates = sharedRequestStates; // 请求级工具名映射（跨实例共享，按 requestId 隔离）
     }
 
     _getReqState(requestId) {
@@ -49,6 +43,26 @@ export class CodexConverter extends BaseConverter {
             });
         }
         return this.requestStates.get(id);
+    }
+
+    /**
+     * 登记外部转换器（如 ClaudeConverter）生成的长工具名 -> 短工具名映射。
+     * 响应侧需要同一个 requestId 才能还原原始工具名。
+     * @param {string|null} requestId
+     * @param {Object<string,string>} shortMap - originalName -> shortName
+     */
+    registerToolNameMap(requestId, shortMap) {
+        const state = this._getReqState(requestId);
+        state.toolNameMap.clear();
+        state.reverseToolNameMap.clear();
+        if (!shortMap || typeof shortMap !== 'object') {
+            return;
+        }
+        for (const [originalName, shortName] of Object.entries(shortMap)) {
+            if (!originalName || !shortName) continue;
+            state.toolNameMap.set(originalName, shortName);
+            state.reverseToolNameMap.set(shortName, originalName);
+        }
     }
 
     /**
@@ -272,7 +286,8 @@ export class CodexConverter extends BaseConverter {
             delete codexRequest.text;
         }
         if (codexRequest.tools && Array.isArray(codexRequest.tools)) {
-            codexRequest.tools = sortToolsByName(codexRequest.tools);
+            // 统一走 convertTools：应用 Codex 工具名缩短/反向映射，避免长工具名被上游拒绝。
+            codexRequest.tools = this.convertTools(codexRequest.tools, requestId);
         }
     
         return codexRequest;
@@ -770,7 +785,7 @@ export class CodexConverter extends BaseConverter {
                         id: item.call_id || `call_${Date.now()}_${toolCalls.length}`,
                         type: 'function',
                         function: {
-                            name: this.getOriginalToolName(item.name),
+                            name: this.getOriginalToolName(item.name, requestId),
                             arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
                         }
                     });
@@ -856,7 +871,7 @@ export class CodexConverter extends BaseConverter {
                     output.push({
                         id: item.call_id || `call_${uuidv4().replace(/-/g, '')}`,
                         type: "function_call",
-                        name: this.getOriginalToolName(item.name),
+                        name: this.getOriginalToolName(item.name, requestId),
                         arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments),
                         status: "completed"
                     });
@@ -903,7 +918,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → Claude 响应转换
      */
-    toClaudeResponse(rawJSON, model) {
+    toClaudeResponse(rawJSON, model, requestId = null) {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
         if (root.type !== 'response.completed') {
             return null;
@@ -946,7 +961,7 @@ export class CodexConverter extends BaseConverter {
                     content.push({
                         type: "tool_use",
                         id: item.call_id || `call_${uuidv4().replace(/-/g, '')}`,
-                        name: this.getOriginalToolName(item.name),
+                        name: this.getOriginalToolName(item.name, requestId),
                         input: this.safeParseToolArguments(item.arguments)
                     });
                 } else if (item.type === 'image_generation_call') {
@@ -1187,109 +1202,32 @@ export class CodexConverter extends BaseConverter {
      * Codex → OpenAI Responses 流式响应转换
      */
     toOpenAIResponsesStreamChunk(chunk, model, requestId) {
-        if(true){
+        if (!chunk) {
             return chunk;
         }
 
-        const type = chunk.type;
-        const resId = requestId || chunk.response?.id || 'default';
-        
-        if (!this.streamSessions.has(resId)) {
-            this.streamSessions.set(resId, {
-                model: model,
-                createdAt: Math.floor(Date.now() / 1000),
-                responseID: resId,
-                coreState: createResponsesStreamState({ id: resId, model: model || null }),
-                functionCallIndex: -1,
-                eventsSent: new Set()
-            });
-        }
-        const state = this.streamSessions.get(resId);
-        const events = [];
-
-        if (type === 'response.created') {
-            state.responseID = chunk.response.id;
-            state.model = chunk.response.model || state.model;
-            state.coreState.id = state.responseID;
-            state.coreState.model = state.model;
-            events.push(
-                generateResponseCreated(state.coreState, state.model),
-                generateResponseInProgress(state.coreState)
-            );
-            return events;
-        }
-
-        if (type === 'response.reasoning_summary_text.delta') {
-            events.push({
-                type: "response.reasoning_summary_text.delta",
-                response_id: state.responseID,
-                delta: chunk.delta
-            });
-            return events;
-        }
-
-        if (type === 'response.output_text.delta') {
-            if (!state.eventsSent.has('output_item_added')) {
-                events.push(generateOutputItemAdded(state.coreState));
-                state.eventsSent.add('output_item_added');
+        // Codex 本身使用 Responses 兼容事件，无需重建整个事件流；
+        // 只需要把请求侧缩短过的工具名还原，并清理请求级状态。
+        const id = requestId || chunk.response?.id || 'default';
+        const restoreToolName = (item) => {
+            if (!item || (item.type !== 'function_call' && item.type !== 'custom_tool_call')) {
+                return;
             }
-            if (!state.eventsSent.has('content_part_added')) {
-                events.push(generateContentPartAdded(state.coreState));
-                state.eventsSent.add('content_part_added');
+            if (item.name) {
+                item.name = this.getOriginalToolName(item.name, id);
             }
-            events.push({
-                type: "response.output_text.delta",
-                response_id: state.responseID,
-                delta: chunk.delta
-            });
-            return events;
+        };
+
+        restoreToolName(chunk.item);
+        if (Array.isArray(chunk.response?.output)) {
+            chunk.response.output.forEach(restoreToolName);
         }
 
-        if (type === 'response.output_item.done' && chunk.item?.type === 'function_call') {
-            events.push({
-                type: "response.output_item.added",
-                response_id: state.responseID,
-                item: {
-                    id: chunk.item.call_id,
-                    type: "function_call",
-                    name: this.getOriginalToolName(chunk.item.name, requestId),
-                    arguments: typeof chunk.item.arguments === 'string' ? chunk.item.arguments : JSON.stringify(chunk.item.arguments),
-                    status: "completed"
-                }
-            });
-            events.push({
-                type: "response.output_item.done",
-                response_id: state.responseID,
-                item_id: chunk.item.call_id
-            });
-            return events;
+        if (chunk.type === 'response.completed' || chunk.type === 'response.incomplete' || chunk.type === 'response.failed') {
+            this.requestStates.delete(id);
         }
 
-        if (type === 'response.completed') {
-            events.push(
-                generateOutputTextDone(state.coreState),
-                generateContentPartDone(state.coreState),
-                generateOutputItemDone(state.coreState)
-            );
-            const completedEvent = generateResponseCompleted(state.coreState);
-            completedEvent.response.usage = {
-                input_tokens: chunk.response.usage?.input_tokens || 0,
-                output_tokens: chunk.response.usage?.output_tokens || 0,
-                total_tokens: chunk.response.usage?.total_tokens || 0,
-                input_tokens_details: {
-                    cached_tokens: this.getCachedInputTokens(chunk.response.usage)
-                },
-                output_tokens_details: {
-                    reasoning_tokens: chunk.response.usage?.output_tokens_details?.reasoning_tokens || 0
-                }
-            };
-            events.push(completedEvent);
-            this.streamSessions.delete(resId);
-            this.requestStates.delete(resId);
-            return events;
-        }
-
-        return null;
+        return chunk;
     }
 
 

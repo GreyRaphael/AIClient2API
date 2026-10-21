@@ -207,11 +207,20 @@ describe('B4: 兼容与边界路径', () => {
         expect(out).toEqual({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } });
     });
 
-    test('首个为 usage-only 帧时仍可发出 message_start（input_tokens 取自该帧）', () => {
+    test('usage-only 帧不发起 message_start，也不在 message_stop 后重复发起', () => {
         const converter = new OpenAIConverter();
-        const out = converter.toClaudeStreamChunk({ id: 'chatcmpl-u', usage: { prompt_tokens: 7 } }, MODEL, 'jest_oa_usage');
-        expect(types(flat(out))).toEqual(['message_start']);
-        expect(flat(out)[0].message.usage).toEqual({ input_tokens: 7, output_tokens: 0 });
+        const reqId = 'jest_oa_usage';
+        expect(converter.toClaudeStreamChunk({ id: 'chatcmpl-u', usage: { prompt_tokens: 7 } }, MODEL, reqId)).toBeNull();
+        expect(converter.claudeStreamStates.has(reqId)).toBe(false);
+
+        const events = drive(converter, [
+            { id: 'chatcmpl-u', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] },
+            { id: 'chatcmpl-u', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+            { id: 'chatcmpl-u', choices: [], usage: { prompt_tokens: 7, completion_tokens: 1, total_tokens: 8 } }
+        ], MODEL, reqId);
+
+        expect(types(events).filter(t => t === 'message_start')).toHaveLength(1);
+        expect(types(events).filter(t => t === 'message_stop')).toHaveLength(1);
     });
 
     test('无 choices 且无 usage 的 chunk 返回 null；非对象返回 null', () => {

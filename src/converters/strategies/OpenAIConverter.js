@@ -41,7 +41,7 @@ import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vaul
 export class OpenAIConverter extends BaseConverter {
     constructor() {
         super('openai');
-        // 创建 CodexConverter 实例用于委托
+        // Codex 转换器实例；请求级工具名映射在 CodexConverter 模块内跨实例共享
         this.codexConverter = new CodexConverter();
         this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'openai-converter-responses-stream' });
         this.claudeStreamStates = new StreamSessionStore({ label: 'openai-converter-claude-stream' });
@@ -563,7 +563,9 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         const choice = openaiChunk.choices?.[0];
-        if (!choice && !openaiChunk.usage) {
+        // usage-only 尾帧（choices: []）不能重新创建流状态，否则会在 message_stop 之后
+        // 再发一次 message_start。OpenAI 标准行为下 usage 应随 finish chunk 或由管道统计。
+        if (!choice) {
             return null;
         }
 
@@ -773,6 +775,7 @@ export class OpenAIConverter extends BaseConverter {
         const processedMessages = [];
         // [FIX] 跟踪已生成的 functionResponse ID，防止重复（Claude API 要求每个 tool_use 只有一个 tool_result）
         const emittedToolResultIds = new Set();
+        const systemParts = [];
         let systemInstruction = null;
 
         for (let i = 0; i < messages.length; i++) {
@@ -781,28 +784,18 @@ export class OpenAIConverter extends BaseConverter {
             const content = message.content;
 
             if (role === 'system' || role === 'developer') {
-                // system -> system_instruction
+                // system -> system_instruction（多条 system/developer 必须按顺序拼接，不能覆盖）
                 if (messages.length > 1) {
                     if (typeof content === 'string') {
-                        systemInstruction = {
-                            role: 'user',
-                            parts: [{ text: content }]
-                        };
+                        if (content) systemParts.push({ text: content });
                     } else if (Array.isArray(content)) {
-                        const parts = content
-                            .filter(item => item.type === 'text' && item.text)
-                            .map(item => ({ text: item.text }));
-                        if (parts.length > 0) {
-                            systemInstruction = {
-                                role: 'user',
-                                parts: parts
-                            };
-                        }
-                    } else if (typeof content === 'object' && content.type === 'text') {
-                        systemInstruction = {
-                            role: 'user',
-                            parts: [{ text: content.text }]
-                        };
+                        content.forEach(item => {
+                            if (item && item.type === 'text' && item.text) {
+                                systemParts.push({ text: item.text });
+                            }
+                        });
+                    } else if (content && typeof content === 'object' && content.type === 'text' && content.text) {
+                        systemParts.push({ text: content.text });
                     }
                 } else {
                     // 只有一条 system 消息时，作为 user 消息处理
@@ -1099,6 +1092,12 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         // 构建 Gemini 请求（合并相邻同角色消息，严格满足 Gemini 交替轮次规范）
+        if (systemParts.length > 0) {
+            systemInstruction = {
+                role: 'user',
+                parts: systemParts
+            };
+        }
         const geminiRequest = {
             contents: mergeConsecutiveSameRoleContents(processedMessages)
         };
@@ -1337,13 +1336,6 @@ export class OpenAIConverter extends BaseConverter {
 
 
 
-    /**
-     * 将 OpenAI 模型列表转换为 Gemini 模型列表
-     */
-    toCodexRequest(openaiRequest) {
-        return this.codexConverter.toOpenAIRequestToCodexRequest(openaiRequest);
-    }
-
     _mapOpenAIToolChoiceToResponses(toolChoice) {
         if (!toolChoice) {
             return undefined;
@@ -1362,21 +1354,47 @@ export class OpenAIConverter extends BaseConverter {
      * 将OpenAI请求转换为OpenAI Responses格式
      */
     toOpenAIResponsesRequest(openaiRequest) {
+        const effectiveMaxTokens = openaiRequest.max_completion_tokens !== undefined
+            ? openaiRequest.max_completion_tokens
+            : openaiRequest.max_tokens;
         const responsesRequest = {
             model: openaiRequest.model,
-            instructions: '',
             input: [],
             stream: openaiRequest.stream || false,
-            max_output_tokens: openaiRequest.max_tokens,
+            max_output_tokens: effectiveMaxTokens,
             temperature: openaiRequest.temperature,
             top_p: openaiRequest.top_p,
             parallel_tool_calls: openaiRequest.parallel_tool_calls
         };
 
+        if (openaiRequest.metadata !== undefined) {
+            responsesRequest.metadata = openaiRequest.metadata;
+        }
+        if (openaiRequest.service_tier !== undefined) {
+            responsesRequest.service_tier = openaiRequest.service_tier;
+        }
+
         const { systemInstruction, nonSystemMessages } = extractSystemMessages(openaiRequest.messages || []);
 
         if (systemInstruction) {
             responsesRequest.instructions = extractText(systemInstruction.parts[0].text);
+        }
+
+        // response_format -> text.format（Responses 的结构化输出入口）
+        if (openaiRequest.response_format) {
+            const format = openaiRequest.response_format;
+            if (format.type === 'json_object') {
+                responsesRequest.text = { format: { type: 'json_object' } };
+            } else if (format.type === 'json_schema' && format.json_schema) {
+                responsesRequest.text = {
+                    format: {
+                        type: 'json_schema',
+                        name: format.json_schema.name || 'response',
+                        schema: format.json_schema.schema || {},
+                        ...(format.json_schema.strict !== undefined ? { strict: format.json_schema.strict } : {})
+                    }
+                };
+            }
         }
 
         const reasoningEffort = openaiRequest.reasoning_effort || openaiRequest.reasoning?.effort;
@@ -1444,10 +1462,15 @@ export class OpenAIConverter extends BaseConverter {
                                 text: c.text
                             });
                         } else if (c.type === 'image_url') {
-                            content.push({
-                                type: 'input_image',
-                                image_url: c.image_url
-                            });
+                            const imageUrl = typeof c.image_url === 'string'
+                                ? c.image_url
+                                : c.image_url?.url;
+                            if (imageUrl) {
+                                content.push({
+                                    type: 'input_image',
+                                    image_url: imageUrl
+                                });
+                            }
                         }
                     });
                 }
