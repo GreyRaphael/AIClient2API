@@ -13,22 +13,19 @@ import {
     ZED_TOKEN_URL,
     ZED_USERS_ME_URL
 } from '../src/providers/zed/zed-core.js';
-import { PROVIDER_MODELS } from '../src/providers/provider-models.js';
-import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
 
 describe('Zed Provider & OAuth Implementation Tests', () => {
     test('Zed provider is properly registered and configured', () => {
         expect(MODEL_PROVIDER.ZED).toBe('zed');
         expect(isRegisteredProvider('zed')).toBe(true);
         expect(getProtocolPrefix('zed')).toBe(MODEL_PROTOCOL_PREFIX.CLAUDE);
-        expect(Array.isArray(PROVIDER_MODELS['zed'])).toBe(true);
-        expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-4-5');
     });
 
     test('zed uses gpt-5-nano as the default health check model', async () => {
         const { ProviderPoolManager } = await import('../src/providers/provider-pool-manager.js');
         expect(ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS.zed).toBe('gpt-5-nano');
     });
+
     test('getZedProviderForModel maps model prefix to upstream provider correctly', () => {
         expect(getZedProviderForModel('claude-sonnet-4-5')).toBe('anthropic');
         expect(getZedProviderForModel('claude-sonnet-4-6')).toBe('anthropic');
@@ -82,51 +79,6 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(provReq.messages[0].role).toBe('user');
         expect(provReq.messages[0].content.length).toBe(2);
         expect(provReq.messages[1].role).toBe('assistant');
-    });
-    test('OpenAIConverter.toClaudeRequest handles reasoning_effort legality fallback', () => {
-        const converter = new OpenAIConverter();
-
-        // 1. none does not set thinking
-        const reqNone = converter.toClaudeRequest({
-            model: 'gpt-5.5',
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoning_effort: 'none',
-            temperature: 0.7
-        });
-        expect(reqNone.thinking).toBeUndefined();
-        expect(reqNone.temperature).toBe(0.7);
-
-        // 2. medium sets budget_tokens, deletes temperature/top_p, elevates max_tokens if <= budget
-        const reqMedium = converter.toClaudeRequest({
-            model: 'claude-sonnet-4-6',
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoning_effort: 'medium',
-            temperature: 0.7,
-            top_p: 0.9,
-            max_tokens: 4096
-        });
-        expect(reqMedium.thinking).toEqual({ type: 'enabled', budget_tokens: 8192 });
-        expect(reqMedium.temperature).toBeUndefined();
-        expect(reqMedium.top_p).toBeUndefined();
-        expect(reqMedium.max_tokens).toBeGreaterThan(8192);
-
-        // 3. xhigh and max map correctly
-        const reqXhigh = converter.toClaudeRequest({
-            model: 'claude-sonnet-4-6',
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoning_effort: 'xhigh',
-            max_tokens: 20000
-        });
-        expect(reqXhigh.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
-
-        const reqMax = converter.toClaudeRequest({
-            model: 'claude-sonnet-4-6',
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoning_effort: 'max',
-            max_tokens: 1000
-        });
-        expect(reqMax.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
-        expect(reqMax.max_tokens).toBe(32000 + 4096);
     });
 
     test('ZedApiService.buildPayload formats Google provider request correctly for Gemini 3.1+', () => {

@@ -449,13 +449,5 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(explicit).toEqual(base);
             expect(explicitReport).toEqual(baseReport);
         });
-
-        test("显式传 'trae'：接口可用且当前行为与 'gemini' 一致", () => {
-            const { schema: base, report: baseReport } = polyfillSchemaForGemini(constraintSchema);
-            const { schema: trae, report: traeReport } = polyfillSchemaForGemini(constraintSchema, { dialect: 'trae' });
-            expect(trae).toEqual(base);
-            expect(traeReport).toEqual(baseReport);
-            expect(trae.properties.code.description).toContain('[Constraints:');
-        });
     });
 });

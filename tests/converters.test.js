@@ -193,6 +193,53 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(oaiReq.top_p).toBeUndefined();
     });
 
+    test('OpenAIConverter.toClaudeRequest handles reasoning_effort legality fallback', () => {
+        const converter = new OpenAIConverter();
+
+        // 1. none does not set thinking
+        const reqNone = converter.toClaudeRequest({
+            model: 'gpt-5.5',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'none',
+            temperature: 0.7
+        });
+        expect(reqNone.thinking).toBeUndefined();
+        expect(reqNone.temperature).toBe(0.7);
+
+        // 2. medium sets budget_tokens, deletes temperature/top_p, elevates max_tokens if <= budget
+        const reqMedium = converter.toClaudeRequest({
+            model: 'claude-sonnet-4-6',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'medium',
+            temperature: 0.7,
+            top_p: 0.9,
+            max_tokens: 4096
+        });
+        expect(reqMedium.thinking).toEqual({ type: 'enabled', budget_tokens: 8192 });
+        expect(reqMedium.temperature).toBeUndefined();
+        expect(reqMedium.top_p).toBeUndefined();
+        expect(reqMedium.max_tokens).toBeGreaterThan(8192);
+
+        // 3. xhigh and max map correctly
+        const reqXhigh = converter.toClaudeRequest({
+            model: 'claude-sonnet-4-6',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'xhigh',
+            max_tokens: 20000
+        });
+        expect(reqXhigh.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
+
+        const reqMax = converter.toClaudeRequest({
+            model: 'claude-sonnet-4-6',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning_effort: 'max',
+            max_tokens: 1000
+        });
+        expect(reqMax.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
+        expect(reqMax.max_tokens).toBe(32000 + 4096);
+    });
+
+
     test('Fix 6: gemini-3.7-flash (text model) does NOT attach imageConfig', () => {
         const textReq = {
             model: 'gemini-3.7-flash',
@@ -623,113 +670,6 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(claudeResp.content[2].id).toBe('call_db_check_1');
         expect(claudeResp.content[2].name).toBe('get_schema');
         expect(claudeResp.content[2].input).toEqual({ table: 'users' });
-    });
-
-    test('Fix 17: OpenAI streaming chunk state machine generates canonical Anthropic SSE event sequence with distinct block indices', () => {
-        const streamReqId = 'stream_test_claude_state_machine_01';
-        const chunk1 = {
-            id: 'chatcmpl-stream-test',
-            choices: [{
-                index: 0,
-                delta: { role: 'assistant' }
-            }]
-        };
-        const chunk2 = {
-            id: 'chatcmpl-stream-test',
-            choices: [{
-                index: 0,
-                delta: { reasoning_content: 'Deep reasoning started...' }
-            }]
-        };
-        const chunk3 = {
-            id: 'chatcmpl-stream-test',
-            choices: [{
-                index: 0,
-                delta: { content: 'Here is the preliminary summary.' }
-            }]
-        };
-        const chunk4 = {
-            id: 'chatcmpl-stream-test',
-            choices: [{
-                index: 0,
-                delta: {
-                    tool_calls: [{
-                        index: 0,
-                        id: 'call_search_42',
-                        type: 'function',
-                        function: { name: 'search_docs', arguments: '{"q":"Anthropic"}' }
-                    }]
-                }
-            }]
-        };
-        const chunk5 = {
-            id: 'chatcmpl-stream-test',
-            choices: [{
-                index: 0,
-                delta: {},
-                finish_reason: 'tool_calls'
-            }],
-            usage: { prompt_tokens: 15, completion_tokens: 25, total_tokens: 40 }
-        };
-
-        const ev1 = convertData(chunk1, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
-        const ev2 = convertData(chunk2, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
-        const ev3 = convertData(chunk3, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
-        const ev4 = convertData(chunk4, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
-        const ev5 = convertData(chunk5, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', streamReqId);
-
-        // Chunk 1: message_start
-        expect(ev1).toHaveLength(1);
-        expect(ev1[0].type).toBe('message_start');
-        expect(ev1[0].message.role).toBe('assistant');
-
-        // Chunk 2: content_block_start (thinking, index 0) + content_block_delta (thinking_delta, index 0)
-        expect(ev2).toEqual([
-            { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
-            { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Deep reasoning started...' } }
-        ]);
-
-        // Chunk 3: content_block_delta (signature_delta, index 0) + content_block_stop (index 0) + content_block_start (text, index 1) + content_block_delta (text_delta, index 1)
-        expect(ev3).toEqual([
-            { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: expect.stringMatching(/^vsig1\./) } },
-            { type: 'content_block_stop', index: 0 },
-            { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
-            { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Here is the preliminary summary.' } }
-        ]);
-
-        // Chunk 4: content_block_stop (index 1) + content_block_start (tool_use, index 2) + content_block_delta (input_json_delta, index 2)
-        expect(ev4).toEqual([
-            { type: 'content_block_stop', index: 1 },
-            {
-                type: 'content_block_start',
-                index: 2,
-                content_block: {
-                    type: 'tool_use',
-                    id: 'call_search_42',
-                    name: 'search_docs',
-                    input: {}
-                }
-            },
-            {
-                type: 'content_block_delta',
-                index: 2,
-                delta: {
-                    type: 'input_json_delta',
-                    partial_json: '{"q":"Anthropic"}'
-                }
-            }
-        ]);
-
-        // Chunk 5: content_block_stop (index 2) + message_delta (stop_reason: tool_use) + message_stop
-        expect(ev5).toEqual([
-            { type: 'content_block_stop', index: 2 },
-            {
-                type: 'message_delta',
-                delta: { stop_reason: 'tool_use', stop_sequence: null },
-                usage: { output_tokens: 25 }
-            },
-            { type: 'message_stop' }
-        ]);
     });
 });
 

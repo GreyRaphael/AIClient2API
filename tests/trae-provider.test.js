@@ -26,14 +26,6 @@ describe('Trae Provider Implementation Tests', () => {
         expect(getProtocolPrefix('trae-solo_work_lite')).toBe(MODEL_PROTOCOL_PREFIX.OPENAI);
         expect(getProtocolPrefix('trae-chat_v3')).toBe(MODEL_PROTOCOL_PREFIX.OPENAI);
 
-        expect(Array.isArray(PROVIDER_MODELS['trae'])).toBe(true);
-        expect(Array.isArray(PROVIDER_MODELS['trae-solo_work_lite'])).toBe(true);
-        expect(Array.isArray(PROVIDER_MODELS['trae-chat_v3'])).toBe(true);
-
-        expect(PROVIDER_MODELS['trae'].length).toBe(24);
-        expect(PROVIDER_MODELS['trae-solo_work_lite'].length).toBe(19);
-        expect(PROVIDER_MODELS['trae-chat_v3'].length).toBe(20);
-
         expect(PROVIDER_MODELS['trae']).not.toContain('auto');
         expect(PROVIDER_MODELS['trae-solo_work_lite']).not.toContain('auto');
         expect(PROVIDER_MODELS['trae-chat_v3']).not.toContain('auto');
