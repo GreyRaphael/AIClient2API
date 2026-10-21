@@ -692,14 +692,6 @@ describe('mapFinishReason 共享映射', () => {
         expect(mapFinishReason('UNKNOWN_X', 'gemini', 'openai')).toBe('stop');
     });
 
-    test('openai -> gemini', () => {
-        expect(mapFinishReason('stop', 'openai', 'gemini')).toBe('STOP');
-        expect(mapFinishReason('length', 'openai', 'gemini')).toBe('MAX_TOKENS');
-        expect(mapFinishReason('content_filter', 'openai', 'gemini')).toBe('SAFETY');
-        expect(mapFinishReason('end_turn', 'openai', 'gemini')).toBe('STOP');
-        expect(mapFinishReason('whatever', 'openai', 'gemini')).toBe('STOP');
-    });
-
     test('既有 openai/gemini -> anthropic 映射与兜底不变', () => {
         expect(mapFinishReason('stop', 'openai', 'anthropic')).toBe('end_turn');
         expect(mapFinishReason('length', 'openai', 'anthropic')).toBe('max_tokens');
@@ -1147,10 +1139,9 @@ describe('Grok -> Claude 委托透传 requestId', () => {
         }
     });
 
-    test('Phase 0.5: Claude -> Gemini 短签名原样透传与流式 signature_delta 转发', () => {
+    test('Phase 0.5: Claude -> Gemini 短签名请求侧原样透传', () => {
         const claudeConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.CLAUDE);
 
-        // 1. 短签名 (<50 字符) 请求侧原样透传
         const shortSigReq = {
             model: 'gemini-3.8-flash-high',
             messages: [{
@@ -1165,29 +1156,6 @@ describe('Grok -> Claude 委托透传 requestId', () => {
         const thinkingPart = geminiReq.contents[0].parts.find(p => p.thought);
         expect(thinkingPart).toBeDefined();
         expect(thinkingPart.thoughtSignature).toBe('short_sig_123');
-
-        // 2. 流式 signature_delta 转换为携带 thoughtSignature 的 Gemini chunk
-        const streamSigChunk = {
-            type: 'content_block_delta',
-            index: 0,
-            delta: {
-                type: 'signature_delta',
-                signature: 'gemini_stream_sig_abc'
-            }
-        };
-        const geminiChunk = claudeConverter.toGeminiStreamChunk(streamSigChunk, 'gemini-3.8-flash-high');
-        expect(geminiChunk).toMatchObject({
-            candidates: [{
-                content: {
-                    role: 'model',
-                    parts: [{
-                        text: '',
-                        thought: true,
-                        thoughtSignature: 'gemini_stream_sig_abc'
-                    }]
-                }
-            }]
-        });
     });
 
     test('Phase 3: Claude -> Responses 流式转换生命周期与输出项结构', () => {

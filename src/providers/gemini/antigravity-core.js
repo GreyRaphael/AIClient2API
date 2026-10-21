@@ -357,14 +357,9 @@ function normalizeAntigravityThinking(modelName, payload, isClaudeModel) {
 }
 
 
-// --- [FIX tool_use.id] 为原生 Gemini 协议客户端(如 pi coding agent)补 antigravity 私有 id 字段 ---
-// 走原生 Gemini 协议端点(/v1beta/models/...:generateContent)的客户端(如 pi)遵循标准 Gemini API,
-// 不知道要在 functionCall/functionResponse part 里携带 antigravity 私有扩展字段 id,
-// 导致 Google 后端把这段 Gemini 格式 contents 转成 Claude 的 Anthropic messages 格式时报
-// `messages.N.content.M.tool_use.id: Field required` (400),客户端表现为收到空响应。
-// 注意:这跟 #652(ClaudeConverter.js / OpenAIConverter.js 的 id 回填)是两条不同路径——
-// #652 修的是"客户端发 Claude/OpenAI 格式请求,代理转成 Gemini 格式再转发"这条路径;
-// 这里修的是"客户端本来就发原生 Gemini 格式请求"这条路径,#652 未覆盖。
+// --- [SAFETY] 为 Gemini 格式上游请求补 antigravity 私有 id 字段 ---
+// 原生 Gemini 下游端点已移除；转译路径（Claude/OpenAI/Responses -> Gemini）理论上已由各 Converter 补齐 tool id。
+// 这里保留一层请求体内兜底，防止个别转换路径遗漏 id 时被 Google 后端以 400 拒绝。
 const TOOL_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 function generateSyntheticToolId() {
     const bytes = crypto.randomBytes(26);

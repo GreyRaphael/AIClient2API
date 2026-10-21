@@ -9,16 +9,8 @@ import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import {
-    checkAndAssignOrDefault,
     mapFinishReason,
-    getOpenAIStreamIdentity,
-    OPENAI_DEFAULT_MAX_TOKENS,
-    OPENAI_DEFAULT_TEMPERATURE,
-    OPENAI_DEFAULT_TOP_P,
-    CLAUDE_DEFAULT_MAX_TOKENS,
-    CLAUDE_DEFAULT_TEMPERATURE,
-    CLAUDE_DEFAULT_TOP_P,
-    sortToolsByName
+    getOpenAIStreamIdentity
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
@@ -165,24 +157,12 @@ export class GeminiConverter extends BaseConverter {
         this.openaiStreamStates = new StreamSessionStore({ label: 'gemini-converter-openai-stream' });
     }
 
+
     /**
-     * 转换请求
+     * 下游不再支持 Gemini 客户端协议；Gemini 仅作为上游响应来源。
      */
-    convertRequest(data, targetProtocol) {
-        switch (targetProtocol) {
-            case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIRequest(data);
-            case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeRequest(data);
-            case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesRequest(data);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexRequest(data);
-            case MODEL_PROTOCOL_PREFIX.GROK:
-                return this.toGrokRequest(data);
-            default:
-                throw new Error(`Unsupported target protocol: ${targetProtocol}`);
-        }
+    convertRequest() {
+        throw new Error('Gemini is not supported as a downstream client protocol');
     }
 
     /**
@@ -196,8 +176,6 @@ export class GeminiConverter extends BaseConverter {
                 return this.toClaudeResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexResponse(data, model);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -214,8 +192,6 @@ export class GeminiConverter extends BaseConverter {
                 return this.toClaudeStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexStreamChunk(chunk, model);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -225,77 +201,15 @@ export class GeminiConverter extends BaseConverter {
      * 转换模型列表
      */
     convertModelList(data, targetProtocol) {
-        switch (targetProtocol) {
-            case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIModelList(data);
-            case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeModelList(data);
-            default:
-                return data;
-        }
+        return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
+            ? this.toOpenAIModelList(data)
+            : data;
     }
 
     // =========================================================================
     // Gemini -> OpenAI 转换
     // =========================================================================
 
-    /**
-     * Gemini请求 -> OpenAI请求
-     */
-    toOpenAIRequest(geminiRequest) {
-        const openaiRequest = {
-            messages: [],
-            model: geminiRequest.model,
-            max_tokens: checkAndAssignOrDefault(geminiRequest.max_tokens, OPENAI_DEFAULT_MAX_TOKENS),
-            temperature: checkAndAssignOrDefault(geminiRequest.temperature, OPENAI_DEFAULT_TEMPERATURE),
-            top_p: checkAndAssignOrDefault(geminiRequest.top_p, OPENAI_DEFAULT_TOP_P),
-        };
-
-        // 处理系统指令
-        if (geminiRequest.systemInstruction && Array.isArray(geminiRequest.systemInstruction.parts)) {
-            const { content: systemContent } = this.processGeminiPartsToOpenAIContent(geminiRequest.systemInstruction.parts);
-            if (systemContent) {
-                openaiRequest.messages.push({
-                    role: 'system',
-                    content: systemContent
-                });
-            }
-        }
-
-        // 处理内容
-        if (geminiRequest.contents && Array.isArray(geminiRequest.contents)) {
-            geminiRequest.contents.forEach(content => {
-                if (content && Array.isArray(content.parts)) {
-                    const { content: openaiContent, reasoning_content } = this.processGeminiPartsToOpenAIContent(content.parts);
-                    if ((openaiContent && openaiContent.length > 0) || reasoning_content) {
-                        const openaiRole = content.role === 'model' ? 'assistant' : content.role;
-                        const message = {
-                            role: openaiRole,
-                            content: openaiContent
-                        };
-                        if (reasoning_content) {
-                            message.reasoning_content = reasoning_content;
-                        }
-                        openaiRequest.messages.push(message);
-                    }
-                }
-            });
-        }
-
-        // 处理工具
-        if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
-            openaiRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(fn => ({
-                type: 'function',
-                function: {
-                    name: fn.name,
-                    description: fn.description || '',
-                    parameters: fn.parameters || fn.parametersJsonSchema || { type: 'object', properties: {} }
-                }
-            })));
-        }
-
-        return openaiRequest;
-    }
 
     /**
      * Gemini响应 -> OpenAI响应
@@ -522,72 +436,6 @@ export class GeminiConverter extends BaseConverter {
         };
     }
 
-    /**
-     * 处理Gemini parts到OpenAI内容
-     */
-    processGeminiPartsToOpenAIContent(parts) {
-        if (!parts || !Array.isArray(parts)) return '';
-        
-        const contentArray = [];
-        
-        parts.forEach(part => {
-            if (!part) return;
-            
-            if (typeof part.text === 'string') {
-                if (part.thought === true) {
-                    contentArray.push({
-                        type: 'text',
-                        text: part.text,
-                        reasoning: true // 标记以便后续处理
-                    });
-                } else {
-                    contentArray.push({
-                        type: 'text',
-                        text: part.text
-                    });
-                }
-            }
-            
-            if (part.inlineData) {
-                const { mimeType, data } = part.inlineData;
-                if (mimeType && data) {
-                    contentArray.push({
-                        type: 'image_url',
-                        image_url: {
-                            url: `data:${mimeType};base64,${data}`
-                        }
-                    });
-                }
-            }
-            
-            if (part.fileData) {
-                const { mimeType, fileUri } = part.fileData;
-                if (mimeType && fileUri) {
-                    if (mimeType.startsWith('image/')) {
-                        contentArray.push({
-                            type: 'image_url',
-                            image_url: {
-                                url: fileUri
-                            }
-                        });
-                    } else if (mimeType.startsWith('audio/')) {
-                        contentArray.push({
-                            type: 'text',
-                            text: `[Audio file: ${fileUri}]`
-                        });
-                    }
-                }
-            }
-        });
-        
-        return contentArray.length === 1 && contentArray[0].type === 'text'
-            ? contentArray[0].text
-            : contentArray;
-    }
-
-    /**
-     * 处理Gemini响应内容
-     */
     processGeminiResponseContent(geminiResponse) {
         if (!geminiResponse || !geminiResponse.candidates) return { content: '', reasoning_content: '' };
         
@@ -618,57 +466,6 @@ export class GeminiConverter extends BaseConverter {
     // Gemini -> Claude 转换
     // =========================================================================
 
-    /**
-     * Gemini请求 -> Claude请求
-     */
-    toClaudeRequest(geminiRequest) {
-        const claudeRequest = {
-            model: geminiRequest.model || 'claude-sonnet-4-6',
-            messages: [],
-            max_tokens: checkAndAssignOrDefault(geminiRequest.generationConfig?.maxOutputTokens, CLAUDE_DEFAULT_MAX_TOKENS),
-            temperature: checkAndAssignOrDefault(geminiRequest.generationConfig?.temperature, CLAUDE_DEFAULT_TEMPERATURE),
-            top_p: checkAndAssignOrDefault(geminiRequest.generationConfig?.topP, CLAUDE_DEFAULT_TOP_P),
-        };
-
-        // 处理系统指令
-        if (geminiRequest.systemInstruction && geminiRequest.systemInstruction.parts) {
-            const systemText = geminiRequest.systemInstruction.parts
-                .filter(p => p.text)
-                .map(p => p.text)
-                .join('\n');
-            if (systemText) {
-                claudeRequest.system = systemText;
-            }
-        }
-
-        // 处理内容
-        if (geminiRequest.contents && Array.isArray(geminiRequest.contents)) {
-            geminiRequest.contents.forEach(content => {
-                if (!content || !content.parts) return;
-
-                const role = content.role === 'model' ? 'assistant' : 'user';
-                const claudeContent = this.processGeminiPartsToClaudeContent(content.parts);
-
-                if (claudeContent.length > 0) {
-                    claudeRequest.messages.push({
-                        role: role,
-                        content: claudeContent
-                    });
-                }
-            });
-        }
-
-        // 处理工具
-        if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
-            claudeRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(func => ({
-                name: func.name,
-                description: func.description || '',
-                input_schema: func.parameters || { type: 'object', properties: {} }
-            })));
-        }
-
-        return claudeRequest;
-    }
 
     /**
      * Gemini响应 -> Claude响应
@@ -864,130 +661,7 @@ export class GeminiConverter extends BaseConverter {
         return events.length > 0 ? events : null;
     }
 
-    /**
-     * Gemini模型列表 -> Claude模型列表
-     */
-    toClaudeModelList(geminiModels) {
-        return {
-            models: geminiModels.models.map(m => ({
-                name: m.name.startsWith('models/') ? m.name.substring(7) : m.name,
-                description: "",
-            })),
-        };
-    }
 
-    /**
-     * 处理Gemini parts到Claude内容
-     */
-    processGeminiPartsToClaudeContent(parts) {
-        if (!parts || !Array.isArray(parts)) return [];
-
-        const content = [];
-
-        parts.forEach(part => {
-            if (!part) return;
-
-            // 处理 thinking 块
-            // Gemini 使用 thought: true 和 thoughtSignature 表示思考内容
-            // [FIX] 同时支持 thoughtSignature 和 thought_signature（Gemini CLI 可能使用下划线格式）
-            if (part.text) {
-                if (part.thought === true) {
-                    // 这是一个 thinking 块
-                    const thinkingBlock = {
-                        type: 'thinking',
-                        thinking: part.text
-                    };
-                    // 处理签名 - 可能是 Base64 编码的
-                    // [FIX] 同时检查 thoughtSignature 和 thought_signature
-                    const rawSignature = part.thoughtSignature || part.thought_signature;
-                    if (rawSignature) {
-                        let signature = rawSignature;
-                        // 尝试 Base64 解码
-                        try {
-                            const decoded = Buffer.from(signature, 'base64').toString('utf-8');
-                            // 检查解码后是否是有效的 UTF-8 字符串
-                            if (decoded && decoded.length > 0 && !decoded.includes('\ufffd')) {
-                                signature = decoded;
-                            }
-                        } catch (e) {
-                            // 解码失败，保持原样
-                        }
-                        thinkingBlock.signature = signature;
-                    }
-                    content.push(thinkingBlock);
-                } else {
-                    // 普通文本
-                    content.push({
-                        type: 'text',
-                        text: part.text
-                    });
-                }
-            }
-
-            if (part.inlineData) {
-                content.push({
-                    type: 'image',
-                    source: {
-                        type: 'base64',
-                        media_type: part.inlineData.mimeType,
-                        data: part.inlineData.data
-                    }
-                });
-            }
-
-            if (part.functionCall) {
-                // [FIX] 规范化工具名称和参数映射
-                const toolName = normalizeToolName(part.functionCall.name);
-                const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
-                
-                // [FIX] 使用 Gemini 提供的 id，如果没有则生成
-                const toolUseBlock = {
-                    type: 'tool_use',
-                    id: part.functionCall.id || `${toolName}-${uuidv4().split('-')[0]}`,
-                    name: toolName,
-                    input: remappedArgs
-                };
-                // [FIX] 如果有签名，添加到 tool_use 块
-                // [FIX] 同时检查 thoughtSignature 和 thought_signature
-                const rawSignature = part.thoughtSignature || part.thought_signature;
-                if (rawSignature) {
-                    let signature = rawSignature;
-                    try {
-                        const decoded = Buffer.from(signature, 'base64').toString('utf-8');
-                        if (decoded && decoded.length > 0 && !decoded.includes('\ufffd')) {
-                            signature = decoded;
-                        }
-                    } catch (e) {
-                        // 解码失败，保持原样
-                    }
-                    toolUseBlock.signature = signature;
-                }
-                content.push(toolUseBlock);
-            }
-
-            if (part.functionResponse) {
-                // [FIX] 正确处理 functionResponse
-                let responseContent = part.functionResponse.response;
-                // 如果 response 是对象且有 result 字段，提取它
-                if (responseContent && typeof responseContent === 'object' && responseContent.result !== undefined) {
-                    responseContent = responseContent.result;
-                }
-                content.push({
-                    type: 'tool_result',
-                    // 优先使用 id（即原始 tool_use_id），回退到 name
-                    tool_use_id: part.functionResponse.id || part.functionResponse.name,
-                    content: typeof responseContent === 'string' ? responseContent : JSON.stringify(responseContent)
-                });
-            }
-        });
-
-        return content;
-    }
-
-    /**
-     * 处理Gemini响应到Claude内容
-     * @returns {{ content: Array, hasToolUse: boolean }}
-     */
     processGeminiResponseToClaudeContent(geminiResponse) {
         if (!geminiResponse || !geminiResponse.candidates || geminiResponse.candidates.length === 0) {
             return { content: [], hasToolUse: false };
@@ -1096,160 +770,6 @@ export class GeminiConverter extends BaseConverter {
     // Gemini -> OpenAI Responses 转换
     // =========================================================================
 
-    /**
-     * Gemini请求 -> OpenAI Responses请求
-     */
-    toOpenAIResponsesRequest(geminiRequest) {
-        const responsesRequest = {
-            model: geminiRequest.model,
-            instructions: '',
-            input: [],
-            stream: geminiRequest.stream || false,
-            max_output_tokens: geminiRequest.generationConfig?.maxOutputTokens,
-            temperature: geminiRequest.generationConfig?.temperature,
-            top_p: geminiRequest.generationConfig?.topP
-        };
-
-        // 处理系统指令
-        if (geminiRequest.systemInstruction && geminiRequest.systemInstruction.parts) {
-            responsesRequest.instructions = geminiRequest.systemInstruction.parts
-                .filter(p => p.text)
-                .map(p => p.text)
-                .join('\n');
-        }
-
-        // 处理内容
-        if (geminiRequest.contents && Array.isArray(geminiRequest.contents)) {
-            geminiRequest.contents.forEach(content => {
-                const role = content.role === 'model' ? 'assistant' : 'user';
-                const parts = content.parts || [];
-                
-                parts.forEach(part => {
-                    if (part.text) {
-                        responsesRequest.input.push({
-                            type: 'message',
-                            role: role,
-                            content: [{
-                                type: role === 'assistant' ? 'output_text' : 'input_text',
-                                text: part.text
-                            }]
-                        });
-                    }
-                    
-                    if (part.functionCall) {
-                        responsesRequest.input.push({
-                            type: 'function_call',
-                            call_id: part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`,
-                            name: part.functionCall.name,
-                            arguments: typeof part.functionCall.args === 'string' 
-                                ? part.functionCall.args 
-                                : JSON.stringify(part.functionCall.args)
-                        });
-                    }
-                    
-                    if (part.functionResponse) {
-                        responsesRequest.input.push({
-                            type: 'function_call_output',
-                            call_id: part.functionResponse.name, // Gemini 通常使用 name 作为关联
-                            output: typeof part.functionResponse.response?.result === 'string'
-                                ? part.functionResponse.response.result
-                                : JSON.stringify(part.functionResponse.response || {})
-                        });
-                    }
-
-                    if (part.inlineData) {
-                        responsesRequest.input.push({
-                            type: 'message',
-                            role: role,
-                            content: [{
-                                type: 'input_image',
-                                image_url: {
-                                    url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
-                                }
-                            }]
-                        });
-                    }
-                });
-            });
-        }
-
-        // 处理工具
-        if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
-            responsesRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(fn => ({
-                type: 'function',
-                name: fn.name,
-                description: fn.description,
-                parameters: fn.parameters || fn.parametersJsonSchema || { type: 'object', properties: {} }
-            })));
-        }
-
-        return responsesRequest;
-    }
-
-    /**
-     * 处理Gemini parts到OpenAI内容
-     */
-    processGeminiPartsToOpenAIContent(parts) {
-        if (!parts || !Array.isArray(parts)) return { content: '', reasoning_content: '' };
-        
-        const contentArray = [];
-        const reasoningParts = [];
-        
-        parts.forEach(part => {
-            if (!part) return;
-            
-            if (typeof part.text === 'string') {
-                if (part.thought === true) {
-                    reasoningParts.push(part.text);
-                } else {
-                    contentArray.push({
-                        type: 'text',
-                        text: part.text
-                    });
-                }
-            }
-            
-            if (part.inlineData) {
-                const { mimeType, data } = part.inlineData;
-                if (mimeType && data) {
-                    contentArray.push({
-                        type: 'image_url',
-                        image_url: {
-                            url: `data:${mimeType};base64,${data}`
-                        }
-                    });
-                }
-            }
-            
-            if (part.fileData) {
-                const { mimeType, fileUri } = part.fileData;
-                if (mimeType && fileUri) {
-                    if (mimeType.startsWith('image/')) {
-                        contentArray.push({
-                            type: 'image_url',
-                            image_url: {
-                                url: fileUri
-                            }
-                        });
-                    } else if (mimeType.startsWith('audio/')) {
-                        contentArray.push({
-                            type: 'text',
-                            text: `[Audio file: ${fileUri}]`
-                        });
-                    }
-                }
-            }
-        });
-        
-        const finalContent = contentArray.length === 1 && contentArray[0].type === 'text'
-            ? contentArray[0].text
-            : contentArray;
-
-        return {
-            content: finalContent,
-            reasoning_content: reasoningParts.join('\n')
-        };
-    }
 
     _buildResponsesMessageItemId(responseId, index = 0) {
         return `msg_${responseId}_${index}`;
@@ -1526,204 +1046,9 @@ export class GeminiConverter extends BaseConverter {
     // Gemini -> Codex 转换
     // =========================================================================
 
-    /**
-     * Gemini请求 -> Codex请求
-     */
-    toCodexRequest(geminiRequest) {
-        // 使用 CodexConverter 进行转换，因为 CodexConverter.js 中已经实现了 OpenAI -> Codex 的逻辑
-        // 我们需要先将 Gemini 转为 OpenAI 格式，再转为 Codex 格式
-        const openaiRequest = this.toOpenAIRequest(geminiRequest);
-        
-        // 注意：这里我们直接在 GeminiConverter 中实现逻辑，避免循环依赖
-        const codexRequest = {
-            model: openaiRequest.model,
-            instructions: '',
-            input: [],
-            stream: geminiRequest.stream || false,
-            store: false,
-            reasoning: {
-                effort: 'medium',
-                summary: 'auto'
-            },
-            parallel_tool_calls: true,
-            include: ['reasoning.encrypted_content']
-        };
 
-        // 处理系统指令
-        if (geminiRequest.systemInstruction && geminiRequest.systemInstruction.parts) {
-            codexRequest.instructions = geminiRequest.systemInstruction.parts
-                .filter(p => p.text)
-                .map(p => p.text)
-                .join('\n');
-        }
 
-        // 处理内容
-        if (geminiRequest.contents && Array.isArray(geminiRequest.contents)) {
-            const pendingCallIDs = [];
-            
-            geminiRequest.contents.forEach(content => {
-                const role = content.role === 'model' ? 'assistant' : 'user';
-                const parts = content.parts || [];
-                
-                parts.forEach(part => {
-                    // [FIX] 过滤 Gemini 3.1 Pro 的思考过程 (thought: true)
-                    if (part.text && part.thought !== true) {
-                        codexRequest.input.push({
-                            type: 'message',
-                            role: role,
-                            content: [{
-                                type: role === 'assistant' ? 'output_text' : 'input_text',
-                                text: part.text
-                            }]
-                        });
-                    }
-                    
-                    if (part.functionCall) {
-                        const callId = `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
-                        pendingCallIDs.push(callId);
-                        codexRequest.input.push({
-                            type: 'function_call',
-                            call_id: callId,
-                            name: part.functionCall.name,
-                            arguments: typeof part.functionCall.args === 'string' 
-                                ? part.functionCall.args 
-                                : JSON.stringify(part.functionCall.args)
-                        });
-                    }
-                    
-                    if (part.functionResponse) {
-                        const callId = pendingCallIDs.shift() || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
-                        codexRequest.input.push({
-                            type: 'function_call_output',
-                            call_id: callId,
-                            output: typeof part.functionResponse.response?.result === 'string'
-                                ? part.functionResponse.response.result
-                                : JSON.stringify(part.functionResponse.response || {})
-                        });
-                    }
-                });
-            });
-        }
 
-        // 处理工具
-        if (geminiRequest.tools && geminiRequest.tools[0]?.functionDeclarations) {
-            codexRequest.tools = sortToolsByName(geminiRequest.tools[0].functionDeclarations.map(fn => ({
-                type: 'function',
-                name: fn.name,
-                description: fn.description,
-                parameters: fn.parameters || { type: 'object', properties: {} }
-            })));
-        }
-
-        return codexRequest;
-    }
-
-    /**
-     * Gemini请求 -> Grok请求
-     */
-    toGrokRequest(geminiRequest) {
-        // 先转换为 OpenAI 格式
-        const openaiRequest = this.toOpenAIRequest(geminiRequest);
-        return {
-            ...openaiRequest,
-            _isConverted: true
-        };
-    }
-
-    /**
-     * Gemini响应 -> Codex响应 (实际上是 Codex 转 Gemini)
-     */
-    toCodexResponse(geminiResponse, model) {
-        // 这里实际上是实现 Codex -> Gemini 的非流式转换
-        // 为了保持接口一致，我们按照其他 Converter 的命名习惯
-        const parts = [];
-        if (geminiResponse.response?.output) {
-            geminiResponse.response.output.forEach(item => {
-                if (item.type === 'message' && item.content) {
-                    const textPart = item.content.find(c => c.type === 'output_text');
-                    if (textPart) parts.push({ text: textPart.text });
-                } else if (item.type === 'reasoning' && item.summary) {
-                    const textPart = item.summary.find(c => c.type === 'summary_text');
-                    if (textPart) parts.push({ text: textPart.text, thought: true });
-                } else if (item.type === 'function_call') {
-                    parts.push({
-                        functionCall: {
-                            name: item.name,
-                            args: typeof item.arguments === 'string' ? JSON.parse(item.arguments) : item.arguments
-                        }
-                    });
-                }
-            });
-        }
-
-        return {
-            candidates: [{
-                content: {
-                    role: 'model',
-                    parts: parts
-                },
-                finishReason: 'STOP'
-            }],
-            usageMetadata: {
-                promptTokenCount: geminiResponse.response?.usage?.input_tokens || 0,
-                candidatesTokenCount: geminiResponse.response?.usage?.output_tokens || 0,
-                totalTokenCount: geminiResponse.response?.usage?.total_tokens || 0
-            },
-            modelVersion: model,
-            responseId: geminiResponse.response?.id
-        };
-    }
-
-    /**
-     * Gemini流式响应 -> Codex流式响应 (实际上是 Codex 转 Gemini)
-     */
-    toCodexStreamChunk(codexChunk, model) {
-        const type = codexChunk.type;
-        const resId = codexChunk.response?.id || 'default';
-        
-        const template = {
-            candidates: [{
-                content: {
-                    role: "model",
-                    parts: []
-                }
-            }],
-            modelVersion: model,
-            responseId: resId
-        };
-
-        if (type === 'response.reasoning_summary_text.delta') {
-            template.candidates[0].content.parts.push({ text: codexChunk.delta, thought: true });
-            return template;
-        }
-
-        if (type === 'response.output_text.delta') {
-            template.candidates[0].content.parts.push({ text: codexChunk.delta });
-            return template;
-        }
-
-        if (type === 'response.output_item.done' && codexChunk.item?.type === 'function_call') {
-            template.candidates[0].content.parts.push({
-                functionCall: {
-                    name: codexChunk.item.name,
-                    args: typeof codexChunk.item.arguments === 'string' ? JSON.parse(codexChunk.item.arguments) : codexChunk.item.arguments
-                }
-            });
-            return template;
-        }
-
-        if (type === 'response.completed') {
-            template.candidates[0].finishReason = "STOP";
-            template.usageMetadata = {
-                promptTokenCount: codexChunk.response.usage?.input_tokens || 0,
-                candidatesTokenCount: codexChunk.response.usage?.output_tokens || 0,
-                totalTokenCount: codexChunk.response.usage?.total_tokens || 0
-            };
-            return template;
-        }
-
-        return null;
-    }
 }
 
 export default GeminiConverter;

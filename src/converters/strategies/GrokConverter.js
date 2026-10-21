@@ -424,10 +424,7 @@ export class GrokConverter extends BaseConverter {
      * 转换请求
      */
     convertRequest(data, targetProtocol) {
-        switch (targetProtocol) {
-            default:
-                return data;
-        }
+        throw new Error(`Unsupported target protocol: ${targetProtocol}`);
     }
 
     /**
@@ -437,12 +434,8 @@ export class GrokConverter extends BaseConverter {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.CLAUDE: {
                 const openaiRes = this.toOpenAIResponse(data, model);
                 if (!openaiRes) return data;
@@ -461,12 +454,8 @@ export class GrokConverter extends BaseConverter {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeStreamChunk(chunk, model, requestId);
             default:
@@ -478,14 +467,9 @@ export class GrokConverter extends BaseConverter {
      * 转换模型列表
      */
     convertModelList(data, targetProtocol) {
-        switch (targetProtocol) {
-            case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIModelList(data);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiModelList(data);
-            default:
-                return data;
-        }
+        return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
+            ? this.toOpenAIModelList(data)
+            : data;
     }
 
     /**
@@ -600,57 +584,6 @@ export class GrokConverter extends BaseConverter {
         return `\n[![video](${finalThumbUrl || defaultThumb})](${finalVideoUrl})\n[Play Video](${finalVideoUrl})\n`;
     }
 
-    /**
-     * 提取工具卡片文本 (extract_tool_text)
-     */
-    _extractToolText(raw, rolloutId = "") {
-        if (!raw) return "";
-        
-        const nameMatch = raw.match(/<xai:tool_name>(.*?)<\/xai:tool_name>/s);
-        const argsMatch = raw.match(/<xai:tool_args>(.*?)<\/xai:tool_args>/s);
-
-        let name = nameMatch ? nameMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/gs, "$1").trim() : "";
-        let args = argsMatch ? argsMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/gs, "$1").trim() : "";
-
-        let payload = null;
-        if (args) {
-            try {
-                payload = JSON.parse(args);
-            } catch (e) {
-                payload = null;
-            }
-        }
-
-        let label = name;
-        let text = args;
-        const prefix = rolloutId ? `[${rolloutId}]` : "";
-
-        if (name === "web_search") {
-            label = `${prefix}[WebSearch]`;
-            if (payload && typeof payload === 'object') {
-                text = payload.query || payload.q || "";
-            }
-        } else if (name === "search_images") {
-            label = `${prefix}[SearchImage]`;
-            if (payload && typeof payload === 'object') {
-                text = payload.image_description || payload.description || payload.query || "";
-            }
-        } else if (name === "chatroom_send") {
-            label = `${prefix}[AgentThink]`;
-            if (payload && typeof payload === 'object') {
-                text = payload.message || "";
-            }
-        }
-
-        if (label && text) return `${label} ${text}`.trim();
-        if (label) return label;
-        if (text) return text;
-        return raw.replace(/<[^>]+>/g, "").trim();
-    }
-
-    /**
-     * 过滤特殊标签
-     */
     _filterToken(token, requestId = "") {
         if (!token) return token;
         
@@ -1087,107 +1020,7 @@ export class GrokConverter extends BaseConverter {
         return chunks.length > 0 ? chunks : null;
     }
 
-    /**
-     * Grok响应 -> Gemini响应
-     */
-    toGeminiResponse(grokResponse, model) {
-        const openaiRes = this.toOpenAIResponse(grokResponse, model);
-        if (!openaiRes) return null;
 
-        const choice = openaiRes.choices[0];
-        const message = choice.message;
-        const parts = [];
-
-        if (message.reasoning_content) {
-            parts.push({ text: message.reasoning_content, thought: true });
-        }
-
-        if (message.content) {
-            parts.push({ text: message.content });
-        }
-
-        if (message.tool_calls) {
-            for (const tc of message.tool_calls) {
-                parts.push({
-                    functionCall: {
-                        name: tc.function.name,
-                        args: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments
-                    }
-                });
-            }
-        }
-
-        return {
-            candidates: [{
-                content: {
-                    role: 'model',
-                    parts: parts
-                },
-                finishReason: choice.finish_reason === 'tool_calls' ? 'STOP' : (choice.finish_reason === 'length' ? 'MAX_TOKENS' : 'STOP')
-            }],
-            usageMetadata: {
-                promptTokenCount: openaiRes.usage.prompt_tokens,
-                candidatesTokenCount: openaiRes.usage.completion_tokens,
-                totalTokenCount: openaiRes.usage.total_tokens
-            }
-        };
-    }
-
-    /**
-     * Grok流式响应块 -> Gemini流式响应块
-     */
-    toGeminiStreamChunk(grokChunk, model, requestId = null) {
-        const openaiChunks = this.toOpenAIStreamChunk(grokChunk, model, requestId);
-        if (!openaiChunks) return null;
-
-        const geminiChunks = [];
-        for (const oachunk of openaiChunks) {
-            const choice = oachunk.choices[0];
-            const delta = choice.delta;
-            const parts = [];
-
-            if (delta.reasoning_content) {
-                parts.push({ text: delta.reasoning_content, thought: true });
-            }
-            if (delta.content) {
-                parts.push({ text: delta.content });
-            }
-            if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                    parts.push({
-                        functionCall: {
-                            name: tc.function.name,
-                            args: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments
-                        }
-                    });
-                }
-            }
-
-            if (parts.length > 0 || choice.finish_reason) {
-                const gchunk = {
-                    candidates: [{
-                        content: {
-                            role: 'model',
-                            parts: parts
-                        }
-                    }]
-                };
-                if (choice.finish_reason) {
-                    gchunk.candidates[0].finishReason = choice.finish_reason === 'length' ? 'MAX_TOKENS' : 'STOP';
-                    if (oachunk.usage) {
-                        gchunk.usageMetadata = {
-                            promptTokenCount: oachunk.usage.prompt_tokens || 0,
-                            candidatesTokenCount: oachunk.usage.completion_tokens || 0,
-                            totalTokenCount: oachunk.usage.total_tokens || 0
-                        };
-                    }
-                }
-                geminiChunks.push(gchunk);
-            }
-        }
-
-        return geminiChunks.length > 0 ? geminiChunks : null;
-    }
 
     /**
      * Grok响应 -> OpenAI Responses响应
@@ -1311,108 +1144,7 @@ export class GrokConverter extends BaseConverter {
         return events;
     }
 
-    /**
-     * Grok响应 -> Codex响应
-     */
-    toCodexResponse(grokResponse, model) {
-        const openaiRes = this.toOpenAIResponse(grokResponse, model);
-        if (!openaiRes) return null;
 
-        const choice = openaiRes.choices[0];
-        const message = choice.message;
-        const output = [];
-
-        if (message.content) {
-            output.push({
-                type: "message",
-                role: "assistant",
-                content: [{ type: "output_text", text: message.content }]
-            });
-        }
-
-        if (message.reasoning_content) {
-            output.push({
-                type: "reasoning",
-                summary: [{ type: "summary_text", text: message.reasoning_content }]
-            });
-        }
-
-        if (message.tool_calls) {
-            for (const tc of message.tool_calls) {
-                output.push({
-                    type: "function_call",
-                    call_id: tc.id,
-                    name: tc.function.name,
-                    arguments: tc.function.arguments
-                });
-            }
-        }
-
-        return {
-            response: {
-                id: openaiRes.id,
-                output: output,
-                usage: {
-                    input_tokens: openaiRes.usage.prompt_tokens,
-                    output_tokens: openaiRes.usage.completion_tokens,
-                    total_tokens: openaiRes.usage.total_tokens
-                }
-            }
-        };
-    }
-
-    /**
-     * Grok流式响应块 -> Codex流式响应块
-     */
-    toCodexStreamChunk(grokChunk, model, requestId = null) {
-        const openaiChunks = this.toOpenAIStreamChunk(grokChunk, model, requestId);
-        if (!openaiChunks) return null;
-
-        const codexChunks = [];
-        for (const oachunk of openaiChunks) {
-            const choice = oachunk.choices[0];
-            const delta = choice.delta;
-
-            if (delta.role === 'assistant') {
-                codexChunks.push({ type: "response.created", response: { id: oachunk.id } });
-            }
-
-            if (delta.reasoning_content) {
-                codexChunks.push({
-                    type: "response.reasoning_summary_text.delta",
-                    delta: delta.reasoning_content,
-                    response: { id: oachunk.id }
-                });
-            }
-
-            if (delta.content) {
-                codexChunks.push({
-                    type: "response.output_text.delta",
-                    delta: delta.content,
-                    response: { id: oachunk.id }
-                });
-            }
-
-            if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                    if (tc.function?.arguments) {
-                        codexChunks.push({
-                            type: "response.custom_tool_call_input.delta",
-                            delta: tc.function.arguments,
-                            item_id: tc.id,
-                            response: { id: oachunk.id }
-                        });
-                    }
-                }
-            }
-
-            if (choice.finish_reason) {
-                codexChunks.push({ type: "response.completed", response: { id: oachunk.id, usage: oachunk.usage } });
-            }
-        }
-
-        return codexChunks.length > 0 ? codexChunks : null;
-    }
 
     toClaudeStreamChunk(chunk, model, requestId) {
         const openaiPieces = this.toOpenAIStreamChunk(chunk, model, requestId);
@@ -1452,21 +1184,4 @@ export class GrokConverter extends BaseConverter {
         };
     }
 
-    /**
-     * Grok模型列表 -> Gemini模型列表
-     */
-    toGeminiModelList(grokModels) {
-        const models = Array.isArray(grokModels) ? grokModels : (grokModels?.models || grokModels?.data || []);
-        return {
-            models: models.map(m => ({
-                name: `models/${m.id || m.name || (typeof m === 'string' ? m : '')}`,
-                version: "1.0",
-                displayName: m.display_name || m.name || m.id || (typeof m === 'string' ? m : ''),
-                description: m.description || `Grok model: ${m.name || m.id || (typeof m === 'string' ? m : '')}`,
-                inputTokenLimit: 131072,
-                outputTokenLimit: 8192,
-                supportedGenerationMethods: ["generateContent", "streamGenerateContent"]
-            }))
-        };
-    }
 }

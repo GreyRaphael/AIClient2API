@@ -11,8 +11,6 @@ import {
     checkAndAssignOrDefault,
     cleanJsonSchemaForOpenAI,
     determineReasoningEffortFromBudget,
-    GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-    GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
     OPENAI_DEFAULT_MAX_TOKENS,
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_DEFAULT_TOP_P,
@@ -65,12 +63,8 @@ export class ClaudeConverter extends BaseConverter {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexResponse(data, model);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -83,12 +77,8 @@ export class ClaudeConverter extends BaseConverter {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiStreamChunk(chunk, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexStreamChunk(chunk, model);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -98,14 +88,9 @@ export class ClaudeConverter extends BaseConverter {
      * 转换模型列表
      */
     convertModelList(data, targetProtocol) {
-        switch (targetProtocol) {
-            case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIModelList(data);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiModelList(data);
-            default:
-                return data;
-        }
+        return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
+            ? this.toOpenAIModelList(data)
+            : data;
     }
 
     /**
@@ -791,23 +776,6 @@ export class ClaudeConverter extends BaseConverter {
         };
     }
 
-    /**
-     * 将 Claude 模型列表转换为 Gemini 模型列表
-     */
-    toGeminiModelList(claudeModels) {
-        const models = claudeModels.models || [];
-        return {
-            models: models.map(m => ({
-                name: `models/${m.id || m.name}`,
-                version: m.version || "1.0.0",
-                displayName: m.displayName || m.id || m.name,
-                description: m.description || `A generative model for text and chat generation. ID: ${m.id || m.name}`,
-                inputTokenLimit: m.inputTokenLimit || GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-                outputTokenLimit: m.outputTokenLimit || GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
-                supportedGenerationMethods: m.supportedGenerationMethods || ["generateContent", "streamGenerateContent"]
-            }))
-        };
-    }
 
     /**
      * 处理Claude内容到OpenAI格式
@@ -1384,341 +1352,8 @@ export class ClaudeConverter extends BaseConverter {
         ];
     }
 
-    /**
-     * Claude响应 -> Gemini响应
-     */
-    toGeminiResponse(claudeResponse, model) {
-        if (!claudeResponse || !claudeResponse.content || claudeResponse.content.length === 0) {
-            return { candidates: [], usageMetadata: {} };
-        }
 
-        const parts = [];
 
-        // 处理内容块
-        for (const block of claudeResponse.content) {
-            if (!block) continue;
-
-            switch (block.type) {
-                case 'text':
-                    if (block.text) {
-                        parts.push({ text: block.text });
-                    }
-                    break;
-
-                // 添加 thinking 块处理
-                case 'thinking':
-                    if (block.thinking) {
-                        const thinkingPart = {
-                            text: block.thinking,
-                            thought: true
-                        };
-                        // 如果有签名，添加 thoughtSignature
-                        if (block.signature) {
-                            if (block.signature.length < 50) {
-                                logger.debug(`[ClaudeConverter] Short signature detected in response (length: ${block.signature.length}), passing through to thoughtSignature`);
-                            }
-                            thinkingPart.thoughtSignature = block.signature;
-                        }
-                        parts.push(thinkingPart);
-                    }
-                    break;
-
-                case 'tool_use':
-                    // [FIX] 添加 id 和 thoughtSignature 支持
-                    const functionCallPart = {
-                        functionCall: {
-                            name: block.name,
-                            args: block.input || {}
-                        }
-                    };
-                    // 添加 id（如果存在）
-                    if (block.id) {
-                        functionCallPart.functionCall.id = block.id;
-                    }
-                    // 添加签名（如果存在）
-                    if (block.signature) {
-                        if (block.signature.length < 50) {
-                            logger.debug(`[ClaudeConverter] Short signature detected in response tool_use (length: ${block.signature.length}), passing through to thoughtSignature`);
-                        }
-                        functionCallPart.thoughtSignature = block.signature;
-                    }
-                    parts.push(functionCallPart);
-                    break;
-
-                case 'image':
-                    if (block.source && block.source.type === 'base64') {
-                        parts.push({
-                            inlineData: {
-                                mimeType: block.source.media_type,
-                                data: block.source.data
-                            }
-                        });
-                    }
-                    break;
-
-                default:
-                    if (block.text) {
-                        parts.push({ text: block.text });
-                    }
-            }
-        }
-
-        // 映射finish_reason
-        const finishReasonMap = {
-            'end_turn': 'STOP',
-            'max_tokens': 'MAX_TOKENS',
-            'tool_use': 'STOP',
-            'stop_sequence': 'STOP'
-        };
-
-        return {
-            candidates: [{
-                content: {
-                    role: 'model',
-                    parts: parts
-                },
-                finishReason: finishReasonMap[claudeResponse.stop_reason] || 'STOP'
-            }],
-            usageMetadata: claudeResponse.usage ? {
-                promptTokenCount: claudeResponse.usage.input_tokens || 0,
-                candidatesTokenCount: claudeResponse.usage.output_tokens || 0,
-                totalTokenCount: (claudeResponse.usage.input_tokens || 0) + (claudeResponse.usage.output_tokens || 0),
-                cachedContentTokenCount: claudeResponse.usage.cache_read_input_tokens || 0,
-                promptTokensDetails: [{
-                    modality: "TEXT",
-                    tokenCount: claudeResponse.usage.input_tokens || 0
-                }],
-                candidatesTokensDetails: [{
-                    modality: "TEXT",
-                    tokenCount: claudeResponse.usage.output_tokens || 0
-                }]
-            } : {}
-        };
-    }
-
-    /**
-     * Claude流式响应 -> Gemini流式响应
-     */
-    toGeminiStreamChunk(claudeChunk, model) {
-        if (!claudeChunk) return null;
-
-        // 处理Claude流式事件
-        if (typeof claudeChunk === 'object' && !Array.isArray(claudeChunk)) {
-            // content_block_start 事件 - 处理 thinking 块开始
-            if (claudeChunk.type === 'content_block_start') {
-                const contentBlock = claudeChunk.content_block;
-                if (contentBlock && contentBlock.type === 'thinking') {
-                    // thinking 块开始，返回空（等待 delta）
-                    return null;
-                }
-                if (contentBlock && contentBlock.type === 'tool_use') {
-                    // tool_use 块开始
-                    return {
-                        candidates: [{
-                            content: {
-                                role: "model",
-                                parts: [{
-                                    functionCall: {
-                                        name: contentBlock.name,
-                                        args: {},
-                                        id: contentBlock.id
-                                    }
-                                }]
-                            }
-                        }]
-                    };
-                }
-            }
-            
-            // content_block_delta 事件
-            if (claudeChunk.type === 'content_block_delta') {
-                const delta = claudeChunk.delta;
-                
-                // 处理 text_delta
-                if (delta && delta.type === 'text_delta') {
-                    return {
-                        candidates: [{
-                            content: {
-                                role: "model",
-                                parts: [{
-                                    text: delta.text || ""
-                                }]
-                            }
-                        }]
-                    };
-                }
-                
-                // [FIX] 处理 thinking_delta - 转换为 Gemini 的 thought 格式
-                if (delta && delta.type === 'thinking_delta') {
-                    return {
-                        candidates: [{
-                            content: {
-                                role: "model",
-                                parts: [{
-                                    text: delta.thinking || "",
-                                    thought: true
-                                }]
-                            }
-                        }]
-                    };
-                }
-                
-                // [FIX] 处理 signature_delta - 转发携带 thoughtSignature 的 Gemini chunk
-                if (delta && delta.type === 'signature_delta') {
-                    if (delta.signature) {
-                        return {
-                            candidates: [{
-                                content: {
-                                    role: "model",
-                                    parts: [{
-                                        text: '',
-                                        thought: true,
-                                        thoughtSignature: delta.signature
-                                    }]
-                                }
-                            }]
-                        };
-                    }
-                    return null;
-                }
-                
-                // [FIX] 处理 input_json_delta (tool arguments)
-                if (delta && delta.type === 'input_json_delta') {
-                    // 工具参数增量，Gemini 不支持增量参数，忽略
-                    return null;
-                }
-            }
-            
-            // message_delta 事件 - 流结束
-            if (claudeChunk.type === 'message_delta') {
-                const stopReason = claudeChunk.delta?.stop_reason;
-                const result = {
-                    candidates: [{
-                        finishReason: stopReason === 'end_turn' ? 'STOP' :
-                                    stopReason === 'max_tokens' ? 'MAX_TOKENS' :
-                                    stopReason === 'tool_use' ? 'STOP' :
-                                    'OTHER'
-                    }]
-                };
-                
-                // 添加 usage 信息
-                if (claudeChunk.usage) {
-                    result.usageMetadata = {
-                        promptTokenCount: claudeChunk.usage.input_tokens || 0,
-                        candidatesTokenCount: claudeChunk.usage.output_tokens || 0,
-                        totalTokenCount: (claudeChunk.usage.input_tokens || 0) + (claudeChunk.usage.output_tokens || 0),
-                        cachedContentTokenCount: claudeChunk.usage.cache_read_input_tokens || 0,
-                        promptTokensDetails: [{
-                            modality: "TEXT",
-                            tokenCount: claudeChunk.usage.input_tokens || 0
-                        }],
-                        candidatesTokensDetails: [{
-                            modality: "TEXT",
-                            tokenCount: claudeChunk.usage.output_tokens || 0
-                        }]
-                    };
-                }
-                
-                return result;
-            }
-        }
-
-        // 向后兼容：处理字符串格式
-        if (typeof claudeChunk === 'string') {
-            return {
-                candidates: [{
-                    content: {
-                        role: "model",
-                        parts: [{
-                            text: claudeChunk
-                        }]
-                    }
-                }]
-            };
-        }
-
-        return null;
-    }
-
-    /**
-     * 处理Claude内容到Gemini parts
-     */
-    processClaudeContentToGeminiParts(content) {
-        if (!content) return [];
-
-        if (typeof content === 'string') {
-            return [{ text: content }];
-        }
-
-        if (Array.isArray(content)) {
-            const parts = [];
-
-            content.forEach(block => {
-                if (!block || typeof block !== 'object' || !block.type) {
-                    logger.warn("Skipping invalid content block.");
-                    return;
-                }
-
-                switch (block.type) {
-                    case 'text':
-                        if (typeof block.text === 'string') {
-                            parts.push({ text: block.text });
-                        }
-                        break;
-
-                    case 'image':
-                        if (block.source && typeof block.source === 'object' && 
-                            block.source.type === 'base64' &&
-                            typeof block.source.media_type === 'string' && 
-                            typeof block.source.data === 'string') {
-                            parts.push({
-                                inlineData: {
-                                    mimeType: block.source.media_type,
-                                    data: block.source.data
-                                }
-                            });
-                        }
-                        break;
-
-                    case 'tool_use':
-                        if (typeof block.name === 'string' && 
-                            block.input && typeof block.input === 'object') {
-                            parts.push({
-                                functionCall: {
-                                    name: block.name,
-                                    args: block.input
-                                }
-                            });
-                        }
-                        break;
-
-                    case 'tool_result':
-                        if (typeof block.tool_use_id === 'string') {
-                            parts.push({
-                                functionResponse: {
-                                    name: block.tool_use_id,
-                                    response: { content: block.content }
-                                }
-                            });
-                        }
-                        break;
-
-                    default:
-                        if (typeof block.text === 'string') {
-                            parts.push({ text: block.text });
-                        }
-                }
-            });
-
-            return parts;
-        }
-
-        return [];
-    }
-
-    /**
-     * 构建Gemini工具配置
-     */
     buildGeminiToolConfigFromClaude(claudeToolChoice) {
         if (!claudeToolChoice || typeof claudeToolChoice !== 'object' || !claudeToolChoice.type) {
             logger.warn("Invalid claudeToolChoice provided.");
@@ -2543,127 +2178,7 @@ export class ClaudeConverter extends BaseConverter {
         };
     }
 
-    /**
-     * Claude响应 -> Codex响应 (实际上是 Codex 转 Claude)
-     */
-    toCodexResponse(codexResponse, model) {
-        const content = [];
-        let stopReason = "end_turn";
 
-        if (codexResponse.response?.output) {
-            codexResponse.response.output.forEach(item => {
-                if (item.type === 'message' && item.content) {
-                    const textPart = item.content.find(c => c.type === 'output_text');
-                    if (textPart) content.push({ type: 'text', text: textPart.text });
-                } else if (item.type === 'reasoning' && item.summary) {
-                    const textPart = item.summary.find(c => c.type === 'summary_text');
-                    if (textPart) content.push({ type: 'thinking', thinking: textPart.text });
-                } else if (item.type === 'function_call') {
-                    stopReason = "tool_use";
-                    content.push({
-                        type: 'tool_use',
-                        id: item.call_id,
-                        name: item.name,
-                        input: typeof item.arguments === 'string' ? JSON.parse(item.arguments) : item.arguments
-                    });
-                }
-            });
-        }
-
-        return {
-            id: codexResponse.response?.id || `msg_${uuidv4().replace(/-/g, '')}`,
-            type: "message",
-            role: "assistant",
-            model: model,
-            content: content,
-            stop_reason: stopReason,
-            usage: {
-                input_tokens: codexResponse.response?.usage?.input_tokens || 0,
-                output_tokens: codexResponse.response?.usage?.output_tokens || 0
-            }
-        };
-    }
-
-    /**
-     * Claude流式响应 -> Codex流式响应 (实际上是 Codex 转 Claude)
-     */
-    toCodexStreamChunk(codexChunk, model) {
-        const type = codexChunk.type;
-        const resId = codexChunk.response?.id || 'default';
-        
-        if (type === 'response.created') {
-            return {
-                type: "message_start",
-                message: {
-                    id: codexChunk.response.id,
-                    type: "message",
-                    role: "assistant",
-                    content: [],
-                    model: model,
-                    usage: { input_tokens: 0, output_tokens: 0 }
-                }
-            };
-        }
-
-        if (type === 'response.reasoning_summary_text.delta') {
-            return {
-                type: "content_block_delta",
-                index: 0,
-                delta: { type: "thinking_delta", thinking: codexChunk.delta }
-            };
-        }
-
-        if (type === 'response.output_text.delta') {
-            return {
-                type: "content_block_delta",
-                index: 0,
-                delta: { type: "text_delta", text: codexChunk.delta }
-            };
-        }
-
-        if (type === 'response.output_item.done' && codexChunk.item?.type === 'function_call') {
-            return [
-                {
-                    type: "content_block_start",
-                    index: 0,
-                    content_block: {
-                        type: "tool_use",
-                        id: codexChunk.item.call_id,
-                        name: codexChunk.item.name,
-                        input: {}
-                    }
-                },
-                {
-                    type: "content_block_delta",
-                    index: 0,
-                    delta: {
-                        type: "input_json_delta",
-                        partial_json: typeof codexChunk.item.arguments === 'string' ? codexChunk.item.arguments : JSON.stringify(codexChunk.item.arguments)
-                    }
-                },
-                {
-                    type: "content_block_stop",
-                    index: 0
-                }
-            ];
-        }
-
-        if (type === 'response.completed') {
-            return [
-                {
-                    type: "message_delta",
-                    delta: { stop_reason: "end_turn" },
-                    usage: {
-                        input_tokens: codexChunk.response.usage?.input_tokens || 0,
-                        output_tokens: codexChunk.response.usage?.output_tokens || 0
-                    }
-                },
-                { type: "message_stop" }
-            ];
-        }
-
-        return null;
-    }
 }
 
 export default ClaudeConverter;

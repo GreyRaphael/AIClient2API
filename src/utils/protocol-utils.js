@@ -32,12 +32,6 @@ export function mapFinishReason(reason, sourceFormat, targetFormat) {
                 length: "max_tokens",
                 content_filter: "stop_sequence",
                 tool_calls: "tool_use"
-            },
-            gemini: {
-                stop: "STOP",
-                length: "MAX_TOKENS",
-                content_filter: "SAFETY",
-                end_turn: "STOP"
             }
         },
         gemini: {
@@ -76,8 +70,7 @@ export function mapFinishReason(reason, sourceFormat, targetFormat) {
     // 各目标协议的兜底值：映射缺失或异常时返回该协议的"正常结束"语义
     const defaultByTarget = {
         anthropic: "end_turn",
-        openai: "stop",
-        gemini: "STOP"
+        openai: "stop"
     };
     const fallback = defaultByTarget[targetFormat] || "end_turn";
 

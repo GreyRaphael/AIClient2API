@@ -19,7 +19,6 @@ import {
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
 import { OpenAIResponsesConverter } from '../src/converters/strategies/OpenAIResponsesConverter.js';
-import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
 import { CodexConverter } from '../src/converters/strategies/CodexConverter.js';
 
 describe('Phase 4: 跨协议可选增强测试套件', () => {
@@ -301,7 +300,7 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
             expect(codexReq.tools.map(t => t.name)).toEqual(['create_user', 'update_user']);
         });
 
-        test('端到端集成：OpenAIResponsesConverter 与 GeminiConverter 排序接入验证', () => {
+        test('端到端集成：OpenAIResponsesConverter 排序接入验证', () => {
             process.env.CONVERT_SORT_TOOLS = 'true';
 
             const respConverter = new OpenAIResponsesConverter();
@@ -318,24 +317,6 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
 
             const geminiReq = respConverter.toGeminiRequest({ model: 'gemini-3.8-flash-high', input: [], tools: respTools });
             expect(geminiReq.tools[0].functionDeclarations.map(t => t.name)).toEqual(['delete_logs', 'search_logs']);
-
-            // GeminiConverter 验证
-            const geminiConverter = new GeminiConverter();
-            const geminiTools = [{
-                functionDeclarations: [
-                    { name: 'write_code' },
-                    { name: 'audit_security' }
-                ]
-            }];
-
-            const g2Claude = geminiConverter.toClaudeRequest({ model: 'claude-sonnet-4-6', contents: [], tools: geminiTools });
-            expect(g2Claude.tools.map(t => t.name)).toEqual(['audit_security', 'write_code']);
-
-            const g2Resp = geminiConverter.toOpenAIResponsesRequest({ model: 'gpt-5.5', contents: [], tools: geminiTools });
-            expect(g2Resp.tools.map(t => t.name)).toEqual(['audit_security', 'write_code']);
-
-            const g2Oai = geminiConverter.toOpenAIRequest({ model: 'gpt-5.5', contents: [], tools: geminiTools });
-            expect(g2Oai.tools.map(t => t.function.name)).toEqual(['audit_security', 'write_code']);
         });
     });
 

@@ -4,7 +4,6 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import logger from '../../utils/logger.js';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
@@ -23,8 +22,6 @@ import {
     GEMINI_DEFAULT_MAX_TOKENS,
     GEMINI_DEFAULT_TEMPERATURE,
     GEMINI_DEFAULT_TOP_P,
-    OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
-    OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT,
     mergeConsecutiveSameRoleContents,
     sortToolsByName
 } from '../utils.js';
@@ -79,12 +76,8 @@ export class OpenAIConverter extends BaseConverter {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.GROK:
-                return this.toGrokResponse(data, model);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -104,14 +97,10 @@ export class OpenAIConverter extends BaseConverter {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiStreamChunk(chunk, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
                 return this.codexConverter.toOpenAIStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.GROK:
-                return this.toGrokStreamChunk(chunk, model);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -121,14 +110,7 @@ export class OpenAIConverter extends BaseConverter {
      * 转换模型列表
      */
     convertModelList(data, targetProtocol) {
-        switch (targetProtocol) {
-            case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeModelList(data);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiModelList(data);
-            default:
-                return this.ensureDisplayName(data);
-        }
+        return this.ensureDisplayName(data);
     }
 
     /**
@@ -716,35 +698,7 @@ export class OpenAIConverter extends BaseConverter {
         return events.length > 0 ? events : null;
     }
 
-    /**
-     * OpenAI模型列表 -> Claude模型列表
-     */
-    toClaudeModelList(openaiModels) {
-        return {
-            models: openaiModels.data.map(m => ({
-                name: m.id,
-                description: "",
-            })),
-        };
-    }
 
-    /**
-     * 将 OpenAI 模型列表转换为 Gemini 模型列表
-     */
-    toGeminiModelList(openaiModels) {
-        const models = openaiModels.data || [];
-        return {
-            models: models.map(m => ({
-                name: `models/${m.id}`,
-                version: m.version || "1.0.0",
-                displayName: m.displayName || m.id,
-                description: m.description || `A generative model for text and chat generation. ID: ${m.id}`,
-                inputTokenLimit: m.inputTokenLimit || OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
-                outputTokenLimit: m.outputTokenLimit || OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT,
-                supportedGenerationMethods: m.supportedGenerationMethods || ["generateContent", "streamGenerateContent"]
-            }))
-        };
-    }
 
     /**
      * 构建Claude工具选择
@@ -1323,47 +1277,6 @@ export class OpenAIConverter extends BaseConverter {
         ];
     }
 
-    /**
-     * 处理OpenAI内容到Gemini parts
-     */
-    processOpenAIContentToGeminiParts(content) {
-        if (!content) return [];
-        if (typeof content === 'string') return [{ text: content }];
-
-        if (Array.isArray(content)) {
-            const parts = [];
-
-            for (const item of content) {
-                if (!item) continue;
-
-                if (item.type === 'text' && item.text) {
-                    parts.push({ text: item.text });
-                } else if (item.type === 'image_url' && item.image_url) {
-                    const imageUrl = typeof item.image_url === 'string'
-                        ? item.image_url
-                        : item.image_url.url;
-
-                    if (imageUrl.startsWith('data:')) {
-                        const [header, data] = imageUrl.split(',');
-                        const mimeType = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
-                        parts.push({ inlineData: { mimeType, data } });
-                    } else {
-                        parts.push({
-                            fileData: { mimeType: 'image/jpeg', fileUri: imageUrl }
-                        });
-                    }
-                }
-            }
-
-            return parts;
-        }
-
-        return [];
-    }
-
-    /**
-     * 构建Gemini工具配置
-     */
     buildGeminiToolConfig(toolChoice) {
         if (typeof toolChoice === 'string' && ['none', 'auto'].includes(toolChoice)) {
             return { functionCallingConfig: { mode: toolChoice.toUpperCase() } };
@@ -1399,126 +1312,7 @@ export class OpenAIConverter extends BaseConverter {
 
         return config;
     }
-    /**
-     * 将OpenAI响应转换为Gemini响应格式
-     */
-    toGeminiResponse(openaiResponse, model) {
-        if (!openaiResponse || !openaiResponse.choices || !openaiResponse.choices[0]) {
-            return { candidates: [], usageMetadata: {} };
-        }
 
-        const choice = openaiResponse.choices[0];
-        const message = choice.message || {};
-        const parts = [];
-
-        // 处理文本内容
-        if (message.content) {
-            parts.push({ text: message.content });
-        }
-
-        // 处理工具调用
-        if (message.tool_calls && message.tool_calls.length > 0) {
-            for (const toolCall of message.tool_calls) {
-                if (toolCall.type === 'function') {
-                    parts.push({
-                        functionCall: {
-                            name: toolCall.function.name,
-                            args: typeof toolCall.function.arguments === 'string'
-                                ? JSON.parse(toolCall.function.arguments)
-                                : toolCall.function.arguments
-                        }
-                    });
-                }
-            }
-        }
-
-        // 映射finish_reason
-        const finishReasonMap = {
-            'stop': 'STOP',
-            'length': 'MAX_TOKENS',
-            'tool_calls': 'STOP',
-            'content_filter': 'SAFETY'
-        };
-
-        return {
-            candidates: [{
-                content: {
-                    role: 'model',
-                    parts: parts
-                },
-                finishReason: finishReasonMap[choice.finish_reason] || 'STOP'
-            }],
-            usageMetadata: openaiResponse.usage ? {
-                promptTokenCount: openaiResponse.usage.prompt_tokens || 0,
-                candidatesTokenCount: openaiResponse.usage.completion_tokens || 0,
-                totalTokenCount: openaiResponse.usage.total_tokens || 0,
-                cachedContentTokenCount: openaiResponse.usage.prompt_tokens_details?.cached_tokens || 0,
-                promptTokensDetails: [{
-                    modality: "TEXT",
-                    tokenCount: openaiResponse.usage.prompt_tokens || 0
-                }],
-                candidatesTokensDetails: [{
-                    modality: "TEXT",
-                    tokenCount: openaiResponse.usage.completion_tokens || 0
-                }],
-                thoughtsTokenCount: openaiResponse.usage.completion_tokens_details?.reasoning_tokens || 0
-            } : {}
-        };
-    }
-
-    /**
-     * 将OpenAI流式响应块转换为Gemini流式响应格式
-     */
-    toGeminiStreamChunk(openaiChunk, model) {
-        if (!openaiChunk || !openaiChunk.choices || !openaiChunk.choices[0]) {
-            return null;
-        }
-
-        const choice = openaiChunk.choices[0];
-        const delta = choice.delta || {};
-        const parts = [];
-
-        // 处理文本内容
-        if (delta.content) {
-            parts.push({ text: delta.content });
-        }
-
-        // 处理工具调用
-        if (delta.tool_calls && delta.tool_calls.length > 0) {
-            for (const toolCall of delta.tool_calls) {
-                if (toolCall.function) {
-                    const functionCall = {
-                        name: toolCall.function.name || '',
-                        args: {}
-                    };
-
-                    if (toolCall.function.arguments) {
-                        try {
-                            functionCall.args = typeof toolCall.function.arguments === 'string'
-                                ? JSON.parse(toolCall.function.arguments)
-                                : toolCall.function.arguments;
-                        } catch (e) {
-                            // 部分参数，保持为字符串
-                            functionCall.args = { partial: toolCall.function.arguments };
-                        }
-                    }
-
-                    parts.push({ functionCall });
-                }
-            }
-        }
-
-        const result = {
-            candidates: [{
-                content: {
-                    role: 'model',
-                    parts: parts
-                }
-            }]
-        };
-        
-        return result;
-    }
 
     // =========================================================================
     // OpenAI -> Grok 转换
@@ -1540,26 +1334,8 @@ export class OpenAIConverter extends BaseConverter {
         };
     }
 
-    /**
-     * OpenAI响应 -> Grok响应（通常不使用）
-     */
-    toGrokResponse(openaiResponse, model) {
-        return openaiResponse;
-    }
 
-    /**
-     * OpenAI流式响应 -> Grok流式响应（通常不使用）
-     */
-    toGrokStreamChunk(openaiChunk, model) {
-        return openaiChunk;
-    }
 
-    /**
-     * OpenAI模型列表 -> Grok模型列表（通常不使用）
-     */
-    toGrokModelList(openaiModels) {
-        return openaiModels;
-    }
 
     /**
      * 将 OpenAI 模型列表转换为 Gemini 模型列表

@@ -92,23 +92,6 @@ export class CodexConverter extends BaseConverter {
         return `![${alt}](${imageData.dataUrl})`;
     }
 
-    codexImageGenerationToGeminiPart(item) {
-        const imageData = this.codexImageGenerationToImageData(item);
-        if (!imageData) {
-            return null;
-        }
-
-        return {
-            inlineData: {
-                mimeType: imageData.mimeType,
-                data: imageData.data
-            }
-        };
-    }
-
-    /**
-     * Codex 内置图片生成工具不是 function tool，必须保留原始 type 和参数结构。
-     */
     normalizeCodexBuiltinTool(tool) {
         if (!tool || tool.type !== 'image_generation') {
             return null;
@@ -139,12 +122,8 @@ export class CodexConverter extends BaseConverter {
                     return this.toOpenAIResponse(data, model, id);
                 case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                     return this.toOpenAIResponsesResponse(data, model, id);
-                case MODEL_PROTOCOL_PREFIX.GEMINI:
-                    return this.toGeminiResponse(data, model, id);
                 case MODEL_PROTOCOL_PREFIX.CLAUDE:
                     return this.toClaudeResponse(data, model, id);
-                case MODEL_PROTOCOL_PREFIX.CODEX:
-                    return data; // Codex to Codex
                 default:
                     throw new Error(`Unsupported target protocol: ${targetProtocol}`);
             }
@@ -164,12 +143,8 @@ export class CodexConverter extends BaseConverter {
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return chunk; // Codex to Codex
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -924,72 +899,6 @@ export class CodexConverter extends BaseConverter {
         };
     }
 
-    /**
-     * Codex → Gemini 响应转换
-     */
-    toGeminiResponse(rawJSON, model) {
-        const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        if (root.type !== 'response.completed') {
-            return null;
-        }
-
-        const response = root.response;
-        const parts = [];
-
-        if (response.output && Array.isArray(response.output)) {
-            for (const item of response.output) {
-                if (item.type === 'reasoning') {
-                    let reasoningText = '';
-                    if (Array.isArray(item.summary)) {
-                        const summaryItem = item.summary.find(s => s.type === 'summary_text');
-                        if (summaryItem) reasoningText = summaryItem.text;
-                    }
-                    if (reasoningText) {
-                        parts.push({ text: reasoningText, thought: true });
-                    }
-                } else if (item.type === 'message') {
-                    let contentText = '';
-                    if (Array.isArray(item.content)) {
-                        const contentItem = item.content.find(c => c.type === 'output_text');
-                        if (contentItem) contentText = contentItem.text;
-                    }
-                    if (contentText) {
-                        parts.push({ text: contentText });
-                    }
-                } else if (item.type === 'function_call') {
-                    parts.push({
-                        functionCall: {
-                            name: this.getOriginalToolName(item.name),
-                            args: this.safeParseToolArguments(item.arguments)
-                        }
-                    });
-                } else if (item.type === 'image_generation_call') {
-                    const imagePart = this.codexImageGenerationToGeminiPart(item);
-                    if (imagePart) {
-                        parts.push(imagePart);
-                    }
-                }
-            }
-        }
-
-        return {
-            candidates: [{
-                content: {
-                    role: "model",
-                    parts: parts
-                },
-                finishReason: "STOP"
-            }],
-            usageMetadata: {
-                promptTokenCount: response.usage?.input_tokens || 0,
-                candidatesTokenCount: response.usage?.output_tokens || 0,
-                totalTokenCount: response.usage?.total_tokens || 0,
-                cachedContentTokenCount: this.getCachedInputTokens(response.usage)
-            },
-            modelVersion: response.model || model,
-            responseId: response.id
-        };
-    }
 
     /**
      * Codex → Claude 响应转换
@@ -1383,92 +1292,6 @@ export class CodexConverter extends BaseConverter {
         return null;
     }
 
-    /**
-     * Codex → Gemini 流式响应转换
-     */
-    toGeminiStreamChunk(chunk, model, requestId) {
-        const type = chunk.type;
-        const resId = requestId || 'gemini_stream_current';
-        
-        if (!this.streamSessions.has(resId)) {
-            this.streamSessions.set(resId, {
-                model: model,
-                createdAt: Math.floor(Date.now() / 1000),
-                responseID: chunk.response?.id || resId,
-                emittedImageGenerationItems: new Set()
-            });
-        }
-        const state = this.streamSessions.get(resId);
-
-        const template = {
-            candidates: [{
-                content: {
-                    role: "model",
-                    parts: []
-                }
-            }],
-            modelVersion: state.model,
-            responseId: state.responseID
-        };
-
-        if (type === 'response.reasoning_summary_text.delta') {
-            template.candidates[0].content.parts.push({ text: chunk.delta, thought: true });
-            return template;
-        }
-
-        if (type === 'response.output_text.delta') {
-            template.candidates[0].content.parts.push({ text: chunk.delta });
-            return template;
-        }
-
-        if (type === 'response.output_item.done' && chunk.item?.type === 'function_call') {
-            template.candidates[0].content.parts.push({
-                functionCall: {
-                    name: this.getOriginalToolName(chunk.item.name, requestId),
-                    args: this.safeParseToolArguments(chunk.item.arguments)
-                }
-            });
-            return template;
-        }
-
-        if (type === 'response.output_item.done' && chunk.item?.type === 'image_generation_call') {
-            const imagePart = this.codexImageGenerationToGeminiPart(chunk.item);
-            if (!imagePart) {
-                return null;
-            }
-            template.candidates[0].content.parts.push(imagePart);
-            if (chunk.item.id) {
-                state.emittedImageGenerationItems.add(chunk.item.id);
-            }
-            return template;
-        }
-
-        if (type === 'response.completed') {
-            const completedOutput = Array.isArray(chunk.response?.output) ? chunk.response.output : [];
-            for (const item of completedOutput) {
-                if (item.type !== 'image_generation_call' || (item.id && state.emittedImageGenerationItems.has(item.id))) {
-                    continue;
-                }
-
-                const imagePart = this.codexImageGenerationToGeminiPart(item);
-                if (imagePart) {
-                    template.candidates[0].content.parts.push(imagePart);
-                }
-            }
-            template.candidates[0].finishReason = "STOP";
-            template.usageMetadata = {
-                promptTokenCount: chunk.response.usage?.input_tokens || 0,
-                candidatesTokenCount: chunk.response.usage?.output_tokens || 0,
-                totalTokenCount: chunk.response.usage?.total_tokens || 0,
-                cachedContentTokenCount: this.getCachedInputTokens(chunk.response.usage)
-            };
-            this.streamSessions.delete(resId);
-            this.requestStates.delete(resId);
-            return template;
-        }
-
-        return null;
-    }
 
     /**
      * Codex → Claude 流式响应转换

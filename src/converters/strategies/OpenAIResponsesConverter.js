@@ -16,23 +16,12 @@ import {
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
-    mapFinishReason as sharedMapFinishReason,
-    extractAndProcessSystemMessages as extractSystemMessages,
-    extractTextFromMessageContent as extractText,
     cleanJsonSchemaForOpenAI,
     CLAUDE_DEFAULT_MAX_TOKENS,
-    GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-    GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
     safeParseJSON,
     mergeConsecutiveSameRoleContents,
     sortToolsByName
 } from '../utils.js';
-import {
-    createResponsesStreamState,
-    generateResponseCreated,
-    generateResponseInProgress,
-    generateResponseCompleted
-} from '../../providers/openai/openai-responses-events.js';
 
 /**
  * OpenAI Responses API 转换器类
@@ -79,10 +68,6 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 return this.toOpenAIResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiResponse(data, model);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexResponse(data, model);
             default:
                 throw new Error(`Unsupported target protocol: ${toProtocol}`);
         }
@@ -97,10 +82,6 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 return this.toOpenAIStreamChunk(chunk, model);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeStreamChunk(chunk, model, requestId);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiStreamChunk(chunk, model);
-            case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexStreamChunk(chunk, model);
             default:
                 throw new Error(`Unsupported target protocol: ${toProtocol}`);
         }
@@ -110,16 +91,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * 转换模型列表到目标协议
      */
     convertModelList(data, targetProtocol) {
-        switch (targetProtocol) {
-            case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIModelList(data);
-            case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeModelList(data);
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiModelList(data);
-            default:
-                return data;
-        }
+        return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
+            ? this.toOpenAIModelList(data)
+            : data;
     }
 
     // =============================================================================
@@ -1464,88 +1438,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return geminiRequest;
     }
 
-    /**
-     * 将 OpenAI Responses 响应转换为 Gemini 响应
-     */
-    toGeminiResponse(responsesResponse, model) {
-        const parts = [];
-        let finishReason = 'STOP';
 
-        if (responsesResponse.output && Array.isArray(responsesResponse.output)) {
-            responsesResponse.output.forEach(item => {
-                if (item.type === 'message') {
-                    const text = item.content
-                        ?.filter(c => c.type === 'output_text')
-                        .map(c => c.text)
-                        .join('') || '';
-                    if (text) {
-                        parts.push({ text: text });
-                    }
-                } else if (item.type === 'function_call') {
-                    parts.push({
-                        functionCall: {
-                            name: item.name,
-                            args: typeof item.arguments === 'string' ? JSON.parse(item.arguments) : item.arguments
-                        }
-                    });
-                }
-            });
-        }
-
-        return {
-            candidates: [{
-                content: {
-                    parts: parts,
-                    role: 'model'
-                },
-                finishReason: finishReason,
-                index: 0
-            }],
-            usageMetadata: {
-                promptTokenCount: responsesResponse.usage?.input_tokens || 0,
-                candidatesTokenCount: responsesResponse.usage?.output_tokens || 0,
-                totalTokenCount: responsesResponse.usage?.total_tokens || 0,
-                cachedContentTokenCount: responsesResponse.usage?.input_tokens_details?.cached_tokens || 0
-            }
-        };
-    }
-
-    /**
-     * 将 OpenAI Responses 流式块转换为 Gemini 流式块
-     */
-    toGeminiStreamChunk(responsesChunk, model) {
-        if (responsesChunk.type === 'response.output_text.delta') {
-            return {
-                candidates: [{
-                    content: {
-                        parts: [{ text: responsesChunk.delta }],
-                        role: 'model'
-                    },
-                    index: 0
-                }]
-            };
-        }
-
-        if (responsesChunk.type === 'response.function_call_arguments.delta') {
-            // Gemini 不太支持流式 functionCall 参数，这里只能简单映射
-            return {
-                candidates: [{
-                    content: {
-                        parts: [{ 
-                            functionCall: { 
-                                name: '', // 无法在 delta 中获取名称
-                                args: responsesChunk.delta 
-                            } 
-                        }],
-                        role: 'model'
-                    },
-                    index: 0
-                }]
-            };
-        }
-
-        return null;
-    }
 
     /**
      * OpenAI Responses → Codex 请求转换
@@ -1570,16 +1463,6 @@ export class OpenAIResponsesConverter extends BaseConverter {
     // 辅助方法
     // =============================================================================
 
-    /**
-     * 映射完成原因（映射表统一收编至 converters/utils.js 的 mapFinishReason）
-     */
-    mapFinishReason(reason) {
-        return sharedMapFinishReason(reason, 'openai', 'gemini');
-    }
-
-    /**
-     * 将 OpenAI Responses 模型列表转换为标准 OpenAI 模型列表
-     */
     toOpenAIModelList(responsesModels) {
         // OpenAI Responses 格式的模型列表已经是标准 OpenAI 格式
         // 如果输入已经是标准格式,直接返回
@@ -1598,192 +1481,4 @@ export class OpenAIResponsesConverter extends BaseConverter {
             })),
         };
     }
-
-    /**
-     * 将 OpenAI Responses 模型列表转换为 Claude 模型列表
-     */
-    toClaudeModelList(responsesModels) {
-        const models = responsesModels.data || responsesModels.models || [];
-        return {
-            models: models.map(m => ({
-                name: m.id || m.name,
-                description: m.description || "",
-            })),
-        };
-    }
-
-    /**
-     * 将 OpenAI Responses 模型列表转换为 Gemini 模型列表
-     */
-    toGeminiModelList(responsesModels) {
-        const models = responsesModels.data || responsesModels.models || [];
-        return {
-            models: models.map(m => ({
-                name: `models/${m.id || m.name}`,
-                version: m.version || "1.0.0",
-                displayName: m.displayName || m.id || m.name,
-                description: m.description || `A generative model for text and chat generation. ID: ${m.id || m.name}`,
-                inputTokenLimit: m.inputTokenLimit || GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-                outputTokenLimit: m.outputTokenLimit || GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
-                supportedGenerationMethods: m.supportedGenerationMethods || ["generateContent", "streamGenerateContent"]
-            }))
-        };
-    }
-
-
-    /**
-     * OpenAI Responses → Codex 响应转换 (实际上是 Codex 转 OpenAI Responses)
-     */
-    toCodexResponse(codexResponse, model) {
-        const output = [];
-        const responseData = codexResponse.response || codexResponse;
-
-        if (responseData.output && Array.isArray(responseData.output)) {
-            responseData.output.forEach(item => {
-                if (item.type === 'message' && item.content) {
-                    const content = item.content.map(c => ({
-                        type: c.type === 'output_text' ? 'output_text' : 'input_text',
-                        text: c.text,
-                        annotations: []
-                    }));
-                    output.push({
-                        id: item.id || `msg_${uuidv4().replace(/-/g, '')}`,
-                        type: "message",
-                        role: item.role || "assistant",
-                        status: item.status || "completed",
-                        content: content
-                    });
-                } else if (item.type === 'reasoning') {
-                    output.push({
-                        id: item.id || `rs_${uuidv4().replace(/-/g, '')}`,
-                        type: "reasoning",
-                        status: item.status || "completed",
-                        summary: item.summary || []
-                    });
-                } else if (item.type === 'function_call') {
-                    output.push({
-                        id: item.id || `fc_${uuidv4().replace(/-/g, '')}`,
-                        call_id: item.call_id,
-                        type: "function_call",
-                        name: item.name,
-                        arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments),
-                        status: item.status || "completed"
-                    });
-                }
-            });
-        }
-
-        return {
-            id: responseData.id || `resp_${uuidv4().replace(/-/g, '')}`,
-            object: "response",
-            created_at: responseData.created_at || Math.floor(Date.now() / 1000),
-            model: model || responseData.model,
-            status: responseData.status || "completed",
-            output: output,
-            usage: {
-                input_tokens: responseData.usage?.input_tokens || 0,
-                output_tokens: responseData.usage?.output_tokens || 0,
-                total_tokens: responseData.usage?.total_tokens || 0,
-                input_tokens_details: {
-                    cached_tokens: responseData.usage?.input_tokens_details?.cached_tokens || 0
-                },
-                output_tokens_details: {
-                    reasoning_tokens: responseData.usage?.output_tokens_details?.reasoning_tokens || 0
-                }
-            }
-        };
-    }
-
-    /**
-     * 获取或创建 Codex ➔ Responses 流式规整路径的会话状态（带 TTL 自动回收）
-     */
-    _getCodexResponsesCoreState(resId, model = null) {
-        if (!this.codexResponsesStreamStates.has(resId)) {
-            this.codexResponsesStreamStates.set(resId, createResponsesStreamState({ id: resId, model }));
-        }
-        return this.codexResponsesStreamStates.get(resId);
-    }
-
-    /**
-     * OpenAI Responses → Codex 流式响应转换 (实际上是 Codex 转 OpenAI Responses)
-     */
-    toCodexStreamChunk(codexChunk, model) {
-        const type = codexChunk.type;
-        const resId = codexChunk.response?.id || 'default';
-        const events = [];
-
-        if (type === 'response.created') {
-            const coreState = this._getCodexResponsesCoreState(resId, model || codexChunk.response?.model);
-            events.push(
-                generateResponseCreated(coreState, model || codexChunk.response?.model),
-                generateResponseInProgress(coreState)
-            );
-            return events;
-        }
-
-        if (type === 'response.reasoning_summary_text.delta') {
-            events.push({
-                type: "response.reasoning_summary_text.delta",
-                response_id: resId,
-                item_id: codexChunk.item_id,
-                output_index: codexChunk.output_index,
-                summary_index: codexChunk.summary_index,
-                delta: codexChunk.delta
-            });
-            return events;
-        }
-
-        if (type === 'response.output_text.delta') {
-            events.push({
-                type: "response.output_text.delta",
-                response_id: resId,
-                item_id: codexChunk.item_id,
-                output_index: codexChunk.output_index,
-                content_index: codexChunk.content_index,
-                delta: codexChunk.delta
-            });
-            return events;
-        }
-
-        if (type === 'response.function_call_arguments.delta') {
-            events.push({
-                type: "response.function_call_arguments.delta",
-                response_id: resId,
-                item_id: codexChunk.item_id,
-                output_index: codexChunk.output_index,
-                delta: codexChunk.delta
-            });
-            return events;
-        }
-
-        if (type === 'response.output_item.added') {
-            events.push({
-                type: "response.output_item.added",
-                response_id: resId,
-                output_index: codexChunk.output_index,
-                item: codexChunk.item
-            });
-            return events;
-        }
-
-        if (type === 'response.completed') {
-            const coreState = this._getCodexResponsesCoreState(resId, codexChunk.response?.model);
-            const completedEvent = generateResponseCompleted(coreState);
-            completedEvent.response = {
-                ...completedEvent.response,
-                ...codexChunk.response
-            };
-            events.push(completedEvent);
-            this.codexResponsesStreamStates.delete(resId);
-            return events;
-        }
-
-        // 透传其他 response.* 事件
-        if (type && type.startsWith('response.')) {
-            return [codexChunk];
-        }
-
-        return null;
-    }
-
 }
