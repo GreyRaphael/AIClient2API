@@ -1,6 +1,6 @@
 # AIClient2API 跨协议转译复评（v4.1.1）
 
-- 状态：当前有效
+- 状态：历史（已被 [`CROSS_PROTOCOL_EVALUATION_V4_1_2.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_2.md) 取代；保留为 v4.1.2 整改依据）
 - 评估对象：`9cdcb271` / `VERSION = 4.1.1`（2026-10-21）
 - 测试基线：`npm test -- --runInBand` = **25 suites / 356 tests 全绿**（本地实测）
 - 评估范围：`src/converters/**`、`src/handlers/request-pipeline.js`、`src/providers/**`
