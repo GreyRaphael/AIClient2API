@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.0.0] - 2026-10-21
+
+> 本次发布为破坏性变更：下游协议收敛为 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种；Gemini 仅保留为上游 provider 协议。OpenAI Images 下游入口保持不变。
+
+### Changed (变更)
+
+- **下游协议收敛**：客户端只再暴露 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 与 `/v1/models`。
+- **Gemini 角色调整**：Gemini/Antigravity 继续作为上游 provider，参与请求转换和响应回译；不再接受原生 Gemini 客户端请求。
+- **OpenCode 示例迁移**：`gemini-antigravity` 示例从 `@ai-sdk/google` + `/v1beta` 改为 `@ai-sdk/openai-compatible` + `/v1`。
+- **文档同步**：跨协议架构、Antigravity 说明、CLI 技能文档、启动信息和 API 文档统一标注下游/上游协议边界。
+
+### Removed (移除)
+
+- `GET /v1beta/models`
+- `POST /v1beta/models/{model}:generateContent`
+- `POST /v1beta/models/{model}:streamGenerateContent`
+- `ENDPOINT_TYPE.GEMINI_CONTENT`、`ENDPOINT_TYPE.GEMINI_MODEL_LIST`、`API_ACTIONS`
+- `request-pipeline` 中 Gemini 客户端协议映射、模型列表构造、错误格式与流式结束标记
+- `GeminiStrategy.extractModelAndStreamInfo`
+- Provider 池的 Gemini 模型列表格式
+- 转换器中目标协议为 Gemini/Codex/Grok 的响应、流式与模型列表不可达分支（约 2.2k 行）
+- Gemini 作为客户端协议的请求转换方法
+- 未使用的 `getOpenAIStreamChunkStop`、`ContentProcessor`、`ToolProcessor`
+
+### Kept (保留)
+
+- `POST /v1/images/generations`、`POST /v1/images/edits` 及 Playground 图片入口
+- Gemini/Antigravity、Codex、Grok、Kiro、Zed、Trae 等上游 provider
+- 上游 Gemini → OpenAI/Claude/Responses 的响应与流式转换
+- OpenAI/Claude/Responses → Gemini/Codex/Grok 的上游请求转换
+
+### Verification
+
+- `npm test -- --runInBand`：20 suites / 309 tests 全绿。
+- 所有修改的 JS 文件通过 `node --check`。
+- `request-pipeline` import smoke 通过。
+- `tests/api-integration.test.js` 在未设置 `TEST_API_KEY` 时按既有逻辑跳过。
+
 ## [v3.17.0] - 2026-10-20
 
 > 本次发布汇总 `v3.14.1` 之后的全部变更。过程里程碑标签：`v3.15.0`（模型能力统一）、`v3.16.0`（正向模型选择）、`v3.16.1`（Zed Gemini 3+ 修复）。
