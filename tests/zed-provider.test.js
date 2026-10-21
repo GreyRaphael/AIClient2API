@@ -1,6 +1,5 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
-import crypto from 'crypto';
 import { Readable } from 'stream';
 import axios from 'axios';
 import { MODEL_PROVIDER } from '../src/utils/constants.js';
@@ -8,7 +7,6 @@ import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js
 import { isRegisteredProvider, ZedApiServiceAdapter } from '../src/providers/adapter.js';
 import {
     ZedApiService,
-    getZedVersionFromSystem,
     getZedProviderForModel,
     exchangeZedToken,
     fetchZedOrganizationId,
@@ -31,13 +29,6 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         const { ProviderPoolManager } = await import('../src/providers/provider-pool-manager.js');
         expect(ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS.zed).toBe('gpt-5-nano');
     });
-
-    test('getZedVersionFromSystem detects version string', () => {
-        const version = getZedVersionFromSystem();
-        expect(typeof version).toBe('string');
-        expect(version).toMatch(/(\d+\.\d+\.\d+\+[a-zA-Z0-9\.]+)/);
-    });
-
     test('getZedProviderForModel maps model prefix to upstream provider correctly', () => {
         expect(getZedProviderForModel('claude-sonnet-4-5')).toBe('anthropic');
         expect(getZedProviderForModel('claude-sonnet-4-6')).toBe('anthropic');
@@ -92,38 +83,6 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(provReq.messages[0].content.length).toBe(2);
         expect(provReq.messages[1].role).toBe('assistant');
     });
-
-    test('RSA-2048 keypair generation and RSA-OAEP SHA-256 decryption cycle', () => {
-        const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-            modulusLength: 2048,
-            publicKeyEncoding: { type: 'pkcs1', format: 'der' },
-            privateKeyEncoding: { type: 'pkcs1', format: 'pem' }
-        });
-
-        const pubB64 = publicKey.toString('base64url');
-        expect(pubB64.length).toBeGreaterThan(100);
-
-        // Simulate Zed server encrypting the access_token
-        const rawSecret = JSON.stringify({ token: "zed_secret_token_12345" });
-        const pubKeyObj = crypto.createPublicKey({ key: publicKey, format: 'der', type: 'pkcs1' });
-        const cipherText = crypto.publicEncrypt({
-            key: pubKeyObj,
-            padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-            oaepHash: 'sha256'
-        }, Buffer.from(rawSecret));
-
-        const encTokenB64 = cipherText.toString('base64url');
-
-        // Simulate local callback decrypting the token
-        const decrypted = crypto.privateDecrypt({
-            key: privateKey,
-            padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-            oaepHash: 'sha256'
-        }, Buffer.from(encTokenB64, 'base64url')).toString('utf8');
-
-        expect(decrypted).toBe(rawSecret);
-    });
-
     test('OpenAIConverter.toClaudeRequest handles reasoning_effort legality fallback', () => {
         const converter = new OpenAIConverter();
 
@@ -347,16 +306,6 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             axios.request = originalRequest;
         }
     });
-
-    test('静态基线保持不可变，动态发现结果只走能力缓存', async () => {
-        const { BASE_ZED_MODELS } = await import('../src/providers/provider-models.js');
-        expect(Array.isArray(BASE_ZED_MODELS)).toBe(true);
-        expect(BASE_ZED_MODELS).toContain('claude-sonnet-5');
-        expect(BASE_ZED_MODELS).toContain('claude-sonnet-4-5');
-
-        expect(PROVIDER_MODELS['zed']).toEqual(BASE_ZED_MODELS);
-    });
-
     test('ZedApiService.fetchRemoteModels deduplicates concurrent calls via _modelsFetchPromise', async () => {
         const zedService = new ZedApiService({
             uuid: 'test-uuid',

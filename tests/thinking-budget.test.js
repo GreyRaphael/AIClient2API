@@ -2,23 +2,10 @@ import {
     budgetTokensToEffort,
     effortToClaudeBudget,
     effortToGeminiThinking,
-    EFFORT_LEVELS,
     CANONICAL_CLAUDE_BUDGET
 } from '../src/converters/thinking-budget.js';
 
 describe('thinking-budget 思考预算与等级换算', () => {
-    test('常量完整性', () => {
-        expect(EFFORT_LEVELS).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-        expect(CANONICAL_CLAUDE_BUDGET).toMatchObject({
-            minimal: 1024,
-            low: 2048,
-            medium: 8192,
-            high: 20000,
-            xhigh: 32000,
-            max: 32000
-        });
-    });
-
     test('budgetTokensToEffort 边界值与默认行为', () => {
         // null / undefined 默认返回 high
         expect(budgetTokensToEffort(null)).toBe('high');

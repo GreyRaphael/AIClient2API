@@ -2,11 +2,6 @@
 import logger from '../utils/logger.js';
 
 /**
- * 思考预算与 effort 等级常量
- */
-export const EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-
-/**
  * Canonical 五档规范表（OpenAI / Responses → Claude）
  */
 export const CANONICAL_CLAUDE_BUDGET = {

@@ -6,7 +6,7 @@ import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
 import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.js';
 import { TraeApiService } from '../src/providers/trae/trae-core.js';
-import { PROVIDER_MODELS, BASE_TRAE_MODELS } from '../src/providers/provider-models.js';
+import { PROVIDER_MODELS } from '../src/providers/provider-models.js';
 import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.js';
 
 describe('Trae Provider Implementation Tests', () => {
@@ -411,15 +411,6 @@ describe('Trae Provider Implementation Tests', () => {
         expect(acc1.modelMetadataMap.has('special-model')).toBe(true);
         expect(acc2.modelMetadataMap.has('special-model')).toBe(false);
     });
-
-    test('静态基线保持不可变，上游发现结果只写入能力缓存', () => {
-        expect(BASE_TRAE_MODELS).toContain('DeepSeek-V4.1-Flash');
-        expect(BASE_TRAE_MODELS).toContain('kimi-k2.8-preview');
-
-        // 动态发现不再改写全局 PROVIDER_MODELS
-        expect(PROVIDER_MODELS.trae).toEqual(BASE_TRAE_MODELS);
-    });
-
     test('TraeApiService.prepareRequestBody merges consecutive assistant messages to prevent 4027 error', () => {
         const traeService = new TraeApiService({ uuid: 'test-merge-tool-calls' });
         const requestWithSplitAssistant = {

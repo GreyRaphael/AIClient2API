@@ -10,34 +10,8 @@ import {
     parseCodexTokenMetadata,
     normalizeCodexReasoningEffort
 } from '../src/providers/openai/codex-core.js';
-import {
-    PROVIDER_MODELS,
-    BASE_CODEX_MODELS,
-    getProviderModels
-} from '../src/providers/provider-models.js';
 
 describe('Codex Dynamic Models & Remote Sync Tests', () => {
-    test('BASE_CODEX_MODELS contains baseline models including gpt-6-astra and gpt-6.1-sol', () => {
-        expect(Array.isArray(BASE_CODEX_MODELS)).toBe(true);
-        expect(BASE_CODEX_MODELS).toContain('gpt-6-astra');
-        expect(BASE_CODEX_MODELS).toContain('gpt-6.1-sol');
-        expect(BASE_CODEX_MODELS).toContain('gpt-6-sol');
-        expect(BASE_CODEX_MODELS).toContain('gpt-6-luna');
-        expect(BASE_CODEX_MODELS).toContain('gpt-5.5');
-        expect(BASE_CODEX_MODELS).toContain('gpt-5.6-luna');
-        expect(BASE_CODEX_MODELS).toContain('gpt-5.6-terra');
-        expect(BASE_CODEX_MODELS).not.toContain('gpt-image-2');
-    });
-
-    test('静态基线保持不可变，动态发现结果只走能力缓存', () => {
-        const currentModels = getProviderModels('openai-codex-oauth');
-
-        expect(currentModels).toContain('gpt-5.6-luna');
-        expect(currentModels).toContain('gpt-5.5');
-        expect(currentModels).not.toContain('gpt-image-2');
-        expect(PROVIDER_MODELS['openai-codex-oauth']).toEqual(BASE_CODEX_MODELS);
-    });
-
     test('getCodexModels generates base models without virtual gpt-image-2 or -fast variants', () => {
         const models = getCodexModels('openai-codex-oauth');
         expect(models).toContain('gpt-5.6-luna');

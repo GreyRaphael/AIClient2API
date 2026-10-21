@@ -215,8 +215,6 @@ export const PROVIDER_MODELS = {
 export const BASE_TRAE_MODELS = [...PROVIDER_MODELS.trae];
 export const BASE_TRAE_SOLO_WORK_LITE_MODELS = [...PROVIDER_MODELS['trae-solo_work_lite']];
 export const BASE_TRAE_CHAT_V3_MODELS = [...PROVIDER_MODELS['trae-chat_v3']];
-export const BASE_ZED_MODELS = [...PROVIDER_MODELS.zed];
-export const BASE_CODEX_MODELS = [...PROVIDER_MODELS['openai-codex-oauth']];
 
 export const MANAGED_MODEL_LIST_PROVIDERS = [
     'openai-custom',

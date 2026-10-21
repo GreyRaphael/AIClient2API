@@ -18,6 +18,7 @@ import {
     warmProviderCapabilities
 } from '../src/providers/model-capability.js';
 import { CONFIG } from '../src/core/config-manager.js';
+import { PROVIDER_MODELS } from '../src/providers/provider-models.js';
 
 function liveEntry(models, extra = {}) {
     return {
