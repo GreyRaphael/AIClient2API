@@ -1,5 +1,4 @@
 import {
-    API_ACTIONS,
     ENDPOINT_TYPE,
     getRequestBody,
     getRateLimitCooldownRecoveryTime,
@@ -14,9 +13,6 @@ import { getProviderPoolManager, getApiServiceWithFallback } from './service-man
 import logger from '../utils/logger.js';
 import busboy from 'busboy';
 import { convertData } from '../convert/convert.js';
-
-const IMAGE_GEN_MAX_N = 4;
-const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);
 
 /**
  * Handle API authentication and routing
@@ -39,10 +35,6 @@ export async function handleAPIRequests(method, path, req, res, currentConfig, a
             await handleModelListRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_MODEL_LIST, currentConfig, providerPoolManager, currentConfig.uuid);
             return true;
         }
-        if (path === '/v1beta/models') {
-            await handleModelListRequest(req, res, apiService, ENDPOINT_TYPE.GEMINI_MODEL_LIST, currentConfig, providerPoolManager, currentConfig.uuid);
-            return true;
-        }
     }
 
     // Route image generation/editing requests
@@ -63,11 +55,6 @@ export async function handleAPIRequests(method, path, req, res, currentConfig, a
         }
         if (path === '/v1/responses') {
             await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_RESPONSES, currentConfig, promptLogFilename, providerPoolManager, currentConfig.uuid, path);
-            return true;
-        }
-        const geminiUrlPattern = new RegExp(`/v1beta/models/(.+?):(${API_ACTIONS.GENERATE_CONTENT}|${API_ACTIONS.STREAM_GENERATE_CONTENT})`);
-        if (geminiUrlPattern.test(path)) {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.GEMINI_CONTENT, currentConfig, promptLogFilename, providerPoolManager, currentConfig.uuid, path);
             return true;
         }
         if (path === '/v1/messages') {

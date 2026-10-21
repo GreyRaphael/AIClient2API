@@ -50,8 +50,6 @@ export const API_GUIDE_DATA = [
         { method: 'POST',   path: '/v1/images/generations',       desc: '图片生成 (OpenAI 标准)' },
         { method: 'POST',   path: '/v1/images/edits',             desc: '图片编辑/改图 (OpenAI 标准)' },
         { method: 'POST',   path: '/v1/messages',                 desc: 'Claude 兼容消息接口' },
-        { method: 'GET',    path: '/v1beta/models',               desc: 'Gemini 格式模型列表' },
-        { method: 'POST',   path: '/v1beta/models/{model}:generateContent', desc: 'Gemini 原生生成' },
         { method: 'POST',   path: '/v1/responses',                desc: 'Codex 专有响应接口' },
         { method: 'POST',   path: '/count_tokens',                desc: 'Token 计数 (Anthropic 格式)' }
     ]},

@@ -1527,7 +1527,7 @@ export class ProviderPoolManager {
 
     /**
      * Gets all available models across all provider pools, with optional format conversion.
-     * @param {string} [endpointType] - Optional endpoint type for format conversion (OPENAI_MODEL_LIST or GEMINI_MODEL_LIST).
+     * @param {string} [endpointType] - Optional endpoint type for format conversion (OPENAI_MODEL_LIST).
      * @returns {Promise<Object|Array>} Formatted model list or raw array of model objects.
      */
     async getAllAvailableModels(endpointType = null) {
@@ -1564,7 +1564,7 @@ export class ProviderPoolManager {
             return allModels;
         }
         
-        // 根据 endpointType 转换为对应格式        
+        // 根据 endpointType 转换为对应格式
         if (endpointType === ENDPOINT_TYPE.OPENAI_MODEL_LIST) {
             // OpenAI 格式聚合
             return {
@@ -1576,20 +1576,8 @@ export class ProviderPoolManager {
                     owned_by: m.provider
                 }))
             };
-        } else if (endpointType === ENDPOINT_TYPE.GEMINI_MODEL_LIST) {
-            // Gemini 格式聚合
-            return {
-                models: allModels.map(m => ({
-                    name: `models/${m.id}`,
-                    baseModelId: m.model,
-                    version: "v1",
-                    displayName: `${m.model} (${m.provider})`,
-                    description: `Model ${m.model} provided by ${m.provider}`,
-                    supportedGenerationMethods: ["generateContent", "countTokens"]
-                }))
-            };
         }
-        
+
         // 默认返回空列表
         return { data: [] };
     }

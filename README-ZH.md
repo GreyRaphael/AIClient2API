@@ -232,7 +232,7 @@
 *   **多模型统一接口**：通过标准 OpenAI 兼容协议，一次配置即可接入 Gemini、Claude、Grok、Codex、Kimi、MiniMax 等主流大模型
 *   **灵活切换机制**：Path 路由、支持通过启动参数、环境变量三种方式动态切换模型，满足不同场景需求
 *   **零成本迁移**：完全兼容 OpenAI API 规范，Cherry-Studio、NextChat、Cline 等工具无需修改即可使用
-*   **多协议智能转换**：支持 OpenAI、Claude、Gemini 三大协议间的智能转换，实现跨协议模型调用
+*   **多协议智能转换**：下游支持 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议，上游可接入 Gemini、Claude、Grok、Codex、Kiro 等提供方并自动转换
 
 ### 🚀 突破限制，提升效率
 *   **绕过官方限制**：利用 OAuth 授权机制，有效突破 Gemini, Antigravity 等服务的免费 API 速率和配额限制

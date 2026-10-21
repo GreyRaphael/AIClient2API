@@ -24,8 +24,8 @@ import { HEALTH_CHECK } from '../utils/constants.js';
  * This version includes all features and bug fixes, designed to be robust, flexible, and easy to monitor through a comprehensive and controllable logging system.
  *
  * 主要功能 / Key Features:
- * - OpenAI & Gemini & Claude 多重兼容性：无缝桥接使用 OpenAI API 格式的客户端与 Google Gemini API。支持原生 Gemini API (`/v1beta`) 和 OpenAI 兼容 (`/v1`) 端点。
- *   OpenAI & Gemini & Claude Dual Compatibility: Seamlessly bridges clients using the OpenAI API format with the Google Gemini API. Supports both native Gemini API (`/v1beta`) and OpenAI-compatible (`/v1`) endpoints.
+ * - OpenAI Chat / OpenAI Responses / Anthropic Messages 下游兼容：客户端可使用三种主流协议访问统一网关，上游仍支持 Gemini、Antigravity、Codex、Grok、Kiro 等提供方。
+ *   OpenAI Chat / OpenAI Responses / Anthropic Messages downstream compatibility: clients can use the three mainstream protocols while the gateway still supports upstream providers such as Gemini, Antigravity, Codex, Grok and Kiro.
  * 
  * - 强大的身份验证管理：支持多种身份验证方法，包括通过 Base64 字符串、文件路径或自动发现本地凭据的 OAuth 2.0 配置。能够自动刷新过期令牌以确保服务持续运行。
  *   Robust Authentication Management: Supports multiple authentication methods, including OAuth 2.0 configuration via Base64 strings, file paths, or automatic discovery of local credentials. Capable of automatically refreshing expired tokens to ensure continuous service operation.
@@ -303,7 +303,6 @@ async function startServer() {
         logger.info(`\nUnified API Server running on http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}`);
         logger.info(`Supports multiple API formats:`);
         logger.info(`  • OpenAI-compatible: /v1/chat/completions, /v1/responses, /v1/models`);
-        logger.info(`  • Gemini-compatible: /v1beta/models, /v1beta/models/{model}:generateContent`);
         logger.info(`  • Claude-compatible: /v1/messages`);
         logger.info(`  • Health check: /health`);
         logger.info(`  • UI Management Console: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/`);

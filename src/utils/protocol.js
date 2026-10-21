@@ -47,19 +47,13 @@ export function getProtocolPrefix(provider) {
 export const ENDPOINT_TYPE = {
     OPENAI_CHAT: 'openai_chat',
     OPENAI_RESPONSES: 'openai_responses',
-    GEMINI_CONTENT: 'gemini_content',
     CLAUDE_MESSAGE: 'claude_message',
     OPENAI_MODEL_LIST: 'openai_model_list',
-    GEMINI_MODEL_LIST: 'gemini_model_list',
 };
 
 export const FETCH_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'fetch_system_prompt.txt');
 export const INPUT_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'input_system_prompt.txt');
 
-export const API_ACTIONS = {
-    GENERATE_CONTENT: 'generateContent',
-    STREAM_GENERATE_CONTENT: 'streamGenerateContent',
-};
 export const DEFAULT_REQUEST_BODY_MAX_BYTES = 10 * 1024 * 1024;
 
 /**

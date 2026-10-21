@@ -1,5 +1,5 @@
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import { API_ACTIONS, extractSystemPromptFromRequestBody } from '../../utils/protocol.js';
+import { extractSystemPromptFromRequestBody } from '../../utils/protocol.js';
 import logger from '../../utils/logger.js';
 import { ProviderStrategy } from '../../utils/provider-strategy-base.js';
 import { applySystemPromptReplacements } from '../../converters/utils.js';
@@ -8,16 +8,6 @@ import { applySystemPromptReplacements } from '../../converters/utils.js';
  * Gemini provider strategy implementation.
  */
 class GeminiStrategy extends ProviderStrategy {
-    extractModelAndStreamInfo(req, requestBody) {
-        const requestUrl = new URL(req.url, `http://${req.headers.host}`);
-        const urlPattern = new RegExp(`/v1beta/models/(.+?):(${API_ACTIONS.GENERATE_CONTENT}|${API_ACTIONS.STREAM_GENERATE_CONTENT})`);
-        const urlMatch = requestUrl.pathname.match(urlPattern);
-        const [, urlmodel, action] = urlMatch;
-        const model = urlmodel;
-        const isStream = action === API_ACTIONS.STREAM_GENERATE_CONTENT;
-        return { model, isStream };
-    }
-
     extractResponseText(response) {
         if (response.candidates && response.candidates.length > 0) {
             const candidate = response.candidates[0];

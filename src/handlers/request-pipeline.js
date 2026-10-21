@@ -101,45 +101,6 @@ function appendCustomModelsToModelList(clientModelList, customEntries, providerT
         return clientModelList;
     }
 
-    if (listEndpointType === ENDPOINT_TYPE.GEMINI_MODEL_LIST) {
-        const models = Array.isArray(clientModelList?.models) ? clientModelList.models : [];
-
-        entries.forEach(entry => {
-            const existingModel = models.find(model => {
-                const existingId = model?.baseModelId || model?.name;
-                if (!existingId) return false;
-                const normalizedId = existingId.startsWith('models/') ? existingId.substring(7) : existingId;
-                return normalizedId === entry.id;
-            });
-            if (existingModel) {
-                existingModel.displayName = entry.config.name || existingModel.displayName || entry.id;
-                existingModel.description = entry.config.description || existingModel.description || `Model ${entry.modelId} provided by ${entry.provider || providerType}`;
-                if (hasMetadataValue(entry.config.contextLength)) existingModel.inputTokenLimit = entry.config.contextLength;
-                if (hasMetadataValue(entry.config.maxTokens)) existingModel.outputTokenLimit = entry.config.maxTokens;
-                return;
-            }
-
-            const modelResponse = {
-                name: `models/${entry.id}`,
-                baseModelId: entry.id,
-                version: 'v1',
-                displayName: entry.config.name || entry.id,
-                description: entry.config.description || `Model ${entry.modelId} provided by ${entry.provider || providerType}`,
-                supportedGenerationMethods: ['generateContent', 'countTokens']
-            };
-
-            if (hasMetadataValue(entry.config.contextLength)) modelResponse.inputTokenLimit = entry.config.contextLength;
-            if (hasMetadataValue(entry.config.maxTokens)) modelResponse.outputTokenLimit = entry.config.maxTokens;
-
-            models.push(modelResponse);
-        });
-
-        return {
-            ...clientModelList,
-            models
-        };
-    }
-
     if (listEndpointType === ENDPOINT_TYPE.OPENAI_MODEL_LIST) {
         const models = Array.isArray(clientModelList?.data) ? clientModelList.data : [];
 
@@ -863,11 +824,6 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                             res.write('data: {"type":"message_stop"}\n\n');
                             hasMessageStop = true;
                         }
-                    } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.GEMINI) {
-                        if (!hasMessageStop) {
-                            res.write('data: {"candidates":[{"finishReason":"STOP"}]}\n\n');
-                            hasMessageStop = true;
-                        }
                     }
                     res.end();
                 } catch (writeErr) {
@@ -1124,7 +1080,6 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
 export async function handleModelListRequest(req, res, service, endpointType, CONFIG, providerPoolManager, pooluuid) {
     const clientProviderMap = {
         [ENDPOINT_TYPE.OPENAI_MODEL_LIST]: MODEL_PROTOCOL_PREFIX.OPENAI,
-        [ENDPOINT_TYPE.GEMINI_MODEL_LIST]: MODEL_PROTOCOL_PREFIX.GEMINI,
     };
 
     const fromProvider = clientProviderMap[endpointType];
@@ -1153,30 +1108,6 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
                         if (customConfig) {
                             if (customConfig.contextLength) modelResponse.context_length = customConfig.contextLength;
                             if (customConfig.maxTokens) modelResponse.max_tokens = customConfig.maxTokens;
-                            if (customConfig.description) modelResponse.description = customConfig.description;
-                        }
-                        
-                        return modelResponse;
-                    })
-                };
-            }
-
-            if (listEndpointType === ENDPOINT_TYPE.GEMINI_MODEL_LIST) {
-                return {
-                    models: models.map(modelId => {
-                        const customConfig = getCustomModelConfig(modelId, providerType);
-                        const modelResponse = {
-                            name: `models/${modelId}`,
-                            baseModelId: modelId,
-                            version: 'v1',
-                            displayName: modelId,
-                            description: `Model ${modelId} provided by ${providerType}`,
-                            supportedGenerationMethods: ['generateContent', 'countTokens']
-                        };
-                        
-                        if (customConfig) {
-                            if (customConfig.contextLength) modelResponse.inputTokenLimit = customConfig.contextLength;
-                            if (customConfig.maxTokens) modelResponse.outputTokenLimit = customConfig.maxTokens;
                             if (customConfig.description) modelResponse.description = customConfig.description;
                         }
                         
@@ -1238,7 +1169,6 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         [ENDPOINT_TYPE.OPENAI_CHAT]: MODEL_PROTOCOL_PREFIX.OPENAI,
         [ENDPOINT_TYPE.OPENAI_RESPONSES]: MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES,
         [ENDPOINT_TYPE.CLAUDE_MESSAGE]: MODEL_PROTOCOL_PREFIX.CLAUDE,
-        [ENDPOINT_TYPE.GEMINI_CONTENT]: MODEL_PROTOCOL_PREFIX.GEMINI,
     };
 
     const fromProvider = clientProviderMap[endpointType];
@@ -1502,7 +1432,6 @@ export function handleError(res, error, provider = null, fromProvider = null, re
     if (!fromProvider && req && req.url) {
         if (req.url.includes('/v1/messages')) fromProvider = MODEL_PROTOCOL_PREFIX.CLAUDE;
         else if (req.url.includes('/v1/chat/completions')) fromProvider = MODEL_PROTOCOL_PREFIX.OPENAI;
-        else if (req.url.includes('/v1beta/models')) fromProvider = MODEL_PROTOCOL_PREFIX.GEMINI;
     }
 
     // 如果指定了客户端协议，则使用 createErrorResponse 创建符合该协议的错误响应
@@ -1743,17 +1672,6 @@ function createErrorResponse(error, fromProvider) {
         return 'invalid_request_error';
     };
     
-    // 根据 HTTP 状态码映射 Gemini 的 status
-    const getGeminiStatus = (code) => {
-        if (code === 400) return 'INVALID_ARGUMENT';
-        if (code === 401) return 'UNAUTHENTICATED';
-        if (code === 403) return 'PERMISSION_DENIED';
-        if (code === 404) return 'NOT_FOUND';
-        if (code === 429) return 'RESOURCE_EXHAUSTED';
-        if (code >= 500) return 'INTERNAL';
-        return 'UNKNOWN';
-    };
-    
     switch (protocolPrefix) {
         case MODEL_PROTOCOL_PREFIX.OPENAI:
             // OpenAI 非流式错误格式
@@ -1782,16 +1700,6 @@ function createErrorResponse(error, fromProvider) {
                 error: {
                     type: getErrorType(statusCode),  // Claude 使用 error.type 作为核心判断
                     message: errorMessage
-                }
-            };
-            
-        case MODEL_PROTOCOL_PREFIX.GEMINI:
-            // Gemini 非流式错误格式（遵循 Google Cloud 标准）
-            return {
-                error: {
-                    code: statusCode,
-                    message: errorMessage,
-                    status: getGeminiStatus(statusCode)  // Gemini 使用 status 作为核心判断
                 }
             };
             
@@ -1826,17 +1734,6 @@ function createStreamErrorResponse(error, fromProvider) {
         if (code === 429) return 'rate_limit_error';
         if (code >= 500) return 'server_error';
         return 'invalid_request_error';
-    };
-    
-    // 根据 HTTP 状态码映射 Gemini 的 status
-    const getGeminiStatus = (code) => {
-        if (code === 400) return 'INVALID_ARGUMENT';
-        if (code === 401) return 'UNAUTHENTICATED';
-        if (code === 403) return 'PERMISSION_DENIED';
-        if (code === 404) return 'NOT_FOUND';
-        if (code === 429) return 'RESOURCE_EXHAUSTED';
-        if (code >= 500) return 'INTERNAL';
-        return 'UNKNOWN';
     };
     
     switch (protocolPrefix) {
@@ -1875,19 +1772,6 @@ function createStreamErrorResponse(error, fromProvider) {
                 }
             };
             return `event: error\ndata: ${JSON.stringify(claudeError)}\n\n`;
-            
-        case MODEL_PROTOCOL_PREFIX.GEMINI:
-            // Gemini 流式错误格式
-            // 注意：虽然 Gemini 原生使用 JSON 数组，但在我们的实现中已经转换为 SSE 格式
-            // 所以这里也需要使用 data: 前缀，保持与正常流式响应一致
-            const geminiError = {
-                error: {
-                    code: statusCode,
-                    message: errorMessage,
-                    status: getGeminiStatus(statusCode)
-                }
-            };
-            return `data: ${JSON.stringify(geminiError)}\n\n`;
             
         default:
             // 默认使用 OpenAI SSE 格式

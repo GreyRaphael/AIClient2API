@@ -38,8 +38,8 @@ Use these for self-discovery or system monitoring:
 - `GET /provider_health`: Detailed health status of all model providers.
 - `POST /api/login`: Exchange `Admin Password` for a dynamic `Token`.
 
-### 1. AI Business Path (`/v1/*`, `/v1beta/*`, `/count_tokens`)
-- **Purpose**: AI model inference (chat, image, token counting).
+### 1. AI Business Path (`/v1/*`, `/count_tokens`)
+- **Purpose**: AI model inference (chat, responses, messages, image, token counting).
 - **Auth**: Static `API Key`. **Ask the user for this if not provided.**
 - **Header**: `Authorization: Bearer <YOUR_API_KEY>`
 

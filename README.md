@@ -233,7 +233,7 @@
 *   **Multi-Model Unified Interface**: Through standard OpenAI-compatible protocol, configure once to access mainstream large models including Gemini, Claude, Grok, Codex, Kimi, MiniMax
 *   **Flexible Switching Mechanism**: Path routing, support dynamic model switching via startup parameters or environment variables to meet different scenario requirements
 *   **Zero-Cost Migration**: Fully compatible with OpenAI API specifications, tools like Cherry-Studio, NextChat, Cline can be used without modification
-*   **Multi-Protocol Intelligent Conversion**: Support intelligent conversion between OpenAI, Claude, and Gemini protocols for cross-protocol model invocation
+*   **Multi-Protocol Intelligent Conversion**: Downstream supports OpenAI Chat, OpenAI Responses, and Anthropic Messages, while upstream providers such as Gemini, Claude, Grok, Codex, and Kiro are converted automatically
 
 ### 🚀 Break Through Limitations, Improve Efficiency
 *   **Bypass Official Restrictions**: Utilize OAuth authorization mechanism to effectively break through rate and quota limits of services like Gemini, Antigravity

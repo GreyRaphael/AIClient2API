@@ -32,7 +32,7 @@ const modelUsageStatsPlugin = {
     },
 
     async middleware(req, res, requestUrl, config) {
-        const aiPaths = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1beta/models'];
+        const aiPaths = ['/v1/chat/completions', '/v1/responses', '/v1/messages'];
         const isAiPath = aiPaths.some(path => requestUrl.pathname.includes(path));
 
         if (isAiPath && req.method === 'POST' && !config._monitorRequestId) {

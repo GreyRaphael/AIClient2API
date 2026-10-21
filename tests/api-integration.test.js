@@ -30,8 +30,6 @@ function authHeaders(authType) {
             return { Authorization: `Bearer ${API_KEY}` };
         case 'anthropic':
             return { 'x-api-key': API_KEY };
-        case 'goog':
-            return { 'x-goog-api-key': API_KEY };
         default:
             return {};
     }
@@ -109,10 +107,6 @@ const claudeRequest = (extra = {}) => ({
     max_tokens: 16,
     messages: [{ role: 'user', content: 'Say OK' }],
     ...extra
-});
-
-const geminiRequest = () => ({
-    contents: [{ role: 'user', parts: [{ text: 'Say OK' }] }]
 });
 
 describeIntegration('API Integration Smoke (minimal)', () => {
@@ -206,34 +200,6 @@ describeIntegration('API Integration Smoke (minimal)', () => {
         });
     });
 
-    describe('Gemini native endpoint', () => {
-        test('generateContent', async () => {
-            const response = await request(`/v1beta/models/${MODEL}:generateContent`, {
-                method: 'POST',
-                auth: 'goog',
-                body: geminiRequest()
-            });
-
-            expect(response.status).toBe(200);
-            expect(response.headers.get('content-type')).toContain('application/json');
-
-            const data = await response.json();
-            expect(Array.isArray(data.candidates)).toBe(true);
-            expect(data.candidates.length).toBeGreaterThan(0);
-        });
-
-        test('streamGenerateContent', async () => {
-            const response = await request(`/v1beta/models/${MODEL}:streamGenerateContent`, {
-                method: 'POST',
-                auth: 'goog',
-                body: geminiRequest()
-            });
-            const chunks = await readSse(response);
-
-            expectSse(response, chunks);
-        });
-    });
-
     describe('Model list endpoints', () => {
         test('OpenAI /v1/models', async () => {
             const response = await request('/v1/models');
@@ -241,14 +207,6 @@ describeIntegration('API Integration Smoke (minimal)', () => {
             expect(response.status).toBe(200);
             const data = await response.json();
             expect(Array.isArray(data.data)).toBe(true);
-        });
-
-        test('Gemini /v1beta/models', async () => {
-            const response = await request('/v1beta/models', { auth: 'goog' });
-
-            expect(response.status).toBe(200);
-            const data = await response.json();
-            expect(Array.isArray(data.models)).toBe(true);
         });
     });
 

@@ -21,14 +21,16 @@
 
 支持的协议前缀（`src/utils/constants.js`）：
 
-| 协议 | 前缀 | Converter |
-|---|---|---|
-| OpenAI Chat Completions | `openai` | `OpenAIConverter` |
-| OpenAI Responses | `openaiResponses` | `OpenAIResponsesConverter` |
-| Anthropic Messages | `claude` | `ClaudeConverter` |
-| Gemini | `gemini` | `GeminiConverter` |
-| Codex | `codex` | `CodexConverter` |
-| Grok | `grok` | `GrokConverter` |
+| 方向 | 协议 | 前缀 | Converter |
+|---|---|---|---|
+| 下游（客户端） | OpenAI Chat Completions | `openai` | `OpenAIConverter` |
+| 下游（客户端） | OpenAI Responses | `openaiResponses` | `OpenAIResponsesConverter` |
+| 下游（客户端） | Anthropic Messages | `claude` | `ClaudeConverter` |
+| 上游（Provider） | Gemini | `gemini` | `GeminiConverter` |
+| 上游（Provider） | Codex | `codex` | `CodexConverter` |
+| 上游（Provider） | Grok | `grok` | `GrokConverter` |
+
+下游只暴露 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议；Gemini/Codex/Grok 仅作为上游协议参与请求与响应转换。原生 Gemini 下游端点 `/v1beta/models` 与 `:generateContent` 已移除。
 
 转换器注册入口：`src/converters/register-converters.js`。  
 转换器工厂：`src/converters/ConverterFactory.js`。

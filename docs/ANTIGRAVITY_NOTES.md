@@ -7,7 +7,7 @@
 ## 一、模型获取机制（GET 与 POST 的差异）
 
 ### 1. 客户端视角（RESTful GET）
-客户端通过 OpenAI 协议的 `GET /v1/models` 或 Gemini 协议的 `GET /v1beta/models` 发起请求获取模型列表。
+客户端通过 OpenAI 协议的 `GET /v1/models` 发起请求获取模型列表。
 
 ### 2. 上游 Antigravity 协议（RPC POST）
 项目与 Google Antigravity 上游通信时，并不是简单的 HTTP GET 透传，而是基于 Google Cloud Code 内部 RPC 协议：
@@ -97,7 +97,7 @@ Antigravity Provider 在底层（`antigravity-core.js`）采用了**根据客户
 ## 五、Web 前端正向模型选择机制
 
 前端「提供商池管理」中的节点模型配置采用正向勾选：
-* **单提供商模式**：节点选择集来自上游 `model_list`，未勾选的模型不会出现在 `/v1/models` 与 `/v1beta/models`。
+* **单提供商模式**：节点选择集来自上游 `model_list`，未勾选的模型不会出现在 `/v1/models`。
 * **Auto 聚合模式**：分组最终列表为活跃节点选择集的并集，并自动并入该分组的自定义模型；自定义模型不会进入节点候选列表。
 * **新增模型**：上游新增的模型通过 `supportedModelsBaseline` 识别，默认自动选中。
 

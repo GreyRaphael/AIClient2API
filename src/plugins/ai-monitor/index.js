@@ -28,7 +28,6 @@ const aiMonitorPlugin = {
             '/v1/chat/completions', 
             '/v1/responses', 
             '/v1/messages', 
-            '/v1beta/models',
             '/v1/images/generations',
             '/v1/images/edits'
         ];

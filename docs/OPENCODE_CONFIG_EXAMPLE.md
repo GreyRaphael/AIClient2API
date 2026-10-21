@@ -25,10 +25,10 @@
             }
         },
         "gemini-antigravity": {
-            "npm": "@ai-sdk/google",
+            "npm": "@ai-sdk/openai-compatible",
             "name": "AIClient2API-antigravity",
             "options": {
-                "baseURL": "http://localhost:3000/gemini-antigravity/v1beta",
+                "baseURL": "http://localhost:3000/gemini-antigravity/v1",
                 "apiKey": "123456"
             },
             "models": {
@@ -56,8 +56,7 @@
 *   **`npm` (SDK 适配器)**:
     *   指定底层使用的 AI SDK。例如：
         *   `@ai-sdk/anthropic`: 用于 Anthropic (Claude) 系列模型。
-        *   `@ai-sdk/openai-compatible`: 用于兼容 OpenAI 接口标准的模型。
-        *   `@ai-sdk/google`: 用于 Google Gemini 系列模型。
+        *   `@ai-sdk/openai-compatible`: 用于兼容 OpenAI 接口标准的模型（本网关的下游统一入口）。
     *   **重点**: 必须确保 `npm` 字段与您要使用的模型协议匹配，否则会导致连接失败。
 
 *   **`options` (连接参数)**:
@@ -71,7 +70,7 @@
     *   **重点**: 这里的键名必须与服务端实际支持的模型标识符一致。
 
 ### 2. 区分同类型的不同实例
-`gemini-antigravity` 使用 `@ai-sdk/google`，通过其 `baseURL` 接入 Gemini 协议。若需要接入多个实例，可为每个实例使用不同的 `name` 进行区分。
+`gemini-antigravity` 使用 `@ai-sdk/openai-compatible`，通过 `/gemini-antigravity/v1` 以 OpenAI 协议接入；Gemini 仅作为上游协议。若需要接入多个实例，可为每个实例使用不同的 `name` 进行区分。
 
 ### 3. `$schema`
 *   用于提供 JSON 模式验证。在支持的编辑器（如 VS Code）中，它可以为您提供自动补全和实时错误检查。
