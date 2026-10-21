@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.0.1] - 2026-10-21
+
 ### Fixed (跨协议转译 v4 复评整改)
 
 - **P1 功能正确性**：
