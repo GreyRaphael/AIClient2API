@@ -3,7 +3,6 @@
  * 基于 ConverterFactory 的转换器架构，提供通用数据转换入口
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
 import { getProtocolPrefix } from '../utils/protocol.js';
 import { ConverterFactory } from '../converters/ConverterFactory.js';
@@ -106,36 +105,4 @@ export function convertData(data, type, fromProvider, toProvider, model, request
         logger.error(`Conversion error: ${error.message}`);
         throw error;
     }
-}
-
-/**
- * 生成 OpenAI 流式响应的停止块
- * @param {string} model - 模型名称
- * @returns {Object} OpenAI 流式停止块
- */
-export function getOpenAIStreamChunkStop(model) {
-    return {
-        id: `chatcmpl-${uuidv4()}`,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: model,
-        system_fingerprint: "",
-        choices: [{
-            index: 0,
-            delta: {
-                content: "",
-                reasoning_content: ""
-            },
-            finish_reason: 'stop',
-            message: {
-                content: "",
-                reasoning_content: ""
-            }
-        }],
-        usage:{
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-        },
-    };
 }
