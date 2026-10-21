@@ -172,7 +172,9 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(chunk.usage).toEqual({
             prompt_tokens: 10,
             completion_tokens: 20,
-            total_tokens: 30
+            total_tokens: 30,
+            prompt_tokens_details: { cached_tokens: 0 },
+            completion_tokens_details: { reasoning_tokens: 0 }
         });
     });
 

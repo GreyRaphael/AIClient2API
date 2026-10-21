@@ -638,6 +638,10 @@ export class ClaudeConverter extends BaseConverter {
 
         // message_start 事件
         if (claudeChunk.type === 'message_start') {
+            // Anthropic 的 message_delta.usage 通常只含 output_tokens，
+            // 输入侧用量必须在 message_start 保存，终结帧再合并。
+            identity.promptTokens = claudeChunk.message?.usage?.input_tokens || 0;
+            identity.cachedTokens = claudeChunk.message?.usage?.cache_read_input_tokens || 0;
             return {
                 id: chunkId,
                 object: "chat.completion.chunk",
@@ -1559,20 +1563,17 @@ export class ClaudeConverter extends BaseConverter {
         const source = block?.source || {};
         const data = source.data || source.base64;
         const mediaType = source.media_type || source.mime_type || 'image/jpeg';
+        // Responses API 的 input_image.image_url 是字符串；对象形状会被上游拒绝。
         if (data) {
             return {
                 type: 'input_image',
-                image_url: {
-                    url: `data:${mediaType};base64,${data}`
-                }
+                image_url: `data:${mediaType};base64,${data}`
             };
         }
         if (source.url) {
             return {
                 type: 'input_image',
-                image_url: {
-                    url: source.url
-                }
+                image_url: source.url
             };
         }
         return null;

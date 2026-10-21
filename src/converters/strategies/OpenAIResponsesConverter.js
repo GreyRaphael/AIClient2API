@@ -81,7 +81,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     convertStreamChunk(chunk, toProtocol, model, requestId) {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model);
+                return this.toOpenAIStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeStreamChunk(chunk, model, requestId);
             default:
@@ -475,11 +475,73 @@ export class OpenAIResponsesConverter extends BaseConverter {
     }
 
     /**
+     * 获取请求级 OpenAI Chat 流状态。
+     * Responses 的 delta 事件不带 response.id，因此必须优先使用 requestId，
+     * 否则每个事件都会生成新的 chatcmpl id 并在 Store 中留下独立条目。
+     */
+    _getOpenAIStreamState(responsesChunk, requestId) {
+        const stateKey = requestId
+            || responsesChunk.response?.id
+            || responsesChunk.id
+            || 'default';
+        if (!this.openaiChatStreamStates.has(stateKey)) {
+            this.openaiChatStreamStates.set(stateKey, {
+                id: responsesChunk.response?.id
+                    ? String(responsesChunk.response.id)
+                    : `chatcmpl-${uuidv4()}`,
+                created: responsesChunk.response?.created_at
+                    || responsesChunk.created
+                    || Math.floor(Date.now() / 1000),
+                hasToolCalls: false,
+                nextToolIndex: 0,
+                // Responses output_index -> OpenAI Chat tool_calls.index
+                toolIndexByOutput: new Map(),
+                receivedArgsByOutput: new Set(),
+                customInputByOutput: new Map(),
+                customArgsSent: new Set()
+            });
+        }
+        return { stateKey, state: this.openaiChatStreamStates.get(stateKey) };
+    }
+
+    /**
+     * 为 Responses 的 output_index 分配稳定的 OpenAI Chat 工具序号。
+     * Chat 要求 tool_calls.index 在单条消息内唯一且从 0 递增，
+     * 不能直接复用 output_index（它可能因 reasoning/message item 而出现空洞）。
+     */
+    _allocateOpenAIToolIndex(state, outputIndex) {
+        const key = String(outputIndex ?? 0);
+        if (!state.toolIndexByOutput.has(key)) {
+            state.toolIndexByOutput.set(key, state.nextToolIndex++);
+        }
+        return state.toolIndexByOutput.get(key);
+    }
+
+    _appendCustomToolArguments(state, outputIndex, rawInput, delta) {
+        const key = String(outputIndex ?? 0);
+        if (state.customArgsSent.has(key)) {
+            return;
+        }
+        state.customArgsSent.add(key);
+        state.hasToolCalls = true;
+        const input = typeof rawInput === 'string'
+            ? rawInput
+            : (rawInput === null || rawInput === undefined ? '' : JSON.stringify(rawInput));
+        delta.tool_calls = delta.tool_calls || [];
+        delta.tool_calls.push({
+            index: this._allocateOpenAIToolIndex(state, outputIndex),
+            function: {
+                // 与请求侧 custom_tool_call -> function_call 的折叠方式保持一致
+                arguments: JSON.stringify({ input })
+            }
+        });
+    }
+
+    /**
      * 将 OpenAI Responses 流式块转换为标准 OpenAI 流式块
      */
-    toOpenAIStreamChunk(responsesChunk, model) {
-        const resId = responsesChunk.response?.id || responsesChunk.id || `chatcmpl-${Date.now()}`;
-        const created = responsesChunk.response?.created_at || responsesChunk.created || Math.floor(Date.now() / 1000);
+    toOpenAIStreamChunk(responsesChunk, model, requestId = null) {
+        if (!responsesChunk) return null;
 
         if (responsesChunk.type === 'response.failed' || responsesChunk.type === 'error') {
             const message = responsesChunk.response?.error?.message
@@ -491,12 +553,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             throw error;
         }
 
-        let streamState = this.openaiChatStreamStates.get(resId);
-        if (!streamState) {
-            streamState = { hasToolCalls: false };
-            this.openaiChatStreamStates.set(resId, streamState);
-        }
-
+        const { stateKey, state } = this._getOpenAIStreamState(responsesChunk, requestId);
         const delta = {};
         let finish_reason = null;
 
@@ -513,27 +570,82 @@ export class OpenAIResponsesConverter extends BaseConverter {
             if (responsesChunk.delta) {
                 delta.reasoning_content = responsesChunk.delta;
             }
-        } else if (responsesChunk.type === 'response.function_call_arguments.delta') {
+        } else if (responsesChunk.type === 'response.output_item.added' &&
+                   (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
+            state.hasToolCalls = true;
             delta.tool_calls = [{
-                index: responsesChunk.output_index || 0,
+                index: this._allocateOpenAIToolIndex(state, responsesChunk.output_index),
+                id: responsesChunk.item.call_id || responsesChunk.item.id,
+                type: 'function',
+                function: {
+                    name: responsesChunk.item.name || '',
+                    arguments: ''
+                }
+            }];
+        } else if (responsesChunk.type === 'response.function_call_arguments.delta') {
+            state.hasToolCalls = true;
+            state.receivedArgsByOutput.add(String(responsesChunk.output_index ?? 0));
+            delta.tool_calls = [{
+                index: this._allocateOpenAIToolIndex(state, responsesChunk.output_index),
                 function: {
                     arguments: responsesChunk.delta
                 }
             }];
-        } else if (responsesChunk.type === 'response.output_item.added' &&
-                   (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
-            streamState.hasToolCalls = true;
-            delta.tool_calls = [{
-                index: responsesChunk.output_index || 0,
-                id: responsesChunk.item.call_id,
-                type: 'function',
-                function: {
-                    name: responsesChunk.item.name,
-                    arguments: ''
-                }
-            }];
+        } else if (responsesChunk.type === 'response.function_call_arguments.done') {
+            const key = String(responsesChunk.output_index ?? 0);
+            if (!state.receivedArgsByOutput.has(key) && responsesChunk.arguments !== undefined) {
+                state.hasToolCalls = true;
+                const args = typeof responsesChunk.arguments === 'string'
+                    ? responsesChunk.arguments
+                    : JSON.stringify(responsesChunk.arguments);
+                delta.tool_calls = [{
+                    index: this._allocateOpenAIToolIndex(state, responsesChunk.output_index),
+                    function: { arguments: args }
+                }];
+            }
+        } else if (responsesChunk.type === 'response.custom_tool_call_input.delta') {
+            // custom tool 的 input 是自由文本，无法按 JSON 增量透传；
+            // 先按请求累积，在 done / output_item.done 时一次性折叠为 {"input": "..."}。
+            const key = String(responsesChunk.output_index ?? 0);
+            state.hasToolCalls = true;
+            state.customInputByOutput.set(
+                key,
+                (state.customInputByOutput.get(key) || '') + (responsesChunk.delta || '')
+            );
+        } else if (responsesChunk.type === 'response.custom_tool_call_input.done') {
+            this._appendCustomToolArguments(
+                state,
+                responsesChunk.output_index,
+                responsesChunk.input ?? state.customInputByOutput.get(String(responsesChunk.output_index ?? 0)) ?? '',
+                delta
+            );
+        } else if (responsesChunk.type === 'response.output_item.done' &&
+                   responsesChunk.item?.type === 'function_call') {
+            const key = String(responsesChunk.output_index ?? 0);
+            if (!state.receivedArgsByOutput.has(key) && responsesChunk.item.arguments !== undefined) {
+                state.hasToolCalls = true;
+                const args = typeof responsesChunk.item.arguments === 'string'
+                    ? responsesChunk.item.arguments
+                    : JSON.stringify(responsesChunk.item.arguments);
+                delta.tool_calls = [{
+                    index: this._allocateOpenAIToolIndex(state, responsesChunk.output_index),
+                    function: { arguments: args }
+                }];
+            }
+        } else if (responsesChunk.type === 'response.output_item.done' &&
+                   responsesChunk.item?.type === 'custom_tool_call') {
+            this._appendCustomToolArguments(
+                state,
+                responsesChunk.output_index,
+                responsesChunk.item.input ?? state.customInputByOutput.get(String(responsesChunk.output_index ?? 0)) ?? '',
+                delta
+            );
         } else if (responsesChunk.type === 'response.completed' || responsesChunk.type === 'response.incomplete') {
-            const hasTool = streamState.hasToolCalls ||
+            // 兜底：上游只发 delta 未发 done 时，仍需把 custom tool 参数交付给客户端
+            for (const [key, input] of state.customInputByOutput.entries()) {
+                this._appendCustomToolArguments(state, key, input, delta);
+            }
+            const hasTool = state.hasToolCalls ||
                 responsesChunk.response?.output?.some(item => item.type === 'function_call' || item.type === 'custom_tool_call');
             const incompleteReason = responsesChunk.response?.incomplete_details?.reason;
             if (responsesChunk.type === 'response.incomplete' || responsesChunk.response?.status === 'incomplete' || incompleteReason) {
@@ -543,15 +655,16 @@ export class OpenAIResponsesConverter extends BaseConverter {
             }
         }
 
+        const usage = responsesChunk.response?.usage || null;
         // 如果既无 delta 变更也无 finish_reason，且无 usage，则无需下发空 chunk
-        if (Object.keys(delta).length === 0 && !finish_reason && !responsesChunk.response?.usage) {
+        if (Object.keys(delta).length === 0 && !finish_reason && !usage) {
             return null;
         }
 
         const chunkObj = {
-            id: resId,
+            id: state.id,
             object: 'chat.completion.chunk',
-            created: created,
+            created: state.created,
             model: model || responsesChunk.response?.model || responsesChunk.model,
             choices: [{
                 index: 0,
@@ -560,17 +673,22 @@ export class OpenAIResponsesConverter extends BaseConverter {
             }]
         };
 
-        if (responsesChunk.response?.usage) {
-            const u = responsesChunk.response.usage;
+        if (usage) {
             chunkObj.usage = {
-                prompt_tokens: u.input_tokens || u.prompt_tokens || 0,
-                completion_tokens: u.output_tokens || u.completion_tokens || 0,
-                total_tokens: u.total_tokens || ((u.input_tokens || 0) + (u.output_tokens || 0))
+                prompt_tokens: usage.input_tokens || usage.prompt_tokens || 0,
+                completion_tokens: usage.output_tokens || usage.completion_tokens || 0,
+                total_tokens: usage.total_tokens || ((usage.input_tokens || 0) + (usage.output_tokens || 0)),
+                prompt_tokens_details: {
+                    cached_tokens: usage.input_tokens_details?.cached_tokens || 0
+                },
+                completion_tokens_details: {
+                    reasoning_tokens: usage.output_tokens_details?.reasoning_tokens || 0
+                }
             };
         }
 
         if (finish_reason) {
-            this.openaiChatStreamStates.delete(resId);
+            this.openaiChatStreamStates.delete(stateKey);
         }
 
         return chunkObj;

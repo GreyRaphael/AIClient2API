@@ -1031,8 +1031,10 @@ export class GrokConverter extends BaseConverter {
 
         if (message.tool_calls) {
             for (const tc of message.tool_calls) {
+                const callId = tc.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
                 output.push({
-                    id: tc.id,
+                    id: callId.startsWith('fc_') ? callId : `fc_${callId}`,
+                    call_id: callId,
                     type: "function_call",
                     name: tc.function.name,
                     arguments: tc.function.arguments,

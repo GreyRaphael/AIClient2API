@@ -314,6 +314,7 @@ export class GeminiConverter extends BaseConverter {
 
         // OpenAI 规范要求同一次 completion 的所有 chunk 共享 id 与 created
         const { stateKey, identity } = this._getOpenAIStreamIdentity(requestId);
+        if (!Number.isInteger(identity.nextToolIndex)) identity.nextToolIndex = 0;
 
         let content = '';
         let reasoning_content = '';
@@ -339,7 +340,9 @@ export class GeminiConverter extends BaseConverter {
                 if (part.functionCall) {
                     sawPart = true;
                     toolCalls.push({
-                        index: toolCalls.length,
+                        // 请求级递增：Gemini 可能把多个 functionCall 分散在不同 chunk 中，
+                        // 若每个 chunk 从 0 开始，下游会把它们合并成同一个工具调用。
+                        index: identity.nextToolIndex++,
                         id: part.functionCall.id || `call_${uuidv4()}`,
                         type: 'function',
                         function: {
@@ -987,7 +990,7 @@ export class GeminiConverter extends BaseConverter {
                             events.push(...emitter.textDone());
                         }
 
-                        functionParts.forEach((part, index) => {
+                        functionParts.forEach(part => {
                             const callId = part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
                             const isCustom = part.functionCall.name === 'apply_patch';
                             let argsVal = '';
@@ -1002,11 +1005,13 @@ export class GeminiConverter extends BaseConverter {
                                 argsVal = this._stringifyGeminiFunctionArgs(part.functionCall.args);
                             }
 
-                            events.push(...emitter.toolCallStart(callId, part.functionCall.name, { index, isCustom }));
+                            // 以 callId 作为工具身份，而不是 chunk 内下标：
+                            // Gemini 的 functionCall 可能在后续 chunk 中才出现，下标会重复。
+                            events.push(...emitter.toolCallStart(callId, part.functionCall.name, { isCustom }));
                             if (argsVal) {
-                                events.push(...emitter.toolCallArgsDelta(index, argsVal));
+                                events.push(...emitter.toolCallArgsDelta(callId, argsVal));
                             }
-                            events.push(...emitter.toolCallDone(index));
+                            events.push(...emitter.toolCallDone(callId));
                         });
                     }
                 }

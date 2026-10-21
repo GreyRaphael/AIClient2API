@@ -364,7 +364,10 @@ export function getOpenAIStreamIdentity(store, requestId) {
     if (!store.has(stateKey)) {
         store.set(stateKey, {
             id: `chatcmpl-${uuidv4()}`,
-            created: Math.floor(Date.now() / 1000)
+            created: Math.floor(Date.now() / 1000),
+            // OpenAI Chat 的 tool_calls.index 必须在同一流内唯一且递增。
+            // 上游按 chunk 返回完整工具调用时，不能每个 chunk 重新从 0 计数。
+            nextToolIndex: 0
         });
     }
     return { stateKey, identity: store.get(stateKey) };
