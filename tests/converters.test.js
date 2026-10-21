@@ -1141,7 +1141,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
         }
     });
 
-    test('Phase 0.5: Claude -> Gemini 短签名请求侧原样透传', () => {
+    test('Phase 0.5: Claude -> Gemini 不再透传 Claude 真实签名', () => {
         const claudeConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.CLAUDE);
 
         const shortSigReq = {
@@ -1157,7 +1157,7 @@ describe('Grok -> Claude 委托透传 requestId', () => {
         const geminiReq = claudeConverter.toGeminiRequest(shortSigReq);
         const thinkingPart = geminiReq.contents[0].parts.find(p => p.thought);
         expect(thinkingPart).toBeDefined();
-        expect(thinkingPart.thoughtSignature).toBe('short_sig_123');
+        expect(thinkingPart.thoughtSignature).toBeUndefined();
     });
 
     test('Phase 3: Claude -> Responses 流式转换生命周期与输出项结构', () => {

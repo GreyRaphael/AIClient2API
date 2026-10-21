@@ -17,6 +17,7 @@ import {
     mapFinishReason,
     sanitizeToolId,
     clampClaudeMaxTokens,
+    anthropicUsageFromInclusiveInput,
     GEMINI_DEFAULT_MAX_TOKENS,
     GEMINI_DEFAULT_TEMPERATURE,
     GEMINI_DEFAULT_TOP_P,
@@ -33,6 +34,12 @@ import {
 } from '../thinking-budget.js';
 import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+import {
+    registerCustomTools,
+    isCustomTool,
+    customToolToFunction,
+    extractCustomToolInput
+} from '../custom-tool-registry.js';
 
 /**
  * OpenAI转换器类
@@ -53,11 +60,11 @@ export class OpenAIConverter extends BaseConverter {
     convertRequest(data, targetProtocol, requestId) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeRequest(data);
+                return this.toClaudeRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiRequest(data);
+                return this.toGeminiRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesRequest(data);
+                return this.toOpenAIResponsesRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
                 return this.toCodexRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.GROK:
@@ -75,9 +82,9 @@ export class OpenAIConverter extends BaseConverter {
         // 因为其他协议会转换到OpenAI格式
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeResponse(data, model);
+                return this.toClaudeResponse(data, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesResponse(data, model);
+                return this.toOpenAIResponsesResponse(data, model, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -137,7 +144,8 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * OpenAI请求 -> Claude请求
      */
-    toClaudeRequest(openaiRequest) {
+    toClaudeRequest(openaiRequest, requestId = null) {
+        registerCustomTools(requestId, openaiRequest.tools);
         const messages = openaiRequest.messages || [];
         const { systemInstruction, nonSystemMessages } = extractSystemMessages(messages);
 
@@ -373,6 +381,15 @@ export class OpenAIConverter extends BaseConverter {
             const mappedTools = openaiRequest.tools
                 .filter(t => t && ((t.function && t.function.name) || t.name))
                 .map(t => {
+                    if (t.type === 'custom') {
+                        const fn = customToolToFunction(t);
+                        if (!fn) return null;
+                        return {
+                            name: fn.name,
+                            description: fn.description,
+                            input_schema: fn.parameters
+                        };
+                    }
                     if (t.function) {
                         return {
                             name: t.function.name,
@@ -385,11 +402,18 @@ export class OpenAIConverter extends BaseConverter {
                         description: t.description || '',
                         input_schema: t.input_schema || { type: 'object', properties: {} }
                     };
-                });
+                })
+                .filter(Boolean);
             claudeRequest.tools = sortToolsByName(mappedTools);
             if (claudeRequest.tools.length > 0) {
                 claudeRequest.tool_choice = this.buildClaudeToolChoice(openaiRequest.tool_choice);
             }
+        }
+        if (claudeRequest.tools?.length > 0 && openaiRequest.parallel_tool_calls === false) {
+            claudeRequest.tool_choice = {
+                ...(claudeRequest.tool_choice || { type: 'auto' }),
+                disable_parallel_tool_use: true
+            };
         }
 
         // Optional passthrough: request-side "thinking" controls for Claude/Kiro.
@@ -397,6 +421,7 @@ export class OpenAIConverter extends BaseConverter {
         // We intentionally keep normalization minimal here; provider implementations
         // (e.g. Kiro) clamp budgets and apply defaults.
         const extThinking = openaiRequest?.extra_body?.anthropic?.thinking;
+        let thinkingExplicitlyDisabled = false;
         if (extThinking && typeof extThinking === 'object' && !Array.isArray(extThinking)) {
             const type = String(extThinking.type || '').toLowerCase().trim();
             if (type === 'enabled') {
@@ -414,12 +439,14 @@ export class OpenAIConverter extends BaseConverter {
                 const normalizedEffort = (effort === 'low' || effort === 'medium' || effort === 'high') ? effort : 'high';
                 claudeRequest.thinking = { type: 'adaptive', effort: normalizedEffort };
             } else if (type === 'disabled') {
-                // Explicitly disabled: omit thinking config.
+                // Explicitly disabled: omit thinking config and prevent reasoning_effort
+                // from silently re-enabling it.
+                thinkingExplicitlyDisabled = true;
             }
         }
 
-        // Map standard reasoning_effort to Claude thinking if not already provided
-        if (!claudeRequest.thinking && openaiRequest.reasoning_effort) {
+        // Map standard reasoning_effort to Claude thinking if not already provided.
+        if (!claudeRequest.thinking && !thinkingExplicitlyDisabled && openaiRequest.reasoning_effort) {
             const effort = String(openaiRequest.reasoning_effort).toLowerCase().trim();
             if (effort !== 'none') {
                 const budget = effortToClaudeBudget(effort);
@@ -438,10 +465,6 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        if (openaiRequest.reasoning_effort) {
-            claudeRequest.reasoning_effort = openaiRequest.reasoning_effort;
-        }
-
         return claudeRequest;
     }
 
@@ -452,22 +475,19 @@ export class OpenAIConverter extends BaseConverter {
      * @private
      */
     _openAIUsageToClaude(usage = {}) {
-        const promptTokens = usage?.prompt_tokens || 0;
-        const cachedTokens = usage?.prompt_tokens_details?.cached_tokens
-            ?? usage?.cached_tokens
-            ?? 0;
-        return {
-            input_tokens: Math.max(0, promptTokens - cachedTokens),
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: cachedTokens,
-            output_tokens: usage?.completion_tokens || 0
-        };
+        return anthropicUsageFromInclusiveInput({
+            inputTokens: usage?.prompt_tokens || 0,
+            cachedTokens: usage?.prompt_tokens_details?.cached_tokens
+                ?? usage?.cached_tokens
+                ?? 0,
+            outputTokens: usage?.completion_tokens || 0
+        });
     }
 
     /**
      * OpenAI响应 -> Claude响应
      */
-    toClaudeResponse(openaiResponse, model) {
+    toClaudeResponse(openaiResponse, model, requestId = null) {
         if (!openaiResponse || !openaiResponse.choices || openaiResponse.choices.length === 0) {
             return {
                 id: `msg_${uuidv4()}`,
@@ -543,7 +563,9 @@ export class OpenAIConverter extends BaseConverter {
                     type: "tool_use",
                     id: toolCall.id || "",
                     name: func.name || "",
-                    input: argObj,
+                    input: isCustomTool(requestId, func.name)
+                        ? { input: extractCustomToolInput(argObj) }
+                        : argObj,
                 });
             }
         }
@@ -818,7 +840,8 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * OpenAI请求 -> Gemini请求
      */
-    toGeminiRequest(openaiRequest) {
+    toGeminiRequest(openaiRequest, requestId = null) {
+        registerCustomTools(requestId, openaiRequest.tools);
         const messages = openaiRequest.messages || [];
         const model = openaiRequest.model || '';
         
@@ -1208,7 +1231,19 @@ export class OpenAIConverter extends BaseConverter {
             
             for (const t of openaiRequest.tools) {
                 if (!t || typeof t !== 'object') continue;
-                
+
+                if (t.type === 'custom') {
+                    const fn = customToolToFunction(t);
+                    if (fn) {
+                        functionDeclarations.push({
+                            name: fn.name,
+                            description: fn.description,
+                            parametersJsonSchema: polyfillAndCleanSchemaForGemini(fn.parameters)
+                        });
+                    }
+                    continue;
+                }
+
                 if (t.type === 'function' && t.function) {
                     const func = t.function;
                     let fnDecl = {
@@ -1398,7 +1433,8 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 将OpenAI请求转换为OpenAI Responses格式
      */
-    toOpenAIResponsesRequest(openaiRequest) {
+    toOpenAIResponsesRequest(openaiRequest, requestId = null) {
+        registerCustomTools(requestId, openaiRequest.tools);
         const effectiveMaxTokens = openaiRequest.max_completion_tokens !== undefined
             ? openaiRequest.max_completion_tokens
             : openaiRequest.max_tokens;
@@ -1554,12 +1590,23 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理工具
         if (openaiRequest.tools) {
-            responsesRequest.tools = sortToolsByName(openaiRequest.tools.map(t => ({
-                type: t.type || 'function',
-                name: t.function?.name,
-                description: t.function?.description,
-                parameters: t.function?.parameters
-            })));
+            responsesRequest.tools = sortToolsByName(openaiRequest.tools.map(t => {
+                if (t.type === 'custom') {
+                    return {
+                        type: 'custom',
+                        name: t.name || t.function?.name,
+                        description: t.description || t.function?.description || '',
+                        ...(t.format ? { format: t.format } : {})
+                    };
+                }
+                return {
+                    type: t.type || 'function',
+                    name: t.function?.name,
+                    description: t.function?.description,
+                    parameters: t.function?.parameters,
+                    ...(t.function?.strict !== undefined ? { strict: t.function.strict } : {})
+                };
+            }));
         }
 
         const toolChoice = this._mapOpenAIToolChoiceToResponses(openaiRequest.tool_choice);
@@ -1637,7 +1684,7 @@ export class OpenAIConverter extends BaseConverter {
         return { stateKey, emitter };
     }
 
-    toOpenAIResponsesResponse(openaiResponse, model) {
+    toOpenAIResponsesResponse(openaiResponse, model, requestId = null) {
         if (!openaiResponse || !openaiResponse.choices || !openaiResponse.choices[0]) {
             const responseId = `resp_${Date.now()}`;
             return {
@@ -1703,6 +1750,19 @@ export class OpenAIConverter extends BaseConverter {
         if (message.tool_calls && message.tool_calls.length > 0) {
             for (const tc of message.tool_calls) {
                 if (tc.type === 'function' && tc.function) {
+                    const custom = isCustomTool(requestId, tc.function.name);
+                    if (custom) {
+                        const parsedArgs = safeParseJSON(tc.function.arguments || '{}');
+                        output.push({
+                            type: 'custom_tool_call',
+                            id: this._buildResponsesFunctionItemId(tc.id),
+                            call_id: tc.id || `call_${Date.now()}`,
+                            name: tc.function.name,
+                            input: extractCustomToolInput(parsedArgs),
+                            status: 'completed'
+                        });
+                        continue;
+                    }
                     output.push({
                         type: 'function_call',
                         id: this._buildResponsesFunctionItemId(tc.id),
@@ -1803,10 +1863,20 @@ export class OpenAIConverter extends BaseConverter {
             for (const toolCall of delta.tool_calls) {
                 const toolIndex = toolCall.index ?? 0;
                 if (toolCall.function && (toolCall.function.name || toolCall.id)) {
-                    events.push(...emitter.toolCallStart(toolCall.id, toolCall.function.name, { index: toolIndex }));
+                    const custom = isCustomTool(requestId, toolCall.function?.name);
+                    events.push(...emitter.toolCallStart(toolCall.id, toolCall.function.name, {
+                        index: toolIndex,
+                        isCustom: custom
+                    }));
                 }
                 if (toolCall.function && toolCall.function.arguments) {
-                    events.push(...emitter.toolCallArgsDelta(toolIndex, toolCall.function.arguments));
+                    const key = emitter._findToolCallKey(toolIndex);
+                    const toolState = key !== null ? emitter.toolCalls.get(key) : null;
+                    if (toolState?.isCustom) {
+                        emitter.bufferToolCallArgs(toolIndex, toolCall.function.arguments);
+                    } else {
+                        events.push(...emitter.toolCallArgsDelta(toolIndex, toolCall.function.arguments));
+                    }
                 }
             }
         }
@@ -1832,6 +1902,12 @@ export class OpenAIConverter extends BaseConverter {
             }
 
             const usage = this._buildResponsesUsageFromOpenAIUsage(openaiChunk.usage);
+            // custom tool 的参数是增量 JSON，先累积完整后再折叠为自由文本 input。
+            for (const [key, toolState] of emitter.toolCalls.entries()) {
+                if (!toolState.isCustom || toolState.done) continue;
+                const parsed = safeParseJSON(toolState.arguments || '{}');
+                events.push(...emitter.toolCallCustomInput(key, extractCustomToolInput(parsed)));
+            }
             events.push(...emitter.complete(usage, { status, incompleteDetails }));
         }
 

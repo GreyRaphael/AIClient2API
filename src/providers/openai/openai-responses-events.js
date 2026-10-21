@@ -246,7 +246,7 @@ function generateResponseCompleted(state, usage) {
         }
         if (state.toolCalls && state.toolCalls.length > 0) {
           for (const tc of state.toolCalls) {
-            const isCustom = tc.type === 'custom_tool_call' || tc.name === 'apply_patch';
+            const isCustom = tc.type === 'custom_tool_call';
             if (isCustom) {
               items.push({
                 id: tc.id,

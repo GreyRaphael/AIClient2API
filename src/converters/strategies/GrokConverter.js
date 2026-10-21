@@ -11,6 +11,10 @@ import { StreamSessionStore } from '../stream-session.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ConverterFactory } from '../ConverterFactory.js';
+import {
+    isCustomTool,
+    extractCustomToolInput
+} from '../custom-tool-registry.js';
 
 /**
  * Grok转换器类
@@ -410,12 +414,12 @@ export class GrokConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data, targetProtocol, model) {
+    convertResponse(data, targetProtocol, model, requestId = null) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesResponse(data, model);
+                return this.toOpenAIResponsesResponse(data, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE: {
                 const openaiRes = this.toOpenAIResponse(data, model);
                 if (!openaiRes) return data;
@@ -759,9 +763,8 @@ export class GrokConverter extends BaseConverter {
         if (resp.isDone) {
             let finalContent = "";
             
-            // 如果思考块未关闭，在此关闭
+            // 如果思考块未关闭，仅清理状态；思考文本已通过 reasoning_content 下发。
             if (state.think_opened) {
-                finalContent += "\n</think>\n";
                 state.think_opened = false;
             }
 
@@ -910,15 +913,14 @@ export class GrokConverter extends BaseConverter {
             if (state.content_started && inThink && !state.image_think_active && !state.video_think_active) {
                 // 跳过不展示
             } else if (inThink) {
+                // 思考内容只走 reasoning_content；不要再写入正文，否则下游会看到
+                // 同一段思考两次（一次 reasoning、一次 <think> 正文）。
                 if (!state.think_opened) {
-                    deltaContent += "<think>\n";
                     state.think_opened = true;
                 }
                 deltaReasoning += filtered;
-                deltaContent += filtered;
             } else {
                 if (state.think_opened) {
-                    deltaContent += "\n</think>\n";
                     state.think_opened = false;
                     state.content_started = true;
                 }
@@ -1005,7 +1007,7 @@ export class GrokConverter extends BaseConverter {
     /**
      * Grok响应 -> OpenAI Responses响应
      */
-    toOpenAIResponsesResponse(grokResponse, model) {
+    toOpenAIResponsesResponse(grokResponse, model, requestId = null) {
         const openaiRes = this.toOpenAIResponse(grokResponse, model);
         if (!openaiRes) return null;
 
@@ -1029,17 +1031,45 @@ export class GrokConverter extends BaseConverter {
             content: content
         });
 
+        if (message.reasoning_content) {
+            output.unshift({
+                id: `rs_${uuidv4().replace(/-/g, '')}`,
+                type: 'reasoning',
+                status: 'completed',
+                summary: [{ type: 'summary_text', text: message.reasoning_content }]
+            });
+        }
+
         if (message.tool_calls) {
             for (const tc of message.tool_calls) {
                 const callId = tc.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
-                output.push({
-                    id: callId.startsWith('fc_') ? callId : `fc_${callId}`,
-                    call_id: callId,
-                    type: "function_call",
-                    name: tc.function.name,
-                    arguments: tc.function.arguments,
-                    status: "completed"
-                });
+                const name = tc.function.name;
+                if (isCustomTool(requestId, name)) {
+                    const parsed = (() => {
+                        try {
+                            return JSON.parse(tc.function.arguments || '{}');
+                        } catch {
+                            return tc.function.arguments;
+                        }
+                    })();
+                    output.push({
+                        id: callId.startsWith('fc_') ? callId : `fc_${callId}`,
+                        call_id: callId,
+                        type: "custom_tool_call",
+                        name,
+                        input: extractCustomToolInput(parsed),
+                        status: "completed"
+                    });
+                } else {
+                    output.push({
+                        id: callId.startsWith('fc_') ? callId : `fc_${callId}`,
+                        call_id: callId,
+                        type: "function_call",
+                        name,
+                        arguments: tc.function.arguments,
+                        status: "completed"
+                    });
+                }
             }
         }
 
@@ -1114,11 +1144,23 @@ export class GrokConverter extends BaseConverter {
                 delta.tool_calls.forEach((tc, indexInChunk) => {
                     const index = tc.index ?? indexInChunk;
                     const callId = tc.id || `call_${stateKey}_${index}`;
-                    if (tc.function?.name || tc.id) {
-                        events.push(...emitter.toolCallStart(callId, tc.function?.name, { index }));
+                    const name = tc.function?.name;
+                    const custom = isCustomTool(requestId, name);
+                    if (name || tc.id) {
+                        events.push(...emitter.toolCallStart(callId, name, { index, isCustom: custom }));
                     }
                     if (tc.function?.arguments) {
-                        events.push(...emitter.toolCallArgsDelta(index, tc.function.arguments));
+                        if (custom) {
+                            let parsed = tc.function.arguments;
+                            try {
+                                parsed = JSON.parse(tc.function.arguments);
+                            } catch {
+                                // 保持原始字符串
+                            }
+                            events.push(...emitter.toolCallCustomInput(index, extractCustomToolInput(parsed)));
+                        } else {
+                            events.push(...emitter.toolCallArgsDelta(index, tc.function.arguments));
+                        }
                     }
                 });
             }

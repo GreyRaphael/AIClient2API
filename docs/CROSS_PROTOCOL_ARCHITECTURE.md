@@ -86,6 +86,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 | 机制 | 位置 | 作用 |
 |---|---|---|
 | Schema Polyfill | `src/converters/schema-polyfill.js` | 将复杂 JSON Schema 降级为 Gemini / Trae 可接受的纯 Schema，并把约束注入 description |
+| Custom Tool Registry | `src/converters/custom-tool-registry.js` | 请求级记录 `type: "custom"` 工具；在 OpenAI/Claude/Gemini 侧降级为 function，响应侧还原为 `custom_tool_call`，Codex 侧原生保留 |
 | Signature Vault | `src/converters/signature-vault.js` | 对跨协议 thinking signature 做虚拟签名/剥离，避免上游 400 |
 | Usage Normalizer | `src/utils/usage-normalizer.js` | 统一各协议 usage 字段与缓存 token 统计 |
 | Retry / Fallback | `src/handlers/request-pipeline.js`、`src/services/service-manager.js` | 空响应重试、凭证切换、跨 provider fallback |
@@ -111,7 +112,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 |---|---|
 | [`docs/PROVIDER_ADAPTER_GUIDE.md`](./PROVIDER_ADAPTER_GUIDE.md) | 新增 provider 的接入契约 |
 | [`docs/CONVERTER_STREAM_DESIGN.md`](./CONVERTER_STREAM_DESIGN.md) | 流式共享层设计 |
-| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1.md`](./CROSS_PROTOCOL_EVALUATION_V4_1.md) | v4.1.0 跨协议转译复评、18 组合矩阵、P0/P1 整改结果与残留清单 |
+| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_1.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_1.md) | v4.1.1 跨协议转译复评、18 组合矩阵、修复验证、新发现 P1/P2 与残留清单 |
 | [`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) | v1.6.0 历史评估快照（24 组合，已不适用于 v4 协议面） |
 | [`docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`](./archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md) | Phase 0-4 历史实施记录 |
 | [`docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`](./TRAE_CHANNELS_UPSTREAM_GUIDE.md) | Trae 三通道上游细节 |

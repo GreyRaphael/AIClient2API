@@ -367,11 +367,60 @@ export class ResponsesSseEmitter {
         if (key === null) return events;
         const toolState = this.toolCalls.get(key);
         toolState.arguments += delta;
+        if (toolState.isCustom) {
+            this._pushEvent(events, {
+                type: "response.custom_tool_call_input.delta",
+                item_id: toolState.itemId,
+                output_index: toolState.outputIndex,
+                delta: delta
+            });
+        } else {
+            this._pushEvent(events, {
+                type: "response.function_call_arguments.delta",
+                item_id: toolState.itemId,
+                output_index: toolState.outputIndex,
+                delta: delta
+            });
+        }
+        return events;
+    }
+
+    /**
+     * 仅累积工具参数，不发送事件。
+     * 用于 custom tool：上游只给 JSON 参数增量，需要等完整参数后再折叠为自由文本 input。
+     * @param {string|number} idOrIndex
+     * @param {string} delta
+     */
+    bufferToolCallArgs(idOrIndex, delta) {
+        if (this.done || !delta) return;
+        const key = this._findToolCallKey(idOrIndex);
+        if (key === null) return;
+        const toolState = this.toolCalls.get(key);
+        if (!toolState || toolState.done) return;
+        toolState.arguments += delta;
+    }
+
+    /**
+     * 设置 custom tool 的完整自由文本 input，并发送一次 input.delta。
+     * 适用于上游一次性返回完整参数、Converter 需要把 JSON 参数折叠为 custom input 的场景。
+     * @param {string|number} idOrIndex
+     * @param {string} input
+     * @returns {Array}
+     */
+    toolCallCustomInput(idOrIndex, input) {
+        if (this.done || input === null || input === undefined) return [];
+        const key = this._findToolCallKey(idOrIndex);
+        if (key === null) return [];
+        const toolState = this.toolCalls.get(key);
+        if (!toolState || !toolState.isCustom || toolState.done) return [];
+        const value = String(input);
+        toolState.arguments = value;
+        const events = [];
         this._pushEvent(events, {
-            type: "response.function_call_arguments.delta",
+            type: "response.custom_tool_call_input.delta",
             item_id: toolState.itemId,
             output_index: toolState.outputIndex,
-            delta: delta
+            delta: value
         });
         return events;
     }
@@ -390,13 +439,22 @@ export class ResponsesSseEmitter {
             events.push(...this.toolCallStart(toolState.callId, toolState.name, { index: toolState.key }));
         }
         toolState.done = true;
-        this._pushEvent(events, {
-            type: "response.function_call_arguments.done",
-            item_id: toolState.itemId,
-            output_index: toolState.outputIndex,
-            arguments: toolState.arguments || "{}"
-        });
         const isCustom = toolState.isCustom;
+        if (isCustom) {
+            this._pushEvent(events, {
+                type: "response.custom_tool_call_input.done",
+                item_id: toolState.itemId,
+                output_index: toolState.outputIndex,
+                input: toolState.arguments || ""
+            });
+        } else {
+            this._pushEvent(events, {
+                type: "response.function_call_arguments.done",
+                item_id: toolState.itemId,
+                output_index: toolState.outputIndex,
+                arguments: toolState.arguments || "{}"
+            });
+        }
         this._pushEvent(events, {
             type: "response.output_item.done",
             output_index: toolState.outputIndex,

@@ -10,10 +10,15 @@ import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import {
     mapFinishReason,
-    getOpenAIStreamIdentity
+    getOpenAIStreamIdentity,
+    anthropicUsageFromInclusiveInput
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
+import {
+    isCustomTool,
+    extractCustomToolInput
+} from '../custom-tool-registry.js';
 
 /**
  * 修复 Gemini 返回的工具参数名称问题
@@ -168,14 +173,14 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data, targetProtocol, model) {
+    convertResponse(data, targetProtocol, model, requestId = null) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesResponse(data, model);
+                return this.toOpenAIResponsesResponse(data, model, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -361,15 +366,12 @@ export class GeminiConverter extends BaseConverter {
         }
 
         // 处理finishReason（映射表统一收编至 converters/utils.js 的 mapFinishReason）
+        // 只有上游明确给出 finishReason 时才写终止原因；工具 chunk 本身不是流终点。
+        // 若在工具 chunk 上提前写 tool_calls，Agent 客户端会把该 chunk 当作流结束，
+        // 从而丢掉后续正文/工具参数。最终 STOP 帧由 pipeline 的 hasToolCall 逻辑覆盖。
         let finishReason = null;
         if (candidate.finishReason) {
             finishReason = mapFinishReason(candidate.finishReason, 'gemini', 'openai');
-        }
-
-        // [FIX] 适配 Gemini 流式：Gemini 的最后一条流式消息通常不带 functionCall
-        // 如果当前 chunk 包含工具调用，直接将其标记为 tool_calls
-        if (toolCalls.length > 0) {
-            finishReason = 'tool_calls';
         }
 
         // 构建delta对象
@@ -510,12 +512,11 @@ export class GeminiConverter extends BaseConverter {
             model: model,
             stop_reason: stopReason,
             stop_sequence: null,
-            usage: {
-                input_tokens: geminiResponse.usageMetadata?.promptTokenCount || 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: geminiResponse.usageMetadata?.cachedContentTokenCount || 0,
-                output_tokens: geminiResponse.usageMetadata?.candidatesTokenCount || 0
-            }
+            usage: anthropicUsageFromInclusiveInput({
+                inputTokens: geminiResponse.usageMetadata?.promptTokenCount || 0,
+                cachedTokens: geminiResponse.usageMetadata?.cachedContentTokenCount || 0,
+                outputTokens: geminiResponse.usageMetadata?.candidatesTokenCount || 0
+            })
         };
     }
 
@@ -574,11 +575,10 @@ export class GeminiConverter extends BaseConverter {
             output_tokens: 0
         }));
 
-        const buildTerminalUsage = () => ({
-            input_tokens: entry.latestUsage?.promptTokenCount || 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: entry.latestUsage?.cachedContentTokenCount || 0,
-            output_tokens: entry.latestUsage?.candidatesTokenCount || 0
+        const buildTerminalUsage = () => anthropicUsageFromInclusiveInput({
+            inputTokens: entry.latestUsage?.promptTokenCount || 0,
+            cachedTokens: entry.latestUsage?.cachedContentTokenCount || 0,
+            outputTokens: entry.latestUsage?.candidatesTokenCount || 0
         });
 
         const candidate = geminiChunk.candidates?.[0];
@@ -601,20 +601,18 @@ export class GeminiConverter extends BaseConverter {
                     }
 
                     // 思考签名（可独立于 text 出现）
+                    // Gemini thoughtSignature 不能直接复用为 Anthropic signature，
+                    // 跨协议统一铸造 vsig1；关闭 vault 时不发签名。
                     const rawSignature = part.thoughtSignature || part.thought_signature;
-                    if (rawSignature && part.thought === true) {
+                    if (rawSignature && part.thought === true && isSignatureVaultEnabled()) {
                         ensureMessageStart();
-                        const { events: openEvents } = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
+                        const { events: openEvents, index } = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
                         events.push(...openEvents);
-                        let signature = rawSignature;
-                        try {
-                            const decoded = Buffer.from(signature, 'base64').toString('utf-8');
-                            if (decoded && decoded.length > 0 && !decoded.includes('\ufffd')) {
-                                signature = decoded;
-                            }
-                        } catch (e) {
-                            // 解码失败，保持原样
-                        }
+                        const signature = mintVirtualSignature({
+                            sessionKey: requestId || 'gemini',
+                            blockIndex: index,
+                            thinkingText: part.text || ''
+                        });
                         events.push(emitter.delta({ type: 'signature_delta', signature }));
                     }
 
@@ -686,21 +684,9 @@ export class GeminiConverter extends BaseConverter {
                                 type: 'thinking',
                                 thinking: part.text
                             };
-                            // 处理签名
-                            // [FIX] 同时检查 thoughtSignature 和 thought_signature
-                            const rawSignature = part.thoughtSignature || part.thought_signature;
-                            if (rawSignature) {
-                                let signature = rawSignature;
-                                try {
-                                    const decoded = Buffer.from(signature, 'base64').toString('utf-8');
-                                    if (decoded && decoded.length > 0 && !decoded.includes('\ufffd')) {
-                                        signature = decoded;
-                                    }
-                                } catch (e) {
-                                    // 解码失败，保持原样
-                                }
-                                thinkingBlock.signature = signature;
-                            } else if (isSignatureVaultEnabled()) {
+                            // Gemini 的 thoughtSignature 只对 Gemini 有效，不能直接作为
+                            // Anthropic thinking.signature 交给客户端；跨协议统一铸造 vsig1。
+                            if (isSignatureVaultEnabled()) {
                                 thinkingBlock.signature = mintVirtualSignature({
                                     sessionKey: geminiResponse.id || 'gemini',
                                     blockIndex: content.length,
@@ -737,21 +723,6 @@ export class GeminiConverter extends BaseConverter {
                             name: toolName,
                             input: remappedArgs
                         };
-                        // 添加签名（如果存在）
-                        // [FIX] 同时检查 thoughtSignature 和 thought_signature
-                        const rawSignature = part.thoughtSignature || part.thought_signature;
-                        if (rawSignature) {
-                            let signature = rawSignature;
-                            try {
-                                const decoded = Buffer.from(signature, 'base64').toString('utf-8');
-                                if (decoded && decoded.length > 0 && !decoded.includes('\ufffd')) {
-                                    signature = decoded;
-                                }
-                            } catch (e) {
-                                // 解码失败，保持原样
-                            }
-                            toolUseBlock.signature = signature;
-                        }
                         content.push(toolUseBlock);
                     }
                 }
@@ -806,7 +777,7 @@ export class GeminiConverter extends BaseConverter {
         return { stateKey, emitter };
     }
 
-    toOpenAIResponsesResponse(geminiResponse, model) {
+    toOpenAIResponsesResponse(geminiResponse, model, requestId = null) {
         const { content, reasoning_content } = this.processGeminiResponseContent(geminiResponse);
         const textContent = typeof content === 'string' ? content : JSON.stringify(content);
 
@@ -820,14 +791,26 @@ export class GeminiConverter extends BaseConverter {
                 for (const part of parts) {
                     if (part.functionCall) {
                         const callId = part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
-                        toolCalls.push({
-                            id: this._buildResponsesFunctionItemId(callId),
-                            call_id: callId,
-                            type: "function_call",
-                            name: part.functionCall.name,
-                            arguments: this._stringifyGeminiFunctionArgs(part.functionCall.args),
-                            status: "completed"
-                        });
+                        const name = part.functionCall.name;
+                        if (isCustomTool(requestId, name)) {
+                            toolCalls.push({
+                                id: this._buildResponsesFunctionItemId(callId),
+                                call_id: callId,
+                                type: "custom_tool_call",
+                                name,
+                                input: extractCustomToolInput(part.functionCall.args),
+                                status: "completed"
+                            });
+                        } else {
+                            toolCalls.push({
+                                id: this._buildResponsesFunctionItemId(callId),
+                                call_id: callId,
+                                type: "function_call",
+                                name,
+                                arguments: this._stringifyGeminiFunctionArgs(part.functionCall.args),
+                                status: "completed"
+                            });
+                        }
                     }
                 }
             }
@@ -1005,23 +988,22 @@ export class GeminiConverter extends BaseConverter {
 
                         functionParts.forEach(part => {
                             const callId = part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
-                            const isCustom = part.functionCall.name === 'apply_patch';
-                            let argsVal = '';
-                            if (isCustom) {
-                                const rawArgs = part.functionCall.args;
-                                if (typeof rawArgs === 'string') {
-                                    argsVal = rawArgs;
-                                } else if (rawArgs && typeof rawArgs === 'object') {
-                                    argsVal = rawArgs.patch || rawArgs.input || rawArgs.content || JSON.stringify(rawArgs);
-                                }
-                            } else {
-                                argsVal = this._stringifyGeminiFunctionArgs(part.functionCall.args);
-                            }
+                            const name = part.functionCall.name;
+                            // 只有请求侧登记为 custom 的工具才还原 custom 语义；
+                            // 普通 function 即使叫 apply_patch 也保持 function_call。
+                            const isCustom = isCustomTool(requestId, name);
+                            const argsVal = isCustom
+                                ? extractCustomToolInput(part.functionCall.args)
+                                : this._stringifyGeminiFunctionArgs(part.functionCall.args);
 
                             // 以 callId 作为工具身份，而不是 chunk 内下标：
                             // Gemini 的 functionCall 可能在后续 chunk 中才出现，下标会重复。
-                            events.push(...emitter.toolCallStart(callId, part.functionCall.name, { isCustom }));
-                            if (argsVal) {
+                            events.push(...emitter.toolCallStart(callId, name, { isCustom }));
+                            if (isCustom) {
+                                if (argsVal) {
+                                    events.push(...emitter.toolCallCustomInput(callId, argsVal));
+                                }
+                            } else if (argsVal) {
                                 events.push(...emitter.toolCallArgsDelta(callId, argsVal));
                             }
                             events.push(...emitter.toolCallDone(callId));

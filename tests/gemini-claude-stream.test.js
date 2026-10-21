@@ -6,6 +6,7 @@
  */
 
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
+import { isVirtualSignature } from '../src/converters/signature-vault.js';
 
 describe('Gemini -> Claude stream 事件序列合规', () => {
     test('message_start 开头、块 index 递增、tool_use 收尾、message_stop 结尾', () => {
@@ -53,7 +54,7 @@ describe('Gemini -> Claude stream 事件序列合规', () => {
         const messageDelta = all.find(e => e.type === 'message_delta');
         expect(messageDelta.delta.stop_reason).toBe('tool_use');
         expect(messageDelta.usage).toMatchObject({
-            input_tokens: 10,
+            input_tokens: 7,
             output_tokens: 5,
             cache_read_input_tokens: 3
         });
@@ -109,6 +110,7 @@ describe('Gemini -> Claude stream 事件序列合规', () => {
 
         const sigDelta = all.find(e => e.delta?.type === 'signature_delta');
         expect(sigDelta).toBeDefined();
-        expect(sigDelta.delta.signature).toBe('gemini_golden_sig_xyz');
+        // Gemini thoughtSignature 不能直接复用为 Anthropic signature，跨协议应铸造 vsig1。
+        expect(isVirtualSignature(sigDelta.delta.signature)).toBe(true);
     });
 });

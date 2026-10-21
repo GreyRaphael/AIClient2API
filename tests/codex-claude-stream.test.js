@@ -69,7 +69,7 @@ describe('B3: Codex -> Claude 纯文本流', () => {
         expect(events[5]).toEqual({
             type: 'message_delta',
             delta: { stop_reason: 'end_turn', stop_sequence: null },
-            usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 2 }
+            usage: { input_tokens: 8, output_tokens: 5, cache_read_input_tokens: 2, cache_creation_input_tokens: 0 }
         });
         expect(events[6].type).toBe('message_stop');
 
