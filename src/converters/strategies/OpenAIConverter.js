@@ -855,34 +855,18 @@ export class OpenAIConverter extends BaseConverter {
             const content = message.content;
 
             if (role === 'system' || role === 'developer') {
-                // system -> system_instruction（多条 system/developer 必须按顺序拼接，不能覆盖）
-                if (messages.length > 1) {
-                    if (typeof content === 'string') {
-                        if (content) systemParts.push({ text: content });
-                    } else if (Array.isArray(content)) {
-                        content.forEach(item => {
-                            if (item && item.type === 'text' && item.text) {
-                                systemParts.push({ text: item.text });
-                            }
-                        });
-                    } else if (content && typeof content === 'object' && content.type === 'text' && content.text) {
-                        systemParts.push({ text: content.text });
-                    }
-                } else {
-                    // 只有一条 system 消息时，作为 user 消息处理
-                    const node = { role: 'user', parts: [] };
-                    if (typeof content === 'string') {
-                        node.parts.push({ text: content });
-                    } else if (Array.isArray(content)) {
-                        for (const item of content) {
-                            if (item.type === 'text' && item.text) {
-                                node.parts.push({ text: item.text });
-                            }
+                // system -> system_instruction（多条 system/developer 必须按顺序拼接，不能覆盖）。
+                // 即使请求只有 system 消息，也不能把它降级为 user turn：角色语义必须保留。
+                if (typeof content === 'string') {
+                    if (content) systemParts.push({ text: content });
+                } else if (Array.isArray(content)) {
+                    content.forEach(item => {
+                        if (item && item.type === 'text' && item.text) {
+                            systemParts.push({ text: item.text });
                         }
-                    }
-                    if (node.parts.length > 0) {
-                        processedMessages.push(node);
-                    }
+                    });
+                } else if (content && typeof content === 'object' && content.type === 'text' && content.text) {
+                    systemParts.push({ text: content.text });
                 }
             } else if (role === 'user') {
                 // user -> user content

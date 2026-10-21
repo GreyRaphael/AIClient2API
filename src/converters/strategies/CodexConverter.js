@@ -1072,17 +1072,6 @@ export class CodexConverter extends BaseConverter {
             return results.length === 1 ? results[0] : results;
         }
 
-        if (type === 'response.reasoning_summary_text.done') {
-            const template = buildTemplate();
-            template.choices[0].delta = {
-                role: 'assistant',
-                content: null,
-                reasoning_content: '\n\n',
-                tool_calls: null
-            };
-            return template;
-        }
-
         if (type === 'response.output_text.delta') {
             const results = [];
             // 如果是第一个内容 chunk，先发送带 role 的 chunk

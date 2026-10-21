@@ -2025,6 +2025,10 @@ export class ClaudeConverter extends BaseConverter {
                 emitter.currentToolCallId = null;
             } else if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
                 events.push(...emitter.reasoningDone());
+            } else if (emitter.textStarted && !emitter.textDoneFlag) {
+                // Anthropic 的 content_block_stop 是块结束信号，Responses 的
+                // output_item.done 必须在这里发出，不能拖到 response.completed。
+                events.push(...emitter.textDone());
             }
         }
 
