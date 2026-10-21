@@ -1,6 +1,6 @@
 # AIClient2API 跨协议转译复评（v4.1.2）
 
-- 状态：当前有效
+- 状态：历史（已被 [`CROSS_PROTOCOL_EVALUATION_V4_1_3.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_3.md) 取代；保留为 v4.1.3 修复依据）
 - 评估对象：`773417d3`（merge v4.1.2）/ `VERSION = 4.1.2`（2026-10-21）
 - 测试基线：`npm test -- --runInBand` = **26 suites / 376 tests 全绿**（本地实测，4.23s）
 - 联网 E2E：2026-10-21 对本机运行中的网关 `127.0.0.1:3000` 实测 **15 / 18 个协议组合**（5 个上游协议 × 3 个下游，7 个 provider 节点），首轮 36 次调用 + 9 次复核 + 定向 provider 补测

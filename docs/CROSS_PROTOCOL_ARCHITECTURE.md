@@ -112,8 +112,9 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 |---|---|
 | [`docs/PROVIDER_ADAPTER_GUIDE.md`](./PROVIDER_ADAPTER_GUIDE.md) | 新增 provider 的接入契约 |
 | [`docs/CONVERTER_STREAM_DESIGN.md`](./CONVERTER_STREAM_DESIGN.md) | 流式共享层设计 |
-| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_2.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_2.md) | v4.1.2 跨协议转译复评、18 组合矩阵、修复验证、残留 P1/P2 与代码质量清单 |
-| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_1.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_1.md) | 上一轮（v4.1.1）跨协议转译复评与 v4.1.2 整改依据 |
+| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_3.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_3.md) | v4.1.3 修复结果、最终 43/43 联网 E2E 与剩余能力上限 |
+| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_2.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_2.md) | 上一轮（v4.1.2）跨协议转译复评与 v4.1.3 修复依据 |
+| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_1.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_1.md) | 历史（v4.1.1）跨协议转译复评与 v4.1.2 整改依据 |
 | [`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) | v1.6.0 历史评估快照（24 组合，已不适用于 v4 协议面） |
 | [`docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`](./archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md) | Phase 0-4 历史实施记录 |
 | [`docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`](./TRAE_CHANNELS_UPSTREAM_GUIDE.md) | Trae 三通道上游细节 |
