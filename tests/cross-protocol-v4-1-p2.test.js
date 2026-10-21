@@ -25,9 +25,10 @@ describe('v4.1 P2 regressions', () => {
         }, 'claude-x', reqId);
 
         expect(finalChunk.usage).toMatchObject({
-            prompt_tokens: 11,
+            // Anthropic input_tokens=11 不含 cache_read=3；OpenAI prompt_tokens 为输入总量。
+            prompt_tokens: 14,
             completion_tokens: 7,
-            total_tokens: 18,
+            total_tokens: 21,
             cached_tokens: 3
         });
 
@@ -39,9 +40,9 @@ describe('v4.1 P2 regressions', () => {
         ].flatMap(chunk => flat(responsesConverter.toOpenAIResponsesStreamChunk(chunk, 'claude-x', 'v41_claude_usage_responses')));
         const completed = events.find(e => e.type === 'response.completed');
         expect(completed.response.usage).toMatchObject({
-            input_tokens: 11,
+            input_tokens: 14,
             output_tokens: 7,
-            total_tokens: 18
+            total_tokens: 21
         });
     });
 

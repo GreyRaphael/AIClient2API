@@ -111,7 +111,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 |---|---|
 | [`docs/PROVIDER_ADAPTER_GUIDE.md`](./PROVIDER_ADAPTER_GUIDE.md) | 新增 provider 的接入契约 |
 | [`docs/CONVERTER_STREAM_DESIGN.md`](./CONVERTER_STREAM_DESIGN.md) | 流式共享层设计 |
-| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1.md`](./CROSS_PROTOCOL_EVALUATION_V4_1.md) | v4.0.1 当前跨协议转译复评、18 组合矩阵与 v4.1 修复清单 |
+| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1.md`](./CROSS_PROTOCOL_EVALUATION_V4_1.md) | v4.1.0 跨协议转译复评、18 组合矩阵、P0/P1 整改结果与残留清单 |
 | [`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) | v1.6.0 历史评估快照（24 组合，已不适用于 v4 协议面） |
 | [`docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`](./archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md) | Phase 0-4 历史实施记录 |
 | [`docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`](./TRAE_CHANNELS_UPSTREAM_GUIDE.md) | Trae 三通道上游细节 |

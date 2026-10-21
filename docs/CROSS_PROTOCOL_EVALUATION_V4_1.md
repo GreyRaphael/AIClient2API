@@ -1,10 +1,12 @@
-# AIClient2API v4.0.1 跨协议转译复评与 v4.1 修复清单
+# AIClient2API 跨协议转译复评、v4.1 修复与 P0/P1 整改
 
 - 状态：当前有效评估
-- 评估版本：v4.0.1（2026-10-21）
-- 评估基线：`npm test -- --runInBand` = 21 suites / 327 tests 全绿
+- 评估版本：v4.0.1 初评 → v4.1.0 复评（2026-10-21）
+- 初始评估基线：`npm test -- --runInBand` = 21 suites / 327 tests 全绿
+- v4.1 修复后基线：24 suites / 344 tests 全绿
+- P0/P1 整改后基线：**25 suites / 356 tests 全绿**
 - 架构入口：[`CROSS_PROTOCOL_ARCHITECTURE.md`](./CROSS_PROTOCOL_ARCHITECTURE.md)
-- 修复状态：P1 / P2 清单已按第 6 节顺序落地，回归基线 22 suites / 344 tests 全绿；详见第 7 节
+- 说明：第 1–7 节保留 v4.0.1 初评与 v4.1 修复记录；第 8 节为 v4.1.0 最新代码复评及本轮 P0/P1 整改结果
 
 ---
 
@@ -239,8 +241,8 @@ Responses API 要求 `image_url` 为字符串。OpenAI → Responses 已修，�
 
 验证：
 
-- `npm test -- --runInBand` = **22 suites / 344 tests 全绿**
-- 新增 `tests/cross-protocol-v4-1-fixes.test.js`，覆盖真实 Responses delta 形状、跨 chunk 工具、custom tool、usage 合并、多模态与 incomplete 收尾。
+- `npm test -- --runInBand` = **24 suites / 344 tests 全绿**
+- 新增 `tests/cross-protocol-v4-1-p1/p2/p3.test.js`，覆盖真实 Responses delta 形状、跨 chunk 工具、custom tool、usage 合并、多模态与 incomplete 收尾。
 
 本轮未纳入的项：
 
@@ -248,3 +250,88 @@ Responses API 要求 `image_url` 为字符串。OpenAI → Responses 已修，�
 - OpenAI Chat 上游的 `stream_options.include_usage` 注入：需要处理“finish 帧先于 usage 帧”的时序，暂不默认开启。
 - Provider 特例：Kiro 历史图片裁剪、Zed 重写、Trae 参数字符串化、Grok 文本模拟链路。
 - 真实上游 golden fixture 矩阵与 provider 端到端测试：仍建议作为下一阶段工作。
+
+---
+
+## 8. v4.1.0 复评与 P0/P1 整改（2026-10-21）
+
+### 8.1 复评结论
+
+对 v4.1.0 最新代码按真实事件形状重新检查后，结论如下：
+
+- **综合约 3.6 / 5**；文本主链路约 4.2~4.3，Agent 工具链与流式约 3.3~3.4。
+- v4.1 已落地的 P1/P2 修复总体有效，但复评发现 **Codex 非流式工具链 P0 崩溃**、Claude → Codex URL 图片静默丢失、Claude → Gemini `stop_sequences` 丢失等新问题。
+- 测试基线虽全绿，但原测试未覆盖 Codex 非流式工具、Claude → Codex URL 媒体等路径。
+
+### 8.2 v4.1.0 复评矩阵
+
+| 下游 \ 上游 | `openai` | `openaiResponses` | `claude` | `gemini` | `codex` | `grok` |
+|---|---|---|---|---|---|---|
+| **OpenAI Chat** | T0/T1 | T1~2 | T1~2 | T1~2 | T2（流式 T1；非流式工具曾 P0） | T2~3 |
+| **OpenAI Responses** | T1~2 | T0/T0~1 | T1~2 | T1~2 | T1（流式）/ 非流式工具曾 P0 | T2~3 |
+| **Anthropic Messages** | T1~2 | T1~2 | T0~1 | T1~2 | T1~2（多模态 T2） | T2~3 |
+
+维度评分：
+
+| 维度 | 评分 |
+|---|---:|
+| System / Instructions | 4.5 |
+| 多轮角色交替 | 4.5 |
+| 思考 / Reasoning | 3.6 |
+| 工具 / JSON Schema | 3.4（整改后回升至约 3.7） |
+| Prompt Caching | 2.5 |
+| 多模态 | 3.0 |
+| 流式状态机 | 3.7 |
+
+### 8.3 本轮已整改（P0 / P1）
+
+- **P0-1 Codex 非流式 `requestId is not defined`**
+  - `CodexConverter.toOpenAIResponse` / `toOpenAIResponsesResponse` 补齐 `requestId` 参数。
+  - Codex → OpenAI Chat / Responses 非流式工具调用不再抛 `ReferenceError`。
+- **P0-2 Codex → Responses 非流式 `function_call` 缺 `call_id`**
+  - 同时输出 `id: fc_*` 与 `call_id`，恢复 `function_call_output` 回传链路。
+- **P0-3 Claude → Codex URL 媒体静默丢失**
+  - URL 图片映射为 `input_image.image_url`。
+  - URL document 保留带 URL 的文本兜底并输出 warn 日志；无 data/URL 的块也不再静默消失。
+- **P1-1 Claude → Gemini 丢失 `stop_sequences`**
+  - 映射为 Gemini `generationConfig.stopSequences`。
+- **P1-2 Responses → Claude 终止时未关闭内容块**
+  - `response.completed/incomplete` 时补齐所有未关闭 text / reasoning / tool 块的 `content_block_stop`，并按需补虚拟签名。
+- **P1-3 OpenAI 上游流式 usage 缺失**
+  - 管道在 Claude / Responses 下游 + OpenAI 上游跨协议流式场景下设置不可枚举内部标记；`OpenAIApiService` 据此注入 `stream_options.include_usage`，标记本身不会发送到上游。
+  - `OpenAIApiService` 暂存 finish 帧，与后续 usage-only 帧合并后再交给转换层，解决“finish 先于 usage”的时序问题。
+  - 个别不识别 `stream_options` 的兼容上游可通过 `OPENAI_STREAM_INCLUDE_USAGE=off` 关闭。
+- **P1-4 Claude usage 缓存 token 统计**
+  - Claude → OpenAI / Responses：`prompt_tokens` / `input_tokens` 计入 `cache_read_input_tokens` 与 `cache_creation_input_tokens`。
+  - OpenAI / Responses → Claude：`input_tokens` 扣除 `cached_tokens`，避免与 `cache_read_input_tokens` 重复计数。
+- **P1-5 `content_filter` 结束原因映射**
+  - OpenAI → Anthropic 由错误的 `stop_sequence` 改为 `refusal`。
+- **P1-6 Gemini → Responses 非流式截断状态**
+  - `MAX_TOKENS` / 安全类 finishReason 映射为 `status: incomplete` 与对应 `incomplete_details`。
+- **P1-7 Gemini → Claude 非流式丢弃截断内容**
+  - 非 `STOP` 场景保留已产出的 parts，再追加 `finishMessage` 诊断文本。
+
+### 8.4 验证
+
+- `npm test -- --runInBand`：**25 suites / 356 tests 全绿**。
+- 新增 `tests/cross-protocol-v4-1-0-p0-p1.test.js`，覆盖：
+  - Codex → OpenAI Chat / Responses 非流式工具调用与长工具名还原；
+  - Claude → Codex URL 图片 / document；
+  - Claude → Gemini `stop_sequences`；
+  - Responses → Claude 终止块收尾；
+  - OpenAI `content_filter` → `refusal`；
+  - Gemini 非流式截断状态与部分内容保留；
+  - Claude / OpenAI 双向缓存 usage；
+  - OpenAI `include_usage` finish/usage 帧合并。
+
+### 8.5 仍残留（本轮未处理）
+
+- Prompt Caching：`cache_control` 跨协议仍只做日志化，无对应语义。
+- Responses → Gemini 的 `input_file` 仍退化为 `[File: name]`；Gemini URL 媒体的 `fileData.fileUri` 仍需真实上游验证。
+- Responses → OpenAI / Claude 非流式仍不处理 `custom_tool_call`。
+- OpenAI → Claude 仍会把 `reasoning_effort` 透传到 Claude 请求体，官方 Anthropic 上游存在 400 风险。
+- Claude → OpenAI 未显式采样时仍注入 `top_p=0.95`；OpenAI → Responses 工具定义仍丢失 `strict`。
+- Grok 思考内容仍同时写入 `reasoning_content` 与 `<think>` 正文；Grok → Responses 非流式仍丢失 reasoning。
+- Codex `custom_tool_call` 输出在 OpenAI / Claude 响应方向仍未映射。
+- `parallel_tool_calls` ↔ Anthropic `disable_parallel_tool_use` 未映射。
+- Provider 层：Antigravity 对非 Claude 模型仍删除 `maxOutputTokens`，下游 `max_tokens` 对纯 Gemini 模型不生效。

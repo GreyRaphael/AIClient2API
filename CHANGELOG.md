@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.1.1] - 2026-10-21
+
+### Fixed (v4.1.0 复评 P0/P1 整改)
+
+- **P0 功能中断**：
+  - Codex → OpenAI Chat / Responses 非流式工具调用补齐 `requestId`，修复 `ReferenceError: requestId is not defined`。
+  - Codex → Responses 非流式 `function_call` 同时输出 `fc_*` item id 与 `call_id`，恢复工具结果回传。
+  - Claude → Codex 的 URL 图片映射为 `input_image`；URL document 保留 URL 文本兜底，不再静默丢成空 input。
+- **P1 保真与鲁棒性**：
+  - Claude → Gemini 补齐 `stop_sequences → generationConfig.stopSequences`。
+  - Responses → Claude 终止事件补齐未关闭内容块的 `content_block_stop`。
+  - Claude / Responses 下游 + OpenAI 上游流式场景由 provider 注入 `stream_options.include_usage`，并合并 finish/usage 分帧。
+  - 统一 Claude / OpenAI / Responses 双向缓存 token 统计口径。
+  - OpenAI `content_filter` → Anthropic 结束原因修正为 `refusal`。
+  - Gemini → Responses 非流式保留 `MAX_TOKENS` / 安全类截断状态；Gemini → Claude 非流式保留截断前的部分正文。
+- **测试与文档**：
+  - 新增 `tests/cross-protocol-v4-1-0-p0-p1.test.js`。
+  - 更新 `docs/CROSS_PROTOCOL_EVALUATION_V4_1.md` 第 8 节复评矩阵、整改与残留清单。
+
+### Verification
+
+- `npm test -- --runInBand`：25 suites / 356 tests 全绿。
+
 ## [v4.1.0] - 2026-10-21
 
 ### Fixed (跨协议转译 v4.1 收敛)

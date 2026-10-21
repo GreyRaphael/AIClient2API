@@ -406,6 +406,21 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
         // The service returns a stream in its native format (toProvider).
         const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
+        // Claude / Responses 下游需要 usage，但 OpenAI Chat 流式默认不返回 usage。
+        // 仅在跨协议转换到 OpenAI 上游时要求 include_usage；用不可枚举属性传递，
+        // 避免内部标记被 JSON 序列化发送到上游。
+        if (needsConversion
+            && getProtocolPrefix(toProvider) === MODEL_PROTOCOL_PREFIX.OPENAI
+            && [MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]
+                .includes(getProtocolPrefix(fromProvider))) {
+            // 只设置内部不可枚举标记；实际 stream_options 由 OpenAIApiService 注入，
+            // 避免 fallback 到 Trae 等非 OpenAI Chat 实现时把该字段发送出去。
+            Object.defineProperty(requestBody, '_includeUsageForConversion', {
+                value: true,
+                enumerable: false,
+                configurable: true
+            });
+        }
         requestBody.model = model;
         const nativeStream = await service.generateContentStream(model, requestBody);
         

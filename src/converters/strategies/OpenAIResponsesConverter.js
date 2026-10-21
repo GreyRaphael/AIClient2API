@@ -1258,11 +1258,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             content: content,
             model: model || responsesResponse.model,
             stop_reason: stop_reason,
-            usage: {
-                input_tokens: responsesResponse.usage?.input_tokens || 0,
-                output_tokens: responsesResponse.usage?.output_tokens || 0,
-                cache_read_input_tokens: responsesResponse.usage?.input_tokens_details?.cached_tokens || 0
-            }
+            usage: this._mapResponsesUsageToClaude(responsesResponse.usage)
         };
     }
 
@@ -1285,10 +1281,13 @@ export class OpenAIResponsesConverter extends BaseConverter {
     }
 
     _mapResponsesUsageToClaude(usage = {}) {
+        const promptTokens = usage.input_tokens || 0;
+        const cachedTokens = usage.input_tokens_details?.cached_tokens || 0;
         return {
-            input_tokens: usage.input_tokens || 0,
+            // Anthropic 的 input_tokens 不含缓存命中部分，需从 Responses 输入总量中扣除。
+            input_tokens: Math.max(0, promptTokens - cachedTokens),
             output_tokens: usage.output_tokens || 0,
-            cache_read_input_tokens: usage.input_tokens_details?.cached_tokens || 0
+            cache_read_input_tokens: cachedTokens
         };
     }
 
@@ -1625,9 +1624,48 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     ? 'refusal'
                     : 'max_tokens';
             }
+
+            // 终止兜底：不能假设上游一定发送 output_text.done / reasoning_summary_text.done。
+            // 若仍有未关闭块，必须在 message_delta 前补齐 content_block_stop，否则
+            // Anthropic 客户端会收到结构非法的流。
+            const events = [];
+            const openBlocks = [];
+            for (const index of state.reasoningBlocks) {
+                if (!state.stoppedBlocks.has(`reasoning:${index}`)) openBlocks.push({ index, type: 'reasoning' });
+            }
+            for (const index of state.textBlocks) {
+                if (!state.stoppedBlocks.has(`text:${index}`)) openBlocks.push({ index, type: 'text' });
+            }
+            for (const index of state.toolBlocks) {
+                if (!state.stoppedBlocks.has(`tool:${index}`)) openBlocks.push({ index, type: 'tool' });
+            }
+            openBlocks.sort((a, b) => a.index - b.index);
+            for (const block of openBlocks) {
+                if (block.type === 'reasoning' && isSignatureVaultEnabled()) {
+                    events.push({
+                        type: 'content_block_delta',
+                        index: block.index,
+                        delta: {
+                            type: 'signature_delta',
+                            signature: mintVirtualSignature({
+                                sessionKey: requestId || 'responses',
+                                blockIndex: block.index,
+                                thinkingText: ''
+                            })
+                        }
+                    });
+                }
+                state.stoppedBlocks.add(
+                    block.type === 'reasoning' ? `reasoning:${block.index}`
+                        : block.type === 'text' ? `text:${block.index}`
+                            : `tool:${block.index}`
+                );
+                events.push({ type: 'content_block_stop', index: block.index });
+            }
+
             const usage = state.usage || this._mapResponsesUsageToClaude(responsesChunk.response?.usage || {});
             this.claudeStreamStates.delete(requestId || 'default');
-            return [
+            events.push(
                 {
                     type: 'message_delta',
                     delta: {
@@ -1638,7 +1676,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 {
                     type: 'message_stop'
                 }
-            ];
+            );
+            return events;
         }
 
         return null;
