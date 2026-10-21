@@ -639,8 +639,14 @@ export function sortToolsByName(tools) {
  * @param {string} location - 出现位置（如 "Claude->OpenAI message content" 或 "Claude->Gemini tool"）
  * @param {Object} itemWithCacheControl - 包含 cache_control 的对象
  */
+const cacheControlWarnedLocations = new Set();
+
 export function logOmittedCacheControl(location, itemWithCacheControl) {
     if (itemWithCacheControl && itemWithCacheControl.cache_control) {
         logger.debug(`[CacheControl] cache_control omitted during conversion at ${location} (${JSON.stringify(itemWithCacheControl.cache_control)})`);
+        if (!cacheControlWarnedLocations.has(location)) {
+            cacheControlWarnedLocations.add(location);
+            logger.warn(`[CacheControl] explicit cache_control is not preserved when converting at ${location}; only upstream implicit prefix caching can apply.`);
+        }
     }
 }
