@@ -7,7 +7,8 @@
   - `e697ced` fix(providers): 增加模型能力门控、custom model 路由与 Gemini 工具启发式开关
   - `7062f25` fix(converters): 统一响应状态/形状、补齐多模态与 emitter 封装
   - `c7f261a` fix(converters): 显式声明 cache_control 跨协议降级限制
-- 单元测试：**27 suites / 396 tests 全绿**
+  - `b682a6d` feat(providers): 引入统一 Provider 能力声明（把 Zed/Antigravity 的模型名判断迁移为数据声明）
+- 单元测试：**28 suites / 413 tests 全绿**
 - 联网 E2E：**43 / 43 PASS**（7 个上游节点 × 3 个下游；`grok` 号池为空未测）
 - 前序文档：[`CROSS_PROTOCOL_EVALUATION_V4_1_2.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_2.md)
 
@@ -30,7 +31,8 @@ v4.1.3 把 v4.1.2 复评中确认的 P0/P1 问题全部落地修复，并在真�
 - Zed/claude-sonnet-5-5：带 `temperature` 与强制 `tool_choice` 的请求不再 400；
 - custom model alias：`glm-5.3 → glm-5.3-prime` 在前缀路由下直接可用；
 - Gemini→Claude 工具启发式默认关闭，通用 `search` 不再被改成 `Grep`；
-- Codex→Responses reasoning 形状、`response.incomplete`、`content_filter` 状态、Claude 流式 block index 等形状问题已修。
+- Codex→Responses reasoning 形状、`response.incomplete`、`content_filter` 状态、Claude 流式 block index 等形状问题已修；
+- 新增**统一 Provider 能力声明**：Zed/Antigravity 的模型名判断迁移为数据配置，后续新增模型无需改代码。
 
 剩余问题主要是**能力上限**而非转换器缺陷：Grok 文本模拟、Gemini CloudCode 对 `maxOutputTokens` 的限制、Zed 5.5 不返回 thinking 块、以及显式 Prompt Caching 仍无法跨协议保留。
 
@@ -51,10 +53,12 @@ v4.1.3 把 v4.1.2 复评中确认的 P0/P1 问题全部落地修复，并在真�
 
 | 修复 | 实现 |
 |---|---|
-| Zed/Claude 5.5 参数门控 | `zed-core.js` 对 `claude-(sonnet|opus|haiku)-5(-5)?` 删除 `temperature`，把 `tool_choice: tool/any` 降级为 `auto`，并记录 warn |
+| 统一 Provider 能力声明 | 新增 `src/providers/provider-capabilities.js`：5 个能力键 + 5 级优先级（默认值 → 内置规则 → 上游元数据 → 全局 `PROVIDER_CAPABILITIES` → 节点 `capabilities`）；Zed/Antigravity 的模型名判断已迁移为能力数据 |
+| Zed/Claude 5.5 参数门控 | 内置规则 `claude-*-5*` → `supportsTemperature=false`、`supportsForcedToolChoice=false`；`zed-core` 改为读取能力声明，不再用模型名正则 |
 | Gemini→Claude 工具启发式 | 新增 `CONVERT_CLAUDE_CODE_TOOL_HEURISTICS`（默认 false）；移除 `search → Grep` 全局改名；参数重映射仅在开关开启时生效 |
 | custom model alias 路由 | `request-pipeline` 把 `customModelConfig` 传入号池；命中自定义模型时跳过模型发现过滤，`glm-5.3 → glm-5.3-prime` 可直接路由 |
-| Gemini `maxOutputTokens` | 不再静默删除；默认记录 warn，提供 `GEMINI_PASS_MAX_OUTPUT_TOKENS=true` 透传开关 |
+| Gemini `maxOutputTokens` | 内置规则为非 Claude 模型声明 `supportsMaxOutputTokens=false`；`antigravity-core` 读取能力声明，不再直接读环境变量；旧开关 `GEMINI_PASS_MAX_OUTPUT_TOKENS` 仍兼容 |
+| openai-custom 非流式 | 通用 SSE 聚合保持不变；节点可声明 `supportsNonStream=false`，`openai-core` 会主动改流式并本地聚合 |
 
 ### 2.3 P2：状态、形状与多模态
 
@@ -78,6 +82,26 @@ v4.1.3 把 v4.1.2 复评中确认的 P0/P1 问题全部落地修复，并在真�
 
 - `logOmittedCacheControl()` 保留 debug，并新增每个位置一次的 warn：明确声明显式 `cache_control` 跨协议不被保留，只能依赖上游隐式前缀缓存。
 - 所有“静默丢弃”点已补日志：built-in tools、Files API source、Gemini maxOutputTokens。
+
+### 2.5 P3：统一 Provider 能力声明
+
+新增 `src/providers/provider-capabilities.js`，把 provider/model 参数兼容性从代码分支迁移为数据声明：
+
+| 能力键 | 作用 |
+|---|---|
+| `supportsTemperature` | 是否接受 `temperature` |
+| `supportsForcedToolChoice` | 是否接受强制 `tool_choice` |
+| `supportsThinking` | 是否接受 thinking / reasoning 配置 |
+| `supportsNonStream` | 是否真正支持 `stream:false`（false 时网关自动改流式并聚合） |
+| `supportsMaxOutputTokens` | 是否接受 `maxOutputTokens` / `max_output_tokens` |
+
+优先级：默认值 → 内置规则 → 上游模型元数据 → 全局 `PROVIDER_CAPABILITIES` → 号池节点 `capabilities`。
+
+- Zed 的 `claude-*-5*` 规则、Antigravity 的非 Claude `maxOutputTokens` 规则已改为内置能力数据；
+- `zed-core` / `antigravity-core` / `openai-core` 改为读取能力声明，不再各自维护模型名判断；
+- 旧开关 `GEMINI_PASS_MAX_OUTPUT_TOKENS` 自动映射为 `supportsMaxOutputTokens=true`。
+
+详见 [`docs/PROVIDER_ADAPTER_GUIDE.md`](./PROVIDER_ADAPTER_GUIDE.md) 第 2.5 节。
 
 ---
 

@@ -53,6 +53,15 @@
             "targetModel": "claude-sonnet-4-6"
         }
     },
+    "PROVIDER_CAPABILITIES": {
+        "openai-custom": {
+            "models": {
+                "glm-*": {
+                    "supportsNonStream": false
+                }
+            }
+        }
+    },
     "PROXY_URL": "http://127.0.0.1:1089",
     "PROXY_ENABLED_PROVIDERS": [
         "gemini-antigravity"

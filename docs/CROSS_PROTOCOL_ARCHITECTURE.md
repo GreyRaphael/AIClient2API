@@ -91,6 +91,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 | Usage Normalizer | `src/utils/usage-normalizer.js` | 统一各协议 usage 字段与缓存 token 统计 |
 | Retry / Fallback | `src/handlers/request-pipeline.js`、`src/services/service-manager.js` | 空响应重试、凭证切换、跨 provider fallback |
 | Model Capability | `src/providers/model-capability.js` | 节点/分组模型候选、选择集与路由守卫 |
+| Provider Capabilities | `src/providers/provider-capabilities.js` | 统一声明模型级参数兼容性（temperature / 强制 tool_choice / thinking / 非流式 / maxOutputTokens），支持全局配置、节点配置与上游元数据覆盖 |
 
 ---
 

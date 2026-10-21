@@ -43,6 +43,81 @@
     *   `checkAndRefreshExpiringNodes`：指定凭据文件路径键名。
     *   `_buildHealthCheckRequests`：若有特殊请求格式需求，需在此添加逻辑。
 
+### 2.5 Provider 能力声明（统一层）
+
+Provider/模型的参数兼容差异不再写死在代码分支里，而是通过
+[`src/providers/provider-capabilities.js`](../src/providers/provider-capabilities.js)
+声明。当前支持的能力键：
+
+| 能力 | 含义 |
+|---|---|
+| `supportsTemperature` | 上游是否接受 `temperature` |
+| `supportsForcedToolChoice` | 上游是否接受强制 `tool_choice`（Anthropic `tool`/`any`、OpenAI 指定 function） |
+| `supportsThinking` | 上游是否接受 thinking / reasoning 配置 |
+| `supportsNonStream` | 上游是否真正支持 `stream:false`；false 时网关自动改流式并本地聚合 |
+| `supportsMaxOutputTokens` | 上游是否接受 `maxOutputTokens` / `max_output_tokens` |
+
+**解析优先级**（后者覆盖前者）：
+
+1. 内置默认值（全部 `true`）
+2. 内置 provider 规则（Zed Claude 5.x、Antigravity 非 Claude 模型）
+3. 上游模型元数据（`metadata.capabilities` 或 `supports_*` 字段）
+4. 全局配置 `PROVIDER_CAPABILITIES`
+5. 号池节点配置 `capabilities`（最高）
+
+**全局配置示例**（`configs/config.json`）：
+
+```json
+"PROVIDER_CAPABILITIES": {
+  "openai-custom": {
+    "models": {
+      "glm-*": { "supportsNonStream": false }
+    }
+  },
+  "zed": {
+    "models": {
+      "claude-*-5*": {
+        "supportsTemperature": false,
+        "supportsForcedToolChoice": false
+      }
+    }
+  }
+}
+```
+
+**节点级配置示例**（`configs/provider_pools.json` 节点字段，优先级最高）：
+
+```json
+{
+  "customName": "my-endpoint",
+  "OPENAI_BASE_URL": "https://example.com/v1",
+  "OPENAI_API_KEY": "sk-...",
+  "capabilities": {
+    "supportsNonStream": false,
+    "supportsForcedToolChoice": false,
+    "models": {
+      "some-model": { "supportsTemperature": false }
+    }
+  }
+}
+```
+
+**规则形式**：`capabilities.rules` 支持 `match` 为字符串通配、正则或函数：
+
+```json
+"capabilities": {
+  "rules": [
+    { "match": "gemini-*", "capabilities": { "supportsMaxOutputTokens": false } }
+  ]
+}
+```
+
+新增 provider 时，如果发现“某模型拒绝某参数”，应优先在能力表中声明，而不是在
+provider 代码里添加模型名判断。只有无法用能力键表达的行为差异，才写入 provider 代码。
+
+> 旧开关 `GEMINI_PASS_MAX_OUTPUT_TOKENS=true` 仍兼容，会被转换为
+> `PROVIDER_CAPABILITIES['gemini-antigravity'].supportsMaxOutputTokens = true`。
+
 ---
 
 ## 3. 前端界面调整
