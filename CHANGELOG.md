@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.1.0] - 2026-10-21
+
+### Fixed (跨协议转译 v4.1 收敛)
+
+- **P1 流式正确性**：
+  - Gemini → OpenAI Chat 的工具索引改为请求级递增，Gemini → Responses 以 `callId` 作为工具身份，修复跨 chunk 工具合并/丢失。
+  - Responses → OpenAI 流式状态按 `requestId` 隔离，固定 chunk `id/created`，避免状态按事件泄漏。
+  - Claude → Responses 的 `input_image.image_url` 统一为字符串，修复图片被上游拒绝。
+  - Grok → Responses 非流式 `function_call` 补 `call_id`，恢复非流式工具回传链路。
+- **P2 保真与鲁棒性**：
+  - Claude 目标请求补齐 `temperature` / `top_p` / `stop_sequences` / `metadata`，未显式提供的采样参数不再注入默认值。
+  - `max_tokens` 统一 clamp 到 Anthropic 64K 输出上限。
+  - Claude 流式 usage 合并 `message_start` 输入 token，修复最终用量归零。
+  - Responses → OpenAI / Claude 支持 custom tool 输入增量。
+  - Codex → OpenAI / Claude 处理 `response.incomplete`。
+  - URL 图片、`file` / `input_file` 多模态映射补齐，减少静默丢失。
+- **P3 清理**：
+  - Claude → Responses 在 `content_block_stop` 时关闭 text 块。
+  - 移除 Codex reasoning done 注入的人工换行。
+  - OpenAI → Gemini 仅 system 消息时保留 `system_instruction` 语义。
+- **测试与文档**：
+  - 新增 `tests/cross-protocol-v4-1-p1/p2/p3.test.js`，共 17 个回归测试。
+  - 新增并收敛 [`docs/CROSS_PROTOCOL_EVALUATION_V4_1.md`](docs/CROSS_PROTOCOL_EVALUATION_V4_1.md) 作为当前评估入口。
+
+### Verification
+
+- `npm test -- --runInBand`：24 suites / 344 tests 全绿。
+
 ## [v4.0.1] - 2026-10-21
 
 ### Fixed (跨协议转译 v4 复评整改)
