@@ -4,6 +4,7 @@ import { OpenAIResponsesConverter } from '../src/converters/strategies/OpenAIRes
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
 import { CodexConverter } from '../src/converters/strategies/CodexConverter.js';
 import { GrokConverter } from '../src/converters/strategies/GrokConverter.js';
+import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
 
 const LONG_TOOL = 'mcp__github__very_long_tool_name_that_exceeds_sixty_four_characters_for_sure_yes';
 
@@ -188,5 +189,192 @@ describe('v4 P1 regressions', () => {
         }, 'claude-x', reqId);
 
         expect(response.content[0].name).toBe(LONG_TOOL);
+    });
+});
+
+describe('v4 P2 regressions', () => {
+    test('P2-2 Claude -> Gemini 使用 thinkingLevel；adaptive 取 output_config.effort', () => {
+        const converter = new ClaudeConverter();
+        const enabled = converter.toGeminiRequest({
+            model: 'gemini-3-pro',
+            messages: [{ role: 'user', content: 'hi' }],
+            thinking: { type: 'enabled', budget_tokens: 4096 }
+        });
+        expect(enabled.generationConfig.thinkingConfig).toEqual({
+            thinkingLevel: 'MEDIUM',
+            includeThoughts: true
+        });
+
+        const adaptive = converter.toGeminiRequest({
+            model: 'gemini-3-pro',
+            messages: [{ role: 'user', content: 'hi' }],
+            thinking: { type: 'adaptive' },
+            output_config: { effort: 'low' }
+        });
+        expect(adaptive.generationConfig.thinkingConfig).toEqual({
+            thinkingLevel: 'LOW',
+            includeThoughts: true
+        });
+    });
+
+    test('P2-2 Claude -> Codex adaptive thinking 映射到 reasoning.effort', () => {
+        const converter = new ClaudeConverter();
+        const request = converter.toCodexRequest({
+            model: 'gpt-5-codex',
+            messages: [{ role: 'user', content: 'hi' }],
+            thinking: { type: 'adaptive' },
+            output_config: { effort: 'low' }
+        });
+        expect(request.reasoning.effort).toBe('low');
+    });
+
+    test('P2-3 tool_choice 映射：required/any/Responses->Gemini', () => {
+        const openai = new OpenAIConverter();
+        const claude = new ClaudeConverter();
+        const responses = new OpenAIResponsesConverter();
+
+        expect(openai.toGeminiRequest({
+            model: 'gemini-3-pro',
+            messages: [{ role: 'user', content: 'hi' }],
+            tools: [{ type: 'function', function: { name: 'Bash', parameters: { type: 'object', properties: {} } } }],
+            tool_choice: 'required'
+        }).toolConfig.functionCallingConfig.mode).toBe('ANY');
+
+        expect(claude.toGeminiRequest({
+            model: 'gemini-3-pro',
+            messages: [{ role: 'user', content: 'hi' }],
+            tools: [{ name: 'Bash', input_schema: { type: 'object', properties: {} } }],
+            tool_choice: { type: 'any' }
+        }).toolConfig.functionCallingConfig.mode).toBe('ANY');
+
+        expect(responses.toGeminiRequest({
+            model: 'gemini-3-pro',
+            input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+            tools: [{ type: 'function', name: 'Bash', parameters: { type: 'object', properties: {} } }],
+            tool_choice: 'required'
+        }).toolConfig.functionCallingConfig.mode).toBe('ANY');
+
+        expect(responses.toGeminiRequest({
+            model: 'gemini-3-pro',
+            input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+            tools: [{ type: 'function', name: 'Bash', parameters: { type: 'object', properties: {} } }],
+            tool_choice: { type: 'function', name: 'Bash' }
+        }).toolConfig.functionCallingConfig.allowedFunctionNames).toEqual(['Bash']);
+    });
+
+    test('P2-4 URL 多模态兜底：Responses/Claude -> Gemini 使用 fileData', () => {
+        const claude = new ClaudeConverter();
+        const responses = new OpenAIResponsesConverter();
+
+        const responsesGemini = responses.toGeminiRequest({
+            model: 'gemini-3-pro',
+            input: [{
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_image', image_url: 'https://example.com/a.png' }]
+            }]
+        });
+        expect(responsesGemini.contents[0].parts[0]).toEqual({
+            fileData: { mimeType: 'image/jpeg', fileUri: 'https://example.com/a.png' }
+        });
+
+        const claudeGemini = claude.toGeminiRequest({
+            model: 'gemini-3-pro',
+            messages: [{
+                role: 'user',
+                content: [{ type: 'image', source: { type: 'url', url: 'https://example.com/b.png' } }]
+            }]
+        });
+        expect(claudeGemini.contents[0].parts[0]).toEqual({
+            fileData: { mimeType: 'image/jpeg', fileUri: 'https://example.com/b.png' }
+        });
+    });
+
+    test('P2-5 Gemini -> Responses 非流式输出标准 reasoning item', () => {
+        const converter = new GeminiConverter();
+        const response = converter.toOpenAIResponsesResponse({
+            candidates: [{
+                content: { role: 'model', parts: [{ text: 'thought', thought: true }, { text: 'answer' }] },
+                finishReason: 'STOP'
+            }],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 }
+        }, 'gemini-3-pro');
+
+        expect(response.output[0].type).toBe('reasoning');
+        expect(response.output[0].summary[0].text).toBe('thought');
+        expect(response.output[1].type).toBe('message');
+        expect(response.reasoning_content).toBeUndefined();
+    });
+
+    test('P2-6 Responses incomplete 映射 length；failed/error 抛错', () => {
+        const converter = new OpenAIResponsesConverter();
+        const incomplete = converter.toOpenAIStreamChunk({
+            type: 'response.incomplete',
+            response: {
+                id: 'r1',
+                status: 'incomplete',
+                incomplete_details: { reason: 'max_output_tokens' },
+                usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 }
+            }
+        }, 'gpt-5');
+        expect(incomplete.choices[0].finish_reason).toBe('length');
+
+        expect(() => converter.toOpenAIStreamChunk({
+            type: 'response.failed',
+            response: { error: { message: 'boom' } }
+        }, 'gpt-5')).toThrow('boom');
+
+        expect(() => converter.toClaudeStreamChunk({
+            type: 'error',
+            error: { message: 'boom' }
+        }, 'claude-x', 'p2_err')).toThrow('boom');
+    });
+
+    test('P2-7 Responses -> Claude 跳过无 Anthropic 签名的 reasoning', () => {
+        const converter = new OpenAIResponsesConverter();
+        const request = converter.toClaudeRequest({
+            model: 'claude-x',
+            input: [
+                { type: 'reasoning', summary: [{ type: 'summary_text', text: 'thinking' }] },
+                { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'q' }] }
+            ]
+        });
+        expect(request.messages).toHaveLength(1);
+        expect(request.messages[0].role).toBe('user');
+        expect(request.messages[0].content.some(block => block.type === 'thinking')).toBe(false);
+    });
+
+    test('P2-8 OpenAI -> Responses 在 text 前关闭 reasoning 生命周期', () => {
+        const converter = new OpenAIConverter();
+        const reqId = 'p2_order';
+        const events = [
+            { id: 'c1', choices: [{ delta: { role: 'assistant', reasoning_content: 'think' } }] },
+            { id: 'c1', choices: [{ delta: { content: 'answer' } }] },
+            { id: 'c1', choices: [{ delta: {}, finish_reason: 'stop' }] }
+        ].flatMap(chunk => converter.toOpenAIResponsesStreamChunk(chunk, 'gpt-5', reqId));
+
+        const reasoningDoneIndex = events.findIndex(e => e.type === 'response.reasoning_summary_text.done');
+        const textDeltaIndex = events.findIndex(e => e.type === 'response.output_text.delta');
+        expect(reasoningDoneIndex).toBeGreaterThan(-1);
+        expect(textDeltaIndex).toBeGreaterThan(-1);
+        expect(reasoningDoneIndex).toBeLessThan(textDeltaIndex);
+    });
+
+    test('P2-10 Responses -> OpenAI 工具调用状态按响应 ID 回收', () => {
+        const converter = new OpenAIResponsesConverter();
+        const resId = 'resp_p2_state';
+        converter.toOpenAIStreamChunk({
+            type: 'response.output_item.added',
+            output_index: 0,
+            item: { type: 'function_call', call_id: 'c1', name: 'Bash' },
+            response: { id: resId }
+        }, 'gpt-5');
+        expect(converter.openaiChatStreamStates.has(resId)).toBe(true);
+
+        converter.toOpenAIStreamChunk({
+            type: 'response.completed',
+            response: { id: resId, status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
+        }, 'gpt-5');
+        expect(converter.openaiChatStreamStates.has(resId)).toBe(false);
     });
 });

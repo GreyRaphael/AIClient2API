@@ -993,6 +993,12 @@ export class CodexConverter extends BaseConverter {
      */
     toOpenAIStreamChunk(chunk, model, requestId) {
         const type = chunk.type;
+        if (type === 'response.failed' || type === 'error') {
+            const message = chunk.response?.error?.message || chunk.error?.message || chunk.message || 'Codex upstream stream failed';
+            const error = new Error(message);
+            error.status = 502;
+            throw error;
+        }
         // 使用 requestId 作为 key，避免并发请求混淆
         const stateKey = requestId || chunk.response?.id || 'openai_stream_current';
         

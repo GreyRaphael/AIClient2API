@@ -34,6 +34,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         this.codexConverter = new CodexConverter();
         this.claudeStreamStates = new StreamSessionStore({ label: 'responses-converter-claude-stream' });
         this.codexResponsesStreamStates = new StreamSessionStore({ label: 'responses-converter-codex-stream' });
+        this.openaiChatStreamStates = new StreamSessionStore({ label: 'responses-converter-openai-chat-stream' });
     }
 
     // =============================================================================
@@ -479,7 +480,23 @@ export class OpenAIResponsesConverter extends BaseConverter {
     toOpenAIStreamChunk(responsesChunk, model) {
         const resId = responsesChunk.response?.id || responsesChunk.id || `chatcmpl-${Date.now()}`;
         const created = responsesChunk.response?.created_at || responsesChunk.created || Math.floor(Date.now() / 1000);
-        
+
+        if (responsesChunk.type === 'response.failed' || responsesChunk.type === 'error') {
+            const message = responsesChunk.response?.error?.message
+                || responsesChunk.error?.message
+                || responsesChunk.message
+                || 'Responses upstream stream failed';
+            const error = new Error(message);
+            error.status = 502;
+            throw error;
+        }
+
+        let streamState = this.openaiChatStreamStates.get(resId);
+        if (!streamState) {
+            streamState = { hasToolCalls: false };
+            this.openaiChatStreamStates.set(resId, streamState);
+        }
+
         const delta = {};
         let finish_reason = null;
 
@@ -503,9 +520,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     arguments: responsesChunk.delta
                 }
             }];
-        } else if (responsesChunk.type === 'response.output_item.added' && responsesChunk.item?.type === 'function_call') {
-            this._streamHasToolCalls = this._streamHasToolCalls || new Set();
-            this._streamHasToolCalls.add(resId);
+        } else if (responsesChunk.type === 'response.output_item.added' &&
+                   (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
+            streamState.hasToolCalls = true;
             delta.tool_calls = [{
                 index: responsesChunk.output_index || 0,
                 id: responsesChunk.item.call_id,
@@ -515,13 +532,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     arguments: ''
                 }
             }];
-        } else if (responsesChunk.type === 'response.completed') {
-            const hasTool = (this._streamHasToolCalls && this._streamHasToolCalls.has(resId)) ||
-                responsesChunk.response?.output?.some(item => item.type === 'function_call' || item.type === 'custom_tool_call') ||
-                responsesChunk.response?.status === 'requires_action';
-            finish_reason = hasTool ? 'tool_calls' : 'stop';
-            if (this._streamHasToolCalls) {
-                this._streamHasToolCalls.delete(resId);
+        } else if (responsesChunk.type === 'response.completed' || responsesChunk.type === 'response.incomplete') {
+            const hasTool = streamState.hasToolCalls ||
+                responsesChunk.response?.output?.some(item => item.type === 'function_call' || item.type === 'custom_tool_call');
+            const incompleteReason = responsesChunk.response?.incomplete_details?.reason;
+            if (responsesChunk.type === 'response.incomplete' || responsesChunk.response?.status === 'incomplete' || incompleteReason) {
+                finish_reason = incompleteReason === 'content_filter' ? 'content_filter' : 'length';
+            } else {
+                finish_reason = hasTool ? 'tool_calls' : 'stop';
             }
         }
 
@@ -549,6 +567,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 completion_tokens: u.output_tokens || u.completion_tokens || 0,
                 total_tokens: u.total_tokens || ((u.input_tokens || 0) + (u.output_tokens || 0))
             };
+        }
+
+        if (finish_reason) {
+            this.openaiChatStreamStates.delete(resId);
         }
 
         return chunkObj;
@@ -947,10 +969,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                 .filter(Boolean)
                                 .join('\n');
                             if (thinkingText) {
-                                this._pushClaudeMessage(claudeRequest.messages, 'assistant', [{
-                                    type: 'thinking',
-                                    thinking: thinkingText
-                                }]);
+                                // Responses reasoning item 不携带可复用的 Anthropic signature。
+                                // 原生 Anthropic 上游会拒绝无签名 thinking 块，因此这里保守跳过，
+                                // 避免把历史思考变成必然 400 的请求。
+                                logger.debug('[OpenAIResponsesConverter] reasoning item skipped when converting to Claude: no Anthropic signature available');
                             }
                         }
                         break;
@@ -1090,6 +1112,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
     toClaudeStreamChunk(responsesChunk, model, requestId = null) {
         if (!responsesChunk) {
             return null;
+        }
+        if (responsesChunk.type === 'response.failed' || responsesChunk.type === 'error') {
+            const message = responsesChunk.response?.error?.message
+                || responsesChunk.error?.message
+                || responsesChunk.message
+                || 'Responses upstream stream failed';
+            const error = new Error(message);
+            error.status = 502;
+            throw error;
         }
         const state = this._getClaudeStreamState(requestId);
 
@@ -1299,17 +1330,27 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return null;
         }
 
-        if (responsesChunk.type === 'response.completed' && responsesChunk.response?.usage) {
+        const isTerminalResponsesEvent = responsesChunk.type === 'response.completed'
+            || responsesChunk.type === 'response.incomplete';
+
+        if (isTerminalResponsesEvent && responsesChunk.response?.usage) {
             state.usage = this._mapResponsesUsageToClaude(responsesChunk.response.usage);
         }
 
-        if (responsesChunk.type === 'response.completed' && Array.isArray(responsesChunk.response?.output)) {
+        if (isTerminalResponsesEvent && Array.isArray(responsesChunk.response?.output)) {
             if (responsesChunk.response.output.some(item => item.type === 'function_call')) {
                 state.stopReason = 'tool_use';
             }
         }
 
-        if (responsesChunk.type === 'response.completed') {
+        if (isTerminalResponsesEvent) {
+            if (responsesChunk.type === 'response.incomplete'
+                || responsesChunk.response?.status === 'incomplete'
+                || responsesChunk.response?.incomplete_details) {
+                state.stopReason = responsesChunk.response?.incomplete_details?.reason === 'content_filter'
+                    ? 'refusal'
+                    : 'max_tokens';
+            }
             const usage = state.usage || this._mapResponsesUsageToClaude(responsesChunk.response?.usage || {});
             this.claudeStreamStates.delete(requestId || 'default');
             return [
@@ -1391,7 +1432,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                         parts.push({ text: c.text });
                                     }
                                 } else if (c.type === 'input_image') {
-                                    const url = c.image_url?.url || c.url;
+                                    const url = typeof c.image_url === 'string'
+                                        ? c.image_url
+                                        : (c.image_url?.url || c.url);
                                     if (url && url.startsWith('data:')) {
                                         const [mediaInfo, data] = url.split(';base64,');
                                         const mimeType = mediaInfo.replace('data:', '');
@@ -1401,7 +1444,18 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                                 data: data
                                             }
                                         });
+                                    } else if (url) {
+                                        // 远端 URL 无法内联，使用 fileData 引用，避免整段图像静默消失
+                                        parts.push({
+                                            fileData: {
+                                                mimeType: 'image/jpeg',
+                                                fileUri: url
+                                            }
+                                        });
                                     }
+                                } else if (c.type === 'input_file' || c.type === 'file') {
+                                    const label = c.filename || c.file_id || c.file_url || 'file';
+                                    parts.push({ text: `[File: ${label}]` });
                                 }
                             });
                         } else if (typeof item.content === 'string' && item.content.length > 0) {
@@ -1552,6 +1606,27 @@ export class OpenAIResponsesConverter extends BaseConverter {
             geminiRequest.tools = [{
                 functionDeclarations: sortToolsByName(decls)
             }];
+        }
+
+        // 处理 tool_choice -> Gemini functionCallingConfig
+        const responsesToolChoice = responsesRequest.tool_choice;
+        if (responsesToolChoice) {
+            if (typeof responsesToolChoice === 'string') {
+                if (responsesToolChoice === 'auto' || responsesToolChoice === 'none') {
+                    geminiRequest.toolConfig = {
+                        functionCallingConfig: { mode: responsesToolChoice.toUpperCase() }
+                    };
+                } else if (responsesToolChoice === 'required') {
+                    geminiRequest.toolConfig = { functionCallingConfig: { mode: 'ANY' } };
+                }
+            } else if (responsesToolChoice.type === 'function') {
+                const name = responsesToolChoice.name || responsesToolChoice.function?.name;
+                if (name) {
+                    geminiRequest.toolConfig = {
+                        functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [name] }
+                    };
+                }
+            }
         }
 
         // 合并相邻同角色消息，严格满足 Gemini 交替轮次规范

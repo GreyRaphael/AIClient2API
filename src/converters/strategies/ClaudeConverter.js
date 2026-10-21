@@ -23,6 +23,8 @@ import {
     logOmittedCacheControl
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
+import {getConfigToggle} from '../../core/config-manager.js';
+import {effortToGeminiThinking} from '../thinking-budget.js';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 
@@ -614,6 +616,12 @@ export class ClaudeConverter extends BaseConverter {
      */
     toOpenAIStreamChunk(claudeChunk, model, requestId = null) {
         if (!claudeChunk) return null;
+
+        if (claudeChunk.type === 'error') {
+            const error = new Error(claudeChunk.error?.message || 'Claude upstream stream failed');
+            error.status = 502;
+            throw error;
+        }
 
         // message_stop 事件直接清理并终结，避免在已清理的情况下重新创建无用 identity 状态
         if (claudeChunk.type === 'message_stop') {
@@ -1240,6 +1248,13 @@ export class ClaudeConverter extends BaseConverter {
                                             data: block.source.data
                                         }
                                     });
+                                } else if (block.source && block.source.type === 'url' && block.source.url) {
+                                    parts.push({
+                                        fileData: {
+                                            mimeType: block.source.media_type || 'image/jpeg',
+                                            fileUri: block.source.url
+                                        }
+                                    });
                                 }
                                 break;
 
@@ -1261,6 +1276,21 @@ export class ClaudeConverter extends BaseConverter {
                                             }
                                         });
                                     }
+                                } else if (block.source && block.source.type === 'url' && block.source.url) {
+                                    parts.push({
+                                        fileData: {
+                                            mimeType: block.source.media_type || 'application/pdf',
+                                            fileUri: block.source.url
+                                        }
+                                    });
+                                } else if (block.source && block.source.type === 'text' && typeof block.source.data === 'string') {
+                                    parts.push({ text: block.source.data });
+                                } else if (block.source && block.source.type === 'content' && Array.isArray(block.source.content)) {
+                                    const text = block.source.content
+                                        .map(item => item?.text || '')
+                                        .filter(Boolean)
+                                        .join('\n');
+                                    if (text) parts.push({ text });
                                 }
                                 break;
                         }
@@ -1301,15 +1331,23 @@ export class ClaudeConverter extends BaseConverter {
             generationConfig.topK = claudeRequest.top_k;
         }
         
-        // 处理 thinking 配置 - 转换为 Gemini thinkingBudget
-        if (claudeRequest.thinking && claudeRequest.thinking.type === 'enabled') {
-            if (claudeRequest.thinking.budget_tokens !== undefined) {
-                const budget = claudeRequest.thinking.budget_tokens;
-                if (!generationConfig.thinkingConfig) {
-                    generationConfig.thinkingConfig = {};
-                }
-                generationConfig.thinkingConfig.thinkingBudget = budget;
-                generationConfig.thinkingConfig.includeThoughts = true;
+        // 处理 thinking 配置 - 统一映射到 Gemini 3+ thinkingLevel
+        const thinkingType = claudeRequest.thinking?.type;
+        if (thinkingType === 'enabled' || thinkingType === 'adaptive') {
+            let effort;
+            if (thinkingType === 'adaptive') {
+                effort = claudeRequest.output_config?.effort
+                    || claudeRequest.thinking?.effort
+                    || 'high';
+            } else {
+                effort = determineReasoningEffortFromBudget(claudeRequest.thinking?.budget_tokens);
+            }
+            const thinkingConfig = effortToGeminiThinking(effort);
+            if (thinkingConfig) {
+                generationConfig.thinkingConfig = {
+                    ...thinkingConfig,
+                    includeThoughts: true
+                };
             }
         }
         
@@ -1466,6 +1504,8 @@ export class ClaudeConverter extends BaseConverter {
         switch (claudeToolChoice.type) {
             case 'auto':
                 return { functionCallingConfig: { mode: 'AUTO' } };
+            case 'any':
+                return { functionCallingConfig: { mode: 'ANY' } };
             case 'none':
                 return { functionCallingConfig: { mode: 'NONE' } };
             case 'tool':
@@ -1693,7 +1733,10 @@ export class ClaudeConverter extends BaseConverter {
                         if (c.type === 'thinking') {
                             flushMessage();
                             const thinkingText = c.thinking ?? c.text;
-                            if (thinkingText) {
+                            if (thinkingText && getConfigToggle('CONVERT_PRESERVE_REASONING_ITEM', true)) {
+                                // Anthropic signature 不是 OpenAI encrypted_content；对兼容 Responses 上游
+                                // 以 summary 形式回放，官方 OpenAI 无状态场景可通过开关关闭。
+                                logger.debug('[ClaudeConverter] reasoning item forwarded without encrypted_content (CONVERT_PRESERVE_REASONING_ITEM)');
                                 responsesRequest.input.push({
                                     type: 'reasoning',
                                     summary: [{
@@ -1889,6 +1932,12 @@ export class ClaudeConverter extends BaseConverter {
      */
     toOpenAIResponsesStreamChunk(claudeChunk, model, requestId = null) {
         if (!claudeChunk) return [];
+
+        if (claudeChunk.type === 'error') {
+            const error = new Error(claudeChunk.error?.message || 'Claude upstream stream failed');
+            error.status = 502;
+            throw error;
+        }
 
         const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
         const events = [];
@@ -2245,12 +2294,25 @@ export class ClaudeConverter extends BaseConverter {
             }
         }
 
-        // 处理 thinking 转换
-        if (claudeRequest.thinking && claudeRequest.thinking.type === "enabled") {
-            const budgetTokens = claudeRequest.thinking.budget_tokens;
-            codexRequest.reasoning.effort = determineReasoningEffortFromBudget(budgetTokens);
-        } else if (claudeRequest.thinking && claudeRequest.thinking.type === "disabled") {
-             codexRequest.reasoning.effort = determineReasoningEffortFromBudget(0);
+        // 处理 thinking 转换（enabled 按 budget 换算，adaptive 取 output_config.effort）
+        const codexThinkingType = claudeRequest.thinking?.type;
+        if (codexThinkingType === 'enabled' || codexThinkingType === 'adaptive') {
+            let effort;
+            if (codexThinkingType === 'adaptive') {
+                effort = claudeRequest.output_config?.effort
+                    || claudeRequest.thinking?.effort
+                    || 'high';
+            } else {
+                effort = determineReasoningEffortFromBudget(claudeRequest.thinking?.budget_tokens);
+            }
+            effort = String(effort).toLowerCase();
+            if (effort === 'max') effort = 'xhigh';
+            if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) {
+                effort = 'high';
+            }
+            codexRequest.reasoning.effort = effort;
+        } else if (codexThinkingType === 'disabled') {
+            delete codexRequest.reasoning.effort;
         }
 
         // 注入 Codex 指令 (对应 末尾的特殊逻辑)

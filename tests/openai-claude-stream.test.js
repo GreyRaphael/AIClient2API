@@ -51,11 +51,11 @@ describe('B4: 纯文本流', () => {
         expect(events[0].message.model).toBe(MODEL);
         expect(events[0].message.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
         expect(events[1]).toEqual({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
-        // 现状锁定：message_delta.usage 仅含 output_tokens（无 input_tokens）
+        // usage 取自 finish chunk（若上游把 usage 放在独立尾帧，转换层会安全忽略）
         expect(events[5]).toEqual({
             type: 'message_delta',
             delta: { stop_reason: 'end_turn', stop_sequence: null },
-            usage: { output_tokens: 4 }
+            usage: { input_tokens: 11, output_tokens: 4, cache_read_input_tokens: 0 }
         });
         expect(converter.claudeStreamStates.has(reqId)).toBe(false);
     });
@@ -136,7 +136,7 @@ describe('B4: 工具调用流', () => {
         expect(events[6].delta).toEqual({ type: 'input_json_delta', partial_json: '"foo"}' });
         expect(events[8]).toEqual({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'call_2', name: 'Read', input: {} } });
         expect(events[11].delta.stop_reason).toBe('tool_use');
-        expect(events[11].usage).toEqual({ output_tokens: 9 });
+        expect(events[11].usage).toEqual({ input_tokens: 0, output_tokens: 9, cache_read_input_tokens: 0 });
     });
 
     test('finish_reason 非 tool_calls 但有工具块时 stop_reason 覆盖为 tool_use', () => {

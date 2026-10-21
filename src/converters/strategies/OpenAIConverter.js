@@ -546,6 +546,12 @@ export class OpenAIConverter extends BaseConverter {
     toClaudeStreamChunk(openaiChunk, model, requestId = null) {
         if (!openaiChunk) return null;
 
+        if (openaiChunk.error) {
+            const error = new Error(openaiChunk.error.message || 'OpenAI upstream stream failed');
+            error.status = 502;
+            throw error;
+        }
+
         // 向后兼容：处理字符串格式
         if (typeof openaiChunk === 'string') {
             return {
@@ -688,9 +694,14 @@ export class OpenAIConverter extends BaseConverter {
             }
 
             // finish 统一兜底空块 -> 关闭所有 open 块 -> message_delta -> message_stop
+            const finishUsage = openaiChunk.usage ? {
+                input_tokens: openaiChunk.usage.prompt_tokens || 0,
+                output_tokens: openaiChunk.usage.completion_tokens || 0,
+                cache_read_input_tokens: openaiChunk.usage.prompt_tokens_details?.cached_tokens || 0
+            } : { output_tokens: 0 };
             events.push(...emitter.finish({
                 stopReason,
-                usage: { output_tokens: openaiChunk.usage?.completion_tokens || 0 }
+                usage: finishUsage
             }));
 
             // 清理流状态
@@ -1277,11 +1288,23 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     buildGeminiToolConfig(toolChoice) {
-        if (typeof toolChoice === 'string' && ['none', 'auto'].includes(toolChoice)) {
-            return { functionCallingConfig: { mode: toolChoice.toUpperCase() } };
+        if (typeof toolChoice === 'string') {
+            if (toolChoice === 'none' || toolChoice === 'auto') {
+                return { functionCallingConfig: { mode: toolChoice.toUpperCase() } };
+            }
+            if (toolChoice === 'required') {
+                return { functionCallingConfig: { mode: 'ANY' } };
+            }
+            return null;
         }
         if (typeof toolChoice === 'object' && toolChoice.function) {
             return { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [toolChoice.function.name] } };
+        }
+        if (typeof toolChoice === 'object' && toolChoice.type === 'function') {
+            const name = toolChoice.name || toolChoice.function?.name;
+            if (name) {
+                return { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [name] } };
+            }
         }
         return null;
     }
@@ -1700,6 +1723,11 @@ export class OpenAIConverter extends BaseConverter {
      * 参考 ClaudeConverter.toOpenAIResponsesStreamChunk 的实现逻辑
      */
     toOpenAIResponsesStreamChunk(openaiChunk, model, requestId = null) {
+        if (openaiChunk?.error) {
+            const error = new Error(openaiChunk.error.message || 'OpenAI upstream stream failed');
+            error.status = 502;
+            throw error;
+        }
         if (!openaiChunk || !openaiChunk.choices || !openaiChunk.choices[0]) {
             return [];
         }
@@ -1721,6 +1749,13 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理 tool_calls（工具调用）
         if (delta.tool_calls && delta.tool_calls.length > 0) {
+            // 工具调用前关闭 reasoning/text 块，保持 output item 生命周期顺序
+            if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                events.push(...emitter.reasoningDone());
+            }
+            if (emitter.textStarted && !emitter.textDoneFlag) {
+                events.push(...emitter.textDone());
+            }
             for (const toolCall of delta.tool_calls) {
                 const toolIndex = toolCall.index ?? 0;
                 if (toolCall.function && (toolCall.function.name || toolCall.id)) {
@@ -1734,6 +1769,9 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理普通文本内容
         if (delta.content) {
+            if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                events.push(...emitter.reasoningDone());
+            }
             events.push(...emitter.textDelta(delta.content));
         }
 

@@ -831,6 +831,18 @@ export class GeminiConverter extends BaseConverter {
             }
         }
 
+        if (reasoning_content) {
+            output.push({
+                id: `rs_${uuidv4().replace(/-/g, '')}`,
+                type: 'reasoning',
+                status: 'completed',
+                summary: [{
+                    type: 'summary_text',
+                    text: reasoning_content
+                }]
+            });
+        }
+
         if (textContent || toolCalls.length === 0) {
             output.push({
                 id: this._buildResponsesMessageItemId(responseId, 0),
@@ -890,10 +902,6 @@ export class GeminiConverter extends BaseConverter {
             },
             user: null
         };
-
-        if (reasoning_content) {
-            response.reasoning_content = reasoning_content;
-        }
 
         return response;
     }
