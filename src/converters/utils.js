@@ -34,6 +34,35 @@ export const CLAUDE_MAX_OUTPUT_TOKENS = 64000;
 export const CLAUDE_DEFAULT_MAX_TOKENS = CLAUDE_MAX_OUTPUT_TOKENS;
 
 /**
+ * 将“输入总量包含缓存命中”的 usage（OpenAI / Responses / Gemini / Codex）
+ * 转换为 Anthropic 语义。Anthropic 的 input_tokens 不含缓存部分，
+ * cache_read / cache_creation 必须单独计数。
+ * @param {Object} options
+ * @param {number} [options.inputTokens] - 输入总量（含缓存）
+ * @param {number} [options.cachedTokens] - 缓存读取 token
+ * @param {number} [options.cacheCreationTokens] - 缓存写入 token
+ * @param {number} [options.outputTokens] - 输出 token
+ * @returns {{input_tokens: number, cache_creation_input_tokens: number, cache_read_input_tokens: number, output_tokens: number}}
+ */
+export function anthropicUsageFromInclusiveInput({
+    inputTokens = 0,
+    cachedTokens = 0,
+    cacheCreationTokens = 0,
+    outputTokens = 0
+} = {}) {
+    const input = Number.isFinite(Number(inputTokens)) ? Number(inputTokens) : 0;
+    const cached = Number.isFinite(Number(cachedTokens)) ? Number(cachedTokens) : 0;
+    const creation = Number.isFinite(Number(cacheCreationTokens)) ? Number(cacheCreationTokens) : 0;
+    const output = Number.isFinite(Number(outputTokens)) ? Number(outputTokens) : 0;
+    return {
+        input_tokens: Math.max(0, input - cached),
+        cache_creation_input_tokens: creation,
+        cache_read_input_tokens: cached,
+        output_tokens: output
+    };
+}
+
+/**
  * 将任意来源的 max_tokens 收敛到 Anthropic 可接受范围。
  * 缺失、非正数或非法值回退到默认上限。
  * @param {*} value

@@ -9,14 +9,11 @@ import {BaseConverter} from '../BaseConverter.js';
 import {CodexConverter} from './CodexConverter.js';
 import {StreamSessionStore} from '../stream-session.js';
 import {
-    checkAndAssignOrDefault,
     cleanJsonSchemaForOpenAI,
     determineReasoningEffortFromBudget,
     isOpenAIReasoningModel,
-    OPENAI_DEFAULT_MAX_TOKENS,
-    OPENAI_DEFAULT_TEMPERATURE,
-    OPENAI_DEFAULT_TOP_P,
     sanitizeToolId,
+    safeParseJSON,
     getOpenAIStreamIdentity,
     mergeConsecutiveSameRoleContents,
     sortToolsByName,
@@ -27,6 +24,10 @@ import {getConfigToggle} from '../../core/config-manager.js';
 import {effortToGeminiThinking} from '../thinking-budget.js';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
+import {
+    isCustomTool,
+    extractCustomToolInput
+} from '../custom-tool-registry.js';
 
 /**
  * Claude转换器类
@@ -65,12 +66,12 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data, targetProtocol, model) {
+    convertResponse(data, targetProtocol, model, requestId = null) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesResponse(data, model);
+                return this.toOpenAIResponsesResponse(data, model, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -342,11 +343,19 @@ export class ClaudeConverter extends BaseConverter {
         const openaiRequest = {
             model: claudeRequest.model,
             messages: openaiMessages,
-            max_tokens: checkAndAssignOrDefault(claudeRequest.max_tokens, OPENAI_DEFAULT_MAX_TOKENS),
-            temperature: checkAndAssignOrDefault(claudeRequest.temperature, OPENAI_DEFAULT_TEMPERATURE),
-            top_p: checkAndAssignOrDefault(claudeRequest.top_p, OPENAI_DEFAULT_TOP_P),
             stream: claudeRequest.stream,
         };
+        // 不注入默认采样参数：OpenAI 默认 temperature=1、top_p=1；
+        // Anthropic 客户端未显式传参时，强行写 top_p=0.95 会改变上游采样行为。
+        if (claudeRequest.max_tokens !== undefined) {
+            openaiRequest.max_tokens = claudeRequest.max_tokens;
+        }
+        if (claudeRequest.temperature !== undefined) {
+            openaiRequest.temperature = claudeRequest.temperature;
+        }
+        if (claudeRequest.top_p !== undefined) {
+            openaiRequest.top_p = claudeRequest.top_p;
+        }
 
         if (claudeRequest.stop_sequences !== undefined) {
             openaiRequest.stop = claudeRequest.stop_sequences;
@@ -373,6 +382,9 @@ export class ClaudeConverter extends BaseConverter {
             const mappedToolChoice = this._buildOpenAIToolChoice(claudeRequest.tool_choice);
             if (mappedToolChoice !== undefined) {
                 openaiRequest.tool_choice = mappedToolChoice;
+            }
+            if (claudeRequest.tool_choice?.disable_parallel_tool_use === true) {
+                openaiRequest.parallel_tool_calls = false;
             }
         }
 
@@ -642,6 +654,17 @@ export class ClaudeConverter extends BaseConverter {
         const { stateKey, identity } = this._getOpenAIStreamIdentity(requestId);
         const chunkId = identity.id;
         const timestamp = identity.created;
+        // Anthropic content block index 包含 thinking/text/tool 块；OpenAI Chat
+        // 的 tool_calls.index 必须在单个 choice 内从 0 递增，不能直接复用 block index。
+        if (!(identity.toolIndexByBlock instanceof Map)) identity.toolIndexByBlock = new Map();
+        if (!Number.isInteger(identity.nextToolIndex)) identity.nextToolIndex = 0;
+        const toOpenAIToolIndex = (blockIndex) => {
+            const key = blockIndex ?? 0;
+            if (!identity.toolIndexByBlock.has(key)) {
+                identity.toolIndexByBlock.set(key, identity.nextToolIndex++);
+            }
+            return identity.toolIndexByBlock.get(key);
+        };
 
         // message_start 事件
         if (claudeChunk.type === 'message_start') {
@@ -692,7 +715,7 @@ export class ClaudeConverter extends BaseConverter {
                         index: 0,
                         delta: {
                             tool_calls: [{
-                                index: claudeChunk.index || 0,
+                                index: toOpenAIToolIndex(claudeChunk.index ?? 0),
                                 id: contentBlock.id,
                                 type: "function",
                                 function: {
@@ -775,7 +798,7 @@ export class ClaudeConverter extends BaseConverter {
                         index: 0,
                         delta: {
                             tool_calls: [{
-                                index: claudeChunk.index || 0,
+                                index: toOpenAIToolIndex(claudeChunk.index ?? 0),
                                 function: {
                                     arguments: delta.partial_json || ""
                                 }
@@ -1147,18 +1170,13 @@ export class ClaudeConverter extends BaseConverter {
                             // 添加 thinking 块处理
                             case 'thinking':
                                 if (typeof block.thinking === 'string' && block.thinking.length > 0) {
-                                    const thinkingPart = {
+                                    // Anthropic 的真实 signature 只对 Anthropic 有效；
+                                    // 不能作为 Gemini thoughtSignature 透传，否则 Gemini 3
+                                    // 可能因签名非法返回 400。虚拟签名已在入口被剥离。
+                                    parts.push({
                                         text: block.thinking,
                                         thought: true
-                                    };
-                                    // 如果有签名，添加 thoughtSignature
-                                    if (block.signature) {
-                                        if (block.signature.length < 50) {
-                                            logger.debug(`[ClaudeConverter] Short signature detected (length: ${block.signature.length}), passing through to thoughtSignature`);
-                                        }
-                                        thinkingPart.thoughtSignature = block.signature;
-                                    }
-                                    parts.push(thinkingPart);
+                                    });
                                 }
                                 break;
                             
@@ -1829,6 +1847,9 @@ export class ClaudeConverter extends BaseConverter {
         if (toolChoice) {
             responsesRequest.tool_choice = toolChoice;
         }
+        if (claudeRequest.tools?.length > 0 && claudeRequest.tool_choice?.disable_parallel_tool_use === true) {
+            responsesRequest.parallel_tool_calls = false;
+        }
 
         return responsesRequest;
     }
@@ -1836,7 +1857,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude响应 -> OpenAI Responses响应
      */
-    toOpenAIResponsesResponse(claudeResponse, model) {
+    toOpenAIResponsesResponse(claudeResponse, model, requestId = null) {
         const output = [];
         const messageContent = [];
         const reasoningSummary = [];
@@ -1863,25 +1884,27 @@ export class ClaudeConverter extends BaseConverter {
                         });
                     }
                 } else if (block.type === 'tool_use') {
-                    output.push({
-                        type: "function_call",
-                        id: `fc_${uuidv4().replace(/-/g, '')}`,
-                        call_id: block.id || `call_${uuidv4().replace(/-/g, '')}`,
-                        name: block.name,
-                        arguments: typeof block.input === 'string' ? block.input : JSON.stringify(block.input || {}),
-                        status: "completed"
-                    });
+                    if (isCustomTool(requestId, block.name)) {
+                        output.push({
+                            type: "custom_tool_call",
+                            id: `fc_${uuidv4().replace(/-/g, '')}`,
+                            call_id: block.id || `call_${uuidv4().replace(/-/g, '')}`,
+                            name: block.name,
+                            input: extractCustomToolInput(block.input),
+                            status: "completed"
+                        });
+                    } else {
+                        output.push({
+                            type: "function_call",
+                            id: `fc_${uuidv4().replace(/-/g, '')}`,
+                            call_id: block.id || `call_${uuidv4().replace(/-/g, '')}`,
+                            name: block.name,
+                            arguments: typeof block.input === 'string' ? block.input : JSON.stringify(block.input || {}),
+                            status: "completed"
+                        });
+                    }
                 }
             }
-        }
-
-        if (reasoningSummary.length > 0) {
-            output.unshift({
-                id: `rs_${uuidv4().replace(/-/g, '')}`,
-                type: "reasoning",
-                status: "completed",
-                summary: reasoningSummary
-            });
         }
 
         if (messageContent.length > 0 || output.length === 0) {
@@ -1892,6 +1915,16 @@ export class ClaudeConverter extends BaseConverter {
                 role: "assistant",
                 status: "completed",
                 content: messageContent
+            });
+        }
+
+        // Responses 的 output 顺序应为 reasoning -> message -> function_call。
+        if (reasoningSummary.length > 0) {
+            output.unshift({
+                id: `rs_${uuidv4().replace(/-/g, '')}`,
+                type: "reasoning",
+                status: "completed",
+                summary: reasoningSummary
             });
         }
 
@@ -2040,7 +2073,11 @@ export class ClaudeConverter extends BaseConverter {
             const contentBlock = claudeChunk.content_block;
             if (contentBlock && contentBlock.type === 'tool_use') {
                 emitter.currentToolCallId = contentBlock.id;
-                events.push(...emitter.toolCallStart(contentBlock.id, contentBlock.name, { index: claudeChunk.index ?? 0 }));
+                const custom = isCustomTool(requestId, contentBlock.name);
+                events.push(...emitter.toolCallStart(contentBlock.id, contentBlock.name, {
+                    index: claudeChunk.index ?? 0,
+                    isCustom: custom
+                }));
             } else if (contentBlock && contentBlock.type === 'thinking') {
                 events.push(...emitter.reasoningStart());
             } else if (contentBlock && contentBlock.type === 'text') {
@@ -2058,14 +2095,28 @@ export class ClaudeConverter extends BaseConverter {
             } else if (delta && delta.type === 'input_json_delta') {
                 // toolCallStart 以 Claude content block index 作为内部 key，
                 // 这里必须使用同一个 index，不能混用 call_id（否则会重复创建 function_call item）。
-                events.push(...emitter.toolCallArgsDelta(claudeChunk.index ?? 0, delta.partial_json || ''));
+                const key = emitter._findToolCallKey(claudeChunk.index ?? 0);
+                const toolState = key !== null ? emitter.toolCalls.get(key) : null;
+                if (toolState?.isCustom) {
+                    // custom tool 的 JSON 参数先累积，收尾时再折叠为自由文本 input。
+                    emitter.bufferToolCallArgs(claudeChunk.index ?? 0, delta.partial_json || '');
+                } else {
+                    events.push(...emitter.toolCallArgsDelta(claudeChunk.index ?? 0, delta.partial_json || ''));
+                }
             }
         }
 
         // content_block_stop 事件
         if (claudeChunk.type === 'content_block_stop') {
             if (emitter.currentToolCallId) {
-                events.push(...emitter.toolCallDone(claudeChunk.index ?? 0));
+                const index = claudeChunk.index ?? 0;
+                const key = emitter._findToolCallKey(index);
+                const toolState = key !== null ? emitter.toolCalls.get(key) : null;
+                if (toolState?.isCustom && !toolState.done) {
+                    const parsed = safeParseJSON(toolState.arguments || '{}');
+                    events.push(...emitter.toolCallCustomInput(index, extractCustomToolInput(parsed)));
+                }
+                events.push(...emitter.toolCallDone(index));
                 emitter.currentToolCallId = null;
             } else if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
                 events.push(...emitter.reasoningDone());
@@ -2093,6 +2144,12 @@ export class ClaudeConverter extends BaseConverter {
             if (emitter.stopReason === 'max_tokens') {
                 status = 'incomplete';
                 incompleteDetails = { reason: 'max_output_tokens' };
+            }
+            // 若上游没有发送 content_block_stop，仍需在终止前交付 custom tool input。
+            for (const [key, toolState] of emitter.toolCalls.entries()) {
+                if (!toolState.isCustom || toolState.done) continue;
+                const parsed = safeParseJSON(toolState.arguments || '{}');
+                events.push(...emitter.toolCallCustomInput(key, extractCustomToolInput(parsed)));
             }
             events.push(...emitter.complete(this._toResponsesUsage(emitter.savedUsage), { status, incompleteDetails }));
         }
@@ -2206,7 +2263,7 @@ export class ClaudeConverter extends BaseConverter {
             input: [],
             stream: true,
             store: false,
-            parallel_tool_calls: true,
+            parallel_tool_calls: claudeRequest.tool_choice?.disable_parallel_tool_use !== true,
             metadata: claudeRequest.metadata || {},
             reasoning: {
                 effort: claudeRequest.reasoning?.effort || 'medium',
