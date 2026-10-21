@@ -35,6 +35,35 @@ import {
 } from '../custom-tool-registry.js';
 
 /**
+ * 提取 Responses reasoning item 的文本。
+ * 上游有两种形状：
+ * - `summary: [{ type: "summary_text", text }]`
+ * - `content: [{ type: "reasoning_text", text }]`
+ * 空 summary 数组不能短路 content 的读取。
+ * @param {any} item
+ * @returns {string}
+ */
+function extractResponsesReasoningText(item) {
+    if (!item || typeof item !== 'object') return '';
+
+    const collect = (value) => {
+        if (typeof value === 'string') return value;
+        if (!Array.isArray(value)) return '';
+        return value
+            .map(part => {
+                if (typeof part === 'string') return part;
+                return part?.text ?? part?.summary_text ?? '';
+            })
+            .filter(Boolean)
+            .join('\n');
+    };
+
+    const summaryText = collect(item.summary);
+    if (summaryText) return summaryText;
+    return collect(item.content);
+}
+
+/**
  * OpenAI Responses API 转换器类
  * 支持 OpenAI Responses 格式与 OpenAI、Claude、Gemini 之间的转换
  */
@@ -439,22 +468,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         }
                     });
                 } else if (item.type === 'reasoning') {
-                    let summaryText = '';
-                    if (typeof item.summary === 'string') {
-                        summaryText = item.summary;
-                    } else if (Array.isArray(item.summary)) {
-                        summaryText = item.summary
-                            .map(s => (typeof s === 'string' ? s : (s?.text || '')))
-                            .filter(Boolean)
-                            .join('\n');
-                    } else if (typeof item.content === 'string') {
-                        summaryText = item.content;
-                    } else if (Array.isArray(item.content)) {
-                        summaryText = item.content
-                            .map(c => (typeof c === 'string' ? c : (c?.text || '')))
-                            .filter(Boolean)
-                            .join('\n');
-                    }
+                    const summaryText = extractResponsesReasoningText(item);
                     if (summaryText) {
                         reasoningContent = reasoningContent ? (reasoningContent + '\n' + summaryText) : summaryText;
                     }
@@ -1285,11 +1299,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     });
                     stop_reason = 'tool_use';
                 } else if (item.type === 'reasoning') {
-                    const summary = Array.isArray(item.summary) ? item.summary : [];
-                    const thinking = summary
-                        .map(part => part?.text ?? part?.summary_text ?? '')
-                        .filter(Boolean)
-                        .join('\n');
+                    const thinking = extractResponsesReasoningText(item);
                     if (thinking) {
                         const block = { type: 'thinking', thinking };
                         if (isSignatureVaultEnabled()) {
@@ -1484,7 +1494,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return null;
         }
 
-        if (responsesChunk.type === 'response.reasoning_summary_text.delta') {
+        if (responsesChunk.type === 'response.reasoning_summary_text.delta' ||
+            responsesChunk.type === 'response.reasoning_text.delta') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk);
             const events = [];
             if (!state.reasoningBlocks.has(index)) {
@@ -1509,7 +1520,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return events;
         }
 
-        if (responsesChunk.type === 'response.reasoning_summary_text.done') {
+        if (responsesChunk.type === 'response.reasoning_summary_text.done' ||
+            responsesChunk.type === 'response.reasoning_text.done') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk);
             if (!state.stoppedBlocks.has(`reasoning:${index}`)) {
                 state.stoppedBlocks.add(`reasoning:${index}`);

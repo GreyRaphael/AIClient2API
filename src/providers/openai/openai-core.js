@@ -5,6 +5,144 @@ import * as https from 'https';
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.js';
 
+/**
+ * 判断非流式响应体是否实际上是 SSE 文本。
+ * 部分 OpenAI 兼容端点无论 `stream` 取值都返回 `text/event-stream`。
+ * @param {any} data
+ * @returns {boolean}
+ */
+function isSSEPayload(data) {
+    if (typeof data !== 'string') return false;
+    const trimmed = data.trimStart();
+    return trimmed.startsWith('data:') || trimmed.startsWith('event:') || trimmed.includes('\ndata:');
+}
+
+/**
+ * 将 SSE 文本解析为 JSON chunk 列表。
+ * @param {string} raw
+ * @returns {Array<any>}
+ */
+function parseSSEChunks(raw) {
+    const chunks = [];
+    for (const line of String(raw).split(/\r?\n/)) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+            chunks.push(JSON.parse(payload));
+        } catch {
+            // 忽略非 JSON 的 SSE data 行
+        }
+    }
+    return chunks;
+}
+
+/**
+ * 将 Chat Completions 流式 chunk 聚合为非流式响应。
+ * 处理 content / reasoning_content / tool_calls / finish_reason / usage。
+ * @param {Array<any>} chunks
+ * @returns {Object|null}
+ */
+export function aggregateChatCompletionChunks(chunks) {
+    if (!Array.isArray(chunks) || chunks.length === 0) return null;
+
+    const result = {
+        id: null,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: null,
+        choices: [{
+            index: 0,
+            message: { role: 'assistant', content: '' },
+            finish_reason: null
+        }],
+        usage: null
+    };
+
+    let content = '';
+    let reasoning = '';
+    let sawContent = false;
+    const toolCalls = new Map();
+
+    for (const chunk of chunks) {
+        if (!chunk || typeof chunk !== 'object') continue;
+        if (chunk.id && !result.id) result.id = chunk.id;
+        if (chunk.created && !result.created) result.created = chunk.created;
+        if (chunk.model) result.model = chunk.model;
+        if (chunk.usage) result.usage = chunk.usage;
+
+        const choices = Array.isArray(chunk.choices) ? chunk.choices : [];
+        for (const choice of choices) {
+            const delta = choice?.delta || {};
+            if (typeof delta.content === 'string' && delta.content.length > 0) {
+                content += delta.content;
+                sawContent = true;
+            }
+            if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
+                reasoning += delta.reasoning_content;
+            }
+            if (typeof delta.reasoning === 'string' && delta.reasoning.length > 0) {
+                reasoning += delta.reasoning;
+            }
+            if (Array.isArray(delta.tool_calls)) {
+                for (const tc of delta.tool_calls) {
+                    const index = Number.isInteger(tc?.index) ? tc.index : toolCalls.size;
+                    if (!toolCalls.has(index)) {
+                        toolCalls.set(index, {
+                            id: tc?.id,
+                            type: tc?.type || 'function',
+                            function: { name: '', arguments: '' }
+                        });
+                    }
+                    const target = toolCalls.get(index);
+                    if (tc?.id) target.id = tc.id;
+                    if (tc?.type) target.type = tc.type;
+                    if (tc?.function?.name) target.function.name = tc.function.name;
+                    if (typeof tc?.function?.arguments === 'string') {
+                        target.function.arguments += tc.function.arguments;
+                    }
+                }
+            }
+            if (delta.function_call) {
+                if (!toolCalls.has(0)) {
+                    toolCalls.set(0, { id: undefined, type: 'function', function: { name: '', arguments: '' } });
+                }
+                const target = toolCalls.get(0);
+                if (delta.function_call.name) target.function.name = delta.function_call.name;
+                if (typeof delta.function_call.arguments === 'string') {
+                    target.function.arguments += delta.function_call.arguments;
+                }
+            }
+            if (choice?.finish_reason) {
+                result.choices[0].finish_reason = choice.finish_reason;
+            }
+        }
+    }
+
+    const message = result.choices[0].message;
+    if (sawContent || !toolCalls.size) {
+        message.content = content;
+    } else {
+        message.content = null;
+    }
+    if (reasoning) message.reasoning_content = reasoning;
+    if (toolCalls.size > 0) {
+        message.tool_calls = Array.from(toolCalls.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([index, tc]) => ({
+                index,
+                id: tc.id || `call_${result.id || Date.now()}_${index}`,
+                type: tc.type || 'function',
+                function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments || '{}'
+                }
+            }));
+    }
+    if (!result.id) result.id = `chatcmpl-${Date.now()}`;
+    return result;
+}
+
 // Assumed OpenAI API specification service for interacting with third-party models
 export class OpenAIApiService {
     constructor(config) {
@@ -44,6 +182,15 @@ export class OpenAIApiService {
             };
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(axiosConfig);
+            const contentType = String(response.headers?.['content-type'] || '');
+            if (isSSEPayload(response.data) || contentType.includes('text/event-stream')) {
+                // 兼容“忽略 stream:false、始终返回 SSE”的上游端点。
+                const aggregated = aggregateChatCompletionChunks(parseSSEChunks(response.data));
+                if (aggregated) {
+                    logger.debug('[OpenAI API] Aggregated SSE response for non-stream request');
+                    return aggregated;
+                }
+            }
             return response.data;
         } catch (error) {
             const status = error.response?.status;
