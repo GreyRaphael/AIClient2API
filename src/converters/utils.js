@@ -24,8 +24,6 @@ import { budgetTokensToEffort } from './thinking-budget.js';
 export const OPENAI_DEFAULT_MAX_TOKENS = 128000;
 export const OPENAI_DEFAULT_TEMPERATURE = 1;
 export const OPENAI_DEFAULT_TOP_P = 0.95;
-export const OPENAI_DEFAULT_INPUT_TOKEN_LIMIT = 32768;
-export const OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT = 128000;
 
 // =============================================================================
 // Claude 相关常量
@@ -40,8 +38,6 @@ export const CLAUDE_DEFAULT_TOP_P = 0.95;
 export const GEMINI_DEFAULT_MAX_TOKENS = 65534;
 export const GEMINI_DEFAULT_TEMPERATURE = 1;
 export const GEMINI_DEFAULT_TOP_P = 0.95;
-export const GEMINI_DEFAULT_INPUT_TOKEN_LIMIT = 32768;
-export const GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT = 65534;
 
 // =============================================================================
 // 通用辅助函数
@@ -470,6 +466,18 @@ export function mergeConsecutiveSameRoleContents(contents, rolePair = null) {
     }
 
     return merged;
+}
+
+/**
+ * 判断模型是否属于 OpenAI 推理模型家族（GPT-5+ / o1-o9）。
+ * 该类模型在 Chat Completions 中要求使用 max_completion_tokens，传 max_tokens 可能 400。
+ * @param {string|null|undefined} model
+ * @returns {boolean}
+ */
+export function isOpenAIReasoningModel(model) {
+    if (!model) return false;
+    const m = String(model).trim().toLowerCase();
+    return /(^|[-_/])gpt-5(?:[.-]|$)/.test(m) || /(^|[-_/])o[1-9](?:[-_.]|$)/.test(m);
 }
 
 /**

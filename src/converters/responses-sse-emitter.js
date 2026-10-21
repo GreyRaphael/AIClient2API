@@ -275,6 +275,23 @@ export class ResponsesSseEmitter {
     }
 
     /**
+     * 按 key / call_id / item_id 查找工具调用状态，兼容调用方
+     * 在 toolCallStart 用 index、在 args/done 用 call_id 的混用场景。
+     * @param {string|number|null|undefined} idOrIndex
+     * @returns {string|null} 内部 Map key
+     */
+    _findToolCallKey(idOrIndex) {
+        const raw = String(idOrIndex ?? 0);
+        if (this.toolCalls.has(raw)) return raw;
+        for (const [key, toolState] of this.toolCalls.entries()) {
+            if (String(toolState.callId) === raw || String(toolState.itemId) === raw) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 开启工具调用
      */
     toolCallStart(id, name, options = {}) {
@@ -283,7 +300,12 @@ export class ResponsesSseEmitter {
         if (!this.started) {
             events.push(...this.start());
         }
-        const key = options.index !== undefined ? String(options.index) : (id || String(this.toolCalls.size));
+        let key = options.index !== undefined ? String(options.index) : (id || String(this.toolCalls.size));
+        // 同一 call_id 已经以 index 为 key 创建过时，复用原状态，避免重复 output item
+        if (id && !this.toolCalls.has(key)) {
+            const existingByCallId = this._findToolCallKey(id);
+            if (existingByCallId !== null) key = existingByCallId;
+        }
         let toolState = this.toolCalls.get(key);
         if (!toolState) {
             const outputIndex = this.nextOutputIndex++;
@@ -334,15 +356,16 @@ export class ResponsesSseEmitter {
      */
     toolCallArgsDelta(idOrIndex, delta) {
         if (this.done || !delta) return [];
-        const key = String(idOrIndex ?? 0);
-        let toolState = this.toolCalls.get(key);
+        let key = this._findToolCallKey(idOrIndex);
         const events = [];
-        if (!toolState || !toolState.added) {
+        if (key === null) {
             events.push(...this.toolCallStart(typeof idOrIndex === 'string' ? idOrIndex : null, null, {
                 index: typeof idOrIndex === 'number' ? idOrIndex : undefined
             }));
-            toolState = this.toolCalls.get(key);
+            key = this._findToolCallKey(idOrIndex);
         }
+        if (key === null) return events;
+        const toolState = this.toolCalls.get(key);
         toolState.arguments += delta;
         this._pushEvent(events, {
             type: "response.function_call_arguments.delta",
@@ -358,7 +381,8 @@ export class ResponsesSseEmitter {
      */
     toolCallDone(idOrIndex) {
         if (this.done) return [];
-        const key = String(idOrIndex ?? 0);
+        const key = this._findToolCallKey(idOrIndex);
+        if (key === null) return [];
         const toolState = this.toolCalls.get(key);
         if (!toolState || toolState.done) return [];
         const events = [];
@@ -385,17 +409,6 @@ export class ResponsesSseEmitter {
                 status: "completed"
             }
         });
-        return events;
-    }
-
-    /**
-     * 压入外部自定义事件并自动补充 sequence_number
-     */
-    pushEvents(...eventList) {
-        const events = [];
-        for (const ev of eventList) {
-            this._pushEvent(events, ev);
-        }
         return events;
     }
 

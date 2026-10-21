@@ -17,6 +17,7 @@ import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vaul
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
     cleanJsonSchemaForOpenAI,
+    isOpenAIReasoningModel,
     CLAUDE_DEFAULT_MAX_TOKENS,
     safeParseJSON,
     mergeConsecutiveSameRoleContents,
@@ -33,6 +34,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         this.codexConverter = new CodexConverter();
         this.claudeStreamStates = new StreamSessionStore({ label: 'responses-converter-claude-stream' });
         this.codexResponsesStreamStates = new StreamSessionStore({ label: 'responses-converter-codex-stream' });
+        this.openaiChatStreamStates = new StreamSessionStore({ label: 'responses-converter-openai-chat-stream' });
     }
 
     // =============================================================================
@@ -42,7 +44,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换请求到目标协议
      */
-    convertRequest(data, toProtocol) {
+    convertRequest(data, toProtocol, requestId) {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIRequest(data);
@@ -51,7 +53,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             case MODEL_PROTOCOL_PREFIX.GEMINI:
                 return this.toGeminiRequest(data);
             case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.toCodexRequest(data);
+                return this.toCodexRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.GROK:
                 return this.toGrokRequest(data);
             default:
@@ -118,6 +120,33 @@ export class OpenAIResponsesConverter extends BaseConverter {
             openaiRequest.max_tokens = responsesRequest.max_output_tokens;
         } else if (responsesRequest.max_tokens !== undefined) {
             openaiRequest.max_tokens = responsesRequest.max_tokens;
+        }
+        // GPT-5+/o 系列 Chat Completions 要求 max_completion_tokens。
+        if (openaiRequest.max_tokens !== undefined && isOpenAIReasoningModel(responsesRequest.model)) {
+            openaiRequest.max_completion_tokens = openaiRequest.max_tokens;
+            delete openaiRequest.max_tokens;
+        }
+        if (responsesRequest.metadata !== undefined) {
+            openaiRequest.metadata = responsesRequest.metadata;
+        }
+        if (responsesRequest.service_tier !== undefined) {
+            openaiRequest.service_tier = responsesRequest.service_tier;
+        }
+        // Responses text.format -> Chat response_format
+        if (responsesRequest.text?.format) {
+            const format = responsesRequest.text.format;
+            if (format.type === 'json_object') {
+                openaiRequest.response_format = { type: 'json_object' };
+            } else if (format.type === 'json_schema' && format.schema) {
+                openaiRequest.response_format = {
+                    type: 'json_schema',
+                    json_schema: {
+                        name: format.name || 'response',
+                        schema: format.schema,
+                        ...(format.strict !== undefined ? { strict: format.strict } : {})
+                    }
+                };
+            }
         }
         if (responsesRequest.top_p !== undefined) {
             openaiRequest.top_p = responsesRequest.top_p;
@@ -199,24 +228,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     }
 
                     case 'message': {
-                        // 提取消息内容
-                        let content = '';
-                        if (Array.isArray(item.content)) {
-                            content = item.content
-                                .filter(c => c.type === 'input_text' || c.type === 'output_text')
-                                .map(c => c.text)
-                                .join('\n');
-                        } else if (typeof item.content === 'string') {
-                            content = item.content;
-                        }
-                        
+                        // 保留文本、图片与文件占位，避免只过滤 text 导致多模态静默丢失
+                        const content = this._responsesMessageContentToOpenAI(item.content);
                         const role = item.role === 'developer' ? 'system' : item.role;
                         const lastMsg = openaiRequest.messages[openaiRequest.messages.length - 1];
 
                         if (role === 'assistant') {
-                            // 如果上一条已经是 assistant 消息且尚未带有 tool_calls，合并文本内容
+                            // 如果上一条已经是 assistant 消息且尚未带有 tool_calls，合并内容
                             if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.tool_calls) {
-                                lastMsg.content = [lastMsg.content, content].filter(Boolean).join('\n');
+                                lastMsg.content = this._mergeOpenAIContent(lastMsg.content, content);
                                 if (pendingReasoning && shouldPreserveReasoning()) {
                                     lastMsg.reasoning_content = [lastMsg.reasoning_content, pendingReasoning].filter(Boolean).join('\n');
                                     pendingReasoning = '';
@@ -234,7 +254,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
                             }
                         } else {
                             flushPendingReasoning();
-                            if (content || (role === 'system')) {
+                            const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content);
+                            if (hasContent || (role === 'system')) {
                                 openaiRequest.messages.push({
                                     role: role,
                                     content: content
@@ -332,7 +353,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesRequest.tool_choice) {
-            openaiRequest.tool_choice = responsesRequest.tool_choice;
+            const mappedToolChoice = this._mapResponsesToolChoiceToOpenAI(responsesRequest.tool_choice);
+            if (mappedToolChoice !== undefined) {
+                openaiRequest.tool_choice = mappedToolChoice;
+            }
         }
 
         const reasoningEffort = responsesRequest.reasoning?.effort || responsesRequest.reasoning_effort;
@@ -456,7 +480,23 @@ export class OpenAIResponsesConverter extends BaseConverter {
     toOpenAIStreamChunk(responsesChunk, model) {
         const resId = responsesChunk.response?.id || responsesChunk.id || `chatcmpl-${Date.now()}`;
         const created = responsesChunk.response?.created_at || responsesChunk.created || Math.floor(Date.now() / 1000);
-        
+
+        if (responsesChunk.type === 'response.failed' || responsesChunk.type === 'error') {
+            const message = responsesChunk.response?.error?.message
+                || responsesChunk.error?.message
+                || responsesChunk.message
+                || 'Responses upstream stream failed';
+            const error = new Error(message);
+            error.status = 502;
+            throw error;
+        }
+
+        let streamState = this.openaiChatStreamStates.get(resId);
+        if (!streamState) {
+            streamState = { hasToolCalls: false };
+            this.openaiChatStreamStates.set(resId, streamState);
+        }
+
         const delta = {};
         let finish_reason = null;
 
@@ -480,9 +520,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     arguments: responsesChunk.delta
                 }
             }];
-        } else if (responsesChunk.type === 'response.output_item.added' && responsesChunk.item?.type === 'function_call') {
-            this._streamHasToolCalls = this._streamHasToolCalls || new Set();
-            this._streamHasToolCalls.add(resId);
+        } else if (responsesChunk.type === 'response.output_item.added' &&
+                   (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
+            streamState.hasToolCalls = true;
             delta.tool_calls = [{
                 index: responsesChunk.output_index || 0,
                 id: responsesChunk.item.call_id,
@@ -492,13 +532,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     arguments: ''
                 }
             }];
-        } else if (responsesChunk.type === 'response.completed') {
-            const hasTool = (this._streamHasToolCalls && this._streamHasToolCalls.has(resId)) ||
-                responsesChunk.response?.output?.some(item => item.type === 'function_call' || item.type === 'custom_tool_call') ||
-                responsesChunk.response?.status === 'requires_action';
-            finish_reason = hasTool ? 'tool_calls' : 'stop';
-            if (this._streamHasToolCalls) {
-                this._streamHasToolCalls.delete(resId);
+        } else if (responsesChunk.type === 'response.completed' || responsesChunk.type === 'response.incomplete') {
+            const hasTool = streamState.hasToolCalls ||
+                responsesChunk.response?.output?.some(item => item.type === 'function_call' || item.type === 'custom_tool_call');
+            const incompleteReason = responsesChunk.response?.incomplete_details?.reason;
+            if (responsesChunk.type === 'response.incomplete' || responsesChunk.response?.status === 'incomplete' || incompleteReason) {
+                finish_reason = incompleteReason === 'content_filter' ? 'content_filter' : 'length';
+            } else {
+                finish_reason = hasTool ? 'tool_calls' : 'stop';
             }
         }
 
@@ -528,7 +569,112 @@ export class OpenAIResponsesConverter extends BaseConverter {
             };
         }
 
+        if (finish_reason) {
+            this.openaiChatStreamStates.delete(resId);
+        }
+
         return chunkObj;
+    }
+
+    /**
+     * Responses tool_choice -> OpenAI Chat Completions tool_choice
+     */
+    _mapResponsesToolChoiceToOpenAI(toolChoice) {
+        if (!toolChoice) {
+            return undefined;
+        }
+        if (typeof toolChoice === 'string') {
+            return toolChoice;
+        }
+        if (toolChoice.type === 'function') {
+            const name = toolChoice.name || toolChoice.function?.name;
+            return name ? { type: 'function', function: { name } } : undefined;
+        }
+        return undefined;
+    }
+
+    /**
+     * Responses input message content -> OpenAI Chat message content.
+     * 纯文本返回 string；含图片/文件时返回 content parts 数组，避免静默丢失。
+     * @param {string|Array|Object} content
+     * @returns {string|Array}
+     */
+    _responsesMessageContentToOpenAI(content) {
+        if (content === null || content === undefined) {
+            return '';
+        }
+        if (typeof content === 'string') {
+            return content;
+        }
+        if (!Array.isArray(content)) {
+            return this._stringifyContentValue(content);
+        }
+
+        const parts = [];
+        let hasNonText = false;
+        for (const part of content) {
+            if (!part) continue;
+            if (typeof part === 'string') {
+                if (part) parts.push({ type: 'text', text: part });
+                continue;
+            }
+            if (part.type === 'input_text' || part.type === 'output_text' || part.type === 'text') {
+                if (part.text !== undefined && part.text !== null) {
+                    parts.push({ type: 'text', text: String(part.text) });
+                }
+                continue;
+            }
+            if (part.type === 'refusal') {
+                const refusal = part.refusal ?? part.text;
+                if (refusal) parts.push({ type: 'text', text: String(refusal) });
+                continue;
+            }
+            if (part.type === 'input_image' || part.type === 'image_url') {
+                const url = typeof part.image_url === 'string' ? part.image_url : (part.image_url?.url || part.url);
+                if (url) {
+                    hasNonText = true;
+                    parts.push({ type: 'image_url', image_url: { url } });
+                }
+                continue;
+            }
+            if (part.type === 'input_file' || part.type === 'file') {
+                const label = part.filename || part.file_id || part.file_url || part.file?.filename || 'file';
+                hasNonText = true;
+                parts.push({ type: 'text', text: `[File: ${label}]` });
+                continue;
+            }
+            const fallback = part.text ?? part.content;
+            if (fallback !== undefined && fallback !== null) {
+                parts.push({ type: 'text', text: this._stringifyContentValue(fallback) });
+            }
+        }
+
+        if (parts.length === 0) {
+            return '';
+        }
+        if (!hasNonText && parts.every(p => p.type === 'text')) {
+            return parts.map(p => p.text).join('\n');
+        }
+        return parts;
+    }
+
+    /**
+     * 合并相邻 assistant 文本/多模态内容，保留数组语义。
+     */
+    _mergeOpenAIContent(existing, incoming) {
+        if (incoming === '' || incoming === null || incoming === undefined) {
+            return existing;
+        }
+        if (existing === '' || existing === null || existing === undefined) {
+            return incoming;
+        }
+        if (typeof existing === 'string' && typeof incoming === 'string') {
+            return `${existing}\n${incoming}`;
+        }
+        const toParts = (value) => Array.isArray(value)
+            ? value
+            : [{ type: 'text', text: String(value) }];
+        return [...toParts(existing), ...toParts(incoming)];
     }
 
     // =============================================================================
@@ -823,10 +969,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                 .filter(Boolean)
                                 .join('\n');
                             if (thinkingText) {
-                                this._pushClaudeMessage(claudeRequest.messages, 'assistant', [{
-                                    type: 'thinking',
-                                    thinking: thinkingText
-                                }]);
+                                // Responses reasoning item 不携带可复用的 Anthropic signature。
+                                // 原生 Anthropic 上游会拒绝无签名 thinking 块，因此这里保守跳过，
+                                // 避免把历史思考变成必然 400 的请求。
+                                logger.debug('[OpenAIResponsesConverter] reasoning item skipped when converting to Claude: no Anthropic signature available');
                             }
                         }
                         break;
@@ -966,6 +1112,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
     toClaudeStreamChunk(responsesChunk, model, requestId = null) {
         if (!responsesChunk) {
             return null;
+        }
+        if (responsesChunk.type === 'response.failed' || responsesChunk.type === 'error') {
+            const message = responsesChunk.response?.error?.message
+                || responsesChunk.error?.message
+                || responsesChunk.message
+                || 'Responses upstream stream failed';
+            const error = new Error(message);
+            error.status = 502;
+            throw error;
         }
         const state = this._getClaudeStreamState(requestId);
 
@@ -1175,17 +1330,27 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return null;
         }
 
-        if (responsesChunk.type === 'response.completed' && responsesChunk.response?.usage) {
+        const isTerminalResponsesEvent = responsesChunk.type === 'response.completed'
+            || responsesChunk.type === 'response.incomplete';
+
+        if (isTerminalResponsesEvent && responsesChunk.response?.usage) {
             state.usage = this._mapResponsesUsageToClaude(responsesChunk.response.usage);
         }
 
-        if (responsesChunk.type === 'response.completed' && Array.isArray(responsesChunk.response?.output)) {
+        if (isTerminalResponsesEvent && Array.isArray(responsesChunk.response?.output)) {
             if (responsesChunk.response.output.some(item => item.type === 'function_call')) {
                 state.stopReason = 'tool_use';
             }
         }
 
-        if (responsesChunk.type === 'response.completed') {
+        if (isTerminalResponsesEvent) {
+            if (responsesChunk.type === 'response.incomplete'
+                || responsesChunk.response?.status === 'incomplete'
+                || responsesChunk.response?.incomplete_details) {
+                state.stopReason = responsesChunk.response?.incomplete_details?.reason === 'content_filter'
+                    ? 'refusal'
+                    : 'max_tokens';
+            }
             const usage = state.usage || this._mapResponsesUsageToClaude(responsesChunk.response?.usage || {});
             this.claudeStreamStates.delete(requestId || 'default');
             return [
@@ -1267,7 +1432,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                         parts.push({ text: c.text });
                                     }
                                 } else if (c.type === 'input_image') {
-                                    const url = c.image_url?.url || c.url;
+                                    const url = typeof c.image_url === 'string'
+                                        ? c.image_url
+                                        : (c.image_url?.url || c.url);
                                     if (url && url.startsWith('data:')) {
                                         const [mediaInfo, data] = url.split(';base64,');
                                         const mimeType = mediaInfo.replace('data:', '');
@@ -1277,7 +1444,18 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                                 data: data
                                             }
                                         });
+                                    } else if (url) {
+                                        // 远端 URL 无法内联，使用 fileData 引用，避免整段图像静默消失
+                                        parts.push({
+                                            fileData: {
+                                                mimeType: 'image/jpeg',
+                                                fileUri: url
+                                            }
+                                        });
                                     }
+                                } else if (c.type === 'input_file' || c.type === 'file') {
+                                    const label = c.filename || c.file_id || c.file_url || 'file';
+                                    parts.push({ text: `[File: ${label}]` });
                                 }
                             });
                         } else if (typeof item.content === 'string' && item.content.length > 0) {
@@ -1430,6 +1608,27 @@ export class OpenAIResponsesConverter extends BaseConverter {
             }];
         }
 
+        // 处理 tool_choice -> Gemini functionCallingConfig
+        const responsesToolChoice = responsesRequest.tool_choice;
+        if (responsesToolChoice) {
+            if (typeof responsesToolChoice === 'string') {
+                if (responsesToolChoice === 'auto' || responsesToolChoice === 'none') {
+                    geminiRequest.toolConfig = {
+                        functionCallingConfig: { mode: responsesToolChoice.toUpperCase() }
+                    };
+                } else if (responsesToolChoice === 'required') {
+                    geminiRequest.toolConfig = { functionCallingConfig: { mode: 'ANY' } };
+                }
+            } else if (responsesToolChoice.type === 'function') {
+                const name = responsesToolChoice.name || responsesToolChoice.function?.name;
+                if (name) {
+                    geminiRequest.toolConfig = {
+                        functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [name] }
+                    };
+                }
+            }
+        }
+
         // 合并相邻同角色消息，严格满足 Gemini 交替轮次规范
         if (Array.isArray(geminiRequest.contents) && geminiRequest.contents.length > 0) {
             geminiRequest.contents = mergeConsecutiveSameRoleContents(geminiRequest.contents);
@@ -1443,8 +1642,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * OpenAI Responses → Codex 请求转换
      */
-    toCodexRequest(responsesRequest) {
-        return this.codexConverter.toOpenAIResponsesToCodexRequest(responsesRequest);
+    toCodexRequest(responsesRequest, requestId = null) {
+        return this.codexConverter.toOpenAIResponsesToCodexRequest(responsesRequest, requestId);
     }
 
     /**

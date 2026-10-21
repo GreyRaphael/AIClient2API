@@ -415,8 +415,8 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             model = requestBody.model;
         }
         const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
-        // 为每个请求生成唯一 ID，用于在单例 converter 中隔离并发流状态
-        const streamRequestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        // 请求与响应转换共用同一个 requestId，确保 Codex 等转换器的工具名反向映射可以命中。
+        const streamRequestId = retryContext?.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
         for await (const nativeChunk of nativeStream) {
             // 检查客户端是否已断开连接
@@ -486,20 +486,13 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 if (chunk.type === 'message_delta' && (chunk.delta?.stop_reason === 'tool_use' || chunk.stop_reason === 'tool_use')) {
                     hasToolCall = true;
                 }
-                // Gemini 格式
-                if (chunk.candidates?.[0]?.content?.parts?.some(p => p.functionCall)) {
-                    hasToolCall = true;
-                }
 
-                // 如果之前有工具调用，且当前 chunk 是正常结束，修正为 tool_calls / tool_use / FINISH_REASON_TOOL_CALLS
+                // 如果之前有工具调用，且当前 chunk 是正常结束，修正为 tool_calls / tool_use
                 if (hasToolCall && needsConversion) {
                     if (chunk.choices?.[0]?.finish_reason === 'stop') {
                         chunk.choices[0].finish_reason = 'tool_calls';
                     } else if (chunk.type === 'message_delta' && chunk.delta?.stop_reason === 'end_turn') {
                         chunk.delta.stop_reason = 'tool_use';
-                    } else if (chunk.candidates?.[0]?.finishReason === 'STOP' || chunk.candidates?.[0]?.finishReason === 'stop') {
-                        // 修正 Gemini 原生格式的结束原因
-                        chunk.candidates[0].finishReason = 'TOOL_CALLS';
                     }
                 }
 
@@ -513,8 +506,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     chunk?.type === 'message_stop' ||
                     chunk?.type === 'done' ||
                     chunk?.type === 'response.completed' ||
-                    chunk?.type === 'response.incomplete' ||
-                    chunk?.candidates?.some(candidate => candidate?.finishReason)
+                    chunk?.type === 'response.incomplete'
                 ) {
                     hasMessageStop = true;
                 }
@@ -847,7 +839,8 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
     const maxRetries = retryContext?.maxRetries ?? 5;
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG;
-    
+    const responseRequestId = retryContext?.requestId || null;
+
     try{
         // The service returns the response in its native format (toProvider).
         const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
@@ -878,7 +871,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         let clientResponse = nativeResponse;
         if (needsConversion) {
             logger.info(`[Response Convert] Converting response from ${toProvider} to ${fromProvider}`);
-            clientResponse = convertData(nativeResponse, 'response', toProvider, fromProvider, model);
+            clientResponse = convertData(nativeResponse, 'response', toProvider, fromProvider, model, responseRequestId);
         }
 
         // 监控钩子：非流式响应
@@ -1172,6 +1165,8 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     };
 
     const fromProvider = clientProviderMap[endpointType];
+    // 请求转换与响应/流式转换共用同一个 ID（Codex 工具名反向映射依赖它）。
+    const conversationRequestId = CONFIG._monitorRequestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     // 使用实际的提供商类型（可能是 fallback 后的类型）
     let toProvider = CONFIG.actualProviderType || CONFIG.MODEL_PROVIDER;
     let actualUuid = pooluuid;
@@ -1258,7 +1253,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     if (getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider)) {
         logger.info(`[Request Convert] Converting request from ${fromProvider} to ${toProvider}`);
         const preConvertBody = processedRequestBody;
-        processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider);
+        processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId);
 
         // 保持以 _ 开头的内部属性（如 _monitorRequestId, _requestBaseUrl）
         Object.keys(preConvertBody).forEach(key => {
@@ -1303,7 +1298,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     // - 凭证切换重试：凭证被标记不健康后切换到其他凭证
     // 当没有不同的健康凭证可用时，重试会自动停止
     const credentialSwitchMaxRetries = CONFIG.CREDENTIAL_SWITCH_MAX_RETRIES || 5;
-    const retryContext = { CONFIG, currentRetry: 0, maxRetries: credentialSwitchMaxRetries };
+    const retryContext = { CONFIG, currentRetry: 0, maxRetries: credentialSwitchMaxRetries, requestId: conversationRequestId };
     
     if (isStream) {
         await handleStreamRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, actualUuid, actualCustomName, retryContext);

@@ -8,6 +8,7 @@ import logger from '../../utils/logger.js';
 import { countTextTokens } from '../../utils/token-utils.js';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
+import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ConverterFactory } from '../ConverterFactory.js';
 
@@ -16,40 +17,19 @@ import { ConverterFactory } from '../ConverterFactory.js';
  * 实现Grok协议到其他协议的转换
  */
 export class GrokConverter extends BaseConverter {
-    // 静态属性，确保所有实例共享最新的基础 URL 和 UUID 配置
-    static sharedRequestBaseUrl = "";
-    static sharedUuid = null;
-
     constructor() {
         super('grok');
         // 用于跟踪每个请求的状态
         this.requestStates = new StreamSessionStore({ label: 'grok-converter' });
-    }
-
-    /**
-     * 设置请求的基础 URL
-     */
-    setRequestBaseUrl(baseUrl) {
-        if (baseUrl) {
-            GrokConverter.sharedRequestBaseUrl = baseUrl;
-        }
-    }
-
-    /**
-     * 设置账号的 UUID
-     */
-    setUuid(uuid) {
-        if (uuid) {
-            GrokConverter.sharedUuid = uuid;
-        }
+        this.responsesStreamStates = new StreamSessionStore({ label: 'grok-converter-responses-stream' });
     }
 
     /**
      * 为 assets.grok.com 域名的资源 URL 添加 uuid 参数，并转换为本地代理 URL
      */
     _appendSsoToken(url, state = null) {
-        const requestBaseUrl = state?.requestBaseUrl || GrokConverter.sharedRequestBaseUrl;
-        const uuid = state?.uuid || GrokConverter.sharedUuid;
+        const requestBaseUrl = state?.requestBaseUrl || '';
+        const uuid = state?.uuid || null;
 
         if (!url || !uuid) return url;
         
@@ -82,7 +62,7 @@ export class GrokConverter extends BaseConverter {
      * 在文本中查找并替换所有 Grok 资源链接为绝对代理链接
      */
     _processGrokAssetsInText(text, state = null) {
-        const uuid = state?.uuid || GrokConverter.sharedUuid;
+        const uuid = state?.uuid || null;
         if (!text || !uuid) return text;
         
         // 匹配 assets.grok.com, imagine-public.x.ai 或 grok.com 的 URL
@@ -1083,67 +1063,84 @@ export class GrokConverter extends BaseConverter {
         const openaiChunks = this.toOpenAIStreamChunk(grokChunk, model, requestId);
         if (!openaiChunks) return null;
 
+        const chunks = Array.isArray(openaiChunks) ? openaiChunks : [openaiChunks];
+        const first = chunks[0];
+        const stateKey = requestId || first?.id || 'default';
+        let emitter = this.responsesStreamStates.get(stateKey);
+        if (!emitter) {
+            emitter = new ResponsesSseEmitter({
+                requestId: stateKey,
+                responseId: first?.id || `resp_${uuidv4().replace(/-/g, '')}`,
+                model: model || first?.model || 'unknown',
+                createdAt: first?.created,
+                store: this.responsesStreamStates
+            });
+            this.responsesStreamStates.set(stateKey, emitter);
+        }
+
         const events = [];
-        for (const oachunk of openaiChunks) {
-            const choice = oachunk.choices[0];
-            const delta = choice.delta;
+        for (const chunk of chunks) {
+            // usage-only / 空 choices 帧不参与生命周期事件
+            if (!chunk.choices || chunk.choices.length === 0) {
+                continue;
+            }
+            const choice = chunk.choices[0];
+            const delta = choice.delta || {};
 
             if (delta.role === 'assistant') {
-                events.push({ type: "response.created", response: { id: oachunk.id, model: model } });
+                events.push(...emitter.start());
             }
 
             if (delta.reasoning_content) {
-                events.push({
-                    type: "response.reasoning_summary_text.delta",
-                    delta: delta.reasoning_content,
-                    response_id: oachunk.id
-                });
+                events.push(...emitter.reasoningDelta(delta.reasoning_content));
             }
 
             if (delta.content) {
-                events.push({
-                    type: "response.output_text.delta",
-                    delta: delta.content,
-                    response_id: oachunk.id
+                if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                    events.push(...emitter.reasoningDone());
+                }
+                events.push(...emitter.textDelta(delta.content));
+            }
+
+            if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+                if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                    events.push(...emitter.reasoningDone());
+                }
+                if (emitter.textStarted && !emitter.textDoneFlag) {
+                    events.push(...emitter.textDone());
+                }
+                delta.tool_calls.forEach((tc, indexInChunk) => {
+                    const index = tc.index ?? indexInChunk;
+                    const callId = tc.id || `call_${stateKey}_${index}`;
+                    if (tc.function?.name || tc.id) {
+                        events.push(...emitter.toolCallStart(callId, tc.function?.name, { index }));
+                    }
+                    if (tc.function?.arguments) {
+                        events.push(...emitter.toolCallArgsDelta(index, tc.function.arguments));
+                    }
                 });
             }
 
-            if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                    if (tc.function?.name) {
-                        events.push({
-                            type: "response.output_item.added",
-                            item: { id: tc.id, type: "function_call", name: tc.function.name, arguments: "" },
-                            response_id: oachunk.id
-                        });
-                    }
-                    if (tc.function?.arguments) {
-                        events.push({
-                            type: "response.custom_tool_call_input.delta",
-                            delta: tc.function.arguments,
-                            item_id: tc.id,
-                            response_id: oachunk.id
-                        });
-                    }
-                }
-            }
-
             if (choice.finish_reason) {
-                const completed = { type: "response.completed", response: { id: oachunk.id, status: "completed" } };
-                if (oachunk.usage) {
-                    completed.response.usage = {
-                        input_tokens: oachunk.usage.prompt_tokens || 0,
-                        output_tokens: oachunk.usage.completion_tokens || 0,
-                        total_tokens: oachunk.usage.total_tokens || 0
-                    };
-                }
-                events.push(completed);
+                const usage = chunk.usage ? {
+                    input_tokens: chunk.usage.prompt_tokens || 0,
+                    input_tokens_details: {
+                        cached_tokens: chunk.usage.prompt_tokens_details?.cached_tokens || 0
+                    },
+                    output_tokens: chunk.usage.completion_tokens || 0,
+                    output_tokens_details: {
+                        reasoning_tokens: chunk.usage.completion_tokens_details?.reasoning_tokens || 0
+                    },
+                    total_tokens: chunk.usage.total_tokens || ((chunk.usage.prompt_tokens || 0) + (chunk.usage.completion_tokens || 0))
+                } : null;
+                const status = choice.finish_reason === 'length' ? 'incomplete' : 'completed';
+                const incompleteDetails = status === 'incomplete' ? { reason: 'max_output_tokens' } : null;
+                events.push(...emitter.complete(usage, { status, incompleteDetails }));
             }
         }
 
-        return events;
+        return events.length > 0 ? events : null;
     }
-
 
 
     toClaudeStreamChunk(chunk, model, requestId) {

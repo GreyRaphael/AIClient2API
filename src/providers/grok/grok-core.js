@@ -67,7 +67,6 @@ export class GrokApiService {
         this.isInitialized = false;
         this.nsfwSetupDone = false;
         this.converter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.GROK);
-        if (this.converter && this.uuid) this.converter.setUuid(this.uuid);
         this.lastSyncAt = null;
     }
 
@@ -1249,11 +1248,6 @@ export class GrokApiService {
         const maxRetries = this.getMaxRequestRetries();
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
         let hasYieldedData = false;
-
-        if (this.converter) {
-            if (this.uuid) this.converter.setUuid(this.uuid);
-            if (requestBody._requestBaseUrl) this.converter.setRequestBaseUrl(requestBody._requestBaseUrl);
-        }
 
         if (requestBody._monitorRequestId) { this.config._monitorRequestId = requestBody._monitorRequestId; delete requestBody._monitorRequestId; }
         const reqBaseUrl = requestBody._requestBaseUrl;
