@@ -4,6 +4,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.js';
+import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
 /**
  * 判断非流式响应体是否实际上是 SSE 文本。
@@ -174,11 +175,25 @@ export class OpenAIApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
+        const capabilities = resolveProviderCapabilities({
+            providerType: this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM,
+            model: body?.model,
+            config: this.config
+        });
+        const isChatEndpoint = String(endpoint || '').includes('/chat/completions');
+        // 声明不支持非流式的端点：主动改流式，再由下方统一聚合，避免依赖上游的“假非流式”行为。
+        const shouldForceStream = isChatEndpoint && body && body.stream !== true && capabilities.supportsNonStream === false;
+        const requestData = shouldForceStream ? { ...body, stream: true } : body;
+        if (shouldForceStream && !this._loggedNonStreamCapability) {
+            this._loggedNonStreamCapability = true;
+            logger.debug(`[OpenAI API] Provider declares supportsNonStream=false; forcing stream + local aggregation for ${this.config.MODEL_PROVIDER || 'openai-compatible'} (model: ${body?.model || 'unknown'})`);
+        }
+
         try {
             const axiosConfig = {
                 method: 'post',
                 url: endpoint,
-                data: body
+                data: requestData
             };
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(axiosConfig);

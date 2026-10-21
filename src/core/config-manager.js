@@ -122,7 +122,31 @@ function normalizeSignatureVaultConfig(config) {
 function normalizeConvertSortToolsConfig(config) {
     normalizeToggleConfig(config, 'CONVERT_SORT_TOOLS', false);
     normalizeToggleConfig(config, 'CONVERT_CLAUDE_CODE_TOOL_HEURISTICS', false);
-    normalizeToggleConfig(config, 'GEMINI_PASS_MAX_OUTPUT_TOKENS', false);
+}
+
+/**
+ * 统一 Provider 能力声明：
+ * - PROVIDER_CAPABILITIES 必须是对象；
+ * - 兼容旧开关 GEMINI_PASS_MAX_OUTPUT_TOKENS
+ *   （true 等价于声明 Antigravity 支持 maxOutputTokens）。
+ */
+function normalizeProviderCapabilitiesConfig(config) {
+    if (!config.PROVIDER_CAPABILITIES || typeof config.PROVIDER_CAPABILITIES !== 'object' || Array.isArray(config.PROVIDER_CAPABILITIES)) {
+        config.PROVIDER_CAPABILITIES = {};
+    }
+
+    const legacyRaw = process.env.GEMINI_PASS_MAX_OUTPUT_TOKENS !== undefined
+        ? process.env.GEMINI_PASS_MAX_OUTPUT_TOKENS
+        : config.GEMINI_PASS_MAX_OUTPUT_TOKENS;
+    const legacyEnabled = legacyRaw === true
+        || ['true', '1', 'on', 'yes'].includes(String(legacyRaw || '').toLowerCase());
+    if (legacyEnabled) {
+        const current = config.PROVIDER_CAPABILITIES['gemini-antigravity'];
+        config.PROVIDER_CAPABILITIES['gemini-antigravity'] = {
+            ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}),
+            supportsMaxOutputTokens: true
+        };
+    }
 }
 
 function normalizePreserveReasoningItemConfig(config) {
@@ -352,6 +376,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     normalizeSchemaPolyfillConfig(currentConfig);
     normalizeSignatureVaultConfig(currentConfig);
     normalizeConvertSortToolsConfig(currentConfig);
+    normalizeProviderCapabilitiesConfig(currentConfig);
     normalizePreserveReasoningItemConfig(currentConfig);
     normalizeConfiguredProviders(currentConfig);
 

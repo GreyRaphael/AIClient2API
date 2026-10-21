@@ -12,6 +12,7 @@ import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
 import { effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.js';
+import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -20,20 +21,6 @@ export const ZED_USERS_ME_URL = 'https://cloud.zed.dev/client/users/me';
 export const ZED_FALLBACK_SYSTEM_ID = '6b87ab66-af2c-49c7-b986-ef4c27c9e1fb';
 export const ZED_FALLBACK_VERSION = '0.222.4+stable.147.b385025df963c9e8c3f74cc4dadb1c4b29b3c6f0';
 export const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
-
-/**
- * 部分 Claude 5.x 模型在 Zed 通道已弃用 temperature，
- * 且不支持强制 tool_choice（type: tool / any）。
- * @param {string} model
- * @returns {boolean}
- */
-function modelRejectsTemperature(model) {
-    return /claude-(sonnet|opus|haiku)-5(-5)?/.test(String(model || '').toLowerCase());
-}
-
-function modelRejectsForcedToolChoice(model) {
-    return modelRejectsTemperature(model);
-}
 
 /**
  * 解析 JWT 过期时间 (毫秒时间戳)，解析失败或未包含 exp 时兜底 1 小时
@@ -336,12 +323,27 @@ export class ZedApiService {
     }
 
     /**
+     * 解析当前模型在 Zed 通道的能力声明。
+     * 优先级：节点配置 > 全局 PROVIDER_CAPABILITIES > 上游元数据 > 内置规则。
+     * @param {string} model
+     */
+    resolveModelCapabilities(model) {
+        return resolveProviderCapabilities({
+            providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ZED,
+            model,
+            config: this.config || {},
+            metadata: this.modelMetadataMap?.get(model) || null
+        });
+    }
+
+    /**
      * 构建适合发送给 Zed cloud completions 的 payload
      * @param {string} model 
      * @param {object} requestBody Claude 规范的请求体
      */
     buildPayload(model, requestBody) {
         const provider = this.getProviderForModel(model);
+        const capabilities = this.resolveModelCapabilities(model);
 
         // 1. OpenAI 规范请求 (cloud.zed.dev 对 open_ai 使用 Responses API 格式)
         if (provider === 'open_ai') {
@@ -678,7 +680,7 @@ export class ZedApiService {
 
             // 超参数与 Gemini 3.1+ 思考配置
             const generationConfig = {};
-            if (requestBody.temperature !== undefined && !modelRejectsTemperature(model)) {
+            if (requestBody.temperature !== undefined && capabilities.supportsTemperature) {
                 generationConfig.temperature = requestBody.temperature;
             }
             if (requestBody.max_tokens) generationConfig.maxOutputTokens = requestBody.max_tokens;
@@ -721,7 +723,7 @@ export class ZedApiService {
         const provReq = {
             model: model,
             max_tokens: maxTokens,
-            temperature: modelRejectsTemperature(model) ? undefined : requestBody.temperature,
+            temperature: capabilities.supportsTemperature ? requestBody.temperature : undefined,
             stream: true
         };
         if (provReq.temperature === undefined) delete provReq.temperature;
@@ -738,7 +740,11 @@ export class ZedApiService {
         const thinkingObj = requestBody.thinking;
         const isThinkingRequested = (thinkingObj && thinkingObj.type !== 'disabled') || (reasoningEffort && reasoningEffort !== 'none');
 
-        if (isThinkingRequested) {
+        if (isThinkingRequested && !capabilities.supportsThinking) {
+            logger.debug(`[Zed] Model ${model} is declared without thinking support; dropping thinking config`);
+        }
+
+        if (isThinkingRequested && capabilities.supportsThinking) {
             const meta = this.modelMetadataMap?.get(model);
             const hasEffortLevels = Array.isArray(meta?.supported_effort_levels) && meta.supported_effort_levels.length > 0;
             const isAdaptive = hasEffortLevels ||
@@ -810,7 +816,7 @@ export class ZedApiService {
             } else if (typeof requestBody.tool_choice === 'object') {
                 provReq.tool_choice = requestBody.tool_choice;
             }
-            if (modelRejectsForcedToolChoice(model) &&
+            if (!capabilities.supportsForcedToolChoice &&
                 (provReq.tool_choice?.type === 'tool' || provReq.tool_choice?.type === 'any')) {
                 logger.warn(`[Zed] Model ${model} does not support forced tool_choice; downgrading to auto`);
                 provReq.tool_choice = { type: 'auto' };

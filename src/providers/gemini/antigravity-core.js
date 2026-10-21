@@ -22,7 +22,7 @@ import { getProviderPoolManager } from '../../services/service-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.js';
-import { getConfigToggle } from '../../core/config-manager.js';
+import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
 // --- Constants ---
 const CREDENTIALS_DIR = '.antigravity';
@@ -407,9 +407,10 @@ function ensureToolCallIds(contents) {
  * @param {string} modelName - 模型名称
  * @param {Object} payload - 请求体
  * @param {string} projectId - 项目ID
+ * @param {Object} [capabilities] - 统一 Provider 能力声明
  * @returns {Object} 转换后的请求体
  */
-function geminiToAntigravity(modelName, payload, projectId) {
+export function geminiToAntigravity(modelName, payload, projectId, capabilities = null) {
     // 深拷贝请求体,避免修改原始对象
     let template = JSON.parse(JSON.stringify(payload));
     // [FIX tool_use.id] 补全 functionCall/functionResponse 的私有 id(原生 Gemini 协议客户端场景)
@@ -486,11 +487,10 @@ function geminiToAntigravity(modelName, payload, projectId) {
             template.request.generationConfig.maxOutputTokens = 64000;
         }
     } else if (template.request.generationConfig?.maxOutputTokens !== undefined) {
-        if (getConfigToggle('GEMINI_PASS_MAX_OUTPUT_TOKENS', false)) {
-            // 显式允许透传；若 CloudCode 拒绝，调用方会收到上游 400。
-            logger.debug(`[Antigravity] Passing maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'}`);
+        if (capabilities?.supportsMaxOutputTokens) {
+            logger.debug(`[Antigravity] Passing maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'} (capabilities.supportsMaxOutputTokens=true)`);
         } else {
-            logger.warn(`[Antigravity] Dropping maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'}; CloudCode may ignore output token limits (set GEMINI_PASS_MAX_OUTPUT_TOKENS=true to try pass-through)`);
+            logger.warn(`[Antigravity] Dropping maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'}; CloudCode may ignore output token limits (declare capabilities.supportsMaxOutputTokens=true to try pass-through)`);
             delete template.request.generationConfig.maxOutputTokens;
         }
     }
@@ -1925,7 +1925,12 @@ export class AntigravityApiService {
         logger.info(`[Antigravity] Selected model: ${selectedModel} -> upstream: ${actualModelName}`);
 
         const processedRequestBody = ensureRolesInContents(JSON.parse(JSON.stringify(requestBody)), selectedModel);
-        const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId);
+        const capabilities = resolveProviderCapabilities({
+            providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY,
+            model: actualModelName,
+            config: this.config || {}
+        });
+        const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId, capabilities);
 
         // 若选中的模型以 -high 结尾，确保思考级别设置为 high
         if (selectedModel.endsWith('-high') || actualModelName.endsWith('-high')) {
