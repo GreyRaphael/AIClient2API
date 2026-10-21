@@ -36,7 +36,7 @@ export class ProviderPoolManager {
         'openaiResponses-custom': 'gpt-5.5',
         'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
-        'zed': 'claude-sonnet-4-5'
+        'zed': 'gpt-5-nano'
     };
 
     constructor(providerPools, options = {}) {

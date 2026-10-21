@@ -27,6 +27,11 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(PROVIDER_MODELS['zed']).toContain('claude-sonnet-4-5');
     });
 
+    test('zed uses gpt-5-nano as the default health check model', async () => {
+        const { ProviderPoolManager } = await import('../src/providers/provider-pool-manager.js');
+        expect(ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS.zed).toBe('gpt-5-nano');
+    });
+
     test('getZedVersionFromSystem detects version string', () => {
         const version = getZedVersionFromSystem();
         expect(typeof version).toBe('string');
