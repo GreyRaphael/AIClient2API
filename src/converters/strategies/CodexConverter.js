@@ -719,7 +719,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI 响应转换（非流式）
      */
-    toOpenAIResponse(rawJSON, model) {
+    toOpenAIResponse(rawJSON, model, requestId = null) {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
         if (root.type !== 'response.completed') {
             return null;
@@ -817,7 +817,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI Responses 响应转换
      */
-    toOpenAIResponsesResponse(rawJSON, model) {
+    toOpenAIResponsesResponse(rawJSON, model, requestId = null) {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
         if (root.type !== 'response.completed') {
             return null;
@@ -868,8 +868,15 @@ export class CodexConverter extends BaseConverter {
                         });
                     }
                 } else if (item.type === 'function_call') {
+                    const callId = item.call_id || item.id || `call_${uuidv4().replace(/-/g, '')}`;
+                    // Responses API 的 function_call item 需要独立 id（fc_*）与 call_id；
+                    // 二者混用会让客户端无法回传 function_call_output。
+                    const itemId = item.id && item.id !== callId
+                        ? item.id
+                        : (callId.startsWith('fc_') ? callId : `fc_${callId}`);
                     output.push({
-                        id: item.call_id || `call_${uuidv4().replace(/-/g, '')}`,
+                        id: itemId,
+                        call_id: callId,
                         type: "function_call",
                         name: this.getOriginalToolName(item.name, requestId),
                         arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments),
