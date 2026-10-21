@@ -10,7 +10,11 @@ import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import { sortToolsByName } from '../utils.js';
+import { sortToolsByName, anthropicUsageFromInclusiveInput } from '../utils.js';
+import {
+    customInputToFunctionArguments,
+    extractCustomToolInput
+} from '../custom-tool-registry.js';
 
 /**
  * 提取并规范化 reasoning effort：
@@ -227,7 +231,7 @@ export class CodexConverter extends BaseConverter {
         // 设置Codex特定的字段
         codexRequest.stream = true;
         codexRequest.store = false;
-        codexRequest.parallel_tool_calls = true;
+        codexRequest.parallel_tool_calls = responsesRequest.parallel_tool_calls !== false;
         codexRequest.include = ['reasoning.encrypted_content'];
         codexRequest.service_tier = responsesRequest.service_tier || 'default';
         if (codexRequest.service_tier !== 'priority') {
@@ -312,7 +316,7 @@ export class CodexConverter extends BaseConverter {
                 ...(userEffort !== undefined ? { effort: userEffort } : {}),
                 summary: data.reasoning?.summary || 'auto'
             },
-            parallel_tool_calls: true,
+            parallel_tool_calls: data.parallel_tool_calls !== false,
             include: ['reasoning.encrypted_content']
         };
 
@@ -615,6 +619,20 @@ export class CodexConverter extends BaseConverter {
                 return builtinTool;
             }
 
+            // Codex 原生支持 Responses custom tool，必须保留 type/format，
+            // 否则 apply_patch 等自由文本工具会被降级成无参数 function。
+            if (tool.type === 'custom') {
+                const originalName = tool.name || tool.function?.name;
+                if (!originalName) return tool;
+                const shortName = state.toolNameMap.get(originalName) || this.shortenToolName(originalName);
+                return {
+                    type: 'custom',
+                    name: shortName,
+                    description: tool.description || '',
+                    ...(tool.format ? { format: tool.format } : {})
+                };
+            }
+
             // 处理 Claude 的 web_search
             if (tool.type === "web_search_20250305") {
                 return { type: "web_search" };
@@ -654,12 +672,12 @@ export class CodexConverter extends BaseConverter {
             return toolChoice;
         }
 
-        if (toolChoice.type === 'function') {
+        if (toolChoice.type === 'function' || toolChoice.type === 'custom') {
             const state = this._getReqState(requestId);
-            const name = toolChoice.function?.name;
+            const name = toolChoice.name || toolChoice.function?.name;
             const shortName = name ? (state.toolNameMap.get(name) || this.shortenToolName(name)) : '';
             return {
-                type: 'function',
+                type: toolChoice.type,
                 name: shortName
             };
         }
@@ -790,6 +808,16 @@ export class CodexConverter extends BaseConverter {
                         }
                     });
                     break;
+                case 'custom_tool_call':
+                    toolCalls.push({
+                        id: item.call_id || `call_${Date.now()}_${toolCalls.length}`,
+                        type: 'function',
+                        function: {
+                            name: this.getOriginalToolName(item.name, requestId),
+                            arguments: customInputToFunctionArguments(item.input)
+                        }
+                    });
+                    break;
                 case 'image_generation_call': {
                     const imageMarkdown = this.codexImageGenerationToMarkdown(item, imageMarkdownParts.length);
                     if (imageMarkdown) imageMarkdownParts.push(imageMarkdown);
@@ -882,6 +910,16 @@ export class CodexConverter extends BaseConverter {
                         arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments),
                         status: "completed"
                     });
+                } else if (item.type === 'custom_tool_call') {
+                    const callId = item.call_id || item.id || `call_${uuidv4().replace(/-/g, '')}`;
+                    output.push({
+                        id: item.id || (callId.startsWith('fc_') ? callId : `fc_${callId}`),
+                        call_id: callId,
+                        type: "custom_tool_call",
+                        name: this.getOriginalToolName(item.name, requestId),
+                        input: extractCustomToolInput(item.input),
+                        status: "completed"
+                    });
                 } else if (item.type === 'image_generation_call') {
                     output.push({
                         id: item.id || `ig_${uuidv4().replace(/-/g, '')}`,
@@ -971,6 +1009,14 @@ export class CodexConverter extends BaseConverter {
                         name: this.getOriginalToolName(item.name, requestId),
                         input: this.safeParseToolArguments(item.arguments)
                     });
+                } else if (item.type === 'custom_tool_call') {
+                    stopReason = "tool_use";
+                    content.push({
+                        type: "tool_use",
+                        id: item.call_id || `call_${uuidv4().replace(/-/g, '')}`,
+                        name: this.getOriginalToolName(item.name, requestId),
+                        input: { input: extractCustomToolInput(item.input) }
+                    });
                 } else if (item.type === 'image_generation_call') {
                     const imageMarkdown = this.codexImageGenerationToMarkdown(item, content.length);
                     if (imageMarkdown) {
@@ -987,11 +1033,11 @@ export class CodexConverter extends BaseConverter {
             model: response.model || model,
             content: content,
             stop_reason: stopReason,
-            usage: {
-                input_tokens: response.usage?.input_tokens || 0,
-                output_tokens: response.usage?.output_tokens || 0,
-                cache_read_input_tokens: this.getCachedInputTokens(response.usage)
-            }
+            usage: anthropicUsageFromInclusiveInput({
+                inputTokens: response.usage?.input_tokens || 0,
+                cachedTokens: this.getCachedInputTokens(response.usage),
+                outputTokens: response.usage?.output_tokens || 0
+            })
         };
     }
 
@@ -1120,6 +1166,27 @@ export class CodexConverter extends BaseConverter {
                     function: {
                         name: this.getOriginalToolName(chunk.item.name, requestId),
                         arguments: typeof chunk.item.arguments === 'string' ? chunk.item.arguments : JSON.stringify(chunk.item.arguments)
+                    }
+                }]
+            };
+            return template;
+        }
+
+        if (type === 'response.output_item.done' && chunk.item?.type === 'custom_tool_call') {
+            const currentIndex = state.functionCallIndex;
+            state.functionCallIndex++;
+            const template = buildTemplate();
+            template.choices[0].delta = {
+                role: 'assistant',
+                content: null,
+                reasoning_content: null,
+                tool_calls: [{
+                    index: currentIndex,
+                    id: chunk.item.call_id,
+                    type: 'function',
+                    function: {
+                        name: this.getOriginalToolName(chunk.item.name, requestId),
+                        arguments: customInputToFunctionArguments(chunk.item.input)
                     }
                 }]
             };
@@ -1337,6 +1404,23 @@ export class CodexConverter extends BaseConverter {
             return events;
         }
 
+        if (type === 'response.output_item.done' && chunk.item?.type === 'custom_tool_call') {
+            const events = emitter.ensureStarted();
+            events.push(...emitter.closeActiveBlock());
+            const { events: openEvents } = emitter.openBlock('tool_use', {
+                type: 'tool_use',
+                id: chunk.item.call_id,
+                name: this.getOriginalToolName(chunk.item.name, requestId),
+                input: {}
+            });
+            events.push(...openEvents, emitter.delta({
+                type: 'input_json_delta',
+                partial_json: JSON.stringify({ input: extractCustomToolInput(chunk.item.input) })
+            }));
+            events.push(...emitter.closeActiveBlock());
+            return events;
+        }
+
         if (type === 'response.output_item.done' && chunk.item?.type === 'image_generation_call') {
             const imageMarkdown = this.codexImageGenerationToMarkdown(chunk.item);
             if (!imageMarkdown) {
@@ -1386,11 +1470,11 @@ export class CodexConverter extends BaseConverter {
                 : (emitter.sawToolUse ? 'tool_use' : 'end_turn');
             events.push(...emitter.finish({
                 stopReason,
-                usage: {
-                    input_tokens: chunk.response.usage?.input_tokens || 0,
-                    output_tokens: chunk.response.usage?.output_tokens || 0,
-                    cache_read_input_tokens: this.getCachedInputTokens(chunk.response.usage)
-                }
+                usage: anthropicUsageFromInclusiveInput({
+                    inputTokens: chunk.response.usage?.input_tokens || 0,
+                    cachedTokens: this.getCachedInputTokens(chunk.response.usage),
+                    outputTokens: chunk.response.usage?.output_tokens || 0
+                })
             }));
             // 清理该请求的流状态
             this.streamSessions.delete(stateKey);

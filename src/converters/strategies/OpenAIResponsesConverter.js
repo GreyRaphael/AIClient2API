@@ -23,8 +23,16 @@ import {
     mergeConsecutiveSameRoleContents,
     sortToolsByName,
     mimeTypeFromFilename,
-    parseBase64DataUrl
+    parseBase64DataUrl,
+    anthropicUsageFromInclusiveInput
 } from '../utils.js';
+import {
+    registerCustomTools,
+    customToolToFunction,
+    buildCustomToolParameters,
+    extractCustomToolInput,
+    customInputToFunctionArguments
+} from '../custom-tool-registry.js';
 
 /**
  * OpenAI Responses API 转换器类
@@ -49,15 +57,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
     convertRequest(data, toProtocol, requestId) {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIRequest(data);
+                return this.toOpenAIRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeRequest(data);
+                return this.toClaudeRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toGeminiRequest(data);
+                return this.toGeminiRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
                 return this.toCodexRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.GROK:
-                return this.toGrokRequest(data);
+                return this.toGrokRequest(data, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${toProtocol}`);
         }
@@ -66,7 +74,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换响应到目标协议
      */
-    convertResponse(data, toProtocol, model) {
+    convertResponse(data, toProtocol, model, requestId = null) {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
@@ -107,7 +115,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 请求转换为标准 OpenAI 请求
      */
-    toOpenAIRequest(responsesRequest) {
+    toOpenAIRequest(responsesRequest, requestId = null) {
+        registerCustomTools(requestId, responsesRequest.tools);
         const openaiRequest = {
             model: responsesRequest.model,
             messages: [],
@@ -328,10 +337,21 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
             const mappedTools = responsesRequest.tools
                 .map(tool => {
+                    if (tool.type === 'custom') {
+                        const fn = customToolToFunction(tool);
+                        return fn ? {
+                            type: 'function',
+                            function: {
+                                name: fn.name,
+                                description: fn.description,
+                                parameters: fn.parameters
+                            }
+                        } : null;
+                    }
                     if (tool.type && tool.type !== 'function') {
                         return null;
                     }
-                    
+
                     const name = tool.name || (tool.function && tool.function.name);
                     const description = tool.description || (tool.function && tool.function.description);
                     const parameters = tool.parameters || (tool.function && tool.function.parameters) || tool.parametersJsonSchema || { type: 'object', properties: {} };
@@ -346,7 +366,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         function: {
                             name: name,
                             description: description,
-                            parameters: parameters
+                            parameters: parameters,
+                            ...(tool.strict !== undefined
+                                ? { strict: tool.strict }
+                                : (tool.function?.strict !== undefined ? { strict: tool.function.strict } : {}))
                         }
                     };
                 })
@@ -402,6 +425,17 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         function: {
                             name: item.name,
                             arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {})
+                        }
+                    });
+                } else if (item.type === 'custom_tool_call') {
+                    // Chat 协议没有 custom tool，折叠为 function + {"input": "..."}，
+                    // 与请求侧 Responses custom_tool_call -> function_call 的折法保持一致。
+                    toolCalls.push({
+                        id: item.call_id || item.id,
+                        type: 'function',
+                        function: {
+                            name: item.name,
+                            arguments: customInputToFunctionArguments(item.input)
                         }
                     });
                 } else if (item.type === 'reasoning') {
@@ -706,7 +740,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (typeof toolChoice === 'string') {
             return toolChoice;
         }
-        if (toolChoice.type === 'function') {
+        if (toolChoice.type === 'function' || toolChoice.type === 'custom') {
             const name = toolChoice.name || toolChoice.function?.name;
             return name ? { type: 'function', function: { name } } : undefined;
         }
@@ -1007,6 +1041,15 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (!tool || typeof tool !== 'object') {
             return null;
         }
+        if (tool.type === 'custom') {
+            const fn = customToolToFunction(tool);
+            if (!fn) return null;
+            return {
+                name: fn.name,
+                description: fn.description,
+                input_schema: fn.parameters
+            };
+        }
         if (tool.type && tool.type !== 'function') {
             if (tool.type === 'web_search_preview' || tool.type === 'web_search') {
                 return {
@@ -1042,7 +1085,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             if (toolChoice === 'none') return { type: 'none' };
             return undefined;
         }
-        if (toolChoice.type === 'function') {
+        if (toolChoice.type === 'function' || toolChoice.type === 'custom') {
             const name = toolChoice.name || toolChoice.function?.name;
             return name ? { type: 'tool', name } : undefined;
         }
@@ -1066,7 +1109,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 请求转换为 Claude 请求
      */
-    toClaudeRequest(responsesRequest) {
+    toClaudeRequest(responsesRequest, requestId = null) {
+        registerCustomTools(requestId, responsesRequest.tools);
         const claudeRequest = {
             model: responsesRequest.model,
             messages: [],
@@ -1195,6 +1239,12 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (toolChoice) {
             claudeRequest.tool_choice = toolChoice;
         }
+        if (claudeRequest.tools?.length > 0 && responsesRequest.parallel_tool_calls === false) {
+            claudeRequest.tool_choice = {
+                ...(claudeRequest.tool_choice || { type: 'auto' }),
+                disable_parallel_tool_use: true
+            };
+        }
 
         return claudeRequest;
     }
@@ -1224,6 +1274,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         id: item.call_id || item.id || `toolu_${uuidv4().replace(/-/g, '')}`,
                         name: item.name,
                         input: this._normalizeToolInput(item.arguments)
+                    });
+                    stop_reason = 'tool_use';
+                } else if (item.type === 'custom_tool_call') {
+                    content.push({
+                        type: 'tool_use',
+                        id: item.call_id || item.id || `toolu_${uuidv4().replace(/-/g, '')}`,
+                        name: item.name,
+                        input: { input: extractCustomToolInput(item.input) }
                     });
                     stop_reason = 'tool_use';
                 } else if (item.type === 'reasoning') {
@@ -1281,14 +1339,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
     }
 
     _mapResponsesUsageToClaude(usage = {}) {
-        const promptTokens = usage.input_tokens || 0;
-        const cachedTokens = usage.input_tokens_details?.cached_tokens || 0;
-        return {
-            // Anthropic 的 input_tokens 不含缓存命中部分，需从 Responses 输入总量中扣除。
-            input_tokens: Math.max(0, promptTokens - cachedTokens),
-            output_tokens: usage.output_tokens || 0,
-            cache_read_input_tokens: cachedTokens
-        };
+        return anthropicUsageFromInclusiveInput({
+            inputTokens: usage.input_tokens || 0,
+            cachedTokens: usage.input_tokens_details?.cached_tokens || 0,
+            outputTokens: usage.output_tokens || 0
+        });
     }
 
     _normalizeClaudeStreamIndex(chunk) {
@@ -1629,6 +1684,21 @@ export class OpenAIResponsesConverter extends BaseConverter {
             // 若仍有未关闭块，必须在 message_delta 前补齐 content_block_stop，否则
             // Anthropic 客户端会收到结构非法的流。
             const events = [];
+            // custom tool 只收到 delta、没收到 done 时，先补齐自由文本 input。
+            for (const [key, input] of state.customToolBuffers.entries()) {
+                if (state.customArgsSent.has(key)) continue;
+                const index = Number(key);
+                if (!state.toolBlocks.has(index)) continue;
+                state.customArgsSent.add(key);
+                events.push({
+                    type: 'content_block_delta',
+                    index,
+                    delta: {
+                        type: 'input_json_delta',
+                        partial_json: JSON.stringify({ input })
+                    }
+                });
+            }
             const openBlocks = [];
             for (const index of state.reasoningBlocks) {
                 if (!state.stoppedBlocks.has(`reasoning:${index}`)) openBlocks.push({ index, type: 'reasoning' });
@@ -1690,7 +1760,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 请求转换为 Gemini 请求
      */
-    toGeminiRequest(responsesRequest) {
+    toGeminiRequest(responsesRequest, requestId = null) {
+        registerCustomTools(requestId, responsesRequest.tools);
         const geminiRequest = {
             contents: [],
             generationConfig: {}
@@ -1767,8 +1838,40 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                         });
                                     }
                                 } else if (c.type === 'input_file' || c.type === 'file') {
-                                    const label = c.filename || c.file_id || c.file_url || 'file';
-                                    parts.push({ text: `[File: ${label}]` });
+                                    const filename = c.filename || c.file?.filename || 'file';
+                                    const fileData = c.file_data || c.file?.file_data;
+                                    const fileUrl = c.file_url || c.file?.file_url;
+                                    const fileId = c.file_id || c.file?.file_id;
+                                    const parsed = parseBase64DataUrl(fileData);
+                                    const mimeType = parsed?.mimeType
+                                        || c.mime_type
+                                        || c.file?.mime_type
+                                        || mimeTypeFromFilename(filename)
+                                        || 'application/octet-stream';
+                                    if (parsed?.data) {
+                                        parts.push({
+                                            inlineData: {
+                                                mimeType,
+                                                data: parsed.data
+                                            }
+                                        });
+                                    } else if (fileData) {
+                                        parts.push({
+                                            inlineData: {
+                                                mimeType,
+                                                data: String(fileData)
+                                            }
+                                        });
+                                    } else if (fileUrl) {
+                                        parts.push({
+                                            fileData: {
+                                                mimeType,
+                                                fileUri: fileUrl
+                                            }
+                                        });
+                                    } else {
+                                        parts.push({ text: `[File: ${filename}${fileId ? ` (${fileId})` : ''}]` });
+                                    }
                                 }
                             });
                         } else if (typeof item.content === 'string' && item.content.length > 0) {
@@ -1887,23 +1990,17 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     const description = tool.description || tool.function?.description;
                     let parameters = tool.parameters || tool.function?.parameters || tool.parametersJsonSchema;
 
-                    // 针对 apply_patch 等 custom 类型工具（可能不带标准 parameters），构造明确的参数 Schema 引导 Gemini 输出内容
-                    if (!parameters || (parameters.type === 'object' && (!parameters.properties || Object.keys(parameters.properties).length === 0))) {
-                        if (name === 'apply_patch' || tool.type === 'custom') {
-                            parameters = {
-                                type: 'object',
-                                properties: {
-                                    patch: {
-                                        type: 'string',
-                                        description: 'The freeform patch content to apply (e.g. *** Begin Patch...)'
-                                    },
-                                    input: {
-                                        type: 'string',
-                                        description: 'The input or patch content'
-                                    }
-                                },
-                                required: ['patch']
-                            };
+                    // custom tool 在 Gemini 侧降级为 function；响应侧会通过
+                    // custom-tool-registry 还原为 custom_tool_call。
+                    if (tool.type === 'custom') {
+                        parameters = buildCustomToolParameters({
+                            name,
+                            description,
+                            format: tool.format
+                        });
+                    } else if (!parameters || (parameters.type === 'object' && (!parameters.properties || Object.keys(parameters.properties).length === 0))) {
+                        if (name === 'apply_patch') {
+                            parameters = buildCustomToolParameters({ name });
                         } else {
                             parameters = { type: 'object', properties: {} };
                         }
@@ -1932,7 +2029,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 } else if (responsesToolChoice === 'required') {
                     geminiRequest.toolConfig = { functionCallingConfig: { mode: 'ANY' } };
                 }
-            } else if (responsesToolChoice.type === 'function') {
+            } else if (responsesToolChoice.type === 'function' || responsesToolChoice.type === 'custom') {
                 const name = responsesToolChoice.name || responsesToolChoice.function?.name;
                 if (name) {
                     geminiRequest.toolConfig = {
@@ -1962,9 +2059,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * OpenAI Responses → Grok 请求转换
      */
-    toGrokRequest(responsesRequest) {
+    toGrokRequest(responsesRequest, requestId = null) {
         // 先转换为 OpenAI 格式
-        const openaiRequest = this.toOpenAIRequest(responsesRequest);
+        const openaiRequest = this.toOpenAIRequest(responsesRequest, requestId);
         return {
             ...openaiRequest,
             _isConverted: true
