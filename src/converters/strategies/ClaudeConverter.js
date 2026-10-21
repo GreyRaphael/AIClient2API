@@ -284,7 +284,11 @@ export class ClaudeConverter extends BaseConverter {
                 const contentConverted = this.processClaudeContentToOpenAIContent(msg.content || "");
                 const hasContent = contentConverted && (Array.isArray(contentConverted) ? contentConverted.length > 0 : contentConverted.trim().length > 0);
                 if (hasContent) {
-                    const openaiMsg = { role: role, content: contentConverted };
+                    let finalContent = contentConverted;
+                    if (Array.isArray(contentConverted) && contentConverted.every(part => part?.type === 'text')) {
+                        finalContent = contentConverted.map(part => part.text || '').join('\n');
+                    }
+                    const openaiMsg = { role: role, content: finalContent };
                     if (reasoningContent) {
                         openaiMsg.reasoning_content = reasoningContent;
                     }
@@ -971,6 +975,11 @@ export class ClaudeConverter extends BaseConverter {
                                 url: block.source.url
                             }
                         });
+                    } else if (block.source && block.source.type === 'file') {
+                        contentArray.push({
+                            type: 'text',
+                            text: this._claudeFileSourcePlaceholder(block, 'Image')
+                        });
                     }
                     break;
                     
@@ -1053,6 +1062,11 @@ export class ClaudeConverter extends BaseConverter {
                                 url: block.source.url
                             }
                         });
+                    } else if (block.source && block.source.type === 'file') {
+                        contentArray.push({
+                            type: 'text',
+                            text: this._claudeFileSourcePlaceholder(block, 'Image')
+                        });
                     }
                     break;
                     
@@ -1116,10 +1130,12 @@ export class ClaudeConverter extends BaseConverter {
                 };
             } else if (typeof claudeRequest.system === 'object') {
                 logOmittedCacheControl('Claude->Gemini system', claudeRequest.system);
-                // 对象格式的系统指令
-                geminiRequest.systemInstruction = {
-                    parts: [{ text: JSON.stringify(claudeRequest.system) }]
-                };
+                const systemText = this._normalizeClaudeSystem(claudeRequest.system);
+                if (systemText) {
+                    geminiRequest.systemInstruction = {
+                        parts: [{ text: systemText }]
+                    };
+                }
             }
         }
 
@@ -1300,6 +1316,8 @@ export class ClaudeConverter extends BaseConverter {
                                             fileUri: block.source.url
                                         }
                                     });
+                                } else if (block.source && block.source.type === 'file') {
+                                    parts.push({ text: this._claudeFileSourcePlaceholder(block, 'Image') });
                                 }
                                 break;
 
@@ -1336,6 +1354,8 @@ export class ClaudeConverter extends BaseConverter {
                                         .filter(Boolean)
                                         .join('\n');
                                     if (text) parts.push({ text });
+                                } else if (block.source && block.source.type === 'file') {
+                                    parts.push({ text: this._claudeFileSourcePlaceholder(block, 'Document') });
                                 }
                                 break;
                         }
@@ -1590,6 +1610,20 @@ export class ClaudeConverter extends BaseConverter {
         return JSON.stringify(value);
     }
 
+    /**
+     * Claude Files API 的 source.type="file" 无法直接跨协议内联；
+     * 至少保留可追踪的文本占位，避免静默丢图/丢文档。
+     * @param {any} block
+     * @param {'Image'|'Document'} kind
+     * @returns {string}
+     */
+    _claudeFileSourcePlaceholder(block, kind = 'File') {
+        const source = block?.source || {};
+        const label = source.file_id || source.file_url || source.file_name || 'file';
+        logger.warn(`[ClaudeConverter] ${kind} source.type="file" (${label}) cannot be fetched; preserving text placeholder`);
+        return `[${kind}: ${label}]`;
+    }
+
     _normalizeClaudeSystem(system) {
         if (!system) {
             return '';
@@ -1602,6 +1636,10 @@ export class ClaudeConverter extends BaseConverter {
                 .map(part => typeof part === 'string' ? part : (part?.text ?? this._stringifyContentValue(part)))
                 .filter(Boolean)
                 .join('\n');
+        }
+        if (typeof system === 'object') {
+            if (typeof system.text === 'string') return system.text;
+            if (typeof system.content === 'string') return system.content;
         }
         return this._stringifyContentValue(system);
     }
@@ -1621,6 +1659,12 @@ export class ClaudeConverter extends BaseConverter {
             return {
                 type: 'input_image',
                 image_url: source.url
+            };
+        }
+        if (source.type === 'file') {
+            return {
+                type: 'text',
+                text: this._claudeFileSourcePlaceholder(block, 'Image')
             };
         }
         return null;
@@ -1783,6 +1827,11 @@ export class ClaudeConverter extends BaseConverter {
                                     type: 'text',
                                     text: `[Document: ${title} (${c.source.url})]`
                                 });
+                            } else if (c.source && c.source.type === 'file') {
+                                messageContent.push({
+                                    type: 'text',
+                                    text: this._claudeFileSourcePlaceholder(c, 'Document')
+                                });
                             }
                             continue;
                         }
@@ -1790,16 +1839,23 @@ export class ClaudeConverter extends BaseConverter {
                             flushMessage();
                             const thinkingText = c.thinking ?? c.text;
                             if (thinkingText && getConfigToggle('CONVERT_PRESERVE_REASONING_ITEM', true)) {
-                                // Anthropic signature 不是 OpenAI encrypted_content；对兼容 Responses 上游
-                                // 以 summary 形式回放，官方 OpenAI 无状态场景可通过开关关闭。
-                                logger.debug('[ClaudeConverter] reasoning item forwarded without encrypted_content (CONVERT_PRESERVE_REASONING_ITEM)');
-                                responsesRequest.input.push({
-                                    type: 'reasoning',
-                                    summary: [{
-                                        type: 'summary_text',
-                                        text: String(thinkingText)
-                                    }]
-                                });
+                                // 官方 Responses 的 reasoning input item 需要 id / encrypted_content。
+                                // Anthropic signature 不是 OpenAI encrypted_content，无加密内容时默认跳过，
+                                // 避免把必然 400 的历史思考回放给官方上游。
+                                const encryptedContent = c.encrypted_content;
+                                if (encryptedContent) {
+                                    responsesRequest.input.push({
+                                        type: 'reasoning',
+                                        id: c.id || `rs_${uuidv4().replace(/-/g, '')}`,
+                                        encrypted_content: encryptedContent,
+                                        summary: [{
+                                            type: 'summary_text',
+                                            text: String(thinkingText)
+                                        }]
+                                    });
+                                } else {
+                                    logger.debug('[ClaudeConverter] reasoning item skipped: no encrypted_content available for official Responses input');
+                                }
                             }
                             continue;
                         }
@@ -2095,8 +2151,7 @@ export class ClaudeConverter extends BaseConverter {
             } else if (delta && delta.type === 'input_json_delta') {
                 // toolCallStart 以 Claude content block index 作为内部 key，
                 // 这里必须使用同一个 index，不能混用 call_id（否则会重复创建 function_call item）。
-                const key = emitter._findToolCallKey(claudeChunk.index ?? 0);
-                const toolState = key !== null ? emitter.toolCalls.get(key) : null;
+                const toolState = emitter.getToolState(claudeChunk.index ?? 0);
                 if (toolState?.isCustom) {
                     // custom tool 的 JSON 参数先累积，收尾时再折叠为自由文本 input。
                     emitter.bufferToolCallArgs(claudeChunk.index ?? 0, delta.partial_json || '');
@@ -2110,8 +2165,7 @@ export class ClaudeConverter extends BaseConverter {
         if (claudeChunk.type === 'content_block_stop') {
             if (emitter.currentToolCallId) {
                 const index = claudeChunk.index ?? 0;
-                const key = emitter._findToolCallKey(index);
-                const toolState = key !== null ? emitter.toolCalls.get(key) : null;
+                const toolState = emitter.getToolState(index);
                 if (toolState?.isCustom && !toolState.done) {
                     const parsed = safeParseJSON(toolState.arguments || '{}');
                     events.push(...emitter.toolCallCustomInput(index, extractCustomToolInput(parsed)));
@@ -2146,10 +2200,10 @@ export class ClaudeConverter extends BaseConverter {
                 incompleteDetails = { reason: 'max_output_tokens' };
             }
             // 若上游没有发送 content_block_stop，仍需在终止前交付 custom tool input。
-            for (const [key, toolState] of emitter.toolCalls.entries()) {
+            for (const toolState of emitter.getAllToolStates()) {
                 if (!toolState.isCustom || toolState.done) continue;
                 const parsed = safeParseJSON(toolState.arguments || '{}');
-                events.push(...emitter.toolCallCustomInput(key, extractCustomToolInput(parsed)));
+                events.push(...emitter.toolCallCustomInput(toolState.key, extractCustomToolInput(parsed)));
             }
             events.push(...emitter.complete(this._toResponsesUsage(emitter.savedUsage), { status, incompleteDetails }));
         }
@@ -2385,6 +2439,8 @@ export class ClaudeConverter extends BaseConverter {
                                             type: 'input_image',
                                             image_url: block.source.url
                                         });
+                                    } else if (block.source.type === 'file') {
+                                        appendTextContent(this._claudeFileSourcePlaceholder(block, 'Image'));
                                     } else {
                                         logger.warn('[ClaudeConverter] Claude->Codex image block dropped: neither base64 data nor URL is available');
                                     }
@@ -2408,6 +2464,8 @@ export class ClaudeConverter extends BaseConverter {
                                         appendTextContent(`[Document: ${title} (${block.source.url})]`);
                                     } else if (data) {
                                         appendTextContent(`[Document: ${title} (${mimeType}, ${approxBytes} bytes) omitted — upstream cannot receive files]`);
+                                    } else if (block.source.type === 'file') {
+                                        appendTextContent(this._claudeFileSourcePlaceholder(block, 'Document'));
                                     } else {
                                         logger.warn(`[ClaudeConverter] Claude->Codex document block dropped: ${title} has no base64 data or URL`);
                                     }

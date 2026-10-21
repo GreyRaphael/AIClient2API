@@ -137,6 +137,18 @@ export function mimeTypeFromFilename(filename) {
 }
 
 /**
+ * 从图片 URL 的扩展名推断 MIME；无法判断时回退 image/jpeg。
+ * @param {string} url
+ * @returns {string}
+ */
+export function guessImageMimeTypeFromUrl(url) {
+    if (!url || typeof url !== 'string') return 'image/jpeg';
+    const pathPart = url.split('?')[0].split('#')[0];
+    const mime = mimeTypeFromFilename(pathPart);
+    return mime && mime.startsWith('image/') ? mime : 'image/jpeg';
+}
+
+/**
  * 解析 data URL；非 data URL 或非 base64 编码时返回 null。
  * @param {string} value
  * @returns {{ mimeType: string, data: string }|null}

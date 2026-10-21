@@ -276,7 +276,7 @@ describe('v4 P2 regressions', () => {
             }]
         });
         expect(responsesGemini.contents[0].parts[0]).toEqual({
-            fileData: { mimeType: 'image/jpeg', fileUri: 'https://example.com/a.png' }
+            fileData: { mimeType: 'image/png', fileUri: 'https://example.com/a.png' }
         });
 
         const claudeGemini = claude.toGeminiRequest({

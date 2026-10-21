@@ -31,6 +31,18 @@ function isClaudeCodeToolHeuristicsEnabled() {
 }
 
 /**
+ * 将 Gemini inlineData 渲染为可被 Chat/Responses 客户端消费的 Markdown data URL。
+ * @param {any} part
+ * @returns {string}
+ */
+function inlineDataToMarkdown(part) {
+    const mimeType = part?.inlineData?.mimeType || 'image/png';
+    const data = part?.inlineData?.data || '';
+    if (!data) return '';
+    return `![image](data:${mimeType};base64,${data})`;
+}
+
+/**
  * 修复 Gemini 返回的工具参数名称问题
  * Gemini 有时会使用不同的参数名称，需要映射到 Claude Code 期望的格式
  */
@@ -368,6 +380,11 @@ export class GeminiConverter extends BaseConverter {
                         }
                     });
                 }
+                if (part.inlineData) {
+                    sawPart = true;
+                    const markdown = inlineDataToMarkdown(part);
+                    if (markdown) content += markdown;
+                }
                 // thoughtSignature 本身不透传给客户端（Gemini 内部数据），但要记为“收到过 part”
                 if (part.thoughtSignature || part.thought_signature) {
                     sawPart = true;
@@ -624,6 +641,20 @@ export class GeminiConverter extends BaseConverter {
                             thinkingText: part.text || ''
                         });
                         events.push(emitter.delta({ type: 'signature_delta', signature }));
+                    }
+
+                    // 图片 / inlineData：Anthropic image block 在 start 中携带完整 source
+                    if (part.inlineData) {
+                        ensureMessageStart();
+                        const { events: openEvents } = emitter.openBlock('image', {
+                            type: 'image',
+                            source: {
+                                type: 'base64',
+                                media_type: part.inlineData.mimeType || 'image/png',
+                                data: part.inlineData.data || ''
+                            }
+                        });
+                        events.push(...openEvents, ...emitter.closeActiveBlock());
                     }
 
                     // 工具调用（Gemini 一次性返回完整参数：start -> input_json_delta -> stop）
@@ -983,7 +1014,20 @@ export class GeminiConverter extends BaseConverter {
                         }
                     }
 
-                    // 3. 提取工具调用
+                    // 3. 图片 / inlineData：Responses 没有通用的流式 inline image 事件，
+                    // 以 Markdown data URL 形式写入文本输出，至少不静默丢弃。
+                    const inlineParts = parts.filter(part => part && part.inlineData);
+                    if (inlineParts.length > 0) {
+                        if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
+                            events.push(...emitter.reasoningDone());
+                        }
+                        for (const part of inlineParts) {
+                            const markdown = inlineDataToMarkdown(part);
+                            if (markdown) events.push(...emitter.textDelta(markdown));
+                        }
+                    }
+
+                    // 4. 提取工具调用
                     const functionParts = parts.filter(part => part && part.functionCall);
                     if (functionParts.length > 0) {
                         // 先闭合可能处于打开状态的 reasoning 块
@@ -1046,6 +1090,9 @@ export class GeminiConverter extends BaseConverter {
                 if (candidate?.finishReason === 'MAX_TOKENS') {
                     status = 'incomplete';
                     incompleteDetails = { reason: 'max_output_tokens' };
+                } else if (['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII'].includes(candidate?.finishReason)) {
+                    status = 'incomplete';
+                    incompleteDetails = { reason: 'content_filter' };
                 }
 
                 events.push(...emitter.complete(usage, { status, incompleteDetails }));

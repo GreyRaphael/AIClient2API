@@ -23,6 +23,7 @@ import {
     mergeConsecutiveSameRoleContents,
     sortToolsByName,
     mimeTypeFromFilename,
+    guessImageMimeTypeFromUrl,
     parseBase64DataUrl,
     anthropicUsageFromInclusiveInput
 } from '../utils.js';
@@ -378,6 +379,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         } : null;
                     }
                     if (tool.type && tool.type !== 'function') {
+                        logger.debug(`[OpenAIResponsesConverter] Responses built-in tool "${tool.type}" is not supported by OpenAI Chat target; skipping`);
                         return null;
                     }
 
@@ -507,7 +509,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
         } else if (!responsesResponse.status || responsesResponse.status === 'completed') {
             finishReason = 'stop';
         } else if (responsesResponse.status === 'incomplete') {
-            finishReason = 'length';
+            finishReason = responsesResponse.incomplete_details?.reason === 'content_filter'
+                ? 'content_filter'
+                : 'length';
         }
 
         return {
@@ -1071,6 +1075,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     name: tool.name || 'web_search'
                 };
             }
+            logger.debug(`[OpenAIResponsesConverter] Responses built-in tool "${tool.type}" is not supported by Claude target; skipping`);
             return null;
         }
 
@@ -1316,7 +1321,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesResponse.status === 'incomplete') {
-            stop_reason = 'max_tokens';
+            stop_reason = responsesResponse.incomplete_details?.reason === 'content_filter'
+                ? 'refusal'
+                : 'max_tokens';
         }
 
         return {
@@ -1342,7 +1349,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 usage: null,
                 customToolBuffers: new Map(),
                 customArgsSent: new Set(),
-                toolItemsByOutput: new Map()
+                toolItemsByOutput: new Map(),
+                claudeIndexByOutput: new Map(),
+                nextClaudeIndex: 0
             });
         }
         return this.claudeStreamStates.get(key);
@@ -1356,8 +1365,16 @@ export class OpenAIResponsesConverter extends BaseConverter {
         });
     }
 
-    _normalizeClaudeStreamIndex(chunk) {
-        return chunk.output_index ?? chunk.content_index ?? 0;
+    _normalizeClaudeStreamIndex(chunk, state = null) {
+        const outputIndex = chunk.output_index ?? chunk.content_index ?? 0;
+        if (!state) return outputIndex;
+        if (!(state.claudeIndexByOutput instanceof Map)) state.claudeIndexByOutput = new Map();
+        if (!Number.isInteger(state.nextClaudeIndex)) state.nextClaudeIndex = 0;
+        const key = String(outputIndex);
+        if (!state.claudeIndexByOutput.has(key)) {
+            state.claudeIndexByOutput.set(key, state.nextClaudeIndex++);
+        }
+        return state.claudeIndexByOutput.get(key);
     }
 
     /**
@@ -1365,8 +1382,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * custom tool 的 input 是自由文本，Claude 侧折叠为 {"input": "..."}。
      */
     _completeCustomToolBlock(state, outputIndex, item, rawInput) {
-        const index = outputIndex ?? 0;
-        const key = String(index);
+        const key = String(outputIndex ?? 0);
+        const index = this._normalizeClaudeStreamIndex({ output_index: outputIndex ?? 0 }, state);
         const events = [];
         state.stopReason = 'tool_use';
         const toolItem = { ...(state.toolItemsByOutput.get(key) || {}), ...(item || {}) };
@@ -1443,7 +1460,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesChunk.type === 'response.content_part.added') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             if (responsesChunk.part?.type === 'output_text' && !state.textBlocks.has(index)) {
                 state.textBlocks.add(index);
                 return {
@@ -1458,7 +1475,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesChunk.type === 'response.output_text.delta') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             const events = [];
             if (!state.textBlocks.has(index)) {
                 state.textBlocks.add(index);
@@ -1483,7 +1500,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesChunk.type === 'response.output_text.done' || responsesChunk.type === 'response.content_part.done') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             if (!state.stoppedBlocks.has(`text:${index}`)) {
                 state.stoppedBlocks.add(`text:${index}`);
                 return {
@@ -1496,7 +1513,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         if (responsesChunk.type === 'response.reasoning_summary_text.delta' ||
             responsesChunk.type === 'response.reasoning_text.delta') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             const events = [];
             if (!state.reasoningBlocks.has(index)) {
                 state.reasoningBlocks.add(index);
@@ -1522,7 +1539,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         if (responsesChunk.type === 'response.reasoning_summary_text.done' ||
             responsesChunk.type === 'response.reasoning_text.done') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             if (!state.stoppedBlocks.has(`reasoning:${index}`)) {
                 state.stoppedBlocks.add(`reasoning:${index}`);
                 const events = [];
@@ -1552,7 +1569,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (responsesChunk.type === 'response.function_call_arguments.delta') {
             return {
                 type: 'content_block_delta',
-                index: responsesChunk.output_index || 0,
+                index: this._normalizeClaudeStreamIndex(responsesChunk, state),
                 delta: {
                     type: 'input_json_delta',
                     partial_json: responsesChunk.delta
@@ -1561,7 +1578,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesChunk.type === 'response.function_call_arguments.done') {
-            const index = responsesChunk.output_index || 0;
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             if (!state.stoppedBlocks.has(`tool:${index}`)) {
                 state.stoppedBlocks.add(`tool:${index}`);
                 return {
@@ -1574,12 +1591,13 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         if (responsesChunk.type === 'response.output_item.added' &&
             (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             state.stopReason = 'tool_use';
-            state.toolBlocks.add(responsesChunk.output_index || 0);
+            state.toolBlocks.add(index);
             state.toolItemsByOutput.set(String(responsesChunk.output_index ?? 0), responsesChunk.item);
             return {
                 type: 'content_block_start',
-                index: responsesChunk.output_index || 0,
+                index,
                 content_block: {
                     type: 'tool_use',
                     id: responsesChunk.item.call_id || responsesChunk.item.id,
@@ -1623,7 +1641,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesChunk.type === 'response.output_item.done' && responsesChunk.item?.type === 'function_call') {
-            const index = responsesChunk.output_index || 0;
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             state.stopReason = 'tool_use';
             if (!state.toolBlocks.has(index)) {
                 state.toolBlocks.add(index);
@@ -1844,7 +1862,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                         // 远端 URL 无法内联，使用 fileData 引用，避免整段图像静默消失
                                         parts.push({
                                             fileData: {
-                                                mimeType: 'image/jpeg',
+                                                mimeType: guessImageMimeTypeFromUrl(url),
                                                 fileUri: url
                                             }
                                         });
@@ -1995,6 +2013,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         // 处理工具
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
+            for (const tool of responsesRequest.tools) {
+                if (tool?.type && tool.type !== 'function' && tool.type !== 'custom') {
+                    logger.debug(`[OpenAIResponsesConverter] Responses built-in tool "${tool.type}" is not supported by Gemini target; skipping`);
+                }
+            }
             const decls = responsesRequest.tools
                 .filter(tool => !tool.type || tool.type === 'function' || tool.type === 'custom')
                 .map(tool => {

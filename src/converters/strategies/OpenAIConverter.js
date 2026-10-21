@@ -24,6 +24,7 @@ import {
     mergeConsecutiveSameRoleContents,
     sortToolsByName,
     mimeTypeFromFilename,
+    guessImageMimeTypeFromUrl,
     parseBase64DataUrl
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
@@ -945,7 +946,7 @@ export class OpenAIConverter extends BaseConverter {
                                     } else if (imageUrl) {
                                         node.parts.push({
                                             fileData: {
-                                                mimeType: 'image/jpeg',
+                                                mimeType: guessImageMimeTypeFromUrl(imageUrl),
                                                 fileUri: imageUrl
                                             }
                                         });
@@ -1870,8 +1871,7 @@ export class OpenAIConverter extends BaseConverter {
                     }));
                 }
                 if (toolCall.function && toolCall.function.arguments) {
-                    const key = emitter._findToolCallKey(toolIndex);
-                    const toolState = key !== null ? emitter.toolCalls.get(key) : null;
+                    const toolState = emitter.getToolState(toolIndex);
                     if (toolState?.isCustom) {
                         emitter.bufferToolCallArgs(toolIndex, toolCall.function.arguments);
                     } else {
@@ -1903,10 +1903,10 @@ export class OpenAIConverter extends BaseConverter {
 
             const usage = this._buildResponsesUsageFromOpenAIUsage(openaiChunk.usage);
             // custom tool 的参数是增量 JSON，先累积完整后再折叠为自由文本 input。
-            for (const [key, toolState] of emitter.toolCalls.entries()) {
+            for (const toolState of emitter.getAllToolStates()) {
                 if (!toolState.isCustom || toolState.done) continue;
                 const parsed = safeParseJSON(toolState.arguments || '{}');
-                events.push(...emitter.toolCallCustomInput(key, extractCustomToolInput(parsed)));
+                events.push(...emitter.toolCallCustomInput(toolState.key, extractCustomToolInput(parsed)));
             }
             events.push(...emitter.complete(usage, { status, incompleteDetails }));
         }

@@ -31,7 +31,9 @@ function toolName(tool) {
  * @param {Array<any>} tools
  */
 export function registerCustomTools(requestId, tools = []) {
-    const key = requestId || 'default';
+    // 没有 requestId 时不做登记：'default' 共享桶会让并发请求互相污染。
+    if (!requestId) return;
+    const key = requestId;
     const map = new Map();
     for (const tool of Array.isArray(tools) ? tools : []) {
         if (!tool || typeof tool !== 'object' || tool.type !== 'custom') continue;
@@ -55,7 +57,8 @@ export function registerCustomTools(requestId, tools = []) {
  * @returns {Map<string, {name: string, description: string, format: any}>}
  */
 export function getCustomTools(requestId) {
-    return registry.get(requestId || 'default') || new Map();
+    if (!requestId) return new Map();
+    return registry.get(requestId) || new Map();
 }
 
 /**
@@ -80,7 +83,8 @@ export function isCustomTool(requestId, name) {
  * @param {string|null|undefined} requestId
  */
 export function clearCustomTools(requestId) {
-    registry.delete(requestId || 'default');
+    if (!requestId) return;
+    registry.delete(requestId);
 }
 
 /**

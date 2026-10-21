@@ -292,6 +292,26 @@ export class ResponsesSseEmitter {
     }
 
     /**
+     * 读取工具调用状态（供 Converter 折叠 custom tool 参数使用）。
+     * @param {string|number} idOrIndex
+     * @returns {Object|null}
+     */
+    getToolState(idOrIndex) {
+        const key = this._findToolCallKey(idOrIndex);
+        if (key === null) return null;
+        const state = this.toolCalls.get(key);
+        return state ? { key, ...state } : null;
+    }
+
+    /**
+     * 读取全部工具调用状态。
+     * @returns {Array<Object>}
+     */
+    getAllToolStates() {
+        return Array.from(this.toolCalls.entries()).map(([key, state]) => ({ key, ...state }));
+    }
+
+    /**
      * 开启工具调用
      */
     toolCallStart(id, name, options = {}) {
@@ -533,6 +553,9 @@ export class ResponsesSseEmitter {
         }
         if (options.incompleteDetails) {
             completedEvent.response.incomplete_details = options.incompleteDetails;
+        }
+        if (completedEvent.response.status === 'incomplete') {
+            completedEvent.type = 'response.incomplete';
         }
 
         this._pushEvent(events, completedEvent);

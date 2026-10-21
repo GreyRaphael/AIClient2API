@@ -739,7 +739,7 @@ export class CodexConverter extends BaseConverter {
      */
     toOpenAIResponse(rawJSON, model, requestId = null) {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        if (root.type !== 'response.completed') {
+        if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
             return null;
         }
 
@@ -788,8 +788,16 @@ export class CodexConverter extends BaseConverter {
             switch (item.type) {
                 case 'reasoning':
                     if (Array.isArray(item.summary)) {
-                        const summaryItem = item.summary.find(s => s.type === 'summary_text');
-                        if (summaryItem) reasoningText = summaryItem.text;
+                        reasoningText = item.summary
+                            .map(s => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
+                            .filter(Boolean)
+                            .join('\n');
+                    }
+                    if (!reasoningText && Array.isArray(item.content)) {
+                        reasoningText = item.content
+                            .map(c => typeof c === 'string' ? c : (c?.text || ''))
+                            .filter(Boolean)
+                            .join('\n');
                     }
                     break;
                 case 'message':
@@ -837,6 +845,10 @@ export class CodexConverter extends BaseConverter {
         if (response.status === 'completed') {
             openaiResponse.choices[0].finish_reason = toolCalls.length > 0 ? 'tool_calls' : 'stop';
             openaiResponse.choices[0].native_finish_reason = 'stop';
+        } else if (response.status === 'incomplete' || root.type === 'response.incomplete') {
+            const reason = response.incomplete_details?.reason;
+            openaiResponse.choices[0].finish_reason = reason === 'content_filter' ? 'content_filter' : 'length';
+            openaiResponse.choices[0].native_finish_reason = openaiResponse.choices[0].finish_reason;
         }
 
         return openaiResponse;
@@ -847,7 +859,7 @@ export class CodexConverter extends BaseConverter {
      */
     toOpenAIResponsesResponse(rawJSON, model, requestId = null) {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        if (root.type !== 'response.completed') {
+        if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
             return null;
         }
 
@@ -861,19 +873,23 @@ export class CodexConverter extends BaseConverter {
                 if (item.type === 'reasoning') {
                     let reasoningText = '';
                     if (Array.isArray(item.summary)) {
-                        const summaryItem = item.summary.find(s => s.type === 'summary_text');
-                        if (summaryItem) reasoningText = summaryItem.text;
+                        reasoningText = item.summary
+                            .map(s => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
+                            .filter(Boolean)
+                            .join('\n');
+                    }
+                    if (!reasoningText && Array.isArray(item.content)) {
+                        reasoningText = item.content
+                            .map(c => typeof c === 'string' ? c : (c?.text || ''))
+                            .filter(Boolean)
+                            .join('\n');
                     }
                     if (reasoningText) {
                         output.push({
-                            id: `msg_${uuidv4().replace(/-/g, '')}`,
-                            type: "message",
-                            role: "assistant",
+                            id: item.id || `rs_${uuidv4().replace(/-/g, '')}`,
+                            type: "reasoning",
                             status: "completed",
-                            content: [{
-                                type: "reasoning",
-                                text: reasoningText
-                            }]
+                            summary: [{ type: "summary_text", text: reasoningText }]
                         });
                     }
                 } else if (item.type === 'message') {
@@ -937,12 +953,15 @@ export class CodexConverter extends BaseConverter {
             }
         }
 
+        const responseStatus = response.status
+            || (root.type === 'response.incomplete' ? 'incomplete' : 'completed');
+
         return {
             id: response.id || `resp_${uuidv4().replace(/-/g, '')}`,
             object: "response",
             created_at: unixTimestamp,
             model: response.model || model,
-            status: "completed",
+            status: responseStatus,
             output: output,
             incomplete_details: response.incomplete_details || null,
             usage: {
@@ -965,7 +984,7 @@ export class CodexConverter extends BaseConverter {
      */
     toClaudeResponse(rawJSON, model, requestId = null) {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        if (root.type !== 'response.completed') {
+        if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
             return null;
         }
 
@@ -978,8 +997,16 @@ export class CodexConverter extends BaseConverter {
                 if (item.type === 'reasoning') {
                     let reasoningText = '';
                     if (Array.isArray(item.summary)) {
-                        const summaryItem = item.summary.find(s => s.type === 'summary_text');
-                        if (summaryItem) reasoningText = summaryItem.text;
+                        reasoningText = item.summary
+                            .map(s => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
+                            .filter(Boolean)
+                            .join('\n');
+                    }
+                    if (!reasoningText && Array.isArray(item.content)) {
+                        reasoningText = item.content
+                            .map(c => typeof c === 'string' ? c : (c?.text || ''))
+                            .filter(Boolean)
+                            .join('\n');
                     }
                     if (reasoningText) {
                         const block = { type: "thinking", thinking: reasoningText };
@@ -1024,6 +1051,10 @@ export class CodexConverter extends BaseConverter {
                     }
                 }
             }
+        }
+
+        if (response.status === 'incomplete' || root.type === 'response.incomplete') {
+            stopReason = response.incomplete_details?.reason === 'content_filter' ? 'refusal' : 'max_tokens';
         }
 
         return {

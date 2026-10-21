@@ -1104,6 +1104,7 @@ export class CodexApiService {
                         }
                         break;
                     case 'response.completed':
+                    case 'response.incomplete':
                         completedEvent = this.patchCodexCompletedOutput(parsed, outputItemsByIndex, outputItemsFallback);
                         break;
                 }

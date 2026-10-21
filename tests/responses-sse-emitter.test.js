@@ -241,7 +241,8 @@ describe('complete() 终结与幂等', () => {
             incompleteDetails: { reason: 'max_output_tokens' }
         });
 
-        const completed = events.find(e => e.type === 'response.completed');
+        const completed = events.find(e => e.type === 'response.incomplete');
+        expect(completed.type).toBe('response.incomplete');
         expect(completed.response.status).toBe('incomplete');
         expect(completed.response.incomplete_details).toEqual({ reason: 'max_output_tokens' });
 

@@ -173,7 +173,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
             expect(oaiReq.messages).toHaveLength(3);
             const assistantMsg = oaiReq.messages[1];
             expect(assistantMsg.role).toBe('assistant');
-            expect(assistantMsg.content).toEqual([{ type: 'text', text: '你好！我是助手。' }]);
+            expect(assistantMsg.content).toBe('你好！我是助手。');
             // 虚拟思考被剥离，不应进入 reasoning_content
             expect(assistantMsg.reasoning_content).toBeUndefined();
         });
@@ -198,7 +198,7 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
 
             const oaiReq = converter.toOpenAIRequest(claudeReq);
             const assistantMsg = oaiReq.messages[1];
-            expect(assistantMsg.content).toEqual([{ type: 'text', text: '你好！' }]);
+            expect(assistantMsg.content).toBe('你好！');
             expect(assistantMsg.reasoning_content).toBe('官方真实思考过程');
         });
     });

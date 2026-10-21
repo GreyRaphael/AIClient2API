@@ -1122,7 +1122,10 @@ describe('Grok -> Claude 委托透传 requestId', () => {
 
         // 3. -> OpenAI chat: 文本占位兜底
         const openaiReq = convertData(claudeDocReq, 'request', MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI);
-        const docTextPart = openaiReq.messages[0].content.find(c => c.type === 'text' && c.text.includes('[Document: annual_report.pdf'));
+        const openaiContent = openaiReq.messages[0].content;
+        const docTextPart = Array.isArray(openaiContent)
+            ? openaiContent.find(c => c.type === 'text' && c.text.includes('[Document: annual_report.pdf'))
+            : (typeof openaiContent === 'string' && openaiContent.includes('[Document: annual_report.pdf') ? { text: openaiContent } : null);
         expect(docTextPart).toBeDefined();
 
         // 4. -> Codex: 默认文本占位；设置 CODEX_PDF_AS_INPUT_FILE=1 走 input_file
