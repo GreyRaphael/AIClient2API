@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (跨协议转译 v4 复评整改)
+
+- **P1 功能正确性**：
+  - 修复 Claude → OpenAI Responses 流式工具调用重复 output item（Emitter 工具 key 统一）。
+  - 修复 OpenAI Chat → Gemini 多条 system/developer 消息只保留最后一条。
+  - 补齐 Responses ↔ OpenAI 的图像、`text.format`、`tool_choice`、`max_completion_tokens` 等字段映射。
+  - 修复 Claude → OpenAI `tool_choice` 固定为 `auto`，补齐 `stop_sequences` / `metadata` 与 URL 图像。
+  - Grok → Responses 流式改用 `ResponsesSseEmitter`，输出标准生命周期事件。
+  - 修复 Codex 长工具名反向映射（请求/响应共用 requestId，请求状态跨实例共享）。
+  - 修复 OpenAI → Claude usage-only 尾帧重复发送 `message_start`。
+- **P2 保真与鲁棒性**：
+  - Claude → Gemini 统一使用 `thinkingLevel`，并支持 adaptive thinking。
+  - 补齐 OpenAI/Claude/Responses → Gemini 的 `required` / `any` tool_choice。
+  - URL 图片/文档增加 `fileData` / `image_url` / 占位文本兜底。
+  - Gemini → Responses 非流式输出标准 reasoning item。
+  - 映射 `response.incomplete`，`response.failed` / `error` 向上抛出。
+  - 收紧 Responses → Claude 无签名 thinking 回放策略，修正 SSE 生命周期顺序与 usage 统计。
+- **P3 清理**：
+  - 删除 Codex `if(true)` 死代码、Grok 占位解构、未使用 Emitter API/常量、pipeline 不可达 Gemini 分支。
+  - 移除 Grok 静态共享 UUID/baseUrl，改为请求级状态。
+  - 新增 `tests/cross-protocol-v4-fixes.test.js`（18 个回归测试）。
+- 文档：新增 [`docs/CROSS_PROTOCOL_EVALUATION_V4.md`](docs/CROSS_PROTOCOL_EVALUATION_V4.md)。
+
+### Verification
+
+- `npm test -- --runInBand`：21 suites / 327 tests 全绿。
+
 ## [v4.0.0] - 2026-10-21
 
 > 本次发布为破坏性变更：下游协议收敛为 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种；Gemini 仅保留为上游 provider 协议。OpenAI Images 下游入口保持不变。
