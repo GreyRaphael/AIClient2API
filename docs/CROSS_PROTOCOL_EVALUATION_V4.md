@@ -1,17 +1,19 @@
-# AIClient2API v4.0.0 跨协议转译质量复评
+# AIClient2API v4.0.0 / v4.0.1 跨协议转译质量复评
 
 - 状态：当前有效评估
-- 版本：v4.0.0（2026-10-21）
+- 评估版本：v4.0.0（修复前，2026-10-21）
+- 当前版本：v4.0.1（修复后，2026-10-21）
 - 评估基线：`npm test -- --runInBand` = 20 suites / 309 tests 全绿
+- 修复后基线：21 suites / 327 tests 全绿
 - 历史快照：[`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md)
 - 架构入口：[`docs/CROSS_PROTOCOL_ARCHITECTURE.md`](./CROSS_PROTOCOL_ARCHITECTURE.md)
-- 修复状态：P1 / P2 / P3 清单已按优先级落地，回归基线更新为 **21 suites / 327 tests 全绿**（2026-10-21）。
+- 修复状态：P1 / P2 / P3 清单已按优先级落地，并随 **v4.0.1** 发布。
 
 ---
 
 ## 1. 评估范围与方法
 
-本次复评基于 v4.0.0 源码逐文件核查，并用临时脚本对关键转换方向做了实际输入/输出复现。
+本次复评基于 v4.0.0 源码逐文件核查，并用临时脚本对关键转换方向做了实际输入/输出复现。v4.0.1 已按第 7 节清单完成修复，本文同时保留修复前问题记录与修复后评级。
 
 重点文件：
 
@@ -49,7 +51,9 @@ v4 下游只保留三种客户端协议：
 
 ---
 
-## 2. 18 组合评估矩阵
+## 2. 18 组合评估矩阵（修复前 / 修复后）
+
+### 2.1 修复前矩阵（v4.0.0，历史）
 
 评级定义：
 
@@ -65,7 +69,21 @@ v4 下游只保留三种客户端协议：
 | **OpenAI Responses** | **T2**（图像/结构化输出/tool_choice 丢失） | **T0**（custom）<br>**T0~1**（grok-cli） | **T1~2** | **T2**（reasoning/图像/tool_choice 丢失） | **T1** | **T2~3** |
 | **Anthropic Messages** | **T1~2** | **T1~2** 文本<br>**T2** 流式工具（重复工具项） | **T0~1**（custom）<br>**T0~1**（kiro，带 provider 裁剪）<br>**T0~1**（zed） | **T1~2**（思考预算路径有风险） | **T1~2**（长工具名、tool_choice 固定 auto） | **T2~3** |
 
-### 2.1 provider 特例
+### 2.2 修复后矩阵（v4.0.1）
+
+| 下游 \ 上游 | `openai` | `openaiResponses` | `claude` | `gemini` | `codex` | `grok` |
+|---|---|---|---|---|---|---|
+| **OpenAI Chat** | **T0**（custom/atlas/qiniu/fenno）<br>**T1**（trae） | **T1~2**（custom；仅剩协议硬约束）<br>**T1~2**（grok-cli） | **T1~2** | **T1** | **T1** | **T2~3**（grok-web 模拟） |
+| **OpenAI Responses** | **T1~2**（reasoning 回放与 token 字段仍有条件限制） | **T0**（custom）<br>**T0~1**（grok-cli） | **T1~2** | **T1~2** | **T1** | **T2~3** |
+| **Anthropic Messages** | **T1~2** | **T1~2**（重复工具项已修复） | **T0~1**（custom）<br>**T0~1**（kiro，带 provider 裁剪）<br>**T0~1**（zed） | **T1~2**（签名/超 20MB 文档仍有边界） | **T1~2** | **T2~3** |
+
+修复后评级说明：
+
+- **T1**：该方向的主要字段、工具调用、图像/思考配置已对齐，仅剩协议本身不支持的字段（如 Responses 不支持 `stop`/`seed`、Chat 不支持 `top_k`）。
+- **T1~2**：主链路已可用，但仍有条件性限制（reasoning 回放、缓存标记、provider 裁剪、文档大小等）。
+- **T2~3**：`grok-web` 仍是通过文本提示模拟工具调用的链路，无法达到原生协议保真度。
+
+### 2.3 provider 特例
 
 - `claude-kiro-oauth`：最近 5 条以外的历史图片会替换为占位文本（`src/providers/claude/claude-kiro.js:1567-1599`）；空 description 的工具会被过滤（`claude-kiro.js:1444-1492`）。因此同协议直通也不是严格 Tier 0。
 - `grok-web`：请求侧通过 `buildToolPrompt` / `formatToolHistory` 把工具定义与工具历史压成文本提示（`src/providers/grok/grok-core.js:245-297`），响应侧再用 `<tool_call>` 标签解析，属于模拟链路。
@@ -76,17 +94,17 @@ v4 下游只保留三种客户端协议：
 
 ## 3. 七个核心维度评分
 
-| 维度 | 评分 | 主要结论 |
-|---|---:|---|
-| System / Instructions | 4 / 5 | 大多数方向正确；OpenAI Chat → Gemini 多 system 消息只保留最后一条。 |
-| 多轮角色交替 | 4.5 / 5 | `mergeConsecutiveSameRoleContents` 在三处 Gemini 方向统一使用，parts 级合并。 |
-| 思考 / Reasoning | 3 / 5 | effort/budget 主链路较好；Claude → Gemini 仍走 `thinkingBudget`；adaptive thinking 在 Gemini/Codex 方向丢失；encrypted reasoning 未闭环。 |
-| 工具 / JSON Schema | 3 / 5 | Gemini 侧 provider 统一 Polyfill；但 Claude → Responses 流式重复工具项，多个 tool_choice 映射缺失，Codex 长工具名不可逆。 |
-| Prompt Caching | 2.5 / 5 | `cache_control` 仍跨协议丢弃，仅补 debug 日志；缓存 token 回填存在；前缀对齐默认关闭。 |
-| 多模态 | 2 / 5 | base64 路径基本可用；URL 图片、PDF、Responses→OpenAI 图片存在静默丢弃。 |
-| 流式状态机 | 3 / 5 | Emitter 设计良好；存在重复工具项、Grok Responses 非法事件、usage-only 帧重复 `message_start`、上游流内错误被吞。 |
+| 维度 | 修复前 | 修复后 | 主要结论 |
+|---|---:|---:|---|
+| System / Instructions | 4 / 5 | **5 / 5** | OpenAI Chat → Gemini 多 system 消息已按顺序完整拼接。 |
+| 多轮角色交替 | 4.5 / 5 | **4.5 / 5** | `mergeConsecutiveSameRoleContents` 在三处 Gemini 方向统一使用，parts 级合并。 |
+| 思考 / Reasoning | 3 / 5 | **4 / 5** | Claude → Gemini 统一 `thinkingLevel` 并支持 adaptive；encrypted reasoning 回放仍受上游协议限制。 |
+| 工具 / JSON Schema | 3 / 5 | **3.5~4 / 5** | 重复工具项、tool_choice 缺口、Codex 长工具名已修复；复杂 Schema 仍有降级语义。 |
+| Prompt Caching | 2.5 / 5 | **2.5 / 5** | `cache_control` 仍跨协议丢弃，仅补 debug 日志；缓存 token 回填存在；前缀对齐默认关闭。 |
+| 多模态 | 2 / 5 | **3 / 5** | URL 图片/文档增加 `fileData` / `image_url` / 占位兜底；文件与部分格式仍只能降级。 |
+| 流式状态机 | 3 / 5 | **4 / 5** | 重复工具项、Grok 非法事件、usage-only 帧重复 `message_start`、流内错误吞掉均已修复；usage 注入仍保守。 |
 
-综合约 **3.1 / 5**：文本可用，Agent 工具链与多模态场景需要谨慎。
+综合：修复前约 **3.1 / 5**，修复后约 **3.8 / 5**。剩余损耗主要来自协议硬约束、缓存语义差异和 Grok 模拟链路。
 
 ---
 
@@ -113,7 +131,7 @@ v4 下游只保留三种客户端协议：
 
 - `src/converters/strategies/OpenAIResponsesConverter.js:334-336`：`tool_choice` 原样透传，`{ type: 'function', name }` 不是 OpenAI Chat 合法形状。
 - `src/converters/strategies/OpenAIResponsesConverter.js:201-244`：消息内容只保留 `input_text` / `output_text`，`input_image`、`input_file` 被过滤。
-- 未映射 `text.format`、`stop`、`seed`、`service_tier`。
+- 未映射 `text.format`、`service_tier`；`stop`/`seed` 属于 Responses API 不支持字段（协议硬约束）。
 
 ### P1-4 OpenAI Chat → OpenAI Responses 请求侧字段丢失与非法图像形状
 
@@ -286,23 +304,25 @@ pipeline 未为 OpenAI 协议上游注入 `stream_options.include_usage`；Claud
 
 ## 8. 结论
 
+### 8.1 修复前结论（v4.0.0）
+
 v4.0.0 的转译架构比 v1.6.0 评估时更收敛、更可维护：不可达分支大幅减少，Gemini 下游移除降低了组合复杂度，Schema Polyfill / Signature Vault / 统一 Emitter 的方向正确。
 
-但当前质量仍是 **“文本主链路可用，Agent 工具链与多模态需谨慎”**：
+但修复前质量仍是 **“文本主链路可用，Agent 工具链与多模态需谨慎”**：
 
 - Claude → Responses 的重复工具调用和 Codex 长工具名问题会直接破坏客户端工具解析。
 - Responses ↔ OpenAI 的参数/图像丢失会造成静默降级。
-- Grok → Responses 的流式事件仍不符合规范。
+- Grok → Responses 的流式事件不符合规范。
 - 多模态 URL 资源存在大面积静默丢弃。
 
-建议按本文件第 7 节的 P1 → P2 → P3 顺序整改，并为每条修复补对应回归测试。
+### 8.2 修复后结论（v4.0.1）
 
-### 修复后状态
-
-上述 P1 / P2 / P3 清单已全部落地：
+上述 P1 / P2 / P3 清单已全部落地，并随 v4.0.1 发布：
 
 - P1 修复了 Claude → Responses 重复工具项、OpenAI → Gemini 多 system 丢失、Responses ↔ OpenAI 参数/图像、Claude → OpenAI tool_choice、Grok → Responses 事件、Codex 长工具名、usage-only 帧重复 `message_start`。
 - P2 修复了 thinkingLevel/adaptive、tool_choice 缺口、URL 多模态、Gemini → Responses reasoning item、终止/错误事件、签名回放策略、事件顺序、usage 与请求级状态。
 - P3 清理了 Codex 死代码、Grok 占位解构、未使用 Emitter API/常量、pipeline 不可达 Gemini 分支、Grok 静态共享状态，并补充了 18 个针对性回归测试。
+
+修复后综合评级约 **3.8 / 5**：文本主链路和主流 Agent 工具链已可用；剩余损耗主要集中在协议硬约束（`stop`/`seed`/`top_k`、缓存标记）、provider 特例（Kiro 历史图片裁剪、Zed 重写）以及 `grok-web` 的文本模拟链路。
 
 回归基线：`npm test -- --runInBand` = **21 suites / 327 tests 全绿**。
