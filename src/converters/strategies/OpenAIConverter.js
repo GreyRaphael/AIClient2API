@@ -16,14 +16,14 @@ import {
     extractThinkingFromOpenAIText,
     mapFinishReason,
     sanitizeToolId,
-    CLAUDE_DEFAULT_MAX_TOKENS,
-    CLAUDE_DEFAULT_TEMPERATURE,
-    CLAUDE_DEFAULT_TOP_P,
+    clampClaudeMaxTokens,
     GEMINI_DEFAULT_MAX_TOKENS,
     GEMINI_DEFAULT_TEMPERATURE,
     GEMINI_DEFAULT_TOP_P,
     mergeConsecutiveSameRoleContents,
-    sortToolsByName
+    sortToolsByName,
+    mimeTypeFromFilename,
+    parseBase64DataUrl
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
@@ -213,10 +213,54 @@ export class OpenAIConverter extends BaseConverter {
                                             }
                                         });
                                     } else {
-                                        content.push({ type: 'text', text: `[Image: ${imageUrl}]` });
+                                        // Anthropic 原生支持 URL 图片，不需要降级为文本。
+                                        content.push({
+                                            type: 'image',
+                                            source: {
+                                                type: 'url',
+                                                url: imageUrl
+                                            }
+                                        });
                                     }
                                 }
                                 break;
+                            case 'file': {
+                                const file = item.file || {};
+                                const filename = file.filename || 'file';
+                                const parsed = parseBase64DataUrl(file.file_data);
+                                const mediaType = parsed?.mimeType
+                                    || file.mime_type
+                                    || mimeTypeFromFilename(filename);
+                                const data = parsed?.data || file.file_data || '';
+                                if (data && mediaType) {
+                                    if (mediaType.startsWith('image/')) {
+                                        content.push({
+                                            type: 'image',
+                                            source: {
+                                                type: 'base64',
+                                                media_type: mediaType,
+                                                data
+                                            }
+                                        });
+                                    } else {
+                                        content.push({
+                                            type: 'document',
+                                            title: filename,
+                                            source: {
+                                                type: 'base64',
+                                                media_type: mediaType,
+                                                data
+                                            }
+                                        });
+                                    }
+                                } else {
+                                    content.push({
+                                        type: 'text',
+                                        text: `[File: ${filename}${file.file_id ? ` (${file.file_id})` : ''}]`
+                                    });
+                                }
+                                break;
+                            }
                             case 'audio':
                                 if (item.audio_url) {
                                     const audioUrl = typeof item.audio_url === 'string'
@@ -300,10 +344,26 @@ export class OpenAIConverter extends BaseConverter {
         const claudeRequest = {
             model: openaiRequest.model,
             messages: mergedClaudeMessages,
-            max_tokens: checkAndAssignOrDefault(effectiveMaxTokens, CLAUDE_DEFAULT_MAX_TOKENS),
-            temperature: checkAndAssignOrDefault(openaiRequest.temperature, CLAUDE_DEFAULT_TEMPERATURE),
-            top_p: checkAndAssignOrDefault(openaiRequest.top_p, CLAUDE_DEFAULT_TOP_P),
+            max_tokens: clampClaudeMaxTokens(effectiveMaxTokens)
         };
+
+        // 未显式提供的采样参数不要注入默认值：Anthropic 的默认 temperature 为 1，
+        // top_p 默认不发送；强行写入 top_p=0.95 会改变上游采样行为。
+        if (openaiRequest.temperature !== undefined) {
+            claudeRequest.temperature = openaiRequest.temperature;
+        }
+        if (openaiRequest.top_p !== undefined) {
+            claudeRequest.top_p = openaiRequest.top_p;
+        }
+        if (openaiRequest.stop !== undefined) {
+            claudeRequest.stop_sequences = Array.isArray(openaiRequest.stop)
+                ? openaiRequest.stop
+                : [openaiRequest.stop];
+        }
+        const metadataUserId = openaiRequest.metadata?.user_id ?? openaiRequest.user;
+        if (metadataUserId !== undefined && metadataUserId !== null && metadataUserId !== '') {
+            claudeRequest.metadata = { user_id: String(metadataUserId) };
+        }
 
         if (systemInstruction) {
             claudeRequest.system = extractText(systemInstruction.parts[0].text);
@@ -870,56 +930,23 @@ export class OpenAIConverter extends BaseConverter {
                                     }
                                 }
                                 break;
-                            case 'file':
+                            case 'file': {
                                 if (item.file) {
                                     const filename = item.file.filename || '';
-                                    const fileData = item.file.file_data || '';
-                                    const ext = filename.includes('.')
-                                        ? filename.split('.').pop().toLowerCase()
-                                        : '';
-                                    const mimeTypes = {
-                                        'pdf': 'application/pdf',
-                                        'txt': 'text/plain',
-                                        'html': 'text/html',
-                                        'css': 'text/css',
-                                        'js': 'application/javascript',
-                                        'json': 'application/json',
-                                        'xml': 'application/xml',
-                                        'csv': 'text/csv',
-                                        'md': 'text/markdown',
-                                        'py': 'text/x-python',
-                                        'java': 'text/x-java',
-                                        'c': 'text/x-c',
-                                        'cpp': 'text/x-c++',
-                                        'h': 'text/x-c',
-                                        'hpp': 'text/x-c++',
-                                        'go': 'text/x-go',
-                                        'rs': 'text/x-rust',
-                                        'ts': 'text/typescript',
-                                        'tsx': 'text/typescript',
-                                        'jsx': 'text/javascript',
-                                        'png': 'image/png',
-                                        'jpg': 'image/jpeg',
-                                        'jpeg': 'image/jpeg',
-                                        'gif': 'image/gif',
-                                        'webp': 'image/webp',
-                                        'svg': 'image/svg+xml',
-                                        'mp3': 'audio/mpeg',
-                                        'wav': 'audio/wav',
-                                        'mp4': 'video/mp4',
-                                        'webm': 'video/webm'
-                                    };
-                                    const mimeType = mimeTypes[ext];
-                                    if (mimeType && fileData) {
+                                    const parsed = parseBase64DataUrl(item.file.file_data);
+                                    const mimeType = parsed?.mimeType || mimeTypeFromFilename(filename);
+                                    const data = parsed?.data || item.file.file_data || '';
+                                    if (mimeType && data) {
                                         node.parts.push({
                                             inlineData: {
-                                                mimeType: mimeType,
-                                                data: fileData
+                                                mimeType,
+                                                data
                                             }
                                         });
                                     }
                                 }
                                 break;
+                            }
                             // [FIX] 处理嵌入在 user 消息中的 Claude 格式 tool_result 块（去重）
                             case 'tool_result': {
                                 const trId = sanitizeToolId(item.tool_use_id) || `tool_result_${uuidv4().replace(/-/g, '')}`;
@@ -1489,6 +1516,28 @@ export class OpenAIConverter extends BaseConverter {
                                     type: 'input_image',
                                     image_url: imageUrl
                                 });
+                            }
+                        } else if (c.type === 'file') {
+                            const file = c.file || {};
+                            const filename = file.filename || 'file';
+                            if (file.file_data) {
+                                const parsed = parseBase64DataUrl(file.file_data);
+                                const fileData = parsed
+                                    ? file.file_data
+                                    : `data:${mimeTypeFromFilename(filename) || 'application/octet-stream'};base64,${file.file_data}`;
+                                content.push({
+                                    type: 'input_file',
+                                    filename,
+                                    file_data: fileData
+                                });
+                            } else if (file.file_id) {
+                                content.push({
+                                    type: 'input_file',
+                                    filename,
+                                    file_id: file.file_id
+                                });
+                            } else {
+                                content.push({ type: 'text', text: `[File: ${filename}]` });
                             }
                         }
                     });

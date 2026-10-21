@@ -1145,7 +1145,7 @@ export class CodexConverter extends BaseConverter {
             return template;
         }
 
-        if (type === 'response.completed') {
+        if (type === 'response.completed' || type === 'response.incomplete') {
             const results = [];
             const completedOutput = Array.isArray(chunk.response?.output) ? chunk.response.output : [];
             for (const item of completedOutput) {
@@ -1172,7 +1172,13 @@ export class CodexConverter extends BaseConverter {
             }
 
             const template = buildTemplate();
-            const finishReason = state.functionCallIndex > 0 ? 'tool_calls' : 'stop';
+            const incompleteReason = chunk.response?.incomplete_details?.reason;
+            const isIncomplete = type === 'response.incomplete'
+                || chunk.response?.status === 'incomplete'
+                || Boolean(incompleteReason);
+            const finishReason = isIncomplete
+                ? (incompleteReason === 'content_filter' ? 'content_filter' : 'length')
+                : (state.functionCallIndex > 0 ? 'tool_calls' : 'stop');
             template.choices[0].delta = {
                 role: null,
                 content: null,
@@ -1242,6 +1248,16 @@ export class CodexConverter extends BaseConverter {
      */
     toClaudeStreamChunk(chunk, model, requestId) {
         const type = chunk.type;
+
+        if (type === 'response.failed' || type === 'error') {
+            const message = chunk.response?.error?.message
+                || chunk.error?.message
+                || chunk.message
+                || 'Codex upstream stream failed';
+            const error = new Error(message);
+            error.status = 502;
+            throw error;
+        }
 
         // 使用 requestId 作为流状态的隔离 key（并发安全）。
         // 每个请求在 handleStreamRequest 中生成唯一 requestId，
@@ -1343,7 +1359,7 @@ export class CodexConverter extends BaseConverter {
             return events;
         }
 
-        if (type === 'response.completed') {
+        if (type === 'response.completed' || type === 'response.incomplete') {
             const events = emitter.ensureStarted();
 
             const completedOutput = Array.isArray(chunk.response?.output) ? chunk.response.output : [];
@@ -1363,10 +1379,17 @@ export class CodexConverter extends BaseConverter {
                 events.push(...emitter.closeActiveBlock());
             }
 
-            // stop_reason 决策：流中含 tool_use 块时为 tool_use（原实现硬编码 end_turn，
-            // 与 zed/Gemini 的 sawToolUse 修复同 bug 类；usage 字段构成保留在本类）
+            // stop_reason 决策：incomplete 必须映射为 max_tokens/refusal，
+            // 正常完成时含 tool_use 块则为 tool_use。
+            const incompleteReason = chunk.response?.incomplete_details?.reason;
+            const isIncomplete = type === 'response.incomplete'
+                || chunk.response?.status === 'incomplete'
+                || Boolean(incompleteReason);
+            const stopReason = isIncomplete
+                ? (incompleteReason === 'content_filter' ? 'refusal' : 'max_tokens')
+                : (emitter.sawToolUse ? 'tool_use' : 'end_turn');
             events.push(...emitter.finish({
-                stopReason: emitter.sawToolUse ? 'tool_use' : 'end_turn',
+                stopReason,
                 usage: {
                     input_tokens: chunk.response.usage?.input_tokens || 0,
                     output_tokens: chunk.response.usage?.output_tokens || 0,

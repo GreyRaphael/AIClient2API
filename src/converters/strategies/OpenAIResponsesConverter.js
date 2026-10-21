@@ -18,10 +18,12 @@ import { getConfigToggle } from '../../core/config-manager.js';
 import {
     cleanJsonSchemaForOpenAI,
     isOpenAIReasoningModel,
-    CLAUDE_DEFAULT_MAX_TOKENS,
+    clampClaudeMaxTokens,
     safeParseJSON,
     mergeConsecutiveSameRoleContents,
-    sortToolsByName
+    sortToolsByName,
+    mimeTypeFromFilename,
+    parseBase64DataUrl
 } from '../utils.js';
 
 /**
@@ -756,9 +758,20 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 continue;
             }
             if (part.type === 'input_file' || part.type === 'file') {
-                const label = part.filename || part.file_id || part.file_url || part.file?.filename || 'file';
+                const filename = part.filename || part.file?.filename || 'file';
+                const fileData = part.file_data || part.file?.file_data;
+                const fileId = part.file_id || part.file?.file_id;
                 hasNonText = true;
-                parts.push({ type: 'text', text: `[File: ${label}]` });
+                if (fileData) {
+                    const normalized = parseBase64DataUrl(fileData)
+                        ? fileData
+                        : `data:${mimeTypeFromFilename(filename) || 'application/octet-stream'};base64,${fileData}`;
+                    parts.push({ type: 'file', file: { filename, file_data: normalized } });
+                } else if (fileId) {
+                    parts.push({ type: 'file', file: { filename, file_id: fileId } });
+                } else {
+                    parts.push({ type: 'text', text: `[File: ${filename}]` });
+                }
                 continue;
             }
             const fallback = part.text ?? part.content;
@@ -851,6 +864,36 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
     }
 
+    /**
+     * 将 Responses 的 input_file.file_data 转为 Claude 内容块。
+     * 图片走 image，其他文件走 document；无法解析时返回 null。
+     */
+    _claudeFileBlockFromDataUrl(dataUrl, filename = 'file') {
+        const parsed = parseBase64DataUrl(dataUrl);
+        if (!parsed) {
+            return null;
+        }
+        if (parsed.mimeType.startsWith('image/')) {
+            return {
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: parsed.mimeType,
+                    data: parsed.data
+                }
+            };
+        }
+        return {
+            type: 'document',
+            title: filename,
+            source: {
+                type: 'base64',
+                media_type: parsed.mimeType || mimeTypeFromFilename(filename) || 'application/octet-stream',
+                data: parsed.data
+            }
+        };
+    }
+
     _responsesContentToClaudeBlocks(content, role = 'user') {
         if (content === null || content === undefined) {
             return [];
@@ -888,13 +931,29 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 if (imageBlock) {
                     blocks.push(imageBlock);
                 } else if (url) {
-                    blocks.push({ type: 'text', text: `[Image: ${url}]` });
+                    // Anthropic 原生支持 URL 图片 source，不做文本降级。
+                    blocks.push({
+                        type: 'image',
+                        source: { type: 'url', url }
+                    });
                 }
                 continue;
             }
             if (partType === 'input_file') {
-                const fileLabel = part.filename || part.file_id || part.file_url || 'file';
-                blocks.push({ type: 'text', text: `[File: ${fileLabel}]` });
+                const filename = part.filename || part.file?.filename || 'file';
+                const fileData = part.file_data || part.file?.file_data;
+                const fileId = part.file_id || part.file?.file_id;
+                const fileBlock = fileData
+                    ? this._claudeFileBlockFromDataUrl(fileData, filename)
+                    : null;
+                if (fileBlock) {
+                    blocks.push(fileBlock);
+                } else {
+                    blocks.push({
+                        type: 'text',
+                        text: `[File: ${filename}${fileId ? ` (${fileId})` : ''}]`
+                    });
+                }
                 continue;
             }
 
@@ -1011,9 +1070,19 @@ export class OpenAIResponsesConverter extends BaseConverter {
         const claudeRequest = {
             model: responsesRequest.model,
             messages: [],
-            max_tokens: responsesRequest.max_output_tokens || responsesRequest.max_tokens || CLAUDE_DEFAULT_MAX_TOKENS,
+            max_tokens: clampClaudeMaxTokens(responsesRequest.max_output_tokens ?? responsesRequest.max_tokens),
             stream: responsesRequest.stream || false
         };
+        if (responsesRequest.temperature !== undefined) {
+            claudeRequest.temperature = responsesRequest.temperature;
+        }
+        if (responsesRequest.top_p !== undefined) {
+            claudeRequest.top_p = responsesRequest.top_p;
+        }
+        const metadataUserId = responsesRequest.metadata?.user_id;
+        if (metadataUserId !== undefined && metadataUserId !== null && metadataUserId !== '') {
+            claudeRequest.metadata = { user_id: String(metadataUserId) };
+        }
 
         const systemParts = [];
         const normalizedInstructions = this._normalizeInstructions(responsesRequest.instructions);
@@ -1206,7 +1275,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 reasoningBlocks: new Set(),
                 stoppedBlocks: new Set(),
                 stopReason: 'end_turn',
-                usage: null
+                usage: null,
+                customToolBuffers: new Map(),
+                customArgsSent: new Set(),
+                toolItemsByOutput: new Map()
             });
         }
         return this.claudeStreamStates.get(key);
@@ -1222,6 +1294,53 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     _normalizeClaudeStreamIndex(chunk) {
         return chunk.output_index ?? chunk.content_index ?? 0;
+    }
+
+    /**
+     * 闭合 custom_tool_call 对应的 Claude tool_use 块。
+     * custom tool 的 input 是自由文本，Claude 侧折叠为 {"input": "..."}。
+     */
+    _completeCustomToolBlock(state, outputIndex, item, rawInput) {
+        const index = outputIndex ?? 0;
+        const key = String(index);
+        const events = [];
+        state.stopReason = 'tool_use';
+        const toolItem = { ...(state.toolItemsByOutput.get(key) || {}), ...(item || {}) };
+
+        if (!state.toolBlocks.has(index)) {
+            state.toolBlocks.add(index);
+            events.push({
+                type: 'content_block_start',
+                index,
+                content_block: {
+                    type: 'tool_use',
+                    id: toolItem.call_id || toolItem.id,
+                    name: toolItem.name,
+                    input: {}
+                }
+            });
+        }
+
+        if (!state.customArgsSent.has(key)) {
+            state.customArgsSent.add(key);
+            const input = typeof rawInput === 'string'
+                ? rawInput
+                : (rawInput === null || rawInput === undefined ? '' : JSON.stringify(rawInput));
+            events.push({
+                type: 'content_block_delta',
+                index,
+                delta: {
+                    type: 'input_json_delta',
+                    partial_json: JSON.stringify({ input })
+                }
+            });
+        }
+
+        if (!state.stoppedBlocks.has(`tool:${index}`)) {
+            state.stoppedBlocks.add(`tool:${index}`);
+            events.push({ type: 'content_block_stop', index });
+        }
+        return events;
     }
 
     /**
@@ -1387,9 +1506,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return null;
         }
 
-        if (responsesChunk.type === 'response.output_item.added' && responsesChunk.item?.type === 'function_call') {
+        if (responsesChunk.type === 'response.output_item.added' &&
+            (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
             state.stopReason = 'tool_use';
             state.toolBlocks.add(responsesChunk.output_index || 0);
+            state.toolItemsByOutput.set(String(responsesChunk.output_index ?? 0), responsesChunk.item);
             return {
                 type: 'content_block_start',
                 index: responsesChunk.output_index || 0,
@@ -1400,6 +1521,39 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     input: {}
                 }
             };
+        }
+
+        if (responsesChunk.type === 'response.custom_tool_call_input.delta') {
+            const key = String(responsesChunk.output_index ?? 0);
+            state.stopReason = 'tool_use';
+            state.customToolBuffers.set(
+                key,
+                (state.customToolBuffers.get(key) || '') + (responsesChunk.delta || '')
+            );
+            return null;
+        }
+
+        if (responsesChunk.type === 'response.custom_tool_call_input.done') {
+            const key = String(responsesChunk.output_index ?? 0);
+            const item = responsesChunk.item || {};
+            const events = this._completeCustomToolBlock(
+                state,
+                responsesChunk.output_index,
+                item,
+                responsesChunk.input ?? state.customToolBuffers.get(key) ?? ''
+            );
+            return events.length > 0 ? events : null;
+        }
+
+        if (responsesChunk.type === 'response.output_item.done' && responsesChunk.item?.type === 'custom_tool_call') {
+            const key = String(responsesChunk.output_index ?? 0);
+            const events = this._completeCustomToolBlock(
+                state,
+                responsesChunk.output_index,
+                responsesChunk.item,
+                responsesChunk.item.input ?? state.customToolBuffers.get(key) ?? ''
+            );
+            return events.length > 0 ? events : null;
         }
 
         if (responsesChunk.type === 'response.output_item.done' && responsesChunk.item?.type === 'function_call') {
@@ -1456,7 +1610,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (isTerminalResponsesEvent && Array.isArray(responsesChunk.response?.output)) {
-            if (responsesChunk.response.output.some(item => item.type === 'function_call')) {
+            if (responsesChunk.response.output.some(item =>
+                item.type === 'function_call' || item.type === 'custom_tool_call'
+            )) {
                 state.stopReason = 'tool_use';
             }
         }

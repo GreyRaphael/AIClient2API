@@ -657,10 +657,10 @@ export class ClaudeConverter extends BaseConverter {
                     finish_reason: null
                 }],
                 usage: {
-                    prompt_tokens: claudeChunk.message?.usage?.input_tokens || 0,
+                    prompt_tokens: identity.promptTokens,
                     completion_tokens: 0,
-                    total_tokens: claudeChunk.message?.usage?.input_tokens || 0,
-                    cached_tokens: claudeChunk.message?.usage?.cache_read_input_tokens || 0
+                    total_tokens: identity.promptTokens,
+                    cached_tokens: identity.cachedTokens
                 }
             };
         }
@@ -820,13 +820,16 @@ export class ClaudeConverter extends BaseConverter {
             };
 
             if(claudeChunk.usage){
+                const promptTokens = claudeChunk.usage.input_tokens ?? identity.promptTokens ?? 0;
+                const completionTokens = claudeChunk.usage.output_tokens || 0;
+                const cachedTokens = claudeChunk.usage.cache_read_input_tokens ?? identity.cachedTokens ?? 0;
                 chunk.usage = {
-                    prompt_tokens: claudeChunk.usage.input_tokens || 0,
-                    completion_tokens: claudeChunk.usage.output_tokens || 0,
-                    total_tokens: (claudeChunk.usage.input_tokens || 0) + (claudeChunk.usage.output_tokens || 0),
-                    cached_tokens: claudeChunk.usage.cache_read_input_tokens || 0,
+                    prompt_tokens: promptTokens,
+                    completion_tokens: completionTokens,
+                    total_tokens: promptTokens + completionTokens,
+                    cached_tokens: cachedTokens,
                     prompt_tokens_details: {
-                        cached_tokens: claudeChunk.usage.cache_read_input_tokens || 0
+                        cached_tokens: cachedTokens
                     }
                 };
             }
@@ -1721,12 +1724,20 @@ export class ClaudeConverter extends BaseConverter {
                             continue;
                         }
                         if (c.type === 'document') {
+                            const title = c.title || 'document';
                             if (c.source && c.source.type === 'base64') {
                                 const mimeType = c.source.media_type || 'application/pdf';
                                 const data = c.source.data || '';
                                 messageContent.push({
                                     type: 'input_file',
+                                    filename: title,
                                     file_data: `data:${mimeType};base64,${data}`
+                                });
+                            } else if (c.source && c.source.type === 'url' && c.source.url) {
+                                // Responses input_file 没有稳定的远端 URL 形态，保留可追踪的文本兜底。
+                                messageContent.push({
+                                    type: 'text',
+                                    text: `[Document: ${title} (${c.source.url})]`
                                 });
                             }
                             continue;
@@ -1905,6 +1916,29 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
+     * 合并 Anthropic 分帧 usage。
+     * message_start 提供输入/缓存侧，message_delta 通常只提供输出侧；
+     * 直接覆盖会让最终 usage 的 input_tokens 归零。
+     */
+    _mergeClaudeUsage(previous, usage) {
+        const prev = previous || {};
+        const inputTokens = usage?.input_tokens ?? prev.input_tokens ?? 0;
+        const outputTokens = usage?.output_tokens ?? prev.output_tokens ?? 0;
+        const cachedTokens = usage?.cache_read_input_tokens
+            ?? prev.input_tokens_details?.cached_tokens
+            ?? 0;
+        return {
+            input_tokens: inputTokens,
+            input_tokens_details: { cached_tokens: cachedTokens },
+            output_tokens: outputTokens,
+            output_tokens_details: {
+                reasoning_tokens: prev.output_tokens_details?.reasoning_tokens || 0
+            },
+            total_tokens: inputTokens + outputTokens
+        };
+    }
+
+    /**
      * Claude流式响应 -> OpenAI Responses流式响应
      */
     _getOpenAIResponsesStreamEmitter(model, requestId) {
@@ -1951,6 +1985,9 @@ export class ClaudeConverter extends BaseConverter {
             if (model || claudeChunk.message?.model) {
                 emitter.setModel(model || claudeChunk.message.model);
             }
+            if (claudeChunk.message?.usage) {
+                emitter.savedUsage = this._mergeClaudeUsage(emitter.savedUsage, claudeChunk.message.usage);
+            }
             events.push(...emitter.start());
         }
 
@@ -1994,13 +2031,7 @@ export class ClaudeConverter extends BaseConverter {
         // message_delta 事件 - 保存 usage 供 message_stop 使用
         if (claudeChunk.type === 'message_delta') {
             if (claudeChunk.usage) {
-                emitter.savedUsage = {
-                    input_tokens: claudeChunk.usage.input_tokens || 0,
-                    input_tokens_details: { cached_tokens: claudeChunk.usage.cache_read_input_tokens || 0 },
-                    output_tokens: claudeChunk.usage.output_tokens || 0,
-                    output_tokens_details: { reasoning_tokens: 0 },
-                    total_tokens: (claudeChunk.usage.input_tokens || 0) + (claudeChunk.usage.output_tokens || 0)
-                };
+                emitter.savedUsage = this._mergeClaudeUsage(emitter.savedUsage, claudeChunk.usage);
             }
             if (claudeChunk.delta?.stop_reason) {
                 emitter.stopReason = claudeChunk.delta.stop_reason;

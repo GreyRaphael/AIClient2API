@@ -28,9 +28,25 @@ export const OPENAI_DEFAULT_TOP_P = 0.95;
 // =============================================================================
 // Claude 相关常量
 // =============================================================================
-export const CLAUDE_DEFAULT_MAX_TOKENS = 200000;
-export const CLAUDE_DEFAULT_TEMPERATURE = 1;
-export const CLAUDE_DEFAULT_TOP_P = 0.95;
+// Anthropic Messages 的 max_tokens 是“最大输出 token”，不是上下文窗口。
+// Claude 4+ 主流模型的上限为 64K，跨协议默认值与显式值都必须收敛到这里。
+export const CLAUDE_MAX_OUTPUT_TOKENS = 64000;
+export const CLAUDE_DEFAULT_MAX_TOKENS = CLAUDE_MAX_OUTPUT_TOKENS;
+
+/**
+ * 将任意来源的 max_tokens 收敛到 Anthropic 可接受范围。
+ * 缺失、非正数或非法值回退到默认上限。
+ * @param {*} value
+ * @param {number} [fallback]
+ * @returns {number}
+ */
+export function clampClaudeMaxTokens(value, fallback = CLAUDE_DEFAULT_MAX_TOKENS) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) {
+        return fallback;
+    }
+    return Math.min(Math.floor(n), CLAUDE_MAX_OUTPUT_TOKENS);
+}
 
 // =============================================================================
 // Gemini 相关常量
@@ -42,6 +58,70 @@ export const GEMINI_DEFAULT_TOP_P = 0.95;
 // =============================================================================
 // 通用辅助函数
 // =============================================================================
+
+/**
+ * 常见文件扩展名 -> MIME 类型。
+ * 供 OpenAI / Responses / Gemini 多模态映射共用，避免各转换器各维护一份。
+ */
+export const FILE_EXTENSION_MIME_TYPES = {
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    html: 'text/html',
+    css: 'text/css',
+    js: 'application/javascript',
+    json: 'application/json',
+    xml: 'application/xml',
+    csv: 'text/csv',
+    md: 'text/markdown',
+    py: 'text/x-python',
+    java: 'text/x-java',
+    c: 'text/x-c',
+    cpp: 'text/x-c++',
+    h: 'text/x-c',
+    hpp: 'text/x-c++',
+    go: 'text/x-go',
+    rs: 'text/x-rust',
+    ts: 'text/typescript',
+    tsx: 'text/typescript',
+    jsx: 'text/javascript',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    mp4: 'video/mp4',
+    webm: 'video/webm'
+};
+
+/**
+ * 根据文件名推断 MIME 类型；无法识别时返回 null。
+ * @param {string} filename
+ * @returns {string|null}
+ */
+export function mimeTypeFromFilename(filename) {
+    if (!filename || typeof filename !== 'string') return null;
+    const ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
+    return FILE_EXTENSION_MIME_TYPES[ext] || null;
+}
+
+/**
+ * 解析 data URL；非 data URL 或非 base64 编码时返回 null。
+ * @param {string} value
+ * @returns {{ mimeType: string, data: string }|null}
+ */
+export function parseBase64DataUrl(value) {
+    if (typeof value !== 'string' || !value.startsWith('data:')) {
+        return null;
+    }
+    const match = value.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s);
+    if (!match) {
+        return null;
+    }
+    return { mimeType: match[1], data: match[2] };
+}
 
 /**
  * 判断值是否为 undefined 或 0，并返回默认值
