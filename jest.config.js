@@ -16,7 +16,8 @@ export default {
   },
   testPathIgnorePatterns: [
     '/node_modules/',
-    'api-integration\\.test\\.js'
+    'api-integration\\.test\\.js',
+    '/tests/e2e/'
   ],
   testMatch: [
     '**/tests/**/*.test.js'

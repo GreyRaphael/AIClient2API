@@ -16,6 +16,22 @@
 | `962d22d` | Phase 3 / F6+F7 | Zed Google Schema Polyfill + 多轮工具能力声明 |
 | `7ec4643` | Phase 3 / F8~F12 | Codex 输出上限、错误细节、reasoning 日志与文档 |
 
+## 1.1 E2E 自动化入口
+
+本轮 E2E 已写入仓库：
+
+- `tests/e2e/cross-protocol.e2e.test.js`
+- `tests/e2e/e2e-helpers.js`
+- `tests/e2e/README.md`
+
+运行方式：
+
+```bash
+npm run test:e2e
+```
+
+默认读取 `configs/config.json` 的 API key，访问 `http://127.0.0.1:3000/auto`；可通过 `AICLIENT_E2E_BASE`、`AICLIENT_API_KEY`、`AICLIENT_E2E_MODELS` 覆盖。默认 `npm test` 通过 `jest.config.js` 的 `testPathIgnorePatterns` 排除 E2E，避免无账号环境误跑。
+
 ## 2. 验收标准与结果
 
 | # | 验收标准 | 结果 | 证据 |

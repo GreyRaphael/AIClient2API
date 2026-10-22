@@ -35,6 +35,7 @@
     "start:dev": "node src/core/master.js --dev",
     "test": "jest --forceExit",
     "test:integration": "jest tests/api-integration.test.js --forceExit --testPathIgnorePatterns=''",
+    "test:e2e": "jest tests/e2e --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testTimeout=300000",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:verbose": "jest --verbose",
