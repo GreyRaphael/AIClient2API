@@ -114,40 +114,87 @@ export async function checkGateway({ baseUrl, apiKey }) {
     return response.json();
 }
 
-export async function postJson({ baseUrl, apiKey, pathName, body, timeoutMs = 180000 }) {
-    const started = Date.now();
-    const response = await fetch(`${baseUrl}${pathName}`, {
-        method: 'POST',
-        headers: buildHeaders(apiKey),
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs)
-    });
-    const text = await response.text();
-    let json = null;
-    try {
-        json = JSON.parse(text);
-    } catch {
-        // 非 JSON 错误体保留在 text 中
+export async function postJson({ baseUrl, apiKey, pathName, body, timeoutMs = 180000, retries = 1 }) {
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        const started = Date.now();
+        try {
+            const response = await fetch(`${baseUrl}${pathName}`, {
+                method: 'POST',
+                headers: buildHeaders(apiKey),
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(timeoutMs)
+            });
+            const text = await response.text();
+            let json = null;
+            try {
+                json = JSON.parse(text);
+            } catch {
+                // 非 JSON 错误体保留在 text 中
+            }
+            const result = { status: response.status, json, text, ms: Date.now() - started };
+            // E2E 上游偶发 5xx/timeout；仅在 5xx 时做一次透明重试。
+            if (response.status >= 500 && attempt < retries) {
+                lastError = result;
+                continue;
+            }
+            return result;
+        } catch (error) {
+            lastError = error;
+            if (attempt < retries && (error?.name === 'TimeoutError' || error?.name === 'AbortError')) {
+                continue;
+            }
+            throw error;
+        }
     }
-    return { status: response.status, json, text, ms: Date.now() - started };
+    if (lastError && lastError.status !== undefined) return lastError;
+    throw lastError;
 }
 
-export async function postSse({ baseUrl, apiKey, pathName, body, timeoutMs = 180000 }) {
-    const started = Date.now();
-    const response = await fetch(`${baseUrl}${pathName}`, {
-        method: 'POST',
-        headers: buildHeaders(apiKey),
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs)
-    });
-    if (!response.ok) {
-        return {
-            status: response.status,
-            events: [],
-            text: await response.text(),
-            ms: Date.now() - started
-        };
+export async function postSse({ baseUrl, apiKey, pathName, body, timeoutMs = 180000, retries = 1 }) {
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        const started = Date.now();
+        try {
+            const response = await fetch(`${baseUrl}${pathName}`, {
+                method: 'POST',
+                headers: buildHeaders(apiKey),
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(timeoutMs)
+            });
+            if (!response.ok) {
+                const result = {
+                    status: response.status,
+                    events: [],
+                    text: await response.text(),
+                    ms: Date.now() - started
+                };
+                if (response.status >= 500 && attempt < retries) {
+                    lastError = result;
+                    continue;
+                }
+                return result;
+            }
+            const result = await readSseResponse(response, started);
+            // 上游偶发 200 + 空流（例如 Zed 超时后直接断开）；E2E 侧重试一次。
+            if (result.events.length === 0 && attempt < retries) {
+                lastError = result;
+                continue;
+            }
+            return result;
+        } catch (error) {
+            lastError = error;
+            if (attempt < retries && (error?.name === 'TimeoutError' || error?.name === 'AbortError')) {
+                continue;
+            }
+            throw error;
+        }
     }
+    if (lastError && lastError.status !== undefined) return lastError;
+    throw lastError;
+}
+
+async function readSseResponse(response, started) {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();

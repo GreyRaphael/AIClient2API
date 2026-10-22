@@ -45,16 +45,23 @@ npm run test:e2e
 
 - openai-custom 指定 function 强制 `tool_choice` 在 30s 内返回
 - `zed:gpt-6-luna` 32×32 红图识别
-- `zed:gemini-3.8-flash` 多轮工具历史返回明确 400
+- `zed:gemini-3.8-flash` 多轮工具历史降级为文本并返回 200
+- Gemini 流式 thinking 回退后仍返回 reasoning
+- Gemini max_tokens 截断不触发空响应重试
+- 多步 prompt 下 GPT 3 次采样 reasoning
+- 同一 run 三协议 reasoning 一致性
+- CoT-present Chat / Claude 多轮工具回放
+- oneOf 对象分支合并后字段名保持正确
 - 上游 4xx 错误响应保留可读细节
 
 ## 已知限制（不作为失败）
 
-- Gemini 流式上游不返回 thought text，流式 reasoning 可能为空。
-- `zed:claude-haiku-5-5` / `zed:gemini-3.8-flash` 不返回 thinking。
-- `zed:gpt-6-luna` 与 Codex 的 reasoning 采样不稳定。
-- Gemini 非 Claude 模型忽略 `maxOutputTokens`。
-- 显式 `cache_control` 不跨协议保留。
+- Gemini 流式上游不返回 thought text；网关默认回退非流式以保留 reasoning。
+- `zed:claude-haiku-5-5` / `zed:gemini-3.8-flash` 不返回 thinking block，但正文可能包含推理。
+- `zed:gpt-6-luna` / Codex 的 reasoning 受 prompt、effort 与采样影响；E2E 用多步 prompt + 多次采样。
+- Gemini `maxOutputTokens` 已透传，但 thinking token 也计入预算，极小值可能只产出 thinking。
+- 显式 `cache_control` 仍不跨协议保留；网关默认开启工具稳定排序以对齐隐式前缀缓存。
+- Codex 上游可能忽略 `max_output_tokens`，网关已透传该字段。
 
 测试会在控制台输出 `[E2E warnings]`，但只有确定性核心断言失败才会让测试失败。
 

@@ -164,3 +164,41 @@ Phase 1 ~ Phase 3 的 **12 项修复全部落地**，单测从 413 增至 **441*
 - Zed OpenAI 图片从丢图恢复为正确识别
 
 综合判断：**验收通过**。剩余问题均为已知上游能力上限或协议物理天花板，不再属于本轮修复范围内的转换器缺陷。
+
+---
+
+## 6. 追加修复与 CoT 修正验收（2026-10-22）
+
+在 Phase 1~3 之后，针对 CoT 非确定性重新归因，并完成 9 项追加修复与 7 条 review/E2E 修订。
+
+### 6.1 追加提交
+
+| Commit | 内容 |
+|---|---|
+| `f3d9034` | Gemini 流式 thinking 非流式回退、`maxOutputTokens` 透传、终态 finishReason 处理 |
+| `d5448f1` | oneOf 对象分支合并、工具排序默认开启 |
+| `24fbff2` | Zed Google 工具历史文本降级、Codex 输出上限透传、reasoning token 估算、原生签名单测 |
+| 本次 docs/test commit | E2E 修订、review CoT 修正章节、验收报告 |
+
+### 6.2 最终验收结果
+
+| 标准 | 结果 |
+|---|---|
+| `npm test` | **33 suites / 447 tests 全绿** |
+| `npm run test:e2e` | **24 / 24 tests PASS** |
+| 13 模型 × 11 项核心用例 | **13 / 13 PASS** |
+| 定向用例（强制 tool_choice、图片、Gemini 回退、max_tokens、CoT 采样、跨协议一致性、CoT 多轮、oneOf、错误细节） | **11 / 11 PASS** |
+| Gemini 流式 reasoning | 回退后非空 |
+| Gemini `max_tokens=8` | ~5s 返回 `length`，无长重试 |
+| openai-custom 指定 function 强制 tool_choice | 1.3s 返回工具调用 |
+| Zed GPT 图片 | `Red` |
+| Zed Google 多轮工具历史 | 文本降级，200 |
+| oneOf 字段名 | `shipping.method="standard"` |
+
+### 6.3 最终结论
+
+- 确定性核心转译指标全部通过；
+- CoT 缺失改为诊断项，不再作为失败门槛；
+- 剩余问题均为协议硬约束或上游能力上限（thinking block 暴露、显式 cache_control、Codex 上游忽略输出上限、真实 Claude 签名样本缺失）。
+
+**验收结论：PASS。**

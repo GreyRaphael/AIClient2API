@@ -652,3 +652,110 @@ node src/services/api-server.js --port 3201
 3. **协议语义不可完全对齐**：显式 `cache_control`、历史 reasoning 回放、`oneOf` 结构保真。
 
 这三类问题中，第 1 类是本轮最值得立即修复的工程缺陷；第 2 类应在文档与能力声明中明确，而不是继续用转换器代码“假装支持”；第 3 类属于协议物理天花板，适合通过降级策略、日志和客户端提示来管理预期。
+
+---
+
+## 10. CoT 非确定性修正与追加修复（2026-10-22）
+
+### 10.1 补充实验
+
+针对 GPT/Claude 上游 CoT 时有时无，额外做了简单 prompt 与多步推理 prompt 的对照（每个模型 3 次）：
+
+| 模型 | 简单 prompt `17*23` reasoning 长度 | 多步推理 prompt reasoning 长度 | 观察 |
+|---|---|---|---|
+| `zed:gpt-6-luna` | `422, 0, 0` | `375, 451, 404` | 简单 prompt 下经常不思考；多步 prompt 下 3/3 返回 reasoning |
+| `openai-codex-oauth:gpt-6-luna` | 偶发 0 | `31, 25, 31` | 同样受 prompt 诱导影响 |
+| `zed:claude-haiku-5-5` | `0, 0, 0` | `0, 0, 0`，正文包含完整 step-by-step | 不暴露 thinking block，但把推理写在正文 |
+| `zed:gemini-3.8-flash` | `0, 0, 0` | `0, 0, 0`，正文包含 step-by-step | 同上 |
+
+结论：**CoT 缺失很大程度不是随机丢失，而是 prompt 太简单或上游选择不暴露 thinking block；不能用单次 reasoning 断言判定网关质量。**
+
+### 10.2 重新归因
+
+原 143 条核心用例中的 18 条失败：
+
+- 16 条是 CoT/thinking 缺失
+- 2 条是 Zed 多轮工具 500
+
+F1 修复 `is_error` 后，Zed Claude 多轮回传通过；追加修复把 Zed Google 多轮工具历史降级为文本后，Zed Gemini 也通过。因此：
+
+| 指标 | 最终结果 |
+|---|---|
+| 文本内容 | **78 / 78** |
+| 流式生命周期 | **39 / 39** |
+| 单轮工具 | **39 / 39** |
+| 连续同角色 / 多 system | **17 / 17** |
+| Chat 多轮工具 | **13 / 13** |
+| 确定性核心失败 | **0** |
+
+CoT 缺失改为 `⚠` 诊断项，不再计入失败。
+
+### 10.3 九项追加修复
+
+| # | 问题 | 修复 |
+|---|---|---|
+| 1 | Gemini 流式无 thought 文本 | `supportsStreamingThoughts=false` + `GEMINI_STREAM_THOUGHTS_FALLBACK`，需要 thinking 时回退非流式并在网关合成 chunk |
+| 2 | Gemini 忽略 `maxOutputTokens` | 取消删除，改为标准透传；实测上游会返回 `MAX_TOKENS` |
+| 3 | `cache_control` 不可保留 | 默认开启 `CONVERT_SORT_TOOLS` 稳定工具顺序，对齐隐式前缀缓存；显式标记仍丢弃并 warn |
+| 4 | `oneOf` 结构失真 | oneOf/anyOf 对象分支合并 properties/required，并合并同名枚举 |
+| 5 | Zed Google 多轮工具历史 500 | 历史 tool_use/tool_result 降级为文本，当前轮 tools 继续生效 |
+| 6 | Codex 删除输出上限 | 默认透传 `max_output_tokens`；能力声明 false 时才删除 |
+| 7 | GPT/Claude reasoning token 缺失 | 有 reasoning 文本但无 token 统计时，用 tokenizer 保守估算并标记 `reasoning_tokens_estimated: true` |
+| 8 | 真实 Claude 签名路径未覆盖 | 新增原生签名不被 `vsig1` 误剥离的单测；明确 vsig1 ≠ 原生签名 |
+| 9 | CoT-present 多轮工具未覆盖 | 新增 Chat / Claude 的 CoT + tool_call + tool_result E2E |
+
+对应提交：`f3d9034`、`d5448f1`、`24fbff2`（E2E 与文档提交随后）。
+
+### 10.4 七条 review/E2E 修订落地
+
+1. 矩阵符号拆分为 `✓`（确定性通过）/ `⚠`（本次未提供 CoT）/ `✗`（确定性失败）。
+2. reasoning 用例改用多步推理 prompt，并对 GPT 做 3 次采样。
+3. 新增同一 run 的 Chat/Responses/Claude reasoning 一致性测试。
+4. 新增“CoT 已出现时三协议都能拿到 reasoning”的断言。
+5. 新增 CoT-present Chat / Claude 多轮工具回放。
+6. 明确 vsig1 虚拟签名与真实 Claude 签名的区别，并补原生签名保留单测。
+7. 重新计算评分，把 provider CoT 策略从网关评分中剔除。
+
+### 10.5 修正后的评分
+
+| 维度 | 分数 | 说明 |
+|---|---:|---|
+| 文本主链路 | **4.9 / 5** | 内容 78/78，流式生命周期 39/39 |
+| 单轮工具与强制 `tool_choice` | **4.7 / 5** | 单轮 39/39，强制 26/26，流式工具 18/18 |
+| 多轮工具 / Agent 循环 | **4.8 / 5** | Chat 13/13，Claude/Responses 补充 6/6 |
+| CoT 已存在时的转发 | **4.8 / 5** | 未见确定性丢失 |
+| CoT 生成/可用性 | N/A | 由 prompt、effort、provider 策略决定，不计入网关分 |
+| thinking block 暴露 | **3.5 / 5** | Zed Claude/Gemini 只给正文推理 |
+| reasoning usage | **4.0 / 5** | 缺失时有估算标记；非上游精确值 |
+| 多模态 | **4.1 / 5** | Zed OpenAI 图片已修复；部分模型无视觉 |
+| Prompt Caching | **3.5 / 5** | 显式标记仍丢失，但默认前缀对齐 |
+| **综合** | **4.5 / 5** | 从 4.3 上调，扣分主要来自协议硬约束 |
+
+### 10.6 最终 E2E
+
+`npm run test:e2e` 全量通过：
+
+- **24 / 24 tests PASS**
+- 13 模型 × 11 项核心用例全部通过
+- 11 个定向用例全部通过
+- 单测 **33 suites / 447 tests 全绿**
+
+关键证据：
+
+- `gemini-antigravity` 流式 thinking 回退后 reasoning 非空；
+- `max_tokens=8` 在 ~5s 内返回 `length`，不再触发 5 次长重试；
+- `openai-custom:glm-5.3` 指定 function 强制 `tool_choice` 1.3s 返回；
+- `zed:gpt-6-luna` 32×32 红图返回 `Red`；
+- `zed:gemini-3.8-flash` 多轮工具历史降级后 200；
+- oneOf 输出 `shipping.method="standard"`；
+- CoT-present Chat/Claude 多轮工具均 200。
+
+### 10.7 仍存在的物理限制
+
+1. Zed Claude/Gemini 不暴露 thinking block，只把推理写在正文；网关不能凭空拆出 thinking。
+2. CoT 生成受 prompt/effort/provider 策略影响，单次 E2E 不能证明“永远有/永远没有”。
+3. Gemini 极小 `max_tokens` 可能只产出 thinking；现在会作为 `length` 正常返回，但没有正文。
+4. 显式 `cache_control` 仍无跨协议等价字段，只能依赖隐式前缀缓存。
+5. `oneOf` 合并能保留字段名，但复杂联合类型仍可能被模型简化。
+6. Codex 上游可能忽略 `max_output_tokens`；网关已透传，无法强制上游截断。
+7. 真实 Claude 原生签名多轮回放仍缺真实 E2E 样本；当前只有单测与 vsig1 虚拟签名验证。

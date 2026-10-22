@@ -89,9 +89,9 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 | Custom Tool Registry | `src/converters/custom-tool-registry.js` | 请求级记录 `type: "custom"` 工具；在 OpenAI/Claude/Gemini 侧降级为 function，响应侧还原为 `custom_tool_call`，Codex 侧原生保留 |
 | Signature Vault | `src/converters/signature-vault.js` | 对跨协议 thinking signature 做虚拟签名/剥离，避免上游 400 |
 | Usage Normalizer | `src/utils/usage-normalizer.js` | 统一各协议 usage 字段与缓存 token 统计 |
-| Retry / Fallback | `src/handlers/request-pipeline.js`、`src/services/service-manager.js` | 空响应重试、凭证切换、跨 provider fallback |
+| Retry / Fallback | `src/handlers/request-pipeline.js`、`src/services/service-manager.js` | 空响应重试（含墙钟预算）、终态 finishReason 处理、凭证切换、跨 provider fallback |
 | Model Capability | `src/providers/model-capability.js` | 节点/分组模型候选、选择集与路由守卫 |
-| Provider Capabilities | `src/providers/provider-capabilities.js` | 统一声明模型级参数兼容性（temperature / 强制 tool_choice / thinking / 非流式 / maxOutputTokens / 多轮工具历史），支持全局配置、节点配置与上游元数据覆盖 |
+| Provider Capabilities | `src/providers/provider-capabilities.js` | 统一声明模型级参数兼容性（temperature / 强制 tool_choice / thinking / 非流式 / maxOutputTokens / 多轮工具历史 / 流式思考），支持全局配置、节点配置与上游元数据覆盖 |
 
 ---
 
@@ -104,9 +104,10 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 3. **签名不可跨协议复用**：thinking signature 与协议/模型绑定，跨协议只能剥离或生成虚拟签名。
 4. **模型可调用性不等于发现结果**：上游 `model_list` 可见不代表当前账号/Plan 一定可调用。
 5. **流式事件顺序**：上游 SSE 是单连接有序流，不承诺对乱序 chunk 做重排。
-6. **Gemini 输出上限**：CloudCode 非 Claude 模型不保证 `maxOutputTokens` 生效；网关默认删除该字段并 warn，客户端应使用超时/取消而不是依赖 `max_tokens`。
-7. **显式缓存标记**：`cache_control` 没有跨协议等价字段，网关只记录 warn；缓存计量依赖上游隐式前缀缓存与 `cached_tokens` 回填。
-8. **Zed Google 多轮工具历史**：Zed Google 通道对 `functionCall` / `functionResponse` 历史返回 500；网关通过 `supportsToolResultHistory=false` 返回明确 400，不伪造上游能力。
+6. **Gemini 输出上限**：`maxOutputTokens` 现在按标准字段透传；上游会遵守上限，但 thinking token 也计入预算，极小 `max_tokens` 可能只产出 thinking。网关把 `MAX_TOKENS` / `SAFETY` 等终态视为合法截断，不再触发空响应重试。
+7. **显式缓存标记**：`cache_control` 没有跨协议等价字段，网关只记录 warn；默认开启工具稳定排序，尽量对齐上游隐式前缀缓存，缓存计量依赖 `cached_tokens` 回填。
+8. **Zed Google 多轮工具历史**：Zed Google 通道不支持 `functionCall` / `functionResponse` 历史；网关通过 `supportsToolResultHistory=false` 将历史工具调用/结果降级为文本，保留上下文并返回 200。
+9. **Gemini 流式思考**：`streamGenerateContent` 不返回 thought 文本；当请求需要 thinking 时，网关默认回退到非流式 `generateContent` 并在本地合成 chunk（`GEMINI_STREAM_THOUGHTS_FALLBACK`，默认开启），以 reasoning 完整性优先于逐字流式。
 
 ---
 
