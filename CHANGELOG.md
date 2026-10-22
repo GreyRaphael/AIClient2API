@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Responses `input_file` 的 base64 数据映射为 Gemini `inlineData`。
 - **测试与文档**：
   - 新增 `tests/cross-protocol-v4-1-1-fixes.test.js`，共 20 个回归场景；`npm test -- --runInBand` = 26 suites / 376 tests 全绿。
-  - 更新 `docs/CROSS_PROTOCOL_EVALUATION_V4_1_1.md`；移除已被取代的 v4.1.0 评估文档。
+  - 更新跨协议转译评估文档；移除已被取代的 v4.1.0 评估文档。
 
 ## [v4.1.1] - 2026-10-21
 
@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gemini → Responses 非流式保留 `MAX_TOKENS` / 安全类截断状态；Gemini → Claude 非流式保留截断前的部分正文。
 - **测试与文档**：
   - 新增 `tests/cross-protocol-v4-1-0-p0-p1.test.js`。
-  - 更新跨协议转译评估文档（v4.1.0 文档已由 `docs/CROSS_PROTOCOL_EVALUATION_V4_1_1.md` 取代）。
+  - 更新跨协议转译评估文档（v4.1.0 文档已由后续复评取代）。
 
 ### Verification
 
@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - OpenAI → Gemini 仅 system 消息时保留 `system_instruction` 语义。
 - **测试与文档**：
   - 新增 `tests/cross-protocol-v4-1-p1/p2/p3.test.js`，共 17 个回归测试。
-  - 新增并收敛跨协议转译评估文档（v4.1.0 文档已由 `docs/CROSS_PROTOCOL_EVALUATION_V4_1_1.md` 取代）。
+  - 新增并收敛跨协议转译评估文档（v4.1.0 文档已由后续复评取代）。
 
 ### Verification
 

@@ -113,7 +113,7 @@ docker pull greyraphael/aiclient-2-api:4.1.2
 ## 📚 相关文档
 
 - [跨协议转译架构](docs/CROSS_PROTOCOL_ARCHITECTURE.md)
-- [v4.1.1 跨协议转译复评与 v4.1.2 整改结果](docs/CROSS_PROTOCOL_EVALUATION_V4_1_1.md)
+- [跨协议转译复评（当前）](docs/CROSS_PROTOCOL_EVALUATION_V4_1_4.md)
 - [变更日志](CHANGELOG.md)
 
 ---
