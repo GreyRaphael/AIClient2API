@@ -58,7 +58,7 @@ v4.1.3 把 v4.1.2 复评中确认的 P0/P1 问题全部落地修复，并在真�
 | Gemini→Claude 工具启发式 | 新增 `CONVERT_CLAUDE_CODE_TOOL_HEURISTICS`（默认 false）；移除 `search → Grep` 全局改名；参数重映射仅在开关开启时生效 |
 | custom model alias 路由 | `request-pipeline` 把 `customModelConfig` 传入号池；命中自定义模型时跳过模型发现过滤，`glm-5.3 → glm-5.3-prime` 可直接路由 |
 | Gemini `maxOutputTokens` | 内置规则为非 Claude 模型声明 `supportsMaxOutputTokens=false`；`antigravity-core` 读取能力声明，不再直接读环境变量；旧开关 `GEMINI_PASS_MAX_OUTPUT_TOKENS` 仍兼容 |
-| openai-custom 非流式 | 通用 SSE 聚合保持不变；节点可声明 `supportsNonStream=false`，`openai-core` 会主动改流式并本地聚合 |
+| openai-custom 非流式 | 通用 SSE 聚合保持为兜底；节点可声明 `supportsNonStream=false` 让网关主动改流式。2026-10-22 复测：5 个 openai-custom 模型 `stream:false` 均直接返回 JSON，未触发该兜底 |
 
 ### 2.3 P2：状态、形状与多模态
 

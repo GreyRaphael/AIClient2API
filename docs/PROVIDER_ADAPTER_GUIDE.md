@@ -71,7 +71,7 @@ Provider/模型的参数兼容差异不再写死在代码分支里，而是通�
 "PROVIDER_CAPABILITIES": {
   "openai-custom": {
     "models": {
-      "glm-*": { "supportsNonStream": false }
+      "your-model": { "supportsTemperature": false }
     }
   },
   "zed": {
@@ -93,7 +93,6 @@ Provider/模型的参数兼容差异不再写死在代码分支里，而是通�
   "OPENAI_BASE_URL": "https://example.com/v1",
   "OPENAI_API_KEY": "sk-...",
   "capabilities": {
-    "supportsNonStream": false,
     "supportsForcedToolChoice": false,
     "models": {
       "some-model": { "supportsTemperature": false }
@@ -101,6 +100,9 @@ Provider/模型的参数兼容差异不再写死在代码分支里，而是通�
   }
 }
 ```
+
+> `supportsNonStream` 通常无需声明：网关会自动识别 SSE 响应并本地聚合。
+> 只有当某个端点必须强制走流式时才需要显式设为 `false`。
 
 **规则形式**：`capabilities.rules` 支持 `match` 为字符串通配、正则或函数：
 
