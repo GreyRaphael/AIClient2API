@@ -655,7 +655,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             expect(provReq.tools).toEqual([{
                 functionDeclarations: [{ name: 'search', description: 'd', parameters: { type: 'object', properties: { q: { type: 'string' } } } }]
             }]);
-            expect(provReq.toolConfig).toEqual({ functionCallingConfig: { mode: 'ANY', allowedFunctionNames: ['search'] } });
+            expect(provReq.toolConfig).toEqual({ functionCallingConfig: { mode: 'any', allowedFunctionNames: ['search'] } });
 
             const allParts = provReq.contents.flatMap(c => c.parts);
             const fc = allParts.find(p => p.functionCall);

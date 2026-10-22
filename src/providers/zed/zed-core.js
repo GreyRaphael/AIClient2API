@@ -654,16 +654,17 @@ export class ZedApiService {
                 if (tc) {
                     let mode = null;
                     let allowedNames = null;
+                    // Zed 的 Google AI 代理端点对 mode 使用小写枚举 (auto / any / none)
                     if (typeof tc === 'string') {
-                        if (tc === 'auto') mode = 'AUTO';
-                        else if (tc === 'none') mode = 'NONE';
-                        else if (tc === 'any' || tc === 'required') mode = 'ANY';
+                        if (tc === 'auto') mode = 'auto';
+                        else if (tc === 'none') mode = 'none';
+                        else if (tc === 'any' || tc === 'required') mode = 'any';
                     } else if (typeof tc === 'object') {
-                        if (tc.type === 'auto') mode = 'AUTO';
-                        else if (tc.type === 'none') mode = 'NONE';
-                        else if (tc.type === 'any') mode = 'ANY';
+                        if (tc.type === 'auto') mode = 'auto';
+                        else if (tc.type === 'none') mode = 'none';
+                        else if (tc.type === 'any') mode = 'any';
                         else if (tc.type === 'tool' && tc.name) {
-                            mode = 'ANY';
+                            mode = 'any';
                             allowedNames = [tc.name];
                         }
                     }
