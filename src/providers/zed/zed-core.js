@@ -549,14 +549,12 @@ export class ZedApiService {
                     (part) => part && (part.type === 'tool_result' || part.type === 'functionResponse')
                 );
             });
-            if (hasToolResultHistory && capabilities.supportsToolResultHistory === false) {
-                const error = new Error(
-                    `Zed Google channel does not support multi-turn tool history for model '${model}'. ` +
-                    'Use a non-tool follow-up or a different provider.'
-                );
-                error.status = 400;
-                error.skipErrorCount = true;
-                throw error;
+            // Zed Google 通道不支持多轮 functionCall/functionResponse 历史。
+            // 不直接报错，而是把历史工具调用/结果降级为文本，尽量保留上下文；
+            // 当前轮的 tools/tool_choice 仍然生效，模型可以继续发起新的工具调用。
+            const fallbackToolHistoryToText = hasToolResultHistory && capabilities.supportsToolResultHistory === false;
+            if (fallbackToolHistoryToText) {
+                logger.warn(`[Zed] Google channel does not support multi-turn tool history for model ${model}; falling back to text representation.`);
             }
 
             let systemInstruction = null;
@@ -606,14 +604,19 @@ export class ZedApiService {
                 if (m.role === 'tool' || m.tool_call_id) {
                     // OpenAI 风格 tool 结果消息 -> functionResponse
                     role = 'user';
-                    const functionResponse = {
-                        name: toolIdToName[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
-                        response: {
-                            result: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-                        }
-                    };
-                    if (m.tool_call_id) functionResponse.id = m.tool_call_id;
-                    parts.push({ functionResponse });
+                    const resultText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+                    if (fallbackToolHistoryToText) {
+                        parts.push({ text: `[Tool result${m.tool_call_id ? ` for ${m.tool_call_id}` : ''}]: ${resultText}` });
+                    } else {
+                        const functionResponse = {
+                            name: toolIdToName[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
+                            response: {
+                                result: resultText
+                            }
+                        };
+                        if (m.tool_call_id) functionResponse.id = m.tool_call_id;
+                        parts.push({ functionResponse });
+                    }
                 } else if (typeof m.content === 'string') {
                     parts.push({ text: m.content });
                 } else if (Array.isArray(m.content)) {
@@ -635,24 +638,33 @@ export class ZedApiService {
                             } else if (p.input && typeof p.input === 'object') {
                                 args = p.input;
                             }
-                            const functionCall = {
-                                name: p.name,
-                                args
-                            };
-                            if (p.id) functionCall.id = p.id;
-                            parts.push({ functionCall });
+                            if (fallbackToolHistoryToText) {
+                                parts.push({ text: `[Tool call: ${p.name}(${JSON.stringify(args)})]` });
+                            } else {
+                                const functionCall = {
+                                    name: p.name,
+                                    args
+                                };
+                                if (p.id) functionCall.id = p.id;
+                                parts.push({ functionCall });
+                            }
                         } else if (p.type === 'tool_result') {
                             // Claude 风格 user 工具结果 -> functionResponse
-                            const functionResponse = {
-                                name: toolIdToName[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
-                                response: {
-                                    result: typeof p.content === 'string' ? p.content : JSON.stringify(p.content)
+                            const resultText = typeof p.content === 'string' ? p.content : JSON.stringify(p.content);
+                            if (fallbackToolHistoryToText) {
+                                parts.push({ text: `[Tool result${p.tool_use_id ? ` for ${p.tool_use_id}` : ''}]: ${resultText}` });
+                            } else {
+                                const functionResponse = {
+                                    name: toolIdToName[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
+                                    response: {
+                                        result: resultText
+                                    }
+                                };
+                                if (p.tool_use_id || p.id) {
+                                    functionResponse.id = p.tool_use_id || p.id;
                                 }
-                            };
-                            if (p.tool_use_id || p.id) {
-                                functionResponse.id = p.tool_use_id || p.id;
+                                parts.push({ functionResponse });
                             }
-                            parts.push({ functionResponse });
                         }
                     }
                 }
@@ -666,12 +678,16 @@ export class ZedApiService {
                                 ? JSON.parse(tc.function.arguments)
                                 : (tc.function?.arguments || {});
                         } catch (_) { /* 保持空对象 */ }
-                        const functionCall = {
-                            name: tc.function?.name || 'function',
-                            args
-                        };
-                        if (tc.id) functionCall.id = tc.id;
-                        parts.push({ functionCall });
+                        if (fallbackToolHistoryToText) {
+                            parts.push({ text: `[Tool call: ${tc.function?.name || 'function'}(${JSON.stringify(args)})]` });
+                        } else {
+                            const functionCall = {
+                                name: tc.function?.name || 'function',
+                                args
+                            };
+                            if (tc.id) functionCall.id = tc.id;
+                            parts.push({ functionCall });
+                        }
                     }
                 }
 

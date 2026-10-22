@@ -19,6 +19,7 @@ import {
     sanitizeToolId,
     clampClaudeMaxTokens,
     anthropicUsageFromInclusiveInput,
+    applyEstimatedReasoningTokens,
     GEMINI_DEFAULT_MAX_TOKENS,
     GEMINI_DEFAULT_TEMPERATURE,
     GEMINI_DEFAULT_TOP_P,
@@ -1780,7 +1781,11 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        const usage = this._buildResponsesUsageFromOpenAIUsage(openaiResponse.usage);
+        const usage = applyEstimatedReasoningTokens(
+            this._buildResponsesUsageFromOpenAIUsage(openaiResponse.usage),
+            reasoningText,
+            'responses'
+        );
         // Responses API 合法状态枚举：completed / incomplete / failed / cancelled / queued / in_progress。
         // 注意：'requires_action' 是 Assistants API 概念，不是 Responses API 的合法 status。
         // 工具调用输出在 Responses API 中同样以 'completed' 收尾（客户端随后提交 function_call_output）。

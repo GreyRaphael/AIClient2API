@@ -25,7 +25,8 @@ import {
     mimeTypeFromFilename,
     guessImageMimeTypeFromUrl,
     parseBase64DataUrl,
-    anthropicUsageFromInclusiveInput
+    anthropicUsageFromInclusiveInput,
+    applyEstimatedReasoningTokens
 } from '../utils.js';
 import {
     registerCustomTools,
@@ -524,7 +525,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 message,
                 finish_reason: finishReason
             }],
-            usage: usage
+            usage: applyEstimatedReasoningTokens(usage, reasoningContent, 'openai')
         };
     }
 

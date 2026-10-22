@@ -140,27 +140,24 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         ]);
     });
 
-    test('ZedApiService.buildPayload rejects Google multi-turn tool history with a clear 400', () => {
+    test('ZedApiService.buildPayload falls back to text for Google multi-turn tool history', () => {
         const zedService = new ZedApiService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
 
-        let error = null;
-        try {
-            zedService.buildPayload('gemini-3.8-flash', {
-                messages: [
-                    { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Paris' } }] },
-                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] }
-                ]
-            });
-        } catch (e) {
-            error = e;
-        }
+        const payload = zedService.buildPayload('gemini-3.8-flash', {
+            messages: [
+                { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Paris' } }] },
+                { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"temperature":18}' }] }
+            ]
+        });
 
-        expect(error).toBeInstanceOf(Error);
-        expect(error.status).toBe(400);
-        expect(error.message).toContain('does not support multi-turn tool history');
+        const parts = payload.provider_request.contents.flatMap((content) => content.parts);
+        expect(parts.some((part) => part.functionCall)).toBe(false);
+        expect(parts.some((part) => part.functionResponse)).toBe(false);
+        expect(parts.some((part) => typeof part.text === 'string' && part.text.includes('[Tool call: get_weather'))).toBe(true);
+        expect(parts.some((part) => typeof part.text === 'string' && part.text.includes('[Tool result for toolu_1]'))).toBe(true);
     });
 
     test('ZedApiService.buildPayload applies schema polyfill and preserves tool ids for Google', () => {

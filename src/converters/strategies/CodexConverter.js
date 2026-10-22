@@ -10,7 +10,7 @@ import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import { sortToolsByName, anthropicUsageFromInclusiveInput } from '../utils.js';
+import { sortToolsByName, anthropicUsageFromInclusiveInput, applyEstimatedReasoningTokens } from '../utils.js';
 import {
     customInputToFunctionArguments,
     extractCustomToolInput
@@ -838,7 +838,10 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (contentText) openaiResponse.choices[0].message.content = contentText;
-        if (reasoningText) openaiResponse.choices[0].message.reasoning_content = reasoningText;
+        if (reasoningText) {
+            openaiResponse.choices[0].message.reasoning_content = reasoningText;
+            openaiResponse.usage = applyEstimatedReasoningTokens(openaiResponse.usage, reasoningText, 'openai');
+        }
         if (toolCalls.length > 0) openaiResponse.choices[0].message.tool_calls = toolCalls;
 
         if (response.status === 'completed') {
@@ -866,11 +869,12 @@ export class CodexConverter extends BaseConverter {
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
         const output = [];
+        let reasoningText = '';
 
         if (response.output && Array.isArray(response.output)) {
             for (const item of response.output) {
                 if (item.type === 'reasoning') {
-                    let reasoningText = '';
+                    reasoningText = '';
                     if (Array.isArray(item.summary)) {
                         reasoningText = item.summary
                             .map(s => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
@@ -963,7 +967,7 @@ export class CodexConverter extends BaseConverter {
             status: responseStatus,
             output: output,
             incomplete_details: response.incomplete_details || null,
-            usage: {
+            usage: applyEstimatedReasoningTokens({
                 input_tokens: response.usage?.input_tokens || 0,
                 output_tokens: response.usage?.output_tokens || 0,
                 total_tokens: response.usage?.total_tokens || 0,
@@ -973,7 +977,7 @@ export class CodexConverter extends BaseConverter {
                 output_tokens_details: {
                     reasoning_tokens: response.usage?.output_tokens_details?.reasoning_tokens || 0
                 }
-            }
+            }, reasoningText, 'responses')
         };
     }
 

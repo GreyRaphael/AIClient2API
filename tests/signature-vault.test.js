@@ -340,3 +340,20 @@ describe('Phase 2: 签名金库 (Signature Vault)', () => {
         });
     });
 });
+
+test('原生 Claude 签名不会被当作 vsig1 虚拟签名剥离', () => {
+    const nativeSignature = 'EqQBCkYIBxgCKkDnativeClaudeSignatureForTestOnly';
+    expect(isVirtualSignature(nativeSignature)).toBe(false);
+
+    const messages = [{
+        role: 'assistant',
+        content: [
+            { type: 'thinking', thinking: '原生思考', signature: nativeSignature },
+            { type: 'text', text: '正文' }
+        ]
+    }];
+
+    const { messages: strippedMessages, stripped } = stripVirtualSignatures(messages);
+    expect(stripped).toBe(0);
+    expect(strippedMessages[0].content[0].signature).toBe(nativeSignature);
+});

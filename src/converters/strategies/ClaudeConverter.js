@@ -17,7 +17,8 @@ import {
     getOpenAIStreamIdentity,
     mergeConsecutiveSameRoleContents,
     sortToolsByName,
-    logOmittedCacheControl
+    logOmittedCacheControl,
+    applyEstimatedReasoningTokens
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import {getConfigToggle} from '../../core/config-manager.js';
@@ -623,7 +624,11 @@ export class ClaudeConverter extends BaseConverter {
                 message: message,
                 finish_reason: finishReason,
             }],
-            usage: this._claudeUsageToOpenAI(claudeResponse?.usage),
+            usage: applyEstimatedReasoningTokens(
+                this._claudeUsageToOpenAI(claudeResponse?.usage),
+                reasoningContent,
+                'openai'
+            ),
         };
     }
 
@@ -2016,7 +2021,7 @@ export class ClaudeConverter extends BaseConverter {
             top_logprobs: 0,
             top_p: 1,
             truncation: "disabled",
-            usage: {
+            usage: applyEstimatedReasoningTokens({
                 input_tokens: openaiUsage.prompt_tokens,
                 input_tokens_details: {
                     cached_tokens: openaiUsage.prompt_tokens_details.cached_tokens
@@ -2026,7 +2031,7 @@ export class ClaudeConverter extends BaseConverter {
                     reasoning_tokens: 0
                 },
                 total_tokens: openaiUsage.total_tokens
-            },
+            }, reasoningSummary.map((item) => item.text || '').join('\n'), 'responses'),
             user: null
         };
     }
