@@ -7,7 +7,7 @@
 - 历史对照：[`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md)（v1.6.0，2026-10-16）
 - 历史复评：v4.1.1 ~ v4.1.3 文档已清理；关键对照结论保留在本文第 6 节与 Git 历史
 - 修复计划：[`CROSS_PROTOCOL_FIX_PLAN_V4_1_4.md`](./CROSS_PROTOCOL_FIX_PLAN_V4_1_4.md)
-- 修复进展：Phase 1（F1 + F2）已落地——`f366433`（Zed `is_error`）、`2aa4829`（Gemini usage）；Phase 2/3 待实施
+- 修复进展：Phase 1（F1 + F2）已落地——`f366433`（Zed `is_error`）、`2aa4829`（Gemini usage）；Phase 2/3 待实施。Phase 1 后单测 **29 suites / 422 tests 全绿**，13 模型全量 E2E **125 / 143**（Zed haiku 多轮回传已修复；Codex/Zed gpt 的 reasoning 采样波动 ±1）
 
 ---
 

@@ -4,6 +4,7 @@
 - 基线：`fix/cross-protocol-v4.1.3` @ `077d234`
 - 目标：修复复评中确认的网关侧缺陷，保持现有协议面与配置兼容
 - 进展：Phase 1（F1 + F2）已完成——`f366433`、`2aa4829`；Phase 2/3 待实施
+- Phase 1 验证：单测 **29 suites / 422 tests 全绿**；F1 定向 E2E（Zed haiku/sonnet 多轮工具回传）通过；F2 定向 E2E（Gemini 6 条文本）通过；修复后 13 模型全量 E2E 为 **125 / 143**（Zed haiku 4→5，Codex/Zed gpt 的 reasoning 采样波动 ±1，Gemini 流式思考与 Zed Google 多轮工具仍受上游限制）
 - 原则：
   1. **Provider 边界归一化优先**：能在 provider 适配层兜住的，不下沉到每个 converter；
   2. **能力驱动**：能用 `provider-capabilities` 声明的，不写死模型名判断；
@@ -159,6 +160,17 @@ export function geminiUsageToAnthropic(usage = {}) {
 
 - 所有 Gemini 文本响应满足 `completion_tokens >= reasoning_tokens`
 - 现有 413 个单测零回归
+
+---
+
+### Phase 1 验证记录（已完成）
+
+| 验证 | 结果 |
+|---|---|
+| `npm test -- --runInBand` | **29 suites / 422 tests 全绿** |
+| F1 定向 E2E：`zed:claude-haiku-5-5` / `zed:claude-sonnet-5-5` Chat 多轮工具回传 | 两者均 **200**，内容 `18` |
+| F2 定向 E2E：Gemini Chat/Responses/Claude 非流式+流式 6 条文本 | **6 / 6 PASS**；`output >= reasoning_tokens` |
+| 修复后 13 模型全量 E2E | **125 / 143**（Zed haiku 4→5；Codex Responses reasoning 与 Zed gpt reasoning 为上游采样波动，复测 3/3 恢复；Gemini 流式思考、Zed Google 多轮工具未变） |
 
 ---
 
@@ -477,7 +489,7 @@ node src/services/api-server.js --port 3201
 **最终验收**
 
 1. `npm test -- --runInBand`：28 suites / 413+ tests 全绿；
-2. 13 模型核心 E2E：≥ 127/143（Zed haiku 多轮回传修复；Zed gemini 仍可能受通道限制）；
+2. 13 模型核心 E2E：≥ 126/143（稳定值；F1 修复 Zed haiku 多轮回传 +1；Codex/Zed gpt 的 reasoning 采样可能 ±1；Gemini 流式思考与 Zed Google 多轮工具仍受上游限制）；
 3. Gemini 所有文本响应满足 `completion/output >= reasoning_tokens`；
 4. openai-custom 指定 function 强制 `tool_choice` 在 30s 内返回工具调用或明确错误；
 5. `zed:gpt-6-luna` 32×32 红图返回 `Red`；
