@@ -52,6 +52,7 @@ npm run test:e2e
 - 同一 run 三协议 reasoning 一致性
 - CoT-present Chat / Claude 多轮工具回放
 - oneOf 对象分支合并后字段名保持正确
+- OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗
 - 上游 4xx 错误响应保留可读细节
 
 ## 已知限制（不作为失败）

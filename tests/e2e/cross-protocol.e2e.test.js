@@ -92,7 +92,7 @@ function addFailure(failures, condition, message) {
     if (!condition) failures.push(message);
 }
 
-function addQuotaFailure(failures, label, usage, outputKey) {
+function addUsageInvariantFailure(failures, label, usage, outputKey) {
     if (!usage) {
         failures.push(`${label}: missing usage`);
         return;
@@ -103,6 +103,7 @@ function addQuotaFailure(failures, label, usage, outputKey) {
         ?? usage.completion_tokens_details?.reasoning_tokens
         ?? 0
     );
+    // OpenAI / Responses 的 output 必须覆盖 reasoning；v4.1.5 在共享 utils 中兜底。
     if (Number.isFinite(output) && output < reasoning) {
         failures.push(`${label}: ${outputKey}=${output} < reasoning_tokens=${reasoning}`);
     }
@@ -199,10 +200,8 @@ async function runCoreMatrix(model, failures, warnings) {
     addFailure(failures, responsesStreamResult.httpStatus === 200, `responses_stream: HTTP ${responsesStreamResult.httpStatus}`);
     addFailure(failures, hasNumber(responsesStreamResult.text, 391), `responses_stream: content=${JSON.stringify(responsesStreamResult.text.slice(0, 80))}`);
     addFailure(failures, responsesStreamResult.completed, 'responses_stream: missing response.completed');
+    addUsageInvariantFailure(failures, 'responses_stream', responsesStreamResult.usage, 'output_tokens');
     if (!responsesStreamResult.reasoning) warnings.push('responses_stream: no reasoning delta');
-    if (model.startsWith('gemini-antigravity:')) {
-        addQuotaFailure(failures, 'responses_stream', responsesStreamResult.usage, 'output_tokens');
-    }
 
     // 5. Claude 非流式文本
     const claudeText = await postJson({
@@ -342,6 +341,7 @@ async function runCoreMatrix(model, failures, warnings) {
     addFailure(failures, responsesToolResult.httpStatus === 200, `responses_tool: HTTP ${responsesToolResult.httpStatus}`);
     addFailure(failures, responsesCall?.name === 'get_weather', `responses_tool: name=${responsesCall?.name}`);
     addFailure(failures, String(parseToolArgs(responsesCall?.arguments)?.city || '').toLowerCase().includes('paris'), `responses_tool: args=${responsesCall?.arguments}`);
+    addUsageInvariantFailure(failures, 'responses_tool', responsesToolResult.usage, 'output_tokens');
 
     // 10. Claude 单轮工具（最多重试 3 次）
     let claudeToolResult;
@@ -499,6 +499,42 @@ describe('跨协议定向 E2E（真实上游）', () => {
         const secondSummary = chatTextSummary(second);
         expect(secondSummary.httpStatus).toBe(200);
         expect(secondSummary.content).toContain('18');
+    }, TARGET_TIMEOUT_MS);
+
+    test('OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗', async () => {
+        const unsafeId = 'call:bad/id|1';
+        let summary;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const result = await postJson({
+                baseUrl: BASE_URL,
+                apiKey,
+                pathName: '/v1/chat/completions',
+                body: {
+                    model: 'zed:claude-haiku-5-5',
+                    messages: [
+                        { role: 'user', content: 'What is the weather in Paris?' },
+                        {
+                            role: 'assistant',
+                            content: '',
+                            tool_calls: [{
+                                id: unsafeId,
+                                type: 'function',
+                                function: { name: 'get_weather', arguments: '{"city":"Paris"}' }
+                            }]
+                        },
+                        { role: 'tool', tool_call_id: unsafeId, content: '{"temperature":18,"unit":"C","city":"Paris"}' },
+                        { role: 'user', content: 'What is the temperature? Reply with the number only.' }
+                    ],
+                    tools: chatTools(),
+                    max_tokens: 1024,
+                    stream: false
+                }
+            });
+            summary = chatTextSummary(result);
+            if (summary.httpStatus === 200 && summary.content.includes('18')) break;
+        }
+        expect(summary.httpStatus).toBe(200);
+        expect(summary.content).toContain('18');
     }, TARGET_TIMEOUT_MS);
 
     test('Gemini 流式 thinking 回退后仍返回 reasoning', async () => {
