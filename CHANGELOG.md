@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.1.5] - 2026-10-22
+
+### Fixed (跨协议转译 v4.1.5 契约修复)
+
+- **usage 不变量**：`applyEstimatedReasoningTokens()` 现在保证 `reasoning_tokens <= output_tokens`；上游已给 reasoning 但大于 output 时也会收敛，output 为 0 时不做估算，避免 `completion/output < reasoning` 的非法 usage。
+- **Claude tool id**：OpenAI → Claude 的请求、非流式响应、流式响应统一通过 `toClaudeToolId()` 清洗为 `[a-zA-Z0-9_-]+`，并保证 `tool_use` / `tool_result` 两侧 id 一致。
+- **Schema 保真**：oneOf/anyOf 对象分支的 `required` 改为交集，避免互斥分支字段被全部强制；数值/布尔 enum 在 Gemini 清洗前注入 description，保留约束语义。
+- **CoT 历史可观测性**：Chat → Responses、Claude → Responses 丢弃 reasoning 时输出计数 debug 日志，默认行为不变。
+- **E2E 覆盖**：新增 `AICLIENT_E2E_MODELS=all`（27 模型全量矩阵）、全模型 usage 不变量断言、OpenAI → Zed Claude 非法 tool id 回归用例。
+- **文档清理**：移除已被取代的 13 模型阶段性复评，保留 27 模型全量复评与 archive 历史文档。
+
+### Verification
+
+- `npm test -- --runInBand`：**33 suites / 457 tests 全绿**。
+- 27 模型核心 E2E：**296 / 297**；唯一失败为 `openai-custom:qwen3.8-max` 算术采样返回 `442`，同用例重试 3/3 返回 `391`，非转译回归。
+- oneOf 定向 E2E、OpenAI → Zed Claude 非法 tool id 定向 E2E 通过。
+
 ## [v4.1.4] - 2026-10-22
 
 ### Fixed (跨协议转译 v4.1.4 + CoT 非确定性修正)
@@ -131,7 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 删除 Codex `if(true)` 死代码、Grok 占位解构、未使用 Emitter API/常量、pipeline 不可达 Gemini 分支。
   - 移除 Grok 静态共享 UUID/baseUrl，改为请求级状态。
   - 新增 `tests/cross-protocol-v4-fixes.test.js`（18 个回归测试）。
-- 文档：新增 [`docs/CROSS_PROTOCOL_EVALUATION_V4.md`](docs/CROSS_PROTOCOL_EVALUATION_V4.md)。
+- 文档：跨协议转译复评已收敛到 [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_4_FULL_COVERAGE.md`](docs/CROSS_PROTOCOL_EVALUATION_V4_1_4_FULL_COVERAGE.md)。
 
 ### Verification
 
