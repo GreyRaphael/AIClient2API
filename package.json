@@ -1,6 +1,6 @@
 {
   "name": "aiclient2api",
-  "version": "4.1.5",
+  "version": "4.1.6",
   "type": "module",
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",
@@ -33,9 +33,9 @@
     "start": "node src/core/master.js",
     "start:standalone": "node src/services/api-server.js",
     "start:dev": "node src/core/master.js --dev",
-    "test": "jest --forceExit",
+    "test": "jest",
     "test:integration": "jest tests/api-integration.test.js --forceExit --testPathIgnorePatterns=''",
-    "test:e2e": "jest tests/e2e --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testTimeout=300000",
+    "test:e2e": "jest tests/e2e --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testTimeout=300000 --globalSetup=./tests/e2e/global-setup.js",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:verbose": "jest --verbose",

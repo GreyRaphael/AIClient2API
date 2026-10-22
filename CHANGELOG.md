@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.1.6] - 2026-10-22
+
+### Changed
+
+- E2E 默认通过 Jest `globalSetup` 从 `/auto/v1/models` 动态获取当前全量模型，不再硬编码 13/27；`AICLIENT_E2E_MODELS` 可覆盖为逗号分隔的子集。
+- 合并 6 个历史版本化跨协议测试为 `tests/cross-protocol-historical-regressions.test.js`，删除 3 条低价值实现细节断言；单测套件从 33 个收敛为 28 个。
+- `npm test` 移除 `--forceExit`，测试进程现在可自然退出。
+
+### Fixed
+
+- `src/utils/file-lock.js`：`withTimeout()` 在 Promise settle 后清理 30s 定时器，避免测试和 CLI 进程被悬挂的 timeout 拖住。
+- `src/ui-modules/auth.js`：token 清理 `setInterval` 增加 `unref()`，避免模块被测试/CLI 引入时阻塞进程退出。
+
+### Verification
+
+- `npm test -- --runInBand`：**28 suites / 454 tests 全绿**，无需 `--forceExit`。
+- E2E 默认动态发现 27 个模型；`openai-custom:glm-5.3` 核心矩阵 11/11 通过。
+
 ## [v4.1.5] - 2026-10-22
 
 ### Fixed (跨协议转译 v4.1.5 契约修复)
