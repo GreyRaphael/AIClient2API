@@ -81,6 +81,40 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(provReq.messages[1].role).toBe('assistant');
     });
 
+    test('ZedApiService.buildPayload fills is_error for converted Anthropic tool_result blocks', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        const request = {
+            max_tokens: 1024,
+            messages: [
+                { role: 'user', content: [{ type: 'text', text: 'Weather in Paris?' }] },
+                { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Paris' } }] },
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'tool_result', tool_use_id: 'toolu_1', content: '{"temperature":18}' },
+                        { type: 'text', text: 'What is the temperature?' }
+                    ]
+                }
+            ]
+        };
+
+        const payload = zedService.buildPayload('claude-sonnet-5-5', request);
+        const blocks = payload.provider_request.messages.flatMap((m) => Array.isArray(m.content) ? m.content : []);
+        const toolResult = blocks.find((block) => block.type === 'tool_result');
+
+        expect(toolResult).toMatchObject({
+            type: 'tool_result',
+            tool_use_id: 'toolu_1',
+            is_error: false
+        });
+        // 归一化不应修改调用方传入的原始消息体
+        expect(request.messages[2].content[0].is_error).toBeUndefined();
+    });
+
     test('ZedApiService.buildPayload formats Google provider request correctly for Gemini 3.1+', () => {
         const zedService = new ZedApiService({
             uuid: 'test-uuid',

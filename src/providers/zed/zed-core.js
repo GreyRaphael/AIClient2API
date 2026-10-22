@@ -842,7 +842,15 @@ export class ZedApiService {
             if (typeof m.content === 'string') {
                 content.push({ type: 'text', text: m.content });
             } else if (Array.isArray(m.content)) {
-                content = [...m.content];
+                // Zed 的 Anthropic 反序列化器要求 tool_result 必须带 is_error；
+                // 原生 Anthropic 允许省略该字段，跨协议转换器通常也不会生成它。
+                // 在 provider 边界统一补齐，覆盖所有 converter 来源。
+                content = m.content.map((block) => {
+                    if (block && block.type === 'tool_result' && block.is_error === undefined) {
+                        return { ...block, is_error: false };
+                    }
+                    return block;
+                });
             } else if (m.content) {
                 content.push({ type: 'text', text: String(m.content) });
             }
