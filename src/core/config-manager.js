@@ -235,6 +235,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         // 该机制是通用的，对任何 provider 抛出 isEmptyUpstreamResponse 错误都生效，不局限于 Kiro。
         EMPTY_RESPONSE_MAX_RETRIES: 5,
         EMPTY_RESPONSE_RETRY_DELAY_MS: 500, // 空响应重试前的等待时间（毫秒），避免瞬间打满上游
+        EMPTY_RESPONSE_MAX_TOTAL_MS: 120000, // 单次请求空响应重试的墙钟上限（毫秒）；0 表示不限制
         RATE_LIMIT_COOLDOWN_ENABLED: false, // 429 限流后是否短暂冷却账号
         RATE_LIMIT_COOLDOWN_MS: 30000, // 429 限流默认冷却时间（毫秒）
         RATE_LIMIT_COOLDOWN_JITTER_MS: 5000, // 429 限流冷却随机抖动（毫秒）
@@ -304,6 +305,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         { flag: '--request-max-retries',  configKey: 'REQUEST_MAX_RETRIES',    type: 'int' },
         { flag: '--empty-response-max-retries', configKey: 'EMPTY_RESPONSE_MAX_RETRIES', type: 'int' },
         { flag: '--empty-response-retry-delay-ms', configKey: 'EMPTY_RESPONSE_RETRY_DELAY_MS', type: 'int' },
+        { flag: '--empty-response-max-total-ms', configKey: 'EMPTY_RESPONSE_MAX_TOTAL_MS', type: 'int' },
         { flag: '--model-fallback-enabled', configKey: 'MODEL_FALLBACK_ENABLED', type: 'bool' },
         { flag: '--request-body-max-bytes', configKey: 'REQUEST_BODY_MAX_BYTES', type: 'int' },
         { flag: '--rate-limit-cooldown-enabled', configKey: 'RATE_LIMIT_COOLDOWN_ENABLED', type: 'bool' },

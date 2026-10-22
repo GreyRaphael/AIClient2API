@@ -193,11 +193,20 @@ function getPluginHookRequestId(config) {
  * 该机制不绑定具体 provider：任何 provider 抛出带 isEmptyUpstreamResponse 标记的错误都会走到这里。
  *
  * @param {string} [providerLabel='Upstream'] - 用于日志的 provider 标签，如 'Kiro'、'Qwen' 等
- * @returns {Promise<{retry: boolean, result?: object, emptyResponseRetry?: number}>}
+ * @returns {Promise<{retry: boolean, result?: object, emptyResponseRetry?: number, budgetExhausted?: boolean}>}
  */
-async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, logPrefix, providerLabel = 'Upstream') {
+export async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, logPrefix, providerLabel = 'Upstream', startedAt = Date.now()) {
     const emptyRetryMax = CONFIG?.EMPTY_RESPONSE_MAX_RETRIES ?? 5;
     const emptyRetryDelayMs = CONFIG?.EMPTY_RESPONSE_RETRY_DELAY_MS ?? 500;
+    const emptyRetryMaxTotalMs = Number(CONFIG?.EMPTY_RESPONSE_MAX_TOTAL_MS) || 0;
+
+    if (emptyRetryMaxTotalMs > 0) {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed >= emptyRetryMaxTotalMs) {
+            logger.error(`${logPrefix} ${providerLabel} empty response retry budget exhausted after ${elapsed}ms (limit: ${emptyRetryMaxTotalMs}ms, attempts: ${attemptsMade}). Giving up.`);
+            return { retry: false, budgetExhausted: true };
+        }
+    }
 
     if (attemptsMade >= emptyRetryMax) {
         logger.error(`${logPrefix} ${providerLabel} empty response persisted after ${emptyRetryMax} retr${emptyRetryMax === 1 ? 'y' : 'ies'} (same request body). Giving up.`);
@@ -619,7 +628,8 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支（目前 Kiro 在用）。
         if (error.isEmptyUpstreamResponse) {
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
-            const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Stream Retry]', toProvider);
+            const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
+            const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Stream Retry]', toProvider, emptyResponseStartedAt);
 
             if (outcome.retry) {
                 const { result, emptyResponseRetry } = outcome;
@@ -629,6 +639,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     currentRetry,
                     maxRetries,
                     emptyResponseRetry,
+                    emptyResponseStartedAt,
                     clientDisconnected,
                     anyDataSent
                 };
@@ -927,7 +938,8 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支（目前 Kiro 在用）。
         if (error.isEmptyUpstreamResponse) {
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
-            const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Unary Retry]', toProvider);
+            const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
+            const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Unary Retry]', toProvider, emptyResponseStartedAt);
 
             if (outcome.retry) {
                 const { result, emptyResponseRetry } = outcome;
@@ -936,7 +948,8 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
                     CONFIG,
                     currentRetry,
                     maxRetries,
-                    emptyResponseRetry
+                    emptyResponseRetry,
+                    emptyResponseStartedAt
                 };
 
                 return await handleUnaryRequest(

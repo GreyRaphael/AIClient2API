@@ -50,6 +50,17 @@ const CAPABILITY_KEY_SET = new Set(CAPABILITY_KEYS);
  * 内置 provider 规则。仅保留无法从上游元数据获知、且经实测确认的硬约束。
  */
 const BUILTIN_PROVIDER_RULES = {
+    // 多数第三方 OpenAI 兼容端点对“指定 function”的 tool_choice 支持不完整：
+    // 有的返回空 200，有的直接超时。统一降级为 required + 收窄 tools，
+    // 语义上仍保证“必须调用该工具”；标准 OpenAI 端点可通过配置覆盖回 true。
+    'openai-custom': [
+        {
+            match: () => true,
+            capabilities: {
+                supportsForcedToolChoice: false
+            }
+        }
+    ],
     // Zed 的 Claude 5.x 已弃用 temperature，且不支持强制 tool_choice。
     zed: [
         {

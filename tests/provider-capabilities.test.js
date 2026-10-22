@@ -44,6 +44,24 @@ describe('Provider 能力声明：内置规则', () => {
         expect(caps.supportsForcedToolChoice).toBe(true);
     });
 
+    test('openai-custom 默认关闭指定 function 的强制 tool_choice', () => {
+        const caps = resolveProviderCapabilities({ providerType: 'openai-custom', model: 'glm-5.3-prime' });
+        expect(caps.supportsForcedToolChoice).toBe(false);
+    });
+
+    test('openai-custom 可通过配置覆盖回强制 tool_choice', () => {
+        const caps = resolveProviderCapabilities({
+            providerType: 'openai-custom',
+            model: 'glm-5.3-prime',
+            config: {
+                PROVIDER_CAPABILITIES: {
+                    'openai-custom': { supportsForcedToolChoice: true }
+                }
+            }
+        });
+        expect(caps.supportsForcedToolChoice).toBe(true);
+    });
+
     test('Antigravity 非 Claude 模型关闭 maxOutputTokens', () => {
         const caps = resolveProviderCapabilities({ providerType: 'gemini-antigravity', model: 'gemini-3.8-flash-high' });
         expect(caps.supportsMaxOutputTokens).toBe(false);
