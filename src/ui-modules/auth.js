@@ -456,7 +456,8 @@ export async function handleLoginRequest(req, res) {
     return true;
 }
 
-// 定时清理过期token
-setInterval(cleanupExpiredTokens, 5 * 60 * 1000); // 每5分钟清理一次
+// 定时清理过期 token；unref 避免模块被测试/CLI 引入时阻塞进程自然退出。
+const tokenCleanupTimer = setInterval(cleanupExpiredTokens, 5 * 60 * 1000);
+tokenCleanupTimer.unref?.();
 
 
