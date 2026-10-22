@@ -214,6 +214,43 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                 delete node.type;
             }
 
+            // oneOf 的对象分支：合并 properties/required，保留字段名与枚举，
+            // 避免坍缩为通用 object 后模型生成结构近似但字段名错误的参数。
+            if (allSameType && branchTypes[0] === 'object') {
+                const mergedProperties = {};
+                const mergedRequired = new Set(Array.isArray(node.required) ? node.required : []);
+
+                for (const branch of transformedBranches) {
+                    if (branch.properties && typeof branch.properties === 'object') {
+                        for (const [key, value] of Object.entries(branch.properties)) {
+                            const existing = mergedProperties[key];
+                            if (!existing) {
+                                mergedProperties[key] = value;
+                            } else if (Array.isArray(existing.enum) && Array.isArray(value.enum)) {
+                                mergedProperties[key] = {
+                                    ...existing,
+                                    ...value,
+                                    enum: Array.from(new Set([...existing.enum, ...value.enum]))
+                                };
+                            } else {
+                                mergedProperties[key] = { ...existing, ...value };
+                            }
+                        }
+                    }
+                    if (Array.isArray(branch.required)) {
+                        branch.required.forEach((item) => mergedRequired.add(item));
+                    }
+                }
+
+                if (Object.keys(mergedProperties).length > 0) {
+                    node.properties = {
+                        ...(node.properties || {}),
+                        ...mergedProperties
+                    };
+                    node.required = Array.from(mergedRequired);
+                }
+            }
+
             // 构造分支摘要（截断 120 字符）
             const branchSummaries = transformedBranches.map(b => {
                 if (Array.isArray(b.enum) && b.enum.length > 0) {

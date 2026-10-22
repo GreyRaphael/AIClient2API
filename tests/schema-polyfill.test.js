@@ -268,6 +268,36 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(result.properties.status.description).toContain('draft, review');
         });
 
+        test('oneOf 对象分支合并 properties 并保留枚举字段名', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    shipping: {
+                        oneOf: [
+                            {
+                                type: 'object',
+                                properties: { method: { type: 'string', enum: ['standard'] } },
+                                required: ['method']
+                            },
+                            {
+                                type: 'object',
+                                properties: { method: { type: 'string', enum: ['express'] } },
+                                required: ['method']
+                            }
+                        ]
+                    }
+                }
+            };
+
+            const { schema: result } = polyfillSchemaForGemini(schema);
+            const shipping = result.properties.shipping;
+
+            expect(shipping.type).toBe('object');
+            expect(shipping.oneOf).toBeUndefined();
+            expect(shipping.properties.method.enum).toEqual(['standard', 'express']);
+            expect(shipping.required).toContain('method');
+        });
+
         test('oneOf 各分支 type 不一致时：删除 type 字段并注入分支摘要', () => {
             const schema = {
                 properties: {

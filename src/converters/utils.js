@@ -8,6 +8,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
 import { getConfigToggle } from '../core/config-manager.js';
+import { countTextTokens } from '../utils/token-utils.js';
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.js';
@@ -146,6 +147,32 @@ export function geminiUsageToAnthropic(usage = {}) {
         cachedTokens: cached,
         outputTokens: output
     });
+}
+
+/**
+ * 当上游返回了 reasoning 文本但没有 reasoning_tokens 时，用 tokenizer 做保守估算。
+ * 估算值会带 `reasoning_tokens_estimated: true`，避免被误认为上游精确值。
+ *
+ * @param {Object} usage - OpenAI Chat 或 Responses usage
+ * @param {string} reasoningText - reasoning / thinking 文本
+ * @param {'openai'|'responses'} [shape='openai']
+ * @returns {Object}
+ */
+export function applyEstimatedReasoningTokens(usage, reasoningText, shape = 'openai') {
+    if (!usage || !reasoningText) return usage;
+    const detailsKey = shape === 'responses' ? 'output_tokens_details' : 'completion_tokens_details';
+    const existing = Number(usage[detailsKey]?.reasoning_tokens ?? 0);
+    if (existing > 0) return usage;
+    const estimated = countTextTokens(String(reasoningText));
+    if (estimated <= 0) return usage;
+    return {
+        ...usage,
+        [detailsKey]: {
+            ...(usage[detailsKey] || {}),
+            reasoning_tokens: estimated,
+            reasoning_tokens_estimated: true
+        }
+    };
 }
 
 /**
@@ -695,12 +722,13 @@ export function isOpenAIReasoningModel(model) {
  * @returns {boolean}
  */
 export function isSortToolsEnabled() {
-    return getConfigToggle('CONVERT_SORT_TOOLS', false);
+    // 默认开启：稳定工具顺序有助于跨请求命中上游隐式前缀缓存。
+    return getConfigToggle('CONVERT_SORT_TOOLS', true);
 }
 
 /**
  * 稳定排序 tools 数组（按 name 升序）
- * 由环境变量 / 配置项 CONVERT_SORT_TOOLS 控制（默认 off）
+ * 由环境变量 / 配置项 CONVERT_SORT_TOOLS 控制（默认 on）
  *
  * @template T
  * @param {Array<T>} tools

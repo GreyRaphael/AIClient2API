@@ -120,7 +120,7 @@ function normalizeSignatureVaultConfig(config) {
 }
 
 function normalizeConvertSortToolsConfig(config) {
-    normalizeToggleConfig(config, 'CONVERT_SORT_TOOLS', false);
+    normalizeToggleConfig(config, 'CONVERT_SORT_TOOLS', true);
     normalizeToggleConfig(config, 'CONVERT_CLAUDE_CODE_TOOL_HEURISTICS', false);
 }
 

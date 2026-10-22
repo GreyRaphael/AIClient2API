@@ -177,9 +177,9 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
     });
 
     describe('4.2 工具列表确定性排序 (sortToolsByName)', () => {
-        test('开关识别：默认关闭，支持环境变量 true/1/on 开启', () => {
+        test('开关识别：默认开启，支持环境变量 false/0/off 关闭', () => {
             delete process.env.CONVERT_SORT_TOOLS;
-            expect(isSortToolsEnabled()).toBe(false);
+            expect(isSortToolsEnabled()).toBe(true);
 
             process.env.CONVERT_SORT_TOOLS = 'true';
             expect(isSortToolsEnabled()).toBe(true);
