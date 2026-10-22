@@ -11,7 +11,9 @@ import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vaul
 import {
     mapFinishReason,
     getOpenAIStreamIdentity,
-    anthropicUsageFromInclusiveInput
+    geminiUsageToOpenAI,
+    geminiUsageToResponses,
+    geminiUsageToAnthropic
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
@@ -297,18 +299,7 @@ export class GeminiConverter extends BaseConverter {
                 message: message,
                 finish_reason: finishReason,
             }],
-            usage: geminiResponse.usageMetadata ? {
-                prompt_tokens: geminiResponse.usageMetadata.promptTokenCount || 0,
-                completion_tokens: geminiResponse.usageMetadata.candidatesTokenCount || 0,
-                total_tokens: geminiResponse.usageMetadata.totalTokenCount || 0,
-                cached_tokens: geminiResponse.usageMetadata.cachedContentTokenCount || 0,
-                prompt_tokens_details: {
-                    cached_tokens: geminiResponse.usageMetadata.cachedContentTokenCount || 0
-                },
-                completion_tokens_details: {
-                    reasoning_tokens: geminiResponse.usageMetadata.thoughtsTokenCount || 0
-                }
-            } : {
+            usage: geminiResponse.usageMetadata ? geminiUsageToOpenAI(geminiResponse.usageMetadata) : {
                 prompt_tokens: 0,
                 completion_tokens: 0,
                 total_tokens: 0,
@@ -427,18 +418,7 @@ export class GeminiConverter extends BaseConverter {
         };
 
         if(geminiChunk.usageMetadata){
-            chunk.usage = {
-                prompt_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
-                completion_tokens: geminiChunk.usageMetadata.candidatesTokenCount || 0,
-                total_tokens: geminiChunk.usageMetadata.totalTokenCount || 0,
-                cached_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0,
-                prompt_tokens_details: {
-                    cached_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0
-                },
-                completion_tokens_details: {
-                    reasoning_tokens: geminiChunk.usageMetadata.thoughtsTokenCount || 0
-                }
-            };
+            chunk.usage = geminiUsageToOpenAI(geminiChunk.usageMetadata);
         }
 
         // 流终结（带出 finishReason 的 chunk），清理稳定标识状态
@@ -512,10 +492,7 @@ export class GeminiConverter extends BaseConverter {
                 model: model,
                 stop_reason: "end_turn",
                 stop_sequence: null,
-                usage: {
-                    input_tokens: geminiResponse?.usageMetadata?.promptTokenCount || 0,
-                    output_tokens: geminiResponse?.usageMetadata?.candidatesTokenCount || 0
-                }
+                usage: geminiUsageToAnthropic(geminiResponse?.usageMetadata || {})
             };
         }
 
@@ -539,11 +516,7 @@ export class GeminiConverter extends BaseConverter {
             model: model,
             stop_reason: stopReason,
             stop_sequence: null,
-            usage: anthropicUsageFromInclusiveInput({
-                inputTokens: geminiResponse.usageMetadata?.promptTokenCount || 0,
-                cachedTokens: geminiResponse.usageMetadata?.cachedContentTokenCount || 0,
-                outputTokens: geminiResponse.usageMetadata?.candidatesTokenCount || 0
-            })
+            usage: geminiUsageToAnthropic(geminiResponse.usageMetadata || {})
         };
     }
 
@@ -602,11 +575,7 @@ export class GeminiConverter extends BaseConverter {
             output_tokens: 0
         }));
 
-        const buildTerminalUsage = () => anthropicUsageFromInclusiveInput({
-            inputTokens: entry.latestUsage?.promptTokenCount || 0,
-            cachedTokens: entry.latestUsage?.cachedContentTokenCount || 0,
-            outputTokens: entry.latestUsage?.candidatesTokenCount || 0
-        });
+        const buildTerminalUsage = () => geminiUsageToAnthropic(entry.latestUsage || {});
 
         const candidate = geminiChunk.candidates?.[0];
         if (candidate) {
@@ -929,17 +898,7 @@ export class GeminiConverter extends BaseConverter {
             top_logprobs: 0,
             top_p: 1,
             truncation: "disabled",
-            usage: {
-                input_tokens: geminiResponse.usageMetadata?.promptTokenCount || 0,
-                input_tokens_details: {
-                    cached_tokens: geminiResponse.usageMetadata?.cachedContentTokenCount || 0
-                },
-                output_tokens: geminiResponse.usageMetadata?.candidatesTokenCount || 0,
-                output_tokens_details: {
-                    reasoning_tokens: geminiResponse.usageMetadata?.thoughtsTokenCount || 0
-                },
-                total_tokens: geminiResponse.usageMetadata?.totalTokenCount || 0
-            },
+            usage: geminiUsageToResponses(geminiResponse.usageMetadata || {}),
             user: null
         };
 
@@ -959,17 +918,7 @@ export class GeminiConverter extends BaseConverter {
         if (typeof geminiChunk === 'object' && !Array.isArray(geminiChunk)) {
             // 保存 usageMetadata
             if (geminiChunk.usageMetadata) {
-                emitter.savedUsage = {
-                    input_tokens: geminiChunk.usageMetadata.promptTokenCount || 0,
-                    input_tokens_details: {
-                        cached_tokens: geminiChunk.usageMetadata.cachedContentTokenCount || 0
-                    },
-                    output_tokens: geminiChunk.usageMetadata.candidatesTokenCount || 0,
-                    output_tokens_details: {
-                        reasoning_tokens: geminiChunk.usageMetadata.thoughtsTokenCount || 0
-                    },
-                    total_tokens: geminiChunk.usageMetadata.totalTokenCount || 0
-                };
+                emitter.savedUsage = geminiUsageToResponses(geminiChunk.usageMetadata);
             }
 
             const candidate = geminiChunk.candidates?.[0];
@@ -1073,17 +1022,7 @@ export class GeminiConverter extends BaseConverter {
             );
 
             if (shouldComplete) {
-                const usage = emitter.savedUsage || {
-                    input_tokens: geminiChunk.usageMetadata?.promptTokenCount || 0,
-                    input_tokens_details: {
-                        cached_tokens: geminiChunk.usageMetadata?.cachedContentTokenCount || 0
-                    },
-                    output_tokens: geminiChunk.usageMetadata?.candidatesTokenCount || 0,
-                    output_tokens_details: {
-                        reasoning_tokens: geminiChunk.usageMetadata?.thoughtsTokenCount || 0
-                    },
-                    total_tokens: geminiChunk.usageMetadata?.totalTokenCount || 0
-                };
+                const usage = emitter.savedUsage || geminiUsageToResponses(geminiChunk.usageMetadata || {});
 
                 let status = 'completed';
                 let incompleteDetails = null;

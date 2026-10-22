@@ -63,6 +63,92 @@ export function anthropicUsageFromInclusiveInput({
 }
 
 /**
+ * 将 Gemini usageMetadata 归一化为 OpenAI / Anthropic 语义。
+ *
+ * Gemini 的 candidatesTokenCount 不包含 thoughtsTokenCount（totalTokenCount =
+ * prompt + candidates + thoughts）；而 OpenAI 的 completion_tokens 与 Anthropic
+ * 的 output_tokens 都应包含 reasoning/thinking token。因此这里统一把 thoughts
+ * 并入输出总量，同时保留 reasoning_tokens 明细。
+ *
+ * 防御：少数 Gemini 变体可能已把 thoughts 计入 candidates；当 prompt + candidates
+ * 已达到 totalTokenCount 时不再重复叠加。
+ *
+ * @param {Object} usage - Gemini usageMetadata
+ * @returns {{prompt: number, cached: number, thoughts: number, output: number, total: number}}
+ */
+function getGeminiUsageNumbers(usage = {}) {
+    const prompt = Math.max(0, Number(usage.promptTokenCount) || 0);
+    const candidates = Math.max(0, Number(usage.candidatesTokenCount) || 0);
+    const thoughts = Math.max(0, Number(usage.thoughtsTokenCount) || 0);
+    const cached = Math.max(0, Number(usage.cachedContentTokenCount) || 0);
+    const rawTotal = Math.max(0, Number(usage.totalTokenCount) || 0);
+    const candidatesIncludeThoughts = rawTotal > 0 && prompt + candidates >= rawTotal;
+    const output = candidatesIncludeThoughts ? candidates : candidates + thoughts;
+    return {
+        prompt,
+        cached,
+        thoughts,
+        output,
+        total: rawTotal || (prompt + output)
+    };
+}
+
+/**
+ * Gemini usageMetadata -> OpenAI Chat usage。
+ * @param {Object} usage - Gemini usageMetadata
+ * @returns {Object}
+ */
+export function geminiUsageToOpenAI(usage = {}) {
+    const { prompt, cached, thoughts, output, total } = getGeminiUsageNumbers(usage);
+    return {
+        prompt_tokens: prompt,
+        completion_tokens: output,
+        total_tokens: total,
+        cached_tokens: cached,
+        prompt_tokens_details: {
+            cached_tokens: cached
+        },
+        completion_tokens_details: {
+            reasoning_tokens: thoughts
+        }
+    };
+}
+
+/**
+ * Gemini usageMetadata -> OpenAI Responses usage。
+ * @param {Object} usage - Gemini usageMetadata
+ * @returns {Object}
+ */
+export function geminiUsageToResponses(usage = {}) {
+    const { prompt, cached, thoughts, output, total } = getGeminiUsageNumbers(usage);
+    return {
+        input_tokens: prompt,
+        input_tokens_details: {
+            cached_tokens: cached
+        },
+        output_tokens: output,
+        output_tokens_details: {
+            reasoning_tokens: thoughts
+        },
+        total_tokens: total
+    };
+}
+
+/**
+ * Gemini usageMetadata -> Anthropic Messages usage。
+ * @param {Object} usage - Gemini usageMetadata
+ * @returns {{input_tokens: number, cache_creation_input_tokens: number, cache_read_input_tokens: number, output_tokens: number}}
+ */
+export function geminiUsageToAnthropic(usage = {}) {
+    const { prompt, cached, output } = getGeminiUsageNumbers(usage);
+    return anthropicUsageFromInclusiveInput({
+        inputTokens: prompt,
+        cachedTokens: cached,
+        outputTokens: output
+    });
+}
+
+/**
  * 将任意来源的 max_tokens 收敛到 Anthropic 可接受范围。
  * 缺失、非正数或非法值回退到默认上限。
  * @param {*} value
