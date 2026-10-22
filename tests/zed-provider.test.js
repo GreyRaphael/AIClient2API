@@ -115,6 +115,31 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(request.messages[2].content[0].is_error).toBeUndefined();
     });
 
+    test('ZedApiService.buildPayload maps images to Responses input_image for OpenAI models', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        const payload = zedService.buildPayload('gpt-6-luna', {
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'What color is this image?' },
+                    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }
+                ]
+            }]
+        });
+
+        const userMessage = payload.provider_request.input.find(
+            (item) => item.type === 'message' && item.role === 'user'
+        );
+        expect(userMessage.content).toEqual([
+            { type: 'input_text', text: 'What color is this image?' },
+            { type: 'input_image', image_url: 'data:image/png;base64,AAAA' }
+        ]);
+    });
+
     test('ZedApiService.buildPayload formats Google provider request correctly for Gemini 3.1+', () => {
         const zedService = new ZedApiService({
             uuid: 'test-uuid',
@@ -400,6 +425,14 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(payloadBudget.provider_request.output_config).toEqual({ effort: 'medium' });
         expect(payloadBudget.provider_request.temperature).toBeUndefined();
 
+        // 2b. canonical high = 20000 should not be amplified to max
+        const payloadHigh = zedService.buildPayload('claude-sonnet-5-5', {
+            thinking: { type: 'enabled', budget_tokens: 20000 },
+            messages: [{ role: 'user', content: 'hello' }]
+        });
+        expect(payloadHigh.provider_request.thinking).toEqual({ type: 'adaptive' });
+        expect(payloadHigh.provider_request.output_config).toEqual({ effort: 'high' });
+
         // 3. Without thinking: claude-sonnet-5-5 deprecates temperature, so it is stripped
         const payloadNoThinking = zedService.buildPayload('claude-sonnet-5-5', {
             messages: [{ role: 'user', content: 'hello' }],
@@ -465,12 +498,12 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             });
         }
 
-        // Test budget_tokens mapping to xhigh and max
-        const payloadXhigh = zedService.buildPayload('gpt-6.1-sol', {
-            thinking: { type: 'enabled', budget_tokens: 16000 },
+        // Test budget_tokens mapping to high and max (canonical: high = 20000)
+        const payloadHigh = zedService.buildPayload('gpt-6.1-sol', {
+            thinking: { type: 'enabled', budget_tokens: 20000 },
             messages: [{ role: 'user', content: 'test' }]
         });
-        expect(payloadXhigh.provider_request.reasoning.effort).toBe('xhigh');
+        expect(payloadHigh.provider_request.reasoning.effort).toBe('high');
 
         const payloadMax = zedService.buildPayload('gpt-6.1-sol', {
             thinking: { type: 'enabled', budget_tokens: 32000 },

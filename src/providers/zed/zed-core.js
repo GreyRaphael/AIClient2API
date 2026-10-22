@@ -161,6 +161,25 @@ export function getZedProviderForModel(model, metadataMap = null) {
 }
 
 /**
+ * 将 Claude thinking budget 映射为 adaptive effort。
+ *
+ * 与 `src/converters/thinking-budget.js` 的 canonical 五档表对齐：
+ * high = 20000。budget 无法区分 xhigh / max（两者都是 32000），
+ * 因此超过 20000 统一回退到 max；需要 xhigh 时请显式提供 thinking.effort。
+ *
+ * @param {number|string} budget
+ * @returns {'low'|'medium'|'high'|'max'}
+ */
+function budgetToClaudeEffort(budget) {
+    const b = Number(budget);
+    if (!Number.isFinite(b) || b <= 0) return 'high';
+    if (b <= 2048) return 'low';
+    if (b <= 8192) return 'medium';
+    if (b <= 20000) return 'high';
+    return 'max';
+}
+
+/**
  * Zed API Core Service
  * 封装与 Zed 官方云端接口 (cloud.zed.dev) 的通信逻辑
  */
@@ -381,30 +400,49 @@ export class ZedApiService {
                 }
 
                 if (m.role === 'user') {
-                    let userText = '';
+                    const userContent = [];
                     if (typeof m.content === 'string') {
-                        userText = m.content;
+                        if (m.content) userContent.push({ type: 'input_text', text: m.content });
                     } else if (Array.isArray(m.content)) {
                         for (const part of m.content) {
+                            if (!part) continue;
                             if (part.type === 'text') {
-                                userText += (userText ? '\n' : '') + (part.text || '');
+                                if (part.text) userContent.push({ type: 'input_text', text: part.text });
                             } else if (part.type === 'tool_result') {
                                 input.push({
                                     type: 'function_call_output',
                                     call_id: part.tool_use_id,
                                     output: typeof part.content === 'string' ? part.content : JSON.stringify(part.content)
                                 });
+                            } else if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image') {
+                                // Claude 形状：{ type:'image', source:{ type:'base64', media_type, data } }
+                                // OpenAI 形状：{ type:'image_url', image_url:{ url } } 或 { type:'input_image', image_url }
+                                let imageUrl = '';
+                                if (part.source?.type === 'base64' && part.source.data) {
+                                    imageUrl = `data:${part.source.media_type || 'image/png'};base64,${part.source.data}`;
+                                } else if (part.source?.type === 'url') {
+                                    imageUrl = part.source.url || '';
+                                } else if (typeof part.image_url === 'string') {
+                                    imageUrl = part.image_url;
+                                } else if (part.image_url?.url) {
+                                    imageUrl = part.image_url.url;
+                                } else if (typeof part.url === 'string') {
+                                    imageUrl = part.url;
+                                }
+                                if (imageUrl) {
+                                    userContent.push({ type: 'input_image', image_url: imageUrl });
+                                }
                             }
                         }
                     } else if (m.content) {
-                        userText = String(m.content);
+                        userContent.push({ type: 'input_text', text: String(m.content) });
                     }
 
-                    if (userText) {
+                    if (userContent.length > 0) {
                         input.push({
                             type: 'message',
                             role: 'user',
-                            content: [{ type: 'input_text', text: userText }]
+                            content: userContent
                         });
                     }
                 } else if (m.role === 'assistant') {
@@ -466,12 +504,7 @@ export class ZedApiService {
                 if (requestBody.thinking.effort) {
                     reasoningEffort = requestBody.thinking.effort;
                 } else if (requestBody.thinking.budget_tokens) {
-                    const budget = Number(requestBody.thinking.budget_tokens) || 4096;
-                    if (budget <= 2048) reasoningEffort = 'low';
-                    else if (budget <= 4096) reasoningEffort = 'medium';
-                    else if (budget <= 8192) reasoningEffort = 'high';
-                    else if (budget <= 16384) reasoningEffort = 'xhigh';
-                    else reasoningEffort = 'max';
+                    reasoningEffort = budgetToClaudeEffort(requestBody.thinking.budget_tokens);
                 }
             }
 
@@ -761,12 +794,7 @@ export class ZedApiService {
                 } else if (thinkingObj?.effort) {
                     effort = String(thinkingObj.effort).toLowerCase().trim();
                 } else if (thinkingObj?.budget_tokens) {
-                    const b = Number(thinkingObj.budget_tokens);
-                    if (b <= 2048) effort = 'low';
-                    else if (b <= 4096) effort = 'medium';
-                    else if (b <= 8192) effort = 'high';
-                    else if (b <= 16384) effort = 'xhigh';
-                    else effort = 'max';
+                    effort = budgetToClaudeEffort(thinkingObj.budget_tokens);
                 }
 
                 const validEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
