@@ -186,6 +186,17 @@ export class GeminiConverter extends BaseConverter {
         this.openaiStreamStates = new StreamSessionStore({ label: 'gemini-converter-openai-stream' });
     }
 
+    /**
+     * 清理该请求在 Gemini 上游响应方向上的流式状态。
+     * @param {string|null|undefined} requestId
+     */
+    resetStreamState(requestId) {
+        if (!requestId) return;
+        this.openAIResponsesStreamStates.delete(requestId);
+        this.claudeStreamStates.delete(requestId);
+        this.openaiStreamStates.delete(requestId);
+    }
+
 
     /**
      * 下游不再支持 Gemini 客户端协议；Gemini 仅作为上游响应来源。

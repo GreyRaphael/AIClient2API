@@ -45,6 +45,16 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
+     * 清理该请求在 Claude 上游响应方向上的流式状态。
+     * @param {string|null|undefined} requestId
+     */
+    resetStreamState(requestId) {
+        if (!requestId) return;
+        this.openaiStreamStates.delete(requestId);
+        this.openAIResponsesStreamStates.delete(requestId);
+    }
+
+    /**
      * 转换请求
      */
     convertRequest(data, targetProtocol, requestId) {

@@ -117,9 +117,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 |---|---|
 | [`docs/PROVIDER_ADAPTER_GUIDE.md`](./PROVIDER_ADAPTER_GUIDE.md) | 新增 provider 的接入契约 |
 | [`docs/CONVERTER_STREAM_DESIGN.md`](./CONVERTER_STREAM_DESIGN.md) | 流式共享层设计 |
-| [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_4_FULL_COVERAGE.md`](./CROSS_PROTOCOL_EVALUATION_V4_1_4_FULL_COVERAGE.md) | 2026-10-22 27 模型全量跨协议 E2E 复评与核心转译 review（当前） |
-| [`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md) | v1.6.0 历史评估快照（24 组合，已不适用于 v4 协议面） |
-| [`docs/archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`](./archive/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md) | Phase 0-4 历史实施记录 |
+| [`docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md`](./CROSS_PROTOCOL_REVIEW_V4_1_7.md) | 2026-10-22 v4.1.6 基线 + v4.1.7 修复验收，27 模型全量跨协议 E2E 复评与核心转译 review（当前） |
 | [`docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`](./TRAE_CHANNELS_UPSTREAM_GUIDE.md) | Trae 三通道上游细节 |
 | [`docs/ANTIGRAVITY_NOTES.md`](./ANTIGRAVITY_NOTES.md) | Antigravity 模型发现与思考机制 |
 
@@ -128,6 +126,6 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 ## 7. 维护约定
 
 - 本文档是跨协议架构的当前入口；架构变化时优先更新本文。
-- 已实施/已废弃的详细方案放入 `docs/archive/`，并在文首标注历史状态。
-- 评估矩阵与实施计划保留为历史证据，不再作为当前实现说明。
+- 历史评估/优化文档不再保留在仓库；需要追溯时查看 git 历史。
+- 当前评估矩阵见 [`docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md`](./CROSS_PROTOCOL_REVIEW_V4_1_7.md)，历史矩阵不再作为当前实现说明。
 - 新增模型代际策略时，同步更新第 2 节与 `thinking-budget.js` 的测试。

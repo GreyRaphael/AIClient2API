@@ -29,6 +29,18 @@ export class GrokConverter extends BaseConverter {
     }
 
     /**
+     * 清理该请求在 Grok 上游响应方向上的流式状态。
+     * Grok 的 requestStates 同时承载流式解析缓冲与资源代理上下文；
+     * 重试时上游会重新注入 _requestBaseUrl/_uuid，可安全重置。
+     * @param {string|null|undefined} requestId
+     */
+    resetStreamState(requestId) {
+        if (!requestId) return;
+        this.requestStates.delete(requestId);
+        this.responsesStreamStates.delete(requestId);
+    }
+
+    /**
      * 为 assets.grok.com 域名的资源 URL 添加 uuid 参数，并转换为本地代理 URL
      */
     _appendSsoToken(url, state = null) {

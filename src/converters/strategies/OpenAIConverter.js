@@ -68,6 +68,17 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
+     * 清理该请求在 OpenAI 上游响应方向上的流式状态。
+     * 注意：不清理 CodexConverter 的 requestStates（工具名映射需跨重试复用）。
+     * @param {string|null|undefined} requestId
+     */
+    resetStreamState(requestId) {
+        if (!requestId) return;
+        this.openAIResponsesStreamStates.delete(requestId);
+        this.claudeStreamStates.delete(requestId);
+    }
+
+    /**
      * 转换请求
      */
     convertRequest(data, targetProtocol, requestId) {

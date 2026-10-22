@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.1.7] - 2026-10-22
+
+### Fixed (跨协议转译 P1/P2 修复)
+
+- **P1：Responses 下游兜底收尾**：`streamRequestId` 声明提升到 `try` 外，修复 `finally` 中 `ReferenceError` 导致的流卡死；兜底收尾失败时强制 `res.end()`。
+- **P1：重试流状态泄漏**：`BaseConverter` 增加 `resetStreamState()` 契约；各 Converter 只清理流式状态、保留请求级工具名/custom tool 映射；pipeline 在每次尝试及空响应/凭证切换重试前清理，重试上下文固定 `requestId` 与共享 `streamState`，避免重复补发 `message_stop` / `response.completed`。
+- **P2：终端空内容截断识别**：新增 `extractTerminalFinishReason()` / `isTerminalEmptyFinishReason()`，覆盖 OpenAI `length`、Claude `max_tokens`、Responses `max_output_tokens`、Gemini `MAX_TOKENS`，合法截断不再被放大为多次空响应重试。
+- **P2：Responses → Gemini 工具 ID**：`functionCall` / `functionResponse` / `callIdToName` 统一使用 `call_id || id`，保证多轮工具历史配对。
+
+### Changed
+
+- 新增 `tests/v4-1-6-regressions.test.js`（9 个 P1/P2 回归用例）。
+- 清理过时的跨协议评估/优化文档，当前评估入口收敛为 [`docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md`](docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md)。
+- 清理 E2E 测试中未使用的 `addQuotaFailure` 别名。
+
+### Verification
+
+- `npm test -- --runInBand`：**29 suites / 463 tests 全绿**。
+- 最终 27 模型 E2E：**39 / 39 通过**，27/27 模型 11/11，12/12 定向用例通过。
+- `streamRequestId is not defined`：**0 次**。
+- `openai-custom:glm-5.3` 核心用例耗时从 195.2s 降至 15.4s。
+
 ## [v4.1.6] - 2026-10-22
 
 ### Changed
@@ -166,7 +188,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 删除 Codex `if(true)` 死代码、Grok 占位解构、未使用 Emitter API/常量、pipeline 不可达 Gemini 分支。
   - 移除 Grok 静态共享 UUID/baseUrl，改为请求级状态。
   - 新增 `tests/cross-protocol-v4-fixes.test.js`（18 个回归测试）。
-- 文档：跨协议转译复评已收敛到 [`docs/CROSS_PROTOCOL_EVALUATION_V4_1_4_FULL_COVERAGE.md`](docs/CROSS_PROTOCOL_EVALUATION_V4_1_4_FULL_COVERAGE.md)。
+- 文档：跨协议转译复评后续收敛到 [`docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md`](docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md)（历史复评文档已在 v4.1.7 清理）。
 
 ### Verification
 
@@ -259,7 +281,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v3.14.1] - 2026-10-18
 
-> 跨协议转译优化系列（依据 `docs/CROSS_PROTOCOL_OPTIMIZATION_PLAN.md`，Phase 0-4 全部落地 + 加固收尾）。过程里程碑标签：`v3.10.1`（Phase 0）、`v3.11.0`（Phase 1）、`v3.12.0`（Phase 2）、`v3.13.0`（Phase 3）、`v3.14.0`（Phase 4）。
+> 跨协议转译优化系列（Phase 0-4 全部落地 + 加固收尾；历史优化文档已在 v4.1.7 清理，可在 git 历史中查看）。过程里程碑标签：`v3.10.1`（Phase 0）、`v3.11.0`（Phase 1）、`v3.12.0`（Phase 2）、`v3.13.0`（Phase 3）、`v3.14.0`（Phase 4）。
 
 ### Added (新增)
 - **Schema Polyfill 降级编译器**（Phase 1，里程碑 v3.11.0）：

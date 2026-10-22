@@ -78,6 +78,17 @@ export class OpenAIResponsesConverter extends BaseConverter {
         this.openaiChatStreamStates = new StreamSessionStore({ label: 'responses-converter-openai-chat-stream' });
     }
 
+    /**
+     * 清理该请求在 Responses 上游响应方向上的流式状态。
+     * @param {string|null|undefined} requestId
+     */
+    resetStreamState(requestId) {
+        if (!requestId) return;
+        this.claudeStreamStates.delete(requestId);
+        this.codexResponsesStreamStates.delete(requestId);
+        this.openaiChatStreamStates.delete(requestId);
+    }
+
     // =============================================================================
     // 请求转换
     // =============================================================================
@@ -1943,7 +1954,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                 parsedArgs = item.arguments;
                             }
                         }
-                        const callId = item.id || item.call_id;
+                        // 与 function_call_output / callIdToName 使用同一优先级：
+                        // Responses 的稳定配对键是 call_id；item.id（fc_*）只是 output item 标识。
+                        const callId = item.call_id || item.id;
                         const callName = item.name || (callId && callIdToName.get(callId)) || 'function_call';
                         const fc = {
                             name: callName,

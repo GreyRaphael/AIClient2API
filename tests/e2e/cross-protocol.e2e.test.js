@@ -108,7 +108,6 @@ function addUsageInvariantFailure(failures, label, usage, outputKey) {
         failures.push(`${label}: ${outputKey}=${output} < reasoning_tokens=${reasoning}`);
     }
 }
-
 async function runCoreMatrix(model, failures, warnings) {
     const chatMessages = [
         { role: 'system', content: E2E_SYSTEM },
@@ -134,7 +133,7 @@ async function runCoreMatrix(model, failures, warnings) {
     addFailure(failures, Number(chatTextResult.usage?.total_tokens) > 0, 'chat_text: missing usage');
     if (!chatTextResult.reasoning) warnings.push('chat_text: no reasoning_content');
     if (model.startsWith('gemini-antigravity:')) {
-        addQuotaFailure(failures, 'chat_text', chatTextResult.usage, 'completion_tokens');
+        addUsageInvariantFailure(failures, 'chat_text', chatTextResult.usage, 'completion_tokens');
     }
 
     // 2. Chat 流式文本
@@ -156,7 +155,7 @@ async function runCoreMatrix(model, failures, warnings) {
     addFailure(failures, chatStreamResult.done, 'chat_stream: missing [DONE]');
     if (!chatStreamResult.reasoning) warnings.push('chat_stream: no reasoning delta');
     if (model.startsWith('gemini-antigravity:')) {
-        addQuotaFailure(failures, 'chat_stream', chatStreamResult.usage, 'completion_tokens');
+        addUsageInvariantFailure(failures, 'chat_stream', chatStreamResult.usage, 'completion_tokens');
     }
 
     // 3. Responses 非流式文本
@@ -179,7 +178,7 @@ async function runCoreMatrix(model, failures, warnings) {
     addFailure(failures, ['completed', 'incomplete'].includes(responsesTextResult.status), `responses_text: status=${responsesTextResult.status}`);
     if (!responsesTextResult.reasoning) warnings.push('responses_text: no reasoning item');
     if (model.startsWith('gemini-antigravity:')) {
-        addQuotaFailure(failures, 'responses_text', responsesTextResult.usage, 'output_tokens');
+        addUsageInvariantFailure(failures, 'responses_text', responsesTextResult.usage, 'output_tokens');
     }
 
     // 4. Responses 流式文本

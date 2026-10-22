@@ -9,6 +9,7 @@
 import { promises as fs } from 'fs';
 import logger from '../utils/logger.js';
 import { convertData } from '../convert/convert.js';
+import { ConverterFactory } from '../converters/ConverterFactory.js';
 import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.js';
 import { getPluginManager } from '../core/plugin-manager.js';
 import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from '../utils/constants.js';
@@ -239,15 +240,103 @@ export async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsM
     }
 }
 
-const TERMINAL_EMPTY_FINISH_REASONS = new Set([
+/**
+ * 合法的“空内容终态”结束原因。
+ *
+ * 这些原因表示上游已经明确结束（截断/安全拦截/拒答），即使没有正文也不应
+ * 触发空响应重试，否则会把一次合法截断放大成多次上游调用并最终 502。
+ * 集合同时覆盖 Gemini / OpenAI / Anthropic / Responses 四种词表。
+ */
+export const TERMINAL_EMPTY_FINISH_REASONS = new Set([
+    // Gemini
     'MAX_TOKENS',
     'SAFETY',
     'RECITATION',
     'BLOCKLIST',
     'PROHIBITED_CONTENT',
     'SPII',
-    'MODEL_ARMOR'
+    'MODEL_ARMOR',
+    // OpenAI Chat
+    'length',
+    'content_filter',
+    // Anthropic Messages
+    'max_tokens',
+    'refusal',
+    // OpenAI Responses / Codex
+    'max_output_tokens',
+    'incomplete'
 ]);
+
+/**
+ * 从上游原生负载中提取终态结束原因。
+ *
+ * 兼容各协议的完整响应与流式事件形状：
+ * - Gemini：candidates[0].finishReason
+ * - OpenAI Chat：choices[0].finish_reason
+ * - Anthropic：message.stop_reason / message_delta.delta.stop_reason
+ * - Responses / Codex：response.incomplete_details.reason（或顶层同名字段）
+ *
+ * @param {Object} payload - 上游原生 chunk 或完整响应
+ * @param {string} provider - 上游 provider 类型
+ * @returns {string} 结束原因；无法判定时返回空串
+ */
+export function extractTerminalFinishReason(payload, provider) {
+    if (!payload || typeof payload !== 'object') return '';
+    switch (getProtocolPrefix(provider)) {
+        case MODEL_PROTOCOL_PREFIX.GEMINI:
+            return payload.candidates?.[0]?.finishReason || '';
+        case MODEL_PROTOCOL_PREFIX.OPENAI:
+            return payload.choices?.[0]?.finish_reason || '';
+        case MODEL_PROTOCOL_PREFIX.CLAUDE:
+            return payload.stop_reason
+                || payload.delta?.stop_reason
+                || payload.message?.stop_reason
+                || '';
+        case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
+        case MODEL_PROTOCOL_PREFIX.CODEX: {
+            const response = payload.response && typeof payload.response === 'object'
+                ? payload.response
+                : payload;
+            const incompleteReason = response?.incomplete_details?.reason
+                || payload?.incomplete_details?.reason;
+            if (incompleteReason) return incompleteReason;
+            if (response?.status === 'incomplete' || payload?.status === 'incomplete') return 'incomplete';
+            return '';
+        }
+        default:
+            return '';
+    }
+}
+
+/**
+ * 判断结束原因是否属于合法的空内容终态（不应重试）。
+ * @param {string} reason
+ * @returns {boolean}
+ */
+export function isTerminalEmptyFinishReason(reason) {
+    return Boolean(reason) && TERMINAL_EMPTY_FINISH_REASONS.has(reason);
+}
+
+/**
+ * 清理上游协议转换器在当前 requestId 下的流式状态。
+ *
+ * 空响应 / 凭证切换重试会在同一个 requestId 下重新消费上游流；若保留上一次
+ * 尝试的 message_start / response.created / block index 状态，重试流会缺少
+ * 生命周期首帧。这里按“上游协议”选择转换器（响应/流式转换使用 toProvider 的
+ * 协议），仅清理流式状态，不动请求级工具名映射与 custom tool 登记。
+ *
+ * @param {string} provider - 上游 provider 类型
+ * @param {string|null|undefined} requestId
+ */
+function resetConverterStreamState(provider, requestId) {
+    if (!requestId || !provider) return;
+    try {
+        const converter = ConverterFactory.getConverter(getProtocolPrefix(provider));
+        converter?.resetStreamState?.(requestId);
+    } catch (error) {
+        logger.debug(`[Stream Retry] Failed to reset stream state for ${provider}: ${error.message}`);
+    }
+}
 
 /**
  * 判断上游原生负载（流式 chunk 或完整的非流式响应）是否携带「有效内容」：
@@ -391,7 +480,9 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     }
 
     let hasToolCall = false;
-    let hasMessageStop = false; // 跟踪是否已经发送过结束标志（message_stop / done）
+    // 结束标志由外层帧与重试帧共享：内层重试帧发送 message_stop /
+    // response.completed 后，外层帧的 finally 不应再补发一次终止事件。
+    const streamState = retryContext?.streamState || { hasMessageStop: false };
 
     // ---- 首内容前缓冲（pre-content buffering）----
     // 上游（典型如 Antigravity 的 Gemini 3 思考模型）可能在思考阶段后直接以
@@ -421,6 +512,13 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     }, 15000);
     preContentHeartbeat.unref?.();
 
+    // 请求与响应转换共用同一个 requestId，确保 Codex 等转换器的工具名反向映射可以命中。
+    // 必须在 try 外声明：finally 的兜底收尾也需要它。
+    const streamRequestId = retryContext?.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    // 重试帧可能复用同一个 requestId；清理上一次尝试遗留的流式状态，
+    // 避免重试流缺少 message_start / response.created 等生命周期首帧。
+    resetConverterStreamState(toProvider, streamRequestId);
+
     try {
         // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
         // The service returns a stream in its native format (toProvider).
@@ -449,8 +547,6 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             model = requestBody.model;
         }
         const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
-        // 请求与响应转换共用同一个 requestId，确保 Codex 等转换器的工具名反向映射可以命中。
-        const streamRequestId = retryContext?.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
         for await (const nativeChunk of nativeStream) {
             // 检查客户端是否已断开连接
@@ -463,9 +559,12 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider)) {
                 sawMeaningfulContent = true;
             }
-            // 记录上游结束原因（用于空响应诊断日志；candidates 形状对 chunk/完整响应一致）
+            // 记录上游结束原因（用于空响应诊断与“合法截断不重试”判定）。
+            // 各协议词表不同：Gemini finishReason / OpenAI finish_reason /
+            // Anthropic stop_reason / Responses incomplete_details.reason。
+            const chunkFinishReason = extractTerminalFinishReason(nativeChunk, toProvider);
+            if (chunkFinishReason) lastFinishReason = chunkFinishReason;
             const nativeCandidate = nativeChunk?.candidates?.[0];
-            if (nativeCandidate?.finishReason) lastFinishReason = nativeCandidate.finishReason;
             if (nativeCandidate?.finishMessage) lastFinishMessage = nativeCandidate.finishMessage;
 
             // Extract text for logging purposes
@@ -542,7 +641,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     chunk?.type === 'response.completed' ||
                     chunk?.type === 'response.incomplete'
                 ) {
-                    hasMessageStop = true;
+                    streamState.hasMessageStop = true;
                 }
 
                 // 序列化本 chunk 的出站帧（在有效内容出现前会先进入首内容前缓冲）
@@ -670,9 +769,15 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     emptyResponseRetry,
                     emptyResponseStartedAt,
                     clientDisconnected,
-                    anyDataSent
+                    anyDataSent,
+                    // 固定本次请求的 stream 会话键，确保递归帧清理/复用同一份 Converter 状态。
+                    requestId: streamRequestId,
+                    // 与外层帧共享终止事件状态，避免重试成功后重复补发 message_stop / response.completed。
+                    streamState
                 };
 
+                // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
+                resetConverterStreamState(toProvider, streamRequestId);
                 return await handleStreamRequest(
                     res,
                     result.service,
@@ -771,9 +876,15 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                         currentRetry: currentRetry + 1,
                         maxRetries,
                         clientDisconnected,  // 传递断开状态
-                        anyDataSent          // 传递数据发送状态
+                        anyDataSent,         // 传递数据发送状态
+                        // 固定本次请求的 stream 会话键，确保递归帧清理/复用同一份 Converter 状态。
+                        requestId: streamRequestId,
+                        // 与外层帧共享终止事件状态，避免重试成功后重复补发 message_stop / response.completed。
+                        streamState
                     };
-                    
+
+                    // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
+                    resetConverterStreamState(toProvider, streamRequestId);
                     // 递归调用，使用新的服务
                     return await handleStreamRequest(
                         res,
@@ -841,11 +952,11 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     if (clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI) {
                         // OpenAI 规范：无论是否已有 finish_reason chunk，都必须以 [DONE] 收尾
                         res.write('data: [DONE]\n\n');
-                        hasMessageStop = true;
+                        streamState.hasMessageStop = true;
                     } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
                         // OpenAI Responses 以 response.completed/response.incomplete（或 error）作为结束事件。
                         // 如果流结束时仍未发送结束标记，则发送兜底的 response.completed 事件，避免 Codex 等客户端报错
-                        if (!hasMessageStop) {
+                        if (!streamState.hasMessageStop) {
                             const synthCompleted = {
                                 type: 'response.completed',
                                 response: {
@@ -863,18 +974,24 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                             };
                             res.write(`event: response.completed\n`);
                             res.write(`data: ${JSON.stringify(synthCompleted)}\n\n`);
-                            hasMessageStop = true;
+                            streamState.hasMessageStop = true;
                         }
                     } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
-                        if (!hasMessageStop) {
+                        if (!streamState.hasMessageStop) {
                             res.write('event: message_stop\n');
                             res.write('data: {"type":"message_stop"}\n\n');
-                            hasMessageStop = true;
+                            streamState.hasMessageStop = true;
                         }
                     }
                     res.end();
                 } catch (writeErr) {
                     logger.error('[Stream] Failed to write completion marker:', writeErr.message);
+                    // 兜底收尾失败也必须结束响应，避免客户端永久等待读超时。
+                    try {
+                        if (!res.writableEnded) res.end();
+                    } catch (endErr) {
+                        logger.error('[Stream] Failed to end response after completion-marker error:', endErr.message);
+                    }
                 }
             }
         }
@@ -914,10 +1031,10 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         // parts 里只有 thinking。非流式场景下尚未向客户端写入任何字节，
         // 直接抛空响应错误走统一的 isEmptyUpstreamResponse 重试分支。
         if (!nativePayloadHasMeaningfulContent(nativeResponse, toProvider)) {
-            const finishInfo = nativeResponse?.candidates?.[0]?.finishReason || 'unknown';
+            const finishInfo = extractTerminalFinishReason(nativeResponse, toProvider) || 'unknown';
             const finishMsg = nativeResponse?.candidates?.[0]?.finishMessage;
-            if (TERMINAL_EMPTY_FINISH_REASONS.has(finishInfo)) {
-                // MAX_TOKENS / SAFETY 等终态即使没有正文也是合法结果，不能当作空响应重试；
+            if (isTerminalEmptyFinishReason(finishInfo)) {
+                // MAX_TOKENS / SAFETY / length / max_tokens 等终态即使没有正文也是合法结果，不能当作空响应重试；
                 // 否则小 max_tokens 或安全拦截会被放大成多次上游调用。
                 logger.warn(`[Unary] Upstream returned terminal finishReason ${finishInfo} with no content${finishMsg ? ` (${finishMsg})` : ''}; forwarding as truncated/safety response.`);
             } else {

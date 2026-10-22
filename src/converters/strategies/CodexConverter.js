@@ -38,6 +38,16 @@ export class CodexConverter extends BaseConverter {
         this.requestStates = sharedRequestStates; // 请求级工具名映射（跨实例共享，按 requestId 隔离）
     }
 
+    /**
+     * 清理该请求在 Codex 上游响应方向上的流式状态。
+     * 注意：requestStates 保存工具名正反查映射，重试后仍需复用，不能清理。
+     * @param {string|null|undefined} requestId
+     */
+    resetStreamState(requestId) {
+        if (!requestId) return;
+        this.streamSessions.delete(requestId);
+    }
+
     _getReqState(requestId) {
         const id = requestId || 'default';
         if (!this.requestStates.has(id)) {

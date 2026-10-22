@@ -75,6 +75,22 @@ export class BaseConverter {
     }
 
     /**
+     * 清理某个请求的流式转换状态。
+     *
+     * 空响应重试 / 凭证切换重试会在同一个 requestId 下重新消费上游流；
+     * 若 Converter 保留上一次尝试的 msgStarted / block index / emitter 状态，
+     * 重试流会缺少 message_start / response.created 等生命周期首帧。
+     *
+     * 子类只应清理“流式状态”，不得清理请求级工具名映射、custom tool 登记等
+     * 跨重试仍需复用的状态。默认空实现，兼容不持有流式状态的转换器。
+     *
+     * @param {string|null|undefined} requestId
+     */
+    resetStreamState(requestId) {
+        // no-op
+    }
+
+    /**
      * 获取协议名称
      * @returns {string} 协议名称
      */

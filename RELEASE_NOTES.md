@@ -1,71 +1,92 @@
-# AIClient-2-API 发布说明 (v4.1.6)
+# AIClient-2-API 发布说明 (v4.1.7)
 
-> **v4.1.6** 是测试体系清理与进程退出修复版本，无破坏性协议变更。
+> **v4.1.7** 是跨协议转译重试与流式收尾的稳定性修复版本，无破坏性 API/协议变更。
 >
-> 本版本把 E2E 模型发现改为从 `/auto/v1/models` 动态获取，合并历史版本化测试套件，并修复定时器导致的测试进程悬挂问题。
+> 本版本修复了空响应重试路径上的两个 P1 缺陷、两个 P2 契约问题，并完成 27 个真实模型的最终 E2E 验收。
 
 ---
 
 ## 🌟 核心变更
 
-### 1. E2E 不再硬编码模型列表
+### 1. 修复 Responses 下游兜底收尾卡死（P1）
 
-- 新增 Jest `globalSetup`：测试开始前调用 `GET /auto/v1/models`，把当前网关配置的全部模型写入临时缓存。
-- `npm run test:e2e` 默认执行全量模型矩阵；模型数量以网关实际配置为准，不再写死 13 或 27。
-- 仍支持 `AICLIENT_E2E_MODELS=model-a,model-b` 只跑指定模型。
-- `AICLIENT_E2E_MODELS_FILE` 可覆盖模型列表缓存路径。
+- `streamRequestId` 声明提升到 `try` 外，修复 `finally` 兜底分支中的 `ReferenceError`。
+- 兜底收尾失败时强制 `res.end()`，避免客户端永久等待读超时。
+- 新增跨重试帧共享的 `streamState.hasMessageStop`：内层重试帧已经发送 `message_stop` / `response.completed` 时，外层帧不再重复补发终止事件。
 
-### 2. 测试套件合并与清理
+**效果**：此前 `openai-custom:glm-5.3` 在空响应重试后可能卡住约 180s；修复后该用例耗时从 **195.2s 降至 15.4s**。
 
-- 6 个历史版本化跨协议测试合并为：
-  - `tests/cross-protocol-historical-regressions.test.js`
-- 删除 3 条低价值实现细节断言：
-  - `ResponsesSseEmitter` 不再暴露 `pushEvents`
-  - Codex reasoning done 不再注入人工换行
-  - cache_control 缺失时不输出 debug 日志
-- 单测套件从 **33 个收敛为 28 个**，测试数从 **457 收敛为 454**，覆盖不降级。
+### 2. 修复空响应/凭证切换重试的流状态泄漏（P1）
 
-### 3. 测试进程自然退出
+- `BaseConverter` 新增 `resetStreamState()` 契约。
+- 各 Converter 只清理流式状态，保留请求级工具名映射与 custom tool 登记。
+- pipeline 在每次尝试开始、空响应重试、凭证切换重试前清理上游 Converter 的流式状态。
+- 重试上下文固定 `requestId` 与共享 `streamState`，保证内层/外层帧使用同一份会话状态。
 
-- `src/utils/file-lock.js`：`withTimeout()` 在 Promise settle 后清理 30s 定时器，避免每个文件锁操作留下悬挂 timeout。
-- `src/ui-modules/auth.js`：token 清理 `setInterval` 增加 `unref()`，模块被测试/CLI 引入时不再阻塞进程退出。
-- `npm test` 移除 `--forceExit`，Jest 现在可以自然退出。
+**效果**：重试流不再缺少 `message_start` / `response.created` 等生命周期首帧。
+
+### 3. 统一终端空内容截断识别（P2）
+
+新增 `extractTerminalFinishReason()` / `isTerminalEmptyFinishReason()`，覆盖：
+
+| 协议 | 终态示例 |
+|---|---|
+| OpenAI Chat | `length`、`content_filter` |
+| Anthropic Messages | `max_tokens`、`refusal` |
+| OpenAI Responses / Codex | `max_output_tokens`、`incomplete` |
+| Gemini | `MAX_TOKENS`、`SAFETY` 等安全终态 |
+
+合法截断不再被当作空响应重试最多 5 次并最终 502。
+
+### 4. 修复 Responses → Gemini 工具 ID 配对（P2）
+
+`functionCall`、`functionResponse`、`callIdToName` 统一使用 `item.call_id || item.id`，保证多轮工具历史中的调用与结果使用同一个 ID。
+
+### 5. 文档与测试清理
+
+- 新增 `tests/v4-1-6-regressions.test.js`，覆盖 9 个 P1/P2 回归场景。
+- 清理过时的跨协议评估/优化文档；当前评估入口收敛为 [`docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md`](docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md)。
+- 清理 E2E 测试中未使用的 `addQuotaFailure` 别名。
 
 ---
 
-## ✅ 验证
+## ✅ 验证结果
 
-- `npm test -- --runInBand`：**28 suites / 454 tests 全绿**，无需 `--forceExit`。
-- 全量测试实测自然退出时间约 **6 秒**。
-- E2E 动态发现：`[E2E] Loaded 27 model(s) from /auto/v1/models`。
-- `openai-custom:glm-5.3` 核心矩阵 **11 / 11** 通过。
+### 单元测试
 
----
-
-## 📦 升级建议
-
-```bash
-docker pull greyraphael/aiclient-2-api:latest
-# 或固定版本
-docker pull greyraphael/aiclient-2-api:4.1.6
+```text
+Test Suites: 29 passed, 29 total
+Tests:       463 passed, 463 total
 ```
 
-无需修改客户端协议；下游仍为 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages。
+### 最终 27 模型 E2E
+
+- 模型来源：`GET /auto/v1/models` 动态发现，共 27 个模型
+- 参数：`reasoning_effort=high`（Claude 使用 `thinking.budget_tokens=20000`）
+- 结果：**39 / 39 通过**；27/27 模型核心用例 **11/11**；12/12 定向用例通过
+
+| 指标 | 结果 |
+|---|---:|
+| E2E Jest 用例 | **39 / 39** |
+| 27 模型核心矩阵 | **27 / 27 模型 11/11** |
+| 定向 E2E | **12 / 12** |
+| `streamRequestId is not defined` | **0 次** |
+| `openai-custom:glm-5.3` 耗时 | **15.4s**（修复前 195.2s） |
+| 核心矩阵总耗时 | **991.6s**（修复前 1,215.6s） |
 
 ---
 
-## ⚠️ 行为变化
+## 🔧 升级说明
 
-- **E2E 默认模型集**：由 `/auto/v1/models` 动态决定；模型增减后无需改测试代码。
-- **E2E 请求量**：默认跑当前全部模型；当前配置为 27 个模型时，核心矩阵约 297 次真实请求。
-- **测试脚本**：`npm test` 不再强制退出；如仍有第三方测试代码遗留定时器，请显式清理。
+- 本版本无破坏性 API 变更，客户端无需修改请求格式。
+- 升级后请**重启网关进程**，使新的重试/收尾逻辑生效。
+- Docker 镜像标签：`4.1.7`、`latest`。
 
 ---
 
 ## 📚 相关文档
 
-- [跨协议转译架构](docs/CROSS_PROTOCOL_ARCHITECTURE.md)
-- [跨协议转译复评（27 模型全量）](docs/CROSS_PROTOCOL_EVALUATION_V4_1_4_FULL_COVERAGE.md)
-- [E2E 测试说明](tests/e2e/README.md)
-- [Provider 接入指南](docs/PROVIDER_ADAPTER_GUIDE.md)
-- [变更日志](CHANGELOG.md)
+- [跨协议转译复评（v4.1.6 基线 + v4.1.7 修复验收）](docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md)
+- [跨协议架构](docs/CROSS_PROTOCOL_ARCHITECTURE.md)
+- [流式转换设计](docs/CONVERTER_STREAM_DESIGN.md)
+- [Provider 适配指南](docs/PROVIDER_ADAPTER_GUIDE.md)
