@@ -21,15 +21,22 @@ npm run test:e2e
 | `AICLIENT_E2E_BASE` | `http://127.0.0.1:3000/auto` | 网关 base URL，需包含 `/auto` 前缀 |
 | `AICLIENT_API_KEY` | 读取 `configs/config.json` | 覆盖 API key |
 | `AICLIENT_CONFIG_PATH` | `configs/config.json` | 指定配置文件路径 |
-| `AICLIENT_E2E_MODELS` | 内置 13 个模型 | 逗号分隔的模型列表，用于缩小范围 |
+| `AICLIENT_E2E_MODELS` | 从 `/auto/v1/models` 动态获取全部模型 | `all`/`*` 等同于默认；也可传逗号分隔的模型列表，只跑指定模型 |
+| `AICLIENT_E2E_MODELS_FILE` | 系统临时目录 `aiclient-e2e-models.json` | 模型列表缓存文件路径；一般无需设置 |
 
 示例：
 
 ```bash
+# 默认：启动 globalSetup，从 /auto/v1/models 拉取当前全部模型
+AICLIENT_E2E_BASE=http://127.0.0.1:3200/auto npm run test:e2e
+
+# 指定单个/少量模型（不访问 /auto/v1/models 的模型列表）
 AICLIENT_E2E_BASE=http://127.0.0.1:3200/auto \
 AICLIENT_E2E_MODELS=openai-custom:glm-5.3,gemini-antigravity:gemini-3.8-flash-high \
 npm run test:e2e
 ```
+
+> `npm run test:e2e` 通过 Jest `globalSetup` 抓取模型列表。若直接运行 `jest tests/e2e`，请带上 `--globalSetup=./tests/e2e/global-setup.js`，否则会提示模型列表不存在。
 
 ## 覆盖范围
 
@@ -39,7 +46,7 @@ npm run test:e2e
 - Chat / Responses / Claude 单轮 function tool
 - Chat 多轮工具结果回传
 - 连续同角色 + system 折叠
-- Gemini usage：`completion/output >= reasoning_tokens`
+- usage 不变量：所有模型的 `completion/output >= reasoning_tokens`
 
 ### 定向用例
 
@@ -68,6 +75,7 @@ npm run test:e2e
 
 ## 注意
 
-- 每个模型会发起 11 次真实请求，13 个模型共 143 次；会消耗真实账号额度。
+- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 27 个模型时约 297 次核心请求，另有定向用例。
 - 建议使用独立实例端口，避免影响主实例。
 - 默认串行执行（`--runInBand`），避免并发触发上游限流。
+- 发布前建议至少跑一次默认全量矩阵；仅本地快速回归时可传 `AICLIENT_E2E_MODELS=...` 子集。

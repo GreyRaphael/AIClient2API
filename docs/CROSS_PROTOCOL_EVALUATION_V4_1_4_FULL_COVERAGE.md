@@ -401,7 +401,7 @@ archive 中列出的主要 Tier 2/Tier 3 风险——复杂 Schema 被清洗、�
 
 ### 6.3 测试建议
 
-- 把 27 模型矩阵固化为可选 E2E（真实账号、手动触发，不进 CI），使用 `AICLIENT_E2E_MODELS` 传入完整模型列表；参考第 7.1 节。
+- E2E 默认通过 Jest `globalSetup` 从 `/auto/v1/models` 动态获取当前全量模型，不在测试代码中硬编码 13/27；`AICLIENT_E2E_MODELS` 可覆盖为逗号分隔的子集。参考第 7.1 节。
 - 单测补充：
   - `applyEstimatedReasoningTokens()` 在 `estimated > output` 时的收敛；
   - OpenAI → Claude 非安全 tool id 的清洗；

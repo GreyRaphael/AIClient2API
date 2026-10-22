@@ -1,56 +1,13 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-export const DEFAULT_E2E_MODELS = [
-    'gemini-antigravity:gemini-3.8-flash-high',
-    'openai-codex-oauth:gpt-6-luna',
-    'openaiResponses-custom:deepseek-v4-flash',
-    'trae-chat_v3:deepseek-v4.1-flash',
-    'trae:DeepSeek-V4.1-Flash-1017',
-    'openai-custom:glm-5.3',
-    'openai-custom:deepseek-v4-pro',
-    'openai-custom:deepseek-v4.1-flash',
-    'openai-custom:qwen3.8-flash',
-    'openai-custom:qwen3.8-max',
-    'zed:claude-haiku-5-5',
-    'zed:gemini-3.8-flash',
-    'zed:gpt-6-luna'
-];
-
 /**
- * `/auto/v1/models` 当前完整模型集。使用 `AICLIENT_E2E_MODELS=all` 启用，
- * 用于发布前的全量跨协议回归（27 模型 × 11 核心用例 = 297 次真实请求）。
- * 默认仍使用 13 模型子集，避免日常 E2E 消耗过多账号额度。
+ * globalSetup 从 `/auto/v1/models` 抓取模型列表后写入的缓存文件。
+ * 测试进程通过该文件读取模型，避免在代码里硬编码 13/27 个模型。
  */
-export const FULL_E2E_MODELS = [
-    'openai-custom:deepseek-v4-pro',
-    'openai-custom:deepseek-v4.1-flash',
-    'openai-custom:glm-5.3',
-    'openai-custom:qwen3.8-flash',
-    'openai-custom:qwen3.8-max',
-    'openaiResponses-custom:deepseek-v4-flash',
-    'gemini-antigravity:gemini-3.8-flash-high',
-    'openai-codex-oauth:gpt-6-luna',
-    'zed:claude-haiku-5-5',
-    'zed:claude-sonnet-5-5',
-    'zed:gemini-3.8-flash',
-    'zed:gemini-4-argon',
-    'zed:gpt-6-luna',
-    'zed:gpt-6.1-sol',
-    'trae:DeepSeek-V4.1-Flash-1017',
-    'trae:glm-5.3',
-    'trae:glm-5.3-flashx',
-    'trae:kimi-k2.8-preview',
-    'trae:kimi-k3',
-    'trae:qwen3.8-max',
-    'trae-chat_v3:DeepSeek-V4-Pro-Official',
-    'trae-chat_v3:deepseek-v4.1-flash',
-    'trae-chat_v3:glm-5.3',
-    'trae-chat_v3:glm-5.3-flashx',
-    'trae-chat_v3:kimi-k3',
-    'trae-chat_v3:qwen3.8-flash',
-    'trae-chat_v3:qwen3.8-max'
-];
+export const MODELS_CACHE_FILE = process.env.AICLIENT_E2E_MODELS_FILE
+    || path.join(os.tmpdir(), 'aiclient-e2e-models.json');
 
 const SYSTEM = 'You are a helpful assistant. Follow the user instruction exactly.';
 export const E2E_SYSTEM = SYSTEM;
@@ -74,11 +31,25 @@ export function resolveBaseUrl() {
 
 export function resolveModels() {
     const raw = process.env.AICLIENT_E2E_MODELS;
-    if (!raw) return DEFAULT_E2E_MODELS;
-    if (raw.trim().toLowerCase() === 'all' || raw.trim() === '*') {
-        return FULL_E2E_MODELS;
+    const selector = raw ? raw.trim() : '';
+    // 显式逗号列表：允许本地只跑指定模型，不读取全局模型列表。
+    if (selector && selector.toLowerCase() !== 'all' && selector !== '*') {
+        return selector.split(',').map((item) => item.trim()).filter(Boolean);
     }
-    return raw.split(',').map((item) => item.trim()).filter(Boolean);
+
+    if (!fs.existsSync(MODELS_CACHE_FILE)) {
+        throw new Error(
+            `E2E model list not found at ${MODELS_CACHE_FILE}. ` +
+            'Run `npm run test:e2e` (globalSetup fetches /auto/v1/models) ' +
+            'or set AICLIENT_E2E_MODELS to a comma-separated model list.'
+        );
+    }
+
+    const models = JSON.parse(fs.readFileSync(MODELS_CACHE_FILE, 'utf8'));
+    if (!Array.isArray(models) || models.length === 0) {
+        throw new Error(`E2E model list at ${MODELS_CACHE_FILE} is empty or invalid.`);
+    }
+    return models;
 }
 
 export function buildHeaders(apiKey) {
