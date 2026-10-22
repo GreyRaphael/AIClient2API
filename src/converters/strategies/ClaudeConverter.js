@@ -1787,6 +1787,7 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         // 处理消息
+        let droppedThinkingItems = 0;
         if (claudeRequest.messages && Array.isArray(claudeRequest.messages)) {
             claudeRequest.messages.forEach(msg => {
                 const role = msg.role;
@@ -1859,7 +1860,7 @@ export class ClaudeConverter extends BaseConverter {
                                         }]
                                     });
                                 } else {
-                                    logger.debug('[ClaudeConverter] reasoning item skipped: no encrypted_content available for official Responses input');
+                                    droppedThinkingItems++;
                                 }
                             }
                             continue;
@@ -1893,6 +1894,10 @@ export class ClaudeConverter extends BaseConverter {
                     flushMessage();
                 }
             });
+        }
+
+        if (droppedThinkingItems > 0) {
+            logger.debug(`[ClaudeConverter] dropped ${droppedThinkingItems} thinking block(s) when converting to Responses (no encrypted_content available)`);
         }
 
         // 处理工具

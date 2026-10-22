@@ -673,6 +673,82 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(claudeResp.content[2].name).toBe('get_schema');
         expect(claudeResp.content[2].input).toEqual({ table: 'users' });
     });
+
+    test('F2: OpenAI → Claude sanitizes unsafe tool ids and keeps tool_result pairing', () => {
+        const openaiReq = {
+            model: 'claude-sonnet-4-6',
+            messages: [
+                { role: 'user', content: 'What is the weather?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [{
+                        id: 'call:1/a|b',
+                        type: 'function',
+                        function: { name: 'get_weather', arguments: '{"city":"Paris"}' }
+                    }]
+                },
+                { role: 'tool', tool_call_id: 'call:1/a|b', content: '{"temperature":18}' }
+            ]
+        };
+
+        const claudeReq = convertData(openaiReq, 'request', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE);
+        const assistantMsg = claudeReq.messages.find(m => m.role === 'assistant');
+        const toolUse = assistantMsg.content.find(b => b.type === 'tool_use');
+        const toolResult = claudeReq.messages
+            .flatMap(m => Array.isArray(m.content) ? m.content : [])
+            .find(b => b.type === 'tool_result');
+
+        expect(toolUse.id).toBe('call_1_a_b');
+        expect(toolResult.tool_use_id).toBe('call_1_a_b');
+    });
+
+    test('F2: OpenAI → Claude response sanitizes unsafe tool id', () => {
+        const openaiResp = {
+            id: 'chatcmpl-unsafe-tool-id',
+            choices: [{
+                index: 0,
+                message: {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [{
+                        id: 'call.1|2',
+                        type: 'function',
+                        function: { name: 'get_weather', arguments: '{"city":"Paris"}' }
+                    }]
+                },
+                finish_reason: 'tool_calls'
+            }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        };
+
+        const claudeResp = convertData(openaiResp, 'response', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6');
+        const toolUse = claudeResp.content.find(b => b.type === 'tool_use');
+
+        expect(toolUse.id).toBe('call_1_2');
+    });
+
+    test('F2: OpenAI → Claude stream sanitizes unsafe tool id', () => {
+        const chunk = {
+            id: 'chatcmpl-unsafe-stream-id',
+            choices: [{
+                index: 0,
+                delta: {
+                    tool_calls: [{
+                        index: 0,
+                        id: 'bad:id!',
+                        type: 'function',
+                        function: { name: 'get_weather', arguments: '{"city":"Paris"}' }
+                    }]
+                }
+            }]
+        };
+
+        const events = convertData(chunk, 'streamChunk', MODEL_PROTOCOL_PREFIX.OPENAI, MODEL_PROTOCOL_PREFIX.CLAUDE, 'claude-sonnet-4-6', 'f2-stream-tool-id');
+        const start = events.find(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use');
+
+        expect(start.content_block.id).toBe('bad_id_');
+    });
 });
 
 // =============================================================================

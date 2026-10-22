@@ -45,6 +45,16 @@ import {
 } from '../custom-tool-registry.js';
 
 /**
+ * 将任意来源的 tool id 收敛为 Anthropic 合法的 `[a-zA-Z0-9_-]+`。
+ * 同一原始 id 的多次调用会得到相同结果；缺失时生成 `tool_` 前缀 id。
+ * @param {string|undefined|null} id
+ * @returns {string}
+ */
+function toClaudeToolId(id) {
+    return sanitizeToolId(id) || `tool_${uuidv4().replace(/-/g, '')}`;
+}
+
+/**
  * OpenAI转换器类
  * 实现OpenAI协议到其他协议的转换
  */
@@ -166,7 +176,7 @@ export class OpenAIConverter extends BaseConverter {
                 }
                 content.push({
                     type: 'tool_result',
-                    tool_use_id: message.tool_call_id || message.tool_use_id,
+                    tool_use_id: toClaudeToolId(message.tool_call_id || message.tool_use_id),
                     content: toolContent
                 });
                 claudeMessages.push({ role: 'user', content: content });
@@ -186,7 +196,7 @@ export class OpenAIConverter extends BaseConverter {
                 const calls = message.tool_calls || message.function_calls || [];
                 const toolUseBlocks = calls.map(tc => ({
                     type: 'tool_use',
-                    id: tc.id,
+                    id: toClaudeToolId(tc.id),
                     name: tc.function?.name || tc.name,
                     input: safeParseJSON(tc.function?.arguments || tc.arguments)
                 }));
@@ -290,7 +300,7 @@ export class OpenAIConverter extends BaseConverter {
                             case 'tool_use':
                                 content.push({
                                     type: 'tool_use',
-                                    id: item.id,
+                                    id: toClaudeToolId(item.id),
                                     name: item.name,
                                     input: typeof item.input === 'string' ? safeParseJSON(item.input) : (item.input || {})
                                 });
@@ -302,7 +312,7 @@ export class OpenAIConverter extends BaseConverter {
                                 }
                                 content.push({
                                     type: 'tool_result',
-                                    tool_use_id: item.tool_use_id || item.id,
+                                    tool_use_id: toClaudeToolId(item.tool_use_id || item.id),
                                     content: resultContent
                                 });
                                 break;
@@ -564,7 +574,7 @@ export class OpenAIConverter extends BaseConverter {
                 }
                 toolUseBlocks.push({
                     type: "tool_use",
-                    id: toolCall.id || "",
+                    id: toClaudeToolId(toolCall.id),
                     name: func.name || "",
                     input: isCustomTool(requestId, func.name)
                         ? { input: extractCustomToolInput(argObj) }
@@ -736,7 +746,7 @@ export class OpenAIConverter extends BaseConverter {
 
                     const toolInfo = {
                         index: -1, // 由 openBlock 分配后回填
-                        id: toolCall.id || `tool_${uuidv4().replace(/-/g, '')}`,
+                        id: toClaudeToolId(toolCall.id),
                         name: toolCall.function?.name || '',
                         sentArgs: ''
                     };
@@ -1490,9 +1500,10 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         // 转换messages到input
+        let droppedReasoningMessages = 0;
         for (const msg of nonSystemMessages) {
             if (msg.role === 'assistant' && typeof msg.reasoning_content === 'string' && msg.reasoning_content.trim()) {
-                logger.debug('[OpenAIConverter] assistant reasoning_content is not replayed to Responses: no encrypted reasoning content is available');
+                droppedReasoningMessages++;
             }
             if (msg.role === 'tool') {
                 responsesRequest.input.push({
@@ -1592,6 +1603,10 @@ export class OpenAIConverter extends BaseConverter {
                     });
                 }
             }
+        }
+
+        if (droppedReasoningMessages > 0) {
+            logger.debug(`[OpenAIConverter] dropped ${droppedReasoningMessages} assistant reasoning_content message(s) when converting to Responses (no encrypted content available)`);
         }
 
         // 处理工具
