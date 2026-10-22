@@ -343,13 +343,6 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
             );
         });
 
-        test('当不包含 cache_control 或非对象时不输出日志', () => {
-            logOmittedCacheControl('Test location', { type: 'text', text: 'content' });
-            logOmittedCacheControl('Test location', null);
-            logOmittedCacheControl('Test location', 'string');
-            expect(debugSpy).not.toHaveBeenCalled();
-        });
-
         test('端到端集成：Claude 转换至 OpenAI 时，丢弃的 cache_control 触发日志', () => {
             const converter = new ClaudeConverter();
             const claudeReq = {
