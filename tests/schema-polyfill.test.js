@@ -298,6 +298,73 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(shipping.required).toContain('method');
         });
 
+        test('oneOf 对象分支 required 取交集，不把互斥字段全部强制', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    payment: {
+                        oneOf: [
+                            {
+                                type: 'object',
+                                properties: { card: { type: 'string' }, currency: { type: 'string' } },
+                                required: ['card', 'currency']
+                            },
+                            {
+                                type: 'object',
+                                properties: { iban: { type: 'string' }, currency: { type: 'string' } },
+                                required: ['iban', 'currency']
+                            }
+                        ]
+                    }
+                }
+            };
+
+            const { schema: result } = polyfillSchemaForGemini(schema);
+            const payment = result.properties.payment;
+
+            expect(payment.properties.card).toBeDefined();
+            expect(payment.properties.iban).toBeDefined();
+            expect(payment.required).toEqual(['currency']);
+        });
+
+        test('oneOf 对象分支没有公共 required 时不保留 required', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    payment: {
+                        oneOf: [
+                            {
+                                type: 'object',
+                                properties: { card: { type: 'string' } },
+                                required: ['card']
+                            },
+                            {
+                                type: 'object',
+                                properties: { iban: { type: 'string' } },
+                                required: ['iban']
+                            }
+                        ]
+                    }
+                }
+            };
+
+            const { schema: result } = polyfillSchemaForGemini(schema);
+            expect(result.properties.payment.required).toBeUndefined();
+        });
+
+        test('数值 enum 在 Gemini 清洗后仍保留在 description 中', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    priority: { type: 'integer', enum: [1, 2, 3] }
+                }
+            };
+
+            const cleaned = polyfillAndCleanSchemaForGemini(schema);
+            expect(cleaned.properties.priority.enum).toBeUndefined();
+            expect(cleaned.properties.priority.description).toContain('enum=1|2|3');
+        });
+
         test('oneOf 各分支 type 不一致时：删除 type 字段并注入分支摘要', () => {
             const schema = {
                 properties: {

@@ -214,11 +214,13 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                 delete node.type;
             }
 
-            // oneOf 的对象分支：合并 properties/required，保留字段名与枚举，
-            // 避免坍缩为通用 object 后模型生成结构近似但字段名错误的参数。
+            // oneOf/anyOf 的对象分支：合并 properties 以保留字段名与枚举，
+            // 但 required 取各分支交集，避免把某个互斥分支的必填字段强加到所有分支。
             if (allSameType && branchTypes[0] === 'object') {
                 const mergedProperties = {};
-                const mergedRequired = new Set(Array.isArray(node.required) ? node.required : []);
+                const requiredSets = transformedBranches.map(
+                    (branch) => new Set(Array.isArray(branch.required) ? branch.required : [])
+                );
 
                 for (const branch of transformedBranches) {
                     if (branch.properties && typeof branch.properties === 'object') {
@@ -237,9 +239,6 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                             }
                         }
                     }
-                    if (Array.isArray(branch.required)) {
-                        branch.required.forEach((item) => mergedRequired.add(item));
-                    }
                 }
 
                 if (Object.keys(mergedProperties).length > 0) {
@@ -247,7 +246,16 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                         ...(node.properties || {}),
                         ...mergedProperties
                     };
-                    node.required = Array.from(mergedRequired);
+                    const commonRequired = requiredSets.length > 0
+                        ? [...requiredSets[0]].filter((key) => requiredSets.every((set) => set.has(key)))
+                        : [];
+                    node.required = Array.from(new Set([
+                        ...(Array.isArray(node.required) ? node.required : []),
+                        ...commonRequired
+                    ]));
+                    if (node.required.length === 0) {
+                        delete node.required;
+                    }
                 }
             }
 
@@ -289,6 +297,13 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
         if (injectConstraints) {
             const constraintItems = [];
             const kinds = [];
+
+            // Gemini 只接受字符串 enum；数值/布尔 enum 会被白名单清洗丢弃，
+            // 因此在降级前把原始 enum 注入 description，保留约束语义。
+            if (Array.isArray(node.enum) && node.enum.some((value) => typeof value !== 'string')) {
+                constraintItems.push(`enum=${node.enum.map((value) => JSON.stringify(value)).join('|')}`);
+                kinds.push('enum');
+            }
 
             if (node.pattern) {
                 constraintItems.push(`pattern=${node.pattern}`);
