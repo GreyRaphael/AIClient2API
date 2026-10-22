@@ -71,6 +71,11 @@ describe('Provider 能力声明：内置规则', () => {
         expect(openaiCaps.supportsToolResultHistory).toBe(true);
     });
 
+    test('Codex 关闭输出长度上限', () => {
+        const caps = resolveProviderCapabilities({ providerType: 'openai-codex-oauth', model: 'gpt-6-luna' });
+        expect(caps.supportsMaxOutputTokens).toBe(false);
+    });
+
     test('Antigravity 非 Claude 模型关闭 maxOutputTokens', () => {
         const caps = resolveProviderCapabilities({ providerType: 'gemini-antigravity', model: 'gemini-3.8-flash-high' });
         expect(caps.supportsMaxOutputTokens).toBe(false);

@@ -81,6 +81,15 @@ const BUILTIN_PROVIDER_RULES = {
             }
         }
     ],
+    // Codex 官方上游不接受输出长度上限字段，保持现有删除行为。
+    'openai-codex-oauth': [
+        {
+            match: () => true,
+            capabilities: {
+                supportsMaxOutputTokens: false
+            }
+        }
+    ],
     // Antigravity / CloudCode 对非 Claude 模型不保证 maxOutputTokens 生效。
     'gemini-antigravity': [
         {

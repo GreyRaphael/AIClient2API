@@ -12,6 +12,7 @@ import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '..
 import {getProxyConfigForProvider} from '../../utils/proxy-utils.js';
 import {getProviderModels} from '../provider-models.js';
 import {normalizeCodexInstructions} from './codex-request-utils.js';
+import {resolveProviderCapabilities} from '../provider-capabilities.js';
 
 export const CODEX_FALLBACK_VERSION = '0.162.1';
 
@@ -702,6 +703,18 @@ export class CodexApiService {
 
         // 传给上游真实模型名称
         cleanedBody.model = effectiveUpstreamModel;
+
+        // Codex 默认不接受输出长度上限；按统一能力声明决定是否删除，
+        // 保留未来上游支持该字段时的扩展点。
+        const capabilities = resolveProviderCapabilities({
+            providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API,
+            model: effectiveUpstreamModel,
+            config: this.config || {}
+        });
+        if (!capabilities.supportsMaxOutputTokens) {
+            delete cleanedBody.max_output_tokens;
+            delete cleanedBody.max_completion_tokens;
+        }
 
         // 推理等级 (reasoning_effort) 动态合理映射
         const inputEffort = requestBody.reasoning_effort ?? requestBody.reasoning?.effort ?? cleanedBody.reasoning_effort ?? cleanedBody.reasoning?.effort;

@@ -56,11 +56,12 @@ Provider/模型的参数兼容差异不再写死在代码分支里，而是通�
 | `supportsThinking` | 上游是否接受 thinking / reasoning 配置 |
 | `supportsNonStream` | 上游是否真正支持 `stream:false`；false 时网关自动改流式并本地聚合 |
 | `supportsMaxOutputTokens` | 上游是否接受 `maxOutputTokens` / `max_output_tokens` |
+| `supportsToolResultHistory` | 上游是否支持多轮工具结果历史（`tool_result` / `functionResponse` 回传） |
 
 **解析优先级**（后者覆盖前者）：
 
 1. 内置默认值（全部 `true`）
-2. 内置 provider 规则（Zed Claude 5.x、Antigravity 非 Claude 模型）
+2. 内置 provider 规则（openai-custom 强制 tool_choice、Zed Claude 5.x、Zed Google 多轮工具历史、Antigravity 非 Claude 模型、Codex 输出上限）
 3. 上游模型元数据（`metadata.capabilities` 或 `supports_*` 字段）
 4. 全局配置 `PROVIDER_CAPABILITIES`
 5. 号池节点配置 `capabilities`（最高）

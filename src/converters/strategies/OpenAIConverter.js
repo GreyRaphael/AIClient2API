@@ -4,6 +4,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import logger from '../../utils/logger.js';
 import { BaseConverter } from '../BaseConverter.js';
 import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
@@ -1489,6 +1490,9 @@ export class OpenAIConverter extends BaseConverter {
 
         // 转换messages到input
         for (const msg of nonSystemMessages) {
+            if (msg.role === 'assistant' && typeof msg.reasoning_content === 'string' && msg.reasoning_content.trim()) {
+                logger.debug('[OpenAIConverter] assistant reasoning_content is not replayed to Responses: no encrypted reasoning content is available');
+            }
             if (msg.role === 'tool') {
                 responsesRequest.input.push({
                     type: 'function_call_output',

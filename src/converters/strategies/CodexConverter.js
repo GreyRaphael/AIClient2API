@@ -239,8 +239,7 @@ export class CodexConverter extends BaseConverter {
         }
     
         // 删除Codex不支持的字段
-        delete codexRequest.max_output_tokens;
-        delete codexRequest.max_completion_tokens;
+        // 输出长度上限由 Codex provider 层按 supportsMaxOutputTokens 能力决定是否删除
         delete codexRequest.temperature;
         delete codexRequest.top_p;
         delete codexRequest.user;

@@ -1835,8 +1835,12 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
             input.forEach(item => {
                 const itemType = item.type || (item.role ? 'message' : '');
-                
+
                 switch (itemType) {
+                    case 'reasoning':
+                        logger.debug('[OpenAIResponsesConverter] reasoning item skipped when converting to Gemini: Gemini has no equivalent reasoning input item');
+                        break;
+
                     case 'message':
                         const parts = [];
                         if (Array.isArray(item.content)) {

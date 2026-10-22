@@ -1676,16 +1676,51 @@ function _getProviderSpecificSuggestions(statusCode, provider) {
 }
 
 /**
+ * 从上游错误响应中提取可读细节（仅用于 4xx，避免 5xx 泄露内部信息）。
+ * @param {Error} error
+ * @returns {string}
+ */
+function extractUpstreamErrorDetail(error) {
+    const data = error?.response?.data;
+    if (!data) return '';
+    let raw = '';
+    if (typeof data === 'string') {
+        raw = data;
+    } else if (typeof data === 'object') {
+        raw = data.error?.message || data.message || data.errmsg || '';
+    }
+    if (!raw) return '';
+    const compact = String(raw).replace(/\s+/g, ' ').trim();
+    if (!compact) return '';
+    return compact.length > 800 ? `${compact.slice(0, 797)}...` : compact;
+}
+
+/**
+ * 在保留原有错误文案的基础上追加可读的上游 4xx 细节。
+ * @param {Error} error
+ * @param {number} statusCode
+ * @param {string} fallback
+ * @returns {string}
+ */
+function buildErrorMessageWithUpstream(error, statusCode, fallback) {
+    const base = error?.message || fallback;
+    if (statusCode < 400 || statusCode >= 500) return base;
+    const detail = extractUpstreamErrorDetail(error);
+    if (!detail || base.includes(detail)) return base;
+    return `${base} | upstream: ${detail}`;
+}
+
+/**
  * 创建符合 fromProvider 格式的错误响应（非流式）
  * @param {Error} error - 错误对象
  * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {Object} 格式化的错误响应对象
  */
-function createErrorResponse(error, fromProvider) {
+export function createErrorResponse(error, fromProvider) {
     const protocolPrefix = getProtocolPrefix(fromProvider);
     const rawStatusCode = error.status || error.code || 500;
     const statusCode = ensureValidStatusCode(rawStatusCode);
-    const errorMessage = error.message || "An error occurred during processing.";
+    const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during processing.");
     
     // 根据 HTTP 状态码映射错误类型
     const getErrorType = (code) => {
@@ -1749,7 +1784,7 @@ function createStreamErrorResponse(error, fromProvider) {
     const protocolPrefix = getProtocolPrefix(fromProvider);
     const rawStatusCode = error.status || error.code || 500;
     const statusCode = ensureValidStatusCode(rawStatusCode);
-    const errorMessage = error.message || "An error occurred during streaming.";
+    const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during streaming.");
     
     // 根据 HTTP 状态码映射错误类型
     const getErrorType = (code) => {
