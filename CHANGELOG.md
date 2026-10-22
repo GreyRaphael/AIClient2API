@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.1.4] - 2026-10-22
+
+### Fixed (跨协议转译 v4.1.4 + CoT 非确定性修正)
+
+- **Gemini**：
+  - 流式请求需要 thinking 时回退非流式 `generateContent`，保留 thought 文本；新增 `GEMINI_STREAM_THOUGHTS_FALLBACK`。
+  - `maxOutputTokens` 改为标准透传；`MAX_TOKENS` / `SAFETY` 等终态不再触发空响应重试。
+- **Zed**：
+  - Anthropic `tool_result` 统一补齐 `is_error:false`。
+  - `reasoning_effort: high` 不再被反解为 `max`。
+  - OpenAI 通道补齐 `input_image` 映射。
+  - Google 通道接入 Schema Polyfill，保留 function id；多轮工具历史降级为文本。
+- **工具与 Schema**：
+  - openai-custom 指定 function 强制 `tool_choice` 降级为 `required` + 收窄 tools；新增 `EMPTY_RESPONSE_MAX_TOTAL_MS` 重试预算。
+  - oneOf/anyOf 对象分支合并 properties/required/enum；`CONVERT_SORT_TOOLS` 默认开启。
+  - Codex `max_output_tokens` 默认透传。
+- **Reasoning 与错误**：
+  - GPT/Claude 有 reasoning 文本但缺 `reasoning_tokens` 时做保守估算并标记 `reasoning_tokens_estimated`。
+  - 4xx 错误响应追加可读上游细节，5xx 不泄露内部 body。
+  - 新增 `supportsToolResultHistory`、`supportsStreamingThoughts` 能力位。
+
+### Verification
+
+- `npm test -- --runInBand`：33 suites / 447 tests 全绿。
+- `npm run test:e2e`：13 模型真实上游 E2E **24 / 24 PASS**。
+
 ## [v4.1.2] - 2026-10-21
 
 ### Fixed (跨协议转译 v4.1.1 复评 P1/P2)

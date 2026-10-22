@@ -1,13 +1,12 @@
 # AIClient2API 核心转译功能复评（2026-10-22）
 
 - 状态：当前有效
-- 评估对象：分支 `fix/cross-protocol-v4.1.3`，工作树 `077d234`（`fix(providers): 适配 Zed Google 通道 tool_choice 小写枚举模式`）
+- 评估对象：分支 `fix/cross-protocol-v4.1.3`（v4.1.4 发布候选，最终提交见 `CHANGELOG.md`）
 - 测试实例：独立端口 `127.0.0.1:3201`（使用当前工作树与同一份 `configs`；未重启用户 `3000` 实例；仅产生 provider 健康状态/usage 缓存更新，tracked 文件未改动）
-- 自动化测试：`npm test -- --runInBand` = **28 suites / 413 tests 全绿**
+- 自动化测试：`npm test -- --runInBand` = **33 suites / 447 tests 全绿**；真实上游 E2E = **24 / 24 PASS**
 - 历史对照：[`docs/archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md`](./archive/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md)（v1.6.0，2026-10-16）
 - 历史复评：v4.1.1 ~ v4.1.3 文档已清理；关键对照结论保留在本文第 6 节与 Git 历史
-- 修复计划：[`CROSS_PROTOCOL_FIX_PLAN_V4_1_4.md`](./CROSS_PROTOCOL_FIX_PLAN_V4_1_4.md)
-- 修复进展：Phase 1/2/3 **全部落地**——`f366433`、`2aa4829`、`631c3fb`、`42ed255`、`962d22d`、`7ec4643`；验收报告见 [`CROSS_PROTOCOL_FIX_ACCEPTANCE_V4_1_4.md`](./CROSS_PROTOCOL_FIX_ACCEPTANCE_V4_1_4.md)。最终单测 **32 suites / 441 tests 全绿**；确定性核心指标全部通过；原始 13 模型计数 124/143，差额来自上游 reasoning 采样
+- 修复进展：Phase 1/2/3 与 CoT 追加修复全部落地；最终单测 **33 suites / 447 tests 全绿**，13 模型 E2E **24 / 24 PASS**。详细修复记录见 `CHANGELOG.md` 与 `RELEASE_NOTES.md`。
 
 ---
 
