@@ -40,7 +40,9 @@ export const DEFAULT_PROVIDER_CAPABILITIES = Object.freeze({
     /** 上游是否真正支持 stream:false（否则网关自动改流式并聚合） */
     supportsNonStream: true,
     /** 上游是否接受 maxOutputTokens / max_output_tokens */
-    supportsMaxOutputTokens: true
+    supportsMaxOutputTokens: true,
+    /** 上游是否支持多轮工具结果历史（tool_result / functionResponse 回传） */
+    supportsToolResultHistory: true
 });
 
 const CAPABILITY_KEYS = Object.keys(DEFAULT_PROVIDER_CAPABILITIES);
@@ -68,6 +70,14 @@ const BUILTIN_PROVIDER_RULES = {
             capabilities: {
                 supportsTemperature: false,
                 supportsForcedToolChoice: false
+            }
+        },
+        {
+            // Zed Google 通道对多轮 functionCall/functionResponse 历史返回 500；
+            // 通过能力位改为明确的客户端错误，避免把空 500 透传。
+            match: 'gemini-*',
+            capabilities: {
+                supportsToolResultHistory: false
             }
         }
     ],
@@ -164,7 +174,8 @@ function applyMetadataCapabilities(target, metadata) {
         supportsForcedToolChoice: ['supportsForcedToolChoice', 'supports_forced_tool_choice'],
         supportsThinking: ['supportsThinking', 'supports_thinking'],
         supportsNonStream: ['supportsNonStream', 'supports_non_stream'],
-        supportsMaxOutputTokens: ['supportsMaxOutputTokens', 'supports_max_output_tokens']
+        supportsMaxOutputTokens: ['supportsMaxOutputTokens', 'supports_max_output_tokens'],
+        supportsToolResultHistory: ['supportsToolResultHistory', 'supports_tool_result_history']
     };
 
     for (const [capability, keys] of Object.entries(aliases)) {

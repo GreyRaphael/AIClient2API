@@ -140,6 +140,67 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         ]);
     });
 
+    test('ZedApiService.buildPayload rejects Google multi-turn tool history with a clear 400', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+
+        let error = null;
+        try {
+            zedService.buildPayload('gemini-3.8-flash', {
+                messages: [
+                    { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Paris' } }] },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] }
+                ]
+            });
+        } catch (e) {
+            error = e;
+        }
+
+        expect(error).toBeInstanceOf(Error);
+        expect(error.status).toBe(400);
+        expect(error.message).toContain('does not support multi-turn tool history');
+    });
+
+    test('ZedApiService.buildPayload applies schema polyfill and preserves tool ids for Google', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id',
+            capabilities: {
+                models: {
+                    'gemini-*': { supportsToolResultHistory: true }
+                }
+            }
+        });
+
+        const payload = zedService.buildPayload('gemini-3.8-flash', {
+            tools: [{
+                name: 'create_order',
+                description: 'Create order',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        sku: { type: 'string', pattern: '^[A-Z]{3}$', description: 'SKU' }
+                    },
+                    required: ['sku']
+                }
+            }],
+            messages: [
+                { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Paris' } }] },
+                { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] }
+            ]
+        });
+
+        const sku = payload.provider_request.tools[0].functionDeclarations[0].parameters.properties.sku;
+        expect(sku.pattern).toBeUndefined();
+        expect(sku.description).toContain('[Constraints:');
+
+        const parts = payload.provider_request.contents.flatMap((content) => content.parts);
+        expect(parts.find((part) => part.functionCall)?.functionCall.id).toBe('toolu_1');
+        expect(parts.find((part) => part.functionResponse)?.functionResponse.id).toBe('toolu_1');
+    });
+
     test('ZedApiService.buildPayload formats Google provider request correctly for Gemini 3.1+', () => {
         const zedService = new ZedApiService({
             uuid: 'test-uuid',
@@ -701,7 +762,11 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('tools/tool_choice/functionCall/functionResponse 完整传递', () => {
-            const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+            const service = new ZedApiService({
+                uuid: 'u',
+                ZED_SYSTEM_ID: 's',
+                capabilities: { models: { 'gemini-*': { supportsToolResultHistory: true } } }
+            });
             const payload = service.buildPayload('gemini-3.5-flash', {
                 tools: [{ name: 'search', description: 'd', input_schema: { type: 'object', properties: { q: { type: 'string' } } } }],
                 tool_choice: { type: 'tool', name: 'search' },
@@ -720,13 +785,20 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             const provReq = payload.provider_request;
             expect(payload.provider).toBe('google');
             expect(provReq.tools).toEqual([{
-                functionDeclarations: [{ name: 'search', description: 'd', parameters: { type: 'object', properties: { q: { type: 'string' } } } }]
+                functionDeclarations: [{
+                    name: 'search',
+                    description: 'd',
+                    parameters: {
+                        type: 'OBJECT',
+                        properties: { q: { type: 'STRING' } }
+                    }
+                }]
             }]);
             expect(provReq.toolConfig).toEqual({ functionCallingConfig: { mode: 'any', allowedFunctionNames: ['search'] } });
 
             const allParts = provReq.contents.flatMap(c => c.parts);
             const fc = allParts.find(p => p.functionCall);
-            expect(fc.functionCall).toEqual({ name: 'search', args: { q: 'foo' } });
+            expect(fc.functionCall).toEqual({ name: 'search', args: { q: 'foo' }, id: 'toolu_1' });
             const fr = allParts.find(p => p.functionResponse);
             // 名称须从 tool_use_id 映射还原
             expect(fr.functionResponse.name).toBe('search');
@@ -734,7 +806,11 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('含特殊字符的工具 id 经 sanitizeToolId 清洗后仍能还原函数名', () => {
-            const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+            const service = new ZedApiService({
+                uuid: 'u',
+                ZED_SYSTEM_ID: 's',
+                capabilities: { models: { 'gemini-*': { supportsToolResultHistory: true } } }
+            });
             const payload = service.buildPayload('gemini-3.5-flash', {
                 messages: [
                     { role: 'user', content: '跑个命令' },

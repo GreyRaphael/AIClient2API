@@ -17,9 +17,10 @@ describe('Provider 能力声明：默认值与键', () => {
             supportsForcedToolChoice: true,
             supportsThinking: true,
             supportsNonStream: true,
-            supportsMaxOutputTokens: true
+            supportsMaxOutputTokens: true,
+            supportsToolResultHistory: true
         });
-        expect(getKnownCapabilityKeys()).toHaveLength(5);
+        expect(getKnownCapabilityKeys()).toHaveLength(6);
     });
 
     test('supportsCapability 对未知键与缺失值均放行', () => {
@@ -60,6 +61,14 @@ describe('Provider 能力声明：内置规则', () => {
             }
         });
         expect(caps.supportsForcedToolChoice).toBe(true);
+    });
+
+    test('Zed Google 模型关闭多轮工具历史', () => {
+        const caps = resolveProviderCapabilities({ providerType: 'zed', model: 'gemini-3.8-flash' });
+        expect(caps.supportsToolResultHistory).toBe(false);
+
+        const openaiCaps = resolveProviderCapabilities({ providerType: 'zed', model: 'gpt-6-luna' });
+        expect(openaiCaps.supportsToolResultHistory).toBe(true);
     });
 
     test('Antigravity 非 Claude 模型关闭 maxOutputTokens', () => {

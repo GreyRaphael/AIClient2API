@@ -12,6 +12,7 @@ import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
 import { effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.js';
+import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.js';
 import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
@@ -538,6 +539,26 @@ export class ZedApiService {
         if (provider === 'google') {
             const contents = [];
             const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+
+            // Zed Google 通道不支持多轮回传 functionCall/functionResponse 历史。
+            // 直接在网关侧给出明确错误，避免上游返回 500 空 body 并触发无意义的凭证切换/重试。
+            const hasToolResultHistory = rawMessages.some((m) => {
+                if (!m) return false;
+                if (m.role === 'tool' || m.tool_call_id) return true;
+                return Array.isArray(m.content) && m.content.some(
+                    (part) => part && (part.type === 'tool_result' || part.type === 'functionResponse')
+                );
+            });
+            if (hasToolResultHistory && capabilities.supportsToolResultHistory === false) {
+                const error = new Error(
+                    `Zed Google channel does not support multi-turn tool history for model '${model}'. ` +
+                    'Use a non-tool follow-up or a different provider.'
+                );
+                error.status = 400;
+                error.skipErrorCount = true;
+                throw error;
+            }
+
             let systemInstruction = null;
 
             // 预扫描构建 tool_use_id -> 函数名映射（供 tool_result/functionResponse 还原名称）
@@ -585,14 +606,14 @@ export class ZedApiService {
                 if (m.role === 'tool' || m.tool_call_id) {
                     // OpenAI 风格 tool 结果消息 -> functionResponse
                     role = 'user';
-                    parts.push({
-                        functionResponse: {
-                            name: toolIdToName[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
-                            response: {
-                                result: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-                            }
+                    const functionResponse = {
+                        name: toolIdToName[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
+                        response: {
+                            result: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
                         }
-                    });
+                    };
+                    if (m.tool_call_id) functionResponse.id = m.tool_call_id;
+                    parts.push({ functionResponse });
                 } else if (typeof m.content === 'string') {
                     parts.push({ text: m.content });
                 } else if (Array.isArray(m.content)) {
@@ -614,22 +635,24 @@ export class ZedApiService {
                             } else if (p.input && typeof p.input === 'object') {
                                 args = p.input;
                             }
-                            parts.push({
-                                functionCall: {
-                                    name: p.name,
-                                    args
-                                }
-                            });
+                            const functionCall = {
+                                name: p.name,
+                                args
+                            };
+                            if (p.id) functionCall.id = p.id;
+                            parts.push({ functionCall });
                         } else if (p.type === 'tool_result') {
                             // Claude 风格 user 工具结果 -> functionResponse
-                            parts.push({
-                                functionResponse: {
-                                    name: toolIdToName[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
-                                    response: {
-                                        result: typeof p.content === 'string' ? p.content : JSON.stringify(p.content)
-                                    }
+                            const functionResponse = {
+                                name: toolIdToName[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
+                                response: {
+                                    result: typeof p.content === 'string' ? p.content : JSON.stringify(p.content)
                                 }
-                            });
+                            };
+                            if (p.tool_use_id || p.id) {
+                                functionResponse.id = p.tool_use_id || p.id;
+                            }
+                            parts.push({ functionResponse });
                         }
                     }
                 }
@@ -643,12 +666,12 @@ export class ZedApiService {
                                 ? JSON.parse(tc.function.arguments)
                                 : (tc.function?.arguments || {});
                         } catch (_) { /* 保持空对象 */ }
-                        parts.push({
-                            functionCall: {
-                                name: tc.function?.name || 'function',
-                                args
-                            }
-                        });
+                        const functionCall = {
+                            name: tc.function?.name || 'function',
+                            args
+                        };
+                        if (tc.id) functionCall.id = tc.id;
+                        parts.push({ functionCall });
                     }
                 }
 
@@ -679,7 +702,11 @@ export class ZedApiService {
                         .map(t => ({
                             name: t.name,
                             description: t.description,
-                            parameters: t.input_schema || t.parameters || { type: 'object', properties: {} }
+                            // Zed Google 通道同样受 Gemini Protobuf Schema 限制；
+                            // 复用共享 polyfill，避免 pattern/oneOf/$ref 等关键字被上游拒绝。
+                            parameters: polyfillAndCleanSchemaForGemini(
+                                t.input_schema || t.parameters || { type: 'object', properties: {} }
+                            )
                         }))
                 }];
 
