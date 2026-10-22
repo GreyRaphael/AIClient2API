@@ -150,8 +150,13 @@ export function geminiUsageToAnthropic(usage = {}) {
 }
 
 /**
- * 当上游返回了 reasoning 文本但没有 reasoning_tokens 时，用 tokenizer 做保守估算。
- * 估算值会带 `reasoning_tokens_estimated: true`，避免被误认为上游精确值。
+ * 当上游返回了 reasoning 文本但没有 reasoning_tokens 时，用 tokenizer 做保守估算；
+ * 同时保证 `reasoning_tokens <= output_tokens`，避免出现 output 小于 reasoning 的
+ * 非法 usage（部分客户端/计费插件会据此报错）。
+ *
+ * - 无 reasoning_tokens 且已有 reasoning 文本：补估算值，并标记 `reasoning_tokens_estimated`；
+ * - 上游已给 reasoning_tokens 但大于 output_tokens：收敛到 output_tokens；
+ * - output_tokens 缺失或为 0：不做估算，保持原始 usage。
  *
  * @param {Object} usage - OpenAI Chat 或 Responses usage
  * @param {string} reasoningText - reasoning / thinking 文本
@@ -159,18 +164,26 @@ export function geminiUsageToAnthropic(usage = {}) {
  * @returns {Object}
  */
 export function applyEstimatedReasoningTokens(usage, reasoningText, shape = 'openai') {
-    if (!usage || !reasoningText) return usage;
+    if (!usage) return usage;
     const detailsKey = shape === 'responses' ? 'output_tokens_details' : 'completion_tokens_details';
+    const outputKey = shape === 'responses' ? 'output_tokens' : 'completion_tokens';
+    const outputTokens = Number(usage[outputKey]);
+    if (!Number.isFinite(outputTokens) || outputTokens <= 0) return usage;
+
     const existing = Number(usage[detailsKey]?.reasoning_tokens ?? 0);
-    if (existing > 0) return usage;
-    const estimated = countTextTokens(String(reasoningText));
-    if (estimated <= 0) return usage;
+    const estimated = existing > 0
+        ? existing
+        : countTextTokens(String(reasoningText || ''));
+    const reasoningTokens = Math.min(estimated, outputTokens);
+
+    if (reasoningTokens <= 0 || reasoningTokens === existing) return usage;
+
     return {
         ...usage,
         [detailsKey]: {
             ...(usage[detailsKey] || {}),
-            reasoning_tokens: estimated,
-            reasoning_tokens_estimated: true
+            reasoning_tokens: reasoningTokens,
+            ...(existing > 0 ? {} : { reasoning_tokens_estimated: true })
         }
     };
 }
