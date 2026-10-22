@@ -19,6 +19,7 @@ import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnable
 import { cleanJsonSchemaProperties } from '../../converters/utils.js';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.js';
 import { getProviderPoolManager } from '../../services/service-manager.js';
+import { getConfigToggle } from '../../core/config-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.js';
@@ -1945,7 +1946,7 @@ export class AntigravityApiService {
 
         requestBody.model = actualModelName;
 
-        return { payload, selectedModel, actualModelName };
+        return { payload, selectedModel, actualModelName, capabilities };
     }
 
     async generateContent(model, requestBody) {
@@ -1996,7 +1997,19 @@ export class AntigravityApiService {
         logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
 
         this.prepareRequestMetadata(requestBody);
-        const { payload } = this.buildAntigravityPayload(model, requestBody);
+        const { payload, actualModelName, capabilities } = this.buildAntigravityPayload(model, requestBody);
+
+        // Antigravity 的 streamGenerateContent 不返回 thought 文本，只有非流式
+        // generateContent 才带 thought parts。需要 thinking 且上游声明不支持流式思考时，
+        // 回退到非流式并在网关侧合成一个完整 chunk，保证 reasoning 不丢失。
+        const includeThoughts = payload?.request?.generationConfig?.thinkingConfig?.includeThoughts === true;
+        const fallbackEnabled = getConfigToggle('GEMINI_STREAM_THOUGHTS_FALLBACK', true);
+        if (fallbackEnabled && includeThoughts && capabilities?.supportsStreamingThoughts === false) {
+            logger.info(`[Antigravity] Streaming response for ${actualModelName} does not expose thought text; falling back to non-stream generateContent.`);
+            const response = await this.generateContent(model, requestBody);
+            if (response) yield response;
+            return;
+        }
 
         const stream = this.streamApi('streamGenerateContent', payload);
         for await (const chunk of stream) {

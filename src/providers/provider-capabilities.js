@@ -42,7 +42,9 @@ export const DEFAULT_PROVIDER_CAPABILITIES = Object.freeze({
     /** 上游是否接受 maxOutputTokens / max_output_tokens */
     supportsMaxOutputTokens: true,
     /** 上游是否支持多轮工具结果历史（tool_result / functionResponse 回传） */
-    supportsToolResultHistory: true
+    supportsToolResultHistory: true,
+    /** 上游流式响应是否包含 thought/thinking 文本 */
+    supportsStreamingThoughts: true
 });
 
 const CAPABILITY_KEYS = Object.keys(DEFAULT_PROVIDER_CAPABILITIES);
@@ -81,21 +83,23 @@ const BUILTIN_PROVIDER_RULES = {
             }
         }
     ],
-    // Codex 官方上游不接受输出长度上限字段，保持现有删除行为。
+    // Codex 使用 Responses 规范，max_output_tokens 作为标准字段透传；
+    // 若上游忽略该字段，由客户端超时/取消兜底，而不是网关静默删除。
     'openai-codex-oauth': [
         {
             match: () => true,
             capabilities: {
-                supportsMaxOutputTokens: false
+                supportsMaxOutputTokens: true
             }
         }
     ],
-    // Antigravity / CloudCode 对非 Claude 模型不保证 maxOutputTokens 生效。
+    // Antigravity 非 Claude 模型的 streamGenerateContent 不返回 thought 文本，
+    // 只有非流式 generateContent 才带 thought parts。
     'gemini-antigravity': [
         {
             match: (model) => !/claude/i.test(String(model || '')),
             capabilities: {
-                supportsMaxOutputTokens: false
+                supportsStreamingThoughts: false
             }
         }
     ]
@@ -184,7 +188,8 @@ function applyMetadataCapabilities(target, metadata) {
         supportsThinking: ['supportsThinking', 'supports_thinking'],
         supportsNonStream: ['supportsNonStream', 'supports_non_stream'],
         supportsMaxOutputTokens: ['supportsMaxOutputTokens', 'supports_max_output_tokens'],
-        supportsToolResultHistory: ['supportsToolResultHistory', 'supports_tool_result_history']
+        supportsToolResultHistory: ['supportsToolResultHistory', 'supports_tool_result_history'],
+        supportsStreamingThoughts: ['supportsStreamingThoughts', 'supports_streaming_thoughts']
     };
 
     for (const [capability, keys] of Object.entries(aliases)) {

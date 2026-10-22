@@ -239,6 +239,16 @@ export async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsM
     }
 }
 
+const TERMINAL_EMPTY_FINISH_REASONS = new Set([
+    'MAX_TOKENS',
+    'SAFETY',
+    'RECITATION',
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'SPII',
+    'MODEL_ARMOR'
+]);
+
 /**
  * 判断上游原生负载（流式 chunk 或完整的非流式响应）是否携带「有效内容」：
  * 文本、工具调用或内联数据。纯 thinking/reasoning（Gemini thought part、Claude
@@ -577,8 +587,27 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         // 同时避免把实际没有产出的凭证标记为健康。
         // 客户端主动断开属于正常情况，不在此列。
         if (!sawMeaningfulContent && !clientDisconnected.value) {
-            logger.warn(`[Stream] Upstream stream ended with no meaningful content (finishReason: ${lastFinishReason || 'unknown'}${lastFinishMessage ? `, finishMessage: ${lastFinishMessage}` : ''}). Discarded ${preContentBuffer.length} buffered frame(s) and will treat as empty upstream response.`);
-            throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
+            if (TERMINAL_EMPTY_FINISH_REASONS.has(lastFinishReason)) {
+                // MAX_TOKENS / SAFETY 等终态即使没有正文也是合法结果：
+                // 冲刷已缓冲的 finish 帧并正常收尾，避免触发空响应重试。
+                logger.warn(`[Stream] Upstream ended with terminal finishReason ${lastFinishReason} and no content; flushing ${preContentBuffer.length} buffered frame(s) as truncated/safety response.`);
+                for (const frame of preContentBuffer) {
+                    if (clientDisconnected.value || res.writableEnded) break;
+                    try {
+                        res.write(frame);
+                        anyDataSent = true;
+                    } catch (writeErr) {
+                        logger.error('[Stream] Failed to write terminal frame:', writeErr.message);
+                        clientDisconnected.value = true;
+                        break;
+                    }
+                }
+                preContentBuffer.length = 0;
+                sawMeaningfulContent = true;
+            } else {
+                logger.warn(`[Stream] Upstream stream ended with no meaningful content (finishReason: ${lastFinishReason || 'unknown'}${lastFinishMessage ? `, finishMessage: ${lastFinishMessage}` : ''}). Discarded ${preContentBuffer.length} buffered frame(s) and will treat as empty upstream response.`);
+                throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
+            }
         }
 
         // 仅在真实产出有效内容的情况下才统计使用次数并将 Provider 标记为健康；
@@ -887,8 +916,14 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         if (!nativePayloadHasMeaningfulContent(nativeResponse, toProvider)) {
             const finishInfo = nativeResponse?.candidates?.[0]?.finishReason || 'unknown';
             const finishMsg = nativeResponse?.candidates?.[0]?.finishMessage;
-            logger.warn(`[Unary] Upstream returned no meaningful content (finishReason: ${finishInfo}${finishMsg ? `, finishMessage: ${finishMsg}` : ''}). Treating as empty upstream response.`);
-            throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
+            if (TERMINAL_EMPTY_FINISH_REASONS.has(finishInfo)) {
+                // MAX_TOKENS / SAFETY 等终态即使没有正文也是合法结果，不能当作空响应重试；
+                // 否则小 max_tokens 或安全拦截会被放大成多次上游调用。
+                logger.warn(`[Unary] Upstream returned terminal finishReason ${finishInfo} with no content${finishMsg ? ` (${finishMsg})` : ''}; forwarding as truncated/safety response.`);
+            } else {
+                logger.warn(`[Unary] Upstream returned no meaningful content (finishReason: ${finishInfo}${finishMsg ? `, finishMessage: ${finishMsg}` : ''}). Treating as empty upstream response.`);
+                throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
+            }
         }
 
         const responseText = extractResponseText(nativeResponse, toProvider);

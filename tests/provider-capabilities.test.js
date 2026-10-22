@@ -18,9 +18,10 @@ describe('Provider 能力声明：默认值与键', () => {
             supportsThinking: true,
             supportsNonStream: true,
             supportsMaxOutputTokens: true,
-            supportsToolResultHistory: true
+            supportsToolResultHistory: true,
+            supportsStreamingThoughts: true
         });
-        expect(getKnownCapabilityKeys()).toHaveLength(6);
+        expect(getKnownCapabilityKeys()).toHaveLength(7);
     });
 
     test('supportsCapability 对未知键与缺失值均放行', () => {
@@ -71,19 +72,21 @@ describe('Provider 能力声明：内置规则', () => {
         expect(openaiCaps.supportsToolResultHistory).toBe(true);
     });
 
-    test('Codex 关闭输出长度上限', () => {
+    test('Codex 默认透传输出长度上限', () => {
         const caps = resolveProviderCapabilities({ providerType: 'openai-codex-oauth', model: 'gpt-6-luna' });
-        expect(caps.supportsMaxOutputTokens).toBe(false);
+        expect(caps.supportsMaxOutputTokens).toBe(true);
     });
 
-    test('Antigravity 非 Claude 模型关闭 maxOutputTokens', () => {
+    test('Antigravity 非 Claude 模型透传 maxOutputTokens，但流式不含 thought 文本', () => {
         const caps = resolveProviderCapabilities({ providerType: 'gemini-antigravity', model: 'gemini-3.8-flash-high' });
-        expect(caps.supportsMaxOutputTokens).toBe(false);
+        expect(caps.supportsMaxOutputTokens).toBe(true);
+        expect(caps.supportsStreamingThoughts).toBe(false);
     });
 
-    test('Antigravity Claude 模型保留 maxOutputTokens', () => {
+    test('Antigravity Claude 模型保留 maxOutputTokens 与流式思考', () => {
         const caps = resolveProviderCapabilities({ providerType: 'gemini-antigravity', model: 'claude-sonnet-4-6' });
         expect(caps.supportsMaxOutputTokens).toBe(true);
+        expect(caps.supportsStreamingThoughts).toBe(true);
     });
 
     test('providerType 变体（zed-xxx）也命中内置规则', () => {
