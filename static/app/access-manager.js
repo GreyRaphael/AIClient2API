@@ -15,7 +15,6 @@ const recommendedModelMap = {
     'fenno': 'gpt-5.5',
     'openai-codex-oauth': 'gpt-5.5',
     'openaiResponses-custom': 'gpt-5.5',
-    'grok-web': 'grok-4.3',
     'grok-cli-oauth': 'grok-4.3',
     'zed': 'claude-sonnet-4-5',
     'trae': 'glm-5.2',

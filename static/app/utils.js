@@ -61,12 +61,6 @@ function getBaseProviderConfigs() {
             defaultPath: 'configs/grok-cli/'
         },
         { 
-            id: 'grok-web', 
-            name: t('dashboard.routing.nodeName.grok'), 
-            usageName: 'Grok Web',
-            icon: 'fa-user-secret'
-        },
-        { 
             id: 'openai-custom', 
             name: t('dashboard.routing.nodeName.openai'), 
             icon: 'fa-microchip'
@@ -247,11 +241,6 @@ function getFieldLabel(key) {
         'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'CODEX_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'GROK_CLI_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
-        'GROK_COOKIE_TOKEN': t('modal.provider.field.ssoToken'),
-        'GROK_CF_CLEARANCE': t('modal.provider.field.cfClearance'),
-        'GROK_CF_BM': t('modal.provider.field.cfBm'),
-
-        'GROK_USER_AGENT': t('modal.provider.field.userAgent'),
         'KIRO_BASE_URL': t('modal.provider.field.baseUrl'),
         'KIRO_REFRESH_URL': t('modal.provider.field.refreshUrl'),
         'KIRO_REFRESH_IDC_URL': t('modal.provider.field.refreshIdcUrl'),
@@ -259,7 +248,6 @@ function getFieldLabel(key) {
         'ANTIGRAVITY_BASE_URL_AUTOPUSH': t('modal.provider.field.autopushBaseUrl'),
         'CODEX_BASE_URL': t('modal.provider.field.codexBaseUrl'),
         'CODEX_VERSION': t('modal.provider.field.codexVersion'),
-        'GROK_BASE_URL': t('modal.provider.field.grokBaseUrl'),
         'TRAE_CHANNEL_MODE': '通道模式 (Channel Mode)',
         'TRAE_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
         'TRAE_BASE_URL': 'Trae Base URL',
@@ -518,44 +506,6 @@ function getProviderTypeFields(providerType) {
                 label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://trae-api-cn.mchost.guru'
-            }
-        ],
-        'grok-web': [
-            {
-                id: 'GROK_COOKIE_TOKEN',
-                label: t('modal.provider.field.ssoToken'),
-                type: 'password',
-                placeholder: 'sso cookie token'
-            },
-            {
-                id: 'GROK_BASE_URL',
-                label: `${t('modal.provider.field.grokBaseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'https://grok.com'
-            },
-            {
-                id: 'GROK_CF_CLEARANCE',
-                label: `${t('modal.provider.field.cfClearance')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'cf_clearance cookie value'
-            },
-            {
-                id: 'GROK_CF_BM',
-                label: `${t('modal.provider.field.cfBm')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: '__cf_bm cookie value'
-            },
-            {
-                id: 'GROK_USER_AGENT',
-                label: `${t('modal.provider.field.userAgent')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'Mozilla/5.0 ...'
-            },
-            {
-                id: 'GROK_STATSIG_ID',
-                label: `${t('modal.provider.field.statsigId')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'x-statsig-id header value'
             }
         ]
     };

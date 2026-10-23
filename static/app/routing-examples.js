@@ -233,17 +233,6 @@ function getAvailableRoutes() {
             badgeClass: 'responses'
         },
         {
-            provider: 'grok-web',
-            name: t('dashboard.routing.nodeName.grok'),
-            paths: {
-                openai: '/grok-web/v1/chat/completions',
-                claude: '/grok-web/v1/messages'
-            },
-            description: t('dashboard.routing.free'),
-            badge: t('dashboard.routing.free'),
-            badgeClass: 'oauth'
-        },
-        {
             provider: 'zed',
             name: 'Zed',
             paths: {
@@ -463,27 +452,6 @@ async function copyCurlExample(provider, options = {}) {
   }'`;
             }
             break;
-        case 'grok-web':
-            if (protocol === 'openai') {
-                curlCommand = `curl ${hostname}${path} \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -d '{
-    "model": "${model}",
-    "messages": [{"role": "user", "content": "${message}"}],
-    "stream": true
-  }'`;
-            } else {
-                curlCommand = `curl ${hostname}${path} \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-Key: YOUR_API_KEY" \\
-  -d '{
-    "model": "${model}",
-    "max_tokens": 1000,
-    "messages": [{"role": "user", "content": "${message}"}]
-  }'`;
-            }
-            break;
         default:
             // 通用默认模板
             curlCommand = `curl ${hostname}${path} \\
@@ -538,7 +506,6 @@ function renderRoutingExamples(providerConfigs) {
         'openaiResponses-custom': 'fa-comment-alt',
         'openai-codex-oauth': 'fa-keyboard',
         'grok-cli-oauth': 'fa-terminal',
-        'grok-web': 'fa-search',
         'zed': 'fa-edit',
         'trae': 'fa-bolt',
         'trae-solo_work_lite': 'fa-robot',
@@ -556,7 +523,6 @@ function renderRoutingExamples(providerConfigs) {
         'fenno': 'gpt-5.5',
         'openai-codex-oauth': 'gpt-5.5',
         'openaiResponses-custom': 'gpt-5.5',
-        'grok-web': 'grok-4.3',
         'grok-cli-oauth': 'grok-4.3',
         'zed': 'claude-sonnet-4-5',
         'trae': 'glm-5.2',

@@ -330,10 +330,8 @@
 .guide-provider-icon.gemini { color: #4285f4; }
 .guide-provider-icon.antigravity { color: #ea4335; }
 .guide-provider-icon.kiro { color: #9b59b6; }
-.guide-provider-icon.qwen { color: #ff6a00; }
 .guide-provider-icon.claude { color: #d97706; }
 .guide-provider-icon.openai { color: #10a37f; }
-.guide-provider-icon.iflow { color: #3b82f6; }
 
 .guide-provider-name {
     font-weight: 600;
