@@ -634,5 +634,56 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(cleaned.properties.score.description).toContain('min=0');
             expect(cleaned.properties.score.description).toContain('max=100');
         });
+
+        test('allOf 提升 type/enum/items，scalar allOf 不生成空 properties', () => {
+            const scalar = polyfillAndCleanSchemaForGemini({
+                allOf: [{ type: 'string', enum: ['a', 'b'] }]
+            });
+            expect(scalar).toEqual({ type: 'STRING', enum: ['a', 'b'] });
+            expect(scalar.properties).toBeUndefined();
+
+            const arraySchema = polyfillAndCleanSchemaForGemini({
+                allOf: [{ type: 'array', items: { type: 'string' } }]
+            });
+            expect(arraySchema.type).toBe('ARRAY');
+            expect(arraySchema.items.type).toBe('STRING');
+
+            const enumIntersection = polyfillAndCleanSchemaForGemini({
+                allOf: [
+                    { type: 'string', enum: ['a', 'b', 'c'] },
+                    { enum: ['b', 'c', 'd'] }
+                ]
+            });
+            expect(enumIntersection.type).toBe('STRING');
+            expect(enumIntersection.enum).toEqual(['b', 'c']);
+        });
+
+        test('dependentSchemas / if-then-else / 布尔 not 注入 description', () => {
+            const dependent = polyfillAndCleanSchemaForGemini({
+                type: 'object',
+                properties: { a: { type: 'string' } },
+                dependentSchemas: {
+                    a: { required: ['b'], properties: { b: { type: 'string' } } }
+                }
+            });
+            expect(dependent.dependentSchemas).toBeUndefined();
+            expect(dependent.description).toContain('dependentSchemas={a->required=[b],properties=[b]}');
+
+            const conditional = polyfillAndCleanSchemaForGemini({
+                type: 'object',
+                properties: { a: { type: 'string' } },
+                if: { properties: { a: { const: 'x' } } },
+                then: { required: ['c'] },
+                else: { required: ['d'] }
+            });
+            expect(conditional.if).toBeUndefined();
+            expect(conditional.then).toBeUndefined();
+            expect(conditional.else).toBeUndefined();
+            expect(conditional.description).toContain('if(properties=[a]) then(required=[c]) else(required=[d])');
+
+            const booleanNot = polyfillAndCleanSchemaForGemini({ type: 'string', not: true });
+            expect(booleanNot.not).toBeUndefined();
+            expect(booleanNot.description).toContain('not=true (no instance is valid)');
+        });
     });
 });

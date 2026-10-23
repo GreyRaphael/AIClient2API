@@ -64,6 +64,39 @@ function resolveRef(rootSchema, ref) {
 }
 
 /**
+ * 将子 Schema 压缩成适合写入 description 的短摘要。
+ * 仅保留模型最容易利用的结构/约束信息，避免 description 被原始 JSON 淹没。
+ *
+ * @param {any} schema
+ * @returns {string}
+ */
+function summarizeSchemaForDescription(schema) {
+    if (schema === null || typeof schema !== 'object') {
+        return String(schema);
+    }
+    const parts = [];
+    if (schema.type) parts.push(`type=${schema.type}`);
+    if (Array.isArray(schema.required) && schema.required.length > 0) {
+        parts.push(`required=[${schema.required.join(',')}]`);
+    }
+    if (schema.properties && typeof schema.properties === 'object') {
+        const keys = Object.keys(schema.properties);
+        if (keys.length > 0) parts.push(`properties=[${keys.join(',')}]`);
+    }
+    if (Array.isArray(schema.enum)) parts.push(`enum=${JSON.stringify(schema.enum)}`);
+    if (schema.const !== undefined) parts.push(`const=${JSON.stringify(schema.const)}`);
+    if (schema.pattern) parts.push(`pattern=${schema.pattern}`);
+    if (parts.length === 0) {
+        try {
+            return JSON.stringify(schema);
+        } catch {
+            return 'object';
+        }
+    }
+    return parts.join(',');
+}
+
+/**
  * 工具 Schema Polyfill 降级编译器
  * 
  * 将高级 JSON Schema 特性（$ref, oneOf, anyOf, allOf, pattern, format, 数值边界等）
@@ -172,32 +205,87 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
 
         // 3. 组合关键字降级：allOf 浅合并
         if (Array.isArray(node.allOf) && node.allOf.length > 0) {
-            node.properties = node.properties || {};
-            node.required = node.required || [];
+            const allOfBranches = node.allOf;
+            const mergedProperties = (node.properties && typeof node.properties === 'object')
+                ? { ...node.properties }
+                : {};
+            let mergedRequired = Array.isArray(node.required) ? [...node.required] : [];
             const branchDescriptions = [];
+            const branchTypes = [];
+            const branchEnums = [];
+            const branchConsts = [];
             if (node.description) {
                 branchDescriptions.push(node.description);
             }
 
-            for (const branch of node.allOf) {
+            for (const branch of allOfBranches) {
                 if (branch && typeof branch === 'object') {
                     const transformedBranch = transformNode(branch, `${path}/allOf`, depth + 1, refStack);
                     if (transformedBranch.properties) {
-                        Object.assign(node.properties, transformedBranch.properties);
+                        Object.assign(mergedProperties, transformedBranch.properties);
                     }
                     if (Array.isArray(transformedBranch.required)) {
-                        node.required = Array.from(new Set([...node.required, ...transformedBranch.required]));
+                        mergedRequired = Array.from(new Set([...mergedRequired, ...transformedBranch.required]));
                     }
                     if (transformedBranch.description && !branchDescriptions.includes(transformedBranch.description)) {
                         branchDescriptions.push(transformedBranch.description);
                     }
+                    // allOf 的交集语义：类型/枚举/const/items 不能只依赖 description。
+                    if (transformedBranch.type) branchTypes.push(transformedBranch.type);
+                    if (Array.isArray(transformedBranch.enum)) branchEnums.push(transformedBranch.enum);
+                    if (transformedBranch.const !== undefined) branchConsts.push(transformedBranch.const);
+                    if (transformedBranch.items !== undefined && node.items === undefined) {
+                        node.items = transformedBranch.items;
+                    }
                 }
             }
+
+            if (Object.keys(mergedProperties).length > 0) {
+                node.properties = mergedProperties;
+            } else {
+                delete node.properties;
+            }
+            if (mergedRequired.length > 0) {
+                node.required = mergedRequired;
+            } else {
+                delete node.required;
+            }
+
+            // 所有声明了类型的分支一致且父节点未声明类型时，直接提升为父节点类型。
+            // 未声明 type 的分支在 allOf 中等价于无类型约束，不应阻止其他分支提升。
+            if (!node.type && branchTypes.length > 0 && new Set(branchTypes).size === 1) {
+                node.type = branchTypes[0];
+            }
+
+            // enum 取各分支交集；父节点已有 enum 时再与父节点求交。
+            if (branchEnums.length > 0) {
+                let intersection = branchEnums[0].slice();
+                for (const values of branchEnums.slice(1)) {
+                    intersection = intersection.filter(value => values.includes(value));
+                }
+                if (Array.isArray(node.enum)) {
+                    intersection = node.enum.filter(value => intersection.includes(value));
+                }
+                if (intersection.length > 0) {
+                    node.enum = intersection;
+                } else if (!Array.isArray(node.enum)) {
+                    // 无交集时不能凭空放行：保留原始分支枚举摘要到 description。
+                    branchDescriptions.push(`[allOf enum intersection is empty: ${JSON.stringify(branchEnums)}]`);
+                }
+            }
+
+            // const 在所有分支一致时提升；冲突时不声明，避免错误约束。
+            if (node.const === undefined && branchConsts.length === allOfBranches.length) {
+                const uniqueConsts = branchConsts.filter((value, index, arr) =>
+                    arr.findIndex(other => JSON.stringify(other) === JSON.stringify(value)) === index
+                );
+                if (uniqueConsts.length === 1) {
+                    node.const = uniqueConsts[0];
+                }
+            }
+
             if (branchDescriptions.length > 0) {
                 node.description = branchDescriptions.join(' ');
-            }
-            if (node.required.length === 0) {
-                delete node.required;
             }
             delete node.allOf;
         }
@@ -394,7 +482,10 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                 constraintItems.push(`additionalProperties=${apType}`);
                 kinds.push('additionalProperties');
             }
-            if (node.not && typeof node.not === 'object') {
+            if (node.not === true) {
+                constraintItems.push('not=true (no instance is valid)');
+                kinds.push('not');
+            } else if (node.not && typeof node.not === 'object') {
                 const notParts = [];
                 if (node.not.type) notParts.push(`type=${node.not.type}`);
                 if (Array.isArray(node.not.enum)) notParts.push(`enum=${JSON.stringify(node.not.enum)}`);
@@ -414,9 +505,28 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
             if (node.propertyNames && typeof node.propertyNames === 'object') {
                 const pn = node.propertyNames.pattern
                     ? `pattern=${node.propertyNames.pattern}`
-                    : (Array.isArray(node.propertyNames.enum) ? `enum=${JSON.stringify(node.propertyNames.enum)}` : JSON.stringify(node.propertyNames));
+                    : (Array.isArray(node.propertyNames.enum) ? `enum=${JSON.stringify(node.propertyNames.enum)}` : summarizeSchemaForDescription(node.propertyNames));
                 constraintItems.push(`propertyNames(${pn})`);
                 kinds.push('propertyNames');
+            }
+            if (node.dependentSchemas && typeof node.dependentSchemas === 'object' && !Array.isArray(node.dependentSchemas)) {
+                const depEntries = Object.entries(node.dependentSchemas)
+                    .map(([k, schema]) => `${k}->${summarizeSchemaForDescription(schema)}`);
+                if (depEntries.length > 0) {
+                    constraintItems.push(`dependentSchemas={${depEntries.join('; ')}}`);
+                    kinds.push('dependentSchemas');
+                }
+            }
+            if (node.if && typeof node.if === 'object') {
+                let conditional = `if(${summarizeSchemaForDescription(node.if)})`;
+                if (node.then && typeof node.then === 'object') {
+                    conditional += ` then(${summarizeSchemaForDescription(node.then)})`;
+                }
+                if (node.else && typeof node.else === 'object') {
+                    conditional += ` else(${summarizeSchemaForDescription(node.else)})`;
+                }
+                constraintItems.push(conditional);
+                kinds.push('if/then/else');
             }
 
             if (constraintItems.length > 0) {
