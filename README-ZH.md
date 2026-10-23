@@ -82,16 +82,6 @@
     </td>
   </tr>
   -->
-  <tr>
-    <td width="25%" align="center" valign="middle">
-      <a href="https://www.atlascloud.ai/console/coding-plan">
-        <img src="static/atlascloud.png" alt="Atlas Cloud Sponsor" width="180">
-      </a>
-    </td>
-    <td width="75%" align="left" valign="middle">
-      感谢 Atlas Cloud 赞助本项目！Atlas Cloud 是一款<strong>全模态 AI 推理平台</strong>，为开发者提供单一的 AI API 以轻松接入视频生成、图像生成和大语言模型 API。无需管理多个供应商集成，您只需连接一次，即可统一访问跨所有模态的 <strong>300 多种精选模型</strong>。欢迎查看 Atlas Cloud 全新的 <a href="https://www.atlascloud.ai/console/coding-plan">编码计划促销活动 (coding plan)</a>，以获取更具性价比的 API 接入服务。
-    </td>
-  </tr>
   <!--
   <tr>
     <td width="25%" align="center" valign="middle">
@@ -129,26 +119,6 @@
     </td>
   </tr>
 -->
-  <tr>
-    <td width="25%" align="center" valign="middle">
-      <a href="https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&aff=2EW65KEQC938">
-        <img src="static/fenno.png" alt="Fenno.ai Sponsor" width="180">
-      </a>
-    </td>
-    <td width="75%" align="left" valign="middle">
-      Fenno.ai 是一家稳定、高效的 API 中转服务商，目前主要提供 Codex 中转服务，兼容 OpenAI 及 Anthropic 协议，可灵活接入 Codex、Claude Code、OpenCode 等主流编程工具，可稳定支撑千亿 Token/日的企业级调用需求，支持国内及海外主体公对公结算、开票。Fenno.ai 为 CC-Connect 的用户提供了专属福利：<a href="https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&aff=2EW65KEQC938">通过此链接</a>即可订阅 <strong>9.9 元/150刀额度</strong>的超值 Coding Plan，邀请好友最高可享 <strong>20% 奖励</strong>，多邀多得！
-    </td>
-  </tr>
-  <tr>
-    <td width="25%" align="center" valign="middle">
-      <a href="https://s.qiniu.com/FRF7bq">
-        <img src="static/qiniu.png" alt="七牛云 AI Sponsor" width="180">
-      </a>
-    </td>
-    <td width="75%" align="left" valign="middle">
-      七牛云 AI 是七牛云（02567.HK）旗下<strong>企业级大模型 MaaS 平台</strong>，可一站式调用全球 <strong>150+ 主流模型</strong>，兼容全球主流模型厂商协议，覆盖文本、图像、音频、视频、文件处理等全模态处理能力，服务超过 169 万企业及开发者用户。专属福利：企业用户可<a href="https://s.qiniu.com/FRF7bq">免费领 <strong>1200 万 Token</strong></a>，邀请好友最高得<strong>百亿 Token</strong>。
-    </td>
-  </tr>
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://vmcardio.com/zh/register?code=902506">

@@ -82,16 +82,6 @@
     </td>
   </tr>
   -->
-  <tr>
-    <td width="25%" align="center" valign="middle">
-      <a href="https://www.atlascloud.ai/console/coding-plan">
-        <img src="static/atlascloud.png" alt="Atlas Cloud Sponsor" width="180">
-      </a>
-    </td>
-    <td width="75%" align="left" valign="middle">
-      Thanks to Atlas Cloud for sponsoring this project! Atlas Cloud is a <strong>full-modal AI inference platform</strong> that gives developers a single AI API to access video generation, image generation, and LLM APIs. Instead of managing multiple vendor integrations, you connect once and get unified access to <strong>300+ curated models</strong> across all modalities. Check out Atlas Cloud's new <a href="https://www.atlascloud.ai/console/coding-plan">coding plan promotion</a> for more budget-friendly API access.
-    </td>
-  </tr>
   <!--
   <tr>
     <td width="25%" align="center" valign="middle">
@@ -129,26 +119,6 @@
     </td>
   </tr>
 -->
-  <tr>
-    <td width="25%" align="center" valign="middle">
-      <a href="https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&aff=2EW65KEQC938">
-        <img src="static/fenno.png" alt="Fenno.ai Sponsor" width="180">
-      </a>
-    </td>
-    <td width="75%" align="left" valign="middle">
-      Fenno.ai is a stable and efficient API relay service provider, currently focused on Codex relay services. It is compatible with OpenAI and Anthropic protocols, can flexibly integrate with mainstream coding tools such as Codex, Claude Code, and OpenCode, and can reliably support enterprise-scale demand of hundreds of billions of tokens per day. It supports corporate settlement and invoicing for both domestic and overseas entities. Fenno.ai provides exclusive benefits for CC-Connect users: <a href="https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&aff=2EW65KEQC938">subscribe via this link</a> to get the value Coding Plan at <strong>9.9 RMB for $150 quota</strong>, and earn up to <strong>20% rewards</strong> by inviting friends.
-    </td>
-  </tr>
-  <tr>
-    <td width="25%" align="center" valign="middle">
-      <a href="https://s.qiniu.com/FRF7bq">
-        <img src="static/qiniu.png" alt="Qiniu Cloud AI Sponsor" width="180">
-      </a>
-    </td>
-    <td width="75%" align="left" valign="middle">
-      Qiniu Cloud AI is an <strong>enterprise-grade large-model MaaS platform</strong> under Qiniu Cloud (02567.HK). It offers one-stop access to <strong>150+ mainstream global models</strong>, is compatible with major model provider protocols, and covers full-modal capabilities including text, image, audio, video, and file processing, serving more than 1.69 million enterprise and developer users. Exclusive benefit: enterprise users can <a href="https://s.qiniu.com/FRF7bq">claim <strong>12 million tokens</strong> for free</a>, and can earn up to <strong>tens of billions of tokens</strong> by inviting friends.
-    </td>
-  </tr>
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://vmcardio.com/zh/register?code=902506">
