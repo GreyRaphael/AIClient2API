@@ -685,5 +685,30 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(booleanNot.not).toBeUndefined();
             expect(booleanNot.description).toContain('not=true (no instance is valid)');
         });
+
+        test('子 Schema 直接 description 中的数值/正则约束进入父摘要', () => {
+            const patternProperties = polyfillAndCleanSchemaForGemini({
+                type: 'object',
+                patternProperties: {
+                    '^x-': { type: 'integer', minimum: 5, maxLength: 8 }
+                }
+            });
+            expect(patternProperties.description).toContain('min=5');
+            expect(patternProperties.description).toContain('maxLength=8');
+
+            const additionalProperties = polyfillAndCleanSchemaForGemini({
+                type: 'object',
+                additionalProperties: { type: 'integer', minimum: 10 }
+            });
+            expect(additionalProperties.description).toContain('min=10');
+
+            const conditional = polyfillAndCleanSchemaForGemini({
+                type: 'object',
+                if: { type: 'string', minLength: 3 },
+                then: { required: ['a'] }
+            });
+            expect(conditional.description).toContain('minLength=3');
+        });
+
     });
 });

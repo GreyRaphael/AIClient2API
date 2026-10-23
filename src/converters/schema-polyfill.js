@@ -86,6 +86,9 @@ function summarizeSchemaForDescription(schema) {
     if (Array.isArray(schema.enum)) parts.push(`enum=${JSON.stringify(schema.enum)}`);
     if (schema.const !== undefined) parts.push(`const=${JSON.stringify(schema.const)}`);
     if (schema.pattern) parts.push(`pattern=${schema.pattern}`);
+    if (typeof schema.description === 'string' && schema.description.trim()) {
+        parts.push(`desc=${schema.description.trim()}`);
+    }
     if (parts.length === 0) {
         try {
             return JSON.stringify(schema);
