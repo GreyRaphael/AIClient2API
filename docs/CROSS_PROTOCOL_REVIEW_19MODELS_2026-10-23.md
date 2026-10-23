@@ -1,13 +1,13 @@
 # AIClient2API 核心转译复评（2026-10-23 · 19 模型全量 E2E · 残留问题收口）
 
 - 状态：当前有效
-- 评估对象：`c031a55`（含 `524cdb7` / `9c93bf0` / `e41c35f` / `13f8e09` 四个残留问题修复提交）
+- 评估对象：`87a8d95`（含 `524cdb7` / `9c93bf0` / `e41c35f` / `13f8e09` 四个残留问题修复，以及 `78d7089` / `87a8d95` 两个摘要/裁剪边界补丁）
 - 对照基线：`4b8a42e3` 的 `docs/CROSS_PROTOCOL_EVALUATION_AND_OPTIMIZATION.md` v1.1.0（2026-10-16，已从工作树移除，经 `git show` 读取历史版本）
 - 测试实例：隔离的 `http://127.0.0.1:3201/auto`
 - 模型来源：`GET /auto/v1/models` 动态发现，共 **19 个模型**
 - 测试参数：Chat `reasoning_effort: "high"`；Responses `reasoning: { effort: "high", summary: "auto" }`；Claude 使用等价原生 `thinking: { type: "enabled", budget_tokens: 20000 }`
-- 单元测试：**29 suites / 486 tests 全绿**
-- E2E：**35 / 35 通过**，总耗时 **709.2s**；19 个模型核心矩阵全部 11/11
+- 单元测试：**29 suites / 489 tests 全绿**
+- E2E：**35 / 35 通过**，总耗时 **1431.0s**；19 个模型核心矩阵全部 11/11
 
 > 与上一轮 19 模型复评（`bacd6b2`）相比，本轮关闭了 6 个残留问题：非流式错误体语义、Gemini 错误帧、空数组错误帧、`allOf`/条件 Schema、system-only 请求、文档统计。E2E 定向用例从 14 项增加到 16 项。
 
@@ -29,12 +29,12 @@
 | 单轮工具（3 协议 × 19） | **57 / 57** |
 | Chat 多轮工具回传 | **19 / 19** |
 | 连续同角色 + system 折叠 | **19 / 19** |
-| 有 reasoning/thinking 的文本用例 | **68 / 114（59.6%）** |
+| 有 reasoning/thinking 的文本用例 | **69 / 114（60.5%）** |
 | 定向 E2E | **16 / 16** |
 | 最终 HTTP 5xx | **0** |
-| 空响应重试 | **4 次（2 unary + 2 stream），均自动恢复** |
+| 空响应重试 | **5 个请求（4 unary + 1 stream）；1 个 unary 耗尽 5 次后由 E2E 重试恢复** |
 | `Failed to write completion marker` | **0** |
-| 单元测试 | **29 suites / 486 tests** |
+| 单元测试 | **29 suites / 489 tests** |
 
 一句话结论：
 
@@ -94,34 +94,34 @@
 
 | # | 模型 | 上游协议 | 用例耗时 | Reasoning | 备注 |
 |---:|---|---|---:|---:|---|
-| 1 | `openai-custom:deepseek-v4-pro` | openai | 29.1s | 6/6 | 含 1 次 unary 空响应重试后恢复 |
-| 2 | `openai-custom:deepseek-v4.1-flash` | openai | 38.3s | 6/6 | — |
-| 3 | `openai-custom:glm-5.3` | openai | 13.6s | 6/6 | — |
-| 4 | `openai-custom:qwen3.8-flash` | openai | 26.4s | 6/6 | — |
-| 5 | `openai-custom:qwen3.8-max` | openai | 43.6s | 6/6 | — |
-| 6 | `openaiResponses-custom:deepseek-v4-flash` | openaiResponses | 10.3s | 6/6 | — |
-| 7 | `gemini-antigravity:claude-opus-5-5-medium` | gemini | 14.1s | 0/6 | Provider 不暴露 thought 文本 |
-| 8 | `gemini-antigravity:claude-sonnet-5-5-medium` | gemini | 9.1s | 0/6 | 同上 |
-| 9 | `gemini-antigravity:gemini-3.8-flash-high` | gemini | 44.8s | 6/6 | 流式 thinking 回退非流式 |
-| 10 | `gemini-antigravity:gemini-4-argon-medium` | gemini | 75.5s | 6/6 | 本轮最长用例 |
-| 11 | `openai-codex-oauth:gpt-6-luna` | codex | 30.1s | 6/6 | — |
-| 12 | `zed:claude-haiku-5-5` | claude | 24.1s | 0/6 | Provider 不暴露 thinking |
+| 1 | `openai-custom:deepseek-v4-pro` | openai | 40.3s | 6/6 | 含 unary 空响应重试；1 次耗尽后由 E2E 重试恢复 |
+| 2 | `openai-custom:deepseek-v4.1-flash` | openai | 18.7s | 6/6 | — |
+| 3 | `openai-custom:glm-5.3` | openai | 14.3s | 6/6 | — |
+| 4 | `openai-custom:qwen3.8-flash` | openai | 33.6s | 6/6 | — |
+| 5 | `openai-custom:qwen3.8-max` | openai | 43.2s | 6/6 | — |
+| 6 | `openaiResponses-custom:deepseek-v4-flash` | openaiResponses | 66.4s | 6/6 | — |
+| 7 | `gemini-antigravity:claude-opus-5-5-medium` | gemini | 16.7s | 0/6 | Provider 不暴露 thought 文本 |
+| 8 | `gemini-antigravity:claude-sonnet-5-5-medium` | gemini | 14.3s | 0/6 | 同上 |
+| 9 | `gemini-antigravity:gemini-3.8-flash-high` | gemini | 115.0s | 6/6 | 流式 thinking 回退非流式 |
+| 10 | `gemini-antigravity:gemini-4-argon-medium` | gemini | 65.6s | 6/6 | — |
+| 11 | `openai-codex-oauth:gpt-6-luna` | codex | 30.3s | 6/6 | — |
+| 12 | `zed:claude-haiku-5-5` | claude | 22.8s | 0/6 | Provider 不暴露 thinking |
 | 13 | `zed:claude-sonnet-5-5` | claude | 25.4s | 0/6 | 同上 |
-| 14 | `zed:gemini-3.8-flash` | claude | 40.8s | 0/6 | Zed Google 通道不回传 thought 文本 |
-| 15 | `zed:gemini-4-argon` | claude | 60.7s | 0/6 | 同上 |
-| 16 | `zed:gpt-6-luna` | claude | 34.3s | 1/6 | GPT 采样差异 |
-| 17 | `zed:gpt-6.1-sol` | claude | 35.4s | 1/6 | GPT 采样差异 |
-| 18 | `trae:DeepSeek-V4.1-Flash-1017` | openai | 16.1s | 6/6 | — |
-| 19 | `trae-chat_v3:glm-5.3-flashx` | openai | 25.8s | 6/6 | — |
+| 14 | `zed:gemini-3.8-flash` | claude | 230.8s | 0/6 | Zed Google 长尾；不回传 thought 文本 |
+| 15 | `zed:gemini-4-argon` | claude | 228.4s | 0/6 | 同上 |
+| 16 | `zed:gpt-6-luna` | claude | 58.6s | 1/6 | GPT 采样差异 |
+| 17 | `zed:gpt-6.1-sol` | claude | 36.7s | 2/6 | GPT 采样差异 |
+| 18 | `trae:DeepSeek-V4.1-Flash-1017` | openai | 17.3s | 6/6 | — |
+| 19 | `trae-chat_v3:glm-5.3-flashx` | openai | 30.3s | 6/6 | — |
 
 ### 3.2 Reasoning 可用性
 
-114 条文本用例中 **68 条（59.6%）** 返回 reasoning/thinking。缺失集中在：
+114 条文本用例中 **69 条（60.5%）** 返回 reasoning/thinking。缺失集中在：
 
 - `gemini-antigravity:claude-*` 两个模型：12 条，Provider/模型不暴露 thought 文本；同一转换路径下 `gemini-3.8-flash-high` 6/6 正常。
 - `zed:claude-*` 两个模型：12 条，Provider 不暴露 thinking block。
 - `zed:gemini-*` 两个模型：12 条，Zed Google 通道不回传 thought 文本。
-- `zed:gpt-6-luna` / `gpt-6.1-sol`：10 条，GPT 采样差异；多步 prompt 定向用例可通过。
+- `zed:gpt-6-luna` / `gpt-6.1-sol`：9 条，GPT 采样差异；多步 prompt 定向用例可通过。
 
 这些是 Provider/模型行为，不是网关统一丢弃；只要上游返回 thought/reasoning，三个下游方向的映射都能正确产出。网关侧仍主动跳过的只有“无签名/无 encrypted_content 的历史思考”，见 4.4。
 
@@ -129,18 +129,18 @@
 
 | 指标 | 数值 |
 |---|---:|
-| 核心矩阵总耗时 | **597.6s** |
-| 平均每模型（11 用例） | **31.5s** |
-| 最长 | `gemini-antigravity:gemini-4-argon-medium` **75.5s** |
-| 最短 | `gemini-antigravity:claude-sonnet-5-5-medium` **9.1s** |
-| E2E 总耗时 | **709.2s** |
+| 核心矩阵总耗时 | **1108.7s** |
+| 平均每模型（11 用例） | **58.4s** |
+| 最长 | `zed:gemini-3.8-flash` **230.8s** |
+| 最短 | `openai-custom:glm-5.3` / `gemini-antigravity:claude-sonnet-5-5-medium` **14.3s** |
+| E2E 总耗时 | **1431.0s** |
 
 ### 3.4 服务端异常
 
 | 事件 | 次数 | 性质 |
 |---|---:|---|
-| `[Unary Retry]` | 2 | `openai-custom` 空响应，自动重试后成功 |
-| `[Stream Retry]` | 2 | `openai-custom` 空响应，自动重试后成功 |
+| `[Unary Retry]` | 4 个请求（1 个耗尽 5 次） | `openai-custom` 空响应；耗尽请求由 E2E 重试恢复 |
+| `[Stream Retry]` | 1 个请求（重试 3 次后恢复） | `openai-custom` 空响应 |
 | `Failed to write completion marker` | 0 | 收尾链路正常 |
 | 上游 4xx | 1 | 定向用例预期：错误细节保留 |
 | Gemini `MAX_TOKENS` 空内容 | 1 | 定向用例预期：合法截断 |
@@ -171,6 +171,8 @@
 | `allOf` 丢 type/enum，scalar allOf 生成空 properties | `9c93bf0`：提升一致 type/items，enum 取交集，按需保留 properties/required | Schema 单测 + 探针 |
 | `dependentSchemas` / `if-then-else` / 布尔 `not` 丢失 | `9c93bf0` + `e41c35f`：递归展开并注入 description | Schema 单测 + 探针 |
 | system/developer-only 请求导致 Gemini 400 | `13f8e09`：converter 返回本地 400，明确提示缺少 user/assistant turn | 新增 E2E：7ms 返回 400，未请求上游 |
+| 子 Schema description 中的 min/maxLength 等约束在摘要中丢失 | `78d7089`：`summarizeSchemaForDescription()` 读取 `schema.description` | Schema 单测：patternProperties / additionalProperties / if 的 min/maxLength 进入父摘要 |
+| 阶段 2 裁剪修改不可达分支，虚减总描述长度 | `87a8d95`：只统计 properties/items/根节点；按节点合并并以真实描述差值裁剪；allOf/oneOf/$ref 登记父节点 | Schema 单测：allOf 实际总长 ≤ 上限；dependentSchemas 不再虚减 |
 
 ### 4.4 仍保留的协议/策略限制
 
@@ -179,7 +181,7 @@
 3. **签名隔离**：真实 Claude 签名不传给 Gemini，Gemini 原生签名由 `vsig1` 虚拟签名替代；严格校验签名的客户端可能不接受非标准格式。
 4. **Schema 结构保真**：不支持的关键字通过 description 表达，而不是结构等价；`allOf` 类型冲突、`const`、复杂 `additionalProperties` 仍只能摘要。
 5. **Provider 默认注入**：Codex 默认 `web_search`/`store`/`include`，Gemini 默认采样参数，Claude↔OpenAI 的 `max_completion_tokens` 调整；属于通道约定，已在架构文档声明。
-6. **Reasoning 可用性**：59.6% 的文本用例返回 CoT，主要由 Provider/模型/采样决定；Zed Claude/Gemini 与 Antigravity Claude 不暴露 thought 文本。
+6. **Reasoning 可用性**：60.5% 的文本用例返回 CoT，主要由 Provider/模型/采样决定；Zed Claude/Gemini 与 Antigravity Claude 不暴露 thought 文本。
 7. **system-only 请求**：现在明确返回 400；这是客户端错误，不再伪装成上游 400。
 
 ---
@@ -231,7 +233,7 @@
 
 ### 5.5 测试与覆盖
 
-- 单元测试 29 suites / 486 tests，覆盖 F1~F6/F11 的新增分支。
+- 单元测试 29 suites / 489 tests，覆盖 F1~F6/F11 与摘要/裁剪边界的新增分支。
 - E2E 35 项：19 模型核心矩阵 + 16 定向；真实上游验证 developer/text.format、system-only 400、三协议流式工具、CoT 回放、Schema `oneOf`。
 - 仍缺：并行工具、工具参数增量流式、custom tool 真实调用、PDF/远程图片、显式 cache_control、真实流内错误帧。
 
@@ -244,7 +246,7 @@
 | 文本与流式主链路 | **5.0** | 114/114 文本、57/57 流式生命周期 |
 | 单轮工具 | **5.0** | 57/57；强制 `tool_choice` 定向通过 |
 | 多轮工具 | **4.9** | 19/19；CoT 历史仍有物理约束 |
-| Reasoning 转发 | **4.5** | 上游提供时映射正确；68/114 可用性由 Provider/采样决定 |
+| Reasoning 转发 | **4.5** | 上游提供时映射正确；69/114 可用性由 Provider/采样决定 |
 | System / 角色语义 | **4.8** | `ZEBRA42`、developer/text.format、system-only 400 均通过 |
 | Schema 保真 | **4.4** | 组合关键字已覆盖；结构仍降级为 description |
 | 多模态 | **4.3** | 图片/PDF 主路径可用；覆盖不足 |
@@ -295,9 +297,9 @@ npx jest --runInBand --silent
 ```text
 Test Suites: 1 passed, 1 total
 Tests:       35 passed, 35 total
-Time:        709.237 s
+Time:        1430.953 s
 
-单元测试：29 suites / 486 tests 全绿
+单元测试：29 suites / 489 tests 全绿
 ```
 
 ---
