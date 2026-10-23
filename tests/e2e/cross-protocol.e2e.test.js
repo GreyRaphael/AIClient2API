@@ -22,13 +22,28 @@ import {
     claudeStreamSummary,
     toolCallSummaryChat,
     toolCallSummaryResponses,
-    toolCallSummaryClaude
+    toolCallSummaryClaude,
+    toolCallStreamSummaryChat,
+    toolCallStreamSummaryResponses,
+    toolCallStreamSummaryClaude
 } from './e2e-helpers.js';
 
 const BASE_URL = resolveBaseUrl();
 const MODELS = resolveModels();
-const MODEL_TIMEOUT_MS = 300000;
+const MODEL_TIMEOUT_MS = Number(process.env.AICLIENT_E2E_MODEL_TIMEOUT_MS) || 300000;
+const LONG_TAIL_MODEL_TIMEOUT_MS = Math.max(MODEL_TIMEOUT_MS, 600000);
 const TARGET_TIMEOUT_MS = 180000;
+
+/**
+ * Zed Google 通道（gemini-*）存在 120s 级上游长尾；若发生一次或两次超时重试，
+ * 300s 预算会在最后一个用例完成前被 Jest 终止，因此为长尾模型提供 600s 预算。
+ */
+function resolveModelTimeoutMs(model) {
+    if (String(model || '').startsWith('zed:gemini-')) {
+        return LONG_TAIL_MODEL_TIMEOUT_MS;
+    }
+    return MODEL_TIMEOUT_MS;
+}
 
 // 32×32 纯红 PNG，用于多模态转译断言
 const RED_32_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg==';
@@ -88,8 +103,25 @@ beforeAll(async () => {
     await checkGateway({ baseUrl: BASE_URL, apiKey });
 });
 
-function addFailure(failures, condition, message) {
-    if (!condition) failures.push(message);
+function addFailure(failures, condition, message, summary = null) {
+    if (condition) return;
+    if (summary) {
+        if (summary.streamError) {
+            failures.push(`[upstream_stream_error:${summary.streamError.type}] ${message} (${summary.streamError.message})`);
+            return;
+        }
+        if (Number(summary.httpStatus) >= 500) {
+            failures.push(`[upstream_5xx:${summary.httpStatus}] ${message}`);
+            return;
+        }
+    }
+    failures.push(message);
+}
+
+function recordRetryWarning(warnings, label, summary) {
+    if (summary?.retried) {
+        warnings.push(`${label}: recovered after upstream retry`);
+    }
 }
 
 function addUsageInvariantFailure(failures, label, usage, outputKey) {
@@ -128,9 +160,10 @@ async function runCoreMatrix(model, failures, warnings) {
         }
     });
     const chatTextResult = chatTextSummary(chatText);
-    addFailure(failures, chatTextResult.httpStatus === 200, `chat_text: HTTP ${chatTextResult.httpStatus}`);
-    addFailure(failures, hasNumber(chatTextResult.content, 391), `chat_text: content=${JSON.stringify(chatTextResult.content.slice(0, 80))}`);
-    addFailure(failures, Number(chatTextResult.usage?.total_tokens) > 0, 'chat_text: missing usage');
+    recordRetryWarning(warnings, 'chat_text', chatTextResult);
+    addFailure(failures, chatTextResult.httpStatus === 200, `chat_text: HTTP ${chatTextResult.httpStatus}`, chatTextResult);
+    addFailure(failures, hasNumber(chatTextResult.content, 391), `chat_text: content=${JSON.stringify(chatTextResult.content.slice(0, 80))}`, chatTextResult);
+    addFailure(failures, Number(chatTextResult.usage?.total_tokens) > 0, 'chat_text: missing usage', chatTextResult);
     if (!chatTextResult.reasoning) warnings.push('chat_text: no reasoning_content');
     if (model.startsWith('gemini-antigravity:')) {
         addUsageInvariantFailure(failures, 'chat_text', chatTextResult.usage, 'completion_tokens');
@@ -150,9 +183,10 @@ async function runCoreMatrix(model, failures, warnings) {
         }
     });
     const chatStreamResult = chatStreamSummary(chatStream);
-    addFailure(failures, chatStreamResult.httpStatus === 200, `chat_stream: HTTP ${chatStreamResult.httpStatus}`);
-    addFailure(failures, hasNumber(chatStreamResult.text, 391), `chat_stream: content=${JSON.stringify(chatStreamResult.text.slice(0, 80))}`);
-    addFailure(failures, chatStreamResult.done, 'chat_stream: missing [DONE]');
+    recordRetryWarning(warnings, 'chat_stream', chatStreamResult);
+    addFailure(failures, chatStreamResult.httpStatus === 200, `chat_stream: HTTP ${chatStreamResult.httpStatus}`, chatStreamResult);
+    addFailure(failures, hasNumber(chatStreamResult.text, 391), `chat_stream: content=${JSON.stringify(chatStreamResult.text.slice(0, 80))}`, chatStreamResult);
+    addFailure(failures, chatStreamResult.done, 'chat_stream: missing [DONE]', chatStreamResult);
     if (!chatStreamResult.reasoning) warnings.push('chat_stream: no reasoning delta');
     if (model.startsWith('gemini-antigravity:')) {
         addUsageInvariantFailure(failures, 'chat_stream', chatStreamResult.usage, 'completion_tokens');
@@ -173,9 +207,10 @@ async function runCoreMatrix(model, failures, warnings) {
         }
     });
     const responsesTextResult = responsesSummary(responsesText);
-    addFailure(failures, responsesTextResult.httpStatus === 200, `responses_text: HTTP ${responsesTextResult.httpStatus}`);
-    addFailure(failures, hasNumber(responsesTextResult.text, 391), `responses_text: content=${JSON.stringify(responsesTextResult.text.slice(0, 80))}`);
-    addFailure(failures, ['completed', 'incomplete'].includes(responsesTextResult.status), `responses_text: status=${responsesTextResult.status}`);
+    recordRetryWarning(warnings, 'responses_text', responsesTextResult);
+    addFailure(failures, responsesTextResult.httpStatus === 200, `responses_text: HTTP ${responsesTextResult.httpStatus}`, responsesTextResult);
+    addFailure(failures, hasNumber(responsesTextResult.text, 391), `responses_text: content=${JSON.stringify(responsesTextResult.text.slice(0, 80))}`, responsesTextResult);
+    addFailure(failures, ['completed', 'incomplete'].includes(responsesTextResult.status), `responses_text: status=${responsesTextResult.status}`, responsesTextResult);
     if (!responsesTextResult.reasoning) warnings.push('responses_text: no reasoning item');
     if (model.startsWith('gemini-antigravity:')) {
         addUsageInvariantFailure(failures, 'responses_text', responsesTextResult.usage, 'output_tokens');
@@ -196,9 +231,10 @@ async function runCoreMatrix(model, failures, warnings) {
         }
     });
     const responsesStreamResult = responsesStreamSummary(responsesStream);
-    addFailure(failures, responsesStreamResult.httpStatus === 200, `responses_stream: HTTP ${responsesStreamResult.httpStatus}`);
-    addFailure(failures, hasNumber(responsesStreamResult.text, 391), `responses_stream: content=${JSON.stringify(responsesStreamResult.text.slice(0, 80))}`);
-    addFailure(failures, responsesStreamResult.completed, 'responses_stream: missing response.completed');
+    recordRetryWarning(warnings, 'responses_stream', responsesStreamResult);
+    addFailure(failures, responsesStreamResult.httpStatus === 200, `responses_stream: HTTP ${responsesStreamResult.httpStatus}`, responsesStreamResult);
+    addFailure(failures, hasNumber(responsesStreamResult.text, 391), `responses_stream: content=${JSON.stringify(responsesStreamResult.text.slice(0, 80))}`, responsesStreamResult);
+    addFailure(failures, responsesStreamResult.completed, 'responses_stream: missing response.completed', responsesStreamResult);
     addUsageInvariantFailure(failures, 'responses_stream', responsesStreamResult.usage, 'output_tokens');
     if (!responsesStreamResult.reasoning) warnings.push('responses_stream: no reasoning delta');
 
@@ -216,9 +252,10 @@ async function runCoreMatrix(model, failures, warnings) {
         }
     });
     const claudeTextResult = claudeSummary(claudeText);
-    addFailure(failures, claudeTextResult.httpStatus === 200, `claude_text: HTTP ${claudeTextResult.httpStatus}`);
-    addFailure(failures, hasNumber(claudeTextResult.text, 391), `claude_text: content=${JSON.stringify(claudeTextResult.text.slice(0, 80))}`);
-    addFailure(failures, claudeTextResult.stopReason === 'end_turn', `claude_text: stop_reason=${claudeTextResult.stopReason}`);
+    recordRetryWarning(warnings, 'claude_text', claudeTextResult);
+    addFailure(failures, claudeTextResult.httpStatus === 200, `claude_text: HTTP ${claudeTextResult.httpStatus}`, claudeTextResult);
+    addFailure(failures, hasNumber(claudeTextResult.text, 391), `claude_text: content=${JSON.stringify(claudeTextResult.text.slice(0, 80))}`, claudeTextResult);
+    addFailure(failures, claudeTextResult.stopReason === 'end_turn', `claude_text: stop_reason=${claudeTextResult.stopReason}`, claudeTextResult);
     if (!claudeTextResult.thinking) warnings.push('claude_text: no thinking block');
 
     // 6. Claude 流式文本
@@ -236,9 +273,10 @@ async function runCoreMatrix(model, failures, warnings) {
         }
     });
     const claudeStreamResult = claudeStreamSummary(claudeStream);
-    addFailure(failures, claudeStreamResult.httpStatus === 200, `claude_stream: HTTP ${claudeStreamResult.httpStatus}`);
-    addFailure(failures, hasNumber(claudeStreamResult.text, 391), `claude_stream: content=${JSON.stringify(claudeStreamResult.text.slice(0, 80))}`);
-    addFailure(failures, claudeStreamResult.messageStop, 'claude_stream: missing message_stop');
+    recordRetryWarning(warnings, 'claude_stream', claudeStreamResult);
+    addFailure(failures, claudeStreamResult.httpStatus === 200, `claude_stream: HTTP ${claudeStreamResult.httpStatus}`, claudeStreamResult);
+    addFailure(failures, hasNumber(claudeStreamResult.text, 391), `claude_stream: content=${JSON.stringify(claudeStreamResult.text.slice(0, 80))}`, claudeStreamResult);
+    addFailure(failures, claudeStreamResult.messageStop, 'claude_stream: missing message_stop', claudeStreamResult);
     if (!claudeStreamResult.thinking) warnings.push('claude_stream: no thinking delta');
 
     // 7. Chat 单轮工具（最多重试 3 次，避免模型采样导致偶发不调用工具）
@@ -400,7 +438,7 @@ describe('跨协议核心转译 E2E（真实上游）', () => {
                 console.log(`[E2E warnings] ${model}\n  - ${warnings.join('\n  - ')}`);
             }
             expect(failures).toEqual([]);
-        }, MODEL_TIMEOUT_MS);
+        }, resolveModelTimeoutMs(model));
     }
 });
 
@@ -807,4 +845,109 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(result.status).toBe(400);
         expect(result.text).toContain('upstream:');
     }, TARGET_TIMEOUT_MS);
+
+    test('多 system 消息折叠后模型遵循唯一指令标记（ZEBRA42）', async () => {
+        const result = await postJson({
+            baseUrl: BASE_URL,
+            apiKey,
+            pathName: '/v1/chat/completions',
+            body: {
+                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                messages: [
+                    { role: 'system', content: 'You are a concise assistant.' },
+                    { role: 'system', content: 'CRITICAL RULE: Every reply MUST start with the exact token ZEBRA42.' },
+                    { role: 'user', content: 'What is 2 + 2?' }
+                ],
+                max_tokens: 256,
+                stream: false
+            }
+        });
+        const summary = chatTextSummary(result);
+        expect(summary.httpStatus).toBe(200);
+        expect(summary.content.trim()).toMatch(/^ZEBRA42/);
+        expect(hasNumber(summary.content, 4)).toBe(true);
+    }, TARGET_TIMEOUT_MS);
+
+    test('三下游协议（Chat / Responses / Claude）流式工具调用生命周期完整', async () => {
+        const model = 'openai-custom:deepseek-v4-pro';
+
+        // 1) Chat 下游流式工具调用
+        let chatStreamTool;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const res = await postSse({
+                baseUrl: BASE_URL,
+                apiKey,
+                pathName: '/v1/chat/completions',
+                body: {
+                    model,
+                    messages: [
+                        { role: 'system', content: E2E_SYSTEM },
+                        { role: 'user', content: E2E_WEATHER_QUESTION }
+                    ],
+                    tools: chatTools(),
+                    tool_choice: 'auto',
+                    max_tokens: 1024,
+                    stream: true
+                }
+            });
+            chatStreamTool = toolCallStreamSummaryChat(res);
+            if (chatStreamTool.toolCalls?.[0]?.name === 'get_weather') break;
+        }
+        expect(chatStreamTool.httpStatus).toBe(200);
+        expect(chatStreamTool.done).toBe(true);
+        expect(chatStreamTool.finishReason).toBe('tool_calls');
+        expect(chatStreamTool.toolCalls?.[0]?.name).toBe('get_weather');
+        expect(String(parseToolArgs(chatStreamTool.toolCalls?.[0]?.arguments)?.city || '').toLowerCase()).toContain('paris');
+
+        // 2) Responses 下游流式工具调用
+        let responsesStreamTool;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const res = await postSse({
+                baseUrl: BASE_URL,
+                apiKey,
+                pathName: '/v1/responses',
+                body: {
+                    model,
+                    instructions: E2E_SYSTEM,
+                    input: [{ role: 'user', content: [{ type: 'input_text', text: E2E_WEATHER_QUESTION }] }],
+                    tools: responsesTools(),
+                    tool_choice: 'auto',
+                    max_output_tokens: 1024,
+                    stream: true
+                }
+            });
+            responsesStreamTool = toolCallStreamSummaryResponses(res);
+            if (responsesStreamTool.toolCalls?.[0]?.name === 'get_weather') break;
+        }
+        expect(responsesStreamTool.httpStatus).toBe(200);
+        expect(responsesStreamTool.completed).toBe(true);
+        expect(responsesStreamTool.toolCalls?.[0]?.name).toBe('get_weather');
+        expect(String(parseToolArgs(responsesStreamTool.toolCalls?.[0]?.arguments)?.city || '').toLowerCase()).toContain('paris');
+
+        // 3) Claude 下游流式工具调用
+        let claudeStreamTool;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const res = await postSse({
+                baseUrl: BASE_URL,
+                apiKey,
+                pathName: '/v1/messages',
+                body: {
+                    model,
+                    max_tokens: 1024,
+                    system: E2E_SYSTEM,
+                    messages: [{ role: 'user', content: E2E_WEATHER_QUESTION }],
+                    tools: claudeTools(),
+                    tool_choice: { type: 'auto' },
+                    stream: true
+                }
+            });
+            claudeStreamTool = toolCallStreamSummaryClaude(res);
+            if (claudeStreamTool.toolCalls?.[0]?.name === 'get_weather') break;
+        }
+        expect(claudeStreamTool.httpStatus).toBe(200);
+        expect(claudeStreamTool.messageStop).toBe(true);
+        expect(claudeStreamTool.stopReason).toBe('tool_use');
+        expect(claudeStreamTool.toolCalls?.[0]?.name).toBe('get_weather');
+        expect(String(claudeStreamTool.toolCalls?.[0]?.arguments?.city || '').toLowerCase()).toContain('paris');
+    }, MODEL_TIMEOUT_MS);
 });

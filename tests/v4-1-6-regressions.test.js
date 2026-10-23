@@ -10,6 +10,8 @@ import {
     extractTerminalFinishReason,
     isTerminalEmptyFinishReason
 } from '../src/handlers/request-pipeline.js';
+import { ZedApiService } from '../src/providers/zed/zed-core.js';
+import { extractSseStreamError } from './e2e/e2e-helpers.js';
 
 const flat = (value) => (value == null ? [] : Array.isArray(value) ? value : [value]);
 
@@ -349,5 +351,175 @@ describe('v4.1.6 P2: Responses → Gemini 工具 ID 配对', () => {
 
         expect(functionCall?.id).toBe('call_abc');
         expect(functionResponse?.id).toBe('call_abc');
+    });
+});
+
+describe('v4.1.7 Rerun P0/P1: 快速一致性与边界健壮性修复', () => {
+    test('OpenAI → Gemini 显式传 temperature=0 与 top_p=0 时不被默认值覆盖', () => {
+        const converter = new OpenAIConverter();
+        const geminiReq = converter.toGeminiRequest({
+            model: 'gemini-3.8-flash',
+            messages: [{ role: 'user', content: 'hi' }],
+            temperature: 0,
+            top_p: 0,
+            max_tokens: 0
+        });
+        expect(geminiReq.generationConfig.temperature).toBe(0);
+        expect(geminiReq.generationConfig.topP).toBe(0);
+        // max_tokens=0 非法，仍回退到默认 65534
+        expect(geminiReq.generationConfig.maxOutputTokens).toBe(65534);
+    });
+
+    test('Zed Google 通道 budget_tokens=5000 按 canonical 阈值映射为 MEDIUM', () => {
+        const zedService = new ZedApiService({
+            uuid: 'test-uuid',
+            ZED_SYSTEM_ID: 'test-sys-id'
+        });
+        const payload = zedService.buildPayload('gemini-3.8-flash', {
+            messages: [{ role: 'user', content: 'hi' }],
+            thinking: { type: 'enabled', budget_tokens: 5000 }
+        });
+        expect(payload.provider).toBe('google');
+        expect(payload.provider_request.generationConfig.thinkingConfig).toEqual({
+            thinkingLevel: 'MEDIUM'
+        });
+    });
+
+    test('Gemini → Responses 流式 MALFORMED_FUNCTION_CALL 与 MODEL_ARMOR 与非流式一致映射为 content_filter', () => {
+        const converter = new GeminiConverter();
+        for (const reason of ['MALFORMED_FUNCTION_CALL', 'MODEL_ARMOR']) {
+            const reqId = `gemini-resp-${reason}`;
+            const startEvents = flat(converter.toOpenAIResponsesStreamChunk(
+                { candidates: [{ content: { role: 'model', parts: [{ text: 'partial' }] } }] },
+                'gemini-test',
+                reqId
+            ));
+            const finishEvents = flat(converter.toOpenAIResponsesStreamChunk(
+                { candidates: [{ content: { role: 'model', parts: [] }, finishReason: reason }] },
+                'gemini-test',
+                reqId
+            ));
+            const allEvents = [...startEvents, ...finishEvents];
+            const terminal = allEvents.find(
+                e => e.type === 'response.incomplete' || e.type === 'response.completed'
+            );
+            expect(terminal?.type).toBe('response.incomplete');
+            expect(terminal?.response?.status).toBe('incomplete');
+            expect(terminal?.response?.incomplete_details).toEqual({ reason: 'content_filter' });
+        }
+    });
+
+    test('Responses → OpenAI / Claude 仅收到 done 事件（无前序 delta）时不丢内容且不发孤立 stop', () => {
+        const converter = new OpenAIResponsesConverter();
+
+        // 1) Responses -> OpenAI: 只有 done.text 时兜底输出，已有 delta 时不重复输出
+        const chatOnlyDone = converter.toOpenAIStreamChunk(
+            { type: 'response.output_text.done', text: 'fallback answer' },
+            'gpt-test',
+            'resp-done-only-chat'
+        );
+        expect(chatOnlyDone?.choices?.[0]?.delta?.content).toBe('fallback answer');
+
+        converter.toOpenAIStreamChunk(
+            { type: 'response.output_text.delta', delta: 'streamed' },
+            'gpt-test',
+            'resp-with-delta-chat'
+        );
+        const chatAfterDelta = converter.toOpenAIStreamChunk(
+            { type: 'response.output_text.done', text: 'streamed' },
+            'gpt-test',
+            'resp-with-delta-chat'
+        );
+        expect(chatAfterDelta).toBeNull();
+
+        // 2) Responses -> Claude: 空 done 不产生孤立 content_block_stop；含 text 的 done 自动补齐 start+delta+stop
+        const claudeEmptyDone = converter.toClaudeStreamChunk(
+            { type: 'response.output_text.done', output_index: 0, content_index: 0 },
+            'claude-test',
+            'resp-empty-done-claude'
+        );
+        expect(claudeEmptyDone).toBeNull();
+
+        const claudeFallbackDone = flat(converter.toClaudeStreamChunk(
+            { type: 'response.output_text.done', output_index: 0, content_index: 0, text: 'hello' },
+            'claude-test',
+            'resp-text-done-claude'
+        ));
+        expect(claudeFallbackDone.map(e => e.type)).toEqual([
+            'content_block_start',
+            'content_block_delta',
+            'content_block_stop'
+        ]);
+    });
+
+    test('preContentBuffer 超过帧数上限时提前冲刷，不阻塞且不误触发空响应异常', async () => {
+        const res = createMockResponse();
+        const service = {
+            async *generateContentStream() {
+                for (let i = 0; i < 4; i++) {
+                    yield {
+                        candidates: [{
+                            content: { role: 'model', parts: [{ text: `thought-${i}`, thought: true }] }
+                        }]
+                    };
+                }
+                yield {
+                    candidates: [{
+                        content: { role: 'model', parts: [{ text: 'final answer' }] },
+                        finishReason: 'STOP'
+                    }]
+                };
+            }
+        };
+
+        await handleStreamRequest(
+            res,
+            service,
+            'gemini-antigravity:test',
+            {},
+            'openai-custom',
+            'gemini-antigravity',
+            'none',
+            '',
+            undefined,
+            undefined,
+            undefined,
+            {
+                CONFIG: { PRE_CONTENT_BUFFER_MAX_FRAMES: 2, EMPTY_RESPONSE_MAX_RETRIES: 0 },
+                currentRetry: 0,
+                maxRetries: 0,
+                requestId: 'pre-content-cap-test'
+            }
+        );
+
+        const body = res.chunks.join('');
+        expect(body).toContain('thought-0');
+        expect(body).toContain('final answer');
+        expect(body).toContain('data: [DONE]');
+        expect(res.ended).toBe(true);
+    });
+
+    test('E2E extractSseStreamError 覆盖 Responses / Claude / OpenAI Chat 三种流内错误并区分可重试性', () => {
+        // 1) OpenAI Chat 无 event 头的 server_error -> 可重试
+        const chatServerErr = extractSseStreamError([
+            { event: '', data: { error: { message: 'timeout of 120000ms exceeded', type: 'server_error', code: null } } }
+        ]);
+        expect(chatServerErr).toEqual({
+            type: 'server_error',
+            message: 'timeout of 120000ms exceeded',
+            isRetryable: true
+        });
+
+        // 2) Responses event:error -> 可重试
+        const responsesErr = extractSseStreamError([
+            { event: 'error', data: { object: 'error', error: { type: 'server_error', message: 'Zed timeout' } } }
+        ]);
+        expect(responsesErr?.isRetryable).toBe(true);
+
+        // 3) 4xx invalid_request_error -> 不可重试
+        const clientErr = extractSseStreamError([
+            { event: 'error', data: { type: 'error', error: { type: 'invalid_request_error', message: 'bad param' } } }
+        ]);
+        expect(clientErr?.isRetryable).toBe(false);
     });
 });

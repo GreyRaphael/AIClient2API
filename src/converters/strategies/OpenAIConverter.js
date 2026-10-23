@@ -1400,9 +1400,14 @@ export class OpenAIConverter extends BaseConverter {
     buildGeminiGenerationConfig({ temperature, max_tokens, max_completion_tokens, top_p, stop, tools, response_format }, model) {
         const config = {};
         const effectiveMaxTokens = max_completion_tokens !== undefined ? max_completion_tokens : max_tokens;
-        config.temperature = checkAndAssignOrDefault(temperature, GEMINI_DEFAULT_TEMPERATURE);
+        // temperature / top_p 允许显式传 0（如贪婪解码 temperature=0），不能用 checkAndAssignOrDefault 判 0 回退
+        config.temperature = (temperature !== undefined && temperature !== null)
+            ? temperature
+            : GEMINI_DEFAULT_TEMPERATURE;
         config.maxOutputTokens = checkAndAssignOrDefault(effectiveMaxTokens, GEMINI_DEFAULT_MAX_TOKENS);
-        config.topP = checkAndAssignOrDefault(top_p, GEMINI_DEFAULT_TOP_P);
+        config.topP = (top_p !== undefined && top_p !== null)
+            ? top_p
+            : GEMINI_DEFAULT_TOP_P;
         if (stop !== undefined) config.stopSequences = Array.isArray(stop) ? stop : [stop];
 
         // Handle response_format

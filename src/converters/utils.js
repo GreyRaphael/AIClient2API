@@ -297,7 +297,7 @@ export function parseBase64DataUrl(value) {
  * @returns {*} 处理后的值
  */
 export function checkAndAssignOrDefault(value, defaultValue) {
-    if (value !== undefined && value !== 0) {
+    if (value !== undefined && value !== null && value !== 0) {
         return value;
     }
     return defaultValue;

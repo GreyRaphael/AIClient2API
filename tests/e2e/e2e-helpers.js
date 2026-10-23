@@ -141,7 +141,13 @@ export async function postJson({ baseUrl, apiKey, pathName, body, timeoutMs = 18
             } catch {
                 // 非 JSON 错误体保留在 text 中
             }
-            const result = { status: response.status, json, text, ms: Date.now() - started };
+            const result = {
+                status: response.status,
+                json,
+                text,
+                ms: Date.now() - started,
+                retried: attempt > 0
+            };
             // E2E 上游偶发 5xx/timeout；仅在 5xx 时做一次透明重试。
             if (response.status >= 500 && attempt < retries) {
                 lastError = result;
@@ -160,6 +166,50 @@ export async function postJson({ baseUrl, apiKey, pathName, body, timeoutMs = 18
     throw lastError;
 }
 
+const NON_RETRYABLE_ERROR_TYPES = new Set([
+    'invalid_request_error',
+    'authentication_error',
+    'permission_error'
+]);
+
+/**
+ * 从已解析的 SSE 事件流中提取流内错误（覆盖 Responses / Claude 的 event:error、
+ * Responses 的 response.failed、以及 OpenAI Chat 无 event 头的 data.error）。
+ *
+ * @param {Array<{event: string, data: any}>} events
+ * @returns {{ type: string, message: string, isRetryable: boolean } | null}
+ */
+export function extractSseStreamError(events) {
+    if (!Array.isArray(events)) return null;
+    for (const evt of events) {
+        if (!evt) continue;
+        const data = evt.data;
+        if (evt.event === 'response.failed') {
+            const errObj = data?.response?.error || data?.error || {};
+            const type = String(errObj.type || errObj.code || 'server_error');
+            const message = String(errObj.message || data?.message || 'response.failed');
+            return {
+                type,
+                message,
+                isRetryable: !NON_RETRYABLE_ERROR_TYPES.has(type)
+            };
+        }
+        if (evt.event === 'error' || (data && typeof data === 'object' && (data.type === 'error' || data.object === 'error' || data.error))) {
+            const errObj = (data && typeof data === 'object' && data.error && typeof data.error === 'object')
+                ? data.error
+                : (data && typeof data === 'object' ? data : {});
+            const type = String(errObj.type || errObj.code || 'server_error');
+            const message = String(errObj.message || (typeof data === 'string' ? data : 'SSE stream error'));
+            return {
+                type,
+                message,
+                isRetryable: !NON_RETRYABLE_ERROR_TYPES.has(type)
+            };
+        }
+    }
+    return null;
+}
+
 export async function postSse({ baseUrl, apiKey, pathName, body, timeoutMs = 180000, retries = 1 }) {
     let lastError;
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -176,7 +226,9 @@ export async function postSse({ baseUrl, apiKey, pathName, body, timeoutMs = 180
                     status: response.status,
                     events: [],
                     text: await response.text(),
-                    ms: Date.now() - started
+                    ms: Date.now() - started,
+                    retried: attempt > 0,
+                    streamError: null
                 };
                 if (response.status >= 500 && attempt < retries) {
                     lastError = result;
@@ -185,8 +237,11 @@ export async function postSse({ baseUrl, apiKey, pathName, body, timeoutMs = 180
                 return result;
             }
             const result = await readSseResponse(response, started);
-            // 上游偶发 200 + 空流（例如 Zed 超时后直接断开）；E2E 侧重试一次。
-            if (result.events.length === 0 && attempt < retries) {
+            result.retried = attempt > 0;
+            result.streamError = extractSseStreamError(result.events);
+            // 上游偶发 200 + 空流，或流式响应头已发出（HTTP 200）后因上游 120s 超时/5xx 写出错误事件：
+            // 只要属于可重试服务端错误，E2E 侧按 5xx 同策略透明重试一次。
+            if ((result.events.length === 0 || result.streamError?.isRetryable) && attempt < retries) {
                 lastError = result;
                 continue;
             }
@@ -269,6 +324,7 @@ export function chatTextSummary(result) {
         reasoning: typeof message.reasoning_content === 'string' ? message.reasoning_content : '',
         finishReason: choice.finish_reason,
         usage: result.json?.usage || null,
+        retried: Boolean(result.retried),
         error: result.json?.error || result.text
     };
 }
@@ -295,7 +351,18 @@ export function chatStreamSummary(result) {
                 : (typeof choice.delta?.reasoning === 'string' ? choice.delta.reasoning : '');
         }
     }
-    return { httpStatus: result.status, text, reasoning, done, finishReason, usage, error: result.text };
+    const streamError = result.streamError ?? extractSseStreamError(result.events);
+    return {
+        httpStatus: result.status,
+        text,
+        reasoning,
+        done,
+        finishReason,
+        usage,
+        streamError,
+        retried: Boolean(result.retried),
+        error: streamError?.message || result.text
+    };
 }
 
 export function responsesSummary(result) {
@@ -325,6 +392,7 @@ export function responsesSummary(result) {
         outputTypes,
         usage: result.json?.usage || null,
         incompleteDetails: result.json?.incomplete_details || null,
+        retried: Boolean(result.retried),
         error: result.json?.error || result.text
     };
 }
@@ -350,7 +418,19 @@ export function responsesStreamSummary(result) {
             reasoning += data.delta || '';
         }
     }
-    return { httpStatus: result.status, text, reasoning, completed, status, usage, eventTypes, error: result.text };
+    const streamError = result.streamError ?? extractSseStreamError(result.events);
+    return {
+        httpStatus: result.status,
+        text,
+        reasoning,
+        completed,
+        status,
+        usage,
+        eventTypes,
+        streamError,
+        retried: Boolean(result.retried),
+        error: streamError?.message || result.text
+    };
 }
 
 export function claudeSummary(result) {
@@ -370,6 +450,7 @@ export function claudeSummary(result) {
         thinking,
         stopReason: result.json?.stop_reason,
         usage: result.json?.usage || null,
+        retried: Boolean(result.retried),
         error: result.json?.error || result.text
     };
 }
@@ -395,7 +476,19 @@ export function claudeStreamSummary(result) {
             if (data.delta?.type === 'thinking_delta') thinking += data.delta.thinking || '';
         }
     }
-    return { httpStatus: result.status, text, thinking, stopReason, messageStop, usage, eventTypes, error: result.text };
+    const streamError = result.streamError ?? extractSseStreamError(result.events);
+    return {
+        httpStatus: result.status,
+        text,
+        thinking,
+        stopReason,
+        messageStop,
+        usage,
+        eventTypes,
+        streamError,
+        retried: Boolean(result.retried),
+        error: streamError?.message || result.text
+    };
 }
 
 export function toolCallSummaryChat(result) {
@@ -435,6 +528,92 @@ export function toolCallSummaryClaude(result) {
             id: use.id,
             name: use.name,
             arguments: use.input
+        }))
+    };
+}
+
+export function toolCallStreamSummaryChat(result) {
+    const base = chatStreamSummary(result);
+    const byIndex = new Map();
+    for (const event of result.events) {
+        const data = event.data;
+        if (!data || typeof data !== 'object') continue;
+        for (const choice of data.choices || []) {
+            for (const tc of choice.delta?.tool_calls || []) {
+                const idx = tc.index ?? 0;
+                const entry = byIndex.get(idx) || { id: '', name: '', arguments: '' };
+                if (tc.id) entry.id = tc.id;
+                if (tc.function?.name) entry.name += tc.function.name;
+                if (typeof tc.function?.arguments === 'string') entry.arguments += tc.function.arguments;
+                byIndex.set(idx, entry);
+            }
+        }
+    }
+    return {
+        ...base,
+        toolCalls: Array.from(byIndex.values())
+    };
+}
+
+export function toolCallStreamSummaryResponses(result) {
+    const base = responsesStreamSummary(result);
+    const byKey = new Map();
+    for (const event of result.events) {
+        const data = event.data;
+        if (!data || typeof data !== 'object') continue;
+        if (event.event === 'response.output_item.added' && (data.item?.type === 'function_call' || data.item?.type === 'custom_tool_call')) {
+            const key = String(data.output_index ?? data.item.call_id ?? data.item.id ?? 0);
+            byKey.set(key, {
+                id: data.item.call_id || data.item.id || '',
+                name: data.item.name || '',
+                arguments: typeof data.item.arguments === 'string' ? data.item.arguments : ''
+            });
+        } else if (event.event === 'response.function_call_arguments.delta') {
+            const key = String(data.output_index ?? 0);
+            const entry = byKey.get(key) || { id: data.item_id || '', name: '', arguments: '' };
+            if (typeof data.delta === 'string') entry.arguments += data.delta;
+            byKey.set(key, entry);
+        } else if (event.event === 'response.output_item.done' && (data.item?.type === 'function_call' || data.item?.type === 'custom_tool_call')) {
+            const key = String(data.output_index ?? data.item.call_id ?? data.item.id ?? 0);
+            const entry = byKey.get(key) || { id: '', name: '', arguments: '' };
+            if (data.item.call_id || data.item.id) entry.id = data.item.call_id || data.item.id;
+            if (data.item.name) entry.name = data.item.name;
+            if (!entry.arguments && typeof data.item.arguments === 'string') entry.arguments = data.item.arguments;
+            byKey.set(key, entry);
+        }
+    }
+    return {
+        ...base,
+        toolCalls: Array.from(byKey.values())
+    };
+}
+
+export function toolCallStreamSummaryClaude(result) {
+    const base = claudeStreamSummary(result);
+    const byIndex = new Map();
+    for (const event of result.events) {
+        const data = event.data;
+        if (!data || typeof data !== 'object') continue;
+        if (event.event === 'content_block_start' && data.content_block?.type === 'tool_use') {
+            byIndex.set(data.index ?? 0, {
+                id: data.content_block.id || '',
+                name: data.content_block.name || '',
+                argumentsJson: ''
+            });
+        } else if (event.event === 'content_block_delta' && data.delta?.type === 'input_json_delta') {
+            const idx = data.index ?? 0;
+            const entry = byIndex.get(idx);
+            if (entry && typeof data.delta.partial_json === 'string') {
+                entry.argumentsJson += data.delta.partial_json;
+            }
+        }
+    }
+    return {
+        ...base,
+        toolCalls: Array.from(byIndex.values()).map((entry) => ({
+            id: entry.id,
+            name: entry.name,
+            arguments: parseToolArgs(entry.argumentsJson)
         }))
     };
 }

@@ -11,7 +11,7 @@ import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
-import { effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.js';
+import { budgetTokensToEffort, effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.js';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.js';
 import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
@@ -766,12 +766,8 @@ export class ZedApiService {
             const thinkingBudget = requestBody.thinking?.budget_tokens;
             if (thinkingBudget) {
                 // Gemini 3+ 只接受 thinkingLevel（MINIMAL/LOW/MEDIUM/HIGH），
-                // 传 thinkingBudget 会被上游以 500 拒绝。
-                const effort = thinkingBudget <= 2048
-                    ? 'low'
-                    : thinkingBudget <= 4096
-                        ? 'medium'
-                        : 'high';
+                // 传 thinkingBudget 会被上游以 500 拒绝。阈值统一复用 canonical 表（low<=2048, medium<=8192）。
+                const effort = budgetTokensToEffort(Number(thinkingBudget));
                 const thinkingConfig = effortToGeminiThinking(effort);
                 if (thinkingConfig) generationConfig.thinkingConfig = thinkingConfig;
             } else if (reasoningEffort && reasoningEffort !== 'none') {

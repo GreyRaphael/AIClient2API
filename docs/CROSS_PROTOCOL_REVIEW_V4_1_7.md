@@ -6,10 +6,10 @@
 - 历史评估/优化文档：已在 v4.1.7 清理，历史版本可在 git 历史中查看
 - 测试实例：首轮 27 模型复评使用 `http://127.0.0.1:3000/auto`；修复后最终验收使用隔离的 `http://127.0.0.1:3201/auto`
 - 模型来源：`GET /auto/v1/models` 动态发现，共 **27 个模型**
-- 核心用例：27 × 11 = **297 次真实上游请求**；另有 **12 个定向 E2E**
-- 单元测试：修复前 **28 suites / 454 tests**；修复后 **29 suites / 463 tests 全绿**
+- 核心用例：27 × 11 = **297 次真实上游请求**；另有 **14 个定向 E2E**（含新增的 system 唯一标记与三下游流式工具生命周期断言）
+- 单元测试：修复前 **28 suites / 454 tests**；v4.1.7 P1/P2 修复后 **29 suites / 463 tests**；2026-10-23 P0/P1 一致性收口后 **29 suites / 469 tests 全绿**
 
-> **2026-10-22 更新**：第 6 节的 P1-1 / P1-2 / P2-3 / P2-4 已修复；修复说明、回归测试与最终 27 模型 E2E 验收见第 11 节。修复后单元测试为 **29 suites / 463 tests 全绿**，最终 E2E 为 **39/39 通过**，综合评分约 **4.6 / 5**。
+> **2026-10-23 更新**：已完成独立复跑归因、补充探针固化，以及 P0（测试长尾与流内错误重试）+ P1（`temperature=0` 保留、Zed Google thinking 阈值统一、Gemini 流式 `MALFORMED_FUNCTION_CALL/MODEL_ARMOR` 映射统一、Responses `.done` 兜底、`preContentBuffer` 容量上限）修复与单测验收，详见第 11、12 节。
 
 ---
 
@@ -684,17 +684,9 @@ Time:        1264.142 s
 
 > 最终运行的 reasoning warning 与首轮略有差异（`openai-codex-oauth:gpt-6-luna` chat_text、`trae:glm-5.3-flashx` responses_text，以及 6 个 Zed 模型的部分方向），均属 provider/prompt 采样行为；核心矩阵的文本、流式、工具断言仍全部通过。
 
-### 11.4 仍保留的 P3 项
+### 11.4 仍保留的 P3 项（2026-10-22 快照）
 
-修复 P1/P2 后，第 6.5~6.11 的 P3 项仍然成立：
-
-- CoT 历史回放在各方向策略不一致（协议天花板 + 可选策略）
-- Claude → OpenAI 在 thinking 开启时无条件改发 `max_completion_tokens`
-- Provider 默认注入（Gemini 默认采样参数、Codex 默认 reasoning/web_search）
-- Zed Google thinking 阈值与 canonical 表不一致
-- `MALFORMED_FUNCTION_CALL` 的流式/非流式映射不一致
-- E2E 对 system prompt 语义、复杂 Schema、并行工具、多模态的覆盖不足
-- `tests/e2e/cross-protocol.e2e.test.js` 中未使用的 `addQuotaFailure` 别名
+修复 P1/P2 后，第 6.5~6.11 的 P3 项在 2026-10-23 得到进一步分级与收口（详见第 12 节）。
 
 ### 11.5 修复后评分
 
@@ -711,3 +703,53 @@ Time:        1264.142 s
 | **综合** | **4.5** | **4.6** |
 
 修复后主链路与异常路径均有回归测试覆盖；既有七维加权约 **4.6 / 5**，P1/P2 关闭后不再额外扣分。剩余扣分仍集中在协议物理约束（Schema 结构保真、显式缓存、CoT 历史）与 E2E 覆盖边界。
+
+---
+
+## 12. 独立复跑、补充探针与 P2/P3 残余风险治理（2026-10-23）
+
+### 12.1 独立复跑与补充探针归因
+
+在 `v4.1.7`（`98b6ee3`）基线上执行第二次 27 模型全量独立复跑与 12 项补充探针：
+
+1. **核心矩阵与长尾归因**：
+   - 全量运行 **38 / 39** 通过（26 个模型 11/11 全过，平均 34.3s/模型）；
+   - 唯一未通过模型 `zed:gemini-3.8-flash` 因上游 Zed Google 通道连续两次 120s 网络超时：
+     - 第一次 `responses_stream`：网关在发送流请求前已先写出 HTTP 200 头，超时后通过 `createStreamErrorResponse` 写出 `event: error` 并正常结束；旧版 `postSse` 仅在“零事件”时重试，因此未对该错误事件流重试。
+     - 第二次 `responses_tool`：非流式 500 由 `postJson` 透明重试后成功，但两次 120s 超时叠加导致耗尽 300s 的单模型 Jest 预算。
+   - **隔离复跑**：单独运行 `AICLIENT_E2E_MODELS=zed:gemini-3.8-flash` 在 **67.6s 内 11/11 全部通过**，证实为上游通道长尾而非转译器确定性缺陷。
+2. **补充探针（12 / 12 通过）**：
+   - **System prompt 语义探针（6/6）**：在 `openai-custom` / `openaiResponses-custom` / `gemini-antigravity` / `openai-codex-oauth` / `zed` / `trae` 六类通道注入多段 system 消息并要求回答以唯一标记 `ZEBRA42` 开头，6 个模型全部严格遵循。
+   - **三下游流式工具探针（6/6）**：Chat 流式工具调用（4 个上游）与 Responses / Claude 下游流式工具调用均完整产出工具名、参数增量、对应终止原因（`tool_calls` / `response.completed` / `tool_use`）与结束事件。
+
+### 12.2 2026-10-23 已落地的 P0/P1 修复清单
+
+针对复跑暴露的测试长尾脆弱性及代码核验发现的快速一致性缺陷，已完成以下修复并补齐单测（**29 suites / 469 tests 全绿**）：
+
+| ID | 类别 | 修复内容 | 涉及文件 |
+|---|---|---|---|
+| **P2-1** | E2E 流内错误重试 | 新增 `extractSseStreamError()`，覆盖 Responses `response.failed` / `event: error`、Claude `event: error` 以及 **OpenAI Chat 无 `event` 头的 `data.error`**；对可重试服务端错误（排除 4xx `invalid_request_error` / 鉴权错误）透明重试 1 次 | `tests/e2e/e2e-helpers.js` |
+| **P2-2** | E2E 长尾超时预算 | 新增 `resolveModelTimeoutMs()`，对 `zed:gemini-*` 自动放宽单模型超时至 600s（支持 `AICLIENT_E2E_MODEL_TIMEOUT_MS` 覆盖） | `tests/e2e/cross-protocol.e2e.test.js` |
+| **P2-3** | E2E 故障分类与重试告警 | `addFailure` 自动标注 `[upstream_5xx:...]` 与 `[upstream_stream_error:...]`，区分上游故障与转译断言失败；重试恢复计入 `[E2E warnings]` | `tests/e2e/cross-protocol.e2e.test.js`、`tests/e2e/e2e-helpers.js` |
+| **P3-13 / P3-14** | 探针固化与文档对齐 | 新增 `toolCallStreamSummaryChat/Responses/Claude`，将 `ZEBRA42` system 语义断言与三下游流式工具调用固化为第 13、14 项定向 E2E；同步修正 `tests/e2e/README.md` 的强/弱断言口径 | `tests/e2e/cross-protocol.e2e.test.js`、`tests/e2e/README.md` |
+| **P3-4a** | `temperature=0` 误覆盖修复 | 修复 `OpenAIConverter.buildGeminiGenerationConfig()` 使用 `checkAndAssignOrDefault` 把显式 `temperature: 0` / `top_p: 0` 误判为空并覆盖为 `1` / `0.95` 的缺陷 | `src/converters/strategies/OpenAIConverter.js`、`src/converters/utils.js` |
+| **P3-5** | Zed Google thinking 阈值统一 | `zed-core.js` Google 分支改为直接调用 `budgetTokensToEffort()`（`low<=2048, medium<=8192, high>8192`），消除 `4096` 硬编码分叉 | `src/providers/zed/zed-core.js` |
+| **P3-6** | Gemini 异常结束原因统一 | `GeminiConverter.toOpenAIResponsesStreamChunk()` 补齐 `MALFORMED_FUNCTION_CALL` 与 `MODEL_ARMOR` → `incomplete (content_filter)`，与非流式严格一致 | `src/converters/strategies/GeminiConverter.js` |
+| **P3-8** | 首内容前缓冲上限 | 为 `preContentBuffer` 增加 `PRE_CONTENT_BUFFER_MAX_FRAMES = 2000` 与 `PRE_CONTENT_BUFFER_MAX_BYTES = 2MB` 上限，超限时提前冲刷并记录告警，防止长思考内存无界增长 | `src/handlers/request-pipeline.js` |
+| **P3-extra** | Responses `.done` 流式健壮性 | `toOpenAIStreamChunk` 在无前序 delta 时兜底读取 `.done` 的 `text`（有 delta 时不重复输出）；`toClaudeStreamChunk` 在未收到前序 delta 时不发送孤立 `content_block_stop`（若 `.done` 含 `text` 则自动补齐 `start + delta + stop`） | `src/converters/strategies/OpenAIResponsesConverter.js` |
+
+### 12.3 剩余 P2/P3 项评估与取舍矩阵
+
+除上述已落地的 P0/P1 项外，其余跨协议残余项按“按需场景演进（P2）”与“物理天花板 / 刻意 trade-off（P3，仅文档化）”分类管理：
+
+| ID | 残余项 | 当前状态 | 分类与工程决策 |
+|---|---|---|---|
+| P3-1 | Schema 结构保真（Gemini/Trae 7 键白名单） | 已落地 `$ref` 展开、`oneOf/anyOf` 降级与约束注入 description | **P2（定向改善）**：不承诺 100% 结构保真；后续按真实 MCP 工具 fixture 定向补充 `dependentRequired` / `patternProperties` 自然语言化 |
+| P3-2 | 显式 `cache_control` 跨协议保留 | 非 Claude 方向记录 warn/debug，默认开启工具按名称稳定排序 | **P3（物理天花板）**：OpenAI/Gemini 无等价显式断点字段，不做伪兼容，依赖稳定前缀命中上游隐式缓存 |
+| P3-3 | CoT 历史回放策略跨方向不对称 | Responses→OpenAI 默认保留 summary；Claude→Gemini 转 `thought: true`；其余严格方向默认跳过无签名思考块 | **P2（按场景配置）**：严格上游拒绝无 `encrypted_content`/真实签名的思考块，保持默认保守跳过以避免 400 |
+| P3-4b | Provider 默认参数注入（Gemini 默认采样、Codex 默认 `effort`/`web_search`、Claude→OpenAI `max_completion_tokens`） | `temperature=0` 覆盖缺陷已修复；默认注入逻辑保留 | **P2（保持现状 + 文档声明）**：属于各上游通道的兼容约定，直接移除默认注入会影响现有 27 模型通过率 |
+| P3-7 | 工具结果（`tool_result`）中的多模态内容字符串化 | 仅提取文本或序列化为 JSON | **P3（按真实场景）**：标准 OpenAI Chat `tool` 消息仅支持文本；待有明确多模态工具回传需求时再针对 Gemini/Claude 定向扩展 |
+| P3-9 | OpenAI `reasoning_content` 帧绕过空响应护栏 | `nativePayloadHasMeaningfulContent` 将 OpenAI reasoning 视为有效内容放行 | **P3（刻意 trade-off，不改）**：防止 DeepSeek/GLM 等深度思考模型因长思考缓冲触发下游看门狗超时断开 |
+| P3-10 | Claude `content_block_start`（`text`）提前视为有效内容 | 收到 text block start 即冲刷前序缓冲 | **P3（保持观察）**：真实 Claude 上游发 `text` start 即代表进入正文阶段，改动收益极小 |
+| P3-11 | `sanitizeToolId()` 非法字符替换潜在碰撞 | `[^a-zA-Z0-9_-]` 统一替换为 `_` | **P2（低频防御）**：常规 UUID/call_id 不会碰撞；后续如需加固可对发生替换的 ID 追加稳定短哈希 |
+| P3-12 | Responses 内置工具历史（`web_search_call` 等）跨协议丢弃 | 非 function/custom 工具在跨协议时跳过并打 debug 日志 | **P3（协议不对称，仅日志）**：目标协议无对应服务端内置工具历史结构 |

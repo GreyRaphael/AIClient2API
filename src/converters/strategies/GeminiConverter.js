@@ -1040,7 +1040,15 @@ export class GeminiConverter extends BaseConverter {
                 if (candidate?.finishReason === 'MAX_TOKENS') {
                     status = 'incomplete';
                     incompleteDetails = { reason: 'max_output_tokens' };
-                } else if (['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII'].includes(candidate?.finishReason)) {
+                } else if ([
+                    'SAFETY',
+                    'RECITATION',
+                    'BLOCKLIST',
+                    'PROHIBITED_CONTENT',
+                    'SPII',
+                    'MODEL_ARMOR',
+                    'MALFORMED_FUNCTION_CALL'
+                ].includes(candidate?.finishReason)) {
                     status = 'incomplete';
                     incompleteDetails = { reason: 'content_filter' };
                 }

@@ -268,6 +268,13 @@ export const TERMINAL_EMPTY_FINISH_REASONS = new Set([
 ]);
 
 /**
+ * 首内容前缓冲（preContentBuffer）的默认容量上限。
+ * 防止超长 thinking 产生海量帧导致单请求内存无上限增长；超限时提前冲刷并退化为直通流。
+ */
+export const PRE_CONTENT_BUFFER_MAX_FRAMES = 2000;
+export const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
+
+/**
  * 从上游原生负载中提取终态结束原因。
  *
  * 兼容各协议的完整响应与流式事件形状：
@@ -499,6 +506,13 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     //     且不置 anyDataSent），避免长思考导致连接假死。
     let sawMeaningfulContent = false;
     const preContentBuffer = []; // string[]，缓存的序列化 SSE 帧
+    let preContentBufferBytes = 0;
+    const maxPreContentFrames = Number(CONFIG?.PRE_CONTENT_BUFFER_MAX_FRAMES) > 0
+        ? Number(CONFIG.PRE_CONTENT_BUFFER_MAX_FRAMES)
+        : PRE_CONTENT_BUFFER_MAX_FRAMES;
+    const maxPreContentBytes = Number(CONFIG?.PRE_CONTENT_BUFFER_MAX_BYTES) > 0
+        ? Number(CONFIG.PRE_CONTENT_BUFFER_MAX_BYTES)
+        : PRE_CONTENT_BUFFER_MAX_BYTES;
     let lastFinishReason = '';
     let lastFinishMessage = '';
     const preContentHeartbeat = setInterval(() => {
@@ -654,12 +668,25 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 // 首内容前缓冲：有效内容出现前不直接下发，缓存起来以便上游空转时无损重试
                 const framesToWrite = [];
                 if (!sawMeaningfulContent) {
-                    preContentBuffer.push(...outFrames);
+                    for (const frame of outFrames) {
+                        preContentBuffer.push(frame);
+                        preContentBufferBytes += Buffer.byteLength(frame, 'utf8');
+                    }
+                    if (preContentBuffer.length > maxPreContentFrames || preContentBufferBytes > maxPreContentBytes) {
+                        logger.warn(
+                            `[Stream] Pre-content buffer exceeded limit (${preContentBuffer.length}/${maxPreContentFrames} frames, ${preContentBufferBytes}/${maxPreContentBytes} bytes); flushing buffered frames early.`
+                        );
+                        sawMeaningfulContent = true;
+                        framesToWrite.push(...preContentBuffer);
+                        preContentBuffer.length = 0;
+                        preContentBufferBytes = 0;
+                    }
                 } else {
                     if (preContentBuffer.length > 0) {
                         // 首个有效内容出现：先一次性冲刷此前缓存的 thinking/角色等帧
                         framesToWrite.push(...preContentBuffer);
                         preContentBuffer.length = 0;
+                        preContentBufferBytes = 0;
                     }
                     framesToWrite.push(...outFrames);
                 }

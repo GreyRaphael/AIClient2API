@@ -42,13 +42,14 @@ npm run test:e2e
 
 ### 核心矩阵（每个模型 11 项）
 
-- Chat / Responses / Claude 非流式与流式文本
-- Chat / Responses / Claude 单轮 function tool
-- Chat 多轮工具结果回传
-- 连续同角色 + system 折叠
-- usage 不变量：所有模型的 `completion/output >= reasoning_tokens`
+- Chat / Responses / Claude 非流式与流式文本（强断言：`HTTP 200`、正文包含 `391`、流式生命周期终止事件 `[DONE]` / `response.completed` / `message_stop`）
+- Chat / Responses / Claude 单轮 function tool（强断言：调用 `get_weather` 且参数包含 `Paris`）
+- Chat 多轮工具结果回传（强断言：结合工具输出返回 `18`）
+- 连续同角色 + system 折叠（强断言：多条连续 user 消息合并后记住数字 `7`）
+- usage 不变量（部分路径强断言：`responses_stream` 与 `responses_tool` 对所有模型检查 `output_tokens >= reasoning_tokens`；`chat_text`、`chat_stream`、`responses_text` 仅对 `gemini-antigravity:*` 检查）
+- Reasoning/thinking 存在性作为非阻塞 `[E2E warnings]` 输出（部分 Provider/模型如 Zed 的 Claude/Gemini 分支不向外暴露 thinking block）。
 
-### 定向用例
+### 定向用例（14 项）
 
 - openai-custom 指定 function 强制 `tool_choice` 在 30s 内返回
 - `zed:gpt-6-luna` 32×32 红图识别
@@ -61,6 +62,14 @@ npm run test:e2e
 - oneOf 对象分支合并后字段名保持正确
 - OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗
 - 上游 4xx 错误响应保留可读细节
+- 多 system 消息折叠后模型遵循唯一指令标记（`ZEBRA42`）
+- 三下游协议（Chat / Responses / Claude）流式工具调用生命周期完整
+
+## 长尾重试与故障分类
+
+- `postJson` 对 5xx/超时透明重试 1 次；`postSse` 除对 5xx/超时/空流重试外，还会识别流内可重试服务端错误（Responses `response.failed` / `event: error`、Claude `event: error`、OpenAI Chat `data.error` 的 `server_error` / `rate_limit_error`）并透明重试 1 次。
+- `zed:gemini-*` 通道存在 120s 级上游长尾，单模型超时预算自动放宽至 600s（其余模型默认 300s，可通过 `AICLIENT_E2E_MODEL_TIMEOUT_MS` 覆盖）。
+- 重试恢复的请求会记入 `[E2E warnings]`；若重试后仍因上游 5xx/流内错误失败，断言消息会标注 `[upstream_5xx:...]` 或 `[upstream_stream_error:...]`，与转译断言失败区分。
 
 ## 已知限制（不作为失败）
 

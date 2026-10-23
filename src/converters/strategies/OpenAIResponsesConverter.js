@@ -559,6 +559,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     || responsesChunk.created
                     || Math.floor(Date.now() / 1000),
                 hasToolCalls: false,
+                receivedTextDelta: false,
+                receivedReasoningDelta: false,
                 nextToolIndex: 0,
                 // Responses output_index -> OpenAI Chat tool_calls.index
                 toolIndexByOutput: new Map(),
@@ -624,17 +626,23 @@ export class OpenAIResponsesConverter extends BaseConverter {
         let finish_reason = null;
 
         if (responsesChunk.type === 'response.output_text.delta') {
+            state.receivedTextDelta = true;
             delta.content = responsesChunk.delta;
+        } else if (responsesChunk.type === 'response.output_text.done') {
+            if (!state.receivedTextDelta && (responsesChunk.delta || responsesChunk.text)) {
+                delta.content = responsesChunk.delta || responsesChunk.text;
+            }
         } else if (responsesChunk.type === 'response.reasoning_text.delta' ||
                    responsesChunk.type === 'response.reasoning_summary_text.delta' ||
                    responsesChunk.type === 'response.reasoning.delta' ||
                    responsesChunk.type === 'response.reasoning_summary.delta') {
+            state.receivedReasoningDelta = true;
             delta.reasoning_content = responsesChunk.delta;
         } else if (responsesChunk.type === 'response.reasoning_summary_text.done' ||
                    responsesChunk.type === 'response.reasoning_text.done' ||
                    responsesChunk.type === 'response.reasoning.done') {
-            if (responsesChunk.delta) {
-                delta.reasoning_content = responsesChunk.delta;
+            if (!state.receivedReasoningDelta && (responsesChunk.delta || responsesChunk.text)) {
+                delta.reasoning_content = responsesChunk.delta || responsesChunk.text;
             }
         } else if (responsesChunk.type === 'response.output_item.added' &&
                    (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
@@ -1514,11 +1522,30 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (responsesChunk.type === 'response.output_text.done' || responsesChunk.type === 'response.content_part.done') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             if (!state.stoppedBlocks.has(`text:${index}`)) {
-                state.stoppedBlocks.add(`text:${index}`);
-                return {
-                    type: 'content_block_stop',
-                    index
-                };
+                const events = [];
+                // 若上游仅发送 done（含 text）而未发送 delta/added，先补齐 start + delta 再 stop
+                const fallbackText = responsesChunk.text || responsesChunk.part?.text || '';
+                if (!state.textBlocks.has(index) && fallbackText) {
+                    state.textBlocks.add(index);
+                    events.push({
+                        type: 'content_block_start',
+                        index,
+                        content_block: { type: 'text', text: '' }
+                    });
+                    events.push({
+                        type: 'content_block_delta',
+                        index,
+                        delta: { type: 'text_delta', text: fallbackText }
+                    });
+                }
+                if (state.textBlocks.has(index)) {
+                    state.stoppedBlocks.add(`text:${index}`);
+                    events.push({
+                        type: 'content_block_stop',
+                        index
+                    });
+                    return events.length === 1 ? events[0] : events;
+                }
             }
             return null;
         }
@@ -1553,27 +1580,43 @@ export class OpenAIResponsesConverter extends BaseConverter {
             responsesChunk.type === 'response.reasoning_text.done') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
             if (!state.stoppedBlocks.has(`reasoning:${index}`)) {
-                state.stoppedBlocks.add(`reasoning:${index}`);
                 const events = [];
-                if (isSignatureVaultEnabled()) {
+                const fallbackThinking = responsesChunk.text || '';
+                if (!state.reasoningBlocks.has(index) && fallbackThinking) {
+                    state.reasoningBlocks.add(index);
+                    events.push({
+                        type: 'content_block_start',
+                        index,
+                        content_block: { type: 'thinking', thinking: '' }
+                    });
                     events.push({
                         type: 'content_block_delta',
                         index,
-                        delta: {
-                            type: 'signature_delta',
-                            signature: mintVirtualSignature({
-                                sessionKey: requestId || 'responses',
-                                blockIndex: index,
-                                thinkingText: ''
-                            })
-                        }
+                        delta: { type: 'thinking_delta', thinking: fallbackThinking }
                     });
                 }
-                events.push({
-                    type: 'content_block_stop',
-                    index
-                });
-                return events;
+                if (state.reasoningBlocks.has(index)) {
+                    state.stoppedBlocks.add(`reasoning:${index}`);
+                    if (isSignatureVaultEnabled()) {
+                        events.push({
+                            type: 'content_block_delta',
+                            index,
+                            delta: {
+                                type: 'signature_delta',
+                                signature: mintVirtualSignature({
+                                    sessionKey: requestId || 'responses',
+                                    blockIndex: index,
+                                    thinkingText: fallbackThinking
+                                })
+                            }
+                        });
+                    }
+                    events.push({
+                        type: 'content_block_stop',
+                        index
+                    });
+                    return events;
+                }
             }
             return null;
         }
