@@ -167,8 +167,10 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
     async getNodeAvailableModels(force = false) {
         if (!this.antigravityApiService.isInitialized) {
             await this.antigravityApiService.initialize();
-        } else if (force && typeof this.antigravityApiService.fetchAvailableModels === 'function') {
-            await this.antigravityApiService.fetchAvailableModels();
+        } else if (force || !Array.isArray(this.antigravityApiService.availableModels) || this.antigravityApiService.availableModels.length === 0) {
+            if (typeof this.antigravityApiService.fetchAvailableModels === 'function') {
+                await this.antigravityApiService.fetchAvailableModels();
+            }
         }
         return this.antigravityApiService.availableModels || [];
     }

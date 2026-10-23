@@ -521,6 +521,7 @@ export function resolveProviderCapabilityWithRefresh(providerType, nodes = [], o
     if (isBackgroundRefreshEnabled() && (!capability.known || capability.stale)) {
         refreshProviderCapabilities(providerType, nodes, {
             ...options,
+            force: true,
             reason: options.reason || 'read-through'
         }).catch(error => {
             logger.debug(`[ModelCapability] Background refresh for ${providerType} failed: ${error.message}`);
@@ -537,7 +538,7 @@ export async function ensureProviderCapability(providerType, nodes = [], options
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (capability.known) {
         if (capability.stale) {
-            refreshProviderCapabilities(providerType, nodes, { ...options, reason: options.reason || 'refresh' })
+            refreshProviderCapabilities(providerType, nodes, { ...options, force: true, reason: options.reason || 'refresh' })
                 .catch(() => {});
         }
         return capability;
@@ -594,7 +595,7 @@ export function startCapabilityRefreshLoop(providerPoolManager, options = {}) {
         : 15 * 60 * 1000;
 
     capabilityRefreshTimer = setInterval(() => {
-        warmProviderCapabilities(providerPoolManager, { reason: 'scheduled' })
+        warmProviderCapabilities(providerPoolManager, { force: true, reason: 'scheduled' })
             .catch(error => logger.debug(`[ModelCapability] Scheduled refresh failed: ${error.message}`));
     }, intervalMs);
     if (capabilityRefreshTimer.unref) capabilityRefreshTimer.unref();

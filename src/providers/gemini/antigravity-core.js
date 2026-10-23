@@ -36,7 +36,7 @@ const ANTIGRAVITY_BASE_URL_PROD = 'https://cloudcode-pa.googleapis.com';
 const ANTIGRAVITY_API_VERSION = 'v1internal';
 const OAUTH_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
 const OAUTH_CLIENT_SECRET = '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';
-const DEFAULT_USER_AGENT = 'antigravity/2.8.1 darwin/arm64';
+const DEFAULT_USER_AGENT = 'antigravity/cli/1.4.5 linux/amd64';
 const REFRESH_SKEW = 3000; // 3000秒（50分钟）提前刷新Token
 
 // Thinking 配置相关常量
@@ -88,8 +88,12 @@ function isKnownAntigravityModel(modelName) {
     if (currentModels.includes(baseModel) || currentModels.includes(resolved)) {
         return true;
     }
-    // 泛型识别：动态支持 Gemini Flash 系列体系
-    if (/^gemini-[\d.]+-flash(-high)?$/.test(baseModel)) {
+    // 泛型识别：动态支持 Gemini 系列体系 (如 flash, argon, pro 等)
+    if (/^gemini-[\d.]+(-[a-z0-9]+)*$/.test(baseModel)) {
+        return true;
+    }
+    // 泛型识别：动态支持 Claude 系列体系
+    if (/^claude-[\d.]+(-[a-z0-9]+)*$/.test(baseModel)) {
         return true;
     }
     return false;
@@ -931,7 +935,7 @@ export class AntigravityApiService {
         this.config = config;
         this.host = config.HOST;
         this.oauthCredsFilePath = config.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH;
-        this.userAgent = DEFAULT_USER_AGENT; // 支持通用 USER_AGENT 配置
+        this.userAgent = config.USER_AGENT || config.ANTIGRAVITY_USER_AGENT || DEFAULT_USER_AGENT;
         this.projectId = config.PROJECT_ID;
         this.uuid = config.uuid; // 保存 uuid 用于缓存管理
 
@@ -1354,7 +1358,9 @@ export class AntigravityApiService {
         }
 
         logger.warn('[Antigravity] Failed to fetch models from all endpoints. Using default models.');
-        this.availableModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
+        if (!Array.isArray(this.availableModels) || this.availableModels.length === 0) {
+            this.availableModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
+        }
     }
 
     async listModels() {
