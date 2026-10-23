@@ -14,6 +14,7 @@ import {
     effortToGeminiThinking
 } from '../thinking-budget.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
     cleanJsonSchemaForOpenAI,
@@ -1931,13 +1932,13 @@ export class OpenAIResponsesConverter extends BaseConverter {
             generationConfig: {}
         };
 
+        const systemParts = [];
         // 处理 instructions 作为系统指令
-        if (responsesRequest.instructions) {
-            geminiRequest.systemInstruction = {
-                parts: [{
-                    text: responsesRequest.instructions
-                }]
-            };
+        const normalizedInstructions = this._normalizeInstructions(responsesRequest.instructions);
+        if (normalizedInstructions) {
+            systemParts.push({
+                text: normalizedInstructions
+            });
         }
 
         // 处理 input 数组中的消息（支持从 messages 回退）
@@ -1957,6 +1958,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
             }];
         }
 
+        const replayCotSummary = getConfigToggle('CONVERT_REPLAY_COT_SUMMARY', false);
+        let droppedReasoningItems = 0;
+
         if (input && Array.isArray(input)) {
             // 先扫描建立 call_id -> functionName 映射表
             const callIdToName = new Map();
@@ -1971,15 +1975,24 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 const itemType = item.type || (item.role ? 'message' : '');
 
                 switch (itemType) {
-                    case 'reasoning':
-                        logger.debug('[OpenAIResponsesConverter] reasoning item skipped when converting to Gemini: Gemini has no equivalent reasoning input item');
+                    case 'reasoning': {
+                        const reasoningText = extractResponsesReasoningText(item);
+                        if (replayCotSummary && reasoningText) {
+                            geminiRequest.contents.push({
+                                role: 'model',
+                                parts: [{ text: reasoningText, thought: true }]
+                            });
+                        } else if (reasoningText) {
+                            droppedReasoningItems++;
+                        }
                         break;
+                    }
 
                     case 'message':
                         const parts = [];
                         if (Array.isArray(item.content)) {
                             item.content.forEach(c => {
-                                if (c.type === 'input_text' || c.type === 'output_text') {
+                                if (c.type === 'input_text' || c.type === 'output_text' || c.type === 'text') {
                                     if (typeof c.text === 'string' && c.text.length > 0) {
                                         parts.push({ text: c.text });
                                     }
@@ -2045,6 +2058,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         } else if (typeof item.content === 'string' && item.content.length > 0) {
                             parts.push({ text: item.content });
                         }
+
+                        if (item.role === 'system' || item.role === 'developer') {
+                            const sysTextParts = parts.filter(p => typeof p.text === 'string' && p.text.length > 0);
+                            if (sysTextParts.length > 0) {
+                                systemParts.push(...sysTextParts);
+                            }
+                            break;
+                        }
                         
                         if (parts.length > 0) {
                             geminiRequest.contents.push({
@@ -2100,13 +2121,67 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         const callId = item.call_id || item.id;
                         const callName = item.name || (callId && callIdToName.get(callId)) || (callId ? `call_${callId}` : 'function_call');
                         let responseObj = { content: item.output };
-                        if (typeof item.output === 'object' && item.output !== null) {
+                        const extraMediaParts = [];
+                        if (Array.isArray(item.output)) {
+                            const textSegments = [];
+                            item.output.forEach(part => {
+                                if (!part) return;
+                                if (typeof part === 'string') {
+                                    textSegments.push(part);
+                                } else if (part.type === 'input_text' || part.type === 'output_text' || part.type === 'text') {
+                                    if (typeof part.text === 'string' && part.text.length > 0) {
+                                        textSegments.push(part.text);
+                                    }
+                                } else if (part.type === 'input_image' || part.type === 'image_url' || part.type === 'image') {
+                                    const url = typeof part.image_url === 'string'
+                                        ? part.image_url
+                                        : (part.image_url?.url || part.url);
+                                    if (url && url.startsWith('data:')) {
+                                        const [mediaInfo, data] = url.split(';base64,');
+                                        const mimeType = mediaInfo.replace('data:', '');
+                                        extraMediaParts.push({
+                                            inlineData: {
+                                                mimeType,
+                                                data
+                                            }
+                                        });
+                                    } else if (url) {
+                                        extraMediaParts.push({
+                                            fileData: {
+                                                mimeType: guessImageMimeTypeFromUrl(url),
+                                                fileUri: url
+                                            }
+                                        });
+                                    }
+                                } else if (part.type === 'input_file' || part.type === 'file') {
+                                    const filename = part.filename || part.file?.filename || 'file';
+                                    const fileData = part.file_data || part.file?.file_data;
+                                    const fileUrl = part.file_url || part.file?.file_url;
+                                    const parsed = parseBase64DataUrl(fileData);
+                                    const mimeType = parsed?.mimeType
+                                        || part.mime_type
+                                        || part.file?.mime_type
+                                        || mimeTypeFromFilename(filename)
+                                        || 'application/octet-stream';
+                                    if (parsed?.data) {
+                                        extraMediaParts.push({ inlineData: { mimeType, data: parsed.data } });
+                                    } else if (fileData) {
+                                        extraMediaParts.push({ inlineData: { mimeType, data: String(fileData) } });
+                                    } else if (fileUrl) {
+                                        extraMediaParts.push({ fileData: { mimeType, fileUri: fileUrl } });
+                                    }
+                                }
+                            });
+                            responseObj = { content: textSegments.join('\n') };
+                        } else if (typeof item.output === 'object' && item.output !== null) {
                             responseObj = item.output;
                         } else if (typeof item.output === 'string') {
                             try {
                                 const parsed = JSON.parse(item.output);
-                                if (parsed && typeof parsed === 'object') {
+                                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
                                     responseObj = parsed;
+                                } else {
+                                    responseObj = { content: item.output };
                                 }
                             } catch {
                                 responseObj = { content: item.output };
@@ -2119,14 +2194,25 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         if (callId) fr.id = callId;
                         geminiRequest.contents.push({
                             role: 'user',
-                            parts: [{
-                                functionResponse: fr
-                            }]
+                            parts: [
+                                { functionResponse: fr },
+                                ...extraMediaParts
+                            ]
                         });
                         break;
                     }
                 }
             });
+        }
+
+        if (droppedReasoningItems > 0) {
+            logger.debug(`[OpenAIResponsesConverter] Skipped ${droppedReasoningItems} reasoning item(s) when converting to Gemini (set CONVERT_REPLAY_COT_SUMMARY=true to replay as thought parts)`);
+        }
+
+        if (systemParts.length > 0) {
+            geminiRequest.systemInstruction = {
+                parts: systemParts
+            };
         }
 
         // 设置生成配置
@@ -2140,6 +2226,20 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
         if (responsesRequest.top_p !== undefined) {
             geminiRequest.generationConfig.topP = responsesRequest.top_p;
+        }
+
+        // 处理 text.format -> responseMimeType / responseSchema
+        if (responsesRequest.text?.format) {
+            const format = responsesRequest.text.format;
+            if (format.type === 'json_object') {
+                geminiRequest.generationConfig.responseMimeType = 'application/json';
+            } else if (format.type === 'json_schema') {
+                geminiRequest.generationConfig.responseMimeType = 'application/json';
+                const rawSchema = format.schema || format.json_schema?.schema;
+                if (rawSchema && typeof rawSchema === 'object') {
+                    geminiRequest.generationConfig.responseSchema = polyfillAndCleanSchemaForGemini(rawSchema);
+                }
+            }
         }
 
         // 处理 reasoning.effort -> thinkingConfig

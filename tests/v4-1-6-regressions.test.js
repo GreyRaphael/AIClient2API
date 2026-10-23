@@ -647,3 +647,179 @@ describe('v4.1.7 Rerun P0/P1: 快速一致性与边界健壮性修复', () => {
         expect(clientErr?.isRetryable).toBe(false);
     });
 });
+
+describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史开关与 Thinking Gating', () => {
+    test('F1: Responses->Gemini 将 input 内 system/developer 消息并入 systemInstruction 而非降级为 user', () => {
+        const converter = new OpenAIResponsesConverter();
+        const geminiReq = converter.toGeminiRequest({
+            instructions: 'TOP SYSTEM',
+            input: [
+                {
+                    type: 'message',
+                    role: 'system',
+                    content: [{ type: 'input_text', text: 'MIDDLE SYSTEM' }]
+                },
+                {
+                    type: 'message',
+                    role: 'developer',
+                    content: 'DEV CONSTRAINT'
+                },
+                {
+                    type: 'message',
+                    role: 'user',
+                    content: [{ type: 'input_text', text: 'hi' }]
+                }
+            ]
+        });
+
+        expect(geminiReq.systemInstruction).toEqual({
+            parts: [
+                { text: 'TOP SYSTEM' },
+                { text: 'MIDDLE SYSTEM' },
+                { text: 'DEV CONSTRAINT' }
+            ]
+        });
+        expect(geminiReq.contents).toEqual([
+            {
+                role: 'user',
+                parts: [{ text: 'hi' }]
+            }
+        ]);
+    });
+
+    test('F2: Responses->Gemini 映射 text.format (json_object / json_schema) 并做 Schema Polyfill 清洗', () => {
+        const converter = new OpenAIResponsesConverter();
+
+        const jsonObjReq = converter.toGeminiRequest({
+            input: 'hello',
+            text: { format: { type: 'json_object' } }
+        });
+        expect(jsonObjReq.generationConfig.responseMimeType).toBe('application/json');
+        expect(jsonObjReq.generationConfig.responseSchema).toBeUndefined();
+
+        const jsonSchemaReq = converter.toGeminiRequest({
+            input: 'hello',
+            text: {
+                format: {
+                    type: 'json_schema',
+                    name: 'answer_schema',
+                    strict: true,
+                    schema: {
+                        type: 'object',
+                        properties: {
+                            answer: { type: 'string', pattern: '^[a-z]+$' }
+                        },
+                        required: ['answer'],
+                        additionalProperties: false
+                    }
+                }
+            }
+        });
+        expect(jsonSchemaReq.generationConfig.responseMimeType).toBe('application/json');
+        expect(jsonSchemaReq.generationConfig.responseSchema).toBeDefined();
+        expect(jsonSchemaReq.generationConfig.responseSchema.type).toBe('OBJECT');
+        expect(jsonSchemaReq.generationConfig.responseSchema.additionalProperties).toBeUndefined();
+        expect(jsonSchemaReq.generationConfig.responseSchema.properties.answer.type).toBe('STRING');
+        expect(jsonSchemaReq.generationConfig.responseSchema.properties.answer.description).toContain('pattern=^[a-z]+$');
+    });
+
+    test('F3: Responses->Gemini 多模态 function_call_output 数组归一化为 Struct 对象并提取图片为 inlineData', () => {
+        const converter = new OpenAIResponsesConverter();
+        const geminiReq = converter.toGeminiRequest({
+            input: [
+                {
+                    type: 'function_call',
+                    call_id: 'c1',
+                    name: 'take_screenshot',
+                    arguments: '{}'
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'c1',
+                    output: [
+                        { type: 'input_text', text: 'Screenshot captured' },
+                        { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=' }
+                    ]
+                }
+            ]
+        });
+
+        const userTurn = geminiReq.contents.find(c => c.role === 'user');
+        expect(userTurn).toBeDefined();
+        expect(userTurn.parts).toEqual([
+            {
+                functionResponse: {
+                    name: 'take_screenshot',
+                    id: 'c1',
+                    response: { content: 'Screenshot captured' }
+                }
+            },
+            {
+                inlineData: {
+                    mimeType: 'image/png',
+                    data: 'iVBORw0KGgo='
+                }
+            }
+        ]);
+    });
+
+    test('F4: CoT 历史回放开关 CONVERT_REPLAY_COT_SUMMARY 控制 Chat->Gemini 与 Responses->Gemini 的 thought 回放', () => {
+        const openaiConverter = new OpenAIConverter();
+        const responsesConverter = new OpenAIResponsesConverter();
+
+        const chatReq = {
+            model: 'gemini-3.8-flash-high',
+            messages: [
+                { role: 'user', content: 'step 1' },
+                { role: 'assistant', reasoning_content: 'prior thought', content: 'answer 1' },
+                { role: 'user', content: 'step 2' }
+            ]
+        };
+        const respReq = {
+            model: 'gemini-3.8-flash-high',
+            input: [
+                { type: 'message', role: 'user', content: 'step 1' },
+                { type: 'reasoning', summary: [{ type: 'summary_text', text: 'prior summary' }] },
+                { type: 'message', role: 'assistant', content: 'answer 1' },
+                { type: 'message', role: 'user', content: 'step 2' }
+            ]
+        };
+
+        // 默认关闭：不回放历史 thought
+        const defaultChatToGemini = openaiConverter.toGeminiRequest(chatReq);
+        const defaultModelTurn = defaultChatToGemini.contents.find(c => c.role === 'model');
+        expect(defaultModelTurn.parts.some(p => p.thought === true)).toBe(false);
+
+        const defaultRespToGemini = responsesConverter.toGeminiRequest(respReq);
+        const defaultRespModelTurn = defaultRespToGemini.contents.find(c => c.role === 'model');
+        expect(defaultRespModelTurn.parts.some(p => p.thought === true)).toBe(false);
+
+        // 显式开启：回放为 thought: true
+        process.env.CONVERT_REPLAY_COT_SUMMARY = 'true';
+        try {
+            const enabledChatToGemini = openaiConverter.toGeminiRequest(chatReq);
+            const enabledModelTurn = enabledChatToGemini.contents.find(c => c.role === 'model');
+            expect(enabledModelTurn.parts[0]).toEqual({ text: 'prior thought', thought: true });
+
+            const enabledRespToGemini = responsesConverter.toGeminiRequest(respReq);
+            const enabledRespModelTurn = enabledRespToGemini.contents.find(c => c.role === 'model');
+            expect(enabledRespModelTurn.parts[0]).toEqual({ text: 'prior summary', thought: true });
+        } finally {
+            delete process.env.CONVERT_REPLAY_COT_SUMMARY;
+        }
+    });
+
+    test('F5: OpenAIConverter.modelSupportsThinking 覆盖 Antigravity GPT-6 与 Claude 思考模型', () => {
+        const openaiConverter = new OpenAIConverter();
+        expect(openaiConverter.modelSupportsThinking('gpt-6-luna')).toBe(true);
+        expect(openaiConverter.modelSupportsThinking('claude-opus-5-5-medium')).toBe(true);
+        expect(openaiConverter.modelSupportsThinking('claude-opus-4-6-thinking')).toBe(true);
+
+        const geminiReq = openaiConverter.toGeminiRequest({
+            model: 'gpt-6-luna',
+            reasoning_effort: 'high',
+            messages: [{ role: 'user', content: 'hi' }]
+        });
+        expect(geminiReq.generationConfig?.thinkingConfig?.thinkingLevel).toBe('HIGH');
+    });
+});

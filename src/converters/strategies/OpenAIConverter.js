@@ -37,6 +37,7 @@ import {
 } from '../thinking-budget.js';
 import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+import { getConfigToggle } from '../../core/config-manager.js';
 import {
     registerCustomTools,
     isCustomTool,
@@ -174,8 +175,12 @@ export class OpenAIConverter extends BaseConverter {
         const { systemInstruction, nonSystemMessages } = extractSystemMessages(messages);
 
         const claudeMessages = [];
+        let droppedReasoningMessages = 0;
 
         for (const message of nonSystemMessages) {
+            if (message.role === 'assistant' && typeof message.reasoning_content === 'string' && message.reasoning_content.trim()) {
+                droppedReasoningMessages++;
+            }
             const role = message.role === 'assistant' ? 'assistant' : 'user';
             let content = [];
 
@@ -335,6 +340,9 @@ export class OpenAIConverter extends BaseConverter {
                     claudeMessages.push({ role: role, content: content });
                 }
             }
+        }
+        if (droppedReasoningMessages > 0) {
+            logger.debug(`[OpenAIConverter] Dropped ${droppedReasoningMessages} assistant reasoning_content field(s) when converting to Claude: Anthropic requires valid cryptographic signatures for historical thinking blocks`);
         }
         // 合并相邻相同 role 的消息
         const mergedClaudeMessages = [];
@@ -1029,6 +1037,16 @@ export class OpenAIConverter extends BaseConverter {
             } else if (role === 'assistant') {
                 // assistant -> model content
                 const node = { role: 'model', parts: [] };
+                const reasoningText = (typeof message.reasoning_content === 'string'
+                    ? message.reasoning_content
+                    : (typeof message.reasoning === 'string' ? message.reasoning : '')).trim();
+                if (reasoningText) {
+                    if (getConfigToggle('CONVERT_REPLAY_COT_SUMMARY', false)) {
+                        node.parts.push({ text: reasoningText, thought: true });
+                    } else {
+                        logger.debug('[OpenAIConverter] Dropped assistant reasoning_content when converting to Gemini (set CONVERT_REPLAY_COT_SUMMARY=true to replay as thought parts)');
+                    }
+                }
                 
                 // 处理文本内容
                 const functionCallIds = [];
@@ -1356,7 +1374,13 @@ export class OpenAIConverter extends BaseConverter {
     modelSupportsThinking(model) {
         if (!model) return false;
         const m = model.toLowerCase();
-        return /^gemini-[3-9]/.test(m) || m.includes('gemini3');
+        return /^gemini-[3-9]/.test(m) ||
+               m.includes('gemini3') ||
+               m.includes('-thinking') ||
+               m.includes('-high') ||
+               m.includes('-medium') ||
+               m.startsWith('gpt-') ||
+               (m.includes('claude') && (m.includes('5-5') || m.includes('5.5')));
     }
 
     /**
