@@ -164,12 +164,23 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
             const resolvedTarget = resolveRef(rootCopy, ref);
             if (resolvedTarget && typeof resolvedTarget === 'object') {
                 report.expandedRefs++;
+                const descriptionBeforeRef = node.description;
                 const clonedTarget = deepClone(resolvedTarget);
                 // 递归展开解析出的子 Schema
                 const expanded = transformNode(clonedTarget, path, depth + 1, [...refStack, ref]);
                 // 保留当前节点已有属性并合并
                 delete node.$ref;
                 Object.assign(node, { ...expanded, ...node });
+                // 展开目标上的 description 被复制到当前节点时，登记当前节点（而不是已丢弃的 clonedTarget）
+                // 作为裁剪候选，避免阶段 2 修改不可达对象。
+                if (node.description !== descriptionBeforeRef) {
+                    injectedNodes.push({
+                        node,
+                        originalDesc: descriptionBeforeRef,
+                        injectedText: node.description || '',
+                        depth
+                    });
+                }
             }
         }
 
@@ -239,6 +250,7 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
 
         // 3. 组合关键字降级：allOf 浅合并
         if (Array.isArray(node.allOf) && node.allOf.length > 0) {
+            const descriptionBeforeAllOf = node.description;
             const allOfBranches = node.allOf;
             const mergedProperties = (node.properties && typeof node.properties === 'object')
                 ? { ...node.properties }
@@ -321,12 +333,23 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
             if (branchDescriptions.length > 0) {
                 node.description = branchDescriptions.join(' ');
             }
+            // 分支节点随后会被 delete node.allOf 断开；阶段 2 必须裁剪当前父节点，
+            // 否则只会修改不可达的 branch 对象并虚减总长度。
+            if (node.description !== descriptionBeforeAllOf) {
+                injectedNodes.push({
+                    node,
+                    originalDesc: descriptionBeforeAllOf,
+                    injectedText: node.description || '',
+                    depth
+                });
+            }
             delete node.allOf;
         }
 
         // 3. 组合关键字降级：oneOf / anyOf
         const unionBranches = Array.isArray(node.oneOf) ? node.oneOf : (Array.isArray(node.anyOf) ? node.anyOf : null);
         if (unionBranches && unionBranches.length > 0) {
+            const descriptionBeforeUnion = node.description;
             report.collapsedOneOf.push({ path });
 
             const transformedBranches = unionBranches.map((b, idx) =>
@@ -427,6 +450,16 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                 : '';
             const oneOfText = `[One of: ${typeUnionPrefix}${unionSummary}]`;
             node.description = node.description ? `${node.description} ${oneOfText}` : oneOfText;
+
+            // 分支对象随后被删除；把 union 摘要登记到当前父节点，保证阶段 2 可裁剪。
+            if (node.description !== descriptionBeforeUnion) {
+                injectedNodes.push({
+                    node,
+                    originalDesc: descriptionBeforeUnion,
+                    injectedText: oneOfText,
+                    depth
+                });
+            }
 
             delete node.oneOf;
             delete node.anyOf;
@@ -601,42 +634,75 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
     // 阶段 2 长度控制：叶子优先保留、根级/浅层优先裁剪
     // =========================================================================
     if (injectConstraints && injectedNodes.length > 0) {
-        // 计算整 Schema 当前 description 总字符量
-        let totalDescLength = 0;
-        function countDescLength(node) {
-            if (!node || typeof node !== 'object') return;
-            if (typeof node.description === 'string') {
-                totalDescLength += node.description.length;
-            }
+        // 只统计“清洗后仍可达”的节点：properties / items / 根节点。
+        // patternProperties、dependentSchemas、if/then/else、not 等子 Schema 会被白名单删除，
+        // 其约束已经汇总到父节点 description，不能单独参与裁剪计数。
+        const reachableNodes = new Set();
+        function collectReachableNodes(node) {
+            if (!node || typeof node !== 'object' || reachableNodes.has(node)) return;
+            reachableNodes.add(node);
             if (node.properties && typeof node.properties === 'object') {
-                for (const k of Object.keys(node.properties)) {
-                    countDescLength(node.properties[k]);
+                for (const key of Object.keys(node.properties)) {
+                    collectReachableNodes(node.properties[key]);
                 }
             }
             if (node.items) {
-                if (Array.isArray(node.items)) node.items.forEach(countDescLength);
-                else countDescLength(node.items);
+                if (Array.isArray(node.items)) node.items.forEach(collectReachableNodes);
+                else collectReachableNodes(node.items);
             }
         }
-        countDescLength(polyfilled);
+        collectReachableNodes(polyfilled);
+
+        let totalDescLength = 0;
+        for (const node of reachableNodes) {
+            if (typeof node.description === 'string') {
+                totalDescLength += node.description.length;
+            }
+        }
 
         if (totalDescLength > maxDescriptionLength) {
             report.truncated = true;
             logger.debug(`[SchemaPolyfill] Total description length (${totalDescLength}) exceeds maxDescriptionLength (${maxDescriptionLength}), trimming shallow nodes`);
 
-            // 按深度升序排序（深度小的在前面，先裁剪根级与顶层属性）
-            injectedNodes.sort((a, b) => a.depth - b.depth);
-
+            // 同一个可达节点可能被登记多次（$ref / allOf / oneOf / 约束注入）。
+            // 按节点合并，保留最早的 originalDesc；裁剪时用“当前 description - 原始 description”
+            // 计算真实可回缩长度，避免对不可达分支或未计入总长的子 Schema 虚减。
+            const candidateByNode = new Map();
             for (const item of injectedNodes) {
+                if (!reachableNodes.has(item.node)) continue;
+                const existing = candidateByNode.get(item.node);
+                if (!existing) {
+                    candidateByNode.set(item.node, {
+                        node: item.node,
+                        originalDesc: item.originalDesc,
+                        depth: item.depth
+                    });
+                } else {
+                    existing.depth = Math.min(existing.depth, item.depth);
+                }
+            }
+
+            const trimCandidates = Array.from(candidateByNode.values())
+                .sort((a, b) => a.depth - b.depth);
+
+            for (const item of trimCandidates) {
                 if (totalDescLength <= maxDescriptionLength) break;
 
-                // 还原原始描述，移除注入部分
+                const currentDescLength = typeof item.node.description === 'string'
+                    ? item.node.description.length
+                    : 0;
+                const originalDescLength = typeof item.originalDesc === 'string'
+                    ? item.originalDesc.length
+                    : 0;
+                const reducibleLength = Math.max(0, currentDescLength - originalDescLength);
+                if (reducibleLength === 0) continue;
+
                 if (item.originalDesc !== undefined) {
                     item.node.description = item.originalDesc;
                 } else {
                     delete item.node.description;
                 }
-                totalDescLength -= item.injectedText.length;
+                totalDescLength -= reducibleLength;
             }
         }
     }

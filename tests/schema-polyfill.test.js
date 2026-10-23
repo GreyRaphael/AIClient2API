@@ -710,5 +710,74 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(conditional.description).toContain('minLength=3');
         });
 
+        test('阶段 2 裁剪 allOf 父描述，实际可达描述总长不超过上限', () => {
+            const branches = Array.from({ length: 5 }, (_, index) => ({
+                type: 'string',
+                pattern: `^${String(index).repeat(200)}$`,
+                description: `Branch ${index}`
+            }));
+            const schema = {
+                type: 'object',
+                properties: {
+                    big: { type: 'string', description: 'A'.repeat(900) },
+                    x: { allOf: branches }
+                }
+            };
+
+            const countDescriptions = (node) => {
+                if (!node || typeof node !== 'object') return 0;
+                let total = typeof node.description === 'string' ? node.description.length : 0;
+                if (node.properties && typeof node.properties === 'object') {
+                    for (const key of Object.keys(node.properties)) total += countDescriptions(node.properties[key]);
+                }
+                if (node.items) {
+                    if (Array.isArray(node.items)) node.items.forEach(item => { total += countDescriptions(item); });
+                    else total += countDescriptions(node.items);
+                }
+                return total;
+            };
+
+            const { schema: result, report } = polyfillSchemaForGemini(schema, { maxDescriptionLength: 1000 });
+            expect(report.truncated).toBe(true);
+            expect(countDescriptions(result)).toBeLessThanOrEqual(1000);
+            expect(result.properties.x.description).toBeUndefined();
+        });
+
+        test('阶段 2 不裁剪不可达 dependentSchemas 子节点，避免虚减总长', () => {
+            const longPattern = `^${'x'.repeat(200)}$`;
+            const schema = {
+                type: 'object',
+                properties: {
+                    big: { type: 'string', description: 'A'.repeat(900) },
+                    nested: {
+                        type: 'object',
+                        properties: {
+                            x: { type: 'string', pattern: longPattern }
+                        }
+                    }
+                },
+                dependentSchemas: {
+                    a: { type: 'string', pattern: longPattern }
+                }
+            };
+
+            const countDescriptions = (node) => {
+                if (!node || typeof node !== 'object') return 0;
+                let total = typeof node.description === 'string' ? node.description.length : 0;
+                if (node.properties && typeof node.properties === 'object') {
+                    for (const key of Object.keys(node.properties)) total += countDescriptions(node.properties[key]);
+                }
+                if (node.items) {
+                    if (Array.isArray(node.items)) node.items.forEach(item => { total += countDescriptions(item); });
+                    else total += countDescriptions(node.items);
+                }
+                return total;
+            };
+
+            const { schema: result, report } = polyfillSchemaForGemini(schema, { maxDescriptionLength: 1000 });
+            expect(report.truncated).toBe(true);
+            expect(countDescriptions(result)).toBeLessThanOrEqual(1000);
+            expect(result.properties.nested.properties.x.description).toBeUndefined();
+        });
     });
 });
