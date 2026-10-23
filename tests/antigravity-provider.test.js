@@ -49,7 +49,11 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                                         'chat_internal_test',
                                         'gemini-pro-agent',
                                         'claude-sonnet-5-5-high',
-                                        'claude-opus-5-5-high'
+                                        'claude-opus-5-5-high',
+                                        'gpt-oss-120b-medium',
+                                        'gpt-6-astra-high',
+                                        'gpt-6.1-sol-medium',
+                                        'gpt-6-astra-low'
                                     ]
                                 }
                             ]
@@ -69,16 +73,19 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
 
         await service1.fetchAvailableModels();
 
-        // 验证只包含有效对话模型与生图模型
+        // 验证包含有效对话模型（-high, -medium）与生图模型，以及为未来准备的 GPT 系列
         expect(service1.availableModels).toContain('gemini-3.8-flash-high');
+        expect(service1.availableModels).toContain('gemini-3.8-flash-medium');
         expect(service1.availableModels).toContain('gemini-3.1-pro-high'); // deprecated 映射替换 (gemini-pro-agent -> gemini-3.1-pro-high)
         expect(service1.availableModels).toContain('claude-sonnet-5-5-high');
         expect(service1.availableModels).toContain('claude-opus-5-5-high');
         expect(service1.availableModels).toContain('gemini-3.1-flash-image');
+        expect(service1.availableModels).toContain('gpt-6-astra-high');
+        expect(service1.availableModels).toContain('gpt-6.1-sol-medium');
 
-        // 验证排除了 medium、low、chat_ 开头的非正式模型，并且绝无 -tiered 伪模型
-        expect(service1.availableModels.some(m => m.endsWith('-medium'))).toBe(false);
-        expect(service1.availableModels.some(m => m.endsWith('-low'))).toBe(false);
+        // 验证过滤规则：排除了 -low、oss、chat_ 辅助模型与 -tiered 伪模型
+        expect(service1.availableModels.some(m => m.includes('-low'))).toBe(false);
+        expect(service1.availableModels.some(m => m.includes('oss'))).toBe(false);
         expect(service1.availableModels.some(m => m.startsWith('chat_'))).toBe(false);
         expect(service1.availableModels.some(m => m.includes('-tiered'))).toBe(false);
 
@@ -227,5 +234,26 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         const activeModels = poolManager.getActiveProviderModels('openai-custom');
         expect(activeModels).toContain('glm-5.2');
         expect(activeModels).toContain('custom-glm-model');
+    });
+
+    test('8. Future OpenAI models (gpt-6-astra-high, gpt-6.1-sol-medium) support dynamic recognition and thinking level mapping', () => {
+        const service = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        service.availableModels = ['gpt-6-astra-high', 'gpt-6.1-sol-medium'];
+
+        const reqBody1 = {
+            contents: [{ role: 'user', parts: [{ text: 'Hello GPT-6' }] }]
+        };
+        const res1 = service.buildAntigravityPayload('gpt-6-astra-high', reqBody1);
+        expect(res1.actualModelName).toBe('gpt-6-astra-high');
+        expect(res1.payload.request?.generationConfig?.thinkingConfig?.thinkingLevel).toBe('high');
+        expect(res1.payload.request?.generationConfig?.thinkingConfig?.includeThoughts).toBe(true);
+
+        const reqBody2 = {
+            contents: [{ role: 'user', parts: [{ text: 'Hello GPT-6.1' }] }]
+        };
+        const res2 = service.buildAntigravityPayload('gpt-6.1-sol-medium', reqBody2);
+        expect(res2.actualModelName).toBe('gpt-6.1-sol-medium');
+        expect(res2.payload.request?.generationConfig?.thinkingConfig?.thinkingLevel).toBe('medium');
+        expect(res2.payload.request?.generationConfig?.thinkingConfig?.includeThoughts).toBe(true);
     });
 });

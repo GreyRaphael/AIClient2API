@@ -82,26 +82,19 @@ function resolveAntigravityUpstreamModel(modelName) {
 
 function isKnownAntigravityModel(modelName) {
     const baseModel = stripModelSuffix(modelName);
-    if (!baseModel) return false;
+    if (!baseModel || baseModel.includes('oss')) return false;
     const resolved = resolveAntigravityUpstreamModel(baseModel);
     const currentModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
     if (currentModels.includes(baseModel) || currentModels.includes(resolved)) {
         return true;
     }
-    // 泛型识别：动态支持 Gemini 系列体系 (如 flash, argon, pro 等)
-    if (/^gemini-[\d.]+(-[a-z0-9]+)*$/.test(baseModel)) {
-        return true;
-    }
-    // 泛型识别：动态支持 Claude 系列体系
-    if (/^claude-[\d.]+(-[a-z0-9]+)*$/.test(baseModel)) {
-        return true;
-    }
-    return false;
+    // 泛型识别：动态支持 Gemini / Claude / GPT 系列 (如 gemini-4-argon-*, claude-*-5-5-*, gpt-6-astra-*, gpt-6.1-sol-*)
+    return /^(gemini|claude|gpt)-[a-z0-9]+([-.][a-z0-9]+)*$/i.test(baseModel);
 }
 
 function antigravityModelRequiresStreamForNonStream(modelName) {
     const name = String(modelName || '').toLowerCase();
-    return name.includes('claude') || name === 'gemini-pro-agent' || name.includes('gemini-3.1-pro') || name.includes('gemini-3.1-flash-image');
+    return name.includes('claude') || name.includes('gpt') || name === 'gemini-pro-agent' || name.includes('gemini-3.1-pro') || name.includes('gemini-3.1-flash-image');
 }
 
 /**
@@ -217,6 +210,8 @@ function modelSupportsThinking(modelName) {
     return /^gemini-[3-9]/.test(name) ||
            name.includes('-thinking') ||
            name.includes('-high') ||
+           name.includes('-medium') ||
+           name.startsWith('gpt-') ||
            isClaude55(name);
 }
 
@@ -532,7 +527,10 @@ export function geminiToAntigravity(modelName, payload, projectId, capabilities 
         if (!template.request.generationConfig.thinkingConfig) {
             template.request.generationConfig.thinkingConfig = {};
         }
-        template.request.generationConfig.thinkingConfig.thinkingLevel = modelName.endsWith('-high') ? 'high' : 'high';
+        let level = 'high';
+        if (modelName.endsWith('-medium')) level = 'medium';
+        else if (modelName.endsWith('-low')) level = 'low';
+        template.request.generationConfig.thinkingConfig.thinkingLevel = level;
         template.request.generationConfig.thinkingConfig.includeThoughts = true;
         delete template.request.generationConfig.thinkingConfig.thinkingBudget;
     } else if (isClaudeModel) {
@@ -1327,22 +1325,20 @@ export class AntigravityApiService {
                         }
                     }
 
-                    // 4. 严格排除 -medium, -low, -lite 等降级或子系统模型
-                    const isTierExcluded = (id) => {
+                    // 4. 简化排除逻辑：排除内部辅助 (chat_, tab_)、聚合伪模型 (-tiered)、开源模型 (oss) 及低算力模型 (-low)
+                    const isExcludedModel = (id) => {
                         const lower = (id || '').toLowerCase();
-                        return lower.endsWith('-medium') ||
-                               lower.endsWith('-low') ||
-                               lower.endsWith('-extra-low') ||
-                               lower.endsWith('-lite') ||
-                               lower.includes('-lite-') ||
-                               lower.startsWith('chat_') ||
-                               lower.startsWith('tab_');
+                        return lower.startsWith('chat_') ||
+                               lower.startsWith('tab_') ||
+                               lower.includes('-tiered') ||
+                               lower.includes('oss') ||
+                               lower.includes('-low');
                     };
 
-                    const filteredCandidates = candidateModels.filter(m => !isTierExcluded(m));
+                    const filteredCandidates = candidateModels.filter(m => !isExcludedModel(m));
 
                     // 5. 容错降级：若上游因异常未返回 agentModelSorts，降级检查 defaultAgentModelId
-                    if (filteredCandidates.length === 0 && res.data.defaultAgentModelId && !isTierExcluded(res.data.defaultAgentModelId)) {
+                    if (filteredCandidates.length === 0 && res.data.defaultAgentModelId && !isExcludedModel(res.data.defaultAgentModelId)) {
                         filteredCandidates.push(res.data.defaultAgentModelId);
                     }
 
@@ -1939,13 +1935,14 @@ export class AntigravityApiService {
         });
         const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId, capabilities);
 
-        // 若选中的模型以 -high 结尾，确保思考级别设置为 high
-        if (selectedModel.endsWith('-high') || actualModelName.endsWith('-high')) {
+        // 若选中的模型以 -high / -medium / -low 结尾，确保思考级别设置为对应等级
+        const targetSuffix = ['-high', '-medium', '-low'].find(s => selectedModel.endsWith(s) || actualModelName.endsWith(s));
+        if (targetSuffix) {
             if (!payload.request) payload.request = {};
             if (!payload.request.generationConfig) payload.request.generationConfig = {};
             if (!payload.request.generationConfig.thinkingConfig) payload.request.generationConfig.thinkingConfig = {};
             if (!payload.request.generationConfig.thinkingConfig.thinkingLevel) {
-                payload.request.generationConfig.thinkingConfig.thinkingLevel = 'high';
+                payload.request.generationConfig.thinkingConfig.thinkingLevel = targetSuffix.slice(1);
             }
             payload.request.generationConfig.thinkingConfig.includeThoughts = true;
         }

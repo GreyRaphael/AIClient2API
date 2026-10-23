@@ -93,11 +93,11 @@ const BUILTIN_PROVIDER_RULES = {
             }
         }
     ],
-    // Antigravity 非 Claude 模型的 streamGenerateContent 不返回 thought 文本，
-    // 只有非流式 generateContent 才带 thought parts。
+    // Antigravity 仅 Gemini 原生模型的 streamGenerateContent 不返回 thought 文本，
+    // 只有非流式 generateContent 才带 thought parts；Claude 与 GPT 走标准流式输出。
     'gemini-antigravity': [
         {
-            match: (model) => !/claude/i.test(String(model || '')),
+            match: (model) => !/(claude|gpt)/i.test(String(model || '')),
             capabilities: {
                 supportsStreamingThoughts: false
             }
