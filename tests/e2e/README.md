@@ -49,7 +49,7 @@ npm run test:e2e
 - usage 不变量（部分路径强断言：`responses_stream` 与 `responses_tool` 对所有模型检查 `output_tokens >= reasoning_tokens`；`chat_text`、`chat_stream`、`responses_text` 仅对 `gemini-antigravity:*` 检查）
 - Reasoning/thinking 存在性作为非阻塞 `[E2E warnings]` 输出（部分 Provider/模型如 Zed 的 Claude/Gemini 分支不向外暴露 thinking block）。
 
-### 定向用例（14 项）
+### 定向用例（16 项）
 
 - openai-custom 指定 function 强制 `tool_choice` 在 30s 内返回
 - `zed:gpt-6-luna` 32×32 红图识别
@@ -64,6 +64,8 @@ npm run test:e2e
 - 上游 4xx 错误响应保留可读细节
 - 多 system 消息折叠后模型遵循唯一指令标记（`ZEBRA42`）
 - 三下游协议（Chat / Responses / Claude）流式工具调用生命周期完整
+- Responses→Gemini input 内 developer 消息与 `text.format` JSON Schema 结构化输出
+- Responses→Gemini 仅 system/developer 消息返回本地 400，不请求上游
 
 ## 长尾重试与故障分类
 
@@ -84,7 +86,7 @@ npm run test:e2e
 
 ## 注意
 
-- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 27 个模型时约 297 次核心请求，另有定向用例。
+- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 19 个模型时约 209 次核心请求，另有 16 项定向用例。
 - 建议使用独立实例端口，避免影响主实例。
 - 默认串行执行（`--runInBand`），避免并发触发上游限流。
 - 发布前建议至少跑一次默认全量矩阵；仅本地快速回归时可传 `AICLIENT_E2E_MODELS=...` 子集。

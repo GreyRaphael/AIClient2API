@@ -45,7 +45,7 @@
 ### 5. 文档与测试清理
 
 - 新增 `tests/v4-1-6-regressions.test.js`，覆盖 9 个 P1/P2 回归场景。
-- 清理过时的跨协议评估/优化文档；当前评估入口收敛为 [`docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md`](docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md)。
+- 清理过时的跨协议评估/优化文档；评估入口后续见 [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)。
 - 清理 E2E 测试中未使用的 `addQuotaFailure` 别名。
 
 ---
@@ -86,7 +86,7 @@ Tests:       463 passed, 463 total
 
 ## 📚 相关文档
 
-- [跨协议转译复评（v4.1.6 基线 + v4.1.7 修复验收）](docs/CROSS_PROTOCOL_REVIEW_V4_1_7.md)
+- [跨协议转译复评（19 模型全量 E2E · 2026-10-23）](docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)
 - [跨协议架构](docs/CROSS_PROTOCOL_ARCHITECTURE.md)
 - [流式转换设计](docs/CONVERTER_STREAM_DESIGN.md)
 - [Provider 适配指南](docs/PROVIDER_ADAPTER_GUIDE.md)
