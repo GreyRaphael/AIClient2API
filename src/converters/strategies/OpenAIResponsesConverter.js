@@ -559,8 +559,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     || responsesChunk.created
                     || Math.floor(Date.now() / 1000),
                 hasToolCalls: false,
-                receivedTextDelta: false,
-                receivedReasoningDelta: false,
+                // 按 output_index/content_index（reasoning 用 summary_index）记录
+                // 已下发过非空内容，避免全局布尔值在多 part 流中误抑制 done 兜底。
+                textSentByPart: new Set(),
+                reasoningSentByPart: new Set(),
                 nextToolIndex: 0,
                 // Responses output_index -> OpenAI Chat tool_calls.index
                 toolIndexByOutput: new Map(),
@@ -583,6 +585,23 @@ export class OpenAIResponsesConverter extends BaseConverter {
             state.toolIndexByOutput.set(key, state.nextToolIndex++);
         }
         return state.toolIndexByOutput.get(key);
+    }
+
+    /**
+     * 生成 Responses 流内文本/思考 part 的稳定键。
+     * 同一个响应可能有多个 message / reasoning output item，不能用请求级布尔值
+     * 判断“是否已有 delta”；否则某个 part 的 delta 会抑制另一个 part 的 done 兜底。
+     *
+     * @param {Object} chunk - Responses 流式事件
+     * @param {'text'|'reasoning'} kind
+     * @returns {string}
+     */
+    _responsesPartKey(chunk, kind) {
+        const outputIndex = String(chunk?.output_index ?? 0);
+        const partIndex = kind === 'reasoning'
+            ? String(chunk?.summary_index ?? chunk?.content_index ?? 0)
+            : String(chunk?.content_index ?? 0);
+        return `${outputIndex}:${partIndex}`;
     }
 
     _appendCustomToolArguments(state, outputIndex, rawInput, delta) {
@@ -626,23 +645,35 @@ export class OpenAIResponsesConverter extends BaseConverter {
         let finish_reason = null;
 
         if (responsesChunk.type === 'response.output_text.delta') {
-            state.receivedTextDelta = true;
-            delta.content = responsesChunk.delta;
+            const text = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
+            if (text.length > 0) {
+                state.textSentByPart.add(this._responsesPartKey(responsesChunk, 'text'));
+            }
+            delta.content = text;
         } else if (responsesChunk.type === 'response.output_text.done') {
-            if (!state.receivedTextDelta && (responsesChunk.delta || responsesChunk.text)) {
-                delta.content = responsesChunk.delta || responsesChunk.text;
+            const fallbackText = responsesChunk.delta || responsesChunk.text;
+            const partKey = this._responsesPartKey(responsesChunk, 'text');
+            if (!state.textSentByPart.has(partKey) && fallbackText) {
+                state.textSentByPart.add(partKey);
+                delta.content = fallbackText;
             }
         } else if (responsesChunk.type === 'response.reasoning_text.delta' ||
                    responsesChunk.type === 'response.reasoning_summary_text.delta' ||
                    responsesChunk.type === 'response.reasoning.delta' ||
                    responsesChunk.type === 'response.reasoning_summary.delta') {
-            state.receivedReasoningDelta = true;
-            delta.reasoning_content = responsesChunk.delta;
+            const reasoning = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
+            if (reasoning.length > 0) {
+                state.reasoningSentByPart.add(this._responsesPartKey(responsesChunk, 'reasoning'));
+            }
+            delta.reasoning_content = reasoning;
         } else if (responsesChunk.type === 'response.reasoning_summary_text.done' ||
                    responsesChunk.type === 'response.reasoning_text.done' ||
                    responsesChunk.type === 'response.reasoning.done') {
-            if (!state.receivedReasoningDelta && (responsesChunk.delta || responsesChunk.text)) {
-                delta.reasoning_content = responsesChunk.delta || responsesChunk.text;
+            const fallbackReasoning = responsesChunk.delta || responsesChunk.text;
+            const partKey = this._responsesPartKey(responsesChunk, 'reasoning');
+            if (!state.reasoningSentByPart.has(partKey) && fallbackReasoning) {
+                state.reasoningSentByPart.add(partKey);
+                delta.reasoning_content = fallbackReasoning;
             }
         } else if (responsesChunk.type === 'response.output_item.added' &&
                    (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
@@ -1364,6 +1395,13 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 textBlocks: new Set(),
                 toolBlocks: new Set(),
                 reasoningBlocks: new Set(),
+                // 已向客户端下发过非空文本/思考的 Responses part 键。
+                // block 已打开不等于已发送内容：content_part.added 或空 delta
+                // 后仍可能只收到 done(text)，必须补发 delta。按 part 而不是按
+                // Claude block index 记录，避免同一 output_index 的多个
+                // content part 互相抑制。
+                textSentByPart: new Set(),
+                reasoningSentByPart: new Set(),
                 stoppedBlocks: new Set(),
                 stopReason: 'end_turn',
                 usage: null,
@@ -1385,12 +1423,21 @@ export class OpenAIResponsesConverter extends BaseConverter {
         });
     }
 
-    _normalizeClaudeStreamIndex(chunk, state = null) {
+    _normalizeClaudeStreamIndex(chunk, state = null, kind = null) {
         const outputIndex = chunk.output_index ?? chunk.content_index ?? 0;
         if (!state) return outputIndex;
         if (!(state.claudeIndexByOutput instanceof Map)) state.claudeIndexByOutput = new Map();
         if (!Number.isInteger(state.nextClaudeIndex)) state.nextClaudeIndex = 0;
-        const key = String(outputIndex);
+        let key;
+        if (kind === 'text' || kind === 'reasoning') {
+            key = `${kind}:${this._responsesPartKey(chunk, kind)}`;
+        } else if (chunk.summary_index !== undefined) {
+            key = `reasoning:${this._responsesPartKey(chunk, 'reasoning')}`;
+        } else if (chunk.content_index !== undefined && chunk.output_index !== undefined) {
+            key = `text:${this._responsesPartKey(chunk, 'text')}`;
+        } else {
+            key = String(outputIndex);
+        }
         if (!state.claudeIndexByOutput.has(key)) {
             state.claudeIndexByOutput.set(key, state.nextClaudeIndex++);
         }
@@ -1480,22 +1527,33 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesChunk.type === 'response.content_part.added') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
             if (responsesChunk.part?.type === 'output_text' && !state.textBlocks.has(index)) {
                 state.textBlocks.add(index);
-                return {
+                const events = [{
                     type: 'content_block_start',
                     index,
                     content_block: {
                         type: 'text',
                         text: ''
                     }
-                };
+                }];
+                const initialText = responsesChunk.part.text;
+                if (typeof initialText === 'string' && initialText.length > 0) {
+                    state.textSentByPart.add(this._responsesPartKey(responsesChunk, 'text'));
+                    events.push({
+                        type: 'content_block_delta',
+                        index,
+                        delta: { type: 'text_delta', text: initialText }
+                    });
+                }
+                return events.length === 1 ? events[0] : events;
             }
         }
 
         if (responsesChunk.type === 'response.output_text.delta') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
+            const text = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
             const events = [];
             if (!state.textBlocks.has(index)) {
                 state.textBlocks.add(index);
@@ -1508,51 +1566,63 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     }
                 });
             }
+            if (text.length > 0) {
+                state.textSentByPart.add(this._responsesPartKey(responsesChunk, 'text'));
+            }
             events.push({
                 type: 'content_block_delta',
                 index,
                 delta: {
                     type: 'text_delta',
-                    text: responsesChunk.delta || ''
+                    text
                 }
             });
             return events;
         }
 
         if (responsesChunk.type === 'response.output_text.done' || responsesChunk.type === 'response.content_part.done') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
             if (!state.stoppedBlocks.has(`text:${index}`)) {
                 const events = [];
-                // 若上游仅发送 done（含 text）而未发送 delta/added，先补齐 start + delta 再 stop
-                const fallbackText = responsesChunk.text || responsesChunk.part?.text || '';
-                if (!state.textBlocks.has(index) && fallbackText) {
+                // 若上游只发送 done（含 text）而未发送非空 delta，先补齐 delta 再 stop。
+                // 注意：content_part.added 可能已经打开了 block，不能只看 textBlocks。
+                const fallbackText = responsesChunk.delta || responsesChunk.text || responsesChunk.part?.text || '';
+                const partKey = this._responsesPartKey(responsesChunk, 'text');
+                if (!state.textBlocks.has(index)) {
+                    if (!fallbackText) {
+                        return null;
+                    }
                     state.textBlocks.add(index);
                     events.push({
                         type: 'content_block_start',
                         index,
                         content_block: { type: 'text', text: '' }
                     });
+                }
+                if (fallbackText && !state.textSentByPart.has(partKey)) {
+                    state.textSentByPart.add(partKey);
                     events.push({
                         type: 'content_block_delta',
                         index,
                         delta: { type: 'text_delta', text: fallbackText }
                     });
                 }
-                if (state.textBlocks.has(index)) {
-                    state.stoppedBlocks.add(`text:${index}`);
-                    events.push({
-                        type: 'content_block_stop',
-                        index
-                    });
-                    return events.length === 1 ? events[0] : events;
-                }
+                state.stoppedBlocks.add(`text:${index}`);
+                events.push({
+                    type: 'content_block_stop',
+                    index
+                });
+                return events.length === 1 ? events[0] : events;
             }
             return null;
         }
 
         if (responsesChunk.type === 'response.reasoning_summary_text.delta' ||
-            responsesChunk.type === 'response.reasoning_text.delta') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
+            responsesChunk.type === 'response.reasoning_text.delta' ||
+            responsesChunk.type === 'response.reasoning.delta' ||
+            responsesChunk.type === 'response.reasoning_summary.delta') {
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'reasoning');
+            const thinking = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
             const events = [];
             if (!state.reasoningBlocks.has(index)) {
                 state.reasoningBlocks.add(index);
@@ -1565,58 +1635,67 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     }
                 });
             }
+            if (thinking.length > 0) {
+                state.reasoningSentByPart.add(this._responsesPartKey(responsesChunk, 'reasoning'));
+            }
             events.push({
                 type: 'content_block_delta',
                 index,
                 delta: {
                     type: 'thinking_delta',
-                    thinking: responsesChunk.delta || ''
+                    thinking
                 }
             });
             return events;
         }
 
         if (responsesChunk.type === 'response.reasoning_summary_text.done' ||
-            responsesChunk.type === 'response.reasoning_text.done') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
+            responsesChunk.type === 'response.reasoning_text.done' ||
+            responsesChunk.type === 'response.reasoning.done') {
+            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'reasoning');
             if (!state.stoppedBlocks.has(`reasoning:${index}`)) {
                 const events = [];
-                const fallbackThinking = responsesChunk.text || '';
-                if (!state.reasoningBlocks.has(index) && fallbackThinking) {
+                const fallbackThinking = responsesChunk.delta || responsesChunk.text || '';
+                const partKey = this._responsesPartKey(responsesChunk, 'reasoning');
+                if (!state.reasoningBlocks.has(index)) {
+                    if (!fallbackThinking) {
+                        return null;
+                    }
                     state.reasoningBlocks.add(index);
                     events.push({
                         type: 'content_block_start',
                         index,
                         content_block: { type: 'thinking', thinking: '' }
                     });
+                }
+                if (fallbackThinking && !state.reasoningSentByPart.has(partKey)) {
+                    state.reasoningSentByPart.add(partKey);
                     events.push({
                         type: 'content_block_delta',
                         index,
                         delta: { type: 'thinking_delta', thinking: fallbackThinking }
                     });
                 }
-                if (state.reasoningBlocks.has(index)) {
-                    state.stoppedBlocks.add(`reasoning:${index}`);
-                    if (isSignatureVaultEnabled()) {
-                        events.push({
-                            type: 'content_block_delta',
-                            index,
-                            delta: {
-                                type: 'signature_delta',
-                                signature: mintVirtualSignature({
-                                    sessionKey: requestId || 'responses',
-                                    blockIndex: index,
-                                    thinkingText: fallbackThinking
-                                })
-                            }
-                        });
-                    }
+                state.stoppedBlocks.add(`reasoning:${index}`);
+                if (isSignatureVaultEnabled()) {
                     events.push({
-                        type: 'content_block_stop',
-                        index
+                        type: 'content_block_delta',
+                        index,
+                        delta: {
+                            type: 'signature_delta',
+                            signature: mintVirtualSignature({
+                                sessionKey: requestId || 'responses',
+                                blockIndex: index,
+                                thinkingText: fallbackThinking
+                            })
+                        }
                     });
-                    return events;
                 }
+                events.push({
+                    type: 'content_block_stop',
+                    index
+                });
+                return events;
             }
             return null;
         }

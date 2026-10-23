@@ -452,6 +452,130 @@ describe('v4.1.7 Rerun P0/P1: 快速一致性与边界健壮性修复', () => {
         ]);
     });
 
+    test('Responses done 兜底按 part 跟踪非空内容：已打开 block / 空 delta / 多 part 均不丢正文', () => {
+        const converter = new OpenAIResponsesConverter();
+
+        // 1) Chat：空 delta 不应抑制后续 done.text；不同 output_index 独立判断
+        const chatEmptyDelta = converter.toOpenAIStreamChunk(
+            { type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: '' },
+            'gpt-test',
+            'resp-empty-delta-chat'
+        );
+        expect(chatEmptyDelta?.choices?.[0]?.delta?.content).toBe('');
+        const chatDoneAfterEmpty = converter.toOpenAIStreamChunk(
+            { type: 'response.output_text.done', output_index: 0, content_index: 0, text: 'hello' },
+            'gpt-test',
+            'resp-empty-delta-chat'
+        );
+        expect(chatDoneAfterEmpty?.choices?.[0]?.delta?.content).toBe('hello');
+
+        converter.toOpenAIStreamChunk(
+            { type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: 'first' },
+            'gpt-test',
+            'resp-multi-part-chat'
+        );
+        const chatSecondPartDone = converter.toOpenAIStreamChunk(
+            { type: 'response.output_text.done', output_index: 1, content_index: 0, text: 'second' },
+            'gpt-test',
+            'resp-multi-part-chat'
+        );
+        expect(chatSecondPartDone?.choices?.[0]?.delta?.content).toBe('second');
+
+        // 2) Claude：content_part.added 已打开 block 后，done.text 仍要补 thinking/text delta
+        const claudeAdded = converter.toClaudeStreamChunk(
+            { type: 'response.content_part.added', output_index: 0, content_index: 0, part: { type: 'output_text', text: '' } },
+            'claude-test',
+            'resp-added-then-done-claude'
+        );
+        expect(claudeAdded?.type).toBe('content_block_start');
+
+        const claudeDoneAfterAdded = flat(converter.toClaudeStreamChunk(
+            { type: 'response.output_text.done', output_index: 0, content_index: 0, text: 'hello after added' },
+            'claude-test',
+            'resp-added-then-done-claude'
+        ));
+        expect(claudeDoneAfterAdded.map(e => e.type)).toEqual([
+            'content_block_delta',
+            'content_block_stop'
+        ]);
+        expect(claudeDoneAfterAdded[0].delta).toEqual({
+            type: 'text_delta',
+            text: 'hello after added'
+        });
+
+        // 3) Claude：空 delta 打开 block 后，done.text 仍要补 text_delta
+        converter.toClaudeStreamChunk(
+            { type: 'response.output_text.delta', output_index: 1, content_index: 0, delta: '' },
+            'claude-test',
+            'resp-empty-delta-claude'
+        );
+        const claudeDoneAfterEmpty = flat(converter.toClaudeStreamChunk(
+            { type: 'response.output_text.done', output_index: 1, content_index: 0, text: 'world' },
+            'claude-test',
+            'resp-empty-delta-claude'
+        ));
+        expect(claudeDoneAfterEmpty.map(e => e.type)).toEqual([
+            'content_block_delta',
+            'content_block_stop'
+        ]);
+        expect(claudeDoneAfterEmpty[0].delta).toEqual({ type: 'text_delta', text: 'world' });
+
+        // 3b) Claude：同一 output_index 的多个 content part（含前序 part 已触发 done 闭合）
+        // 各自拥有独立 Claude block index，不互相抑制或提前封死
+        converter.toClaudeStreamChunk(
+            { type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: 'part-one' },
+            'claude-test',
+            'resp-multi-contentpart-claude'
+        );
+        const firstPartStop = converter.toClaudeStreamChunk(
+            { type: 'response.output_text.done', output_index: 0, content_index: 0, text: 'part-one' },
+            'claude-test',
+            'resp-multi-contentpart-claude'
+        );
+        expect(firstPartStop).toEqual({ type: 'content_block_stop', index: 0 });
+
+        const claudeSecondContentPartDone = flat(converter.toClaudeStreamChunk(
+            { type: 'response.output_text.done', output_index: 0, content_index: 1, text: 'part-two' },
+            'claude-test',
+            'resp-multi-contentpart-claude'
+        ));
+        expect(claudeSecondContentPartDone).toEqual([
+            { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+            { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'part-two' } },
+            { type: 'content_block_stop', index: 1 }
+        ]);
+
+        // 4) reasoning：空 thinking delta 后，done.text（含简写 response.reasoning.done）仍要补 thinking_delta
+        const chatReasoningEmpty = converter.toOpenAIStreamChunk(
+            { type: 'response.reasoning_summary_text.delta', output_index: 0, summary_index: 0, delta: '' },
+            'gpt-test',
+            'resp-empty-reasoning-chat'
+        );
+        expect(chatReasoningEmpty?.choices?.[0]?.delta?.reasoning_content).toBe('');
+        const chatReasoningDone = converter.toOpenAIStreamChunk(
+            { type: 'response.reasoning_summary_text.done', output_index: 0, summary_index: 0, text: 'thinking' },
+            'gpt-test',
+            'resp-empty-reasoning-chat'
+        );
+        expect(chatReasoningDone?.choices?.[0]?.delta?.reasoning_content).toBe('thinking');
+
+        converter.toClaudeStreamChunk(
+            { type: 'response.reasoning.delta', output_index: 2, summary_index: 0, delta: '' },
+            'claude-test',
+            'resp-empty-reasoning-claude'
+        );
+        const claudeReasoningDone = flat(converter.toClaudeStreamChunk(
+            { type: 'response.reasoning.done', output_index: 2, summary_index: 0, text: 'thinking' },
+            'claude-test',
+            'resp-empty-reasoning-claude'
+        ));
+        const thinkingDelta = claudeReasoningDone.find(
+            e => e.type === 'content_block_delta' && e.delta?.type === 'thinking_delta'
+        );
+        expect(thinkingDelta?.delta?.thinking).toBe('thinking');
+        expect(claudeReasoningDone.map(e => e.type)).toContain('content_block_stop');
+    });
+
     test('preContentBuffer 超过帧数上限时提前冲刷，不阻塞且不误触发空响应异常', async () => {
         const res = createMockResponse();
         const service = {

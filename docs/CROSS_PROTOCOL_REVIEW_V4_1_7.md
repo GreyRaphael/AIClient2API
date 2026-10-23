@@ -7,7 +7,7 @@
 - 测试实例：首轮 27 模型复评使用 `http://127.0.0.1:3000/auto`；修复后最终验收使用隔离的 `http://127.0.0.1:3201/auto`
 - 模型来源：`GET /auto/v1/models` 动态发现，共 **27 个模型**
 - 核心用例：27 × 11 = **297 次真实上游请求**；另有 **14 个定向 E2E**（含新增的 system 唯一标记与三下游流式工具生命周期断言）
-- 单元测试：修复前 **28 suites / 454 tests**；v4.1.7 P1/P2 修复后 **29 suites / 463 tests**；2026-10-23 P0/P1 一致性收口后 **29 suites / 469 tests 全绿**
+- 单元测试：修复前 **28 suites / 454 tests**；v4.1.7 P1/P2 修复后 **29 suites / 463 tests**；2026-10-23 P0/P1 一致性收口后 **29 suites / 469 tests 全绿**；Responses done 兜底修复后 **29 suites / 470 tests 全绿**
 
 > **2026-10-23 更新**：已完成独立复跑归因、补充探针固化，以及 P0（测试长尾与流内错误重试）+ P1（`temperature=0` 保留、Zed Google thinking 阈值统一、Gemini 流式 `MALFORMED_FUNCTION_CALL/MODEL_ARMOR` 映射统一、Responses `.done` 兜底、`preContentBuffer` 容量上限）修复与单测验收，详见第 11、12 节。
 
