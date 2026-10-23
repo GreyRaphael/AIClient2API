@@ -241,7 +241,7 @@ describe('B4: 并发 requestId 隔离', () => {
         const stateB = converter.claudeStreamStates.get('req_B');
         expect(stateA).toBeDefined();
         expect(stateB).toBeDefined();
-        // messageId 按 requestId 键控的状态独立持有（Grok 委托场景：chunk.id 可能相同）
+        // messageId 按 requestId 键控的状态独立持有（跨 Converter 委托场景：chunk.id 可能相同）
         expect(stateA.messageId).not.toBe(stateB.messageId);
 
         converter.claudeStreamStates.delete('req_A');

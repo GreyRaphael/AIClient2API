@@ -5,7 +5,6 @@ import { mapFinishReason } from '../src/converters/utils.js';
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
-import { GrokConverter } from '../src/converters/strategies/GrokConverter.js';
 import { ConverterFactory } from '../src/converters/ConverterFactory.js';
 import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.js';
 
@@ -1013,66 +1012,7 @@ describe('finish_reason / stop_reason 规范化映射', () => {
     });
 });
 
-// =============================================================================
-// Grok -> Claude 委托透传 requestId（并发隔离）
-// =============================================================================
-describe('Grok -> Claude 委托透传 requestId', () => {
-    test('两条无 responseId 的交错流在 OpenAIConverter 内按 requestId 隔离状态且首帧仅有单个 message_start', () => {
-        const converter = new GrokConverter();
-        const openaiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.OPENAI);
-        const reqA = 'jest_grok_req_A';
-        const reqB = 'jest_grok_req_B';
-
-        // grok chunk 不含 responseId：修复前每个 chunk 生成新 uuid 作为 OpenAIConverter 状态键，
-        // 导致 message_start 每帧重发且并发流状态交叉；修复后按 requestId 稳定键控
-        const mk = (token) => ({ result: { response: { token } } });
-
-        try {
-            const eventsA1 = converter.toClaudeStreamChunk(mk('你好'), 'grok-3', reqA);
-            const eventsB1 = converter.toClaudeStreamChunk(mk('hello'), 'grok-3', reqB);
-            const eventsA2 = converter.toClaudeStreamChunk(mk('世界'), 'grok-3', reqA);
-
-            // 严格验证：首帧事件中必须仅有且只有 1 个 message_start 事件（不能有双重 message_start）
-            const startEventsA1 = eventsA1.filter(e => e.type === 'message_start');
-            expect(startEventsA1).toHaveLength(1);
-            expect(eventsA1.map(e => e.type)).toEqual([
-                'message_start',
-                'content_block_start',
-                'content_block_delta'
-            ]);
-
-            const startEventsB1 = eventsB1.filter(e => e.type === 'message_start');
-            expect(startEventsB1).toHaveLength(1);
-
-            // 后续 chunk 不应再发送 message_start
-            const arrA2 = Array.isArray(eventsA2) ? eventsA2 : [eventsA2];
-            expect(arrA2.filter(e => e.type === 'message_start')).toHaveLength(0);
-            expect(arrA2.map(e => e.type)).toEqual(['content_block_delta']);
-
-            // 两条流的状态以 requestId 为键独立存在
-            expect(openaiConverter.claudeStreamStates.has(reqA)).toBe(true);
-            expect(openaiConverter.claudeStreamStates.has(reqB)).toBe(true);
-
-            // 交错推进后各自的 messageId 互不污染
-            const stateA = openaiConverter.claudeStreamStates.get(reqA);
-            const stateB = openaiConverter.claudeStreamStates.get(reqB);
-            expect(stateA.messageId).not.toBe(stateB.messageId);
-
-            // 终帧测试：isDone 触发终态事件
-            const eventsDoneA = converter.toClaudeStreamChunk({ result: { response: { isDone: true } } }, 'grok-3', reqA);
-            const arrDoneA = Array.isArray(eventsDoneA) ? eventsDoneA : [eventsDoneA];
-            expect(arrDoneA.map(e => e.type)).toEqual([
-                'content_block_stop',
-                'message_delta',
-                'message_stop'
-            ]);
-            expect(openaiConverter.claudeStreamStates.has(reqA)).toBe(false);
-        } finally {
-            openaiConverter.claudeStreamStates.delete(reqA);
-            openaiConverter.claudeStreamStates.delete(reqB);
-        }
-    });
-
+describe('Phase 0 & 后续定点修复用例', () => {
     // =========================================================================
     // Phase 0: 定点修复包测试用例 (0.2, 0.3, 0.4, 0.5)
     // =========================================================================

@@ -4,7 +4,6 @@ import { OpenAIResponsesConverter } from '../src/converters/strategies/OpenAIRes
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
 import { CodexConverter } from '../src/converters/strategies/CodexConverter.js';
-import { GrokConverter } from '../src/converters/strategies/GrokConverter.js';
 import { OpenAIApiService } from '../src/providers/openai/openai-core.js';
 import { MODEL_PROTOCOL_PREFIX } from '../src/utils/constants.js';
 import { isVirtualSignature } from '../src/converters/signature-vault.js';
@@ -147,34 +146,6 @@ describe('v4 P1 regressions', () => {
             type: 'image_url',
             image_url: { url: 'https://example.com/c.png' }
         });
-    });
-
-    test('P1-6 Grok -> Responses：使用标准 function_call 事件', () => {
-        const converter = new GrokConverter();
-        const state = converter._getState('chatcmpl-r1');
-        state.content_buffer = '<tool_call>{"name":"Bash","arguments":{"command":"ls"}}</tool_call>';
-
-        const events = converter.toOpenAIResponsesStreamChunk(
-            { result: { response: { responseId: 'r1', isDone: true } } },
-            'grok-4',
-            'p1_grok_responses'
-        );
-        const eventTypes = events.map(e => e.type);
-        expect(eventTypes).toContain('response.output_item.added');
-        expect(eventTypes).toContain('response.function_call_arguments.delta');
-        expect(eventTypes).toContain('response.output_item.done');
-        expect(eventTypes).toContain('response.completed');
-        expect(eventTypes).not.toContain('response.custom_tool_call_input.delta');
-
-        const added = events.find(e => e.type === 'response.output_item.added' && e.item?.type === 'function_call');
-        expect(added.output_index).toBeDefined();
-        expect(added.item.call_id).toBeDefined();
-        expect(added.item.status).toBe('in_progress');
-
-        const completed = events.find(e => e.type === 'response.completed');
-        const toolItem = completed.response.output.find(item => item.type === 'function_call');
-        expect(toolItem.name).toBe('Bash');
-        expect(toolItem.arguments).toBe('{"command":"ls"}');
     });
 
     test('P1-7 Claude -> Codex：长工具名在响应侧可还原', () => {
@@ -1037,7 +1008,7 @@ describe('v4.1.1 批次 7：采样默认值、strict、并行工具', () => {
     });
 });
 
-describe('v4.1.1 批次 8：input_file 与 Grok 思考纯化', () => {
+describe('v4.1.1 批次 8：input_file 兼容', () => {
     test('Responses input_file base64 -> Gemini inlineData', () => {
         const converter = new OpenAIResponsesConverter();
         const request = converter.toGeminiRequest({
@@ -1051,16 +1022,6 @@ describe('v4.1.1 批次 8：input_file 与 Grok 思考纯化', () => {
         expect(request.contents[0].parts[0]).toEqual({
             inlineData: { mimeType: 'application/pdf', data: 'QUJD' }
         });
-    });
-
-    test('Grok 思考 token 只写 reasoning_content，不重复写入正文', () => {
-        const converter = new GrokConverter();
-        const chunks = converter.toOpenAIStreamChunk({
-            result: { response: { responseId: 'grok-thinking', token: 'think', isThinking: true } }
-        }, 'grok', 'v411_grok_think');
-        const delta = chunks.find(chunk => chunk.choices?.[0]?.delta?.reasoning_content)?.choices[0].delta;
-        expect(delta.reasoning_content).toBe('think');
-        expect(delta.content).toBeUndefined();
     });
 });
 
@@ -1152,20 +1113,6 @@ describe('v4.1 P1 regressions', () => {
             type: 'input_image',
             image_url: 'data:image/png;base64,QUJD'
         });
-    });
-
-    test('Grok -> Responses 非流式：function_call 同时带 id 与 call_id', () => {
-        const converter = new GrokConverter();
-        const response = converter.toOpenAIResponsesResponse({
-            responseId: 'grok_nonstream_1',
-            message: '<tool_call>{"name":"Bash","arguments":{"command":"ls"}}</tool_call>',
-            modelResponse: {}
-        }, 'grok-4');
-
-        const call = response.output.find(item => item.type === 'function_call');
-        expect(call.call_id).toBeDefined();
-        expect(call.id).toBe(`fc_${call.call_id}`);
-        expect(call.arguments).toBe('{"command":"ls"}');
     });
 
     test('Responses -> OpenAI：custom tool 参数增量折叠为 {"input": ...}', () => {
