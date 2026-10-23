@@ -35,7 +35,7 @@ export class ProviderPoolManager {
         'openai-codex-oauth': 'gpt-5.5',
         'openaiResponses-custom': 'gpt-5.5',
         'grok-web': 'grok-4.3',
-        'grok-cli-oauth': 'grok-4.3',
+        'grok-cli-oauth': 'grok-4.7',
         'zed': 'gpt-5-nano'
     };
 

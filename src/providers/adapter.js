@@ -582,6 +582,13 @@ export class GrokCliApiServiceAdapter extends ApiServiceAdapter {
         return this.grokCliApiService.listModels();
     }
 
+    async getNodeAvailableModels(force = false) {
+        if (!this.grokCliApiService.isInitialized) {
+            await this.grokCliApiService.initialize();
+        }
+        return this.grokCliApiService.getNodeAvailableModels(force);
+    }
+
     async refreshToken() {
         return this.grokCliApiService.refreshToken();
     }

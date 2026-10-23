@@ -38,6 +38,7 @@ const BASE_BACKOFF_MS = 60 * 1000;
 const PROVIDER_TTL_MS = {
     'gemini-antigravity': 30 * 60 * 1000,
     'openai-codex-oauth': 30 * 60 * 1000,
+    'grok-cli-oauth': 30 * 60 * 1000,
     'trae': 60 * 60 * 1000,
     'trae-solo_work_lite': 60 * 60 * 1000,
     'trae-chat_v3': 60 * 60 * 1000,
@@ -47,6 +48,7 @@ const PROVIDER_TTL_MS = {
 const DYNAMIC_PROVIDERS = new Set([
     'gemini-antigravity',
     'openai-codex-oauth',
+    'grok-cli-oauth',
     'trae',
     'trae-solo_work_lite',
     'trae-chat_v3',

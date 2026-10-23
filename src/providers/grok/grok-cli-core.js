@@ -10,13 +10,14 @@ import { configureTLSSidecar } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.js';
 import { getProviderModels } from '../provider-models.js';
 
-const XAI_DEFAULT_BASE_URL = 'https://api.x.ai/v1';
+const GROK_CLI_DEFAULT_BASE_URL = 'https://cli-chat-proxy.grok.com/v1';
+const XAI_DEFAULT_BASE_URL = GROK_CLI_DEFAULT_BASE_URL;
 const XAI_DEFAULT_TOKEN_ENDPOINT = 'https://auth.x.ai/oauth/token';
 const GROK_CLI_DEFAULT_BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing?format=credits';
 const GROK_CLI_DEFAULT_SUBSCRIPTIONS_URL = 'https://grok.com/rest/subscriptions';
-const GROK_CLI_CLIENT_VERSION = '0.2.87';
+const GROK_CLI_CLIENT_VERSION = '1.0.67';
 const XAI_REDIRECT_URI = 'http://127.0.0.1:56121/callback';
-const GROK_CLI_DEFAULT_MODEL = 'grok-3-mini';
+const GROK_CLI_DEFAULT_MODEL = 'grok-4.7';
 const GROK_CLI_MODELS = getProviderModels(MODEL_PROVIDER.GROK_CLI || 'grok-cli-oauth');
 const GROK_CLI_IMAGE_MODELS = new Set([
     'grok-imagine-image-quality',
@@ -192,13 +193,17 @@ function sanitizeCredentialFilenamePart(value) {
 }
 
 function normalizeBaseUrl(baseUrl) {
-    const value = String(baseUrl || XAI_DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
-    return value || XAI_DEFAULT_BASE_URL;
+    const value = String(baseUrl || GROK_CLI_DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
+    if (!value || value === 'https://api.x.ai/v1' || value === 'https://api.x.ai') {
+        return GROK_CLI_DEFAULT_BASE_URL;
+    }
+    return value;
 }
 
 function modelSupportsReasoning(model) {
     const name = String(model || '').toLowerCase();
     return name.includes('reasoning') ||
+        name.includes('grok-4.7') ||
         name.includes('grok-3-mini') ||
         name.includes('grok-4.3') ||
         name.includes('grok-4.5') ||
@@ -303,6 +308,10 @@ function normalizeGrokCliModelAlias(model) {
     const value = String(model || '').trim();
     const lowerValue = value.toLowerCase();
     const aliases = {
+        grok47: 'grok-4.7',
+        'grok-4-7': 'grok-4.7',
+        'grok 4.7': 'grok-4.7',
+        'grok4.7': 'grok-4.7',
         grok3: 'grok-3',
         'grok 3': 'grok-3',
         grok3mini: 'grok-3-mini',
@@ -1237,6 +1246,9 @@ export class GrokCliApiService {
         this.subscriptionsCache = null;
         this.subscriptionsSyncedAt = 0;
         this.loggedGrokAccountTier = null;
+        this.availableModels = null;
+        this.modelsFetchedAt = 0;
+        this.modelMetadataMap = new Map();
     }
 
     _applySidecar(axiosConfig) {
@@ -1254,6 +1266,9 @@ export class GrokCliApiService {
         await this.loadCredentials();
         this.isInitialized = true;
         logger.info(`[Grok CLI] Initialization complete. Account: ${this.email || this.subject || 'unknown'}`);
+        this.fetchAvailableModels().catch(err => {
+            logger.debug?.(`[Grok CLI] Background model fetch on init: ${err.message}`);
+        });
     }
 
     async loadCredentials() {
@@ -1382,7 +1397,7 @@ export class GrokCliApiService {
                 method: 'post',
                 url,
                 data: body,
-                headers: this.buildHeaders(true, body.prompt_cache_key),
+                headers: this.buildHeaders(false, body.prompt_cache_key, selectedModel),
                 responseType: 'text',
                 timeout: 300000
             };
@@ -1425,7 +1440,7 @@ export class GrokCliApiService {
                 method: 'post',
                 url,
                 data: body,
-                headers: this.buildHeaders(true, body.prompt_cache_key),
+                headers: this.buildHeaders(true, body.prompt_cache_key, selectedModel),
                 responseType: 'stream',
                 timeout: 300000
             };
@@ -1617,13 +1632,21 @@ export class GrokCliApiService {
         }
 
         const normalizedTextModel = normalizeGrokCliTextModel(rawModel);
-        if (!GROK_CLI_MODELS.length || GROK_CLI_MODELS.includes(normalizedTextModel)) {
+        const candidates = (Array.isArray(this.availableModels) && this.availableModels.length > 0)
+            ? this.availableModels
+            : GROK_CLI_MODELS;
+
+        if (!candidates.length || candidates.includes(normalizedTextModel)) {
             return normalizedTextModel;
         }
 
-        const defaultModel = GROK_CLI_MODELS.includes(GROK_CLI_DEFAULT_MODEL)
+        if (candidates.includes(rawModel)) {
+            return rawModel;
+        }
+
+        const defaultModel = candidates.includes(GROK_CLI_DEFAULT_MODEL)
             ? GROK_CLI_DEFAULT_MODEL
-            : (GROK_CLI_MODELS[0] || GROK_CLI_DEFAULT_MODEL);
+            : (candidates[0] || GROK_CLI_DEFAULT_MODEL);
         if (this.config.MODEL_FALLBACK_ENABLED === false) {
             throw new Error(`[Grok CLI] 模型不存在: ${rawModel}`);
         }
@@ -1665,6 +1688,15 @@ export class GrokCliApiService {
             cleanedBody.max_output_tokens = cleanedBody.max_tokens;
         }
 
+        // 默认使用该模型的最大上下文窗口（动态自模型元数据计算，不硬编码）
+        if (cleanedBody.context_window === undefined) {
+            const meta = this.modelMetadataMap?.get(model);
+            const maxCtx = meta?.context_window || (meta?.context_windows?.length ? Math.max(...meta.context_windows) : null);
+            if (maxCtx) {
+                cleanedBody.context_window = maxCtx;
+            }
+        }
+
         delete cleanedBody.messages;
         delete cleanedBody.metadata;
         delete cleanedBody.max_tokens;
@@ -1673,11 +1705,30 @@ export class GrokCliApiService {
         delete cleanedBody.safety_identifier;
         delete cleanedBody.stream_options;
 
+        const rawEffort = cleanedBody.reasoning?.effort ?? cleanedBody.reasoning_effort;
         if (!modelSupportsReasoning(model)) {
+            if (rawEffort !== undefined && rawEffort !== null && rawEffort !== '') {
+                throw new Error(`[Grok CLI] Model '${model}' does not support reasoning.`);
+            }
             delete cleanedBody.reasoning;
             delete cleanedBody.reasoning_effort;
-        } else if (cleanedBody.reasoning_effort && !cleanedBody.reasoning) {
-            cleanedBody.reasoning = { effort: cleanedBody.reasoning_effort };
+        } else if (rawEffort !== undefined && rawEffort !== null && rawEffort !== '') {
+            const effortStr = String(rawEffort).trim().toLowerCase();
+            const meta = this.modelMetadataMap?.get(model);
+            const supportedEfforts = meta?.reasoning_efforts?.length
+                ? meta.reasoning_efforts
+                : ['xhigh', 'high', 'medium', 'low'];
+
+            if (!supportedEfforts.includes(effortStr)) {
+                throw new Error(`[Grok CLI] Reasoning effort '${rawEffort}' does not exist for model '${model}'. Supported efforts: ${supportedEfforts.join(', ')}`);
+            }
+
+            cleanedBody.reasoning = {
+                ...(typeof cleanedBody.reasoning === 'object' && cleanedBody.reasoning !== null ? cleanedBody.reasoning : {}),
+                effort: effortStr
+            };
+            delete cleanedBody.reasoning_effort;
+        } else {
             delete cleanedBody.reasoning_effort;
         }
 
@@ -1900,16 +1951,22 @@ export class GrokCliApiService {
         };
     }
 
-    buildHeaders(stream = true, sessionId = '') {
+    buildHeaders(stream = true, sessionId = '', model = '') {
+        const version = this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION;
         const headers = {
             'content-type': 'application/json',
             'authorization': `${this.tokenType || 'Bearer'} ${this.accessToken}`,
             'accept': stream ? 'text/event-stream' : 'application/json',
             'Connection': 'Keep-Alive',
             'x-xai-token-auth': 'xai-grok-cli',
-            'x-grok-client-version': this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION,
-            'user-agent': `grok-cli/${this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION}`,
+            'x-grok-client-version': version,
+            'user-agent': `xai-grok-cli/${version}`,
         };
+
+        const targetModel = model || this.currentModel || GROK_CLI_DEFAULT_MODEL;
+        if (targetModel) {
+            headers['x-grok-model-override'] = targetModel;
+        }
 
         if (sessionId) {
             headers['x-grok-conv-id'] = sessionId;
@@ -1919,24 +1976,26 @@ export class GrokCliApiService {
     }
 
     buildJsonHeaders() {
+        const version = this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION;
         return {
             'content-type': 'application/json',
             'authorization': `${this.tokenType || 'Bearer'} ${this.accessToken}`,
             'accept': 'application/json',
             'Connection': 'Keep-Alive',
             'x-xai-token-auth': 'xai-grok-cli',
-            'x-grok-client-version': this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION,
-            'user-agent': `grok-cli/${this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION}`,
+            'x-grok-client-version': version,
+            'user-agent': `xai-grok-cli/${version}`,
         };
     }
 
     buildSubscriptionHeaders() {
+        const version = this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION;
         const headers = {
             'authorization': `${this.tokenType || 'Bearer'} ${this.accessToken}`,
             'accept': 'application/json,text/plain,*/*',
             'x-xai-token-auth': 'xai-grok-cli',
-            'x-grok-client-version': this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION,
-            'user-agent': `grok-cli/${this.config.GROK_CLI_CLIENT_VERSION || GROK_CLI_CLIENT_VERSION}`,
+            'x-grok-client-version': version,
+            'user-agent': `xai-grok-cli/${version}`,
             'Connection': 'Keep-Alive'
         };
 
@@ -2568,16 +2627,104 @@ export class GrokCliApiService {
         return completedEvent.response || completedEvent;
     }
 
+    async fetchAvailableModels(force = false) {
+        if (!force && Array.isArray(this.availableModels) && this.availableModels.length > 0 && (Date.now() - (this.modelsFetchedAt || 0) < 30 * 60 * 1000)) {
+            return this.availableModels;
+        }
+
+        if (!this.accessToken) {
+            await this.initializeAuth(false);
+        }
+
+        const modelsUrl = `${this.baseUrl}/models`;
+        try {
+            const axiosRequestConfig = {
+                method: 'get',
+                url: modelsUrl,
+                headers: this.buildJsonHeaders(),
+                timeout: 30000
+            };
+            this._applySidecar(axiosRequestConfig);
+
+            const response = await axios.request(axiosRequestConfig);
+            const rawModels = response.data?.data || response.data?.models || response.data;
+            if (Array.isArray(rawModels) && rawModels.length > 0) {
+                const fetchedIds = [];
+                for (const m of rawModels) {
+                    if (!m) continue;
+                    const modelId = typeof m === 'string' ? m : (m.id || m.model || m.name);
+                    if (!modelId) continue;
+                    fetchedIds.push(modelId);
+
+                    const contextWindows = Array.isArray(m.context_windows) ? m.context_windows : [];
+                    const maxContext = contextWindows.length > 0
+                        ? Math.max(...contextWindows)
+                        : (m.context_window || null);
+
+                    const supportedEfforts = Array.isArray(m.reasoning_efforts)
+                        ? m.reasoning_efforts.map(e => (typeof e === 'string' ? e : (e.value || e.id || e))).filter(Boolean)
+                        : (m.supports_reasoning_effort ? ['xhigh', 'high', 'medium', 'low'] : []);
+
+                    this.modelMetadataMap.set(modelId, {
+                        id: modelId,
+                        name: m.name || modelId,
+                        description: m.description,
+                        context_window: maxContext,
+                        context_windows: contextWindows,
+                        supports_reasoning_effort: Boolean(m.supports_reasoning_effort),
+                        reasoning_efforts: supportedEfforts,
+                        default_reasoning_effort: m.reasoning_effort || null
+                    });
+                }
+
+                if (fetchedIds.length > 0) {
+                    this.availableModels = fetchedIds;
+                    this.modelsFetchedAt = Date.now();
+                    logger.info(`[Grok CLI] Successfully fetched dynamic model list (${this.availableModels.length} models): ${this.availableModels.join(', ')}`);
+                    return this.availableModels;
+                }
+            }
+        } catch (error) {
+            logger.warn(`[Grok CLI] Failed to fetch remote models from ${modelsUrl}: ${error.message}`);
+        }
+
+        if (!Array.isArray(this.availableModels) || this.availableModels.length === 0) {
+            this.availableModels = [...GROK_CLI_MODELS];
+        }
+        return this.availableModels;
+    }
+
+    async getNodeAvailableModels(force = false) {
+        if (!this.isInitialized) {
+            await this.initialize();
+        }
+        return this.fetchAvailableModels(force);
+    }
+
     async listModels() {
+        if (!this.isInitialized) {
+            await this.initialize();
+        }
+        const models = await this.fetchAvailableModels();
         return {
             object: 'list',
-            data: GROK_CLI_MODELS.map(id => ({
-                id,
-                object: 'model',
-                created: Math.floor(Date.now() / 1000),
-                owned_by: 'xai',
-                display_name: id
-            }))
+            data: models.map(id => {
+                const meta = this.modelMetadataMap?.get(id);
+                return {
+                    id,
+                    object: 'model',
+                    created: Math.floor(Date.now() / 1000),
+                    owned_by: 'xai',
+                    display_name: meta?.name || id,
+                    ...(meta?.description ? { description: meta.description } : {}),
+                    ...(meta?.context_window ? { context_window: meta.context_window } : {}),
+                    ...(meta?.context_windows?.length ? { context_windows: meta.context_windows } : {}),
+                    ...(meta?.supports_reasoning_effort ? {
+                        supports_reasoning_effort: meta.supports_reasoning_effort,
+                        reasoning_efforts: meta.reasoning_efforts
+                    } : {})
+                };
+            })
         };
     }
 

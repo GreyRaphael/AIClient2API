@@ -22,7 +22,7 @@ const GROK_CLI_OAUTH_CONFIG = {
     scope: 'openid profile email offline_access grok-cli:access api:access',
     redirectUri: 'http://127.0.0.1:56121/callback',
     port: 56121,
-    defaultApiBaseUrl: 'https://api.x.ai/v1',
+    defaultApiBaseUrl: 'https://cli-chat-proxy.grok.com/v1',
     logPrefix: '[Grok CLI Auth]'
 };
 
