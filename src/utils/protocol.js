@@ -25,11 +25,8 @@ export function getProtocolPrefix(provider) {
     if (provider === 'grok-cli-oauth' || provider.startsWith('grok-cli-oauth-')) {
         return MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
     }
-    // Special cases for OpenAI-compatible dedicated providers.
-    if (provider === 'atlascloud' || provider.startsWith('atlascloud-') ||
-        provider === 'qiniu' || provider.startsWith('qiniu-') ||
-        provider === 'fenno' || provider.startsWith('fenno-') ||
-        provider === 'trae' || provider.startsWith('trae-')) {
+    // Special case for Trae - OpenAI-compatible provider.
+    if (provider === 'trae' || provider.startsWith('trae-')) {
         return MODEL_PROTOCOL_PREFIX.OPENAI;
     }
     // Special case for Zed - protocol is Claude/Anthropic compatible

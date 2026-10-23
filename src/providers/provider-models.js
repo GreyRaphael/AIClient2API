@@ -72,9 +72,6 @@ export const PROVIDER_MODELS = {
         'claude-sonnet-4-5-20250929',
     ],
     'openai-custom': [],
-    'atlascloud': [],
-    'qiniu': [],
-    'fenno': [],
     'openaiResponses-custom': [],
     'openai-codex-oauth': [
         'gpt-6-astra',
@@ -191,10 +188,7 @@ export const BASE_TRAE_CHAT_V3_MODELS = [...PROVIDER_MODELS['trae-chat_v3']];
 export const MANAGED_MODEL_LIST_PROVIDERS = [
     'openai-custom',
     'openaiResponses-custom',
-    'claude-custom',
-    'atlascloud',
-    'qiniu',
-    'fenno'
+    'claude-custom'
 ];
 
 export function getManagedModelListProviderType(providerType) {

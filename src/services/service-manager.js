@@ -622,9 +622,6 @@ export async function getProviderStatus(config, options = {}) {
     // identify 字段映射表
     const identifyFieldMap = {
         'openai-custom': 'OPENAI_BASE_URL',
-        'atlascloud': 'OPENAI_BASE_URL',
-        'qiniu': 'OPENAI_BASE_URL',
-        'fenno': 'OPENAI_BASE_URL',
         'openaiResponses-custom': 'OPENAI_BASE_URL',
         'claude-custom': 'CLAUDE_BASE_URL',
         'claude-kiro-oauth': 'KIRO_OAUTH_CREDS_FILE_PATH',

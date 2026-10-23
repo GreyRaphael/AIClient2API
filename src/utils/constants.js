@@ -56,9 +56,6 @@ export const MODEL_PROTOCOL_PREFIX = {
 export const MODEL_PROVIDER = {
     ANTIGRAVITY: 'gemini-antigravity',
     OPENAI_CUSTOM: 'openai-custom',
-    ATLASCLOUD: 'atlascloud',
-    QINIU: 'qiniu',
-    FENNO: 'fenno',
     OPENAI_CUSTOM_RESPONSES: 'openaiResponses-custom',
     CLAUDE_CUSTOM: 'claude-custom',
     KIRO_API: 'claude-kiro-oauth',
