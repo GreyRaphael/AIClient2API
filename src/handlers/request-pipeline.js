@@ -264,10 +264,7 @@ export const TERMINAL_EMPTY_FINISH_REASONS = new Set([
     'refusal',
     // OpenAI Responses / Codex
     'max_output_tokens',
-    'incomplete',
-    // 流内显式错误终态（禁止当作空响应重试）
-    'failed',
-    'error'
+    'incomplete'
 ]);
 
 /**
@@ -294,12 +291,28 @@ export function isInStreamErrorPayload(payload) {
     if (
         payload.error &&
         typeof payload.error === 'object' &&
-        !Array.isArray(payload.choices) &&
-        !Array.isArray(payload.candidates)
+        (payload.choices?.length ?? 0) === 0 &&
+        (payload.candidates?.length ?? 0) === 0
     ) {
         return true;
     }
     return false;
+}
+
+/**
+ * 提取流内错误事件的可读消息。
+ * 兼容 Responses `response.error`、顶层 `error` 以及普通 `message`。
+ *
+ * @param {Object} payload
+ * @returns {string}
+ */
+export function extractInStreamErrorMessage(payload) {
+    return String(
+        payload?.error?.message
+        || payload?.response?.error?.message
+        || payload?.message
+        || 'Upstream stream failed'
+    );
 }
 
 /**
@@ -611,11 +624,13 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 break;
             }
 
-            // 首内容前缓冲：在转换/下发前先判定原生 chunk 是否携带有效内容或流内错误终态
-            if (isInStreamErrorPayload(nativeChunk)) {
+            // 首内容前缓冲：在转换/下发前先判定原生 chunk 是否携带有效内容或流内错误终态。
+            // 注意：错误帧先不置 hasMessageStop；若转换器无法表达该错误（返回 null/空数组），
+            // 这里会抛出 502，让统一错误响应接管，而不是静默结束或在重试成功后误跳过终止帧。
+            const nativeIsError = isInStreamErrorPayload(nativeChunk);
+            if (nativeIsError) {
                 sawStreamError = true;
                 sawMeaningfulContent = true;
-                streamState.hasMessageStop = true;
             } else if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider)) {
                 sawMeaningfulContent = true;
             }
@@ -652,6 +667,17 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                         requestId: hookRequestId
                     });
                 } catch (e) {}
+            }
+
+            // 上游错误帧必须能映射为下游可识别的错误事件；若转换器丢弃了错误帧，
+            // 不能当作“无内容”静默结束，否则客户端会收到空 200 流。
+            if (nativeIsError && (!chunkToSend || (Array.isArray(chunkToSend) && chunkToSend.length === 0))) {
+                const streamError = new Error(extractInStreamErrorMessage(nativeChunk));
+                streamError.status = 502;
+                throw streamError;
+            }
+            if (nativeIsError) {
+                streamState.hasMessageStop = true;
             }
 
             if (!chunkToSend) {
@@ -1104,6 +1130,15 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         // 这确保了后续的监控钩子和统计插件记录的是实际使用的模型
         if (requestBody.model && requestBody.model !== model) {
             model = requestBody.model;
+        }
+
+        // 上游以 HTTP 200 返回错误体（如 { error: {...} }）时，必须作为错误响应处理，
+        // 不能因为“无正文”把它当作合法截断而返回 200，也不能盲目做空响应重试。
+        if (isInStreamErrorPayload(nativeResponse)) {
+            const upstreamError = new Error(`Upstream returned an error payload: ${extractInStreamErrorMessage(nativeResponse)}`);
+            upstreamError.status = 502;
+            upstreamError.response = { status: 502, data: nativeResponse };
+            throw upstreamError;
         }
 
         // 上游空响应检测（无文本/工具调用/内联数据，纯 thinking 或无产出）：

@@ -944,4 +944,82 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
         expect(chatBody).toContain('"rate_limit_error"');
         expect(chatBody).toContain('data: [DONE]');
     });
+
+    test('F11 补丁: 空 choices/candidates 错误帧识别，且 error/failed 不属于合法空终态', () => {
+        expect(isInStreamErrorPayload({ error: { message: 'boom' }, choices: [] })).toBe(true);
+        expect(isInStreamErrorPayload({ error: { message: 'boom' }, candidates: [] })).toBe(true);
+        expect(isInStreamErrorPayload({ error: { message: 'boom' }, choices: [{ delta: { content: 'x' } }] })).toBe(false);
+        expect(isTerminalEmptyFinishReason('error')).toBe(false);
+        expect(isTerminalEmptyFinishReason('failed')).toBe(false);
+    });
+
+    test('F11 补丁: 非流式 HTTP 200 错误体返回 502，而不是伪装成成功', async () => {
+        let calls = 0;
+        const res = createMockResponse();
+        const service = {
+            async generateContent() {
+                calls++;
+                return { error: { message: 'upstream boom', type: 'server_error' } };
+            }
+        };
+
+        await handleUnaryRequest(
+            res,
+            service,
+            'openai-custom:test',
+            {},
+            'openai-custom',
+            'openai-custom',
+            'none',
+            '',
+            null,
+            null,
+            undefined,
+            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        );
+
+        expect(calls).toBe(1);
+        expect(res.statusCode).toBe(502);
+        expect(res.chunks.join('')).toContain('upstream boom');
+    });
+
+    test('F11 补丁: Gemini 错误帧转换为下游错误事件，不再静默返回空 200 流', async () => {
+        const cases = [
+            { from: 'openai-custom', marker: 'upstream boom' },
+            { from: 'openaiResponses-custom', marker: 'event: error' },
+            { from: 'claude-custom', marker: 'event: error' }
+        ];
+
+        for (const item of cases) {
+            let calls = 0;
+            const res = createMockResponse();
+            const service = {
+                async *generateContentStream() {
+                    calls++;
+                    yield { error: { message: 'upstream boom', type: 'server_error' } };
+                }
+            };
+
+            await handleStreamRequest(
+                res,
+                service,
+                'gemini-3.8-flash-high',
+                {},
+                item.from,
+                'gemini-antigravity',
+                'none',
+                '',
+                null,
+                null,
+                undefined,
+                { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+            );
+
+            const body = res.chunks.join('');
+            expect(calls).toBe(1);
+            expect(body).toContain(item.marker);
+            expect(body).not.toContain('response.completed');
+            expect(body).not.toContain('message_stop');
+        }
+    });
 });
