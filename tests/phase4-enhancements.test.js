@@ -315,7 +315,11 @@ describe('Phase 4: 跨协议可选增强测试套件', () => {
             const claudeReq = respConverter.toClaudeRequest({ model: 'claude-sonnet-4-6', input: [], tools: respTools });
             expect(claudeReq.tools.map(t => t.name)).toEqual(['delete_logs', 'search_logs']);
 
-            const geminiReq = respConverter.toGeminiRequest({ model: 'gemini-3.8-flash-high', input: [], tools: respTools });
+            const geminiReq = respConverter.toGeminiRequest({
+                model: 'gemini-3.8-flash-high',
+                input: [{ type: 'message', role: 'user', content: 'hi' }],
+                tools: respTools
+            });
             expect(geminiReq.tools[0].functionDeclarations.map(t => t.name)).toEqual(['delete_logs', 'search_logs']);
         });
     });

@@ -2319,6 +2319,18 @@ export class OpenAIResponsesConverter extends BaseConverter {
             geminiRequest.contents = mergeConsecutiveSameRoleContents(geminiRequest.contents);
         }
 
+        // Gemini 要求 contents 至少包含一个 user/model turn；只有 instructions 或
+        // system/developer 消息时，systemInstruction 不能替代 contents。这里明确返回
+        // 客户端错误，避免把必然 400 的请求发给上游。
+        if (!Array.isArray(geminiRequest.contents) || geminiRequest.contents.length === 0) {
+            const error = new Error(
+                'Responses request must include at least one user or assistant message; ' +
+                'system/developer instructions alone cannot be converted to Gemini contents.'
+            );
+            error.status = 400;
+            throw error;
+        }
+
         return geminiRequest;
     }
 

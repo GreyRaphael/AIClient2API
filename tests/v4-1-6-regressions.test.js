@@ -688,6 +688,27 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
         ]);
     });
 
+    test('F1 补丁: 只有 system/developer/instructions 时返回本地 400，不把空 contents 发给 Gemini', () => {
+        const converter = new OpenAIResponsesConverter();
+        const cases = [
+            { instructions: 'only instructions' },
+            { input: [{ type: 'message', role: 'system', content: 'sys only' }] },
+            { input: [{ type: 'message', role: 'developer', content: 'dev only' }] }
+        ];
+
+        for (const request of cases) {
+            let thrown;
+            try {
+                converter.toGeminiRequest(request);
+            } catch (error) {
+                thrown = error;
+            }
+            expect(thrown).toBeDefined();
+            expect(thrown.status).toBe(400);
+            expect(thrown.message).toContain('at least one user or assistant message');
+        }
+    });
+
     test('F2: Responses->Gemini 映射 text.format (json_object / json_schema) 并做 Schema Polyfill 清洗', () => {
         const converter = new OpenAIResponsesConverter();
 
