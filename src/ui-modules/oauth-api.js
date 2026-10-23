@@ -14,8 +14,7 @@ import {
     batchImportCodexTokensStream,
     batchImportGrokCliTokensStream,
     batchImportKiroRefreshTokensStream,
-    importAwsCredentials,
-    batchImportGrokTokensStream
+    importAwsCredentials
 } from '../auth/oauth-handlers.js';
 import { normalizeCodexExternalCredentials } from '../auth/codex-import-normalizer.js';
 
@@ -659,82 +658,6 @@ export async function handleImportCodexExternalCredentials(req, res) {
             res.end();
         } else {
             res.writeHead(error.statusCode || 500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                error: error.message
-            }));
-        }
-        return true;
-    }
-}
-
-/**
- * 批量导入 Grok SSO Tokens (流式处理)
- */
-export async function handleBatchImportGrokTokens(req, res) {
-    try {
-        const body = await getRequestBody(req);
-        const { tokens, skipDuplicateCheck } = body;
-
-        if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                error: 'tokens array is required and must not be empty'
-            }));
-            return true;
-        }
-
-        logger.info(`[Grok Batch Import] Starting batch import with ${tokens.length} tokens...`);
-
-        // 设置 SSE 响应头
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no'
-        });
-
-        // 发送 SSE 事件的辅助函数
-        const sendSSE = (event, data) => {
-            res.write(`event: ${event}\n`);
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
-        };
-
-        // 发送开始事件
-        sendSSE('start', { total: tokens.length });
-
-        // 执行流式批量导入
-        const result = await batchImportGrokTokensStream(
-            tokens,
-            (progress) => {
-                sendSSE('progress', progress);
-            },
-            !!skipDuplicateCheck // 默认为 false (执行去重)
-        );
-
-        logger.info(`[Grok Batch Import] Completed: ${result.success} success, ${result.failed} failed`);
-
-        // 发送完成事件
-        sendSSE('complete', {
-            success: true,
-            total: result.total,
-            successCount: result.success,
-            failedCount: result.failed,
-            details: result.details
-        });
-
-        res.end();
-        return true;
-
-    } catch (error) {
-        logger.error('[Grok Batch Import] Error:', error);
-        if (res.headersSent) {
-            res.write(`event: error\n`);
-            res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-            res.end();
-        } else {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
                 error: error.message

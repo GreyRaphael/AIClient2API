@@ -1,8 +1,8 @@
 /**
  * 流式转换会话存储（带 TTL 的 Map 兼容容器）
  *
- * 背景：各 Converter 的流式状态曾分散在 5 种机制中（openai-responses-events 的
- * 全局 StreamState、CodexConverter.streamSessions、GrokConverter.requestStates、
+ * 背景：各 Converter 的流式状态曾分散在多种机制中（openai-responses-events 的
+ * 全局 StreamState、CodexConverter.streamSessions、
  * OpenAIResponsesConverter.claudeStreamStates、
  * OpenAIConverter.claudeStreamStates——后者甚至带手写清理逻辑）。
  * 由于 ConverterFactory 缓存 Converter 单例，流异常中断而未走到 delete 路径时

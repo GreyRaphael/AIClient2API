@@ -339,12 +339,6 @@ function extractRejectionMessage(responses, providerProtocol) {
             }
         }
         
-        // Grok style
-        if (providerProtocol === MODEL_PROTOCOL_PREFIX.GROK) {
-            if (response.message) return response.message;
-            if (response.modelResponse?.message) return response.modelResponse.message;
-        }
-        
         // Gemini style
         if (providerProtocol === MODEL_PROTOCOL_PREFIX.GEMINI) {
             const candidates = response?.response?.candidates || response?.candidates || [];
@@ -648,37 +642,6 @@ function extractImagesFromServiceResponse(response, providerProtocol, responseFo
                 if (item.revised_prompt) dataItem.revised_prompt = item.revised_prompt;
                 data.push(dataItem);
             }
-        }
-    } else if (providerProtocol === MODEL_PROTOCOL_PREFIX.GROK) {
-        // Grok returns collected object with generatedImageUrls or cardAttachments
-        const imageUrls = response.generatedImageUrls || [];
-        for (const url of imageUrls) {
-            if (responseFormat === 'url') {
-                data.push({ url });
-            } else if (url.startsWith('data:image/')) {
-                const b64 = url.split(',')[1];
-                data.push({ b64_json: b64 });
-            } else {
-                data.push({ url });
-            }
-        }
-        // Also check cardAttachments for images
-        const cards = response.cardAttachments || [];
-        for (const card of cards) {
-            try {
-                const jsonData = typeof card.jsonData === 'string' ? JSON.parse(card.jsonData) : card.jsonData;
-                const imgUrl = jsonData?.image?.original;
-                if (imgUrl) {
-                    if (responseFormat === 'url') {
-                        data.push({ url: imgUrl });
-                    } else if (imgUrl.startsWith('data:image/')) {
-                        const b64 = imgUrl.split(',')[1];
-                        data.push({ b64_json: b64 });
-                    } else {
-                        data.push({ url: imgUrl });
-                    }
-                }
-            } catch (e) {}
         }
     } else if (providerProtocol === MODEL_PROTOCOL_PREFIX.GEMINI) {
         // Gemini/Antigravity returns candidates with parts containing inlineData (images)

@@ -92,8 +92,6 @@ export class OpenAIConverter extends BaseConverter {
                 return this.toOpenAIResponsesRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
                 return this.toCodexRequest(data, requestId);
-            case MODEL_PROTOCOL_PREFIX.GROK:
-                return this.toGrokRequest(data);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -652,7 +650,7 @@ export class OpenAIConverter extends BaseConverter {
                 textIndex: null,
                 toolBlocks: new Map(),
                 activeToolIndex: null,
-                // 兼容既有读取（如并发隔离测试与 Grok 委托排查）：messageId 透传自 emitter
+                // 兼容既有读取（如并发隔离测试与跨 Converter 委托排查）：messageId 透传自 emitter
                 get messageId() { return this.emitter.messageId; }
             });
         }
@@ -1448,25 +1446,6 @@ export class OpenAIConverter extends BaseConverter {
 
         return config;
     }
-
-
-    // =========================================================================
-    // OpenAI -> Grok 转换
-    // =========================================================================
-
-    /**
-     * OpenAI请求 -> Grok请求
-     */
-    toGrokRequest(openaiRequest) {
-        // 直接返回结构化数据，由 GrokApiService.buildPayload 最终处理；
-        // 保留原始 messages/tools/tool_choice 以进行高质量仿真。
-        return {
-            ...openaiRequest,
-            _isConverted: true
-        };
-    }
-
-
 
 
     _mapOpenAIToolChoiceToResponses(toolChoice) {

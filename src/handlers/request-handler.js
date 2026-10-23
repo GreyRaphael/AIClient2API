@@ -14,7 +14,6 @@ import { countTokensAnthropic } from '../utils/token-utils.js';
 import { PROMPT_LOG_FILENAME } from '../core/config-manager.js';
 import { getPluginManager } from '../core/plugin-manager.js';
 import { randomUUID } from 'crypto';
-import { handleGrokAssetsProxy } from '../utils/grok-assets-proxy.js';
 
 /**
  * Generate a short unique request ID (8 characters)
@@ -125,12 +124,6 @@ export function createRequestHandler(config, providerPoolManager) {
                             timestamp: new Date().toISOString(),
                             provider: currentConfig.MODEL_PROVIDER
                         }));
-                        return true;
-                    }
-
-                    // Grok assets proxy endpoint
-                    if (method === 'GET' && path === '/api/grok/assets') {
-                        await handleGrokAssetsProxy(req, res, currentConfig, providerPoolManager);
                         return true;
                     }
 

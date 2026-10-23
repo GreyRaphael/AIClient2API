@@ -107,8 +107,6 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 return this.toGeminiRequest(data, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
                 return this.toCodexRequest(data, requestId);
-            case MODEL_PROTOCOL_PREFIX.GROK:
-                return this.toGrokRequest(data, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${toProtocol}`);
         }
@@ -2341,18 +2339,6 @@ export class OpenAIResponsesConverter extends BaseConverter {
      */
     toCodexRequest(responsesRequest, requestId = null) {
         return this.codexConverter.toOpenAIResponsesToCodexRequest(responsesRequest, requestId);
-    }
-
-    /**
-     * OpenAI Responses → Grok 请求转换
-     */
-    toGrokRequest(responsesRequest, requestId = null) {
-        // 先转换为 OpenAI 格式
-        const openaiRequest = this.toOpenAIRequest(responsesRequest, requestId);
-        return {
-            ...openaiRequest,
-            _isConverted: true
-        };
     }
 
     // =============================================================================

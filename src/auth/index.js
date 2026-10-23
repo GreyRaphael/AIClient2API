@@ -22,11 +22,6 @@ export {
     importAwsCredentials
 } from './kiro-oauth.js';
 
-// Grok Auth
-export {
-    batchImportGrokTokensStream
-} from './grok-auth.js';
-
 // Grok CLI OAuth
 export {
     refreshGrokCliTokensWithRetry,

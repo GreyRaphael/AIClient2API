@@ -50,7 +50,6 @@ export const MODEL_PROTOCOL_PREFIX = {
     OPENAI_RESPONSES: 'openaiResponses',
     CLAUDE: 'claude',
     CODEX: 'codex',
-    GROK: 'grok',
 };
 
 // 提供商标识符常量
@@ -64,7 +63,6 @@ export const MODEL_PROVIDER = {
     CLAUDE_CUSTOM: 'claude-custom',
     KIRO_API: 'claude-kiro-oauth',
     CODEX_API: 'openai-codex-oauth',
-    GROK_WEB: 'grok-web',
     GROK_CLI: 'grok-cli-oauth',
     ZED: 'zed',
     TRAE: 'trae',
@@ -82,5 +80,5 @@ export const UI_PATHS = {
     // API 路径前缀
     API_PREFIX: '/api/',
     // API 白名单（即使在禁用 UI 时也允许访问）
-    API_WHITELIST: ['/api/health', '/api/grok/assets', '/api/login', '/api/help', '/api/example']
+    API_WHITELIST: ['/api/health', '/api/login', '/api/help', '/api/example']
 };

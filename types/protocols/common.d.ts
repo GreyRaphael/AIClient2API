@@ -74,6 +74,4 @@ export type ProtocolPrefix =
     | 'gemini'
     | 'responses'
     | 'codex'
-    | 'grok'
-    | 'forward'
     | string;

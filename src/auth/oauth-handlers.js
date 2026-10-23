@@ -18,8 +18,6 @@ export {
     batchImportKiroRefreshTokens,
     batchImportKiroRefreshTokensStream,
     importAwsCredentials,
-    // Grok Auth
-    batchImportGrokTokensStream,
     // Grok CLI OAuth
     refreshGrokCliTokensWithRetry,
     handleGrokCliOAuth,

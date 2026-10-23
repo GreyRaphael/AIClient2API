@@ -4,7 +4,6 @@ import { OpenAIStrategy } from '../providers/openai/openai-strategy.js';
 import { ClaudeStrategy } from '../providers/claude/claude-strategy.js';
 import { ResponsesAPIStrategy } from '../providers/openai/openai-responses-strategy.js';
 import { CodexResponsesAPIStrategy } from '../providers/openai/codex-responses-strategy.js';
-import { GrokStrategy } from '../providers/grok/grok-strategy.js';
 
 /**
  * Strategy factory that returns the appropriate strategy instance based on the provider protocol.
@@ -22,8 +21,6 @@ class ProviderStrategyFactory {
                 return new ClaudeStrategy();
             case MODEL_PROTOCOL_PREFIX.CODEX:
                 return new CodexResponsesAPIStrategy();
-            case MODEL_PROTOCOL_PREFIX.GROK:
-                return new GrokStrategy();
             default:
                 throw new Error(`Unsupported provider protocol: ${providerProtocol}`);
         }

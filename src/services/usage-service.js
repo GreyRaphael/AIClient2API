@@ -17,7 +17,6 @@ export class UsageService {
             [MODEL_PROVIDER.KIRO_API]: this.getKiroUsage.bind(this),
             [MODEL_PROVIDER.ANTIGRAVITY]: this.getAntigravityUsage.bind(this),
             [MODEL_PROVIDER.CODEX_API]: this.getCodexUsage.bind(this),
-            [MODEL_PROVIDER.GROK_WEB]: this.getGrokUsage.bind(this),
             [MODEL_PROVIDER.GROK_CLI]: this.getGrokCliUsage.bind(this),
         };
 
@@ -26,7 +25,6 @@ export class UsageService {
             [MODEL_PROVIDER.KIRO_API]: formatKiroUsage,
             [MODEL_PROVIDER.ANTIGRAVITY]: formatAntigravityUsage,
             [MODEL_PROVIDER.CODEX_API]: formatCodexUsage,
-            [MODEL_PROVIDER.GROK_WEB]: formatGrokUsage,
             [MODEL_PROVIDER.GROK_CLI]: formatGrokCliUsage,
         };
     }
@@ -140,7 +138,6 @@ export class UsageService {
             'geminiApiService', 
             'antigravityApiService', 
             'codexApiService',
-            'grokApiService',
             'grokCliApiService'
         ];
 
@@ -172,13 +169,6 @@ export class UsageService {
      */
     async getCodexUsage(uuid = null) {
         return this._getRawUsageFromAdapter(MODEL_PROVIDER.CODEX_API, uuid);
-    }
-
-    /**
-     * 获取 Grok 提供商的用量信息
-     */
-    async getGrokUsage(uuid = null) {
-        return this._getRawUsageFromAdapter(MODEL_PROVIDER.GROK_WEB, uuid);
     }
 
     /**
@@ -536,97 +526,6 @@ export function formatAntigravityUsage(usageData) {
         };
     }
     return null;
-}
-
-/**
- * 格式化 Grok 用量
- */
-export function formatGrokUsage(usageData) {
-    if (!usageData) return null;
-
-    const items = [];
-    let maxUsedPercent = 0;
-
-    // 1. 处理查询配额 (Queries)
-    if (usageData.totalQueries !== undefined && usageData.totalQueries > 0) {
-        const total = usageData.totalQueries;
-        const remaining = usageData.remainingQueries ?? total;
-        const used = Math.max(0, total - remaining);
-        const percent = (used / total) * 100;
-        maxUsedPercent = Math.max(maxUsedPercent, percent);
-        
-        items.push({
-            id: 'queries',
-            label: 'Queries Quota',
-            used,
-            limit: total,
-            percent,
-            unit: 'queries',
-            status: getStatus(percent),
-            resetAt: null
-        });
-    }
-
-    // 2. 处理 Token 配额 (Tokens)
-    if (usageData.totalTokens !== undefined && usageData.totalTokens > 0) {
-        const total = usageData.totalTokens;
-        const remaining = usageData.remainingTokens ?? total;
-        const used = Math.max(0, total - remaining);
-        const percent = (used / total) * 100;
-        maxUsedPercent = Math.max(maxUsedPercent, percent);
-        
-        items.push({
-            id: 'tokens',
-            label: 'Token Quota',
-            used,
-            limit: total,
-            percent,
-            unit: 'tokens',
-            status: getStatus(percent),
-            resetAt: null
-        });
-    }
-
-    // 3. 兜底处理仅有剩余 Tokens 的情况
-    if (items.length === 0 && usageData.remainingTokens !== undefined) {
-        items.push({
-            id: 'tokens',
-            label: 'Token Quota',
-            used: 0,
-            limit: usageData.remainingTokens,
-            percent: 0,
-            unit: 'tokens',
-            status: 'healthy',
-            resetAt: null
-        });
-    }
-
-    // 根据 totalQueries 确定计划名称
-    let plan = 'BASIC';
-    if (usageData.totalQueries !== undefined) {
-        if (usageData.totalQueries > 70) plan = 'HEAVY';
-        else if (usageData.totalQueries === 70) plan = 'SUPER';
-        else if (usageData.totalQueries < 70) plan = 'BASIC';
-    }
-
-    const totalUsed = items.reduce((sum, item) => sum + item.used, 0);
-    const totalLimit = items.reduce((sum, item) => sum + item.limit, 0);
-
-    return {
-        summary: {
-            usedPercent: maxUsedPercent,
-            status: getStatus(maxUsedPercent),
-            resetAt: null,
-            plan,
-            planClass: getPlanClass(plan),
-            unit: items.length > 0 ? items[0].unit : 'tokens',
-            totalUsed,
-            totalLimit
-        },
-        user: { label: null },
-        items,
-        raw: usageData
-    };
 }
 
 /**

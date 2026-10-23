@@ -96,7 +96,6 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
         } else {
             // 兜底逻辑
             if (normalizedPath.includes('/kiro/') || normalizedPath.includes('kiro-auth-token')) oauthProvider = 'kiro';
-            else if (normalizedPath.includes('/gemini/') || normalizedPath.includes('/.gemini/')) oauthProvider = 'gemini';
             else if (normalizedPath.includes('/antigravity/') || normalizedPath.includes('/.antigravity/')) oauthProvider = 'antigravity';
             else if (normalizedPath.includes('/codex/') || normalizedPath.includes('/.codex/')) oauthProvider = 'codex';
             else if (normalizedPath.includes('/zed/') || normalizedPath.includes('/.zed/')) oauthProvider = 'zed';
