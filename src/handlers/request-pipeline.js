@@ -264,8 +264,43 @@ export const TERMINAL_EMPTY_FINISH_REASONS = new Set([
     'refusal',
     // OpenAI Responses / Codex
     'max_output_tokens',
-    'incomplete'
+    'incomplete',
+    // 流内显式错误终态（禁止当作空响应重试）
+    'failed',
+    'error'
 ]);
+
+/**
+ * 判断流式 chunk（原生或转换后）是否为协议层流内错误事件。
+ *
+ * 覆盖：
+ * - OpenAI Responses / Codex：`type === 'response.failed'`、`type === 'error'`、`response.status === 'failed'`
+ * - Anthropic Messages：`type === 'error'`
+ * - OpenAI Chat / Gemini：顶层携带 `error` 对象且不含 `choices` / `candidates`
+ *
+ * @param {Object} payload
+ * @returns {boolean}
+ */
+export function isInStreamErrorPayload(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    if (
+        payload.type === 'response.failed' ||
+        payload.type === 'error' ||
+        payload.response?.status === 'failed' ||
+        payload.status === 'failed'
+    ) {
+        return true;
+    }
+    if (
+        payload.error &&
+        typeof payload.error === 'object' &&
+        !Array.isArray(payload.choices) &&
+        !Array.isArray(payload.candidates)
+    ) {
+        return true;
+    }
+    return false;
+}
 
 /**
  * 首内容前缓冲（preContentBuffer）的默认容量上限。
@@ -289,6 +324,12 @@ export const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
  */
 export function extractTerminalFinishReason(payload, provider) {
     if (!payload || typeof payload !== 'object') return '';
+    if (payload.type === 'response.failed' || payload.response?.status === 'failed' || payload.status === 'failed') {
+        return 'failed';
+    }
+    if (isInStreamErrorPayload(payload)) {
+        return 'error';
+    }
     switch (getProtocolPrefix(provider)) {
         case MODEL_PROTOCOL_PREFIX.GEMINI:
             return payload.candidates?.[0]?.finishReason || '';
@@ -505,6 +546,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     //   - 缓冲期间周期性发送 SSE 注释心跳（按 SSE 规范会被客户端忽略，
     //     且不置 anyDataSent），避免长思考导致连接假死。
     let sawMeaningfulContent = false;
+    let sawStreamError = false;
     const preContentBuffer = []; // string[]，缓存的序列化 SSE 帧
     let preContentBufferBytes = 0;
     const maxPreContentFrames = Number(CONFIG?.PRE_CONTENT_BUFFER_MAX_FRAMES) > 0
@@ -569,8 +611,12 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 break;
             }
 
-            // 首内容前缓冲：在转换/下发前先判定原生 chunk 是否携带有效内容
-            if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider)) {
+            // 首内容前缓冲：在转换/下发前先判定原生 chunk 是否携带有效内容或流内错误终态
+            if (isInStreamErrorPayload(nativeChunk)) {
+                sawStreamError = true;
+                sawMeaningfulContent = true;
+                streamState.hasMessageStop = true;
+            } else if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider)) {
                 sawMeaningfulContent = true;
             }
             // 记录上游结束原因（用于空响应诊断与“合法截断不重试”判定）。
@@ -644,11 +690,15 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 }
 
                 // 防止重复发送结束标志
-                // OpenAI: choices[].finish_reason
-                // Claude: message_stop
-                // OpenAI Responses: done
+                // OpenAI: choices[].finish_reason / data.error
+                // Claude: message_stop / event: error
+                // OpenAI Responses: done / response.completed / response.incomplete / response.failed / error
                 // Gemini: candidates[].finishReason（如 STOP / MAX_TOKENS / SAFETY 等）
-                if (
+                if (isInStreamErrorPayload(chunk)) {
+                    sawStreamError = true;
+                    sawMeaningfulContent = true;
+                    streamState.hasMessageStop = true;
+                } else if (
                     chunk?.choices?.some(choice => choice?.finish_reason) ||
                     chunk?.type === 'message_stop' ||
                     chunk?.type === 'done' ||
@@ -661,7 +711,10 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 // 序列化本 chunk 的出站帧（在有效内容出现前会先进入首内容前缓冲）
                 const outFrames = [];
                 if (addEvent) {
-                    outFrames.push(`event: ${chunk.type}\n`);
+                    const eventType = chunk.type || (isInStreamErrorPayload(chunk) ? 'error' : '');
+                    if (eventType) {
+                        outFrames.push(`event: ${eventType}\n`);
+                    }
                 }
                 outFrames.push(`data: ${JSON.stringify(chunk)}\n\n`);
 
@@ -736,9 +789,9 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             }
         }
 
-        // 仅在真实产出有效内容的情况下才统计使用次数并将 Provider 标记为健康；
-        // 避免客户端在首字前超时断开时误将空转节点记为成功
-        if (sawMeaningfulContent) {
+        // 仅在真实产出有效内容且未发生流内错误的情况下才统计使用次数并将 Provider 标记为健康；
+        // 避免客户端在首字前超时断开或流内返回错误帧时误将节点记为成功
+        if (sawMeaningfulContent && !sawStreamError) {
             if (providerPoolManager && pooluuid) {
                 const customNameDisplay = customName ? `, ${customName}` : '';
                 logger.info(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}${customNameDisplay}) after successful stream request`);

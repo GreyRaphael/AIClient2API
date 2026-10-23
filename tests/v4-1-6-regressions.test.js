@@ -8,7 +8,8 @@ import {
     handleStreamRequest,
     handleUnaryRequest,
     extractTerminalFinishReason,
-    isTerminalEmptyFinishReason
+    isTerminalEmptyFinishReason,
+    isInStreamErrorPayload
 } from '../src/handlers/request-pipeline.js';
 import { ZedApiService } from '../src/providers/zed/zed-core.js';
 import { extractSseStreamError } from './e2e/e2e-helpers.js';
@@ -821,5 +822,126 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
             messages: [{ role: 'user', content: 'hi' }]
         });
         expect(geminiReq.generationConfig?.thinkingConfig?.thinkingLevel).toBe('HIGH');
+    });
+
+    test('F11: 同协议流内错误帧 (response.failed / event:error / data.error) 视为终态，不触发空响应重试且不补发 response.completed / message_stop', async () => {
+        expect(isInStreamErrorPayload({ type: 'response.failed', response: { status: 'failed' } })).toBe(true);
+        expect(isInStreamErrorPayload({ type: 'error', error: { message: 'overloaded' } })).toBe(true);
+        expect(isInStreamErrorPayload({ error: { message: 'rate limit' } })).toBe(true);
+        expect(isInStreamErrorPayload({ choices: [{ delta: { content: 'error text' } }] })).toBe(false);
+
+        // 1) 同协议 Responses 流内 response.failed：不重试、不补 response.completed、不标记健康
+        let responsesCalls = 0;
+        let markedHealthy = 0;
+        const mockPool = {
+            markProviderHealthy() {
+                markedHealthy++;
+            },
+            releaseSlot() {}
+        };
+        const resResponses = createMockResponse();
+        const responsesService = {
+            async *generateContentStream() {
+                responsesCalls++;
+                yield {
+                    type: 'response.created',
+                    response: { id: 'resp_err_1', status: 'in_progress' }
+                };
+                yield {
+                    type: 'response.failed',
+                    response: {
+                        id: 'resp_err_1',
+                        status: 'failed',
+                        error: { code: 'server_error', message: 'upstream crashed' }
+                    }
+                };
+            }
+        };
+
+        await handleStreamRequest(
+            resResponses,
+            responsesService,
+            'openaiResponses-custom:test',
+            {},
+            'openaiResponses-custom',
+            'openaiResponses-custom',
+            'none',
+            '',
+            mockPool,
+            'uuid-1',
+            undefined,
+            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        );
+
+        const responsesBody = resResponses.chunks.join('');
+        expect(responsesCalls).toBe(1);
+        expect(markedHealthy).toBe(0);
+        expect(responsesBody).toContain('event: response.failed');
+        expect(responsesBody).not.toContain('event: response.completed');
+
+        // 2) 同协议 Claude 流内 event: error：不重试、不补 message_stop
+        let claudeCalls = 0;
+        const resClaude = createMockResponse();
+        const claudeService = {
+            async *generateContentStream() {
+                claudeCalls++;
+                yield {
+                    type: 'error',
+                    error: { type: 'overloaded_error', message: 'Overloaded' }
+                };
+            }
+        };
+
+        await handleStreamRequest(
+            resClaude,
+            claudeService,
+            'zed:claude-sonnet-5-5',
+            {},
+            'claude-custom',
+            'zed',
+            'none',
+            '',
+            mockPool,
+            'uuid-2',
+            undefined,
+            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        );
+
+        const claudeBody = resClaude.chunks.join('');
+        expect(claudeCalls).toBe(1);
+        expect(claudeBody).toContain('event: error');
+        expect(claudeBody).not.toContain('message_stop');
+
+        // 3) 同协议 OpenAI Chat 流内 data.error：不触发空响应重试，原样下发错误帧与 [DONE]
+        let chatCalls = 0;
+        const resChat = createMockResponse();
+        const chatService = {
+            async *generateContentStream() {
+                chatCalls++;
+                yield {
+                    error: { message: 'upstream rate limit', type: 'rate_limit_error' }
+                };
+            }
+        };
+
+        await handleStreamRequest(
+            resChat,
+            chatService,
+            'openai-custom:test',
+            {},
+            'openai-custom',
+            'openai-custom',
+            'none',
+            '',
+            mockPool,
+            'uuid-3',
+            undefined,
+            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        );
+
+        const chatBody = resChat.chunks.join('');
+        expect(chatCalls).toBe(1);
+        expect(chatBody).toContain('"rate_limit_error"');
+        expect(chatBody).toContain('data: [DONE]');
     });
 });
