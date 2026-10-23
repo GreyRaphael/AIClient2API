@@ -156,39 +156,6 @@ function getAvailableRoutes() {
             badgeClass: 'official'
         },
         {
-            provider: 'atlascloud',
-            name: 'AtlasCloud',
-            paths: {
-                openai: '/atlascloud/v1/chat/completions',
-                claude: '/atlascloud/v1/messages'
-            },
-            description: t('dashboard.routing.official'),
-            badge: t('dashboard.routing.official'),
-            badgeClass: 'official'
-        },
-        {
-            provider: 'qiniu',
-            name: 'Qiniu Cloud AI',
-            paths: {
-                openai: '/qiniu/v1/chat/completions',
-                claude: '/qiniu/v1/messages'
-            },
-            description: t('dashboard.routing.official'),
-            badge: t('dashboard.routing.official'),
-            badgeClass: 'official'
-        },
-        {
-            provider: 'fenno',
-            name: 'Fenno.ai',
-            paths: {
-                openai: '/fenno/v1/chat/completions',
-                claude: '/fenno/v1/messages'
-            },
-            description: t('dashboard.routing.official'),
-            badge: t('dashboard.routing.official'),
-            badgeClass: 'official'
-        },
-        {
             provider: 'gemini-antigravity',
             name: t('dashboard.routing.nodeName.antigravity'),
             paths: {
@@ -380,9 +347,6 @@ async function copyCurlExample(provider, options = {}) {
             }
             break;
             
-        case 'atlascloud':
-        case 'qiniu':
-        case 'fenno':
         case 'openai-custom':
         case 'openai-codex-oauth':
         case 'zed':
@@ -498,9 +462,6 @@ function renderRoutingExamples(providerConfigs) {
     const iconMap = {
         'gemini-antigravity': 'fa-rocket',
         'openai-custom': 'fa-comments',
-        'atlascloud': 'fa-cloud',
-        'qiniu': 'fa-cloud',
-        'fenno': 'fa-code',
         'claude-custom': 'fa-brain',
         'claude-kiro-oauth': 'fa-robot',
         'openaiResponses-custom': 'fa-comment-alt',
@@ -518,9 +479,6 @@ function renderRoutingExamples(providerConfigs) {
         'claude-custom': 'claude-sonnet-4-5',
         'claude-kiro-oauth': 'claude-sonnet-4-5',
         'openai-custom': 'gpt-5.5',
-        'atlascloud': 'gpt-5.5',
-        'qiniu': 'gpt-5.5',
-        'fenno': 'gpt-5.5',
         'openai-codex-oauth': 'gpt-5.5',
         'openaiResponses-custom': 'gpt-5.5',
         'grok-cli-oauth': 'grok-4.3',

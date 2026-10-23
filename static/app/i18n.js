@@ -49,9 +49,6 @@ const translations = {
         'sponsors.becomeTitle': '成为赞助商',
         'sponsors.becomeDesc': '如果您有意赞助本项目，请扫描左侧微信二维码（添加时请注明来意：赞助）。',
         'sponsors.packyDesc': 'PackyCode 是一家可靠且高效的 API 中转服务商，提供 Claude Code、Codex、Gemini 等模型的中转服务。PackyCode 为本软件用户提供特别优惠：<a href="https://www.packyapi.com/register?aff=AIClient2API" target="_blank" rel="noopener noreferrer">通过此链接注册</a>并在充值时输入 <strong>AIClient2API</strong> 优惠码，即可享受 <strong>10% 的折扣</strong>。',
-        'sponsors.atlasDesc': '感谢 Atlas Cloud 赞助本项目！Atlas Cloud 是一款<strong>全模态 AI 推理平台</strong>，为开发者提供单一的 AI API 以轻松接入视频生成、图像生成和大语言模型 API。无需管理多个供应商集成，您只需连接一次，即可统一访问跨所有模态的 <strong>300 多种精选模型</strong>。欢迎查看 Atlas Cloud 全新的 <a href="https://www.atlascloud.ai/console/coding-plan" target="_blank" rel="noopener noreferrer">编码计划促销活动 (coding plan)</a>，以获取更具性价比的 API 接入服务。',
-        'sponsors.fennoDesc': 'Fenno.ai 是一家稳定、高效的 API 中转服务商，目前主要提供 Codex 中转服务，兼容 OpenAI 及 Anthropic 协议，可灵活接入 Codex、Claude Code、OpenCode 等主流编程工具，可稳定支撑千亿 Token/日的企业级调用需求，支持国内及海外主体公对公结算、开票。Fenno.ai 为 CC-Connect 的用户提供了专属福利：<a href="https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&amp;aff=2EW65KEQC938" target="_blank" rel="noopener noreferrer">通过此链接</a>即可订阅 <strong>9.9 元/150刀额度</strong>的超值 Coding Plan，邀请好友最高可享 <strong>20% 奖励</strong>，多邀多得！',
-        'sponsors.qiniuDesc': '七牛云 AI 是七牛云（02567.HK）旗下<strong>企业级大模型 MaaS 平台</strong>，可一站式调用全球 <strong>150+ 主流模型</strong>，兼容全球主流模型厂商协议，覆盖文本、图像、音频、视频、文件处理等全模态处理能力，服务超过 169 万企业及开发者用户。专属福利：企业用户可<a href="https://s.qiniu.com/FRF7bq" target="_blank" rel="noopener noreferrer">免费领 <strong>1200 万 Token</strong></a>，邀请好友最高得<strong>百亿 Token</strong>。',
         'sponsors.vmcardDesc': '<strong>VMCard｜AI 业务企业级支付卡</strong>，面向 AI 账号商、AI API 服务商及批量订阅业务团队。GPT / Claude 丝滑支付，专属美国 Visa 卡段，支持 API 批量开卡，全网最低结算汇率，满足大批量、长期稳定支付需求。<a href="https://vmcardio.com/zh/register?code=902506" target="_blank" rel="noopener noreferrer">通过此链接注册</a>。',
 
         // Dashboard
@@ -111,9 +108,6 @@ const translations = {
         'dashboard.routing.nodeName.claude': 'Claude Custom',
         'dashboard.routing.nodeName.kiro': 'Claude Kiro OAuth',
         'dashboard.routing.nodeName.openai': 'OpenAI Custom',
-        'dashboard.routing.nodeName.atlascloud': 'AtlasCloud',
-        'dashboard.routing.nodeName.qiniu': 'Qiniu Cloud AI',
-        'dashboard.routing.nodeName.fenno': 'Fenno.ai',
         'dashboard.routing.nodeName.codex': 'OpenAI Codex OAuth',
         'dashboard.routing.nodeName.grokCli': 'Grok CLI',
         'dashboard.routing.nodeName.responses': 'OpenAI Responses',
@@ -1280,9 +1274,6 @@ const translations = {
         'sponsors.becomeTitle': 'Become a Sponsor',
         'sponsors.becomeDesc': 'If you are interested in sponsoring this project, please scan the WeChat QR code on the left (please indicate: Sponsorship).',
         'sponsors.packyDesc': 'PackyCode is a reliable and efficient API relay service provider for Claude Code, Codex, Gemini, and more. AIClient2API users receive a special offer: <a href="https://www.packyapi.com/register?aff=AIClient2API" target="_blank" rel="noopener noreferrer">register through this link</a> and enter the <strong>AIClient2API</strong> promo code when topping up to get <strong>10% off</strong>.',
-        'sponsors.atlasDesc': 'Thanks to Atlas Cloud for sponsoring this project! Atlas Cloud is a <strong>full-modal AI inference platform</strong> that provides a single AI API for video generation, image generation, and LLM APIs. Connect once for unified access to <strong>300+ curated models</strong> across all modalities. See Atlas Cloud\'s new <a href="https://www.atlascloud.ai/console/coding-plan" target="_blank" rel="noopener noreferrer">coding plan promotion</a> for more cost-effective API access.',
-        'sponsors.fennoDesc': 'Fenno.ai is a stable and efficient API relay service currently focused on Codex. It supports OpenAI and Anthropic protocols, works with Codex, Claude Code, OpenCode, and other coding tools, and reliably handles enterprise-scale demand of hundreds of billions of tokens per day. Corporate settlement and invoicing are available for domestic and overseas entities. CC-Connect users can <a href="https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&amp;aff=2EW65KEQC938" target="_blank" rel="noopener noreferrer">subscribe through this link</a> for a Coding Plan with <strong>$150 quota for RMB 9.9</strong> and earn up to <strong>20% rewards</strong> through referrals.',
-        'sponsors.qiniuDesc': 'Qiniu Cloud AI is an <strong>enterprise-grade large-model MaaS platform</strong> under Qiniu Cloud (02567.HK). It offers one-stop access to <strong>150+ mainstream global models</strong>, supports major provider protocols, and covers text, image, audio, video, and file processing for more than 1.69 million enterprise and developer users. Enterprise users can <a href="https://s.qiniu.com/FRF7bq" target="_blank" rel="noopener noreferrer">claim <strong>12 million tokens</strong> for free</a> and earn up to <strong>tens of billions of tokens</strong> through referrals.',
         'sponsors.vmcardDesc': '<strong>VMCard | Enterprise Payment Cards for AI Businesses</strong> is built for AI account vendors, AI API providers, and teams managing bulk subscriptions. It supports seamless GPT / Claude payments, dedicated U.S. Visa BINs, API-based bulk card issuance, and highly competitive settlement exchange rates for stable, high-volume payment needs. <a href="https://vmcardio.com/zh/register?code=902506" target="_blank" rel="noopener noreferrer">Register through this link</a>.',
         
         // Dashboard
@@ -1342,9 +1333,6 @@ const translations = {
         'dashboard.routing.nodeName.claude': 'Claude Custom',
         'dashboard.routing.nodeName.kiro': 'Claude Kiro OAuth',
         'dashboard.routing.nodeName.openai': 'OpenAI Custom',
-        'dashboard.routing.nodeName.atlascloud': 'AtlasCloud',
-        'dashboard.routing.nodeName.qiniu': 'Qiniu Cloud AI',
-        'dashboard.routing.nodeName.fenno': 'Fenno.ai',
         'dashboard.routing.nodeName.codex': 'OpenAI Codex OAuth',
         'dashboard.routing.nodeName.grokCli': 'Grok CLI',
         'dashboard.routing.nodeName.responses': 'OpenAI Responses',
