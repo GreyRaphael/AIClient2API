@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.1.9] - 2026-10-23
+
+### Fixed (跨协议转译语义与健壮性收口)
+
+- **Responses → Gemini**：`input` 内 system/developer 消息并入 `systemInstruction`；`text.format` 映射为 `responseMimeType` / `responseSchema`；多模态 `function_call_output` 归一化为 Struct 并将图片/文件拆为同轮 `inlineData`；无 user/assistant turn 的请求本地返回 400。
+- **Chat → Antigravity**：thinking gating 覆盖 `gpt-*`、`-thinking`、`-high`、`-medium` 与 Claude 5.5，GPT-6 预适配补齐。
+- **流内错误终态**：识别 `response.failed`、`event: error`、`data.error`（含空 `choices` / `candidates`）；转换器无法表达时返回 502；非流式 HTTP 200 错误体不再伪装成成功；错误帧不污染重试收尾状态。
+- **Schema Polyfill**：补齐 `allOf` type/enum/items、可空 `oneOf`、`patternProperties`、`additionalProperties`、`not`、`dependentRequired`、`dependentSchemas`、`if/then/else`；摘要保留子 Schema `description`；阶段 2 裁剪只统计可达节点并按真实描述差值回缩。
+
+### Changed
+
+- 跨协议 E2E 增加 Responses→Gemini developer/text.format 与 system-only 400 定向用例，定向用例增至 16 项。
+- 文档收敛为单一 19 模型复评入口，删除过期的 27 模型 review。
+
+### Verification
+
+- `npm test -- --runInBand`：**29 suites / 489 tests 全绿**。
+- 19 模型 E2E：**35 / 35 通过**，19/19 模型 11/11，16/16 定向用例通过。
+
+## [v4.1.8] - 2026-10-23
+
+### Fixed
+
+- 收口跨协议 P0/P1 一致性修复与 E2E 长尾治理。
+- 修复 Responses 流式 `.done` 无前序 delta 时丢正文。
+- 更新 Antigravity User-Agent 为 CLI 标识，修复模型列表动态刷新。
+
+### Changed
+
+- Antigravity 过滤 oss 与 `-low` 模型，预适配 GPT-6 系列 thinkingLevel。
+
 ## [v4.1.7] - 2026-10-22
 
 ### Fixed (跨协议转译 P1/P2 修复)
