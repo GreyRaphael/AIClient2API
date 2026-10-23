@@ -950,4 +950,73 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(claudeStreamTool.toolCalls?.[0]?.name).toBe('get_weather');
         expect(String(claudeStreamTool.toolCalls?.[0]?.arguments?.city || '').toLowerCase()).toContain('paris');
     }, MODEL_TIMEOUT_MS);
+
+    test('Responses→Gemini input 内 developer 消息与 text.format json_schema 结构化输出', async () => {
+        const result = await postJson({
+            baseUrl: BASE_URL,
+            apiKey,
+            pathName: '/v1/responses',
+            body: {
+                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                instructions: 'You are a helpful math assistant.',
+                input: [
+                    {
+                        type: 'message',
+                        role: 'developer',
+                        content: [{ type: 'input_text', text: 'Always set tag to "ORION99" in the JSON output.' }]
+                    },
+                    {
+                        type: 'message',
+                        role: 'user',
+                        content: [{ type: 'input_text', text: 'Compute 6 * 7 and return JSON.' }]
+                    }
+                ],
+                text: {
+                    format: {
+                        type: 'json_schema',
+                        name: 'math_answer',
+                        strict: true,
+                        schema: {
+                            type: 'object',
+                            properties: {
+                                tag: { type: 'string' },
+                                product: { type: 'integer' }
+                            },
+                            required: ['tag', 'product'],
+                            additionalProperties: false
+                        }
+                    }
+                },
+                max_output_tokens: 512,
+                stream: false
+            }
+        });
+        const summary = responsesSummary(result);
+        expect(summary.httpStatus).toBe(200);
+        const parsed = JSON.parse(summary.text.trim());
+        expect(parsed.tag).toBe('ORION99');
+        expect(parsed.product).toBe(42);
+    }, TARGET_TIMEOUT_MS);
+
+    test('Responses→Gemini 仅 system/developer 消息返回本地 400，不请求上游', async () => {
+        const result = await postJson({
+            baseUrl: BASE_URL,
+            apiKey,
+            pathName: '/v1/responses',
+            body: {
+                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                input: [
+                    {
+                        type: 'message',
+                        role: 'developer',
+                        content: [{ type: 'input_text', text: 'Only reply OK.' }]
+                    }
+                ],
+                max_output_tokens: 64,
+                stream: false
+            }
+        });
+        expect(result.status).toBe(400);
+        expect(result.text).toContain('at least one user or assistant message');
+    }, TARGET_TIMEOUT_MS);
 });
