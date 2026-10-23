@@ -580,7 +580,7 @@ describe('Schema Polyfill 降级编译器', () => {
 
             expect(cleaned.properties.headers.patternProperties).toBeUndefined();
             expect(cleaned.properties.headers.additionalProperties).toBeUndefined();
-            expect(cleaned.properties.headers.description).toContain('patternProperties={^x-[a-z]+$:string}');
+            expect(cleaned.properties.headers.description).toContain('patternProperties={^x-[a-z]+$:type=string}');
             expect(cleaned.properties.headers.description).toContain('additionalProperties=false');
             expect(cleaned.properties.headers.description).toContain('propertyNames(pattern=^x-)');
 

@@ -203,6 +203,37 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
             }
         }
 
+        // 条件/依赖/否定子 Schema 也需要展开 $ref 并收集内部约束，
+        // 否则它们被白名单删除后只能留下不完整的 JSON 摘要。
+        if (node.dependentSchemas && typeof node.dependentSchemas === 'object' && !Array.isArray(node.dependentSchemas)) {
+            for (const key of Object.keys(node.dependentSchemas)) {
+                if (node.dependentSchemas[key] && typeof node.dependentSchemas[key] === 'object') {
+                    node.dependentSchemas[key] = transformNode(
+                        node.dependentSchemas[key],
+                        `${path}/dependentSchemas/${key}`,
+                        depth + 1,
+                        refStack
+                    );
+                }
+            }
+        }
+        for (const key of ['if', 'then', 'else']) {
+            if (node[key] && typeof node[key] === 'object') {
+                node[key] = transformNode(node[key], `${path}/${key}`, depth + 1, refStack);
+            }
+        }
+        if (node.not && typeof node.not === 'object') {
+            node.not = transformNode(node.not, `${path}/not`, depth + 1, refStack);
+        }
+        if (node.additionalProperties && typeof node.additionalProperties === 'object') {
+            node.additionalProperties = transformNode(
+                node.additionalProperties,
+                `${path}/additionalProperties`,
+                depth + 1,
+                refStack
+            );
+        }
+
         // 3. 组合关键字降级：allOf 浅合并
         if (Array.isArray(node.allOf) && node.allOf.length > 0) {
             const allOfBranches = node.allOf;
@@ -468,8 +499,7 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
             }
             if (node.patternProperties && typeof node.patternProperties === 'object' && Object.keys(node.patternProperties).length > 0) {
                 const patSummaries = Object.entries(node.patternProperties).map(([pat, sub]) => {
-                    const subType = sub?.type || 'any';
-                    return `${pat}:${subType}${sub?.description ? `(${sub.description})` : ''}`;
+                    return `${pat}:${summarizeSchemaForDescription(sub)}`;
                 });
                 constraintItems.push(`patternProperties={${patSummaries.join(', ')}}`);
                 kinds.push('patternProperties');
@@ -478,8 +508,7 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                 constraintItems.push('additionalProperties=false');
                 kinds.push('additionalProperties');
             } else if (node.additionalProperties && typeof node.additionalProperties === 'object') {
-                const apType = node.additionalProperties.type || 'object';
-                constraintItems.push(`additionalProperties=${apType}`);
+                constraintItems.push(`additionalProperties=${summarizeSchemaForDescription(node.additionalProperties)}`);
                 kinds.push('additionalProperties');
             }
             if (node.not === true) {
