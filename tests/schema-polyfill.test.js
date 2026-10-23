@@ -547,4 +547,92 @@ describe('Schema Polyfill 降级编译器', () => {
             expect(explicitReport).toEqual(baseReport);
         });
     });
+
+    describe('7. 2026-10-23 复评残差补齐：patternProperties / additionalProperties / not / dependentRequired / 可空 oneOf', () => {
+        test('patternProperties、additionalProperties: false、not、dependentRequired、propertyNames 注入 description 并在清洗后保留', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    headers: {
+                        type: 'object',
+                        patternProperties: {
+                            '^x-[a-z]+$': { type: 'string' }
+                        },
+                        additionalProperties: false,
+                        propertyNames: { pattern: '^x-' }
+                    },
+                    env: {
+                        type: 'string',
+                        not: { enum: ['prod', 'production'] }
+                    }
+                },
+                dependentRequired: {
+                    credit_card: ['billing_address']
+                },
+                additionalProperties: false
+            };
+
+            const cleaned = polyfillAndCleanSchemaForGemini(schema);
+            expect(cleaned.additionalProperties).toBeUndefined();
+            expect(cleaned.dependentRequired).toBeUndefined();
+            expect(cleaned.description).toContain('additionalProperties=false');
+            expect(cleaned.description).toContain('dependentRequired={credit_card->[billing_address]}');
+
+            expect(cleaned.properties.headers.patternProperties).toBeUndefined();
+            expect(cleaned.properties.headers.additionalProperties).toBeUndefined();
+            expect(cleaned.properties.headers.description).toContain('patternProperties={^x-[a-z]+$:string}');
+            expect(cleaned.properties.headers.description).toContain('additionalProperties=false');
+            expect(cleaned.properties.headers.description).toContain('propertyNames(pattern=^x-)');
+
+            expect(cleaned.properties.env.not).toBeUndefined();
+            expect(cleaned.properties.env.description).toContain('not(enum=["prod","production"])');
+        });
+
+        test('oneOf / anyOf 可空单类型 (T | null) 保留主 type 并设置 nullable: true', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    nickname: {
+                        anyOf: [
+                            { type: 'string', minLength: 2 },
+                            { type: 'null' }
+                        ]
+                    },
+                    mixed: {
+                        oneOf: [
+                            { type: 'string', pattern: '^a' },
+                            { type: 'integer', minimum: 2 }
+                        ]
+                    }
+                }
+            };
+
+            const cleaned = polyfillAndCleanSchemaForGemini(schema);
+            expect(cleaned.properties.nickname.type).toBe('STRING');
+            expect(cleaned.properties.nickname.nullable).toBe(true);
+            expect(cleaned.properties.nickname.description).toContain('minLength=2');
+
+            expect(cleaned.properties.mixed.type).toBeUndefined();
+            expect(cleaned.properties.mixed.description).toContain('types=string|integer');
+        });
+
+        test('allOf 多分支约束与 description 合并保留', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    score: {
+                        type: 'integer',
+                        allOf: [
+                            { minimum: 0 },
+                            { maximum: 100 }
+                        ]
+                    }
+                }
+            };
+
+            const cleaned = polyfillAndCleanSchemaForGemini(schema);
+            expect(cleaned.properties.score.description).toContain('min=0');
+            expect(cleaned.properties.score.description).toContain('max=100');
+        });
+    });
 });

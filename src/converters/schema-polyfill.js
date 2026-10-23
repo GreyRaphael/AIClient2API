@@ -174,6 +174,10 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
         if (Array.isArray(node.allOf) && node.allOf.length > 0) {
             node.properties = node.properties || {};
             node.required = node.required || [];
+            const branchDescriptions = [];
+            if (node.description) {
+                branchDescriptions.push(node.description);
+            }
 
             for (const branch of node.allOf) {
                 if (branch && typeof branch === 'object') {
@@ -184,10 +188,13 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                     if (Array.isArray(transformedBranch.required)) {
                         node.required = Array.from(new Set([...node.required, ...transformedBranch.required]));
                     }
-                    if (!node.description && transformedBranch.description) {
-                        node.description = transformedBranch.description;
+                    if (transformedBranch.description && !branchDescriptions.includes(transformedBranch.description)) {
+                        branchDescriptions.push(transformedBranch.description);
                     }
                 }
+            }
+            if (branchDescriptions.length > 0) {
+                node.description = branchDescriptions.join(' ');
             }
             if (node.required.length === 0) {
                 delete node.required;
@@ -204,25 +211,32 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                 transformNode(b, `${path}/oneOf/${idx}`, depth + 1, refStack)
             );
 
-            // 检查各分支类型是否一致
+            // 检查各分支类型是否一致，识别 T | null 可空联合
             const branchTypes = transformedBranches.map(b => b.type).filter(Boolean);
+            const nonNullTypes = Array.from(new Set(branchTypes.filter(t => t !== 'null')));
+            const hasNullBranch = branchTypes.includes('null') || transformedBranches.some(b => b.nullable === true || b.const === null);
             const allSameType = branchTypes.length === transformedBranches.length && new Set(branchTypes).size === 1;
+            const isNullableSingleType = branchTypes.length === transformedBranches.length && nonNullTypes.length === 1 && hasNullBranch;
 
             if (allSameType) {
                 node.type = branchTypes[0];
+            } else if (isNullableSingleType) {
+                node.type = nonNullTypes[0];
+                node.nullable = true;
             } else {
                 delete node.type;
             }
 
             // oneOf/anyOf 的对象分支：合并 properties 以保留字段名与枚举，
             // 但 required 取各分支交集，避免把某个互斥分支的必填字段强加到所有分支。
-            if (allSameType && branchTypes[0] === 'object') {
+            const objectBranches = transformedBranches.filter(b => b.type === 'object' || (b.properties && typeof b.properties === 'object'));
+            if ((allSameType && branchTypes[0] === 'object') || (isNullableSingleType && nonNullTypes[0] === 'object')) {
                 const mergedProperties = {};
-                const requiredSets = transformedBranches.map(
+                const requiredSets = objectBranches.map(
                     (branch) => new Set(Array.isArray(branch.required) ? branch.required : [])
                 );
 
-                for (const branch of transformedBranches) {
+                for (const branch of objectBranches) {
                     if (branch.properties && typeof branch.properties === 'object') {
                         for (const [key, value] of Object.entries(branch.properties)) {
                             const existing = mergedProperties[key];
@@ -286,7 +300,10 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
                 unionSummary = unionSummary.slice(0, 117) + '...';
             }
 
-            const oneOfText = `[One of: ${unionSummary}]`;
+            const typeUnionPrefix = (!allSameType && !isNullableSingleType && nonNullTypes.length > 1)
+                ? `types=${Array.from(new Set(branchTypes)).join('|')}; `
+                : '';
+            const oneOfText = `[One of: ${typeUnionPrefix}${unionSummary}]`;
             node.description = node.description ? `${node.description} ${oneOfText}` : oneOfText;
 
             delete node.oneOf;
@@ -360,6 +377,46 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
             if (node.multipleOf !== undefined) {
                 constraintItems.push(`multipleOf=${node.multipleOf}`);
                 kinds.push('multipleOf');
+            }
+            if (node.patternProperties && typeof node.patternProperties === 'object' && Object.keys(node.patternProperties).length > 0) {
+                const patSummaries = Object.entries(node.patternProperties).map(([pat, sub]) => {
+                    const subType = sub?.type || 'any';
+                    return `${pat}:${subType}${sub?.description ? `(${sub.description})` : ''}`;
+                });
+                constraintItems.push(`patternProperties={${patSummaries.join(', ')}}`);
+                kinds.push('patternProperties');
+            }
+            if (node.additionalProperties === false) {
+                constraintItems.push('additionalProperties=false');
+                kinds.push('additionalProperties');
+            } else if (node.additionalProperties && typeof node.additionalProperties === 'object') {
+                const apType = node.additionalProperties.type || 'object';
+                constraintItems.push(`additionalProperties=${apType}`);
+                kinds.push('additionalProperties');
+            }
+            if (node.not && typeof node.not === 'object') {
+                const notParts = [];
+                if (node.not.type) notParts.push(`type=${node.not.type}`);
+                if (Array.isArray(node.not.enum)) notParts.push(`enum=${JSON.stringify(node.not.enum)}`);
+                if (node.not.const !== undefined) notParts.push(`const=${JSON.stringify(node.not.const)}`);
+                if (node.not.pattern) notParts.push(`pattern=${node.not.pattern}`);
+                constraintItems.push(`not(${notParts.join(', ') || JSON.stringify(node.not)})`);
+                kinds.push('not');
+            }
+            if (node.dependentRequired && typeof node.dependentRequired === 'object') {
+                const depEntries = Object.entries(node.dependentRequired)
+                    .map(([k, reqs]) => `${k}->[${Array.isArray(reqs) ? reqs.join(',') : reqs}]`);
+                if (depEntries.length > 0) {
+                    constraintItems.push(`dependentRequired={${depEntries.join('; ')}}`);
+                    kinds.push('dependentRequired');
+                }
+            }
+            if (node.propertyNames && typeof node.propertyNames === 'object') {
+                const pn = node.propertyNames.pattern
+                    ? `pattern=${node.propertyNames.pattern}`
+                    : (Array.isArray(node.propertyNames.enum) ? `enum=${JSON.stringify(node.propertyNames.enum)}` : JSON.stringify(node.propertyNames));
+                constraintItems.push(`propertyNames(${pn})`);
+                kinds.push('propertyNames');
             }
 
             if (constraintItems.length > 0) {
