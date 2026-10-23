@@ -22,7 +22,7 @@
 
 ### 1.2 结构性根因
 
-**6 个 Converter、每个 1500-2600 行，流式状态机各自重复实现，改一处需同步多处：**
+**5 个 Converter、每个 1500-2600 行，流式状态机各自重复实现，改一处需同步多处：**
 
 | Converter | 行数 | 流式方法 |
 |---|---|---|
@@ -31,18 +31,16 @@
 | GeminiConverter | 2177 | toOpenAI/toClaude/toOpenAIResponses/toCodex StreamChunk |
 | CodexConverter | 1688 | toOpenAI/toOpenAIResponses/toGemini/toClaude StreamChunk |
 | OpenAIResponsesConverter | 1659 | toOpenAI/toClaude/toGemini/toCodex StreamChunk |
-| GrokConverter | 1500 | toOpenAI/toGemini/toOpenAIResponses/toCodex/toClaude StreamChunk |
 
 复制粘贴的直接证据：`OpenAIConverter.toOpenAIResponsesStreamChunk` 的 JSDoc 自述
 "参考 ClaudeConverter.toOpenAIResponsesStreamChunk 的实现逻辑"（OpenAIConverter.js:2215）。
 
-**流式状态管理碎片化（4 种并存），且 ConverterFactory 缓存 Converter 单例：**
+**流式状态管理碎片化（3 种并存），且 ConverterFactory 缓存 Converter 单例：**
 
 | 机制 | 使用者 | 风险 |
 |---|---|---|
 | 全局单例 `streamStateManager`（openai-responses-events.js），按 requestId 分桶 | Claude/OpenAI/Gemini Converter | 流中途异常而未走 cleanup 路径则状态泄漏；全局单例跨 provider 共享 |
 | `this.streamParams` Map（实例字段） | CodexConverter | 单例上的实例字段，泄漏风险同上 |
-| `this.requestStates` + `this._claudeMsgStartSent` Map | GrokConverter | 同上 |
 | 局部变量/各自为政 | OpenAIResponsesConverter 等 | 语义不一致 |
 
 **已有的正确方向**：`openai-responses-events.js` 的纯函数事件生成器
@@ -52,7 +50,7 @@ Claude SSE 与 Gemini 流式输出侧没有等价物。
 
 ## 2. 流式转换的共性盘点
 
-对 6 个 Converter 的全部 `toXxxStreamChunk` 实现归纳，流式转换恒由以下要素组成：
+对 5 个 Converter 的全部 `toXxxStreamChunk` 实现归纳，流式转换恒由以下要素组成：
 
 ### 2.1 会话状态（每请求一份）
 
@@ -163,7 +161,6 @@ interface TargetEmitter {
 - `OpenAIParser`：choices[].delta(content/reasoning_content/tool_calls)、finish_reason、usage
 - `GeminiParser`：candidates[].content.parts(text/thought/functionCall)、finishReason、usageMetadata
 - `ResponsesParser`：output_text.delta、function_call_arguments.delta、response.completed(usage)
-- `GrokParser`：在 OpenAIParser 基础上扩展 Grok 特有字段
 
 ### 3.5 finish_reason 与 usage 的单点化
 
@@ -179,12 +176,11 @@ interface TargetEmitter {
 
 | 步骤 | Converter | 说明 |
 |---|---|---|
-| 1 | GrokConverter | 最小（1500 行），验证架构 |
-| 2 | GeminiConverter | 引入 GeminiEmitter + thoughtSignature 路径 |
-| 3 | OpenAIResponsesConverter | 对齐 ResponsesEmitter 与现有 events 生成器 |
-| 4 | CodexConverter | Codex 方言（custom_tool_call/apply_patch） |
-| 5 | OpenAIConverter | 大体量，注意其对 CodexConverter 的委托 |
-| 6 | ClaudeConverter | 最大最复杂，最后 |
+| 1 | GeminiConverter | 引入 GeminiEmitter + thoughtSignature 路径 |
+| 2 | OpenAIResponsesConverter | 对齐 ResponsesEmitter 与现有 events 生成器 |
+| 3 | CodexConverter | Codex 方言（custom_tool_call/apply_patch） |
+| 4 | OpenAIConverter | 大体量，注意其对 CodexConverter 的委托 |
+| 5 | ClaudeConverter | 最大最复杂，最后 |
 
 每步验收：
 

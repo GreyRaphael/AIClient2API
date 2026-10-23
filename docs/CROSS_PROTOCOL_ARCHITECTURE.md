@@ -28,9 +28,8 @@
 | 下游（客户端） | Anthropic Messages | `claude` | `ClaudeConverter` |
 | 上游（Provider） | Gemini | `gemini` | `GeminiConverter` |
 | 上游（Provider） | Codex | `codex` | `CodexConverter` |
-| 上游（Provider） | Grok | `grok` | `GrokConverter` |
 
-下游只暴露 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议；Gemini/Codex/Grok 仅作为上游协议参与请求与响应转换。原生 Gemini 下游端点 `/v1beta/models` 与 `:generateContent` 已移除。
+下游只暴露 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议；Gemini/Codex 仅作为上游协议参与请求与响应转换（Grok CLI 接入 xAI Responses 协议；Grok Web 与 GrokConverter 已移除）。原生 Gemini 下游端点 `/v1beta/models` 与 `:generateContent` 已移除。
 
 转换器注册入口：`src/converters/register-converters.js`。  
 转换器工厂：`src/converters/ConverterFactory.js`。

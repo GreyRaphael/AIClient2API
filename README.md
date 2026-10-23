@@ -395,7 +395,7 @@ Supports various input types such as images and documents, providing you with a 
 
 #### Latest Model Support
 Seamlessly support the following latest large models, just configure the corresponding endpoint in Web UI or [`configs/config.json`](./configs/config.json):
-*   **Grok / Grok Build** - xAI's flagship models, now supported via Grok Cookie/SSO and Grok CLI OAuth, supporting thinking models, Grok Build, built-in tools, image generation, and video generation
+*   **Grok / Grok Build** - xAI's flagship models, now supported via Grok CLI OAuth, supporting thinking models, Grok Build, built-in tools, image generation, and video generation
 *   **Claude Opus** - Anthropic's strongest model ever, now supported via Kiro, Antigravity
 *   **Gemini Pro** - Google's next-generation architecture preview, now supported via Gemini, Antigravity
 *   **Kimi / MiniMax** - Synchronized support for top domestic flagship models, now supported via custom OpenAI, Claude
@@ -479,15 +479,6 @@ Notes:
 3. **Auto Save**: After successful authorization, the system automatically saves the Grok CLI OAuth credential file to `configs/grok-cli/`
 4. **Callback Port**: Ensure the OAuth callback port `56121` is not occupied
 
-#### Grok Cookie/SSO Configuration
-1. **Obtain SSO Token**: Log in to the [Grok official website](https://grok.com/), copy the value of `sso` from Application -> Cookies in browser developer tools
-2. **Enter Configuration**: In the Web UI "Configuration" page or directly modify the configuration file, enter the token into `GROK_COOKIE_TOKEN`
-3. **Supported Features**:
-   - Chat and Thinking models (Grok Thinking)
-   - Image generation (Grok Imagine)
-   - Video generation (Grok Video)
-4. **Notes**: Ensure `GROK_USER_AGENT` matches the browser used when obtaining the cookie to avoid being blocked
-
 #### Account Pool Management Configuration
 1. **Create Pool Configuration File**: Create a configuration file referencing [provider_pools.json.example](./configs/provider_pools.json.example)
 2. **Configure Pool Parameters**: Set `PROVIDER_POOLS_FILE_PATH` in `configs/config.json` to point to the pool configuration file
@@ -546,7 +537,7 @@ This project supports flexible proxy configuration, allowing you to configure a 
       "PROXY_ENABLED_PROVIDERS": [
         "gemini-antigravity",
         "claude-kiro-oauth",
-        "grok-web"
+        "grok-cli-oauth"
       ]
     }
     ```

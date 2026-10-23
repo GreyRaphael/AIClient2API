@@ -394,7 +394,7 @@ docker compose up -d
 
 #### 最新模型支持
 无缝支持以下最新大模型，仅需在 Web UI 或 [`configs/config.json`](./configs/config.json) 中配置相应的端点：
-*   **Grok / Grok Build** - xAI 旗舰模型，现已通过 Grok Cookie/SSO 与 Grok CLI OAuth 支持，支持思考模型、Grok Build、内置工具、图片生成及视频生成
+*   **Grok / Grok Build** - xAI 旗舰模型，现已通过 Grok CLI OAuth 支持，支持思考模型、Grok Build、内置工具、图片生成及视频生成
 *   **Claude Opus** - Anthropic 史上最强模型，现已通过 Kiro, Antigravity 支持
 *   **Gemini Pro** - Google 下一代架构预览版，现已通过 Gemini, Antigravity 支持
 *   **Kimi / MiniMax** - 国内顶级旗舰模型同步支持，现已通过自定义OpenAI，Claude 支持
@@ -478,15 +478,6 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 3. **自动保存**：授权成功后，系统会自动保存 Grok CLI OAuth 凭据文件到 `configs/grok-cli/`
 4. **回调端口**：确保 OAuth 回调端口 `56121` 未被占用
 
-#### Grok Cookie/SSO 配置
-1. **获取 SSO 令牌**：登录 [Grok 官网](https://grok.com/)，在浏览器开发者工具的 Application -> Cookies 中复制 `sso` 的值
-2. **填入配置**：在 Web UI 的“配置管理”或直接修改配置文件，将令牌填入 `GROK_COOKIE_TOKEN`
-3. **支持功能**：
-   - 聊天与思考模型（Grok Thinking）
-   - 图片生成（Grok Imagine）
-   - 视频生成（Grok Video）
-4. **注意事项**：确保 `GROK_USER_AGENT` 与您获取 Cookie 时使用的浏览器一致以避免被拦截
-
 #### 账号池管理配置
 1. **创建号池配置文件**：参考 [provider_pools.json.example](./configs/provider_pools.json.example) 创建配置文件
 2. **配置号池参数**：在 `configs/config.json` 中设置 `PROVIDER_POOLS_FILE_PATH` 指向号池配置文件
@@ -545,7 +536,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
       "PROXY_ENABLED_PROVIDERS": [
         "gemini-antigravity",
         "claude-kiro-oauth",
-        "grok-web"
+        "grok-cli-oauth"
       ]
     }
     ```
