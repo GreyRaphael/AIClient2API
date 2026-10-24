@@ -31,12 +31,12 @@ import {
     parseBase64DataUrl
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
+import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
 import {
     effortToClaudeBudget,
     effortToGeminiThinking
 } from '../thinking-budget.ts';
-import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
+import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.ts';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import { getConfigToggle } from '../../core/config-manager.js';
 import {

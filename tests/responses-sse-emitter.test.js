@@ -6,7 +6,7 @@
  * reasoning -> text -> tool_calls -> response.completed
  */
 
-import { ResponsesSseEmitter } from '../src/converters/responses-sse-emitter.js';
+import { ResponsesSseEmitter } from '../src/converters/responses-sse-emitter.ts';
 import { StreamSessionStore } from '../src/converters/stream-session.ts';
 
 const types = (events) => events.map(e => e.type);

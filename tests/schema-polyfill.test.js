@@ -3,7 +3,7 @@ import {
     polyfillAndCleanSchemaForGemini,
     isSchemaPolyfillEnabled,
     getSchemaPolyfillMaxDesc
-} from '../src/converters/schema-polyfill.js';
+} from '../src/converters/schema-polyfill.ts';
 import { cleanJsonSchemaProperties } from '../src/converters/utils.js';
 
 describe('Schema Polyfill 降级编译器', () => {

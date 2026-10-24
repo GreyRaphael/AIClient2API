@@ -15,7 +15,7 @@ import {
     effortToGeminiThinking
 } from '../thinking-budget.ts';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
-import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
+import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.ts';
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
     cleanJsonSchemaForOpenAI,

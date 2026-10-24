@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck - Phase 5 type ratchet pending
 import logger from '../utils/logger.js';
 import { cleanJsonSchemaProperties } from './utils.js';
 import { getConfigToggle, getConfigPositiveInt } from '../core/config-manager.js';

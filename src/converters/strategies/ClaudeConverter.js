@@ -25,7 +25,7 @@ import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import {getConfigToggle} from '../../core/config-manager.js';
 import {effortToGeminiThinking} from '../thinking-budget.ts';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.ts';
-import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
+import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
 import {
     isCustomTool,
     extractCustomToolInput

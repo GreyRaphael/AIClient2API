@@ -1,4 +1,3 @@
-// @ts-check
 import { v4 as uuidv4 } from 'uuid';
 import {
     createResponsesStreamState,
@@ -14,6 +13,43 @@ import {
 } from '../providers/openai/openai-responses-events.js';
 
 let emitterSeq = 0;
+
+interface ResponsesSseEmitterOptions {
+    /** 外部请求 ID 或会话键 */
+    requestId?: string | null;
+    /** 响应 ID（默认 resp_...） */
+    responseId?: string | null;
+    /** 输出 response.* 时携带的模型名 */
+    model?: string;
+    /** 创建时间戳（秒） */
+    createdAt?: number | null;
+    /** 并发隔离会话存储 */
+    store?: any;
+}
+
+interface ToolCallOptions {
+    index?: number | string;
+    callId?: string;
+    itemId?: string;
+    isCustom?: boolean;
+}
+
+interface ToolCallState {
+    key: string;
+    callId: string;
+    itemId: string;
+    name: string;
+    arguments: string;
+    outputIndex: number;
+    added: boolean;
+    done: boolean;
+    isCustom: boolean;
+}
+
+interface CompleteOptions {
+    status?: string;
+    incompleteDetails?: any;
+}
 
 /**
  * OpenAI Responses API SSE 事件发射器
@@ -33,15 +69,34 @@ let emitterSeq = 0;
  * - 幂等守卫：重复调用 start() / done / complete() 自动忽略，不重复发送终止事件。
  */
 export class ResponsesSseEmitter {
-    /**
-     * @param {Object} [options]
-     * @param {string} [options.requestId] - 外部请求 ID 或会话键
-     * @param {string} [options.responseId] - 响应 ID（默认 resp_...）
-     * @param {string} [options.model] - 输出 response.* 时携带的模型名
-     * @param {number} [options.createdAt] - 创建时间戳（秒）
-     * @param {import('./stream-session.ts').StreamSessionStore} [options.store] - 并发隔离会话存储
-     */
-    constructor({ requestId = null, responseId = null, model = 'claude-sonnet-4-6', createdAt = null, store = null } = {}) {
+    requestId: string;
+    responseId: string;
+    msgId: string;
+    model: string;
+    createdAt: number;
+    store: any;
+    coreState: any;
+    sequenceNumber: number;
+    nextOutputIndex: number;
+    started: boolean;
+    done: boolean;
+    reasoningStarted: boolean;
+    reasoningDoneFlag: boolean;
+    reasoningOutputIndex: number;
+    reasoningId: string | null;
+    reasoningText: string;
+    textStarted: boolean;
+    textDoneFlag: boolean;
+    textOutputIndex: number;
+    toolCalls: Map<string, ToolCallState>;
+
+    constructor({
+        requestId = null,
+        responseId = null,
+        model = 'claude-sonnet-4-6',
+        createdAt = null,
+        store = null
+    }: ResponsesSseEmitterOptions = {}) {
         this.requestId = requestId || `req_${Date.now().toString(36)}_${(emitterSeq++).toString(36)}`;
         this.responseId = responseId || `resp_${uuidv4().replace(/-/g, '')}`;
         this.msgId = `msg_${this.responseId}_0`;
@@ -79,11 +134,11 @@ export class ResponsesSseEmitter {
         this.toolCalls = new Map();
     }
 
-    _nextSeq() {
+    _nextSeq(): number {
         return this.sequenceNumber++;
     }
 
-    _pushEvent(events, event) {
+    _pushEvent(events: any[], event: any): void {
         if (!event || typeof event !== 'object') return;
         if (event.sequence_number === undefined) {
             event.sequence_number = this._nextSeq();
@@ -91,14 +146,14 @@ export class ResponsesSseEmitter {
         events.push(event);
     }
 
-    setModel(model) {
+    setModel(model: string): void {
         if (model) {
             this.model = model;
             this.coreState.model = model;
         }
     }
 
-    setResponseId(responseId) {
+    setResponseId(responseId: string): void {
         if (responseId && this.responseId !== responseId) {
             this.responseId = responseId;
             this.msgId = `msg_${responseId}_0`;
@@ -107,7 +162,7 @@ export class ResponsesSseEmitter {
         }
     }
 
-    setCreatedAt(createdAt) {
+    setCreatedAt(createdAt: number): void {
         if (createdAt) {
             this.createdAt = createdAt;
             this.coreState.startTime = createdAt;
@@ -117,10 +172,10 @@ export class ResponsesSseEmitter {
     /**
      * 发送 response.created 与 response.in_progress（幂等）
      */
-    start() {
+    start(): any[] {
         if (this.done || this.started) return [];
         this.started = true;
-        const events = [];
+        const events: any[] = [];
         this._pushEvent(events, generateResponseCreated(this.coreState, this.model));
         this._pushEvent(events, generateResponseInProgress(this.coreState));
         return events;
@@ -129,16 +184,16 @@ export class ResponsesSseEmitter {
     /**
      * 确保流已启动
      */
-    ensureStarted() {
+    ensureStarted(): any[] {
         return this.start();
     }
 
     /**
      * 开启文本消息块
      */
-    textStart() {
+    textStart(): any[] {
         if (this.done) return [];
-        const events = [];
+        const events: any[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -153,9 +208,9 @@ export class ResponsesSseEmitter {
     /**
      * 发送文本增量
      */
-    textDelta(text) {
+    textDelta(text: string): any[] {
         if (this.done || !text) return [];
-        const events = [];
+        const events: any[] = [];
         if (!this.textStarted) {
             events.push(...this.textStart());
         }
@@ -166,10 +221,10 @@ export class ResponsesSseEmitter {
     /**
      * 闭合文本消息块（幂等）
      */
-    textDone() {
+    textDone(): any[] {
         if (this.done || !this.textStarted || this.textDoneFlag) return [];
         this.textDoneFlag = true;
-        const events = [];
+        const events: any[] = [];
         this._pushEvent(events, generateOutputTextDone(this.coreState, this.textOutputIndex));
         this._pushEvent(events, generateContentPartDone(this.coreState, this.textOutputIndex));
         this._pushEvent(events, generateOutputItemDone(this.coreState, this.textOutputIndex));
@@ -179,9 +234,9 @@ export class ResponsesSseEmitter {
     /**
      * 开启推理思考块
      */
-    reasoningStart() {
+    reasoningStart(): any[] {
         if (this.done) return [];
-        const events = [];
+        const events: any[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -217,9 +272,9 @@ export class ResponsesSseEmitter {
     /**
      * 发送推理思考增量
      */
-    reasoningDelta(delta) {
+    reasoningDelta(delta: string): any[] {
         if (this.done || !delta) return [];
-        const events = [];
+        const events: any[] = [];
         if (!this.reasoningStarted) {
             events.push(...this.reasoningStart());
         }
@@ -237,10 +292,10 @@ export class ResponsesSseEmitter {
     /**
      * 闭合推理思考块（幂等）
      */
-    reasoningDone() {
+    reasoningDone(): any[] {
         if (this.done || !this.reasoningStarted || this.reasoningDoneFlag) return [];
         this.reasoningDoneFlag = true;
-        const events = [];
+        const events: any[] = [];
         this._pushEvent(events, {
             type: "response.reasoning_summary_text.done",
             item_id: this.reasoningId,
@@ -277,10 +332,10 @@ export class ResponsesSseEmitter {
     /**
      * 按 key / call_id / item_id 查找工具调用状态，兼容调用方
      * 在 toolCallStart 用 index、在 args/done 用 call_id 的混用场景。
-     * @param {string|number|null|undefined} idOrIndex
-     * @returns {string|null} 内部 Map key
+     * @param idOrIndex
+     * @returns 内部 Map key
      */
-    _findToolCallKey(idOrIndex) {
+    _findToolCallKey(idOrIndex: string | number | null | undefined): string | null {
         const raw = String(idOrIndex ?? 0);
         if (this.toolCalls.has(raw)) return raw;
         for (const [key, toolState] of this.toolCalls.entries()) {
@@ -293,10 +348,8 @@ export class ResponsesSseEmitter {
 
     /**
      * 读取工具调用状态（供 Converter 折叠 custom tool 参数使用）。
-     * @param {string|number} idOrIndex
-     * @returns {Object|null}
      */
-    getToolState(idOrIndex) {
+    getToolState(idOrIndex: string | number): (ToolCallState & { key: string }) | null {
         const key = this._findToolCallKey(idOrIndex);
         if (key === null) return null;
         const state = this.toolCalls.get(key);
@@ -305,18 +358,17 @@ export class ResponsesSseEmitter {
 
     /**
      * 读取全部工具调用状态。
-     * @returns {Array<Object>}
      */
-    getAllToolStates() {
+    getAllToolStates(): Array<ToolCallState & { key: string }> {
         return Array.from(this.toolCalls.entries()).map(([key, state]) => ({ key, ...state }));
     }
 
     /**
      * 开启工具调用
      */
-    toolCallStart(id, name, options = {}) {
+    toolCallStart(id: string | null, name: string | null, options: ToolCallOptions = {}): any[] {
         if (this.done) return [];
-        const events = [];
+        const events: any[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -374,10 +426,10 @@ export class ResponsesSseEmitter {
     /**
      * 发送工具调用参数增量
      */
-    toolCallArgsDelta(idOrIndex, delta) {
+    toolCallArgsDelta(idOrIndex: string | number, delta: string): any[] {
         if (this.done || !delta) return [];
         let key = this._findToolCallKey(idOrIndex);
-        const events = [];
+        const events: any[] = [];
         if (key === null) {
             events.push(...this.toolCallStart(typeof idOrIndex === 'string' ? idOrIndex : null, null, {
                 index: typeof idOrIndex === 'number' ? idOrIndex : undefined
@@ -386,6 +438,7 @@ export class ResponsesSseEmitter {
         }
         if (key === null) return events;
         const toolState = this.toolCalls.get(key);
+        if (!toolState) return events;
         toolState.arguments += delta;
         if (toolState.isCustom) {
             this._pushEvent(events, {
@@ -408,10 +461,8 @@ export class ResponsesSseEmitter {
     /**
      * 仅累积工具参数，不发送事件。
      * 用于 custom tool：上游只给 JSON 参数增量，需要等完整参数后再折叠为自由文本 input。
-     * @param {string|number} idOrIndex
-     * @param {string} delta
      */
-    bufferToolCallArgs(idOrIndex, delta) {
+    bufferToolCallArgs(idOrIndex: string | number, delta: string): void {
         if (this.done || !delta) return;
         const key = this._findToolCallKey(idOrIndex);
         if (key === null) return;
@@ -423,11 +474,8 @@ export class ResponsesSseEmitter {
     /**
      * 设置 custom tool 的完整自由文本 input，并发送一次 input.delta。
      * 适用于上游一次性返回完整参数、Converter 需要把 JSON 参数折叠为 custom input 的场景。
-     * @param {string|number} idOrIndex
-     * @param {string} input
-     * @returns {Array}
      */
-    toolCallCustomInput(idOrIndex, input) {
+    toolCallCustomInput(idOrIndex: string | number, input: any): any[] {
         if (this.done || input === null || input === undefined) return [];
         const key = this._findToolCallKey(idOrIndex);
         if (key === null) return [];
@@ -435,7 +483,7 @@ export class ResponsesSseEmitter {
         if (!toolState || !toolState.isCustom || toolState.done) return [];
         const value = String(input);
         toolState.arguments = value;
-        const events = [];
+        const events: any[] = [];
         this._pushEvent(events, {
             type: "response.custom_tool_call_input.delta",
             item_id: toolState.itemId,
@@ -448,13 +496,13 @@ export class ResponsesSseEmitter {
     /**
      * 闭合指定工具调用（幂等）
      */
-    toolCallDone(idOrIndex) {
+    toolCallDone(idOrIndex: string | number): any[] {
         if (this.done) return [];
         const key = this._findToolCallKey(idOrIndex);
         if (key === null) return [];
         const toolState = this.toolCalls.get(key);
         if (!toolState || toolState.done) return [];
-        const events = [];
+        const events: any[] = [];
         if (!toolState.added) {
             events.push(...this.toolCallStart(toolState.callId, toolState.name, { index: toolState.key }));
         }
@@ -493,9 +541,9 @@ export class ResponsesSseEmitter {
     /**
      * 终结整个流，闭合未决块并发送 response.completed（幂等）
      */
-    complete(usage = null, options = {}) {
+    complete(usage: any = null, options: CompleteOptions = {}): any[] {
         if (this.done) return [];
-        const events = [];
+        const events: any[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -518,7 +566,7 @@ export class ResponsesSseEmitter {
         }
 
         // 同步工具调用列表到 coreState 供 generateResponseCompleted 使用
-        this.coreState.toolCalls = Array.from(this.toolCalls.values()).map(ts => ({
+        this.coreState.toolCalls = Array.from(this.toolCalls.values()).map((ts: ToolCallState) => ({
             id: ts.itemId,
             call_id: ts.callId,
             type: ts.isCustom ? 'custom_tool_call' : 'function_call',
@@ -535,9 +583,9 @@ export class ResponsesSseEmitter {
             total_tokens: 0
         };
 
-        const completedEvent = generateResponseCompleted(this.coreState, normalizedUsage);
+        const completedEvent: any = generateResponseCompleted(this.coreState, normalizedUsage);
         if (this.reasoningStarted) {
-            /** @type {any[]} */ (completedEvent.response.output).unshift({
+            (completedEvent.response.output as any[]).unshift({
                 id: this.reasoningId,
                 type: "reasoning",
                 status: "completed",
@@ -565,7 +613,7 @@ export class ResponsesSseEmitter {
         return events;
     }
 
-    cleanup() {
+    cleanup(): void {
         if (this.store && this.requestId) {
             this.store.delete(this.requestId);
         }

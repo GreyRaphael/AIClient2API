@@ -17,7 +17,7 @@ import {
     geminiUsageToAnthropic
 } from '../utils.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
+import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
     isCustomTool,

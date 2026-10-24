@@ -12,7 +12,7 @@ import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
 import { budgetTokensToEffort, effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.ts';
-import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.js';
+import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';

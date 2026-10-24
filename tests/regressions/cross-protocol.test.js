@@ -9,7 +9,7 @@ import { aggregateChatCompletionChunks } from "../../src/providers/openai/openai
 import { MODEL_PROTOCOL_PREFIX } from "../../src/utils/constants.js";
 import { isVirtualSignature } from "../../src/converters/signature-vault.ts";
 import { ZedApiService } from "../../src/providers/zed/zed-core.js";
-import { ResponsesSseEmitter } from "../../src/converters/responses-sse-emitter.js";
+import { ResponsesSseEmitter } from "../../src/converters/responses-sse-emitter.ts";
 import { guessImageMimeTypeFromUrl } from "../../src/converters/utils.js";
 import { isCustomTool } from "../../src/converters/custom-tool-registry.ts";
 import { ConverterFactory } from "../../src/converters/ConverterFactory.ts";
