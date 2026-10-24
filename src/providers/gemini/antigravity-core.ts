@@ -52,7 +52,7 @@ const ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS = 300000;
 const ANTIGRAVITY_RAW_FALLBACK_MAX_LINES = 20000;
 const ANTIGRAVITY_ERROR_BODY_MAX_BYTES = 1024 * 1024;
 
-function normalizeAntigravityModelId(modelName) {
+function normalizeAntigravityModelId(modelName: any) {
     if (!modelName || typeof modelName !== 'string') return '';
     let normalized = modelName.trim();
     if (normalized.startsWith('models/')) {
@@ -61,13 +61,13 @@ function normalizeAntigravityModelId(modelName) {
     return normalized;
 }
 
-function stripModelSuffix(modelName) {
+function stripModelSuffix(modelName: any) {
     const normalized = normalizeAntigravityModelId(modelName);
     const match = normalized.match(/^(.+?)\([^()]+\)$/);
     return match ? match[1].trim() : normalized;
 }
 
-function resolveAntigravityUpstreamModel(modelName) {
+function resolveAntigravityUpstreamModel(modelName: any) {
     const baseModel = stripModelSuffix(modelName);
     if (!baseModel) return '';
     // Google 上游将 gemini-3.1-pro-high 标记为 deprecated，实际请求端点为 gemini-pro-agent
@@ -80,7 +80,7 @@ function resolveAntigravityUpstreamModel(modelName) {
     return baseModel;
 }
 
-function isKnownAntigravityModel(modelName) {
+function isKnownAntigravityModel(modelName: any) {
     const baseModel = stripModelSuffix(modelName);
     if (!baseModel || baseModel.includes('oss')) return false;
     const resolved = resolveAntigravityUpstreamModel(baseModel);
@@ -92,7 +92,7 @@ function isKnownAntigravityModel(modelName) {
     return /^(gemini|claude|gpt)-[a-z0-9]+([-.][a-z0-9]+)*$/i.test(baseModel);
 }
 
-function antigravityModelRequiresStreamForNonStream(modelName) {
+function antigravityModelRequiresStreamForNonStream(modelName: any) {
     const name = String(modelName || '').toLowerCase();
     return name.includes('claude') || name.includes('gpt') || name === 'gemini-pro-agent' || name.includes('gemini-3.1-pro') || name.includes('gemini-3.1-flash-image');
 }
@@ -102,7 +102,7 @@ function antigravityModelRequiresStreamForNonStream(modelName) {
  * @param {string} text
  * @returns {string}
  */
-function sanitizeAgentFingerprint(text) {
+function sanitizeAgentFingerprint(text: any) {
     if (typeof text !== 'string') return text;
     return text
         .replace(
@@ -122,7 +122,7 @@ function sanitizeAgentFingerprint(text) {
         .replace(/Nous Research/gi, 'AI Research');
 }
 
-function normalizeAntigravityTextPart(part, isClaudeModel = false) {
+function normalizeAntigravityTextPart(part: any, isClaudeModel: any = false) {
     if (!part || typeof part !== 'object' || !Object.prototype.hasOwnProperty.call(part, 'text')) {
         return;
     }
@@ -140,23 +140,23 @@ function normalizeAntigravityTextPart(part, isClaudeModel = false) {
     }
 }
 
-function normalizeAntigravityTextParts(parts, isClaudeModel = false) {
+function normalizeAntigravityTextParts(parts: any, isClaudeModel: any = false) {
     if (!Array.isArray(parts)) return;
-    parts.forEach(part => normalizeAntigravityTextPart(part, isClaudeModel));
+    parts.forEach((part: any) => normalizeAntigravityTextPart(part, isClaudeModel));
 }
 
-function cleanAndNormalizeContents(contents, isClaudeModel = false) {
+function cleanAndNormalizeContents(contents: any, isClaudeModel: any = false) {
     if (!Array.isArray(contents)) return;
-    contents.forEach(content => {
+    contents.forEach((content: any) => {
         if (!content.role) {
             content.role = 'user';
         }
         if (Array.isArray(content.parts)) {
             // 检查是否包含非文本部分 (例如 functionCall / functionResponse / inlineData)
-            const hasNonTextParts = content.parts.some(p => p && (p.functionCall || p.functionResponse || p.inlineData || p.fileData));
+            const hasNonTextParts = content.parts.some((p: any) => p && (p.functionCall || p.functionResponse || p.inlineData || p.fileData));
             if (hasNonTextParts) {
                 // 如果包含工具调用或响应，过滤掉无意义的纯空白文本部分，避免污染上下文
-                content.parts = content.parts.filter(p => {
+                content.parts = content.parts.filter((p: any) => {
                     if (p && typeof p.text === 'string') {
                         p.text = sanitizeAgentFingerprint(p.text);
                         return p.text.trim().length > 0;
@@ -175,7 +175,7 @@ function cleanAndNormalizeContents(contents, isClaudeModel = false) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function isClaude(modelName) {
+function isClaude(modelName: any) {
     return modelName && modelName.toLowerCase().includes('claude');
 }
 
@@ -184,7 +184,7 @@ function isClaude(modelName) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function isImageModel(modelName) {
+function isImageModel(modelName: any) {
     return modelName && modelName.toLowerCase().includes('image');
 }
 
@@ -193,7 +193,7 @@ function isImageModel(modelName) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function isClaude55(modelName) {
+function isClaude55(modelName: any) {
     if (!modelName) return false;
     const name = modelName.toLowerCase();
     return name.includes('claude') && (name.includes('5-5') || name.includes('5.5'));
@@ -204,7 +204,7 @@ function isClaude55(modelName) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function modelSupportsThinking(modelName) {
+function modelSupportsThinking(modelName: any) {
     if (!modelName) return false;
     const name = modelName.toLowerCase();
     return /^gemini-[3-9]/.test(name) ||
@@ -246,7 +246,7 @@ function generateSessionID() {
  * @param {Object} payload - 请求体
  * @returns {string} 稳定的会话ID
  */
-function generateStableSessionID(payload) {
+function generateStableSessionID(payload: any) {
     try {
         const contents = payload?.request?.contents;
         if (Array.isArray(contents)) {
@@ -262,7 +262,7 @@ function generateStableSessionID(payload) {
                 }
             }
         }
-    } catch (e) {
+    } catch (e: any) {
         // 如果解析失败，回退到随机会话ID
     }
     return generateSessionID();
@@ -287,7 +287,7 @@ function generateProjectID() {
  * @param {number} budget - 原始 budget 值
  * @returns {number} 规范化后的 budget
  */
-function normalizeThinkingBudget(modelName, budget) {
+function normalizeThinkingBudget(modelName: any, budget: any) {
     if (budget === -1) return -1;
     if (budget < DEFAULT_THINKING_MIN) return DEFAULT_THINKING_MIN;
     if (budget > DEFAULT_THINKING_MAX) return DEFAULT_THINKING_MAX;
@@ -302,7 +302,7 @@ function normalizeThinkingBudget(modelName, budget) {
  * @param {boolean} isClaudeModel - 是否为 Claude 模型
  * @returns {Object} 处理后的请求体
  */
-function normalizeAntigravityThinking(modelName, payload, isClaudeModel) {
+function normalizeAntigravityThinking(modelName: any, payload: any, isClaudeModel: any) {
     // 如果模型不支持 thinking，移除 thinking 配置
     if (!modelSupportsThinking(modelName)) {
         if (payload?.request?.generationConfig?.thinkingConfig) {
@@ -310,10 +310,10 @@ function normalizeAntigravityThinking(modelName, payload, isClaudeModel) {
         }
         return payload;
     }
-    
+
     const thinkingConfig = payload?.request?.generationConfig?.thinkingConfig;
     if (!thinkingConfig) return payload;
-    
+
     const thinkingLevel = thinkingConfig.thinkingLevel;
     const budget = thinkingConfig.thinkingBudget;
     const thinkingRequested =
@@ -334,15 +334,15 @@ function normalizeAntigravityThinking(modelName, payload, isClaudeModel) {
     }
 
     if (budget === undefined) return payload;
-    
+
     let normalizedBudget = normalizeThinkingBudget(modelName, budget);
-    
+
     // 确保 thinking budget < max_tokens (对所有模型生效，不仅是 Claude)
     const maxTokens = payload?.request?.generationConfig?.maxOutputTokens || payload?.request?.generationConfig?.max_output_tokens;
     if (maxTokens && maxTokens > 0 && normalizedBudget >= maxTokens) {
         normalizedBudget = Math.max(0, maxTokens - 1);
     }
-    
+
     // 如果是传统 Claude 模型（非 Claude 5.5 分级模型），检查最小 budget
     if (isClaudeModel && !isClaude55(modelName)) {
         const minBudget = DEFAULT_THINKING_MIN;
@@ -352,7 +352,7 @@ function normalizeAntigravityThinking(modelName, payload, isClaudeModel) {
             return payload;
         }
     }
-    
+
     payload.request.generationConfig.thinkingConfig.thinkingBudget = normalizedBudget;
     return payload;
 }
@@ -372,7 +372,7 @@ function generateSyntheticToolId() {
 // 遍历 contents,为缺失 id 的 functionCall 生成 synthetic id,
 // 并按 name 做 FIFO 配对,把同一 id 补到对应的 functionResponse 上。
 // 纯请求体内闭环处理,不依赖跨请求状态。
-function ensureToolCallIds(contents) {
+function ensureToolCallIds(contents: any) {
     if (!Array.isArray(contents)) return;
     const pendingByName = new Map(); // name -> [id, ...] (FIFO)
     for (const content of contents) {
@@ -410,7 +410,7 @@ function ensureToolCallIds(contents) {
  * @param {Object} [capabilities] - 统一 Provider 能力声明
  * @returns {Object} 转换后的请求体
  */
-export function geminiToAntigravity(modelName, payload, projectId, capabilities = null) {
+export function geminiToAntigravity(modelName: any, payload: any, projectId: any, capabilities: any = null) {
     // 深拷贝请求体,避免修改原始对象
     let template = JSON.parse(JSON.stringify(payload));
     // [FIX tool_use.id] 补全 functionCall/functionResponse 的私有 id(原生 Gemini 协议客户端场景)
@@ -422,10 +422,10 @@ export function geminiToAntigravity(modelName, payload, projectId, capabilities 
     // 设置基本字段
     template.model = modelName;
     template.userAgent = 'antigravity';
-    
+
     // 设置请求类型
     template.requestType = isImgModel ? 'image_gen' : 'agent';
-    
+
     if (projectId) {
         template.project = projectId;
     } else {
@@ -450,7 +450,7 @@ export function geminiToAntigravity(modelName, payload, projectId, capabilities 
     }
 
     if (template.request?.systemInstruction?.parts && Array.isArray(template.request.systemInstruction.parts)) {
-        template.request.systemInstruction.parts.forEach(part => {
+        template.request.systemInstruction.parts.forEach((part: any) => {
             if (typeof part.text === 'string') {
                 part.text = sanitizeAgentFingerprint(part.text);
             }
@@ -496,9 +496,9 @@ export function geminiToAntigravity(modelName, payload, projectId, capabilities 
     }
 
     if (template.request.tools && Array.isArray(template.request.tools)) {
-        template.request.tools.forEach((tool) => {
+        template.request.tools.forEach((tool: any) => {
             if (tool.functionDeclarations && Array.isArray(tool.functionDeclarations)) {
-                tool.functionDeclarations.forEach((funcDecl) => {
+                tool.functionDeclarations.forEach((funcDecl: any) => {
                     if (funcDecl.parametersJsonSchema) {
                         funcDecl.parameters = polyfillAndCleanSchemaForGemini(funcDecl.parametersJsonSchema);
                         delete funcDecl.parameters?.$schema;
@@ -601,20 +601,20 @@ export function geminiToAntigravity(modelName, payload, projectId, capabilities 
  * @param {string} line - SSE 行数据
  * @returns {string} 过滤后的行数据
  */
-function filterSSEUsageMetadata(line) {
+function filterSSEUsageMetadata(line: any) {
     if (!line || typeof line !== 'string') return line;
-    
+
     // 检查是否是 data: 开头的 SSE 数据
     if (!line.startsWith('data: ')) return line;
-    
+
     try {
         const jsonStr = line.slice(6); // 移除 'data: ' 前缀
         const data = JSON.parse(jsonStr);
-        
+
         // 检查是否有 finishReason，如果没有则移除 usageMetadata
         const hasFinishReason = data?.response?.candidates?.[0]?.finishReason ||
                                data?.candidates?.[0]?.finishReason;
-        
+
         if (!hasFinishReason) {
             // 移除 usageMetadata
             if (data.response) {
@@ -625,10 +625,10 @@ function filterSSEUsageMetadata(line) {
             }
             return 'data: ' + JSON.stringify(data);
         }
-    } catch (e) {
+    } catch (e: any) {
         // 解析失败，返回原始数据
     }
-    
+
     return line;
 }
 
@@ -638,26 +638,26 @@ function filterSSEUsageMetadata(line) {
  * @param {Buffer|string} stream - 流式响应数据
  * @returns {Object} 合并后的非流式响应
  */
-function convertStreamToNonStream(stream) {
+function convertStreamToNonStream(stream: any) {
     const lines = stream.toString().split('\n');
-    
+
     let responseTemplate = '';
     let traceId = '';
     let finishReason = '';
     let modelVersion = '';
     let responseId = '';
     let role = '';
-    let usageRaw = null;
-    const parts = [];
-    
+    let usageRaw: any = null;
+    const parts: any[] = [];
+
     // 用于合并连续的 text 和 thought 部分
     let pendingKind = '';
     let pendingText = '';
     let pendingThoughtSig = '';
-    
+
     const flushPending = () => {
         if (!pendingKind) return;
-        
+
         const text = pendingText;
         if (pendingKind === 'text') {
             if (text.trim()) {
@@ -672,13 +672,13 @@ function convertStreamToNonStream(stream) {
                 parts.push(part);
             }
         }
-        
+
         pendingKind = '';
         pendingText = '';
         pendingThoughtSig = '';
     };
-    
-    const normalizePart = (part) => {
+
+    const normalizePart = (part: any) => {
         const m = { ...part };
         // 处理 thoughtSignature / thought_signature
         const sig = part.thoughtSignature || part.thought_signature;
@@ -693,18 +693,18 @@ function convertStreamToNonStream(stream) {
         }
         return m;
     };
-    
+
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        
-        let data;
+
+        let data: any;
         try {
             data = JSON.parse(trimmed);
-        } catch (e) {
+        } catch (e: any) {
             continue;
         }
-        
+
         let responseNode = data.response;
         if (!responseNode) {
             if (data.candidates) {
@@ -714,33 +714,33 @@ function convertStreamToNonStream(stream) {
             }
         }
         responseTemplate = JSON.stringify(responseNode);
-        
+
         if (data.traceId) {
             traceId = data.traceId;
         }
-        
+
         if (responseNode.candidates?.[0]?.content?.role) {
             role = responseNode.candidates[0].content.role;
         }
-        
+
         if (responseNode.candidates?.[0]?.finishReason) {
             finishReason = responseNode.candidates[0].finishReason;
         }
-        
+
         if (responseNode.modelVersion) {
             modelVersion = responseNode.modelVersion;
         }
-        
+
         if (responseNode.responseId) {
             responseId = responseNode.responseId;
         }
-        
+
         if (responseNode.usageMetadata) {
             usageRaw = responseNode.usageMetadata;
         } else if (data.usageMetadata) {
             usageRaw = data.usageMetadata;
         }
-        
+
         const partsArray = responseNode.candidates?.[0]?.content?.parts;
         if (Array.isArray(partsArray)) {
             for (const part of partsArray) {
@@ -749,13 +749,13 @@ function convertStreamToNonStream(stream) {
                 const sig = part.thoughtSignature || part.thought_signature || '';
                 const text = part.text || '';
                 const thought = part.thought || false;
-                
+
                 if (hasFunctionCall || hasInlineData) {
                     flushPending();
                     parts.push(normalizePart(part));
                     continue;
                 }
-                
+
                 if (thought || part.text !== undefined) {
                     const kind = thought ? 'thought' : 'text';
                     if (pendingKind && pendingKind !== kind) {
@@ -768,22 +768,22 @@ function convertStreamToNonStream(stream) {
                     }
                     continue;
                 }
-                
+
                 flushPending();
                 parts.push(normalizePart(part));
             }
         }
     }
-    
+
     flushPending();
-    
+
     // 构建最终响应
     if (!responseTemplate) {
         responseTemplate = '{"candidates":[{"content":{"role":"model","parts":[]}}]}';
     }
-    
+
     let result = JSON.parse(responseTemplate);
-    
+
     // 设置 parts
     if (!result.candidates) {
         result.candidates = [{ content: { role: 'model', parts: [] } }];
@@ -795,7 +795,7 @@ function convertStreamToNonStream(stream) {
         result.candidates[0].content = { role: 'model', parts: [] };
     }
     result.candidates[0].content.parts = parts;
-    
+
     if (role) {
         result.candidates[0].content.role = role;
     }
@@ -817,13 +817,13 @@ function convertStreamToNonStream(stream) {
             totalTokenCount: 0
         };
     }
-    
+
     // 包装为最终格式
     const output = {
         response: result,
         traceId: traceId || ''
     };
-    
+
     return output;
 }
 
@@ -832,7 +832,7 @@ function convertStreamToNonStream(stream) {
  * @param {Object} antigravityResponse - Antigravity 响应
  * @returns {Object|null} Gemini 格式响应
  */
-function toGeminiApiResponse(antigravityResponse) {
+function toGeminiApiResponse(antigravityResponse: any) {
     if (!antigravityResponse) return null;
 
     const compliantResponse: any = {
@@ -859,7 +859,7 @@ function toGeminiApiResponse(antigravityResponse) {
  * @param {Object} requestBody - 请求体
  * @returns {Object} 处理后的请求体
  */
-function ensureRolesInContents(requestBody, modelName) {
+function ensureRolesInContents(requestBody: any, modelName: any) {
     delete requestBody.model;
     // delete requestBody.system_instruction;
     // delete requestBody.systemInstruction;
@@ -870,7 +870,7 @@ function ensureRolesInContents(requestBody, modelName) {
 
     // 提取现有的系统提示词
     let originalSystemPrompt = requestBody.systemInstruction;
-    
+
     // 如果 systemInstruction 是对象格式，提取其中的文本内容
     let originalSystemPromptText = '';
     if (originalSystemPrompt) {
@@ -881,12 +881,12 @@ function ensureRolesInContents(requestBody, modelName) {
             if (originalSystemPrompt.parts && Array.isArray(originalSystemPrompt.parts)) {
                 // 从 parts 数组中提取所有文本
                 originalSystemPromptText = originalSystemPrompt.parts
-                    .map(part => {
+                    .map((part: any) => {
                         if (typeof part === 'string') return part;
                         if (part && typeof part.text === 'string') return part.text;
                         return '';
                     })
-                    .filter(text => text)
+                    .filter((text: any) => text)
                     .join('\n');
             } else if (originalSystemPrompt.text) {
                 // 直接有 text 属性
@@ -894,7 +894,7 @@ function ensureRolesInContents(requestBody, modelName) {
             }
         }
     }
-    
+
     if (originalSystemPromptText) {
         requestBody.systemInstruction = {
             parts: [{ text: originalSystemPromptText }]
@@ -929,7 +929,7 @@ export class AntigravityApiService {
     tierId: any;
     upstreamModelMetadata: any;
 
-    constructor(config) {
+    constructor(config: any) {
         // 配置 HTTP/HTTPS agent 限制连接池大小，避免资源泄漏
         this.httpAgent = new http.Agent({
             keepAlive: true,
@@ -992,7 +992,7 @@ export class AntigravityApiService {
         this.authClient = new OAuth2Client(oauth2Options);
     }
 
-    _applySidecar(requestOptions) {
+    _applySidecar(requestOptions: any) {
         return configureTLSSidecar(requestOptions, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY);
     }
 
@@ -1001,12 +1001,12 @@ export class AntigravityApiService {
      * @param {Object} config - 配置对象
      * @returns {string[]} Base URL 列表
      */
-    getBaseURLFallbackOrder(config) {
+    getBaseURLFallbackOrder(config: any) {
         // 如果配置了自定义 base_url，只使用该 URL
         if (config.ANTIGRAVITY_BASE_URL) {
             return [config.ANTIGRAVITY_BASE_URL.replace(/\/$/, '')];
         }
-        
+
         // 默认降级顺序与 Antigravity 官方调用链保持一致：daily -> prod
         return [
             ANTIGRAVITY_BASE_URL_DAILY,
@@ -1037,7 +1037,7 @@ export class AntigravityApiService {
             const credentials = JSON.parse(data);
             this.authClient.setCredentials(credentials);
             logger.info('[Antigravity Auth] Credentials loaded successfully from file.');
-        } catch (error) {
+        } catch (error: any) {
             if (error.code === 'ENOENT') {
                 logger.debug(`[Antigravity Auth] Credentials file not found: ${credPath}`);
             } else {
@@ -1046,9 +1046,9 @@ export class AntigravityApiService {
         }
     }
 
-    async initializeAuth(forceRefresh = false) {
+    async initializeAuth(forceRefresh: any = false) {
         const credPath = this.oauthCredsFilePath || path.join(os.homedir(), CREDENTIALS_DIR, CREDENTIALS_FILE);
-        
+
         // 首先执行基础凭证加载
         await this.loadCredentials();
 
@@ -1081,24 +1081,24 @@ export class AntigravityApiService {
                     const newTokens = await this.getNewToken(credPath);
                     this.authClient.setCredentials(newTokens);
                     logger.info('[Antigravity Auth] New token obtained and loaded into memory.');
-                    
+
                     // 认证成功，重置状态
                     const poolManager = getProviderPoolManager();
                     if (poolManager && this.uuid) {
                         poolManager.resetProviderRefreshStatus(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, this.uuid);
                     }
                 }
-            } catch (error) {
+            } catch (error: any) {
                 logger.error('[Antigravity Auth] Failed to initialize authentication:', error);
                 throw new Error(`Failed to load OAuth credentials.`);
             }
         }
     }
 
-    async getNewToken(credPath) {
+    async getNewToken(credPath: any) {
         // 使用统一的 OAuth 处理方法
         const { authUrl } = await handleGeminiAntigravityOAuth(this.config);
-        
+
         logger.info('\n[Antigravity Auth] 正在自动打开浏览器进行授权...');
         logger.info('[Antigravity Auth] 授权链接:', authUrl, '\n');
 
@@ -1113,7 +1113,7 @@ export class AntigravityApiService {
                 if (childProcess) {
                     childProcess.on('error', () => showFallbackMessage());
                 }
-            } catch (_err) {
+            } catch (_err: any) {
                 showFallbackMessage();
             }
         } else {
@@ -1121,7 +1121,7 @@ export class AntigravityApiService {
         }
 
         // 等待 OAuth 回调完成并读取保存的凭据
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve: any, reject: any) => {
             const checkInterval = setInterval(async () => {
                 try {
                     const data = await fs.readFile(credPath, 'utf8');
@@ -1131,7 +1131,7 @@ export class AntigravityApiService {
                         logger.info('[Antigravity Auth] New token obtained successfully.');
                         resolve(credentials);
                     }
-                } catch (error) {
+                } catch (error: any) {
                     // 文件尚未创建或无效，继续等待
                 }
             }, 1000);
@@ -1159,11 +1159,11 @@ export class AntigravityApiService {
      * @param {string} filePath - 凭证文件路径
      * @param {Object} credentials - 凭证数据
      */
-    async _saveCredentialsToFile(filePath, credentials) {
+    async _saveCredentialsToFile(filePath: any, credentials: any) {
         try {
             await atomicWriteFile(filePath, JSON.stringify(credentials, null, 2), { mode: 0o600 });
             logger.info(`[Antigravity Auth] Credentials saved to ${filePath}`);
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[Antigravity Auth] Failed to save credentials to ${filePath}: ${error.message}`);
             throw error;
         }
@@ -1190,7 +1190,7 @@ export class AntigravityApiService {
             };
 
             const loadResponse = await this.callApi('loadCodeAssist', loadRequest);
-            
+
             // 提取账号邮箱
             if (loadResponse.manageSubscriptionUri) {
                 const uri = loadResponse.manageSubscriptionUri;
@@ -1208,7 +1208,7 @@ export class AntigravityApiService {
             }
 
             // 优先使用 paidTier.name，其次使用默认 tier 或 free-tier
-            const defaultTier = loadResponse.allowedTiers?.find(tier => tier.isDefault);
+            const defaultTier = loadResponse.allowedTiers?.find((tier: any) => tier.isDefault);
             const baseTier = defaultTier?.id || 'free-tier';
             this.tierId = loadResponse.paidTier?.name || baseTier;
 
@@ -1243,7 +1243,7 @@ export class AntigravityApiService {
             let retryCount = 0;
 
             while (!lroResponse.done && retryCount < MAX_RETRIES) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise((resolve: any) => setTimeout(resolve, 2000));
                 lroResponse = await this.callApi('onboardUser', onboardRequest);
                 retryCount++;
             }
@@ -1258,7 +1258,7 @@ export class AntigravityApiService {
             // 获取可用模型
             await this.fetchAvailableModels();
             return discoveredProjectId;
-        } catch (error) {
+        } catch (error: any) {
             logger.error('[Antigravity] Failed to discover Project ID:', error.response?.data || error.message);
             if (configuredProjectId) {
                 this.projectId = configuredProjectId;
@@ -1297,7 +1297,7 @@ export class AntigravityApiService {
                     this.upstreamModelMetadata = { ...(res.data.models || {}) };
 
                     // 1. 严格从 agentModelSorts 提取 Agent 对话模型
-                    const agentModels = [];
+                    const agentModels: any[] = [];
                     if (Array.isArray(res.data.agentModelSorts)) {
                         for (const sortItem of res.data.agentModelSorts) {
                             if (Array.isArray(sortItem?.groups)) {
@@ -1324,7 +1324,7 @@ export class AntigravityApiService {
                         }
                     }
 
-                    const candidateModels = [];
+                    const candidateModels: any[] = [];
                     for (const rawId of [...agentModels, ...imageModels]) {
                         if (!rawId || typeof rawId !== 'string') continue;
 
@@ -1343,7 +1343,7 @@ export class AntigravityApiService {
                     }
 
                     // 4. 简化排除逻辑：排除内部辅助 (chat_, tab_)、聚合伪模型 (-tiered)、开源模型 (oss) 及低算力模型 (-low)
-                    const isExcludedModel = (id) => {
+                    const isExcludedModel = (id: any) => {
                         const lower = (id || '').toLowerCase();
                         return lower.startsWith('chat_') ||
                                lower.startsWith('tab_') ||
@@ -1352,7 +1352,7 @@ export class AntigravityApiService {
                                lower.includes('-low');
                     };
 
-                    const filteredCandidates = candidateModels.filter(m => !isExcludedModel(m));
+                    const filteredCandidates = candidateModels.filter((m: any) => !isExcludedModel(m));
 
                     // 5. 容错降级：若上游因异常未返回 agentModelSorts，降级检查 defaultAgentModelId
                     if (filteredCandidates.length === 0 && res.data.defaultAgentModelId && !isExcludedModel(res.data.defaultAgentModelId)) {
@@ -1365,7 +1365,7 @@ export class AntigravityApiService {
                     logger.info(`[Antigravity] Available models (${baseURL}): [${this.availableModels.join(', ')}]`);
                     return;
                 }
-            } catch (error) {
+            } catch (error: any) {
                 logger.error(`[Antigravity] Failed to fetch models from ${baseURL}:`, error.message);
             }
         }
@@ -1384,9 +1384,9 @@ export class AntigravityApiService {
             : getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
 
         const now = Math.floor(Date.now() / 1000);
-        const formattedModels = modelsToList.map(modelId => {
+        const formattedModels = modelsToList.map((modelId: any) => {
             const meta = this.upstreamModelMetadata?.[modelId];
-            const displayName = meta?.displayName || modelId.split('-').map(word =>
+            const displayName = meta?.displayName || modelId.split('-').map((word: any) =>
                 word.charAt(0).toUpperCase() + word.slice(1)
             ).join(' ');
 
@@ -1420,7 +1420,7 @@ export class AntigravityApiService {
         return { models: formattedModels };
     }
 
-    async callApi(method, body, isRetry = false, retryCount = 0, baseURLIndex = 0) {
+    async callApi(method: any, body: any, isRetry: any = false, retryCount: any = 0, baseURLIndex: any = 0): Promise<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
 
@@ -1445,20 +1445,20 @@ export class AntigravityApiService {
             this._applySidecar(requestOptions);
             const res = await this.authClient.request(requestOptions);
             return res.data;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
-            
+
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
-            
+
             logger.error(`[Antigravity API] Error calling (Status: ${status}, Code: ${errorCode}):`, error.message);
 
             if ((status === 401) && !isRetry) {
                 logger.info('[Antigravity API] Received 401 Unauthorized. Triggering background refresh via PoolManager...');
                 await normalizeProviderErrorMessage(error, { status: 401, context: 'callApi' });
-                
+
                 // 标记当前凭证为不健康（会自动进入刷新队列）
                 const poolManager = getProviderPoolManager();
                 if (poolManager && this.uuid) {
@@ -1488,7 +1488,7 @@ export class AntigravityApiService {
                 } else if (retryCount < Math.min(maxRetries, 2)) {
                     const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
                     logger.info(`[Antigravity API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     return this.callApi(method, body, isRetry, retryCount + 1, 0);
                 } else {
                     await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
@@ -1507,7 +1507,7 @@ export class AntigravityApiService {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                     logger.info(`[Antigravity API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     return this.callApi(method, body, isRetry, retryCount + 1, 0);
                 }
             }
@@ -1516,7 +1516,7 @@ export class AntigravityApiService {
                 await normalizeProviderErrorMessage(error, { status, context: 'callApi' });
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Antigravity API] Server error ${status}. Retrying in ${delay}ms...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 return this.callApi(method, body, isRetry, retryCount + 1, baseURLIndex);
             }
 
@@ -1524,7 +1524,7 @@ export class AntigravityApiService {
         }
     }
 
-    async * streamApi(method, body, isRetry = false, retryCount = 0, baseURLIndex = 0) {
+    async * streamApi(method: any, body: any, isRetry: any = false, retryCount: any = 0, baseURLIndex: any = 0): AsyncGenerator<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
 
@@ -1561,7 +1561,7 @@ export class AntigravityApiService {
 
             const firstByteTimeoutMs = this.config.ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS
                 ?? ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS;
-            let firstByteTimer = null;
+            let firstByteTimer: any = null;
             let firstByteTimedOut = false;
             if (firstByteTimeoutMs > 0) {
                 const firstByteController = new AbortController();
@@ -1572,10 +1572,10 @@ export class AntigravityApiService {
                 }, firstByteTimeoutMs);
             }
 
-            let res;
+            let res: any;
             try {
                 res = await this.authClient.request(requestOptions);
-            } catch (error) {
+            } catch (error: any) {
                 if (firstByteTimedOut) {
                     const timeoutError = new Error(`[Antigravity] Stream first byte timeout after ${firstByteTimeoutMs}ms.`);
                     timeoutError.code = 'ETIMEDOUT';
@@ -1590,7 +1590,7 @@ export class AntigravityApiService {
                 let errorBody = '';
                 try {
                     errorBody = await this.readErrorResponseBody(res.data);
-                } catch (error) {
+                } catch (error: any) {
                     // 错误响应体本身停滞时按网络超时处理，允许在尚未产出数据时切换端点/重试。
                     if (error?.code === 'ETIMEDOUT') throw error;
                     errorBody = `[Failed to read upstream error body: ${error.message}]`;
@@ -1604,14 +1604,14 @@ export class AntigravityApiService {
                 hasYielded = true;
                 yield chunk;
             }
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
-            
+
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
-            
+
             logger.error(`[Antigravity API] Error during stream (Status: ${status}, Code: ${errorCode}):`, error.message);
 
             // 已经向上层产出过数据时，绝不能在 provider 内重做整个请求。旧逻辑会把
@@ -1625,7 +1625,7 @@ export class AntigravityApiService {
             if ((status === 401) && !isRetry) {
                 logger.info('[Antigravity API] Received 401 Unauthorized during stream. Triggering background refresh via PoolManager...');
                 await normalizeProviderErrorMessage(error, { status: 401, context: 'stream' });
-                
+
                 // 标记当前凭证为不健康（会自动进入刷新队列）
                 const poolManager = getProviderPoolManager();
                 if (poolManager && this.uuid) {
@@ -1656,7 +1656,7 @@ export class AntigravityApiService {
                 } else if (retryCount < Math.min(maxRetries, 2)) {
                     const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
                     logger.info(`[Antigravity API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     yield* this.streamApi(method, body, isRetry, retryCount + 1, 0);
                     return;
                 } else {
@@ -1677,7 +1677,7 @@ export class AntigravityApiService {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                     logger.info(`[Antigravity API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     yield* this.streamApi(method, body, isRetry, retryCount + 1, 0);
                     return;
                 }
@@ -1687,7 +1687,7 @@ export class AntigravityApiService {
                 await normalizeProviderErrorMessage(error, { status, context: 'stream' });
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Antigravity API] Server error ${status} during stream. Retrying in ${delay}ms...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 yield* this.streamApi(method, body, isRetry, retryCount + 1, baseURLIndex);
                 return;
             }
@@ -1696,12 +1696,12 @@ export class AntigravityApiService {
         }
     }
 
-    async readErrorResponseBody(stream) {
+    async readErrorResponseBody(stream: any) {
         const idleTimeoutMs = this.config.ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS
             ?? ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS;
-        let idleTimer = null;
+        let idleTimer: any = null;
         let idleTimedOut = false;
-        const chunks = [];
+        const chunks: any[] = [];
         let totalBytes = 0;
         let truncated = false;
 
@@ -1716,7 +1716,7 @@ export class AntigravityApiService {
             if (!(idleTimeoutMs > 0)) return;
             idleTimer = setTimeout(() => {
                 idleTimedOut = true;
-                try { stream.destroy(new Error('Antigravity error response idle timeout')); } catch (_) { /* 忽略 */ }
+                try { stream.destroy(new Error('Antigravity error response idle timeout')); } catch (_: any) { /* 忽略 */ }
             }, idleTimeoutMs);
         };
 
@@ -1729,13 +1729,13 @@ export class AntigravityApiService {
                 if (data.length > remaining) {
                     if (remaining > 0) chunks.push(data.subarray(0, remaining));
                     truncated = true;
-                    try { stream.destroy(); } catch (_) { /* 忽略 */ }
+                    try { stream.destroy(); } catch (_: any) { /* 忽略 */ }
                     break;
                 }
                 chunks.push(data);
                 totalBytes += data.length;
             }
-        } catch (error) {
+        } catch (error: any) {
             if (idleTimedOut) {
                 const timeoutError = new Error(`[Antigravity] Error response idle timeout after ${idleTimeoutMs}ms.`);
                 timeoutError.code = 'ETIMEDOUT';
@@ -1749,7 +1749,7 @@ export class AntigravityApiService {
         return Buffer.concat(chunks).toString('utf8') + (truncated ? '\n[error body truncated]' : '');
     }
 
-    async * parseSSEStream(stream) {
+    async * parseSSEStream(stream: any) {
         const rl = readline.createInterface({
             input: stream,
             crlfDelay: Infinity
@@ -1760,7 +1760,7 @@ export class AntigravityApiService {
         // 使迭代器结束/抛错，从而让上层能走到错误处理并释放并发插槽。
         const idleTimeoutMs = this.config.ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS
             ?? ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS;
-        let idleTimer = null;
+        let idleTimer: any = null;
         let idleTimedOut = false;
 
         const clearIdleTimer = () => {
@@ -1776,7 +1776,7 @@ export class AntigravityApiService {
                 idleTimedOut = true;
                 logger.error(`[Antigravity Stream] No data received for ${idleTimeoutMs}ms, aborting stream.`);
                 // 销毁底层流以解除 readline 的阻塞；readline 会随之结束迭代
-                try { stream.destroy(new Error('Antigravity stream idle timeout')); } catch (_) { /* 忽略 */ }
+                try { stream.destroy(new Error('Antigravity stream idle timeout')); } catch (_: any) { /* 忽略 */ }
             }, idleTimeoutMs);
         };
 
@@ -1787,19 +1787,19 @@ export class AntigravityApiService {
         if (canObserveRawData) stream.on('data', onStreamData);
 
         const sseFields = /^(data|event|id|retry):/i;
-        let buffer = [];
+        let buffer: any[] = [];
         // 诊断用：统计实际读到的行，以及未能匹配任何分支而被丢弃的行。
         // 上游返回 HTTP 200 但内容不是标准 SSE（纯 JSON 错误体、HTML 错误页、空 body 等）时，
         // 原实现会静默丢弃且不产出任何 chunk，排查时完全看不到上游到底回了什么。
         let lineCount = 0;
         let yieldCount = 0;
-        const droppedLines = [];
+        const droppedLines: any[] = [];
         // 上游偶尔不按 SSE 返回，而是直接吐一个 pretty-printed 的 JSON 数组
         // （`[{"response":{...}},{...}]`，逐行折行、无 `data: ` 前缀）。
         // 这里保留全量原始文本，SSE 分支一无所获时回退按 JSON 解析。
-        const rawLines = [];
+        const rawLines: any[] = [];
         let rawTooLarge = false;
-        const collectRaw = (line) => {
+        const collectRaw = (line: any) => {
             if (rawTooLarge) return;
             if (rawLines.length >= ANTIGRAVITY_RAW_FALLBACK_MAX_LINES) {
                 rawTooLarge = true;
@@ -1825,7 +1825,7 @@ export class AntigravityApiService {
                     try {
                         yield JSON.parse(buffer.join('\n'));
                         yieldCount++;
-                    } catch (e) {
+                    } catch (e: any) {
                         logger.error('[Antigravity Stream] Failed to parse JSON chunk:', buffer.join('\n'), 'Error:', e.message);
                     }
                     buffer = [];
@@ -1837,7 +1837,7 @@ export class AntigravityApiService {
                     if (droppedLines.length < 20) droppedLines.push(trimmedLine.slice(0, 500));
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             // 看门狗 destroy(stream) 会让 readline 迭代抛出该 destroy 错误。
             // 归一化成带 ETIMEDOUT 的超时错误，便于上层按可重试网络错误处理。
             if (idleTimedOut) {
@@ -1866,7 +1866,7 @@ export class AntigravityApiService {
             try {
                 yield JSON.parse(buffer.join('\n'));
                 yieldCount++;
-            } catch (e) {
+            } catch (e: any) {
                 logger.error('[Antigravity Stream] Failed to parse final JSON chunk:', buffer.join('\n'), 'Error:', e.message);
             }
         }
@@ -1875,10 +1875,10 @@ export class AntigravityApiService {
         // 先尝试按 JSON 解析并逐个产出，真正解析不出来时才记录原始内容供排查。
         if (yieldCount === 0 && rawLines.length > 0) {
             const rawBody = rawLines.join('\n');
-            let parsed = null;
+            let parsed: any = null;
             try {
                 parsed = JSON.parse(rawBody);
-            } catch (_) {
+            } catch (_: any) {
                 // 不是完整 JSON，走下面的诊断日志
             }
             if (parsed !== null && typeof parsed === 'object') {
@@ -1906,7 +1906,7 @@ export class AntigravityApiService {
         }
     }
 
-    prepareRequestMetadata(requestBody) {
+    prepareRequestMetadata(requestBody: any) {
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
             delete requestBody._monitorRequestId;
@@ -1927,7 +1927,7 @@ export class AntigravityApiService {
         }
     }
 
-    buildAntigravityPayload(model, requestBody) {
+    buildAntigravityPayload(model: any, requestBody: any) {
         let selectedModel = normalizeAntigravityModelId(model);
         if (!this.availableModels.includes(selectedModel) && !isKnownAntigravityModel(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
@@ -1953,7 +1953,7 @@ export class AntigravityApiService {
         const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId, capabilities);
 
         // 若选中的模型以 -high / -medium / -low 结尾，确保思考级别设置为对应等级
-        const targetSuffix = ['-high', '-medium', '-low'].find(s => selectedModel.endsWith(s) || actualModelName.endsWith(s));
+        const targetSuffix = ['-high', '-medium', '-low'].find((s: any) => selectedModel.endsWith(s) || actualModelName.endsWith(s));
         if (targetSuffix) {
             if (!payload.request) payload.request = {};
             if (!payload.request.generationConfig) payload.request.generationConfig = {};
@@ -1969,7 +1969,7 @@ export class AntigravityApiService {
         return { payload, selectedModel, actualModelName, capabilities };
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         if (!this.isInitialized) await this.initialize();
         logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
 
@@ -1991,9 +1991,9 @@ export class AntigravityApiService {
      * @param {Object} payload - 请求体
      * @returns {Promise<Object>} 非流式响应
      */
-    async executeClaudeNonStream(payload) {
-        const chunks = [];
-        
+    async executeClaudeNonStream(payload: any) {
+        const chunks: any[] = [];
+
         try {
             const stream = this.streamApi('streamGenerateContent', payload);
             for await (const chunk of stream) {
@@ -2001,18 +2001,18 @@ export class AntigravityApiService {
                     chunks.push(JSON.stringify(chunk));
                 }
             }
-            
+
             // 将流式响应转换为非流式响应
             const streamData = chunks.join('\n');
             const nonStreamResponse = convertStreamToNonStream(streamData);
             return toGeminiApiResponse(nonStreamResponse.response);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('[Antigravity] Claude non-stream execution error:', error.message);
             throw error;
         }
     }
 
-    async * generateContentStream(model, requestBody) {
+    async * generateContentStream(model: any, requestBody: any) {
         if (!this.isInitialized) await this.initialize();
         logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
 
@@ -2048,7 +2048,7 @@ export class AntigravityApiService {
             const { message, isNearExpiry } = formatExpiryLog('Antigravity', this.authClient.credentials.expiry_date, nearMinutes);
             logger.info(message);
             return isNearExpiry;
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[Antigravity] Error checking expiry date: ${error.message}`);
             return false;
         }
@@ -2063,11 +2063,11 @@ export class AntigravityApiService {
         if (!this.tierId) {
             try {
                 await this.discoverProjectAndModels();
-            } catch (_err) {
+            } catch (_err: any) {
                 // ignore
             }
         }
-        
+
         for (const baseURL of this.baseURLs) {
             try {
                 const quotaSummaryURL = `${baseURL}/${ANTIGRAVITY_API_VERSION}:retrieveUserQuotaSummary`;
@@ -2114,7 +2114,7 @@ export class AntigravityApiService {
                         account: this.accountEmail
                     };
                 }
-            } catch (error) {
+            } catch (error: any) {
                 logger.error(`[Antigravity] Failed to fetch usage limits from ${baseURL}:`, error.message);
             }
         }

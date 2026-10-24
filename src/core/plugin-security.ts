@@ -33,7 +33,7 @@ const RESERVED_ROUTE_PREFIXES = [
     '/api/upload'
 ];
 
-export function auditSecurityEvent(event) {
+export function auditSecurityEvent(event: any) {
     const payload = {
         time: new Date().toISOString(),
         ...event
@@ -41,25 +41,25 @@ export function auditSecurityEvent(event) {
     logger.warn('[Security Hardening]', JSON.stringify(payload));
 }
 
-export function validatePluginId(pluginId, label = 'pluginId') {
+export function validatePluginId(pluginId: any, label: any = 'pluginId') {
     if (typeof pluginId !== 'string' || !PLUGIN_ID_PATTERN.test(pluginId)) {
         throw new Error(`[Security Hardening] Invalid ${label}: only letters, numbers, "_" and "-" are allowed, length 1-64`);
     }
     return pluginId;
 }
 
-export function isInsidePath(basePath, targetPath) {
+export function isInsidePath(basePath: any, targetPath: any) {
     const relativePath = path.relative(path.resolve(basePath), path.resolve(targetPath));
     return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-export function assertPathInside(basePath, targetPath, message = '') {
+export function assertPathInside(basePath: any, targetPath: any, message: any = '') {
     if (!isInsidePath(basePath, targetPath)) {
         throw new Error(message || `[Security Hardening] Path escapes allowed directory: ${targetPath}`);
     }
 }
 
-export function normalizePluginArchiveEntryName(entryName, pluginId) {
+export function normalizePluginArchiveEntryName(entryName: any, pluginId: any) {
     validatePluginId(pluginId);
 
     if (typeof entryName !== 'string' || !entryName) {
@@ -98,12 +98,12 @@ export function normalizePluginArchiveEntryName(entryName, pluginId) {
     return safeRelativePath;
 }
 
-export function shouldScanPluginFile(fileName) {
+export function shouldScanPluginFile(fileName: any) {
     const ext = path.extname(fileName).toLowerCase();
     return TEXT_FILE_EXTENSIONS.has(ext) || ext === '';
 }
 
-export function validatePluginTextContent(content, label = 'plugin file') {
+export function validatePluginTextContent(content: any, label: any = 'plugin file') {
     for (const { pattern, reason } of DANGEROUS_PLUGIN_PATTERNS) {
         if (pattern.test(content)) {
             throw new Error(`[Security Hardening] 插件安全校验失败: ${label} 命中危险模式：${reason}`);
@@ -111,11 +111,11 @@ export function validatePluginTextContent(content, label = 'plugin file') {
     }
 }
 
-export async function scanPluginDirectory(pluginDir, label = pluginDir) {
+export async function scanPluginDirectory(pluginDir: any, label: any = pluginDir) {
     const resolvedPluginDir = path.resolve(pluginDir);
     const physicalPluginDir = existsSync(resolvedPluginDir) ? realpathSync(resolvedPluginDir) : resolvedPluginDir;
 
-    async function walk(currentDir) {
+    async function walk(currentDir: any) {
         const entries = await fs.readdir(currentDir, { withFileTypes: true });
         for (const entry of entries) {
             const entryPath = path.join(currentDir, entry.name);
@@ -142,7 +142,7 @@ export async function scanPluginDirectory(pluginDir, label = pluginDir) {
     await walk(resolvedPluginDir);
 }
 
-function validateStaticPath(staticPath, pluginName) {
+function validateStaticPath(staticPath: any, pluginName: any) {
     if (typeof staticPath !== 'string' || !staticPath) {
         throw new Error(`[Security Hardening] Plugin "${pluginName}" has invalid static path`);
     }
@@ -157,7 +157,7 @@ function validateStaticPath(staticPath, pluginName) {
     }
 }
 
-function validateRoute(route, pluginName) {
+function validateRoute(route: any, pluginName: any) {
     if (!route || typeof route !== 'object') {
         throw new Error(`[Security Hardening] Plugin "${pluginName}" has invalid route`);
     }
@@ -170,12 +170,12 @@ function validateRoute(route, pluginName) {
     if (!route.path.startsWith('/api/') || route.path === '/api') {
         throw new Error(`[Security Hardening] Plugin "${pluginName}" route must stay under a specific /api/* path`);
     }
-    if (RESERVED_ROUTE_PREFIXES.some(prefix => route.path === prefix || route.path.startsWith(prefix + '/'))) {
+    if (RESERVED_ROUTE_PREFIXES.some((prefix: any) => route.path === prefix || route.path.startsWith(prefix + '/'))) {
         throw new Error(`[Security Hardening] Plugin "${pluginName}" route conflicts with reserved API path: ${route.path}`);
     }
 }
 
-export function validatePluginExport(plugin, directoryName, isUserPlugin = false) {
+export function validatePluginExport(plugin: any, directoryName: any, isUserPlugin: any = false) {
     if (!plugin || typeof plugin !== 'object') {
         throw new Error(`[Security Hardening] Plugin "${directoryName}" did not export a plugin object`);
     }
@@ -201,11 +201,11 @@ export function validatePluginExport(plugin, directoryName, isUserPlugin = false
     }
 }
 
-export function resolvePluginStaticFile(plugin, requestPath) {
+export function resolvePluginStaticFile(plugin: any, requestPath: any) {
     if (!plugin?._baseDir || !Array.isArray(plugin.staticPaths)) return null;
 
     const normalizedRequestPath = requestPath.replace(/^\/+/, '');
-    const staticPath = plugin.staticPaths.find(sp => {
+    const staticPath = plugin.staticPaths.find((sp: any) => {
         const normalized = String(sp).replace(/^\/+/, '');
         return normalizedRequestPath === normalized;
     });

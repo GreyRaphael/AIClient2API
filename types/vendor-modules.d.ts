@@ -4,3 +4,4 @@
 
 declare module 'adm-zip';
 declare module 'busboy';
+declare module 'multer';

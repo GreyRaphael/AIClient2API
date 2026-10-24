@@ -1,10 +1,10 @@
-export function normalizeCodexInstructions(requestBody) {
+export function normalizeCodexInstructions(requestBody: any) {
     if (!Array.isArray(requestBody.input)) {
         return requestBody;
     }
 
-    const instructionTexts = [];
-    requestBody.input = requestBody.input.filter(item => {
+    const instructionTexts: any[] = [];
+    requestBody.input = requestBody.input.filter((item: any) => {
         const isMessage = !item?.type || item.type === 'message';
         const isInstructionRole = item?.role === 'system' || item?.role === 'developer';
         if (!isMessage || !isInstructionRole) {

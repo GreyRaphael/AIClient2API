@@ -49,7 +49,7 @@ export function anthropicUsageFromInclusiveInput({
     cachedTokens = 0,
     cacheCreationTokens = 0,
     outputTokens = 0
-} = {}) {
+}: any = {}) {
     const input = Number.isFinite(Number(inputTokens)) ? Number(inputTokens) : 0;
     const cached = Number.isFinite(Number(cachedTokens)) ? Number(cachedTokens) : 0;
     const creation = Number.isFinite(Number(cacheCreationTokens)) ? Number(cacheCreationTokens) : 0;
@@ -98,7 +98,7 @@ function getGeminiUsageNumbers(usage: any = {}) {
  * @param {Object} usage - Gemini usageMetadata
  * @returns {Object}
  */
-export function geminiUsageToOpenAI(usage = {}) {
+export function geminiUsageToOpenAI(usage: any = {}) {
     const { prompt, cached, thoughts, output, total } = getGeminiUsageNumbers(usage);
     return {
         prompt_tokens: prompt,
@@ -119,7 +119,7 @@ export function geminiUsageToOpenAI(usage = {}) {
  * @param {Object} usage - Gemini usageMetadata
  * @returns {Object}
  */
-export function geminiUsageToResponses(usage = {}) {
+export function geminiUsageToResponses(usage: any = {}) {
     const { prompt, cached, thoughts, output, total } = getGeminiUsageNumbers(usage);
     return {
         input_tokens: prompt,
@@ -139,7 +139,7 @@ export function geminiUsageToResponses(usage = {}) {
  * @param {Object} usage - Gemini usageMetadata
  * @returns {{input_tokens: number, cache_creation_input_tokens: number, cache_read_input_tokens: number, output_tokens: number}}
  */
-export function geminiUsageToAnthropic(usage = {}) {
+export function geminiUsageToAnthropic(usage: any = {}) {
     const { prompt, cached, output } = getGeminiUsageNumbers(usage);
     return anthropicUsageFromInclusiveInput({
         inputTokens: prompt,
@@ -162,7 +162,7 @@ export function geminiUsageToAnthropic(usage = {}) {
  * @param {'openai'|'responses'} [shape='openai']
  * @returns {Object}
  */
-export function applyEstimatedReasoningTokens(usage, reasoningText, shape = 'openai') {
+export function applyEstimatedReasoningTokens(usage: any, reasoningText: any, shape: any = 'openai') {
     if (!usage) return usage;
     const detailsKey = shape === 'responses' ? 'output_tokens_details' : 'completion_tokens_details';
     const outputKey = shape === 'responses' ? 'output_tokens' : 'completion_tokens';
@@ -194,7 +194,7 @@ export function applyEstimatedReasoningTokens(usage, reasoningText, shape = 'ope
  * @param {number} [fallback]
  * @returns {number}
  */
-export function clampClaudeMaxTokens(value, fallback = CLAUDE_DEFAULT_MAX_TOKENS) {
+export function clampClaudeMaxTokens(value: any, fallback: any = CLAUDE_DEFAULT_MAX_TOKENS) {
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) {
         return fallback;
@@ -255,10 +255,10 @@ export const FILE_EXTENSION_MIME_TYPES = {
  * @param {string} filename
  * @returns {string|null}
  */
-export function mimeTypeFromFilename(filename) {
+export function mimeTypeFromFilename(filename: any) {
     if (!filename || typeof filename !== 'string') return null;
-    const ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
-    return FILE_EXTENSION_MIME_TYPES[ext] || null;
+    const ext = filename.includes('.') ? (filename.split('.').pop() || '').toLowerCase() : '';
+    return (FILE_EXTENSION_MIME_TYPES as any)[ext] || null;
 }
 
 /**
@@ -266,7 +266,7 @@ export function mimeTypeFromFilename(filename) {
  * @param {string} url
  * @returns {string}
  */
-export function guessImageMimeTypeFromUrl(url) {
+export function guessImageMimeTypeFromUrl(url: any) {
     if (!url || typeof url !== 'string') return 'image/jpeg';
     const pathPart = url.split('?')[0].split('#')[0];
     const mime = mimeTypeFromFilename(pathPart);
@@ -278,7 +278,7 @@ export function guessImageMimeTypeFromUrl(url) {
  * @param {string} value
  * @returns {{ mimeType: string, data: string }|null}
  */
-export function parseBase64DataUrl(value) {
+export function parseBase64DataUrl(value: any) {
     if (typeof value !== 'string' || !value.startsWith('data:')) {
         return null;
     }
@@ -295,7 +295,7 @@ export function parseBase64DataUrl(value) {
  * @param {*} defaultValue - 默认值
  * @returns {*} 处理后的值
  */
-export function checkAndAssignOrDefault(value, defaultValue) {
+export function checkAndAssignOrDefault(value: any, defaultValue: any) {
     if (value !== undefined && value !== null && value !== 0) {
         return value;
     }
@@ -307,7 +307,7 @@ export function checkAndAssignOrDefault(value, defaultValue) {
  * @param {string} str - JSON字符串
  * @returns {*} 解析后的对象或原始字符串
  */
-export function safeParseJSON(str) {
+export function safeParseJSON(str: any) {
     if (!str) {
         return str;
     }
@@ -323,7 +323,7 @@ export function safeParseJSON(str) {
 
     try {
         return JSON.parse(cleanedStr || '{}');
-    } catch (e) {
+    } catch (e: any) {
         return str;
     }
 }
@@ -333,14 +333,14 @@ export function safeParseJSON(str) {
  * @param {string|Array} content - 消息内容
  * @returns {string} 提取的文本
  */
-export function extractTextFromMessageContent(content) {
+export function extractTextFromMessageContent(content: any) {
     if (typeof content === 'string') {
         return content;
     }
     if (Array.isArray(content)) {
         return content
-            .filter(part => part.type === 'text' && part.text)
-            .map(part => part.text)
+            .filter((part: any) => part.type === 'text' && part.text)
+            .map((part: any) => part.text)
             .join('\n');
     }
     return '';
@@ -352,7 +352,7 @@ export function extractTextFromMessageContent(content) {
  * @param {Array} replacements - 替换规则数组
  * @returns {string} 替换后的内容
  */
-export function applySystemPromptReplacements(content, replacements = []) {
+export function applySystemPromptReplacements(content: any, replacements: any = []) {
     if (!content || !replacements || !Array.isArray(replacements) || replacements.length === 0) {
         return content;
     }
@@ -377,24 +377,24 @@ export function applySystemPromptReplacements(content, replacements = []) {
  * @param {Array} replacements - 替换规则数组，可选
  * @returns {{systemInstruction: Object|null, nonSystemMessages: Array}}
  */
-export function extractAndProcessSystemMessages(messages, replacements = []) {
-    const systemContents = [];
-    const nonSystemMessages = [];
+export function extractAndProcessSystemMessages(messages: any, replacements: any = []) {
+    const systemContents: any[] = [];
+    const nonSystemMessages: any[] = [];
 
     for (const message of messages) {
         if (message.role === 'system' || message.role === 'developer') {
             let content = extractTextFromMessageContent(message.content);
-            
+
             // 应用系统提示词内容替换
             content = applySystemPromptReplacements(content, replacements);
-            
+
             systemContents.push(content);
         } else {
             nonSystemMessages.push(message);
         }
     }
 
-    let systemInstruction = null;
+    let systemInstruction: any = null;
     if (systemContents.length > 0) {
         systemInstruction = {
             parts: [{
@@ -424,9 +424,9 @@ const OPENAI_EXCLUDED_KEYS = ['$schema'];
  * @param {Function} caseTransform - 大小写转换函数 (toUpperCase 或 toLowerCase)
  * @returns {string|undefined} 规范化后的 type 值
  */
-function normalizeTypeField(typeValue, caseTransform) {
+function normalizeTypeField(typeValue: any, caseTransform: any) {
     if (Array.isArray(typeValue)) {
-        const actualType = typeValue.find(t => t !== 'null');
+        const actualType = typeValue.find((t: any) => t !== 'null');
         return actualType ? caseTransform(actualType) : undefined;
     }
 
@@ -443,10 +443,10 @@ function normalizeTypeField(typeValue, caseTransform) {
  * @param {Function} cleanFn - 清理函数
  * @returns {Object} 清理后的 properties
  */
-function cleanPropertiesRecursively(properties, cleanFn) {
+function cleanPropertiesRecursively(properties: any, cleanFn: any) {
     const cleaned = {};
     for (const [propName, propSchema] of Object.entries(properties)) {
-        cleaned[propName] = cleanFn(propSchema);
+        (cleaned as any)[propName] = cleanFn(propSchema);
     }
     return cleaned;
 }
@@ -456,12 +456,12 @@ function cleanPropertiesRecursively(properties, cleanFn) {
  * @param {Object} sanitized - 目标对象
  * @param {string|Array} typeValue - type 字段值
  */
-function handleGeminiTypeField(sanitized, typeValue) {
+function handleGeminiTypeField(sanitized: any, typeValue: any) {
     if (Array.isArray(typeValue) && typeValue.includes('null')) {
         sanitized.nullable = true;
     }
 
-    const normalizedType = normalizeTypeField(typeValue, t => t.toUpperCase());
+    const normalizedType = normalizeTypeField(typeValue, (t: any) => t.toUpperCase());
     if (normalizedType) {
         sanitized.type = normalizedType;
     }
@@ -472,9 +472,9 @@ function handleGeminiTypeField(sanitized, typeValue) {
  * @param {Object} sanitized - 目标对象
  * @param {string|Array} typeValue - type 字段值
  */
-function handleOpenAITypeField(sanitized, typeValue) {
+function handleOpenAITypeField(sanitized: any, typeValue: any) {
     if (Array.isArray(typeValue)) {
-        sanitized.type = typeValue.map(t => t.toLowerCase());
+        sanitized.type = typeValue.map((t: any) => t.toLowerCase());
     } else if (typeof typeValue === 'string') {
         sanitized.type = typeValue.toLowerCase();
     }
@@ -491,13 +491,13 @@ function handleOpenAITypeField(sanitized, typeValue) {
  * @param {Function} recursiveFn - 递归调用的函数
  * @returns {Object} 清理后的 JSON Schema
  */
-function cleanJsonSchemaGeneric(schema, options, recursiveFn) {
+function cleanJsonSchemaGeneric(schema: any, options: any, recursiveFn: any) {
     if (!schema || typeof schema !== 'object') {
         return schema;
     }
 
     if (Array.isArray(schema)) {
-        return schema.map(item => recursiveFn(item));
+        return schema.map((item: any) => recursiveFn(item));
     }
 
     const { allowedKeys, excludedKeys, typeHandler } = options;
@@ -517,9 +517,9 @@ function cleanJsonSchemaGeneric(schema, options, recursiveFn) {
         // 处理 enum：Gemini 要求枚举元素为非空且非纯空白字符串（仅 sanitizeEnum 模式）
         if (key === 'enum' && options.sanitizeEnum) {
             if (Array.isArray(value)) {
-                const strEnum = value.filter(v => typeof v === 'string' && v.trim().length > 0);
+                const strEnum = value.filter((v: any) => typeof v === 'string' && v.trim().length > 0);
                 if (strEnum.length > 0) {
-                    sanitized[key] = strEnum;
+                    (sanitized as any)[key] = strEnum;
                 }
             }
             continue;
@@ -527,13 +527,13 @@ function cleanJsonSchemaGeneric(schema, options, recursiveFn) {
 
         // 处理 properties
         if (key === 'properties' && typeof value === 'object' && value !== null) {
-            sanitized[key] = cleanPropertiesRecursively(value, recursiveFn);
+            (sanitized as any)[key] = cleanPropertiesRecursively(value, recursiveFn);
             continue;
         }
 
         // 处理 items
         if (key === 'items') {
-            sanitized[key] = recursiveFn(value);
+            (sanitized as any)[key] = recursiveFn(value);
             continue;
         }
 
@@ -544,7 +544,7 @@ function cleanJsonSchemaGeneric(schema, options, recursiveFn) {
         }
 
         // 其他属性直接复制
-        sanitized[key] = value;
+        (sanitized as any)[key] = value;
     }
 
     return sanitized;
@@ -561,7 +561,7 @@ function cleanJsonSchemaGeneric(schema, options, recursiveFn) {
  * @param {Object} schema - JSON Schema
  * @returns {Object} 清理后的JSON Schema
  */
-export function cleanJsonSchemaProperties(schema) {
+export function cleanJsonSchemaProperties(schema: any) {
     return cleanJsonSchemaGeneric(
         schema,
         {
@@ -580,7 +580,7 @@ export function cleanJsonSchemaProperties(schema) {
  * @param {Object} schema - JSON Schema
  * @returns {Object} 清理后的JSON Schema
  */
-export function cleanJsonSchemaForOpenAI(schema) {
+export function cleanJsonSchemaForOpenAI(schema: any) {
     return cleanJsonSchemaGeneric(
         schema,
         {
@@ -601,7 +601,7 @@ const _identityWarnedStores = new WeakSet();
  * @param {string|null} requestId - 请求 ID；缺失时并发流会共享 'default' 键互相污染（每个 store 告警一次）
  * @returns {{stateKey: string, identity: {id: string, created: number}}}
  */
-export function getOpenAIStreamIdentity(store, requestId) {
+export function getOpenAIStreamIdentity(store: any, requestId: any) {
     const stateKey = requestId || 'default';
     if (!requestId && !_identityWarnedStores.has(store)) {
         _identityWarnedStores.add(store);
@@ -631,7 +631,7 @@ export function getOpenAIStreamIdentity(store, requestId) {
  * @param {number|null} budgetTokens - Anthropic thinking的budget_tokens值
  * @returns {string} OpenAI reasoning_effort等级
  */
-export function determineReasoningEffortFromBudget(budgetTokens) {
+export function determineReasoningEffortFromBudget(budgetTokens: any) {
     return budgetTokensToEffort(budgetTokens);
 }
 
@@ -640,11 +640,11 @@ export function determineReasoningEffortFromBudget(budgetTokens) {
  * @param {string} text - 文本内容
  * @returns {string|Array} 提取后的内容
  */
-export function extractThinkingFromOpenAIText(text) {
+export function extractThinkingFromOpenAIText(text: any) {
     const thinkingPattern = /<thinking>\s*(.*?)\s*<\/thinking>/gs;
     const matches = [...text.matchAll(thinkingPattern)];
 
-    const contentBlocks = [];
+    const contentBlocks: any[] = [];
     let lastEnd = 0;
 
     for (const match of matches) {
@@ -693,13 +693,13 @@ export function extractThinkingFromOpenAIText(text) {
  * @param {Object} [rolePair] - 可选的角色归一化映射（例如 { assistant: 'model', model: 'model', user: 'user' }）
  * @returns {Array<Object>} 合并后的 contents 数组
  */
-export function mergeConsecutiveSameRoleContents(contents, rolePair = null) {
+export function mergeConsecutiveSameRoleContents(contents: any, rolePair: any = null) {
     if (!Array.isArray(contents) || contents.length === 0) {
         return [];
     }
 
-    const validItems = contents.filter(item => item && Array.isArray(item.parts) && item.parts.length > 0);
-    const merged = [];
+    const validItems = contents.filter((item: any) => item && Array.isArray(item.parts) && item.parts.length > 0);
+    const merged: any[] = [];
 
     for (const item of validItems) {
         const targetRole = rolePair && rolePair[item.role] ? rolePair[item.role] : item.role;
@@ -723,7 +723,7 @@ export function mergeConsecutiveSameRoleContents(contents, rolePair = null) {
  * @param {string|null|undefined} model
  * @returns {boolean}
  */
-export function isOpenAIReasoningModel(model) {
+export function isOpenAIReasoningModel(model: any) {
     if (!model) return false;
     const m = String(model).trim().toLowerCase();
     return /(^|[-_/])gpt-5(?:[.-]|$)/.test(m) || /(^|[-_/])o[1-9](?:[-_.]|$)/.test(m);
@@ -746,14 +746,14 @@ export function isSortToolsEnabled() {
  * @param {Array<T>} tools
  * @returns {Array<T>}
  */
-export function sortToolsByName(tools) {
+export function sortToolsByName(tools: any) {
     if (!Array.isArray(tools) || tools.length <= 1) {
         return tools || [];
     }
     if (!isSortToolsEnabled()) {
         return tools;
     }
-    return [...tools].sort((a, b) => {
+    return [...tools].sort((a: any, b: any) => {
         const nameA = a?.name || a?.function?.name || a?.function_declarations?.[0]?.name || a?.functionDeclarations?.[0]?.name || '';
         const nameB = b?.name || b?.function?.name || b?.function_declarations?.[0]?.name || b?.functionDeclarations?.[0]?.name || '';
         return String(nameA).localeCompare(String(nameB));
@@ -767,7 +767,7 @@ export function sortToolsByName(tools) {
  */
 const cacheControlWarnedLocations = new Set();
 
-export function logOmittedCacheControl(location, itemWithCacheControl) {
+export function logOmittedCacheControl(location: any, itemWithCacheControl: any) {
     if (itemWithCacheControl && itemWithCacheControl.cache_control) {
         logger.debug(`[CacheControl] cache_control omitted during conversion at ${location} (${JSON.stringify(itemWithCacheControl.cache_control)})`);
         if (!cacheControlWarnedLocations.has(location)) {

@@ -48,7 +48,7 @@ const LEGACY_TRAE_CHANNEL_MODE_MAP = {
  * @param {string} providerType
  * @returns {string}
  */
-export function normalizeLegacyTraeProviderType(providerType) {
+export function normalizeLegacyTraeProviderType(providerType: any) {
     const ptype = String(providerType || '').trim().toLowerCase();
     return LEGACY_TRAE_PROVIDER_TYPE_MAP[ptype] || providerType;
 }
@@ -61,7 +61,7 @@ export function normalizeLegacyTraeProviderType(providerType) {
  * @param {Object} providerPools
  * @returns {boolean} 是否发生迁移变更
  */
-export function migrateLegacyTraeProviderPools(providerPools) {
+export function migrateLegacyTraeProviderPools(providerPools: any) {
     if (!providerPools || typeof providerPools !== 'object') return false;
     let changed = false;
 
@@ -70,7 +70,7 @@ export function migrateLegacyTraeProviderPools(providerPools) {
     if (Array.isArray(providerPools[legacyKey])) {
         const targetKey = MODEL_PROVIDER.TRAE_SOLO_WORK_LITE;
         const target = Array.isArray(providerPools[targetKey]) ? providerPools[targetKey] : [];
-        const knownUuids = new Set(target.map(node => node && node.uuid).filter(Boolean));
+        const knownUuids = new Set(target.map((node: any) => node && node.uuid).filter(Boolean));
         for (const node of providerPools[legacyKey]) {
             if (node && node.uuid && knownUuids.has(node.uuid)) continue;
             target.push(node);
@@ -87,7 +87,7 @@ export function migrateLegacyTraeProviderPools(providerPools) {
         for (const node of providerPools[key]) {
             if (!node || typeof node !== 'object') continue;
             const mode = String(node.TRAE_CHANNEL_MODE || '').trim().toLowerCase();
-            const migrated = LEGACY_TRAE_CHANNEL_MODE_MAP[mode];
+            const migrated = (LEGACY_TRAE_CHANNEL_MODE_MAP as any)[mode];
             if (migrated && node.TRAE_CHANNEL_MODE !== migrated) {
                 node.TRAE_CHANNEL_MODE = migrated;
                 changed = true;
@@ -152,7 +152,7 @@ export const TRAE_CHANNEL_PRESETS = {
  * @param {string} [input.baseUrl] - TRAE_BASE_URL 或 TRAE_HOST（用于 URL 特征推断）
  * @returns {'tob_raw_chat'|'solo_work_lite'|'chat_v3'|'custom'}
  */
-export function resolveTraeChannelMode({ configuredMode = '', providerType = '', baseUrl = '' } = {}) {
+export function resolveTraeChannelMode({ configuredMode = '', providerType = '', baseUrl = '' }: any = {}) {
     const mode = String(configuredMode || '').trim().toLowerCase();
     const ptype = String(providerType || '').trim().toLowerCase();
 
@@ -183,7 +183,7 @@ export function resolveTraeChannelMode({ configuredMode = '', providerType = '',
  * @param {string} [channelFunction] - getChannelConfig().function
  * @returns {boolean}
  */
-export function isSoloFamilyChannel(mode, channelFunction) {
+export function isSoloFamilyChannel(mode: any, channelFunction: any) {
     return mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE ||
         mode === TRAE_CHANNEL_MODES.CHAT_V3 ||
         channelFunction === 'solo_work_lite' ||
@@ -196,7 +196,7 @@ export function isSoloFamilyChannel(mode, channelFunction) {
  * @param {string|Function} [channelFunctionOrGetter] - getChannelConfig().function 或 lazy getter
  * @returns {'chat_v3'|'solo_work_lite'|'canonical'}
  */
-export function resolveAliasTableKind(mode, channelFunctionOrGetter) {
+export function resolveAliasTableKind(mode: any, channelFunctionOrGetter: any) {
     if (mode === TRAE_CHANNEL_MODES.CHAT_V3) return 'chat_v3';
     if (mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) return 'solo_work_lite';
     const channelFunction = typeof channelFunctionOrGetter === 'function' ? channelFunctionOrGetter() : channelFunctionOrGetter;
@@ -208,7 +208,7 @@ export function resolveAliasTableKind(mode, channelFunctionOrGetter) {
  * @param {string} providerType
  * @returns {boolean}
  */
-export function isTraeProviderType(providerType) {
+export function isTraeProviderType(providerType: any) {
     const ptype = String(providerType || '').trim().toLowerCase();
     return ptype === MODEL_PROVIDER.TRAE ||
         ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
@@ -220,7 +220,7 @@ export function isTraeProviderType(providerType) {
  * @param {string} providerType
  * @returns {boolean}
  */
-export function isSoloFamilyProviderType(providerType) {
+export function isSoloFamilyProviderType(providerType: any) {
     const ptype = String(providerType || '').trim().toLowerCase();
     return ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
         ptype === MODEL_PROVIDER.TRAE_CHAT_V3;

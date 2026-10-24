@@ -12,7 +12,7 @@ import { resolveProviderCapabilities } from '../provider-capabilities.ts';
  * @param {any} data
  * @returns {boolean}
  */
-function isSSEPayload(data) {
+function isSSEPayload(data: any) {
     if (typeof data !== 'string') return false;
     const trimmed = data.trimStart();
     return trimmed.startsWith('data:') || trimmed.startsWith('event:') || trimmed.includes('\ndata:');
@@ -23,8 +23,8 @@ function isSSEPayload(data) {
  * @param {string} raw
  * @returns {Array<any>}
  */
-function parseSSEChunks(raw) {
-    const chunks = [];
+function parseSSEChunks(raw: any) {
+    const chunks: any[] = [];
     for (const line of String(raw).split(/\r?\n/)) {
         if (!line.startsWith('data:')) continue;
         const payload = line.slice(5).trim();
@@ -43,7 +43,7 @@ function parseSSEChunks(raw) {
  * @param {any} tool
  * @returns {string}
  */
-function getToolFunctionName(tool) {
+function getToolFunctionName(tool: any) {
     return String(tool?.function?.name || tool?.name || '');
 }
 
@@ -52,7 +52,7 @@ function getToolFunctionName(tool) {
  * @param {any} toolChoice
  * @returns {string}
  */
-function getSpecificToolChoiceName(toolChoice) {
+function getSpecificToolChoiceName(toolChoice: any) {
     if (!toolChoice || typeof toolChoice !== 'object') return '';
     if (toolChoice.type !== 'function') return '';
     return String(toolChoice.function?.name || toolChoice.name || '');
@@ -67,7 +67,7 @@ function getSpecificToolChoiceName(toolChoice) {
  * @param {Object} capabilities - resolveProviderCapabilities() 结果
  * @returns {Object} 归一化后的请求体（不修改入参）
  */
-export function normalizeToolChoiceForProvider(body, capabilities) {
+export function normalizeToolChoiceForProvider(body: any, capabilities: any) {
     if (!body || capabilities?.supportsForcedToolChoice !== false) {
         return body;
     }
@@ -91,7 +91,7 @@ export function normalizeToolChoiceForProvider(body, capabilities) {
     }
 
     const matchingTools = (Array.isArray(body.tools) ? body.tools : [])
-        .filter((tool) => getToolFunctionName(tool) === name);
+        .filter((tool: any) => getToolFunctionName(tool) === name);
 
     if (matchingTools.length > 0) {
         logger.warn(`[OpenAI API] Provider does not support forced tool_choice for '${name}'; narrowing tools and using 'required'`);
@@ -113,7 +113,7 @@ export function normalizeToolChoiceForProvider(body, capabilities) {
  * @param {any} data
  * @returns {boolean}
  */
-function isEmptyResponsePayload(data) {
+function isEmptyResponsePayload(data: any) {
     if (data === undefined || data === null || data === '') return true;
     if (typeof data === 'object' && !Array.isArray(data)) {
         if (Object.keys(data).length === 0) return true;
@@ -129,10 +129,10 @@ function isEmptyResponsePayload(data) {
  * @param {Array<any>} chunks
  * @returns {Object|null}
  */
-export function aggregateChatCompletionChunks(chunks) {
+export function aggregateChatCompletionChunks(chunks: any) {
     if (!Array.isArray(chunks) || chunks.length === 0) return null;
 
-    const result = {
+    const result: any = {
         id: null,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
@@ -214,8 +214,8 @@ export function aggregateChatCompletionChunks(chunks) {
     if (reasoning) message.reasoning_content = reasoning;
     if (toolCalls.size > 0) {
         message.tool_calls = Array.from(toolCalls.entries())
-            .sort(([a], [b]) => a - b)
-            .map(([index, tc]) => ({
+            .sort(([a]: any, [b]: any) => a - b)
+            .map(([index, tc]: any) => ({
                 index,
                 id: tc.id || `call_${result.id || Date.now()}_${index}`,
                 type: tc.type || 'function',
@@ -238,7 +238,7 @@ export class OpenAIApiService {
     axiosInstance: any;
     _loggedNonStreamCapability: any;
 
-    constructor(config) {
+    constructor(config: any) {
         if (!config.OPENAI_API_KEY) {
             throw new Error("OpenAI API Key is required for OpenAIApiService.");
         }
@@ -255,15 +255,15 @@ export class OpenAIApiService {
                 'Authorization': `Bearer ${this.apiKey}`
             },
         };
-        
+
         this.axiosInstance = axios.create(axiosConfig);
     }
 
-    _applySidecar(axiosConfig) {
+    _applySidecar(axiosConfig: any) {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM, this.baseUrl);
     }
 
-    async callApi(endpoint, body, isRetry = false, retryCount = 0, fallbackTried = false) {
+    async callApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0, fallbackTried: any = false): Promise<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
@@ -306,7 +306,7 @@ export class OpenAIApiService {
             const specificToolName = getSpecificToolChoiceName(normalizedBody?.tool_choice);
             if (!fallbackTried && normalizedBody?.stream !== true && specificToolName && isEmptyResponsePayload(result)) {
                 const matchingTools = (Array.isArray(normalizedBody.tools) ? normalizedBody.tools : [])
-                    .filter((tool) => getToolFunctionName(tool) === specificToolName);
+                    .filter((tool: any) => getToolFunctionName(tool) === specificToolName);
                 if (matchingTools.length > 0) {
                     logger.warn(`[OpenAI API] Empty response for forced tool_choice '${specificToolName}'; retrying once with 'required' and narrowed tools`);
                     return this.callApi(
@@ -320,7 +320,7 @@ export class OpenAIApiService {
             }
 
             return result;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const data = error.response?.data;
             const errorCode = error.code;
@@ -344,7 +344,7 @@ export class OpenAIApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[OpenAI API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
                 }
             }
@@ -353,7 +353,7 @@ export class OpenAIApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[OpenAI API] Received ${status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
             }
 
@@ -362,7 +362,7 @@ export class OpenAIApiService {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[OpenAI API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
             }
 
@@ -371,7 +371,7 @@ export class OpenAIApiService {
         }
     }
 
-    async *streamApi(endpoint, body, isRetry = false, retryCount = 0) {
+    async *streamApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): AsyncGenerator<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
@@ -411,11 +411,11 @@ export class OpenAIApiService {
             let buffer = '';
             // include_usage 的 usage 帧在 finish 帧之后到达。跨协议转换时先暂存 finish，
             // 等 usage 帧到达后合并，避免 Claude / Responses 下游拿到全零 usage。
-            let pendingFinishChunk = null;
+            let pendingFinishChunk: any = null;
 
             for await (const chunk of stream) {
                 buffer += chunk.toString();
-                let newlineIndex;
+                let newlineIndex: any;
                 while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
                     const line = buffer.substring(0, newlineIndex).trim();
                     buffer = buffer.substring(newlineIndex + 1);
@@ -445,13 +445,13 @@ export class OpenAIApiService {
                             }
 
                             const hasFinishReason = Array.isArray(parsedChunk.choices)
-                                && parsedChunk.choices.some(choice => choice?.finish_reason);
+                                && parsedChunk.choices.some((choice: any) => choice?.finish_reason);
                             if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
                                 pendingFinishChunk = parsedChunk;
                             } else {
                                 yield parsedChunk;
                             }
-                        } catch (e) {
+                        } catch (e: any) {
                             logger.warn("[OpenAIApiService] Failed to parse stream chunk JSON:", e.message, "Data:", jsonData);
                         }
                     } else if (line === '') {
@@ -464,15 +464,15 @@ export class OpenAIApiService {
             if (pendingFinishChunk) {
                 yield pendingFinishChunk;
             }
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const data = error.response?.data;
             const errorCode = error.code;
             const errorMessage = error.message || '';
-            
+
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
-            
+
             if (status === 401 || status === 403) {
                 logger.error(`[OpenAI API] Received ${status} during stream. API Key might be invalid or expired.`);
                 throw error;
@@ -488,7 +488,7 @@ export class OpenAIApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[OpenAI API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                     return;
                 }
@@ -498,7 +498,7 @@ export class OpenAIApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[OpenAI API] Received ${status} server error during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -508,7 +508,7 @@ export class OpenAIApiService {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[OpenAI API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -518,7 +518,7 @@ export class OpenAIApiService {
         }
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -531,7 +531,7 @@ export class OpenAIApiService {
         return this.callApi('/chat/completions', requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -548,7 +548,7 @@ export class OpenAIApiService {
         try {
             const response = await this.axiosInstance.get('/models');
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const data = error.response?.data;
             logger.error(`Error listing OpenAI models (Status: ${status}):`, data || error.message);

@@ -142,7 +142,7 @@ export class TraeApiService {
     _tokenRefreshPromise: any;
     _fetchModelsPromise: any;
 
-    constructor(config = {}) {
+    constructor(config: any = {}) {
         this.config = config || {};
         this.uuid = this.config.uuid;
         this.credsFilePath = this.config.TRAE_OAUTH_CREDS_FILE_PATH || process.env.TRAE_OAUTH_CREDS_FILE_PATH;
@@ -189,7 +189,7 @@ export class TraeApiService {
     /**
      * 获取指定提供商的基础模型列表
      */
-    getBaseModels(provider) {
+    getBaseModels(provider: any) {
         if (provider === MODEL_PROVIDER.TRAE_CHAT_V3) {
             return BASE_TRAE_CHAT_V3_MODELS;
         }
@@ -308,7 +308,7 @@ export class TraeApiService {
      * @param {string} rawModel 原始请求模型名称
      * @returns {string} 对应的 Trae 底层规范模型 ID
      */
-    normalizeModelName(rawModel) {
+    normalizeModelName(rawModel: any) {
         const trimmed = String(rawModel || DEFAULT_MODEL).trim();
         const lower = trimmed.toLowerCase();
 
@@ -331,8 +331,8 @@ export class TraeApiService {
         const aliasTable = this._aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
             : this._aliasKind === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES
             : CANONICAL_MODEL_ALIASES;
-        if (aliasTable[lower]) {
-            return aliasTable[lower];
+        if ((aliasTable as any)[lower]) {
+            return (aliasTable as any)[lower];
         }
 
         return trimmed;
@@ -375,7 +375,7 @@ export class TraeApiService {
 
             this.isInitialized = Boolean(this.accessToken || this.refreshToken || this.personalAccessToken);
             logger.info(`[Trae] Loaded credentials for user: ${this.nickname} (auth: ${this.authHost}, agent: ${this.agentHost}, enterprise: ${this.enterpriseId || 'none'})`);
-        } catch (err) {
+        } catch (err: any) {
             logger.error(`[Trae] Failed to load credentials from ${this.credsFilePath}: ${err.message}`);
         }
     }
@@ -412,7 +412,7 @@ export class TraeApiService {
                 atomicWriteFileSync(resolvedPath, JSON.stringify(data, null, 2), 'utf-8');
             });
             logger.debug(`[Trae] Atomic write back to ${resolvedPath} successful`);
-        } catch (err) {
+        } catch (err: any) {
             logger.error(`[Trae] Failed to save credentials to ${this.credsFilePath}: ${err.message}`);
         }
     }
@@ -428,7 +428,7 @@ export class TraeApiService {
     /**
      * 获取有效的访问 Token，单飞并发保护
      */
-    async getToken(force = false) {
+    async getToken(force: any = false) {
         if (!force && this.accessToken && !this.isExpiryDateNear()) {
             return this.accessToken;
         }
@@ -454,7 +454,7 @@ export class TraeApiService {
 
                 logger.info(`[Trae] Token refreshed successfully, valid until ${new Date(this.expiresAt).toISOString()}`);
                 return this.accessToken;
-            } catch (err) {
+            } catch (err: any) {
                 logger.error(`[Trae] Token refresh failed: ${err.message}`);
                 // 若刷新失败但仍有旧 Token 且未绝对过期，降级使用旧 Token
                 if (this.accessToken && Date.now() < this.expiresAt) {
@@ -473,7 +473,7 @@ export class TraeApiService {
     /**
      * 构造上游请求头 (按通道模式适配)
      */
-    async buildHeaders(stream = false) {
+    async buildHeaders(stream: any = false) {
         const token = await this.getToken();
         const channel = this.getChannelConfig();
         const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');
@@ -501,10 +501,10 @@ export class TraeApiService {
         };
 
         if (isToB) {
-            headers['x-ide-function'] = channel.function;
+            (headers as any)['x-ide-function'] = channel.function;
             const traceId = randomBytes(16).toString('hex');
             const spanId = randomBytes(8).toString('hex');
-            headers['x-flow-traceparent'] = `00-${traceId}-${spanId}-01`;
+            (headers as any)['x-flow-traceparent'] = `00-${traceId}-${spanId}-01`;
         }
 
         return headers;
@@ -513,7 +513,7 @@ export class TraeApiService {
     /**
      * 改写 OpenAI 请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 solo_work_lite / chat_v3)
      */
-    prepareRequestBody(model, requestBody) {
+    prepareRequestBody(model: any, requestBody: any) {
         const payload = JSON.parse(JSON.stringify(requestBody || {}));
         const targetModel = this.normalizeModelName(model || payload.model || DEFAULT_MODEL);
         const channel = this.getChannelConfig();
@@ -568,14 +568,14 @@ export class TraeApiService {
         }
 
         if (Array.isArray(payload.messages)) {
-            const mergedMessages = [];
+            const mergedMessages: any[] = [];
             for (const rawMsg of payload.messages) {
                 if (!rawMsg) continue;
                 const msg = { ...rawMsg };
 
                 // 处理 assistant tool_calls
                 if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
-                    const validToolCalls = [];
+                    const validToolCalls: any[] = [];
                     for (const tc of msg.tool_calls) {
                         const callObj = { ...tc };
                         if (callObj.function && !callObj.function_call) {
@@ -601,11 +601,11 @@ export class TraeApiService {
                 } else if (typeof msg.content === 'object' && msg.content !== null && !Array.isArray(msg.content)) {
                     try {
                         msg.content = [{ type: 'text', text: JSON.stringify(msg.content) }];
-                    } catch (_) {
+                    } catch (_: any) {
                         msg.content = [{ type: 'text', text: String(msg.content) }];
                     }
                 } else if (Array.isArray(msg.content)) {
-                    msg.content = msg.content.map(part => {
+                    msg.content = msg.content.map((part: any) => {
                         if (typeof part === 'string') return { type: 'text', text: part };
                         if (part && typeof part === 'object') {
                             if (part.type === 'text' && typeof part.text !== 'string') {
@@ -642,9 +642,9 @@ export class TraeApiService {
             payload.messages = mergedMessages;
 
             if (isToB && !payload.user_input) {
-                const lastUser = [...mergedMessages].reverse().find(m => m.role === 'user');
+                const lastUser = [...mergedMessages].reverse().find((m: any) => m.role === 'user');
                 if (lastUser && Array.isArray(lastUser.content)) {
-                    const textItem = lastUser.content.find(c => c.type === 'text');
+                    const textItem = lastUser.content.find((c: any) => c.type === 'text');
                     payload.user_input = textItem?.text || '';
                 } else {
                     payload.user_input = '';
@@ -671,7 +671,7 @@ export class TraeApiService {
 
         // 归一化 tools: 上游 Go 结构体 FunctionDefinition.parameters 要求必须为 JSON 字符串
         if (Array.isArray(payload.tools) && payload.tools.length > 0) {
-            const validTools = [];
+            const validTools: any[] = [];
             for (const item of payload.tools) {
                 if (!item || typeof item !== 'object') continue;
                 const toolObj = { ...item };
@@ -680,7 +680,7 @@ export class TraeApiService {
                     if (fn.parameters && typeof fn.parameters === 'object') {
                         try {
                             fn.parameters = JSON.stringify(fn.parameters);
-                        } catch (_) {}
+                        } catch (_: any) {}
                     }
                     toolObj.function = fn;
                     validTools.push(toolObj);
@@ -704,7 +704,7 @@ export class TraeApiService {
      * @param {Object} data - 上游 token_usage 数据
      * @returns {Object|null}
      */
-    _formatTokenUsage(data) {
+    _formatTokenUsage(data: any) {
         if (!data || typeof data !== 'object') return null;
 
         const promptTokens = Number(data.prompt_tokens ?? data.input_tokens) || 0;
@@ -731,7 +731,7 @@ export class TraeApiService {
      * 流式生成内容
      * 解析 Trae 的专有 SSE 事件并实时转码为 OpenAI 兼容的 chunk
      */
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         const channel = this.getChannelConfig();
         const payload = this.prepareRequestBody(model, requestBody);
         const headers = await this.buildHeaders(true);
@@ -748,10 +748,10 @@ export class TraeApiService {
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
 
         logger.debug(`[Trae] Streaming request to ${url} (channel: ${channel.mode}, model: ${payload.model_name || payload.model})`);
-        let response;
+        let response: any;
         try {
             response = await axios(/** @type {any} */ (axiosConfig));
-        } catch (err) {
+        } catch (err: any) {
             const errData = err.response?.data;
             let errMsg = err.message;
             if (errData) {
@@ -759,16 +759,16 @@ export class TraeApiService {
                     errMsg = errData;
                 } else if (errData && typeof errData.on === 'function') {
                     try {
-                        const chunks = [];
+                        const chunks: any[] = [];
                         for await (const chunk of errData) chunks.push(chunk);
                         errMsg = Buffer.concat(chunks).toString('utf-8');
-                    } catch (_) {
+                    } catch (_: any) {
                         errMsg = err.message;
                     }
                 } else {
                     try {
                         errMsg = JSON.stringify(errData);
-                    } catch (_) {
+                    } catch (_: any) {
                         errMsg = err.message;
                     }
                 }
@@ -783,13 +783,13 @@ export class TraeApiService {
         let currentEvent = 'output';
         let isFirst = true;
         let hasSeenToolCalls = false;
-        let tokenUsage = null;
+        let tokenUsage: any = null;
         let hasYieldedDone = false;
 
         for await (const chunk of response.data) {
             buffer += chunk.toString('utf-8');
             const lines = buffer.split(/\r?\n/);
-            buffer = lines.pop(); // 保留不完整尾部
+            buffer = lines.pop() || ''; // 保留不完整尾部
 
             for (const line of lines) {
                 const trimmed = line.trim();
@@ -807,7 +807,7 @@ export class TraeApiService {
                     const dataStr = trimmed.substring(5).trim();
                     if (!dataStr) continue;
 
-                    let dataObj = null;
+                    let dataObj: any = null;
                     try {
                         dataObj = JSON.parse(dataStr);
                     } catch {
@@ -824,9 +824,9 @@ export class TraeApiService {
                     if (currentEvent === 'output') {
                         const contentDelta = dataObj.response || '';
                         const reasoningDelta = dataObj.reasoning_content || '';
-                        let toolCalls = null;
+                        let toolCalls: any = null;
                         if (Array.isArray(dataObj.tool_calls) && dataObj.tool_calls.length > 0) {
-                            toolCalls = dataObj.tool_calls.map((tc, idx) => {
+                            toolCalls = dataObj.tool_calls.map((tc: any, idx: any) => {
                                 const item = { ...tc };
                                 if (item.index === undefined) item.index = idx;
                                 if (!item.type) item.type = 'function';
@@ -921,11 +921,11 @@ export class TraeApiService {
      * 非流式生成内容
      * 内部聚合流式增量生成标准 OpenAI 回复对象
      */
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         let fullContent = '';
         let fullReasoning = '';
         let finishReason = 'stop';
-        let latestUsage = null;
+        let latestUsage: any = null;
         const toolCallsMap = new Map();
         const stream = this.generateContentStream(model, requestBody);
 
@@ -1005,7 +1005,7 @@ export class TraeApiService {
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
-    async fetchRemoteModels(force = false) {
+    async fetchRemoteModels(force: any = false) {
         const now = Date.now();
         const accountCache = this.getAccountCache();
 
@@ -1031,7 +1031,7 @@ export class TraeApiService {
 
                 const channel = this.getChannelConfig();
                 const headers = await this.buildHeaders(false);
-                const allConfigs = [];
+                const allConfigs: any[] = [];
 
                 const isSoloOrChat = isSoloFamilyChannel(this.channelMode, channel.function);
                 if (isSoloOrChat) {
@@ -1059,7 +1059,7 @@ export class TraeApiService {
                         for (const item of res.data?.config_info_list || []) {
                             if (item) allConfigs.push(item);
                         }
-                    } catch (agentErr) {
+                    } catch (agentErr: any) {
                         logger.debug(`[Trae] get_detail_param failed on ${targetUrl}: ${agentErr.message}`);
                     }
                 } else {
@@ -1090,7 +1090,7 @@ export class TraeApiService {
                                 if (item) allConfigs.push(item);
                             }
                         }
-                    } catch (batchErr) {
+                    } catch (batchErr: any) {
                         logger.debug(`[Trae] batch_get_detail_param failed on ${targetUrl}: ${batchErr.message}`);
                     }
                 }
@@ -1110,7 +1110,7 @@ export class TraeApiService {
                 ]);
 
                 // 映射并规范化推理深度级别
-                const mapReasoningLevel = (lvl) => {
+                const mapReasoningLevel = (lvl: any) => {
                     const l = String(lvl || '').toLowerCase();
                     if (l === 'light' || l === 'low') return 'low';
                     if (l === 'extra_high' || l === 'xhigh' || l === 'max') return 'xhigh';
@@ -1152,14 +1152,14 @@ export class TraeApiService {
                     // context_window: 默认使用上游 Max 档位 (context_window_tokens.max)；若未显式提供则取可用最大档位 (如 dev / 详情最大容量)
                     const maxCtx = item.context_window_tokens?.max;
                     const devCtx = item.context_window_tokens?.dev;
-                    const detailMaxCtx = Math.max(...(item.model_detail_list || []).map(d => {
+                    const detailMaxCtx = Math.max(...(item.model_detail_list || []).map((d: any) => {
                         if (d.context_window_tokens) return d.context_window_tokens;
                         return (d.prompt_max_tokens || 0) + (d.max_tokens || 0);
                     }), 0);
                     const ctx = maxCtx || Math.max(devCtx || 0, detailMaxCtx) || 0;
 
                     // max_tokens: 默认使用上游最大档位 (从 model_detail_list 所有档位中提取最大值)
-                    const detailMaxTokens = (item.model_detail_list || []).map(d => d.max_tokens || 0);
+                    const detailMaxTokens = (item.model_detail_list || []).map((d: any) => d.max_tokens || 0);
                     const maxTok = detailMaxTokens.length > 0 ? Math.max(...detailMaxTokens) : (item.max_tokens || 0);
 
                     // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
@@ -1168,7 +1168,7 @@ export class TraeApiService {
                         (Array.isArray(effortConfig?.options) && effortConfig.options.length > 0) ||
                         (Array.isArray(effortConfig?.reasoning_effort_level_options) && effortConfig.reasoning_effort_level_options.length > 0);
                     const isExplicitlyDisabled = effortConfig?.support_thinking === false;
-                    const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some(re => re.test(id)));
+                    const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some((re: any) => re.test(id)));
 
                     const rawOptions = effortConfig?.options || effortConfig?.reasoning_effort_level_options;
                     const effortLevels = rawOptions?.length
@@ -1184,8 +1184,8 @@ export class TraeApiService {
                     const detailsList = Array.isArray(item.model_detail_list) && item.model_detail_list.length > 0
                         ? item.model_detail_list
                         : (Array.isArray(item.models) ? item.models : []);
-                    const standardVariant = detailsList.find(m => m.model_name?.endsWith('__dev'))?.model_name;
-                    const maxVariant = detailsList.find(m => m.model_name?.endsWith('__max'))?.model_name;
+                    const standardVariant = detailsList.find((m: any) => m.model_name?.endsWith('__dev'))?.model_name;
+                    const maxVariant = detailsList.find((m: any) => m.model_name?.endsWith('__max'))?.model_name;
                     const isFlashOff = id === 'DeepSeek-V4-Flash-Official';
                     const fallbackDev = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${id}__dev`;
                     const fallbackMax = isFlashOff ? 'deepseek_v4_flash_official__max' : `${id}__max`;
@@ -1233,7 +1233,7 @@ export class TraeApiService {
                     logger.info(`[Trae] (${targetProvider}/${this.channelMode}) Successfully fetched dynamic model list from upstream (${modelIds.length} models): ${modelIds.join(', ')}`);
                     return modelObjects;
                 }
-            } catch (error) {
+            } catch (error: any) {
                 logger.warn(`[Trae] Failed to fetch remote models (${this.channelMode}): ${error.message}`);
             } finally {
                 this._fetchModelsPromise = null;
@@ -1253,7 +1253,7 @@ export class TraeApiService {
         const modelIds = PROVIDER_MODELS[targetProvider] || this.getBaseModels(targetProvider);
         const accountCache = this.getAccountCache();
         const channel = this.getChannelConfig();
-        const fallbackList = modelIds.map(id => {
+        const fallbackList = modelIds.map((id: any) => {
             const canonical = this.normalizeModelName(id);
             const isFlashOff = canonical === 'DeepSeek-V4-Flash-Official';
             const standardKey = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${canonical}__dev`;
@@ -1290,7 +1290,7 @@ export class TraeApiService {
         const models = await this.fetchRemoteModels();
         return {
             object: 'list',
-            data: models.map(m => ({
+            data: models.map((m: any) => ({
                 id: m.id,
                 object: 'model',
                 created: 1753600000,

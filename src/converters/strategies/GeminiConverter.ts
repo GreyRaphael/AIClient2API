@@ -37,7 +37,7 @@ function isClaudeCodeToolHeuristicsEnabled() {
  * @param {any} part
  * @returns {string}
  */
-function inlineDataToMarkdown(part) {
+function inlineDataToMarkdown(part: any) {
     const mimeType = part?.inlineData?.mimeType || 'image/png';
     const data = part?.inlineData?.data || '';
     if (!data) return '';
@@ -48,18 +48,18 @@ function inlineDataToMarkdown(part) {
  * 修复 Gemini 返回的工具参数名称问题
  * Gemini 有时会使用不同的参数名称，需要映射到 Claude Code 期望的格式
  */
-function remapFunctionCallArgs(toolName, args) {
+function remapFunctionCallArgs(toolName: any, args: any) {
     if (!isClaudeCodeToolHeuristicsEnabled()) return args;
     if (!args || typeof args !== 'object') return args;
-    
+
     const remappedArgs = { ...args };
     const toolNameLower = toolName.toLowerCase();
-    
+
     // [IMPORTANT] Claude Code CLI 的 EnterPlanMode 工具禁止携带任何参数
     if (toolName === 'EnterPlanMode') {
         return {};
     }
-    
+
     switch (toolNameLower) {
         case 'grep':
         case 'search':
@@ -70,13 +70,13 @@ function remapFunctionCallArgs(toolName, args) {
                 remappedArgs.pattern = remappedArgs.description;
                 delete remappedArgs.description;
             }
-            
+
             // Gemini uses "query", Claude Code expects "pattern"
             if (remappedArgs.query && !remappedArgs.pattern) {
                 remappedArgs.pattern = remappedArgs.query;
                 delete remappedArgs.query;
             }
-            
+
             // [CRITICAL FIX] Claude Code uses "path" (string), NOT "paths" (array)!
             if (!remappedArgs.path) {
                 if (remappedArgs.paths) {
@@ -95,20 +95,20 @@ function remapFunctionCallArgs(toolName, args) {
             }
             // Note: We keep "-n" and "output_mode" if present as they are valid in Grep schema
             break;
-            
+
         case 'glob':
             // [FIX] Gemini hallucination: maps parameter description to "description" field
             if (remappedArgs.description && !remappedArgs.pattern) {
                 remappedArgs.pattern = remappedArgs.description;
                 delete remappedArgs.description;
             }
-            
+
             // Gemini uses "query", Claude Code expects "pattern"
             if (remappedArgs.query && !remappedArgs.pattern) {
                 remappedArgs.pattern = remappedArgs.query;
                 delete remappedArgs.query;
             }
-            
+
             // [CRITICAL FIX] Claude Code uses "path" (string), NOT "paths" (array)!
             // [NOTE] 与 grep 不同，glob 不添加默认 path（参考 Rust 代码）
             if (!remappedArgs.path) {
@@ -125,7 +125,7 @@ function remapFunctionCallArgs(toolName, args) {
                 // [FIX] glob 不添加默认 path，与 Rust 代码保持一致
             }
             break;
-            
+
         case 'read':
             // Gemini might use "path" vs "file_path"
             if (remappedArgs.path && !remappedArgs.file_path) {
@@ -133,14 +133,14 @@ function remapFunctionCallArgs(toolName, args) {
                 delete remappedArgs.path;
             }
             break;
-            
+
         case 'ls':
             // LS tool: ensure "path" parameter exists
             if (!remappedArgs.path) {
                 remappedArgs.path = '.';
             }
             break;
-            
+
         default:
             // [NEW] [Issue #785] Generic Property Mapping for all tools
             // If a tool has "paths" (array of 1) but no "path", convert it.
@@ -156,7 +156,7 @@ function remapFunctionCallArgs(toolName, args) {
             }
             break;
     }
-    
+
     return remappedArgs;
 }
 
@@ -164,7 +164,7 @@ function remapFunctionCallArgs(toolName, args) {
  * [FIX] 规范化工具名称
  * Gemini 有时会返回 "search" 而不是 "Grep"
  */
-function normalizeToolName(name) {
+function normalizeToolName(name: any) {
     if (!name) return name;
     if (!isClaudeCodeToolHeuristicsEnabled()) return name;
 
@@ -194,7 +194,7 @@ export class GeminiConverter extends BaseConverter {
      * 清理该请求在 Gemini 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId) {
+    resetStreamState(requestId: any) {
         if (!requestId) return;
         this.openAIResponsesStreamStates.delete(requestId);
         this.claudeStreamStates.delete(requestId);
@@ -212,7 +212,7 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data, targetProtocol, model, requestId = null) {
+    convertResponse(data: any, targetProtocol: any, model: any, requestId: any = null) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
@@ -228,7 +228,7 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk, targetProtocol, model, requestId) {
+    convertStreamChunk(chunk: any, targetProtocol: any, model: any, requestId: any) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
@@ -244,7 +244,7 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换模型列表
      */
-    convertModelList(data, targetProtocol) {
+    convertModelList(data: any, targetProtocol: any) {
         return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
             ? this.toOpenAIModelList(data)
             : data;
@@ -258,11 +258,11 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini响应 -> OpenAI响应
      */
-    toOpenAIResponse(geminiResponse, model) {
+    toOpenAIResponse(geminiResponse: any, model: any) {
         const { content, reasoning_content } = this.processGeminiResponseContent(geminiResponse);
 
         // 提取 tool_calls
-        const toolCalls = [];
+        const toolCalls: any[] = [];
 
         if (geminiResponse && geminiResponse.candidates) {
             for (const candidate of geminiResponse.candidates) {
@@ -289,7 +289,7 @@ export class GeminiConverter extends BaseConverter {
         let finishReason = toolCalls.length > 0
             ? "tool_calls"
             : mapFinishReason(geminiResponse?.candidates?.[0]?.finishReason, 'gemini', 'openai');
-        
+
         const message: any = {
             role: "assistant",
             content: content
@@ -298,12 +298,12 @@ export class GeminiConverter extends BaseConverter {
         if (reasoning_content) {
             message.reasoning_content = reasoning_content;
         }
-        
+
         // 只有在有 tool_calls 时才添加该字段
         if (toolCalls.length > 0) {
             message.tool_calls = toolCalls;
         }
-        
+
         return {
             id: `chatcmpl-${uuidv4()}`,
             object: "chat.completion",
@@ -332,14 +332,14 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
      */
-    _getOpenAIStreamIdentity(requestId) {
+    _getOpenAIStreamIdentity(requestId: any) {
         return getOpenAIStreamIdentity(this.openaiStreamStates, requestId);
     }
 
     /**
      * Gemini流式响应 -> OpenAI流式响应
      */
-    toOpenAIStreamChunk(geminiChunk, model, requestId = null) {
+    toOpenAIStreamChunk(geminiChunk: any, model: any, requestId: any = null) {
         if (!geminiChunk) return null;
 
         const candidate = geminiChunk.candidates?.[0];
@@ -351,7 +351,7 @@ export class GeminiConverter extends BaseConverter {
 
         let content = '';
         let reasoning_content = '';
-        const toolCalls = [];
+        const toolCalls: any[] = [];
         // 本 chunk 是否携带了可识别的 part（含仅有 thoughtSignature 的 part）。
         // Gemini 3 系列会先回传只带 thoughtSignature、不带 text 的 part，若把这种 chunk 整体丢弃，
         // 当整个流只由这类 part 组成时下游会收到 0 个 chunk（LangChain 报 "No generations found in stream."）。
@@ -402,7 +402,7 @@ export class GeminiConverter extends BaseConverter {
         // 只有上游明确给出 finishReason 时才写终止原因；工具 chunk 本身不是流终点。
         // 若在工具 chunk 上提前写 tool_calls，Agent 客户端会把该 chunk 当作流结束，
         // 从而丢掉后续正文/工具参数。最终 STOP 帧由 pipeline 的 hasToolCall 逻辑覆盖。
-        let finishReason = null;
+        let finishReason: any = null;
         if (candidate.finishReason) {
             finishReason = mapFinishReason(candidate.finishReason, 'gemini', 'openai');
         }
@@ -447,10 +447,10 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini模型列表 -> OpenAI模型列表
      */
-    toOpenAIModelList(geminiModels) {
+    toOpenAIModelList(geminiModels: any) {
         return {
             object: "list",
-            data: geminiModels.models.map(m => {
+            data: geminiModels.models.map((m: any) => {
                 const modelId = m.name.startsWith('models/') ? m.name.substring(7) : m.name;
                 return {
                     id: modelId,
@@ -463,15 +463,15 @@ export class GeminiConverter extends BaseConverter {
         };
     }
 
-    processGeminiResponseContent(geminiResponse) {
+    processGeminiResponseContent(geminiResponse: any) {
         if (!geminiResponse || !geminiResponse.candidates) return { content: '', reasoning_content: '' };
-        
-        const contents = [];
-        const reasoningContents = [];
-        
-        geminiResponse.candidates.forEach(candidate => {
+
+        const contents: any[] = [];
+        const reasoningContents: any[] = [];
+
+        geminiResponse.candidates.forEach((candidate: any) => {
             if (candidate.content && candidate.content.parts) {
-                candidate.content.parts.forEach(part => {
+                candidate.content.parts.forEach((part: any) => {
                     if (part.text) {
                         if (part.thought === true) {
                             reasoningContents.push(part.text);
@@ -482,7 +482,7 @@ export class GeminiConverter extends BaseConverter {
                 });
             }
         });
-        
+
         return {
             content: contents.join('\n'),
             reasoning_content: reasoningContents.join('\n')
@@ -497,7 +497,7 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini响应 -> Claude响应
      */
-    toClaudeResponse(geminiResponse, model) {
+    toClaudeResponse(geminiResponse: any, model: any) {
         if (!geminiResponse || !geminiResponse.candidates || geminiResponse.candidates.length === 0) {
             return {
                 id: `msg_${uuidv4()}`,
@@ -539,7 +539,7 @@ export class GeminiConverter extends BaseConverter {
      * 获取或创建 Claude 流式转换会话（按 requestId 隔离并发流）
      * 事件序列骨架由 AnthropicSseEmitter 统一维护（sequential 单活动块语义）
      */
-    _getClaudeStreamState(model, requestId) {
+    _getClaudeStreamState(model: any, requestId: any) {
         const stateKey = requestId || 'default';
         if (!this.claudeStreamStates.has(stateKey)) {
             this.claudeStreamStates.set(stateKey, {
@@ -564,7 +564,7 @@ export class GeminiConverter extends BaseConverter {
      * 严格遵循 Anthropic Messages API SSE 事件规范：
      * message_start -> content_block_start -> content_block_delta* -> content_block_stop -> message_delta -> message_stop
      */
-    toClaudeStreamChunk(geminiChunk, model, requestId = null) {
+    toClaudeStreamChunk(geminiChunk: any, model: any, requestId: any = null) {
         if (!geminiChunk) return null;
 
         // 向后兼容：处理字符串格式（视为一个文本增量）
@@ -578,7 +578,7 @@ export class GeminiConverter extends BaseConverter {
 
         const { stateKey, entry } = this._getClaudeStreamState(model, requestId);
         const { emitter } = entry;
-        const events = [];
+        const events: any[] = [];
 
         // 记录 usage（filterSSEUsageMetadata 保证仅终帧保留 usageMetadata）
         if (geminiChunk.usageMetadata) {
@@ -688,12 +688,12 @@ export class GeminiConverter extends BaseConverter {
     }
 
 
-    processGeminiResponseToClaudeContent(geminiResponse) {
+    processGeminiResponseToClaudeContent(geminiResponse: any) {
         if (!geminiResponse || !geminiResponse.candidates || geminiResponse.candidates.length === 0) {
             return { content: [], hasToolUse: false };
         }
 
-        const content = [];
+        const content: any[] = [];
         let hasToolUse = false;
 
         for (const candidate of geminiResponse.candidates) {
@@ -740,7 +740,7 @@ export class GeminiConverter extends BaseConverter {
                         // [FIX] 规范化工具名称和参数映射
                         const toolName = normalizeToolName(part.functionCall.name);
                         const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
-                        
+
                         // [FIX] 使用 Gemini 提供的 id
                         const toolUseBlock = {
                             type: 'tool_use',
@@ -769,19 +769,19 @@ export class GeminiConverter extends BaseConverter {
     // =========================================================================
 
 
-    _buildResponsesMessageItemId(responseId, index = 0) {
+    _buildResponsesMessageItemId(responseId: any, index: any = 0) {
         return `msg_${responseId}_${index}`;
     }
 
-    _buildResponsesFunctionItemId(callId) {
+    _buildResponsesFunctionItemId(callId: any) {
         return callId ? `fc_${callId}` : `fc_${uuidv4().replace(/-/g, '')}`;
     }
 
-    _stringifyGeminiFunctionArgs(args) {
+    _stringifyGeminiFunctionArgs(args: any) {
         return typeof args === 'string' ? args : JSON.stringify(args || {});
     }
 
-    _getOpenAIResponsesStreamEmitter(model, requestId) {
+    _getOpenAIResponsesStreamEmitter(model: any, requestId: any) {
         const stateKey = requestId || 'default';
         if (!this.openAIResponsesStreamStates.has(stateKey)) {
             const responseId = `resp_${uuidv4().replace(/-/g, '')}`;
@@ -802,13 +802,13 @@ export class GeminiConverter extends BaseConverter {
         return { stateKey, emitter };
     }
 
-    toOpenAIResponsesResponse(geminiResponse, model, requestId = null) {
+    toOpenAIResponsesResponse(geminiResponse: any, model: any, requestId: any = null) {
         const { content, reasoning_content } = this.processGeminiResponseContent(geminiResponse);
         const textContent = typeof content === 'string' ? content : JSON.stringify(content);
 
-        let output = [];
+        let output: any[] = [];
         const responseId = `resp_${uuidv4().replace(/-/g, '')}`;
-        const toolCalls = [];
+        const toolCalls: any[] = [];
 
         if (geminiResponse?.candidates) {
             for (const candidate of geminiResponse.candidates) {
@@ -872,7 +872,7 @@ export class GeminiConverter extends BaseConverter {
 
         const finishReason = geminiResponse?.candidates?.[0]?.finishReason;
         let status = 'completed';
-        let incompleteDetails = null;
+        let incompleteDetails: any = null;
         if (finishReason === 'MAX_TOKENS') {
             status = 'incomplete';
             incompleteDetails = { reason: 'max_output_tokens' };
@@ -923,11 +923,11 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini流式响应 -> OpenAI Responses流式响应
      */
-    toOpenAIResponsesStreamChunk(geminiChunk, model, requestId = null) {
+    toOpenAIResponsesStreamChunk(geminiChunk: any, model: any, requestId: any = null) {
         if (!geminiChunk) return [];
 
         const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
-        const events = [];
+        const events: any[] = [];
 
         // 处理完整的Gemini chunk对象
         if (typeof geminiChunk === 'object' && !Array.isArray(geminiChunk)) {
@@ -937,34 +937,34 @@ export class GeminiConverter extends BaseConverter {
             }
 
             const candidate = geminiChunk.candidates?.[0];
-            
+
             if (candidate) {
                 const parts = candidate.content?.parts;
-                
+
                 // 第一个chunk - 检测是否是开始（有role）
                 if (candidate.content?.role === 'model' && parts && parts.length > 0) {
-                    const hasContent = parts.some(part => part && typeof part.text === 'string' && part.text.length > 0 && part.thought !== true);
+                    const hasContent = parts.some((part: any) => part && typeof part.text === 'string' && part.text.length > 0 && part.thought !== true);
                     if (hasContent) {
                         events.push(...emitter.start());
                     }
                 }
-                
+
                 // 提取内容
                 if (parts && Array.isArray(parts)) {
                     // 1. 提取推理内容（Gemini 3.7 Flash thinking）
-                    const thoughtParts = parts.filter(part => part && typeof part.text === 'string' && part.thought === true);
+                    const thoughtParts = parts.filter((part: any) => part && typeof part.text === 'string' && part.thought === true);
                     if (thoughtParts.length > 0) {
-                        const thoughtText = thoughtParts.map(part => part.text).join('');
+                        const thoughtText = thoughtParts.map((part: any) => part.text).join('');
                         if (thoughtText.length > 0) {
                             events.push(...emitter.reasoningDelta(thoughtText));
                         }
                     }
 
                     // 2. 提取普通文本内容
-                    const textParts = parts.filter(part => part && typeof part.text === 'string' && part.thought !== true);
-                    const functionPartsInChunk = parts.filter(part => part && part.functionCall);
+                    const textParts = parts.filter((part: any) => part && typeof part.text === 'string' && part.thought !== true);
+                    const functionPartsInChunk = parts.filter((part: any) => part && part.functionCall);
                     if (textParts.length > 0) {
-                        const text = textParts.map(part => part.text).join('');
+                        const text = textParts.map((part: any) => part.text).join('');
                         // 过滤掉纯空文本与伴随工具调用产生的孤立点号/空白占位符
                         const isMeaninglessPlaceholder = (text === '.' || text === '..' || text.trim().length === 0) && functionPartsInChunk.length > 0;
 
@@ -980,7 +980,7 @@ export class GeminiConverter extends BaseConverter {
 
                     // 3. 图片 / inlineData：Responses 没有通用的流式 inline image 事件，
                     // 以 Markdown data URL 形式写入文本输出，至少不静默丢弃。
-                    const inlineParts = parts.filter(part => part && part.inlineData);
+                    const inlineParts = parts.filter((part: any) => part && part.inlineData);
                     if (inlineParts.length > 0) {
                         if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
                             events.push(...emitter.reasoningDone());
@@ -992,7 +992,7 @@ export class GeminiConverter extends BaseConverter {
                     }
 
                     // 4. 提取工具调用
-                    const functionParts = parts.filter(part => part && part.functionCall);
+                    const functionParts = parts.filter((part: any) => part && part.functionCall);
                     if (functionParts.length > 0) {
                         // 先闭合可能处于打开状态的 reasoning 块
                         if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
@@ -1004,7 +1004,7 @@ export class GeminiConverter extends BaseConverter {
                             events.push(...emitter.textDone());
                         }
 
-                        functionParts.forEach(part => {
+                        functionParts.forEach((part: any) => {
                             const callId = part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
                             const name = part.functionCall.name;
                             // 只有请求侧登记为 custom 的工具才还原 custom 语义；
@@ -1040,7 +1040,7 @@ export class GeminiConverter extends BaseConverter {
                 const usage = emitter.savedUsage || geminiUsageToResponses(geminiChunk.usageMetadata || {});
 
                 let status = 'completed';
-                let incompleteDetails = null;
+                let incompleteDetails: any = null;
                 if (candidate?.finishReason === 'MAX_TOKENS') {
                     status = 'incomplete';
                     incompleteDetails = { reason: 'max_output_tokens' };

@@ -23,12 +23,12 @@ export function getSchemaPolyfillMaxDesc() {
  * @param {any} obj
  * @returns {any}
  */
-function deepClone(obj) {
+function deepClone(obj: any) : any {
     if (obj === null || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) return obj.map(deepClone);
     const copy = {};
     for (const key of Object.keys(obj)) {
-        copy[key] = deepClone(obj[key]);
+        (copy as any)[key] = deepClone(obj[key]);
     }
     return copy;
 }
@@ -38,7 +38,7 @@ function deepClone(obj) {
  * @param {string} part
  * @returns {string}
  */
-function decodeJsonPointerPart(part) {
+function decodeJsonPointerPart(part: any) {
     return part.replace(/~1/g, '/').replace(/~0/g, '~');
 }
 
@@ -48,7 +48,7 @@ function decodeJsonPointerPart(part) {
  * @param {string} ref
  * @returns {any}
  */
-function resolveRef(rootSchema, ref) {
+function resolveRef(rootSchema: any, ref: any) {
     if (!ref.startsWith('#/')) return undefined;
     const parts = ref.slice(2).split('/').map(decodeJsonPointerPart);
     let curr = rootSchema;
@@ -69,11 +69,11 @@ function resolveRef(rootSchema, ref) {
  * @param {any} schema
  * @returns {string}
  */
-function summarizeSchemaForDescription(schema) {
+function summarizeSchemaForDescription(schema: any) {
     if (schema === null || typeof schema !== 'object') {
         return String(schema);
     }
-    const parts = [];
+    const parts: any[] = [];
     if (schema.type) parts.push(`type=${schema.type}`);
     if (Array.isArray(schema.required) && schema.required.length > 0) {
         parts.push(`required=[${schema.required.join(',')}]`);
@@ -100,10 +100,10 @@ function summarizeSchemaForDescription(schema) {
 
 /**
  * 工具 Schema Polyfill 降级编译器
- * 
+ *
  * 将高级 JSON Schema 特性（$ref, oneOf, anyOf, allOf, pattern, format, 数值边界等）
  * 降级编译为 Gemini / Trae Protobuf 解析器兼容的纯净 Schema，并通过自然语言将校验约束注入 description。
- * 
+ *
  * @param {Object} rawSchema - 原始 JSON Schema
  * @param {Object} [options={}] - 配置选项
  * @param {boolean} [options.injectConstraints=true] - 是否自然语言化注入约束
@@ -112,7 +112,7 @@ function summarizeSchemaForDescription(schema) {
  * @param {'gemini'|'trae'} [options.dialect='gemini'] - 目标方言（预留接口：Trae 通道本期不接入，行为同 'gemini'）
  * @returns {{ schema: Object, report: { expandedRefs: number, injectedConstraints: Array<{path: string, kinds: string[]}>, collapsedOneOf: Array<{path: string}>, truncated: boolean } }}
  */
-export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
+export function polyfillSchemaForGemini(rawSchema: any, options: any = {}) {
     const injectConstraints = options.injectConstraints !== false;
     const maxDescriptionLength = (typeof options.maxDescriptionLength === 'number' && options.maxDescriptionLength > 0)
         ? options.maxDescriptionLength
@@ -127,8 +127,8 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
 
     const report = {
         expandedRefs: 0,
-        injectedConstraints: [],
-        collapsedOneOf: [],
+        injectedConstraints: [] as any[],
+        collapsedOneOf: [] as any[],
         truncated: false
     };
 
@@ -138,12 +138,12 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
 
     const rootCopy = deepClone(rawSchema);
     /** @type {Array<{ node: Object, originalDesc: string|undefined, injectedText: string, depth: number }>} */
-    const injectedNodes = [];
+    const injectedNodes: any[] = [];
 
     // =========================================================================
     // 阶段 1 & 2 & 3 递归遍历与编译
     // =========================================================================
-    function transformNode(node, path = '#', depth = 0, refStack = []) {
+    function transformNode(node: any, path: any = '#', depth: any = 0, refStack: any = []) {
         if (!node || typeof node !== 'object' || Array.isArray(node)) {
             return node;
         }
@@ -197,7 +197,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
 
         if (node.items) {
             if (Array.isArray(node.items)) {
-                node.items = node.items.map((item, idx) =>
+                node.items = node.items.map((item: any, idx: any) =>
                     transformNode(item, `${path}/items/${idx}`, depth + 1, refStack)
                 );
             } else if (typeof node.items === 'object') {
@@ -255,10 +255,10 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
                 ? { ...node.properties }
                 : {};
             let mergedRequired = Array.isArray(node.required) ? [...node.required] : [];
-            const branchDescriptions = [];
-            const branchTypes = [];
-            const branchEnums = [];
-            const branchConsts = [];
+            const branchDescriptions: any[] = [];
+            const branchTypes: any[] = [];
+            const branchEnums: any[] = [];
+            const branchConsts: any[] = [];
             if (node.description) {
                 branchDescriptions.push(node.description);
             }
@@ -306,10 +306,10 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
             if (branchEnums.length > 0) {
                 let intersection = branchEnums[0].slice();
                 for (const values of branchEnums.slice(1)) {
-                    intersection = intersection.filter(value => values.includes(value));
+                    intersection = intersection.filter((value: any) => values.includes(value));
                 }
                 if (Array.isArray(node.enum)) {
-                    intersection = node.enum.filter(value => intersection.includes(value));
+                    intersection = node.enum.filter((value: any) => intersection.includes(value));
                 }
                 if (intersection.length > 0) {
                     node.enum = intersection;
@@ -321,8 +321,8 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
 
             // const 在所有分支一致时提升；冲突时不声明，避免错误约束。
             if (node.const === undefined && branchConsts.length === allOfBranches.length) {
-                const uniqueConsts = branchConsts.filter((value, index, arr) =>
-                    arr.findIndex(other => JSON.stringify(other) === JSON.stringify(value)) === index
+                const uniqueConsts = branchConsts.filter((value: any, index: any, arr: any) =>
+                    arr.findIndex((other: any) => JSON.stringify(other) === JSON.stringify(value)) === index
                 );
                 if (uniqueConsts.length === 1) {
                     node.const = uniqueConsts[0];
@@ -351,14 +351,14 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
             const descriptionBeforeUnion = node.description;
             report.collapsedOneOf.push({ path });
 
-            const transformedBranches = unionBranches.map((b, idx) =>
+            const transformedBranches = unionBranches.map((b: any, idx: any) =>
                 transformNode(b, `${path}/oneOf/${idx}`, depth + 1, refStack)
             );
 
             // 检查各分支类型是否一致，识别 T | null 可空联合
-            const branchTypes = transformedBranches.map(b => b.type).filter(Boolean);
-            const nonNullTypes = Array.from(new Set(branchTypes.filter(t => t !== 'null')));
-            const hasNullBranch = branchTypes.includes('null') || transformedBranches.some(b => b.nullable === true || b.const === null);
+            const branchTypes = transformedBranches.map((b: any) => b.type).filter(Boolean);
+            const nonNullTypes = Array.from(new Set(branchTypes.filter((t: any) => t !== 'null')));
+            const hasNullBranch = branchTypes.includes('null') || transformedBranches.some((b: any) => b.nullable === true || b.const === null);
             const allSameType = branchTypes.length === transformedBranches.length && new Set(branchTypes).size === 1;
             const isNullableSingleType = branchTypes.length === transformedBranches.length && nonNullTypes.length === 1 && hasNullBranch;
 
@@ -373,11 +373,11 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
 
             // oneOf/anyOf 的对象分支：合并 properties 以保留字段名与枚举，
             // 但 required 取各分支交集，避免把某个互斥分支的必填字段强加到所有分支。
-            const objectBranches = transformedBranches.filter(b => b.type === 'object' || (b.properties && typeof b.properties === 'object'));
+            const objectBranches = transformedBranches.filter((b: any) => b.type === 'object' || (b.properties && typeof b.properties === 'object'));
             if ((allSameType && branchTypes[0] === 'object') || (isNullableSingleType && nonNullTypes[0] === 'object')) {
                 const mergedProperties: Record<string, any> = {};
                 const requiredSets = objectBranches.map(
-                    (branch) => new Set(Array.isArray(branch.required) ? branch.required : [])
+                    (branch: any) => new Set(Array.isArray(branch.required) ? branch.required : [])
                 );
 
                 for (const branch of objectBranches) {
@@ -405,7 +405,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
                         ...mergedProperties
                     };
                     const commonRequired = requiredSets.length > 0
-                        ? [...requiredSets[0]].filter((key) => requiredSets.every((set) => set.has(key)))
+                        ? [...requiredSets[0]].filter((key: any) => requiredSets.every((set: any) => set.has(key)))
                         : [];
                     node.required = Array.from(new Set([
                         ...(Array.isArray(node.required) ? node.required : []),
@@ -418,7 +418,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
             }
 
             // 构造分支摘要（截断 120 字符）
-            const branchSummaries = transformedBranches.map(b => {
+            const branchSummaries = transformedBranches.map((b: any) => {
                 if (Array.isArray(b.enum) && b.enum.length > 0) {
                     const preview = b.enum.slice(0, 4).join(', ');
                     return `enum[${preview}${b.enum.length > 4 ? ', ...' : ''}]`;
@@ -466,13 +466,13 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
 
         // 2. 约束自然语言化注入 (Instruction Injection Polyfill)
         if (injectConstraints) {
-            const constraintItems = [];
-            const kinds = [];
+            const constraintItems: any[] = [];
+            const kinds: any[] = [];
 
             // Gemini 只接受字符串 enum；数值/布尔 enum 会被白名单清洗丢弃，
             // 因此在降级前把原始 enum 注入 description，保留约束语义。
-            if (Array.isArray(node.enum) && node.enum.some((value) => typeof value !== 'string')) {
-                constraintItems.push(`enum=${node.enum.map((value) => JSON.stringify(value)).join('|')}`);
+            if (Array.isArray(node.enum) && node.enum.some((value: any) => typeof value !== 'string')) {
+                constraintItems.push(`enum=${node.enum.map((value: any) => JSON.stringify(value)).join('|')}`);
                 kinds.push('enum');
             }
 
@@ -533,7 +533,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
                 kinds.push('multipleOf');
             }
             if (node.patternProperties && typeof node.patternProperties === 'object' && Object.keys(node.patternProperties).length > 0) {
-                const patSummaries = Object.entries(node.patternProperties).map(([pat, sub]) => {
+                const patSummaries = Object.entries(node.patternProperties).map(([pat, sub]: any) => {
                     return `${pat}:${summarizeSchemaForDescription(sub)}`;
                 });
                 constraintItems.push(`patternProperties={${patSummaries.join(', ')}}`);
@@ -550,7 +550,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
                 constraintItems.push('not=true (no instance is valid)');
                 kinds.push('not');
             } else if (node.not && typeof node.not === 'object') {
-                const notParts = [];
+                const notParts: any[] = [];
                 if (node.not.type) notParts.push(`type=${node.not.type}`);
                 if (Array.isArray(node.not.enum)) notParts.push(`enum=${JSON.stringify(node.not.enum)}`);
                 if (node.not.const !== undefined) notParts.push(`const=${JSON.stringify(node.not.const)}`);
@@ -560,7 +560,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
             }
             if (node.dependentRequired && typeof node.dependentRequired === 'object') {
                 const depEntries = Object.entries(node.dependentRequired)
-                    .map(([k, reqs]) => `${k}->[${Array.isArray(reqs) ? reqs.join(',') : reqs}]`);
+                    .map(([k, reqs]: any) => `${k}->[${Array.isArray(reqs) ? reqs.join(',') : reqs}]`);
                 if (depEntries.length > 0) {
                     constraintItems.push(`dependentRequired={${depEntries.join('; ')}}`);
                     kinds.push('dependentRequired');
@@ -575,7 +575,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
             }
             if (node.dependentSchemas && typeof node.dependentSchemas === 'object' && !Array.isArray(node.dependentSchemas)) {
                 const depEntries = Object.entries(node.dependentSchemas)
-                    .map(([k, schema]) => `${k}->${summarizeSchemaForDescription(schema)}`);
+                    .map(([k, schema]: any) => `${k}->${summarizeSchemaForDescription(schema)}`);
                 if (depEntries.length > 0) {
                     constraintItems.push(`dependentSchemas={${depEntries.join('; ')}}`);
                     kinds.push('dependentSchemas');
@@ -637,7 +637,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
         // patternProperties、dependentSchemas、if/then/else、not 等子 Schema 会被白名单删除，
         // 其约束已经汇总到父节点 description，不能单独参与裁剪计数。
         const reachableNodes = new Set<any>();
-        function collectReachableNodes(node) {
+        function collectReachableNodes(node: any) {
             if (!node || typeof node !== 'object' || reachableNodes.has(node)) return;
             reachableNodes.add(node);
             if (node.properties && typeof node.properties === 'object') {
@@ -682,7 +682,7 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
             }
 
             const trimCandidates = Array.from(candidateByNode.values())
-                .sort((a, b) => a.depth - b.depth);
+                .sort((a: any, b: any) => a.depth - b.depth);
 
             for (const item of trimCandidates) {
                 if (totalDescLength <= maxDescriptionLength) break;
@@ -712,12 +712,12 @@ export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
 /**
  * 组合 Polyfill 与标准白名单清洗
  * 供 OpenAIConverter 及 Gemini provider 调用点前置复用
- * 
+ *
  * @param {Object} schema - 原始 Schema
  * @param {Object} [options={}] - Polyfill 参数
  * @returns {Object} 清理后的 JSON Schema
  */
-export function polyfillAndCleanSchemaForGemini(schema, options: any = {}) {
+export function polyfillAndCleanSchemaForGemini(schema: any, options: any = {}) {
     if (!schema || typeof schema !== 'object') {
         return cleanJsonSchemaProperties(schema);
     }

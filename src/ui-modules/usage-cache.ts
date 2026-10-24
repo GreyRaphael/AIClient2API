@@ -18,7 +18,7 @@ export async function readUsageCache() {
             return JSON.parse(content);
         }
         return null;
-    } catch (error) {
+    } catch (error: any) {
         logger.warn('[Usage Cache] Failed to read usage cache:', error.message);
         return null;
     }
@@ -28,11 +28,11 @@ export async function readUsageCache() {
  * 写入用量缓存文件
  * @param {Object} usageData - 用量数据
  */
-export async function writeUsageCache(usageData) {
+export async function writeUsageCache(usageData: any) {
     try {
         await atomicWriteFile(USAGE_CACHE_FILE, JSON.stringify(usageData, null, 2), { encoding: 'utf8', mode: 0o600 });
         logger.info('[Usage Cache] Usage data cached to', USAGE_CACHE_FILE);
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[Usage Cache] Failed to write usage cache:', error.message);
     }
 }
@@ -42,7 +42,7 @@ export async function writeUsageCache(usageData) {
  * @param {string} providerType - 提供商类型
  * @returns {Promise<Object|null>} 缓存的用量数据
  */
-export async function readProviderUsageCache(providerType) {
+export async function readProviderUsageCache(providerType: any) {
     const cache = await readUsageCache();
     if (cache && cache.providers && cache.providers[providerType]) {
         return {
@@ -59,7 +59,7 @@ export async function readProviderUsageCache(providerType) {
  * @param {string} providerType - 提供商类型
  * @param {Object} usageData - 用量数据
  */
-export async function updateProviderUsageCache(providerType, usageData) {
+export async function updateProviderUsageCache(providerType: any, usageData: any) {
     let cache = await readUsageCache();
     if (!cache) {
         cache = {

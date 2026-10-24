@@ -1,6 +1,6 @@
 /**
  * 插件管理器 - 可插拔插件系统核心
- * 
+ *
  * 功能：
  * 1. 插件注册与加载
  * 2. 生命周期管理（init/destroy）
@@ -95,16 +95,16 @@ class PluginManager {
         try {
             // 1. 永远生成默认配置
             const defaultConfig: any = await this.generateDefaultConfig();
-            
+
             // 2. 如果本地文件存在，读取并合并
             if (existsSync(PLUGINS_CONFIG_FILE)) {
                 const content = await fs.readFile(PLUGINS_CONFIG_FILE, 'utf8');
                 const localConfig = JSON.parse(content);
-                
+
                 // 3. 合并配置：遍历默认配置中的所有插件
                 for (const [pluginName, defaultPluginConfig] of Object.entries(defaultConfig.plugins) as [string, any][]) {
                     const localPluginConfig = localConfig.plugins?.[pluginName];
-                    
+
                     if (localPluginConfig) {
                         // 本地配置存在，合并但保留本地的 enabled 字段
                         defaultConfig.plugins[pluginName] = {
@@ -116,10 +116,10 @@ class PluginManager {
                     // 如果本地配置不存在该插件，使用默认配置
                 }
             }
-            
+
             this.pluginsConfig = defaultConfig;
             await this.saveConfig();
-        } catch (error) {
+        } catch (error: any) {
             logger.error('[PluginManager] Failed to load config:', error.message);
             this.pluginsConfig = { plugins: {} };
         }
@@ -132,31 +132,31 @@ class PluginManager {
     async generateDefaultConfig() {
         const defaultConfig = { plugins: {} };
         const dirs = [BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR];
-        
+
         for (const pluginsDir of dirs) {
             try {
                 if (!existsSync(pluginsDir)) {
                     continue;
                 }
-                
+
                 const entries = await fs.readdir(pluginsDir, { withFileTypes: true });
-                
+
                 for (const entry of entries) {
                     if (!entry.isDirectory()) continue;
                     try {
                         validatePluginId(entry.name, 'plugin directory name');
-                    } catch (error) {
+                    } catch (error: any) {
                         logger.warn(`[PluginManager] Skipping plugin directory "${entry.name}": ${error.message}`);
                         continue;
                     }
-                    
+
                     const pluginPath = path.join(pluginsDir, entry.name, 'index.js');
                     if (!existsSync(pluginPath)) continue;
-                    
+
                     try {
                         if (pluginsDir === USER_PLUGINS_DIR) {
                             const enabled = !DEFAULT_DISABLED_PLUGINS.includes(entry.name);
-                            defaultConfig.plugins[entry.name] = {
+                            (defaultConfig.plugins as any)[entry.name] = {
                                 enabled: enabled,
                                 description: ''
                             };
@@ -167,32 +167,32 @@ class PluginManager {
                         // 动态导入插件以获取其元信息
                         const pluginModule = await import(`file://${pluginPath}`);
                         const plugin = pluginModule.default || pluginModule;
-                        
+
                         if (plugin && plugin.name) {
                             // 检查是否在默认禁用列表中
                             const enabled = !DEFAULT_DISABLED_PLUGINS.includes(plugin.name);
-                            defaultConfig.plugins[plugin.name] = {
+                            (defaultConfig.plugins as any)[plugin.name] = {
                                 enabled: enabled,
                                 description: plugin.description || ''
                             };
                             logger.info(`[PluginManager] Found plugin for default config: ${plugin.name} in ${pluginsDir}`);
                         }
-                    } catch (importError) {
+                    } catch (importError: any) {
                         // 如果导入失败，使用目录名作为插件名
                         // 检查是否在默认禁用列表中
                         const enabled = !DEFAULT_DISABLED_PLUGINS.includes(entry.name);
-                        defaultConfig.plugins[entry.name] = {
+                        (defaultConfig.plugins as any)[entry.name] = {
                             enabled: enabled,
                             description: ''
                         };
                         logger.warn(`[PluginManager] Could not import plugin ${entry.name}, using directory name:`, importError.message);
                     }
                 }
-            } catch (error) {
+            } catch (error: any) {
                 logger.error(`[PluginManager] Failed to scan plugins directory ${pluginsDir}:`, error.message);
             }
         }
-        
+
         return defaultConfig;
     }
 
@@ -206,7 +206,7 @@ class PluginManager {
                 await fs.mkdir(dir, { recursive: true });
             }
             await atomicWriteFile(PLUGINS_CONFIG_FILE, JSON.stringify(this.pluginsConfig, null, 2), { encoding: 'utf8', mode: 0o600 });
-        } catch (error) {
+        } catch (error: any) {
             logger.error('[PluginManager] Failed to save config:', error.message);
         }
     }
@@ -215,7 +215,7 @@ class PluginManager {
      * 注册插件
      * @param {Plugin} plugin - 插件对象
      */
-    register(plugin) {
+    register(plugin: any) {
         if (!plugin.name) {
             throw new Error('Plugin must have a name');
         }
@@ -235,7 +235,7 @@ class PluginManager {
         logger.info(`[PluginManager] Registered plugin: ${plugin.name} v${plugin.version || '1.0.0'}`);
     }
 
-    registerPlaceholder(name: string, description = '', baseDir: string | null = null) {
+    registerPlaceholder(name: string, description: any = '', baseDir: string | null = null) {
         validatePluginId(name);
         if (this.plugins.has(name)) return;
         this.plugins.set(name, {
@@ -253,14 +253,14 @@ class PluginManager {
      * 初始化所有已启用的插件
      * @param {Object} config - 服务器配置
      */
-    async initAll(config) {
+    async initAll(config: any) {
         this.config = config;
         await this.loadConfig();
-        
+
         for (const [name, plugin] of this.plugins) {
             const pluginConfig = this.pluginsConfig.plugins[name] || {};
             const enabled = pluginConfig.enabled !== false; // 默认启用
-            
+
             if (!enabled) {
                 logger.info(`[PluginManager] Plugin "${name}" is disabled, skipping init`);
                 continue;
@@ -272,12 +272,12 @@ class PluginManager {
                     logger.info(`[PluginManager] Initialized plugin: ${name}`);
                 }
                 plugin._enabled = true;
-            } catch (error) {
+            } catch (error: any) {
                 this.recordPluginError(plugin, 'init', error);
                 plugin._enabled = false;
             }
         }
-        
+
         this.initialized = true;
     }
 
@@ -287,13 +287,13 @@ class PluginManager {
     async destroyAll() {
         for (const [name, plugin] of this.plugins) {
             if (!plugin._enabled) continue;
-            
+
             try {
                 if (typeof plugin.destroy === 'function') {
                     await this.executePluginOperation(plugin, 'destroy', () => plugin.destroy());
                     logger.info(`[PluginManager] Destroyed plugin: ${name}`);
                 }
-            } catch (error) {
+            } catch (error: any) {
                 this.recordPluginError(plugin, 'destroy', error);
             }
         }
@@ -305,7 +305,7 @@ class PluginManager {
      * @param {string} name - 插件名称
      * @returns {boolean}
      */
-    isEnabled(name) {
+    isEnabled(name: any) {
         const plugin = this.plugins.get(name);
         return plugin && plugin._enabled === true;
     }
@@ -317,13 +317,13 @@ class PluginManager {
      */
     getEnabledPlugins() {
         return Array.from(this.plugins.values())
-            .filter(p => p._enabled)
-            .sort((a, b) => {
+            .filter((p: any) => p._enabled)
+            .sort((a: any, b: any) => {
                 // 内置插件排在最后
                 const aBuiltin = a._builtin ? 1 : 0;
                 const bBuiltin = b._builtin ? 1 : 0;
                 if (aBuiltin !== bBuiltin) return aBuiltin - bBuiltin;
-                
+
                 // 按优先级排序（数字越小越先执行）
                 const aPriority = a._priority || 100;
                 const bPriority = b._priority || 100;
@@ -336,7 +336,7 @@ class PluginManager {
      * @returns {Plugin[]}
      */
     getAuthPlugins() {
-        return this.getEnabledPlugins().filter(p =>
+        return this.getEnabledPlugins().filter((p: any) =>
             p.type === PLUGIN_TYPE.AUTH && typeof p.authenticate === 'function'
         );
     }
@@ -346,7 +346,7 @@ class PluginManager {
      * @returns {Plugin[]}
      */
     getMiddlewarePlugins() {
-        return this.getEnabledPlugins().filter(p =>
+        return this.getEnabledPlugins().filter((p: any) =>
             p.type !== PLUGIN_TYPE.AUTH && typeof p.middleware === 'function'
         );
     }
@@ -367,25 +367,25 @@ class PluginManager {
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean, authorized: boolean}>}
      */
-    async executeAuth(req, res, requestUrl, config) {
+    async executeAuth(req: any, res: any, requestUrl: any, config: any) {
         const authPlugins = this.getAuthPlugins();
-        
+
         for (const plugin of authPlugins) {
             try {
                 const result = await this.executePluginOperation(plugin, 'authenticate', () => plugin.authenticate(req, res, requestUrl, config));
-                
+
                 if (!result) continue;
-                
+
                 // 如果请求已被处理（如发送了错误响应），停止执行
                 if (result.handled) {
                     return { handled: true, authorized: false };
                 }
-                
+
                 // 如果认证失败，停止执行
                 if (result.authorized === false) {
                     return { handled: true, authorized: false };
                 }
-                
+
                 // 如果认证成功，合并数据并返回
                 if (result.authorized === true) {
                     if (result.data) {
@@ -393,13 +393,13 @@ class PluginManager {
                     }
                     return { handled: false, authorized: true };
                 }
-                
+
                 // authorized === null 表示此插件不处理，继续下一个
-            } catch (error) {
+            } catch (error: any) {
                 this.recordPluginError(plugin, 'authenticate', error);
             }
         }
-        
+
         // 没有任何认证插件处理，返回未授权
         return { handled: false, authorized: false };
     }
@@ -419,29 +419,29 @@ class PluginManager {
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean}>}
      */
-    async executeMiddleware(req, res, requestUrl, config) {
+    async executeMiddleware(req: any, res: any, requestUrl: any, config: any) {
         const middlewarePlugins = this.getMiddlewarePlugins();
-        
+
         for (const plugin of middlewarePlugins) {
             try {
                 const result = await this.executePluginOperation(plugin, 'middleware', () => plugin.middleware(req, res, requestUrl, config));
-                
+
                 if (!result) continue;
-                
+
                 // 如果请求已被处理，停止执行
                 if (result.handled) {
                     return { handled: true };
                 }
-                
+
                 // 合并数据
                 if (result.data) {
                     Object.assign(config, result.data);
                 }
-            } catch (error) {
+            } catch (error: any) {
                 this.recordPluginError(plugin, 'middleware', error);
             }
         }
-        
+
         return { handled: false };
     }
 
@@ -454,26 +454,26 @@ class PluginManager {
      * @param {Object} [config] - 当前请求配置
      * @returns {Promise<boolean>} - 是否已处理
      */
-    async executeRoutes(method, path, req, res, config) {
+    async executeRoutes(method: any, path: any, req: any, res: any, config: any) {
         for (const plugin of this.getEnabledPlugins()) {
             if (!Array.isArray(plugin.routes)) continue;
-            
+
             for (const route of plugin.routes) {
                 const methodMatch = route.method === '*' || route.method.toUpperCase() === method;
                 if (!methodMatch) continue;
-                
+
                 let pathMatch = false;
                 if (route.path instanceof RegExp) {
                     pathMatch = route.path.test(path);
                 } else if (typeof route.path === 'string') {
                     pathMatch = path === route.path || path.startsWith(route.path + '/');
                 }
-                
+
                 if (pathMatch) {
                     try {
                         const handled = await this.executePluginOperation(plugin, `route:${route.path}`, () => route.handler(method, path, req, res, config));
                         if (handled) return true;
-                    } catch (error) {
+                    } catch (error: any) {
                         this.recordPluginError(plugin, `route:${route.path}`, error);
                     }
                 }
@@ -516,7 +516,7 @@ class PluginManager {
      * @returns {string[]}
      */
     getStaticPaths() {
-        const paths = [];
+        const paths: any[] = [];
         for (const plugin of this.plugins.values()) {
             if (Array.isArray(plugin.staticPaths)) {
                 paths.push(...plugin.staticPaths);
@@ -530,9 +530,9 @@ class PluginManager {
      * @param {string} path - 请求路径
      * @returns {boolean}
      */
-    isPluginStaticPath(path) {
+    isPluginStaticPath(path: any) {
         const staticPaths = this.getStaticPaths();
-        return staticPaths.some(sp => path === sp || path === '/' + sp);
+        return staticPaths.some((sp: any) => path === sp || path === '/' + sp);
     }
 
     /**
@@ -540,11 +540,11 @@ class PluginManager {
      * @param {string} path - 请求路径
      * @returns {Plugin|null}
      */
-    getPluginByStaticPath(path) {
+    getPluginByStaticPath(path: any) {
         for (const plugin of this.plugins.values()) {
             if (!Array.isArray(plugin.staticPaths)) continue;
 
-            const matched = plugin.staticPaths.some(sp => path === sp || path === '/' + sp);
+            const matched = plugin.staticPaths.some((sp: any) => path === sp || path === '/' + sp);
             if (matched) {
                 return plugin;
             }
@@ -558,21 +558,21 @@ class PluginManager {
      * @param {string} hookName - 钩子名称
      * @param  {...any} args - 钩子参数
      */
-    async executeHook(hookName, ...args) {
+    async executeHook(hookName: any, ...args: any[]) {
         for (const plugin of this.getEnabledPlugins()) {
             if (!plugin.hooks || typeof plugin.hooks[hookName] !== 'function') continue;
-            
+
             try {
                 await this.executePluginOperation(plugin, `hook:${hookName}`, () => plugin.hooks[hookName](...args));
-            } catch (error) {
+            } catch (error: any) {
                 this.recordPluginError(plugin, `hook:${hookName}`, error);
             }
         }
     }
 
     executePluginOperation(plugin: any, operationName: string, fn: () => any): Promise<any> {
-        let timeoutId;
-        const timeoutPromise = new Promise((_, reject) => {
+        let timeoutId: any;
+        const timeoutPromise = new Promise((_: any, reject: any) => {
             timeoutId = setTimeout(() => {
                 reject(new Error(`Plugin operation timed out after ${PLUGIN_OPERATION_TIMEOUT_MS}ms`));
             }, PLUGIN_OPERATION_TIMEOUT_MS);
@@ -582,13 +582,13 @@ class PluginManager {
         return Promise.race([
             Promise.resolve().then(fn),
             timeoutPromise
-        ]).then(result => {
+        ]).then((result: any) => {
             plugin._errorCount = 0;
             return result;
         }).finally(() => clearTimeout(timeoutId));
     }
 
-    recordPluginError(plugin, operationName, error) {
+    recordPluginError(plugin: any, operationName: any, error: any) {
         plugin._errorCount = (plugin._errorCount || 0) + 1;
         logger.error(`[PluginManager] ${operationName} error in plugin "${plugin.name}":`, error.message);
         auditSecurityEvent({
@@ -616,7 +616,7 @@ class PluginManager {
      * @returns {Object[]}
      */
     getPluginList() {
-        const list = [];
+        const list: any[] = [];
         for (const [name, plugin] of this.plugins) {
             const pluginConfig = this.pluginsConfig.plugins[name] || {};
             const isUserPlugin = !!(plugin._baseDir && isInsidePath(USER_PLUGINS_DIR, plugin._baseDir));
@@ -639,14 +639,14 @@ class PluginManager {
      * @param {string} name - 插件名称
      * @param {boolean} enabled - 是否启用
      */
-    async setPluginEnabled(name, enabled) {
+    async setPluginEnabled(name: any, enabled: any) {
         validatePluginId(name);
         if (!this.pluginsConfig.plugins[name]) {
             this.pluginsConfig.plugins[name] = {};
         }
         this.pluginsConfig.plugins[name].enabled = enabled;
         await this.saveConfig();
-        
+
         const plugin = this.plugins.get(name);
         if (!plugin) {
             if (enabled) {
@@ -677,38 +677,38 @@ class PluginManager {
      * 卸载插件
      * @param {string} name - 插件名称
      */
-    async uninstallPlugin(name) {
+    async uninstallPlugin(name: any) {
         validatePluginId(name);
-        
+
         // 只能卸载用户插件
         const pluginDir = path.join(USER_PLUGINS_DIR, name);
-        
+
         if (!isInsidePath(USER_PLUGINS_DIR, pluginDir)) {
             throw new Error('不合法的插件名称');
         }
-        
+
         if (!existsSync(pluginDir)) {
             throw new Error('插件不存在或为内置插件，无法卸载');
         }
-        
+
         const plugin = this.plugins.get(name);
         if (plugin) {
             if (plugin._enabled && typeof plugin.destroy === 'function') {
                 try {
                     await this.executePluginOperation(plugin, 'destroy', () => plugin.destroy());
-                } catch (error) {
+                } catch (error: any) {
                     logger.error(`[PluginManager] Failed to destroy plugin ${name} during uninstall:`, error.message);
                 }
             }
             this.plugins.delete(name);
         }
-        
+
         // 从配置中移除
         if (this.pluginsConfig.plugins[name]) {
             delete this.pluginsConfig.plugins[name];
             await this.saveConfig();
         }
-        
+
         // 删除文件目录
         await fs.rm(pluginDir, { recursive: true, force: true });
         logger.info(`[PluginManager] Uninstalled plugin: ${name}`);
@@ -718,7 +718,7 @@ class PluginManager {
      * 加载并初始化单个插件（用于热插拔）
      * @param {string} name - 插件目录名
      */
-    async loadAndInitPlugin(name) {
+    async loadAndInitPlugin(name: any) {
         validatePluginId(name);
         let pluginPath = path.join(USER_PLUGINS_DIR, name, 'index.js');
         let isUserPlugin = true;
@@ -726,7 +726,7 @@ class PluginManager {
             pluginPath = path.join(BUILTIN_PLUGINS_DIR, name, 'index.js');
             isUserPlugin = false;
         }
-        
+
         if (!existsSync(pluginPath)) {
             throw new Error(`Plugin entry not found for "${name}" in user, builtin or legacy directories`);
         }
@@ -738,18 +738,18 @@ class PluginManager {
             // 动态导入，使用时间戳避免 ESM 缓存
             const pluginModule = await import(`file://${pluginPath}?t=${Date.now()}`);
             const plugin = pluginModule.default || pluginModule;
-            
+
             if (plugin && plugin.name) {
                 plugin._baseDir = path.dirname(pluginPath);
                 validatePluginExport(plugin, name, isUserPlugin);
                 this.register(plugin);
-                
+
                 // 重新加载配置以确保包含新插件
                 await this.loadConfig();
-                
+
                 const pluginConfig = this.pluginsConfig.plugins[plugin.name] || this.pluginsConfig.plugins[name] || {};
                 const enabled = pluginConfig.enabled !== false;
-                
+
                 if (enabled) {
                     if (typeof plugin.init === 'function') {
                         await this.executePluginOperation(plugin, 'init', () => plugin.init(this.config));
@@ -758,10 +758,10 @@ class PluginManager {
                     plugin._errorCount = 0;
                     logger.info(`[PluginManager] Plugin ${plugin.name} loaded and initialized dynamically`);
                 }
-                
+
                 return plugin;
             }
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[PluginManager] Failed to load and init plugin ${name}:`, error.message);
             throw error;
         }
@@ -778,7 +778,7 @@ const pluginManager = new PluginManager();
 export async function discoverPlugins() {
     const dirs = [BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR];
     await pluginManager.loadConfig();
-    
+
     for (const pluginsDir of dirs) {
         try {
             if (!existsSync(pluginsDir)) {
@@ -788,17 +788,17 @@ export async function discoverPlugins() {
                 }
                 continue;
             }
-            
+
             const entries = await fs.readdir(pluginsDir, { withFileTypes: true });
-            
+
             for (const entry of entries) {
                 if (!entry.isDirectory()) continue;
-                
+
                 const pluginPath = path.join(pluginsDir, entry.name, 'index.js');
                 if (!existsSync(pluginPath)) continue;
                 try {
                     validatePluginId(entry.name, 'plugin directory name');
-                } catch (error) {
+                } catch (error: any) {
                     logger.warn(`[PluginManager] Skipping plugin directory "${entry.name}": ${error.message}`);
                     continue;
                 }
@@ -809,7 +809,7 @@ export async function discoverPlugins() {
                     logger.info(`[PluginManager] User plugin "${entry.name}" is disabled, skipping import`);
                     continue;
                 }
-                
+
                 try {
                     if (pluginsDir === USER_PLUGINS_DIR) {
                         await scanPluginDirectory(path.dirname(pluginPath), entry.name);
@@ -817,17 +817,17 @@ export async function discoverPlugins() {
                     // 动态导入插件
                     const pluginModule = await import(`file://${pluginPath}`);
                     const plugin = pluginModule.default || pluginModule;
-                    
+
                     if (plugin && plugin.name) {
                         plugin._baseDir = path.dirname(pluginPath);
                         validatePluginExport(plugin, entry.name, pluginsDir === USER_PLUGINS_DIR);
                         pluginManager.register(plugin);
                     }
-                } catch (error) {
+                } catch (error: any) {
                     logger.error(`[PluginManager] Failed to load plugin from ${entry.name} in ${pluginsDir}:`, error.message);
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[PluginManager] Failed to discover plugins in ${pluginsDir}:`, error.message);
         }
     }

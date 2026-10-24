@@ -50,7 +50,7 @@ function isTestEnv() {
     return process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
 }
 
-function getBaseProviderType(providerType) {
+function getBaseProviderType(providerType: any) {
     if (!providerType) return '';
     for (const known of DYNAMIC_PROVIDERS) {
         if (providerType === known || providerType.startsWith(known + '-')) {
@@ -60,11 +60,11 @@ function getBaseProviderType(providerType) {
     return providerType;
 }
 
-export function isDynamicProvider(providerType) {
+export function isDynamicProvider(providerType: any) {
     return DYNAMIC_PROVIDERS.has(getBaseProviderType(providerType));
 }
 
-export function capabilityKey(providerType, nodeConfig: any = {}) {
+export function capabilityKey(providerType: any, nodeConfig: any = {}) {
     return `${providerType}:${nodeConfig?.uuid || 'default'}`;
 }
 
@@ -72,7 +72,7 @@ function getCacheFilePath() {
     return CONFIG.MODEL_CAPABILITY_CACHE_PATH || DEFAULT_CACHE_PATH;
 }
 
-function getTtlMs(providerType) {
+function getTtlMs(providerType: any) {
     const configured = Number(CONFIG.MODEL_CACHE_TTL_MS);
     if (Number.isFinite(configured) && configured > 0) {
         return configured;
@@ -88,11 +88,11 @@ function getColdStartTimeoutMs() {
     return DEFAULT_COLD_START_TIMEOUT_MS;
 }
 
-function getBaselineModels(providerType) {
+function getBaselineModels(providerType: any) {
     return normalizeModelIds(getProviderModels(providerType));
 }
 
-function pickSource(sources) {
+function pickSource(sources: any) {
     let best = CAPABILITY_SOURCE.BASELINE;
     for (const source of sources) {
         if ((SOURCE_PRIORITY[source] || 0) > (SOURCE_PRIORITY[best] || 0)) {
@@ -108,7 +108,7 @@ function pickSource(sources) {
 export class MemoryCapabilityStore {
     entries: Map<string, any>;
 
-    constructor(initial = null) {
+    constructor(initial: any = null) {
         this.entries = new Map();
         if (initial && typeof initial === 'object') {
             const nodes = initial.nodes && typeof initial.nodes === 'object' ? initial.nodes : initial;
@@ -120,15 +120,15 @@ export class MemoryCapabilityStore {
         }
     }
 
-    getEntry(key) {
+    getEntry(key: any) {
         return this.entries.get(key) || null;
     }
 
-    setEntry(key, entry) {
+    setEntry(key: any, entry: any) {
         this.entries.set(key, entry);
     }
 
-    deleteEntry(key) {
+    deleteEntry(key: any) {
         this.entries.delete(key);
     }
 
@@ -141,7 +141,7 @@ export class MemoryCapabilityStore {
         for (const [key, entry] of this.entries.entries()) {
             // 只持久化“成功发现”的结果；失败元数据仅保留在内存中。
             if (entry?.source === CAPABILITY_SOURCE.LIVE && !entry.lastError) {
-                nodes[key] = entry;
+                (nodes as any)[key] = entry;
             }
         }
         return { version: 1, nodes };
@@ -159,7 +159,7 @@ export class FileCapabilityStore extends MemoryCapabilityStore {
     filePath: string;
     _writeChain: Promise<any>;
 
-    constructor(filePath) {
+    constructor(filePath: any) {
         super();
         this.filePath = filePath;
         this._writeChain = Promise.resolve();
@@ -177,7 +177,7 @@ export class FileCapabilityStore extends MemoryCapabilityStore {
                     this.entries.set(key, entry);
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             logger.warn(`[ModelCapability] Failed to load cache ${this.filePath}: ${error.message}`);
         }
     }
@@ -189,16 +189,16 @@ export class FileCapabilityStore extends MemoryCapabilityStore {
                 JSON.stringify(this.toJSON(), null, 2),
                 { encoding: 'utf8', mode: 0o600 }
             )))
-            .catch(error => {
+            .catch((error: any) => {
                 logger.warn(`[ModelCapability] Failed to persist cache ${this.filePath}: ${error.message}`);
             });
         return this._writeChain;
     }
 }
 
-let capabilityStore = null;
+let capabilityStore: any = null;
 
-export function setCapabilityStore(store) {
+export function setCapabilityStore(store: any) {
     capabilityStore = store;
 }
 
@@ -224,7 +224,7 @@ export function getCapabilityStore() {
  * - supportedModels 为数组：保留显式选择，并自动吸收相对上次候选快照的新模型；
  * - 结果始终与当前候选集取交集，确保节点候选只与上游 model_list 一致。
  */
-function resolveSelectedModels(providerType, nodeConfig, candidateModels) {
+function resolveSelectedModels(providerType: any, nodeConfig: any, candidateModels: any) {
     if (!Array.isArray(nodeConfig?.supportedModels)) {
         return {
             selectedModels: candidateModels,
@@ -237,10 +237,10 @@ function resolveSelectedModels(providerType, nodeConfig, candidateModels) {
         ? normalizeModelIds(nodeConfig.supportedModelsBaseline)
         : candidateModels;
     const baselineSet = new Set(baselineModels);
-    const newModels = candidateModels.filter(model => !baselineSet.has(model));
+    const newModels = candidateModels.filter((model: any) => !baselineSet.has(model));
     const candidateSet = new Set(candidateModels);
     const selectedModels = normalizeModelIds([...supportedModels, ...newModels])
-        .filter(model => candidateSet.has(model));
+        .filter((model: any) => candidateSet.has(model));
 
     return {
         selectedModels,
@@ -251,12 +251,12 @@ function resolveSelectedModels(providerType, nodeConfig, candidateModels) {
 /**
  * 解析单个节点的模型能力（同步，不发起网络请求）。
  */
-export function resolveNodeCapability(providerType, nodeConfig: any = {}) {
+export function resolveNodeCapability(providerType: any, nodeConfig: any = {}) {
     const key = capabilityKey(providerType, nodeConfig);
     const entry = getCapabilityStore().getEntry(key);
     const dynamic = isDynamicProvider(providerType);
 
-    let candidateModels = [];
+    let candidateModels: any[] = [];
     let source = CAPABILITY_SOURCE.BASELINE;
     let fetchedAt = 0;
     let known = false;
@@ -308,20 +308,20 @@ export function resolveNodeCapability(providerType, nodeConfig: any = {}) {
  * 分组最终集 = 活跃节点选择集的并集 ∪ 该分组的自定义模型。
  * 已知能力的节点优先，避免“无能力节点”的静态基线污染实时列表。
  */
-export function resolveProviderCapability(providerType, nodes: any[] = [], options: any = {}) {
+export function resolveProviderCapability(providerType: any, nodes: any[] = [], options: any = {}) {
     const { includeUnhealthy = false } = options;
     const configs = (Array.isArray(nodes) ? nodes : [])
-        .map(node => node?.config || node)
+        .map((node: any) => node?.config || node)
         .filter(Boolean)
-        .filter(config => !config.isDisabled)
-        .filter(config => includeUnhealthy || config.isHealthy !== false);
+        .filter((config: any) => !config.isDisabled)
+        .filter((config: any) => includeUnhealthy || config.isHealthy !== false);
 
-    const nodeCapabilities = configs.map(config => ({
+    const nodeCapabilities = configs.map((config: any) => ({
         ...resolveNodeCapability(providerType, config),
         config
     }));
 
-    const knownCapabilities = nodeCapabilities.filter(capability => capability.known);
+    const knownCapabilities = nodeCapabilities.filter((capability: any) => capability.known);
     const contributors = knownCapabilities.length > 0 ? knownCapabilities : nodeCapabilities;
 
     const modelSet = new Set<string>();
@@ -339,18 +339,18 @@ export function resolveProviderCapability(providerType, nodes: any[] = [], optio
         modelSet.add(model);
     }
 
-    const models = Array.from(modelSet).sort((a, b) => a.localeCompare(b));
-    const fetchedAt = contributors.reduce((max, capability) => Math.max(max, capability.fetchedAt || 0), 0);
-    const stale = contributors.length > 0 ? contributors.every(capability => capability.stale) : true;
+    const models = Array.from(modelSet).sort((a: any, b: any) => a.localeCompare(b));
+    const fetchedAt = contributors.reduce((max: any, capability: any) => Math.max(max, capability.fetchedAt || 0), 0);
+    const stale = contributors.length > 0 ? contributors.every((capability: any) => capability.stale) : true;
 
     return {
         models,
         nodes: nodeCapabilities,
         customModels,
-        selectionMode: contributors.length > 0 && contributors.every(capability => capability.selectionMode === 'explicit')
+        selectionMode: contributors.length > 0 && contributors.every((capability: any) => capability.selectionMode === 'explicit')
             ? 'explicit'
             : 'all',
-        source: pickSource(contributors.map(capability => capability.source)),
+        source: pickSource(contributors.map((capability: any) => capability.source)),
         fetchedAt,
         stale,
         known: knownCapabilities.length > 0
@@ -362,7 +362,7 @@ export function resolveProviderCapability(providerType, nodes: any[] = [], optio
  * - 节点没有可靠发现结果时不做守卫（保持既有行为，避免阻断新模型）；
  * - 有发现结果时，支持 -high / -thinking 后缀兼容。
  */
-export function nodeSupportsModel(capability, model, models = null) {
+export function nodeSupportsModel(capability: any, model: any, models: any = null) {
     if (!capability || !capability.known) return true;
     const requested = String(model || '').replace(/^models\//, '');
     if (!requested) return true;
@@ -373,7 +373,7 @@ export function nodeSupportsModel(capability, model, models = null) {
         `${requested}-thinking`
     ]);
     const modelList = Array.isArray(models) ? models : capability.models;
-    return modelList.some(item => candidates.has(item));
+    return modelList.some((item: any) => candidates.has(item));
 }
 
 function isBackgroundRefreshEnabled() {
@@ -383,7 +383,7 @@ function isBackgroundRefreshEnabled() {
 
 const inFlightRefreshes = new Map();
 
-async function resolveAdapterForNode(providerType, nodeConfig, globalConfig) {
+async function resolveAdapterForNode(providerType: any, nodeConfig: any, globalConfig: any) {
     const { getServiceAdapter } = await import('./adapter.ts');
     const config = {
         ...(globalConfig || CONFIG),
@@ -405,7 +405,7 @@ async function resolveAdapterForNode(providerType, nodeConfig, globalConfig) {
  * @param {object} [options.globalConfig] 全局配置（默认 CONFIG）
  * @param {object} [options.adapter] 可注入 adapter，便于测试
  */
-export async function refreshNodeCapability(providerType, nodeConfig: any, options: any = {}) {
+export async function refreshNodeCapability(providerType: any, nodeConfig: any, options: any = {}) {
     const {
         force = false,
         reason = 'manual',
@@ -458,7 +458,7 @@ export async function refreshNodeCapability(providerType, nodeConfig: any, optio
             await store.flush();
             logger.info(`[ModelCapability] ${key} refreshed: ${entry.models.length} models (${reason})`);
             return entry;
-        } catch (error) {
+        } catch (error: any) {
             const consecutiveFailures = (existing?.consecutiveFailures || 0) + 1;
             const backoffMs = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * Math.pow(2, consecutiveFailures - 1));
             const failureEntry = {
@@ -488,33 +488,33 @@ export async function refreshNodeCapability(providerType, nodeConfig: any, optio
 /**
  * 刷新一个 providerType 下所有启用节点。
  */
-export async function refreshProviderCapabilities(providerType, nodes: any[] = [], options: any = {}) {
+export async function refreshProviderCapabilities(providerType: any, nodes: any[] = [], options: any = {}) {
     if (!isBackgroundRefreshEnabled() && !options.adapter) {
         return [];
     }
     const configs = (Array.isArray(nodes) ? nodes : [])
-        .map(node => node?.config || node)
+        .map((node: any) => node?.config || node)
         .filter(Boolean)
-        .filter(config => !config.isDisabled);
+        .filter((config: any) => !config.isDisabled);
 
     const results = await Promise.allSettled(
-        configs.map(config => refreshNodeCapability(providerType, config, options))
+        configs.map((config: any) => refreshNodeCapability(providerType, config, options))
     );
-    return results.map(result => result.status === 'fulfilled' ? result.value : null);
+    return results.map((result: any) => result.status === 'fulfilled' ? result.value : null);
 }
 
 /**
  * 读取能力，并在 stale / 冷启动时触发后台刷新。
  * 读路径本身不阻塞。
  */
-export function resolveProviderCapabilityWithRefresh(providerType, nodes: any[] = [], options: any = {}) {
+export function resolveProviderCapabilityWithRefresh(providerType: any, nodes: any[] = [], options: any = {}) {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (isBackgroundRefreshEnabled() && (!capability.known || capability.stale)) {
         refreshProviderCapabilities(providerType, nodes, {
             ...options,
             force: true,
             reason: options.reason || 'read-through'
-        }).catch(error => {
+        }).catch((error: any) => {
             logger.debug(`[ModelCapability] Background refresh for ${providerType} failed: ${error.message}`);
         });
     }
@@ -525,7 +525,7 @@ export function resolveProviderCapabilityWithRefresh(providerType, nodes: any[] 
  * 冷启动场景：在有限时间内等待一次刷新，然后返回能力。
  * 仅建议在启动预热或显式刷新接口中使用，普通读路径使用 resolveProviderCapabilityWithRefresh。
  */
-export async function ensureProviderCapability(providerType, nodes: any[] = [], options: any = {}) {
+export async function ensureProviderCapability(providerType: any, nodes: any[] = [], options: any = {}) {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (capability.known) {
         if (capability.stale) {
@@ -540,10 +540,10 @@ export async function ensureProviderCapability(providerType, nodes: any[] = [], 
         : getColdStartTimeoutMs();
 
     if (timeoutMs > 0) {
-        let timer = null;
+        let timer: any = null;
         await Promise.race([
             refreshProviderCapabilities(providerType, nodes, { ...options, force: false, reason: options.reason || 'cold-start' }),
-            new Promise(resolve => {
+            new Promise((resolve: any) => {
                 timer = setTimeout(resolve, timeoutMs);
                 if (timer.unref) timer.unref();
             })
@@ -554,29 +554,29 @@ export async function ensureProviderCapability(providerType, nodes: any[] = [], 
     return resolveProviderCapability(providerType, nodes, options);
 }
 
-function getProviderNodeEntries(providerPoolManager): Array<[string, any[]]> {
+function getProviderNodeEntries(providerPoolManager: any): Array<[string, any[]]> {
     return (Object.entries(providerPoolManager?.providerStatus || {}) as Array<[string, any[]]>)
-        .filter(([, nodes]) => Array.isArray(nodes) && nodes.length > 0);
+        .filter(([, nodes]: any) => Array.isArray(nodes) && nodes.length > 0);
 }
 
 /**
  * 刷新号池中所有 providerType 的启用节点（启动预热与定时任务共用）。
  */
-export async function warmProviderCapabilities(providerPoolManager, options: any = {}) {
+export async function warmProviderCapabilities(providerPoolManager: any, options: any = {}) {
     const { force = false, reason = 'startup' } = options;
     const entries = getProviderNodeEntries(providerPoolManager);
-    await Promise.allSettled(entries.map(([providerType, nodes]) =>
+    await Promise.allSettled(entries.map(([providerType, nodes]: any) =>
         refreshProviderCapabilities(providerType, nodes, { ...options, force, reason })
     ));
 }
 
-let capabilityRefreshTimer = null;
+let capabilityRefreshTimer: any = null;
 
 /**
  * 启动周期性模型能力刷新。
  * 与健康检查解耦，默认 15 分钟；测试环境自动禁用。
  */
-export function startCapabilityRefreshLoop(providerPoolManager, options: any = {}) {
+export function startCapabilityRefreshLoop(providerPoolManager: any, options: any = {}) {
     stopCapabilityRefreshLoop();
     if (!isBackgroundRefreshEnabled()) return null;
 
@@ -587,7 +587,7 @@ export function startCapabilityRefreshLoop(providerPoolManager, options: any = {
 
     capabilityRefreshTimer = setInterval(() => {
         warmProviderCapabilities(providerPoolManager, { force: true, reason: 'scheduled' })
-            .catch(error => logger.debug(`[ModelCapability] Scheduled refresh failed: ${error.message}`));
+            .catch((error: any) => logger.debug(`[ModelCapability] Scheduled refresh failed: ${error.message}`));
     }, intervalMs);
     if (capabilityRefreshTimer.unref) capabilityRefreshTimer.unref();
     return capabilityRefreshTimer;

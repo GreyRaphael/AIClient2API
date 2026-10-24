@@ -51,7 +51,7 @@ import {
  * @param {string|undefined|null} id
  * @returns {string}
  */
-function toClaudeToolId(id) {
+function toClaudeToolId(id: any) {
     return sanitizeToolId(id) || `tool_${uuidv4().replace(/-/g, '')}`;
 }
 
@@ -77,7 +77,7 @@ export class OpenAIConverter extends BaseConverter {
      * 注意：不清理 CodexConverter 的 requestStates（工具名映射需跨重试复用）。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId) {
+    resetStreamState(requestId: any) {
         if (!requestId) return;
         this.openAIResponsesStreamStates.delete(requestId);
         this.claudeStreamStates.delete(requestId);
@@ -86,7 +86,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 转换请求
      */
-    convertRequest(data, targetProtocol, requestId) {
+    convertRequest(data: any, targetProtocol: any, requestId: any) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeRequest(data, requestId);
@@ -104,7 +104,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data, targetProtocol, model, requestId) {
+    convertResponse(data: any, targetProtocol: any, model: any, requestId: any) {
         // OpenAI作为源格式时，通常不需要转换响应
         // 因为其他协议会转换到OpenAI格式
         switch (targetProtocol) {
@@ -120,14 +120,14 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * OpenAI → Codex 请求转换
      */
-    toCodexRequest(data, requestId) {
+    toCodexRequest(data: any, requestId: any) {
         return this.codexConverter.toOpenAIRequestToCodexRequest(data, requestId);
     }
 
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk, targetProtocol, model, requestId) {
+    convertStreamChunk(chunk: any, targetProtocol: any, model: any, requestId: any) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeStreamChunk(chunk, model, requestId);
@@ -143,21 +143,21 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 转换模型列表
      */
-    convertModelList(data, targetProtocol) {
+    convertModelList(data: any, targetProtocol: any) {
         return this.ensureDisplayName(data);
     }
 
     /**
      * Ensure display_name field exists in OpenAI model list
      */
-    ensureDisplayName(openaiModels) {
+    ensureDisplayName(openaiModels: any) {
         if (!openaiModels || !openaiModels.data) {
             return openaiModels;
         }
 
         return {
             ...openaiModels,
-            data: openaiModels.data.map(model => ({
+            data: openaiModels.data.map((model: any) => ({
                 ...model,
                 display_name: model.display_name || model.id,
             })),
@@ -171,12 +171,12 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * OpenAI请求 -> Claude请求
      */
-    toClaudeRequest(openaiRequest, requestId = null) {
+    toClaudeRequest(openaiRequest: any, requestId: any = null) {
         registerCustomTools(requestId, openaiRequest.tools);
         const messages = openaiRequest.messages || [];
         const { systemInstruction, nonSystemMessages } = extractSystemMessages(messages);
 
-        const claudeMessages = [];
+        const claudeMessages: any[] = [];
         let droppedReasoningMessages = 0;
 
         for (const message of nonSystemMessages) {
@@ -184,7 +184,7 @@ export class OpenAIConverter extends BaseConverter {
                 droppedReasoningMessages++;
             }
             const role = message.role === 'assistant' ? 'assistant' : 'user';
-            let content = [];
+            let content: any[] = [];
 
             if (message.role === 'tool') {
                 // 工具结果消息
@@ -200,11 +200,11 @@ export class OpenAIConverter extends BaseConverter {
                 claudeMessages.push({ role: 'user', content: content });
             } else if (message.role === 'assistant' && (message.tool_calls?.length || message.function_calls?.length)) {
                 // 助手工具调用消息 - 支持tool_calls和function_calls，并保留伴随的文本说明
-                const assistantBlocks = [];
+                const assistantBlocks: any[] = [];
                 if (typeof message.content === 'string' && message.content.trim()) {
                     assistantBlocks.push({ type: 'text', text: message.content.trim() });
                 } else if (Array.isArray(message.content)) {
-                    message.content.forEach(item => {
+                    message.content.forEach((item: any) => {
                         if (item && item.type === 'text' && item.text) {
                             assistantBlocks.push({ type: 'text', text: item.text.trim() });
                         }
@@ -212,7 +212,7 @@ export class OpenAIConverter extends BaseConverter {
                 }
 
                 const calls = message.tool_calls || message.function_calls || [];
-                const toolUseBlocks = calls.map(tc => ({
+                const toolUseBlocks = calls.map((tc: any) => ({
                     type: 'tool_use',
                     id: toClaudeToolId(tc.id),
                     name: tc.function?.name || tc.name,
@@ -227,7 +227,7 @@ export class OpenAIConverter extends BaseConverter {
                         content.push({ type: 'text', text: message.content.trim() });
                     }
                 } else if (Array.isArray(message.content)) {
-                    message.content.forEach(item => {
+                    message.content.forEach((item: any) => {
                         if (!item) return;
                         switch (item.type) {
                             case 'text':
@@ -347,7 +347,7 @@ export class OpenAIConverter extends BaseConverter {
             logger.debug(`[OpenAIConverter] Dropped ${droppedReasoningMessages} assistant reasoning_content field(s) when converting to Claude: Anthropic requires valid cryptographic signatures for historical thinking blocks`);
         }
         // 合并相邻相同 role 的消息
-        const mergedClaudeMessages = [];
+        const mergedClaudeMessages: any[] = [];
         for (let i = 0; i < claudeMessages.length; i++) {
             const currentMessage = claudeMessages[i];
 
@@ -413,8 +413,8 @@ export class OpenAIConverter extends BaseConverter {
 
         if (openaiRequest.tools?.length) {
             const mappedTools = openaiRequest.tools
-                .filter(t => t && ((t.function && t.function.name) || t.name))
-                .map(t => {
+                .filter((t: any) => t && ((t.function && t.function.name) || t.name))
+                .map((t: any) => {
                     if (t.type === 'custom') {
                         const fn = customToolToFunction(t);
                         if (!fn) return null;
@@ -521,7 +521,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * OpenAI响应 -> Claude响应
      */
-    toClaudeResponse(openaiResponse, model, requestId = null) {
+    toClaudeResponse(openaiResponse: any, model: any, requestId: any = null) {
         if (!openaiResponse || !openaiResponse.choices || openaiResponse.choices.length === 0) {
             return {
                 id: `msg_${uuidv4()}`,
@@ -536,9 +536,9 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         const choice = openaiResponse.choices[0];
-        const thinkingBlocks = [];
-        const textBlocks = [];
-        const toolUseBlocks = [];
+        const thinkingBlocks: any[] = [];
+        const textBlocks: any[] = [];
+        const toolUseBlocks: any[] = [];
 
         // 1. 处理 reasoning_content（推理内容）
         const reasoningContent = choice.message?.reasoning_content || "";
@@ -583,14 +583,14 @@ export class OpenAIConverter extends BaseConverter {
 
         // 3. 处理工具调用 - 支持 tool_calls 和 function_calls
         const toolCalls = choice.message?.tool_calls || choice.message?.function_calls || [];
-        for (const toolCall of toolCalls.filter(tc => tc && typeof tc === 'object')) {
+        for (const toolCall of toolCalls.filter((tc: any) => tc && typeof tc === 'object')) {
             if (toolCall.function) {
                 const func = toolCall.function;
                 const argStr = func.arguments || "{}";
-                let argObj;
+                let argObj: any;
                 try {
                     argObj = typeof argStr === 'string' ? JSON.parse(argStr) : argStr;
-                } catch (e) {
+                } catch (e: any) {
                     argObj = {};
                 }
                 toolUseBlocks.push({
@@ -638,7 +638,7 @@ export class OpenAIConverter extends BaseConverter {
      * reasoningIndex/textIndex/toolBlocks/activeToolIndex 为本机的块身份与
      * 转移规则状态（reasoning/text 块终身只开一次，工具块按 raw index 并存）。
      */
-    _getClaudeStreamState(openaiChunk, model, requestId) {
+    _getClaudeStreamState(openaiChunk: any, model: any, requestId: any) {
         const stateKey = requestId || (openaiChunk && openaiChunk.id) || 'default';
         if (!this.claudeStreamStates.has(stateKey)) {
             const rawMsgId = openaiChunk?.id ? String(openaiChunk.id).replace(/^chatcmpl-/, '') : uuidv4();
@@ -668,7 +668,7 @@ export class OpenAIConverter extends BaseConverter {
      * 严格遵循 Anthropic Messages API SSE 事件规范：
      * message_start -> content_block_start -> content_block_delta* -> content_block_stop -> message_delta -> message_stop
      */
-    toClaudeStreamChunk(openaiChunk, model, requestId = null) {
+    toClaudeStreamChunk(openaiChunk: any, model: any, requestId: any = null) {
         if (!openaiChunk) return null;
 
         if (openaiChunk.error) {
@@ -702,7 +702,7 @@ export class OpenAIConverter extends BaseConverter {
 
         const { stateKey, state } = this._getClaudeStreamState(openaiChunk, model, requestId);
         const { emitter } = state;
-        const events = [];
+        const events: any[] = [];
 
         // 1. 发送 message_start 事件（流开始的第一个有效 chunk 时发出）
         emitter.setModel(model || openaiChunk.model);
@@ -847,10 +847,10 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 构建Claude工具选择
      */
-    buildClaudeToolChoice(toolChoice) {
+    buildClaudeToolChoice(toolChoice: any) {
         if (typeof toolChoice === 'string') {
             const mapping = { auto: 'auto', none: 'none', required: 'any' };
-            return { type: mapping[toolChoice] };
+            return { type: (mapping as any)[toolChoice] };
         }
         if (typeof toolChoice === 'object') {
             // Claude 原生格式：{ type, name }
@@ -874,18 +874,18 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * OpenAI请求 -> Gemini请求
      */
-    toGeminiRequest(openaiRequest, requestId = null) {
+    toGeminiRequest(openaiRequest: any, requestId: any = null) {
         registerCustomTools(requestId, openaiRequest.tools);
         const messages = openaiRequest.messages || [];
         const model = openaiRequest.model || '';
-        
+
         // 构建 tool_call_id -> function_name 映射（ID 统一清洗，与后续查找保持一致）
         const tcID2Name = {};
         for (const message of messages) {
             if (message.role === 'assistant' && message.tool_calls) {
                 for (const tc of message.tool_calls) {
                     if (tc.type === 'function' && tc.id && tc.function?.name) {
-                        tcID2Name[sanitizeToolId(tc.id)] = tc.function.name;
+                        (tcID2Name as any)[sanitizeToolId(tc.id)] = tc.function.name;
                     }
                 }
             }
@@ -893,7 +893,7 @@ export class OpenAIConverter extends BaseConverter {
             if (message.role === 'assistant' && Array.isArray(message.content)) {
                 for (const item of message.content) {
                     if (item && item.type === 'tool_use' && item.id && item.name) {
-                        tcID2Name[sanitizeToolId(item.id)] = item.name;
+                        (tcID2Name as any)[sanitizeToolId(item.id)] = item.name;
                     }
                 }
             }
@@ -915,11 +915,11 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        const processedMessages = [];
+        const processedMessages: any[] = [];
         // [FIX] 跟踪已生成的 functionResponse ID，防止重复（Claude API 要求每个 tool_use 只有一个 tool_result）
         const emittedToolResultIds = new Set();
-        const systemParts = [];
-        let systemInstruction = null;
+        const systemParts: any[] = [];
+        let systemInstruction: any = null;
 
         for (let i = 0; i < messages.length; i++) {
             const message = messages[i];
@@ -932,7 +932,7 @@ export class OpenAIConverter extends BaseConverter {
                 if (typeof content === 'string') {
                     if (content) systemParts.push({ text: content });
                 } else if (Array.isArray(content)) {
-                    content.forEach(item => {
+                    content.forEach((item: any) => {
                         if (item && item.type === 'text' && item.text) {
                             systemParts.push({ text: item.text });
                         }
@@ -1008,12 +1008,12 @@ export class OpenAIConverter extends BaseConverter {
                                 const trId = sanitizeToolId(item.tool_use_id) || `tool_result_${uuidv4().replace(/-/g, '')}`;
                                 if (!emittedToolResultIds.has(trId)) {
                                     emittedToolResultIds.add(trId);
-                                    const trName = tcID2Name[trId] || trId;
+                                    const trName = (tcID2Name as any)[trId] || trId;
                                     let trContent = item.content;
                                     if (Array.isArray(trContent)) {
                                         trContent = trContent
-                                            .filter(c => c && c.type === 'text')
-                                            .map(c => c.text)
+                                            .filter((c: any) => c && c.type === 'text')
+                                            .map((c: any) => c.text)
                                             .join('\n') || JSON.stringify(trContent);
                                     } else if (typeof trContent !== 'string') {
                                         trContent = JSON.stringify(trContent);
@@ -1049,9 +1049,9 @@ export class OpenAIConverter extends BaseConverter {
                         logger.debug('[OpenAIConverter] Dropped assistant reasoning_content when converting to Gemini (set CONVERT_REPLAY_COT_SUMMARY=true to replay as thought parts)');
                     }
                 }
-                
+
                 // 处理文本内容
-                const functionCallIds = [];
+                const functionCallIds: any[] = [];
                 if (typeof content === 'string' && content) {
                     node.parts.push({ text: content });
                 } else if (Array.isArray(content)) {
@@ -1064,7 +1064,7 @@ export class OpenAIConverter extends BaseConverter {
                             // [FIX] 当 id 缺失时自动生成，确保 Antigravity 转 Claude 时 tool_use.id 不为空
                             const fid = sanitizeToolId(item.id) || `toolu_${uuidv4().replace(/-/g, '')}`;
                             const fname = item.name || '';
-                            const argsObj = typeof item.input === 'string' ? (() => { try { return JSON.parse(item.input); } catch(e) { return {}; } })() : (item.input || {});
+                            const argsObj = typeof item.input === 'string' ? (() => { try { return JSON.parse(item.input); } catch(e: any) { return {}; } })() : (item.input || {});
                             const fc: any = {
                                 name: fname,
                                 args: argsObj,
@@ -1110,10 +1110,10 @@ export class OpenAIConverter extends BaseConverter {
                         const fname = tc.function?.name || '';
                         const fargs = tc.function?.arguments || '{}';
 
-                        let argsObj;
+                        let argsObj: any;
                         try {
                             argsObj = typeof fargs === 'string' ? JSON.parse(fargs) : fargs;
-                        } catch (e) {
+                        } catch (e: any) {
                             argsObj = {};
                         }
 
@@ -1140,7 +1140,7 @@ export class OpenAIConverter extends BaseConverter {
                     const toolNode: any = { role: 'user', parts: [] };
                     for (const fid of functionCallIds) {
                         if (emittedToolResultIds.has(fid)) continue; // [FIX] 去重
-                        const name = tcID2Name[fid];
+                        const name = (tcID2Name as any)[fid];
                         if (name) {
                             let resp = toolResponses[fid] || '{}';
                             if (typeof resp !== 'string') {
@@ -1170,13 +1170,13 @@ export class OpenAIConverter extends BaseConverter {
                 if (!emittedToolResultIds.has(toolCallId)) {
                     emittedToolResultIds.add(toolCallId);
                     const toolNode: any = { role: 'user', parts: [] };
-                    const functionName = tcID2Name[toolCallId] || toolCallId;
-                    
+                    const functionName = (tcID2Name as any)[toolCallId] || toolCallId;
+
                     let responseContent = message.content;
                     if (typeof responseContent !== 'string') {
                         responseContent = JSON.stringify(responseContent);
                     }
-                    
+
                     toolNode.parts.push({
                         functionResponse: {
                             name: functionName,
@@ -1186,7 +1186,7 @@ export class OpenAIConverter extends BaseConverter {
                             }
                         }
                     });
-                    
+
                     if (toolNode.parts.length > 0) {
                         processedMessages.push(toolNode);
                     }
@@ -1230,7 +1230,7 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理 modalities -> responseModalities
         if (openaiRequest.modalities && Array.isArray(openaiRequest.modalities)) {
-            const responseMods = [];
+            const responseMods: any[] = [];
             for (const m of openaiRequest.modalities) {
                 const mod = String(m).toLowerCase();
                 if (mod === 'text') {
@@ -1268,11 +1268,11 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理 tools -> functionDeclarations
         if (openaiRequest.tools?.length) {
-            const functionDeclarations = [];
+            const functionDeclarations: any[] = [];
             let hasGoogleSearch = false;
             let hasUrlContext = false;
             let hasGoogleMaps = false;
-            
+
             for (const t of openaiRequest.tools) {
                 if (!t || typeof t !== 'object') continue;
 
@@ -1313,12 +1313,12 @@ export class OpenAIConverter extends BaseConverter {
                         parametersJsonSchema: polyfillAndCleanSchemaForGemini(t.input_schema || { type: 'object', properties: {} })
                     });
                 }
-                
+
                 // 处理 google_search 工具
                 if (t.google_search) {
                     hasGoogleSearch = true;
                 }
-                
+
                 // 处理 url_context 工具
                 if (t.url_context) {
                     hasUrlContext = true;
@@ -1329,22 +1329,22 @@ export class OpenAIConverter extends BaseConverter {
                     hasGoogleMaps = true;
                 }
             }
-            
+
             if (functionDeclarations.length > 0 || hasGoogleSearch || hasUrlContext || hasGoogleMaps) {
                 geminiRequest.tools = [];
                 if (functionDeclarations.length > 0) {
                     geminiRequest.tools.push({ functionDeclarations: sortToolsByName(functionDeclarations) });
                 }
                 if (hasGoogleSearch) {
-                    const googleSearchTool = openaiRequest.tools.find(t => t.google_search);
+                    const googleSearchTool = openaiRequest.tools.find((t: any) => t.google_search);
                     geminiRequest.tools.push({ googleSearch: googleSearchTool.google_search });
                 }
                 if (hasUrlContext) {
-                    const urlContextTool = openaiRequest.tools.find(t => t.url_context);
+                    const urlContextTool = openaiRequest.tools.find((t: any) => t.url_context);
                     geminiRequest.tools.push({ urlContext: urlContextTool.url_context });
                 }
                 if (hasGoogleMaps) {
-                    const googleMapsTool = openaiRequest.tools.find(t => t.google_maps);
+                    const googleMapsTool = openaiRequest.tools.find((t: any) => t.google_maps);
                     geminiRequest.tools.push({ googleMaps: googleMapsTool.google_maps });
                 }
             }
@@ -1373,7 +1373,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 检查模型是否支持 thinking
      */
-    modelSupportsThinking(model) {
+    modelSupportsThinking(model: any) {
         if (!model) return false;
         const m = model.toLowerCase();
         return /^gemini-[3-9]/.test(m) ||
@@ -1398,7 +1398,7 @@ export class OpenAIConverter extends BaseConverter {
         ];
     }
 
-    buildGeminiToolConfig(toolChoice) {
+    buildGeminiToolConfig(toolChoice: any) {
         if (typeof toolChoice === 'string') {
             if (toolChoice === 'none' || toolChoice === 'auto') {
                 return { functionCallingConfig: { mode: toolChoice.toUpperCase() } };
@@ -1423,7 +1423,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 构建Gemini生成配置
      */
-    buildGeminiGenerationConfig({ temperature, max_tokens, max_completion_tokens, top_p, stop, tools, response_format }, model) {
+    buildGeminiGenerationConfig({ temperature, max_tokens, max_completion_tokens, top_p, stop, tools, response_format }: any, model: any) {
         const config: any = {};
         const effectiveMaxTokens = max_completion_tokens !== undefined ? max_completion_tokens : max_tokens;
         // temperature / top_p 允许显式传 0（如贪婪解码 temperature=0），不能用 checkAndAssignOrDefault 判 0 回退
@@ -1452,7 +1452,7 @@ export class OpenAIConverter extends BaseConverter {
     }
 
 
-    _mapOpenAIToolChoiceToResponses(toolChoice) {
+    _mapOpenAIToolChoiceToResponses(toolChoice: any) {
         if (!toolChoice) {
             return undefined;
         }
@@ -1469,7 +1469,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 将OpenAI请求转换为OpenAI Responses格式
      */
-    toOpenAIResponsesRequest(openaiRequest, requestId = null) {
+    toOpenAIResponsesRequest(openaiRequest: any, requestId: any = null) {
         registerCustomTools(requestId, openaiRequest.tools);
         const effectiveMaxTokens = openaiRequest.max_completion_tokens !== undefined
             ? openaiRequest.max_completion_tokens
@@ -1536,14 +1536,14 @@ export class OpenAIConverter extends BaseConverter {
                 });
             } else if (msg.role === 'assistant' && (msg.tool_calls?.length || msg.function_calls?.length)) {
                 // 如果 assistant 消息同时携带了文本 content，先提取并生成 message 块保留说明与思考文本
-                const textParts = [];
+                const textParts: any[] = [];
                 if (typeof msg.content === 'string' && msg.content.trim()) {
                     textParts.push({
                         type: 'output_text',
                         text: msg.content
                     });
                 } else if (Array.isArray(msg.content)) {
-                    msg.content.forEach(c => {
+                    msg.content.forEach((c: any) => {
                         if (c?.type === 'text' && c.text) {
                             textParts.push({ type: 'output_text', text: c.text });
                         }
@@ -1569,14 +1569,14 @@ export class OpenAIConverter extends BaseConverter {
                     });
                 }
             } else {
-                let content = [];
+                let content: any[] = [];
                 if (typeof msg.content === 'string') {
                     content.push({
                         type: msg.role === 'assistant' ? 'output_text' : 'input_text',
                         text: msg.content
                     });
                 } else if (Array.isArray(msg.content)) {
-                    msg.content.forEach(c => {
+                    msg.content.forEach((c: any) => {
                         if (c.type === 'text') {
                             content.push({
                                 type: msg.role === 'assistant' ? 'output_text' : 'input_text',
@@ -1634,7 +1634,7 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理工具
         if (openaiRequest.tools) {
-            responsesRequest.tools = sortToolsByName(openaiRequest.tools.map(t => {
+            responsesRequest.tools = sortToolsByName(openaiRequest.tools.map((t: any) => {
                 if (t.type === 'custom') {
                     return {
                         type: 'custom',
@@ -1664,19 +1664,19 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 将OpenAI响应转换为OpenAI Responses格式
      */
-    _buildResponsesMessageItemId(responseId, index = 0) {
+    _buildResponsesMessageItemId(responseId: any, index: any = 0) {
         return responseId ? `msg_${responseId}_${index}` : `msg_${uuidv4().replace(/-/g, '')}`;
     }
 
-    _buildResponsesFunctionItemId(callId) {
+    _buildResponsesFunctionItemId(callId: any) {
         return callId ? `fc_${callId}` : `fc_${uuidv4().replace(/-/g, '')}`;
     }
 
-    _buildResponsesReasoningItemId(responseId, index = 0) {
+    _buildResponsesReasoningItemId(responseId: any, index: any = 0) {
         return responseId ? `rs_${responseId}_${index}` : `rs_${uuidv4().replace(/-/g, '')}`;
     }
 
-    _buildResponsesUsageFromOpenAIUsage(usage) {
+    _buildResponsesUsageFromOpenAIUsage(usage: any) {
         return usage ? {
             input_tokens: usage.prompt_tokens || 0,
             input_tokens_details: {
@@ -1700,7 +1700,7 @@ export class OpenAIConverter extends BaseConverter {
         };
     }
 
-    _getOpenAIResponsesStreamEmitter(openaiChunk, model, requestId) {
+    _getOpenAIResponsesStreamEmitter(openaiChunk: any, model: any, requestId: any) {
         const stateKey = requestId || openaiChunk?.id || 'default';
         if (!this.openAIResponsesStreamStates.has(stateKey)) {
             const responseId = openaiChunk?.id || `resp_${uuidv4().replace(/-/g, '')}`;
@@ -1728,7 +1728,7 @@ export class OpenAIConverter extends BaseConverter {
         return { stateKey, emitter };
     }
 
-    toOpenAIResponsesResponse(openaiResponse, model, requestId = null) {
+    toOpenAIResponsesResponse(openaiResponse: any, model: any, requestId: any = null) {
         if (!openaiResponse || !openaiResponse.choices || !openaiResponse.choices[0]) {
             const responseId = `resp_${Date.now()}`;
             return {
@@ -1748,7 +1748,7 @@ export class OpenAIConverter extends BaseConverter {
 
         const choice = openaiResponse.choices[0];
         const message = choice.message || {};
-        const output = [];
+        const output: any[] = [];
         const responseId = openaiResponse.id || `resp_${uuidv4().replace(/-/g, '')}`;
         const messageItemId = this._buildResponsesMessageItemId(responseId, 0);
         const reasoningValue = message.reasoning_content || message.reasoning || '';
@@ -1769,7 +1769,7 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         // 构建message输出
-        const messageContent = [];
+        const messageContent: any[] = [];
         if (message.content !== null && message.content !== undefined && message.content !== '') {
             messageContent.push({
                 type: 'output_text',
@@ -1828,7 +1828,7 @@ export class OpenAIConverter extends BaseConverter {
         // 注意：'requires_action' 是 Assistants API 概念，不是 Responses API 的合法 status。
         // 工具调用输出在 Responses API 中同样以 'completed' 收尾（客户端随后提交 function_call_output）。
         let status = 'completed';
-        let incompleteDetails = null;
+        let incompleteDetails: any = null;
         if (choice.finish_reason === 'length') {
             status = 'incomplete';
             incompleteDetails = { reason: 'max_output_tokens' };
@@ -1874,7 +1874,7 @@ export class OpenAIConverter extends BaseConverter {
      * 将OpenAI流式响应转换为OpenAI Responses流式格式
      * 参考 ClaudeConverter.toOpenAIResponsesStreamChunk 的实现逻辑
      */
-    toOpenAIResponsesStreamChunk(openaiChunk, model, requestId = null) {
+    toOpenAIResponsesStreamChunk(openaiChunk: any, model: any, requestId: any = null) {
         if (openaiChunk?.error) {
             const error = new Error(openaiChunk.error.message || 'OpenAI upstream stream failed');
             error.status = 502;
@@ -1887,7 +1887,7 @@ export class OpenAIConverter extends BaseConverter {
         const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(openaiChunk, model, requestId);
         const choice = openaiChunk.choices[0];
         const delta = choice.delta || {};
-        const events = [];
+        const events: any[] = [];
 
         // 第一个chunk - role为assistant时确保流已启动
         if (delta.role === 'assistant') {
@@ -1939,7 +1939,7 @@ export class OpenAIConverter extends BaseConverter {
         // 处理完成状态
         if (choice.finish_reason) {
             let status = 'completed';
-            let incompleteDetails = null;
+            let incompleteDetails: any = null;
             if (choice.finish_reason === 'length') {
                 status = 'incomplete';
                 incompleteDetails = { reason: 'max_output_tokens' };
@@ -1966,9 +1966,9 @@ export class OpenAIConverter extends BaseConverter {
 /**
  * 映射 OpenAI size / aspect_ratio / image_size 到 Gemini 3.1 Flash Image 支持的 aspectRatio 与 imageSize
  */
-export function mapOpenAISizeToGeminiImageConfig(sizeStr, explicitRatio, explicitSize) {
+export function mapOpenAISizeToGeminiImageConfig(sizeStr: any, explicitRatio: any, explicitSize: any) {
     let aspectRatio = explicitRatio;
-    let imageSize = null;
+    let imageSize: any = null;
 
     // 只有当 explicitSize 是合法的 Gemini 档位 (512, 1K, 2K, 4K, 0.5K) 时才直接采用
     if (explicitSize && typeof explicitSize === 'string') {
@@ -1982,7 +1982,7 @@ export function mapOpenAISizeToGeminiImageConfig(sizeStr, explicitRatio, explici
 
     if (sizeStr && typeof sizeStr === 'string') {
         const s = sizeStr.toLowerCase().trim();
-        
+
         // 像素尺寸映射表 (4K 及以下常用标准分辨率)
         const sizeMap = {
             // 0.5K (极速预览: Google 端点要求值为 "512")
@@ -2035,9 +2035,9 @@ export function mapOpenAISizeToGeminiImageConfig(sizeStr, explicitRatio, explici
             '8192x3504': { ratio: '21:9', size: '4K' }
         };
 
-        if (sizeMap[s]) {
-            if (!aspectRatio) aspectRatio = sizeMap[s].ratio;
-            if (!imageSize) imageSize = sizeMap[s].size;
+        if ((sizeMap as any)[s]) {
+            if (!aspectRatio) aspectRatio = (sizeMap as any)[s].ratio;
+            if (!imageSize) imageSize = (sizeMap as any)[s].size;
         } else {
             // 直接传入 512 / 1K / 2K / 4K
             const upper = s.toUpperCase();
@@ -2047,7 +2047,7 @@ export function mapOpenAISizeToGeminiImageConfig(sizeStr, explicitRatio, explici
                 if (!imageSize) imageSize = upper;
             } else {
                 // 自定义 WxH 解析
-                const parts = s.split('x').map(x => parseInt(x, 10));
+                const parts = s.split('x').map((x: any) => parseInt(x, 10));
                 if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && parts[0] > 0 && parts[1] > 0) {
                     const w = parts[0];
                     const h = parts[1];

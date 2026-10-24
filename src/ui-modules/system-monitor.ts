@@ -2,7 +2,7 @@ import os from 'os';
 import { execSync } from 'child_process';
 
 // CPU 使用率计算相关变量
-let previousCpuInfo = null;
+let previousCpuInfo: any = null;
 
 // 进程 CPU 使用率计算相关变量 (PID -> info)
 const processCpuInfoMap = new Map();
@@ -13,35 +13,35 @@ const processCpuInfoMap = new Map();
  */
 export function getSystemCpuUsagePercent() {
     const cpus = os.cpus();
-    
+
     let totalIdle = 0;
     let totalTick = 0;
-    
+
     for (const cpu of cpus) {
         for (const type in cpu.times) {
-            totalTick += cpu.times[type];
+            totalTick += (cpu.times as any)[type];
         }
         totalIdle += cpu.times.idle;
     }
-    
+
     const currentCpuInfo = {
         idle: totalIdle,
         total: totalTick
     };
-    
+
     let cpuPercent = 0;
-    
+
     if (previousCpuInfo) {
         const idleDiff = currentCpuInfo.idle - previousCpuInfo.idle;
         const totalDiff = currentCpuInfo.total - previousCpuInfo.total;
-        
+
         if (totalDiff > 0) {
             cpuPercent = 100 - (100 * idleDiff / totalDiff);
         }
     }
-    
+
     previousCpuInfo = currentCpuInfo;
-    
+
     return `${cpuPercent.toFixed(1)}%`;
 }
 
@@ -50,7 +50,7 @@ export function getSystemCpuUsagePercent() {
  * @param {number} pid - 进程 ID
  * @returns {string} CPU 使用率字符串，如 "5.2%"
  */
-export function getProcessCpuUsagePercent(pid) {
+export function getProcessCpuUsagePercent(pid: any) {
     if (!pid) return '0.0%';
 
     try {
@@ -93,7 +93,7 @@ export function getProcessCpuUsagePercent(pid) {
                 if (prevInfo && prevInfo.totalProcessorSeconds !== undefined) {
                     const timeDiff = (timestamp - prevInfo.timestamp) / 1000; // 转换为秒
                     const processTimeDiff = totalProcessorSeconds - prevInfo.totalProcessorSeconds;
-                    
+
                     if (timeDiff > 0) {
                         const cpuCount = os.cpus().length;
                         cpuPercent = (processTimeDiff / timeDiff) * 100;
@@ -116,14 +116,14 @@ export function getProcessCpuUsagePercent(pid) {
                 if (lines.length >= 2) {
                     cpuPercent = parseFloat(lines[1].trim());
                 }
-            } catch (e) {
+            } catch (e: any) {
                 // 如果 ps -p 失败，尝试更通用的 ps 方式或直接忽略
                 cpuPercent = 0;
             }
         }
 
         return `${Math.max(0, cpuPercent).toFixed(1)}%`;
-    } catch (error) {
+    } catch (error: any) {
         // 忽略进程不存在等错误
         return '0.0%';
     }

@@ -6,9 +6,9 @@ import { getCpuUsagePercent } from './system-monitor.ts';
 /**
  * 获取系统信息
  */
-export async function handleGetSystem(req, res) {
+export async function handleGetSystem(req: any, res: any) {
     const memUsage = process.memoryUsage();
-    
+
     // 读取版本号
     let appVersion = 'unknown';
     try {
@@ -16,14 +16,14 @@ export async function handleGetSystem(req, res) {
         if (existsSync(versionFilePath)) {
             appVersion = readFileSync(versionFilePath, 'utf8').trim();
         }
-    } catch (error) {
+    } catch (error: any) {
         logger.warn('[UI API] Failed to read VERSION file:', error.message);
     }
-    
+
     // 计算 CPU 使用率
     let cpuUsage = '0.0%';
     const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
-    
+
     if (IS_WORKER_PROCESS) {
         // 如果是子进程，尝试从主进程获取状态来确定 PID，或者使用当前 PID (如果要求统计子进程自己的话)
         // 根据任务描述 "CPU 使用率应该是统计子进程的PID的使用率"
@@ -33,7 +33,7 @@ export async function handleGetSystem(req, res) {
         // 独立运行模式下统计系统整体 CPU
         cpuUsage = getCpuUsagePercent();
     }
-    
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         appVersion: appVersion,
@@ -49,7 +49,7 @@ export async function handleGetSystem(req, res) {
 /**
  * 下载当日日志
  */
-export async function handleDownloadTodayLog(req, res) {
+export async function handleDownloadTodayLog(req: any, res: any) {
     try {
         if (!logger.currentLogFile || !existsSync(logger.currentLogFile)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -66,7 +66,7 @@ export async function handleDownloadTodayLog(req, res) {
         const readStream = createReadStream(logger.currentLogFile);
         readStream.pipe(res);
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to download log:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'Failed to download log: ' + error.message } }));
@@ -77,10 +77,10 @@ export async function handleDownloadTodayLog(req, res) {
 /**
  * 清空当日日志
  */
-export async function handleClearTodayLog(req, res) {
+export async function handleClearTodayLog(req: any, res: any) {
     try {
         const success = logger.clearTodayLog();
-        
+
         if (success) {
             // 广播日志清空事件
             const { broadcastEvent } = await import('./event-broadcast.ts');
@@ -89,7 +89,7 @@ export async function handleClearTodayLog(req, res) {
                 timestamp: new Date().toISOString(),
                 message: 'Today\'s log file has been cleared'
             });
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: true,
@@ -103,7 +103,7 @@ export async function handleClearTodayLog(req, res) {
             }));
         }
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to clear log:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -117,7 +117,7 @@ export async function handleClearTodayLog(req, res) {
 /**
  * 健康检查接口（用于前端token验证）
  */
-export async function handleHealthCheck(req, res) {
+export async function handleHealthCheck(req: any, res: any) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
     return true;
@@ -126,10 +126,10 @@ export async function handleHealthCheck(req, res) {
 /**
  * 获取服务模式信息
  */
-export async function handleGetServiceMode(req, res) {
+export async function handleGetServiceMode(req: any, res: any) {
     const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
     const masterPort = process.env.MASTER_PORT || 3100;
-    
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         mode: IS_WORKER_PROCESS ? 'worker' : 'standalone',
@@ -147,15 +147,15 @@ export async function handleGetServiceMode(req, res) {
 /**
  * 重启服务端点 - 支持主进程-子进程架构
  */
-export async function handleRestartService(req, res) {
+export async function handleRestartService(req: any, res: any) {
     try {
         const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
-        
+
         if (IS_WORKER_PROCESS && process.send) {
             // 作为子进程运行，通知主进程重启
             logger.info('[UI API] Requesting restart from master process...');
             process.send({ type: 'restart_request' });
-            
+
             // 广播重启事件
             const { broadcastEvent } = await import('./event-broadcast.ts');
             broadcastEvent('service_restart', {
@@ -163,7 +163,7 @@ export async function handleRestartService(req, res) {
                 timestamp: new Date().toISOString(),
                 message: 'Service restart requested, worker will be restarted by master process'
             });
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: true,
@@ -177,7 +177,7 @@ export async function handleRestartService(req, res) {
         } else {
             // 独立运行模式，无法自动重启
             logger.info('[UI API] Service is running in standalone mode, cannot auto-restart');
-            
+
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
@@ -187,7 +187,7 @@ export async function handleRestartService(req, res) {
             }));
         }
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to restart service:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

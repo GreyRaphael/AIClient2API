@@ -5,7 +5,7 @@ import { broadcastEvent } from './event-broadcast.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 
-function syncRuntimeCustomModels(currentConfig, customModels) {
+function syncRuntimeCustomModels(currentConfig: any, customModels: any) {
     const normalizedCustomModels = Array.isArray(customModels) ? customModels : [];
     currentConfig.customModels = normalizedCustomModels;
     CONFIG.customModels = normalizedCustomModels;
@@ -14,9 +14,9 @@ function syncRuntimeCustomModels(currentConfig, customModels) {
 /**
  * 获取自定义模型列表
  */
-export async function handleGetCustomModels(req, res, currentConfig) {
+export async function handleGetCustomModels(req: any, res: any, currentConfig: any) {
     const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-    let customModels = [];
+    let customModels: any[] = [];
 
     try {
         if (existsSync(filePath)) {
@@ -25,7 +25,7 @@ export async function handleGetCustomModels(req, res, currentConfig) {
         } else if (Array.isArray(currentConfig.customModels)) {
             customModels = currentConfig.customModels;
         }
-    } catch (error) {
+    } catch (error: any) {
         logger.warn('[UI API] Failed to load custom models:', error.message);
     }
 
@@ -37,18 +37,18 @@ export async function handleGetCustomModels(req, res, currentConfig) {
 /**
  * 添加自定义模型
  */
-export async function handleAddCustomModel(req, res, currentConfig) {
+export async function handleAddCustomModel(req: any, res: any, currentConfig: any) {
     try {
         const body = await getRequestBody(req);
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
         return await withFileLock(filePath, () => _handleAddCustomModel(req, res, currentConfig, body));
-    } catch (err) {
+    } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleAddCustomModel(req, res, currentConfig, body) {
+async function _handleAddCustomModel(req: any, res: any, currentConfig: any, body: any) {
     try {
         const newModel = body;
 
@@ -59,19 +59,19 @@ async function _handleAddCustomModel(req, res, currentConfig, body) {
         }
 
         const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        let customModels = [];
+        let customModels: any[] = [];
 
         if (existsSync(filePath)) {
             try {
                 const data = readFileSync(filePath, 'utf-8');
                 customModels = JSON.parse(data);
-            } catch (e) {
+            } catch (e: any) {
                 logger.warn('[UI API] Failed to parse custom models file:', e.message);
             }
         }
 
         // Check for duplicates
-        if (customModels.some(m => m.id === newModel.id)) {
+        if (customModels.some((m: any) => m.id === newModel.id)) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: `Model ID '${newModel.id}' already exists` } }));
             return true;
@@ -82,7 +82,7 @@ async function _handleAddCustomModel(req, res, currentConfig, body) {
         // Save to file
         await atomicWriteFile(filePath, JSON.stringify(customModels, null, 2), 'utf-8');
         syncRuntimeCustomModels(currentConfig, customModels);
-        
+
         logger.info(`[UI API] Added custom model: ${newModel.id}`);
 
         broadcastEvent('config_update', {
@@ -95,7 +95,7 @@ async function _handleAddCustomModel(req, res, currentConfig, body) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, model: newModel }));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message } }));
         return true;
@@ -105,34 +105,34 @@ async function _handleAddCustomModel(req, res, currentConfig, body) {
 /**
  * 更新自定义模型
  */
-export async function handleUpdateCustomModel(req, res, currentConfig, modelId) {
+export async function handleUpdateCustomModel(req: any, res: any, currentConfig: any, modelId: any) {
     try {
         const body = await getRequestBody(req);
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
         return await withFileLock(filePath, () => _handleUpdateCustomModel(req, res, currentConfig, modelId, body));
-    } catch (err) {
+    } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleUpdateCustomModel(req, res, currentConfig, modelId, body) {
+async function _handleUpdateCustomModel(req: any, res: any, currentConfig: any, modelId: any, body: any) {
     try {
         const updatedModel = body;
 
         const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        let customModels = [];
+        let customModels: any[] = [];
 
         if (existsSync(filePath)) {
             try {
                 const data = readFileSync(filePath, 'utf-8');
                 customModels = JSON.parse(data);
-            } catch (e) {
+            } catch (e: any) {
                 logger.warn('[UI API] Failed to parse custom models file:', e.message);
             }
         }
 
-        const index = customModels.findIndex(m => m.id === modelId);
+        const index = customModels.findIndex((m: any) => m.id === modelId);
         if (index === -1) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'Model not found' } }));
@@ -141,7 +141,7 @@ async function _handleUpdateCustomModel(req, res, currentConfig, modelId, body) 
 
         // Ensure ID stays consistent if not explicitly changing it (or handle ID change)
         if (updatedModel.id && updatedModel.id !== modelId) {
-            if (customModels.some(m => m.id === updatedModel.id)) {
+            if (customModels.some((m: any) => m.id === updatedModel.id)) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: { message: `New Model ID '${updatedModel.id}' already exists` } }));
                 return true;
@@ -153,7 +153,7 @@ async function _handleUpdateCustomModel(req, res, currentConfig, modelId, body) 
         // Save to file
         await atomicWriteFile(filePath, JSON.stringify(customModels, null, 2), 'utf-8');
         syncRuntimeCustomModels(currentConfig, customModels);
-        
+
         logger.info(`[UI API] Updated custom model: ${modelId}`);
 
         broadcastEvent('config_update', {
@@ -166,7 +166,7 @@ async function _handleUpdateCustomModel(req, res, currentConfig, modelId, body) 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, model: customModels[index] }));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message } }));
         return true;
@@ -176,31 +176,31 @@ async function _handleUpdateCustomModel(req, res, currentConfig, modelId, body) 
 /**
  * 删除自定义模型
  */
-export async function handleDeleteCustomModel(req, res, currentConfig, modelId) {
+export async function handleDeleteCustomModel(req: any, res: any, currentConfig: any, modelId: any) {
     try {
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
         return await withFileLock(filePath, () => _handleDeleteCustomModel(req, res, currentConfig, modelId));
-    } catch (err) {
+    } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleDeleteCustomModel(req, res, currentConfig, modelId) {
+async function _handleDeleteCustomModel(req: any, res: any, currentConfig: any, modelId: any) {
     try {
         const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        let customModels = [];
+        let customModels: any[] = [];
 
         if (existsSync(filePath)) {
             try {
                 const data = readFileSync(filePath, 'utf-8');
                 customModels = JSON.parse(data);
-            } catch (e) {
+            } catch (e: any) {
                 logger.warn('[UI API] Failed to parse custom models file:', e.message);
             }
         }
 
-        const index = customModels.findIndex(m => m.id === modelId);
+        const index = customModels.findIndex((m: any) => m.id === modelId);
         if (index === -1) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'Model not found' } }));
@@ -212,7 +212,7 @@ async function _handleDeleteCustomModel(req, res, currentConfig, modelId) {
         // Save to file
         await atomicWriteFile(filePath, JSON.stringify(customModels, null, 2), 'utf-8');
         syncRuntimeCustomModels(currentConfig, customModels);
-        
+
         logger.info(`[UI API] Deleted custom model: ${modelId}`);
 
         broadcastEvent('config_update', {
@@ -225,7 +225,7 @@ async function _handleDeleteCustomModel(req, res, currentConfig, modelId) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, deletedModel }));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message } }));
         return true;

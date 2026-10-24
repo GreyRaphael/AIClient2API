@@ -22,41 +22,41 @@ const CODEX_EXTERNAL_IMPORT_MAX_ITEMS = 1000;
 /**
  * 生成 OAuth 授权 URL
  */
-export async function handleGenerateAuthUrl(req, res, currentConfig, providerType) {
+export async function handleGenerateAuthUrl(req: any, res: any, currentConfig: any, providerType: any) {
     logger.info(`[UI API] Received request to generate auth URL for ${providerType}`);
     try {
         let authUrl = '';
         let authInfo = {};
-        
+
         // 解析 options
         let options: any = {};
         try {
             options = await getRequestBody(req) as any;
             logger.debug(`[UI API] Parsed options for ${providerType}:`, JSON.stringify(options));
-        } catch (e) {
+        } catch (e: any) {
             logger.warn(`[UI API] Failed to parse request body for ${providerType}, using empty options`);
         }
 
         // 根据提供商类型生成授权链接并启动回调服务器
         if (providerType === 'gemini-antigravity') {
             const result = await handleGeminiAntigravityOAuth(currentConfig, options);
-            authUrl = result.authUrl;
+            authUrl = result.authUrl || '';
             authInfo = result.authInfo;
         } else if (providerType === 'claude-kiro-oauth') {
             // Kiro OAuth 支持多种认证方式
             // options.method 可以是: 'google' | 'github' | 'builder-id'
             const result = await handleKiroOAuth(currentConfig, options);
-            authUrl = result.authUrl;
+            authUrl = result.authUrl || '';
             authInfo = result.authInfo;
         } else if (providerType === 'openai-codex-oauth') {
             // Codex OAuth（OAuth2 + PKCE）
             const result = await handleCodexOAuth(currentConfig, options);
-            authUrl = result.authUrl;
+            authUrl = result.authUrl || '';
             authInfo = result.authInfo;
         } else if (providerType === 'zed') {
             // Zed OAuth
             const result = await handleZedOAuth(currentConfig, options);
-            authUrl = result.authUrl;
+            authUrl = result.authUrl || '';
             authInfo = result.authInfo;
         } else if (providerType === 'trae' || providerType.startsWith('trae-')) {
             // Trae PAT 或 Web OAuth 授权
@@ -89,7 +89,7 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
             } else {
                 // 未提供 Token 时，生成浏览器 Web 授权链接
                 const result = await handleTraeOAuth(currentConfig, { ...options, providerType });
-                authUrl = result.authUrl;
+                authUrl = result.authUrl || '';
                 authInfo = { ...result.authInfo, provider: providerType };
             }
         } else {
@@ -101,7 +101,7 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
             }));
             return true;
         }
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: true,
@@ -109,8 +109,8 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
             authInfo: authInfo
         }));
         return true;
-        
-    } catch (error) {
+
+    } catch (error: any) {
         logger.error(`[UI API] Failed to generate auth URL for ${providerType}:`, error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -125,7 +125,7 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
 /**
  * 处理手动 OAuth 回调
  */
-export async function handleManualOAuthCallback(req, res) {
+export async function handleManualOAuthCallback(req: any, res: any) {
     try {
         const body = await getRequestBody(req) as any;
         const { provider, callbackUrl, authMethod } = body;
@@ -217,7 +217,7 @@ export async function handleManualOAuthCallback(req, res) {
                     error: `Callback processing failed: ${response.status}`
                 }));
             }
-        } catch (fetchError) {
+        } catch (fetchError: any) {
             logger.error(`[OAuth Manual Callback] Failed to process callback:`, fetchError);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -227,7 +227,7 @@ export async function handleManualOAuthCallback(req, res) {
         }
 
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[OAuth Manual Callback] Error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -241,11 +241,11 @@ export async function handleManualOAuthCallback(req, res) {
 /**
  * 批量导入 Kiro refreshToken（带实时进度 SSE）
  */
-export async function handleBatchImportKiroTokens(req, res) {
+export async function handleBatchImportKiroTokens(req: any, res: any) {
     try {
         const body = await getRequestBody(req) as any;
         const { refreshTokens, region, skipDuplicateCheck } = body;
-        
+
         if (!refreshTokens || !Array.isArray(refreshTokens) || refreshTokens.length === 0) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -254,9 +254,9 @@ export async function handleBatchImportKiroTokens(req, res) {
             }));
             return true;
         }
-        
+
         logger.info(`[Kiro Batch Import] Starting batch import of ${refreshTokens.length} tokens with SSE...`);
-        
+
         // 设置 SSE 响应头
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
@@ -264,37 +264,37 @@ export async function handleBatchImportKiroTokens(req, res) {
             'Connection': 'keep-alive',
             'X-Accel-Buffering': 'no'
         });
-        
+
         // 发送 SSE 事件的辅助函数（带错误处理）
-        const sendSSE = (event, data) => {
+        const sendSSE = (event: any, data: any) => {
             if (!res.writableEnded && !res.destroyed) {
                 try {
                     res.write(`event: ${event}\n`);
                     res.write(`data: ${JSON.stringify(data)}\n\n`);
-                } catch (err) {
+                } catch (err: any) {
                     logger.error('[Kiro Batch Import] Failed to write SSE:', err.message);
                     return false;
                 }
             }
             return true;
         };
-        
+
         // 发送开始事件
         sendSSE('start', { total: refreshTokens.length });
-        
+
         // 执行流式批量导入
         const result = await batchImportKiroRefreshTokensStream(
-            refreshTokens, 
+            refreshTokens,
             region || 'us-east-1',
-            (progress) => {
+            (progress: any) => {
                 // 每处理完一个 token 发送进度更新
                 sendSSE('progress', progress);
             },
             !!skipDuplicateCheck // 显式传递：默认为 false (执行去重)
         );
-        
+
         logger.info(`[Kiro Batch Import] Completed: ${result.success} success, ${result.failed} failed`);
-        
+
         // 发送完成事件
         sendSSE('complete', {
             success: true,
@@ -303,11 +303,11 @@ export async function handleBatchImportKiroTokens(req, res) {
             failedCount: result.failed,
             details: result.details
         });
-        
+
         res.end();
         return true;
-        
-    } catch (error) {
+
+    } catch (error: any) {
         logger.error('[Kiro Batch Import] Error:', error);
         // 如果已经开始发送 SSE，则发送错误事件
         if (res.headersSent && !res.writableEnded && !res.destroyed) {
@@ -315,7 +315,7 @@ export async function handleBatchImportKiroTokens(req, res) {
                 res.write(`event: error\n`);
                 res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
                 res.end();
-            } catch (writeErr) {
+            } catch (writeErr: any) {
                 logger.error('[Kiro Batch Import] Failed to write error:', writeErr.message);
             }
         } else if (!res.headersSent) {
@@ -332,11 +332,11 @@ export async function handleBatchImportKiroTokens(req, res) {
 /**
  * 批量导入 Gemini Token（带实时进度 SSE）
  */
-export async function handleBatchImportGeminiTokens(req, res) {
+export async function handleBatchImportGeminiTokens(req: any, res: any) {
     try {
         const body = await getRequestBody(req) as any;
         const { providerType, tokens, skipDuplicateCheck } = body;
-        
+
         if (!providerType || !tokens || !Array.isArray(tokens) || tokens.length === 0) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -345,9 +345,9 @@ export async function handleBatchImportGeminiTokens(req, res) {
             }));
             return true;
         }
-        
+
         logger.info(`[Gemini Batch Import] Starting batch import for ${providerType} with ${tokens.length} tokens...`);
-        
+
         // 设置 SSE 响应头
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
@@ -355,28 +355,28 @@ export async function handleBatchImportGeminiTokens(req, res) {
             'Connection': 'keep-alive',
             'X-Accel-Buffering': 'no'
         });
-        
+
         // 发送 SSE 事件的辅助函数
-        const sendSSE = (event, data) => {
+        const sendSSE = (event: any, data: any) => {
             res.write(`event: ${event}\n`);
             res.write(`data: ${JSON.stringify(data)}\n\n`);
         };
-        
+
         // 发送开始事件
         sendSSE('start', { total: tokens.length });
-        
+
         // 执行流式批量导入
         const result = await batchImportGeminiTokensStream(
             providerType,
             tokens,
-            (progress) => {
+            (progress: any) => {
                 sendSSE('progress', progress);
             },
             !!skipDuplicateCheck // 默认为 false (执行去重)
         );
-        
+
         logger.info(`[Gemini Batch Import] Completed: ${result.success} success, ${result.failed} failed`);
-        
+
         // 发送完成事件
         sendSSE('complete', {
             success: true,
@@ -385,11 +385,11 @@ export async function handleBatchImportGeminiTokens(req, res) {
             failedCount: result.failed,
             details: result.details
         });
-        
+
         res.end();
         return true;
-        
-    } catch (error) {
+
+    } catch (error: any) {
         logger.error('[Gemini Batch Import] Error:', error);
         if (res.headersSent) {
             res.write(`event: error\n`);
@@ -409,7 +409,7 @@ export async function handleBatchImportGeminiTokens(req, res) {
 /**
  * 批量导入 Codex Token（带实时进度 SSE）
  */
-export async function handleBatchImportCodexTokens(req, res) {
+export async function handleBatchImportCodexTokens(req: any, res: any) {
     try {
         const body = await getRequestBody(req) as any;
         const { tokens, skipDuplicateCheck } = body;
@@ -434,7 +434,7 @@ export async function handleBatchImportCodexTokens(req, res) {
         });
 
         // 发送 SSE 事件的辅助函数
-        const sendSSE = (event, data) => {
+        const sendSSE = (event: any, data: any) => {
             res.write(`event: ${event}\n`);
             res.write(`data: ${JSON.stringify(data)}\n\n`);
         };
@@ -445,7 +445,7 @@ export async function handleBatchImportCodexTokens(req, res) {
         // 执行流式批量导入
         const result = await batchImportCodexTokensStream(
             tokens,
-            (progress) => {
+            (progress: any) => {
                 sendSSE('progress', progress);
             },
             !!skipDuplicateCheck // 默认为 false (执行去重)
@@ -465,7 +465,7 @@ export async function handleBatchImportCodexTokens(req, res) {
         res.end();
         return true;
 
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[Codex Batch Import] Error:', error);
         if (res.headersSent) {
             res.write(`event: error\n`);
@@ -485,7 +485,7 @@ export async function handleBatchImportCodexTokens(req, res) {
 /**
  * 导入 Codex 外部凭据格式（CPA / sub2api，带实时进度 SSE）
  */
-export async function handleImportCodexExternalCredentials(req, res) {
+export async function handleImportCodexExternalCredentials(req: any, res: any) {
     try {
         const body = await getRequestBody(req, { maxBytes: CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES }) as any;
         const { source, payload, skipDuplicateCheck } = body;
@@ -527,7 +527,7 @@ export async function handleImportCodexExternalCredentials(req, res) {
             'X-Accel-Buffering': 'no'
         });
 
-        const sendSSE = (event, data) => {
+        const sendSSE = (event: any, data: any) => {
             res.write(`event: ${event}\n`);
             res.write(`data: ${JSON.stringify(data)}\n\n`);
         };
@@ -535,12 +535,12 @@ export async function handleImportCodexExternalCredentials(req, res) {
         sendSSE('start', {
             source,
             total: tokens.length,
-            accessTokenOnlyCount: tokens.filter(token => token.access_token_only).length
+            accessTokenOnlyCount: tokens.filter((token: any) => token.access_token_only).length
         });
 
         const result = await batchImportCodexTokensStream(
             tokens,
-            (progress) => {
+            (progress: any) => {
                 sendSSE('progress', {
                     ...progress,
                     source
@@ -557,13 +557,13 @@ export async function handleImportCodexExternalCredentials(req, res) {
             total: result.total,
             successCount: result.success,
             failedCount: result.failed,
-            accessTokenOnlyCount: tokens.filter(token => token.access_token_only).length,
+            accessTokenOnlyCount: tokens.filter((token: any) => token.access_token_only).length,
             details: result.details
         });
 
         res.end();
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[Codex External Import] Error:', error);
         if (res.headersSent) {
             res.write(`event: error\n`);
@@ -583,11 +583,11 @@ export async function handleImportCodexExternalCredentials(req, res) {
 /**
  * 导入 AWS SSO 凭据用于 Kiro（支持单个或批量导入）
  */
-export async function handleImportAwsCredentials(req, res) {
+export async function handleImportAwsCredentials(req: any, res: any) {
     try {
         const body = await getRequestBody(req) as any;
         const { credentials, skipDuplicateCheck } = body;
-        
+
         if (!credentials) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -596,7 +596,7 @@ export async function handleImportAwsCredentials(req, res) {
             }));
             return true;
         }
-        
+
         // 检查是否为批量导入（数组）
         if (Array.isArray(credentials)) {
             // 批量导入模式 - 使用 SSE 流式响应
@@ -608,17 +608,17 @@ export async function handleImportAwsCredentials(req, res) {
                 }));
                 return true;
             }
-            
+
             // 验证每个凭据对象的必需字段
-            const validationErrors = [];
+            const validationErrors: any[] = [];
             for (let i = 0; i < credentials.length; i++) {
                 const cred = credentials[i];
-                const missingFields = [];
+                const missingFields: any[] = [];
                 if (!cred.clientId) missingFields.push('clientId');
                 if (!cred.clientSecret) missingFields.push('clientSecret');
                 if (!cred.accessToken) missingFields.push('accessToken');
                 if (!cred.refreshToken) missingFields.push('refreshToken');
-                
+
                 if (missingFields.length > 0) {
                     validationErrors.push({
                         index: i + 1,
@@ -626,7 +626,7 @@ export async function handleImportAwsCredentials(req, res) {
                     });
                 }
             }
-            
+
             // 如果有验证错误，返回详细信息
             if (validationErrors.length > 0) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -637,9 +637,9 @@ export async function handleImportAwsCredentials(req, res) {
                 }));
                 return true;
             }
-            
+
             logger.info(`[Kiro AWS Batch Import] Starting batch import of ${credentials.length} credentials with SSE...`);
-            
+
             // 设置 SSE 响应头
             res.writeHead(200, {
                 'Content-Type': 'text/event-stream',
@@ -647,32 +647,32 @@ export async function handleImportAwsCredentials(req, res) {
                 'Connection': 'keep-alive',
                 'X-Accel-Buffering': 'no'
             });
-            
+
             // 发送 SSE 事件的辅助函数
-            const sendSSE = (event, data) => {
+            const sendSSE = (event: any, data: any) => {
                 res.write(`event: ${event}\n`);
                 res.write(`data: ${JSON.stringify(data)}\n\n`);
             };
-            
+
             // 发送开始事件
             sendSSE('start', { total: credentials.length });
-            
+
             // 批量导入
             let successCount = 0;
             let failedCount = 0;
-            const details = [];
-            
+            const details: any[] = [];
+
             for (let i = 0; i < credentials.length; i++) {
                 const cred = credentials[i];
-                const progressData = {
+                const progressData: any = {
                     index: i + 1,
                     total: credentials.length,
                     current: null
                 };
-                
+
                 try {
                     const result = await importAwsCredentials(cred, !!skipDuplicateCheck);
-                    
+
                     if (result.success) {
                         progressData.current = {
                             index: i + 1,
@@ -689,7 +689,7 @@ export async function handleImportAwsCredentials(req, res) {
                         };
                         failedCount++;
                     }
-                } catch (error) {
+                } catch (error: any) {
                     progressData.current = {
                         index: i + 1,
                         success: false,
@@ -697,9 +697,9 @@ export async function handleImportAwsCredentials(req, res) {
                     };
                     failedCount++;
                 }
-                
+
                 details.push(progressData.current);
-                
+
                 // 发送进度更新
                 sendSSE('progress', {
                     ...progressData,
@@ -707,9 +707,9 @@ export async function handleImportAwsCredentials(req, res) {
                     failedCount
                 });
             }
-            
+
             logger.info(`[Kiro AWS Batch Import] Completed: ${successCount} success, ${failedCount} failed`);
-            
+
             // 发送完成事件
             sendSSE('complete', {
                 success: true,
@@ -718,19 +718,19 @@ export async function handleImportAwsCredentials(req, res) {
                 failedCount,
                 details
             });
-            
+
             res.end();
             return true;
-            
+
         } else if (typeof credentials === 'object') {
             // 单个导入模式
             // 验证必需字段 - 需要四个字段都存在
-            const missingFields = [];
+            const missingFields: any[] = [];
             if (!credentials.clientId) missingFields.push('clientId');
             if (!credentials.clientSecret) missingFields.push('clientSecret');
             if (!credentials.accessToken) missingFields.push('accessToken');
             if (!credentials.refreshToken) missingFields.push('refreshToken');
-            
+
             if (missingFields.length > 0) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -739,11 +739,11 @@ export async function handleImportAwsCredentials(req, res) {
                 }));
                 return true;
             }
-            
+
             logger.info('[Kiro AWS Import] Starting AWS credentials import...');
-            
+
             const result = await importAwsCredentials(credentials, !!skipDuplicateCheck);
-            
+
             if (result.success) {
                 logger.info(`[Kiro AWS Import] Successfully imported credentials to: ${result.path}`);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -771,8 +771,8 @@ export async function handleImportAwsCredentials(req, res) {
             }));
             return true;
         }
-        
-    } catch (error) {
+
+    } catch (error: any) {
         logger.error('[Kiro AWS Import] Error:', error);
         // 如果已经开始发送 SSE，则发送错误事件
         if (res.headersSent) {

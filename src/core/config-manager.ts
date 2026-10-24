@@ -12,7 +12,7 @@ export let PROMPT_LOG_FILENAME: string = ''; // Make PROMPT_LOG_FILENAME exporta
 const ALL_MODEL_PROVIDERS = Object.values(MODEL_PROVIDER);
 const BYTES_PER_MB = 1024 * 1024;
 
-function parsePositiveInteger(value) {
+function parsePositiveInteger(value: any) {
     if (value === undefined || value === null || value === '') {
         return null;
     }
@@ -45,7 +45,7 @@ const TOGGLE_ON_VALUES = new Set([true, 'true', '1', 'on']);
  * @param {boolean} defaultOn - 默认极性
  * @returns {boolean}
  */
-export function getConfigToggle(key, defaultOn) {
+export function getConfigToggle(key: any, defaultOn: any) {
     const envVal = process.env[key];
     if (envVal !== undefined) {
         return defaultOn ? !TOGGLE_OFF_VALUES.has(envVal) : TOGGLE_ON_VALUES.has(envVal);
@@ -63,7 +63,7 @@ export function getConfigToggle(key, defaultOn) {
  * @param {number} defaultValue - 默认值
  * @returns {number}
  */
-export function getConfigPositiveInt(key, defaultValue) {
+export function getConfigPositiveInt(key: any, defaultValue: any) {
     const envVal = parsePositiveInteger(process.env[key]);
     if (envVal !== null) {
         return envVal;
@@ -77,7 +77,7 @@ export function getConfigPositiveInt(key, defaultValue) {
  * @param {string} key - 配置键
  * @param {boolean} defaultOn - 默认极性
  */
-function normalizeToggleConfig(config, key, defaultOn) {
+function normalizeToggleConfig(config: any, key: any, defaultOn: any) {
     const rawVal = process.env[key] !== undefined ? process.env[key] : config[key];
     if (rawVal === undefined) {
         config[key] = defaultOn;
@@ -86,7 +86,7 @@ function normalizeToggleConfig(config, key, defaultOn) {
     config[key] = defaultOn ? !TOGGLE_OFF_VALUES.has(rawVal) : TOGGLE_ON_VALUES.has(rawVal);
 }
 
-function normalizeRequestBodyMaxBytes(config) {
+function normalizeRequestBodyMaxBytes(config: any) {
     const envBytes = parsePositiveInteger(process.env.REQUEST_BODY_MAX_BYTES);
     if (envBytes !== null) {
         config.REQUEST_BODY_MAX_BYTES = envBytes;
@@ -103,7 +103,7 @@ function normalizeRequestBodyMaxBytes(config) {
     config.REQUEST_BODY_MAX_BYTES = configuredBytes ?? DEFAULT_REQUEST_BODY_MAX_BYTES;
 }
 
-function normalizeSchemaPolyfillConfig(config) {
+function normalizeSchemaPolyfillConfig(config: any) {
     normalizeToggleConfig(config, 'CONVERT_SCHEMA_POLYFILL', true);
 
     const envMaxDesc = parsePositiveInteger(process.env.CONVERT_SCHEMA_POLYFILL_MAX_DESC);
@@ -114,12 +114,12 @@ function normalizeSchemaPolyfillConfig(config) {
     }
 }
 
-function normalizeSignatureVaultConfig(config) {
+function normalizeSignatureVaultConfig(config: any) {
     normalizeToggleConfig(config, 'SIGNATURE_VAULT', true);
     normalizeToggleConfig(config, 'SIGNATURE_VAULT_STRIP', true);
 }
 
-function normalizeConvertSortToolsConfig(config) {
+function normalizeConvertSortToolsConfig(config: any) {
     normalizeToggleConfig(config, 'CONVERT_SORT_TOOLS', true);
     normalizeToggleConfig(config, 'CONVERT_CLAUDE_CODE_TOOL_HEURISTICS', false);
 }
@@ -130,7 +130,7 @@ function normalizeConvertSortToolsConfig(config) {
  * - 兼容旧开关 GEMINI_PASS_MAX_OUTPUT_TOKENS
  *   （true 等价于声明 Antigravity 支持 maxOutputTokens）。
  */
-function normalizeProviderCapabilitiesConfig(config) {
+function normalizeProviderCapabilitiesConfig(config: any) {
     if (!config.PROVIDER_CAPABILITIES || typeof config.PROVIDER_CAPABILITIES !== 'object' || Array.isArray(config.PROVIDER_CAPABILITIES)) {
         config.PROVIDER_CAPABILITIES = {};
     }
@@ -149,15 +149,15 @@ function normalizeProviderCapabilitiesConfig(config) {
     }
 }
 
-function normalizePreserveReasoningItemConfig(config) {
+function normalizePreserveReasoningItemConfig(config: any) {
     normalizeToggleConfig(config, 'CONVERT_PRESERVE_REASONING_ITEM', true);
 }
 
-function normalizeConfiguredProviders(config) {
+function normalizeConfiguredProviders(config: any) {
     const fallbackProvider = MODEL_PROVIDER.ANTIGRAVITY;
-    const dedupedProviders = [];
+    const dedupedProviders: any[] = [];
 
-    const addProvider = (value) => {
+    const addProvider = (value: any) => {
         if (typeof value !== 'string') {
             return;
         }
@@ -168,7 +168,7 @@ function normalizeConfiguredProviders(config) {
         }
 
         // 1. 优先尝试精确匹配基础类型
-        const matched = ALL_MODEL_PROVIDERS.find((provider) => provider.toLowerCase() === trimmed.toLowerCase());
+        const matched = ALL_MODEL_PROVIDERS.find((provider: any) => provider.toLowerCase() === trimmed.toLowerCase());
         if (matched) {
             if (!dedupedProviders.includes(matched)) {
                 dedupedProviders.push(matched);
@@ -177,10 +177,10 @@ function normalizeConfiguredProviders(config) {
         }
 
         // 2. 尝试前缀匹配 (支持带后缀的自定义分组，例如 openai-custom-1)
-        const prefixMatch = ALL_MODEL_PROVIDERS.find((provider) => 
+        const prefixMatch = ALL_MODEL_PROVIDERS.find((provider: any) =>
             provider !== 'auto' && trimmed.toLowerCase().startsWith(provider.toLowerCase() + '-')
         );
-        
+
         if (prefixMatch) {
             if (!dedupedProviders.includes(trimmed)) {
                 dedupedProviders.push(trimmed);
@@ -193,7 +193,7 @@ function normalizeConfiguredProviders(config) {
 
     const rawValue = config.MODEL_PROVIDER;
     if (Array.isArray(rawValue)) {
-        rawValue.forEach((entry) => addProvider(typeof entry === 'string' ? entry : String(entry)));
+        rawValue.forEach((entry: any) => addProvider(typeof entry === 'string' ? entry : String(entry)));
     } else if (typeof rawValue === 'string') {
         rawValue.split(',').forEach(addProvider);
     } else if (rawValue != null) {
@@ -214,7 +214,7 @@ function normalizeConfiguredProviders(config) {
  * @param {string} [configFilePath='configs/config.json'] - Path to the configuration file.
  * @returns {Promise<Object>} The initialized configuration object.
  */
-export async function initializeConfig(args = process.argv.slice(2), configFilePath = 'configs/config.json') {
+export async function initializeConfig(args: any = process.argv.slice(2), configFilePath: any = 'configs/config.json') {
     const defaultConfig = {
         REQUIRED_API_KEY: "123456",
         SERVER_PORT: 3000,
@@ -278,14 +278,14 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         GITHUB_REPO: null          // 自定义更新检查与发布的 GitHub 仓库 (例如 "GreyRaphael/AIClient2API")
     };
 
-    let currentConfig = { ...defaultConfig };
+    let currentConfig: any = { ...defaultConfig };
 
     try {
         const configData = fs.readFileSync(configFilePath, 'utf8');
         const loadedConfig = JSON.parse(configData);
         Object.assign(currentConfig, loadedConfig);
         logger.info('[Config] Loaded configuration from configs/config.json');
-    } catch (error) {
+    } catch (error: any) {
         if (error.code !== 'ENOENT') {
             logger.error('[Config Error] Failed to load configs/config.json:', error.message);
         } else {
@@ -332,7 +332,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     ];
 
     // Parse command-line arguments using definitions
-    const flagMap = new Map(cliArgDefs.map(def => [def.flag, def]));
+    const flagMap = new Map(cliArgDefs.map((def: any) => [def.flag, def]));
     for (let i = 0; i < args.length; i++) {
         const def = flagMap.get(args[i]);
         if (!def) continue;
@@ -345,23 +345,23 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         const rawValue = def.type === 'flag' ? null : args[++i];
         switch (def.type) {
             case 'flag':
-                currentConfig[def.configKey] = def.value;
+                (currentConfig as any)[def.configKey] = def.value;
                 break;
             case 'string':
-                currentConfig[def.configKey] = rawValue;
+                (currentConfig as any)[def.configKey] = rawValue;
                 break;
             case 'stringList':
-                currentConfig[def.configKey] = rawValue.split(',').map(item => item.trim()).filter(Boolean);
+                (currentConfig as any)[def.configKey] = rawValue.split(',').map((item: any) => item.trim()).filter(Boolean);
                 break;
             case 'int':
-                currentConfig[def.configKey] = parseInt(rawValue, 10);
+                (currentConfig as any)[def.configKey] = parseInt(rawValue, 10);
                 break;
             case 'bool':
-                currentConfig[def.configKey] = rawValue.toLowerCase() === 'true';
+                (currentConfig as any)[def.configKey] = rawValue.toLowerCase() === 'true';
                 break;
             case 'enum':
                 if (def.validValues.includes(rawValue)) {
-                    currentConfig[def.configKey] = rawValue;
+                    (currentConfig as any)[def.configKey] = rawValue;
                 } else {
                     logger.warn(`[Config Warning] Invalid value for ${def.flag}. Expected one of: ${def.validValues.join(', ')}.`);
                 }
@@ -404,11 +404,11 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 logger.info('[Config] Migrated legacy Trae provider pools (trae-agent_v3 -> trae-solo_work_lite)');
                 try {
                     await atomicWriteFile(currentConfig.PROVIDER_POOLS_FILE_PATH, JSON.stringify(currentConfig.providerPools, null, 2), 'utf8');
-                } catch (writeError) {
+                } catch (writeError: any) {
                     logger.warn(`[Config] Failed to persist migrated provider pools: ${writeError.message}`);
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[Config Error] Failed to load provider pools from ${currentConfig.PROVIDER_POOLS_FILE_PATH}: ${error.message}`);
             currentConfig.providerPools = {};
         }
@@ -428,7 +428,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         } else {
             currentConfig.customModels = [];
         }
-    } catch (error) {
+    } catch (error: any) {
         logger.error(`[Config Error] Failed to load custom models from ${currentConfig.CUSTOM_MODELS_FILE_PATH}: ${error.message}`);
         currentConfig.customModels = [];
     }
@@ -436,7 +436,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     // Set PROMPT_LOG_FILENAME based on the determined config
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
         const now = new Date();
-        const pad = (num) => String(num).padStart(2, '0');
+        const pad = (num: any) => String(num).padStart(2, '0');
         const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
         PROMPT_LOG_FILENAME = `${currentConfig.PROMPT_LOG_BASE_NAME}-${timestamp}.log`;
     } else {
@@ -469,10 +469,10 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
  * @param {string} filePath - Path to the system prompt file.
  * @returns {Promise<string|null>} File content, or null if the file does not exist, is empty, or an error occurs.
  */
-export async function getSystemPromptFileContent(filePath) {
+export async function getSystemPromptFileContent(filePath: any) {
     try {
         await pfs.access(filePath, pfs.constants.F_OK);
-    } catch (error) {
+    } catch (error: any) {
         if (error.code === 'ENOENT') {
             logger.warn(`[System Prompt] Specified system prompt file not found: ${filePath}`);
         } else {
@@ -488,7 +488,7 @@ export async function getSystemPromptFileContent(filePath) {
         }
         logger.info(`[System Prompt] Loaded system prompt from ${filePath}`);
         return content;
-    } catch (error) {
+    } catch (error: any) {
         logger.error(`[System Prompt] Error reading system prompt file ${filePath}: ${error.message}`);
         return null;
     }
@@ -497,7 +497,7 @@ export async function getSystemPromptFileContent(filePath) {
 export { ALL_MODEL_PROVIDERS };
 
 const configManager = {
-    get: (key) => CONFIG[key],
+    get: (key: any) => CONFIG[key],
     getAll: () => CONFIG
 };
 

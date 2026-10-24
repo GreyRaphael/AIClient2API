@@ -20,7 +20,7 @@ export class ClaudeApiService {
      * Constructor
      * @param {Object} config - Claude provider configuration.
      */
-    constructor(config) {
+    constructor(config: any) {
         if (!config.CLAUDE_API_KEY) {
             throw new Error("Claude API Key is required for ClaudeApiService.");
         }
@@ -45,11 +45,11 @@ export class ClaudeApiService {
                 'anthropic-version': '2023-06-01', // Claude API 版本
             },
         };
-        
+
         return axios.create(axiosConfig);
     }
 
-    _applySidecar(axiosConfig) {
+    _applySidecar(axiosConfig: any) {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CLAUDE_CUSTOM, this.baseUrl);
     }
 
@@ -61,7 +61,7 @@ export class ClaudeApiService {
      * @param {number} retryCount - Current retry count.
      * @returns {Promise<object>} API response data.
      */
-    async callApi(endpoint, body, isRetry = false, retryCount = 0) {
+    async callApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): Promise<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
@@ -74,14 +74,14 @@ export class ClaudeApiService {
             this._applySidecar(axiosConfig);
             const response = await this.client.request(axiosConfig);
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
-            
+
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
-            
+
             // 对于 Claude API，401 通常意味着 API Key 无效，不进行重试
             if (status === 401 || status === 403) {
                 logger.error(`[Claude API] Received ${status}. API Key might be invalid or expired.`);
@@ -98,7 +98,7 @@ export class ClaudeApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[Claude API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     return this.callApi(endpoint, body, isRetry, retryCount + 1);
                 }
             }
@@ -107,7 +107,7 @@ export class ClaudeApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Claude API] Received ${status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1);
             }
 
@@ -116,7 +116,7 @@ export class ClaudeApiService {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[Claude API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1);
             }
 
@@ -133,7 +133,7 @@ export class ClaudeApiService {
      * @param {number} retryCount - Current retry count.
      * @returns {AsyncIterable<object>} API response stream.
      */
-    async *streamApi(endpoint, body, isRetry = false, retryCount = 0) {
+    async *streamApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): AsyncGenerator<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
@@ -151,7 +151,7 @@ export class ClaudeApiService {
 
             for await (const chunk of reader) {
                 buffer += chunk.toString('utf-8');
-                let boundary;
+                let boundary: any;
                 while ((boundary = buffer.indexOf('\n\n')) !== -1) {
                     const eventBlock = buffer.substring(0, boundary);
                     buffer = buffer.substring(boundary + 2);
@@ -171,20 +171,20 @@ export class ClaudeApiService {
                             if (parsedChunk.type === 'message_stop') {
                                 return;
                             }
-                        } catch (e) {
+                        } catch (e: any) {
                             logger.warn("[ClaudeApiService] Failed to parse stream chunk JSON:", e.message, "Data:", data);
                         }
                     }
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
-            
+
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
-            
+
             // 对于 Claude API，401 通常意味着 API Key 无效，不进行重试
             if (status === 401 || status === 403) {
                 logger.error(`[Claude API] Received ${status} during stream. API Key might be invalid or expired.`);
@@ -201,7 +201,7 @@ export class ClaudeApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[Claude API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                     return;
                 }
@@ -211,7 +211,7 @@ export class ClaudeApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Claude API] Received ${status} server error during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -221,7 +221,7 @@ export class ClaudeApiService {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[Claude API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -237,7 +237,7 @@ export class ClaudeApiService {
      * @param {object} requestBody - Request body (Claude format).
      * @returns {Promise<object>} Claude API response (Claude compatible format).
      */
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -246,7 +246,7 @@ export class ClaudeApiService {
         if (requestBody._requestBaseUrl) {
             delete requestBody._requestBaseUrl;
         }
-        
+
         const response = await this.callApi('/messages', requestBody);
         return response;
     }
@@ -257,7 +257,7 @@ export class ClaudeApiService {
      * @param {object} requestBody - Request body (Claude format).
      * @returns {AsyncIterable<object>} Claude API response stream (Claude compatible format).
      */
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         const stream = this.streamApi('/messages', requestBody);
         for await (const chunk of stream) {
             yield chunk;
@@ -281,7 +281,7 @@ export class ClaudeApiService {
                 return { models: response.data.data };
             }
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const data = error.response?.data;
             logger.warn(`[ClaudeApiService] Failed to fetch models from upstream (Status: ${status || 'N/A'}), using fallback list:`, data || error.message);
@@ -293,7 +293,7 @@ export class ClaudeApiService {
             { id: "claude-opus-4-20250514", name: "claude-opus-4-20250514" },
         ];
 
-        return { models: models.map(m => ({ name: m.name })) };
+        return { models: models.map((m: any) => ({ name: m.name })) };
     }
 }
 

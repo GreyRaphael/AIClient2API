@@ -13,7 +13,7 @@ export class OpenAIResponsesApiService {
     useSystemProxy: any;
     axiosInstance: any;
 
-    constructor(config) {
+    constructor(config: any) {
         if (!config.OPENAI_API_KEY) {
             throw new Error("OpenAI API Key is required for OpenAIResponsesApiService.");
         }
@@ -22,7 +22,7 @@ export class OpenAIResponsesApiService {
         this.baseUrl = config.OPENAI_BASE_URL || 'https://api.openai.com/v1';
         this.useSystemProxy = config?.USE_SYSTEM_PROXY_OPENAI ?? false;
         logger.info(`[OpenAIResponses] System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
-        
+
         const axiosConfig = {
             baseURL: this.baseUrl,
             headers: {
@@ -35,11 +35,11 @@ export class OpenAIResponsesApiService {
 
     }
 
-    _applySidecar(axiosConfig) {
+    _applySidecar(axiosConfig: any) {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM_RESPONSES, this.baseUrl);
     }
 
-    async callApi(endpoint, body, isRetry = false, retryCount = 0) {
+    async callApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): Promise<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
@@ -52,7 +52,7 @@ export class OpenAIResponsesApiService {
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const data = error.response?.data;
             if (status === 401 || status === 403) {
@@ -70,7 +70,7 @@ export class OpenAIResponsesApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     return this.callApi(endpoint, body, isRetry, retryCount + 1);
                 }
             }
@@ -79,7 +79,7 @@ export class OpenAIResponsesApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[API] Received ${status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1);
             }
 
@@ -88,7 +88,7 @@ export class OpenAIResponsesApiService {
         }
     }
 
-    async *streamApi(endpoint, body, isRetry = false, retryCount = 0) {
+    async *streamApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): AsyncGenerator<any> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
@@ -110,7 +110,7 @@ export class OpenAIResponsesApiService {
 
             for await (const chunk of stream) {
                 buffer += chunk.toString();
-                let newlineIndex;
+                let newlineIndex: any;
                 while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
                     const line = buffer.substring(0, newlineIndex).trim();
                     buffer = buffer.substring(newlineIndex + 1);
@@ -123,7 +123,7 @@ export class OpenAIResponsesApiService {
                         try {
                             const parsedChunk = JSON.parse(jsonData);
                             yield parsedChunk;
-                        } catch (e) {
+                        } catch (e: any) {
                             logger.warn("[OpenAIResponsesApiService] Failed to parse stream chunk JSON:", e.message, "Data:", jsonData);
                         }
                     } else if (line === '') {
@@ -131,7 +131,7 @@ export class OpenAIResponsesApiService {
                     }
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const data = error.response?.data;
             if (status === 401 || status === 403) {
@@ -149,7 +149,7 @@ export class OpenAIResponsesApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve: any) => setTimeout(resolve, delay));
                     yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                     return;
                 }
@@ -159,7 +159,7 @@ export class OpenAIResponsesApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[API] Received ${status} server error during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve: any) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -169,7 +169,7 @@ export class OpenAIResponsesApiService {
         }
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -182,7 +182,7 @@ export class OpenAIResponsesApiService {
         return this.callApi('/responses', requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -204,7 +204,7 @@ export class OpenAIResponsesApiService {
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const data = error.response?.data;
             logger.error(`Error listing OpenAI Responses models (Status: ${status}):`, data || error.message);

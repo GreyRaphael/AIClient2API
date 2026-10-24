@@ -1,12 +1,12 @@
 /**
  * 主进程 (Master Process)
- * 
+ *
  * 负责管理子进程的生命周期，包括：
  * - 启动子进程
  * - 监控子进程状态
  * - 处理子进程重启请求
  * - 提供 IPC 通信
- * 
+ *
  * 使用方式：
  * node src/core/master.js [原有的命令行参数]
  */
@@ -23,10 +23,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 子进程实例
-let workerProcess = null;
+let workerProcess: any = null;
 
 // 子进程状态
-let workerStatus = {
+let workerStatus: any = {
     pid: null,
     startTime: null,
     restartCount: 0,
@@ -39,7 +39,7 @@ const config = {
     workerScript: path.join(__dirname, '../services/api-server.js'),
     maxRestartAttempts: 10,
     restartDelay: 1000, // 重启延迟（毫秒）
-    masterPort: parseInt(process.env.MASTER_PORT) || 3100, // 主进程管理端口
+    masterPort: parseInt(process.env.MASTER_PORT || '', 10) || 3100, // 主进程管理端口
     args: process.argv.slice(2) // 传递给子进程的参数
 };
 
@@ -70,13 +70,13 @@ function startWorker() {
     logger.info('[Master] Worker process started, PID:', workerProcess.pid);
 
     // 监听子进程消息
-    workerProcess.on('message', (message) => {
+    workerProcess.on('message', (message: any) => {
         logger.info('[Master] Received message from worker:', message);
         handleWorkerMessage(message);
     });
 
     // 监听子进程退出
-    workerProcess.on('exit', (code, signal) => {
+    workerProcess.on('exit', (code: any, signal: any) => {
         logger.info(`[Master] Worker process exited with code ${code}, signal ${signal}`);
         workerProcess = null;
         workerStatus.pid = null;
@@ -89,7 +89,7 @@ function startWorker() {
     });
 
     // 监听子进程错误
-    workerProcess.on('error', (error) => {
+    workerProcess.on('error', (error: any) => {
         logger.error('[Master] Worker process error:', error.message);
     });
 }
@@ -99,8 +99,8 @@ function startWorker() {
  * @param {boolean} graceful - 是否优雅关闭
  * @returns {Promise<void>}
  */
-function stopWorker(graceful = true) {
-    return new Promise<void>((resolve) => {
+function stopWorker(graceful: any = true) {
+    return new Promise<void>((resolve: any) => {
         if (!workerProcess) {
             logger.info('[Master] No worker process to stop');
             resolve();
@@ -153,10 +153,10 @@ async function restartWorker() {
 
     try {
         await stopWorker(true);
-        
+
         // 等待一小段时间确保端口释放
-        await new Promise(resolve => setTimeout(resolve, config.restartDelay));
-        
+        await new Promise((resolve: any) => setTimeout(resolve, config.restartDelay));
+
         startWorker();
         workerStatus.isRestarting = false;
 
@@ -166,7 +166,7 @@ async function restartWorker() {
             pid: workerStatus.pid,
             restartCount: workerStatus.restartCount
         };
-    } catch (error) {
+    } catch (error: any) {
         workerStatus.isRestarting = false;
         logger.error('[Master] Failed to restart worker:', error.message);
         return {
@@ -197,7 +197,7 @@ function scheduleRestart() {
  * 处理来自子进程的消息
  * @param {Object} message - 消息对象
  */
-function handleWorkerMessage(message) {
+function handleWorkerMessage(message: any) {
     if (!message || !message.type) return;
 
     switch (message.type) {
@@ -242,7 +242,7 @@ function getStatus() {
  * 创建主进程管理 HTTP 服务器
  */
 function createMasterServer() {
-    const server = http.createServer(async (req, res) => {
+    const server = http.createServer(async (req: any, res: any) => {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const path = url.pathname;
         const method = req.method;
@@ -344,22 +344,22 @@ function setupSignalHandlers() {
     });
 
     // 未捕获的异常
-    process.on('uncaughtException', (error) => {
+    process.on('uncaughtException', (error: any) => {
         logger.error('[Master] Uncaught exception:', error);
-        
+
         // 检查是否为可重试的网络错误
         if (isRetryableNetworkError(error)) {
             logger.warn('[Master] Network error detected, continuing operation...');
             return; // 不退出程序，继续运行
         }
-        
+
         // 对于其他严重错误，记录但不退出（由主进程管理子进程）
         logger.error('[Master] Fatal error detected in master process');
     });
 
-    process.on('unhandledRejection', (reason, promise) => {
+    process.on('unhandledRejection', (reason: any, promise: any) => {
         logger.error('[Master] Unhandled rejection at:', promise, 'reason:', reason);
-        
+
         // 检查是否为可重试的网络错误
         if (reason && isRetryableNetworkError(/** @type {any} */ (reason))) {
             logger.warn('[Master] Network error in promise rejection, continuing operation...');
@@ -390,7 +390,7 @@ async function main() {
 }
 
 // 启动主进程
-main().catch(error => {
+main().catch((error: any) => {
     logger.error('[Master] Failed to start:', error);
     process.exit(1);
 });

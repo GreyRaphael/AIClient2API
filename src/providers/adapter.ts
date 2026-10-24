@@ -17,7 +17,7 @@ const adapterRegistry = new Map();
  * @param {string} provider - 提供商名称 (来自 MODEL_PROVIDER)
  * @param {typeof ApiServiceAdapter} adapterClass - 适配器类
  */
-export function registerAdapter(provider, adapterClass) {
+export function registerAdapter(provider: any, adapterClass: any) {
     logger.info(`[Adapter] Registering adapter for provider: ${provider}`);
     adapterRegistry.set(provider, adapterClass);
 }
@@ -105,12 +105,12 @@ export class ApiServiceAdapter {
 export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
     antigravityApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.antigravityApiService = new AntigravityApiService(config);
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         if (!this.antigravityApiService.isInitialized) {
             logger.warn("antigravityApiService not initialized, attempting to re-initialize...");
             await this.antigravityApiService.initialize();
@@ -118,7 +118,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         return this.antigravityApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         if (!this.antigravityApiService.isInitialized) {
             logger.warn("antigravityApiService not initialized, attempting to re-initialize...");
             await this.antigravityApiService.initialize();
@@ -164,7 +164,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
      * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false) {
+    async getNodeAvailableModels(force: any = false) {
         if (!this.antigravityApiService.isInitialized) {
             await this.antigravityApiService.initialize();
         } else if (force || !Array.isArray(this.antigravityApiService.availableModels) || this.antigravityApiService.availableModels.length === 0) {
@@ -192,18 +192,18 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
 export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
     openAIApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.openAIApiService = new OpenAIApiService(config);
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         // The adapter now expects the requestBody to be in the native OpenAI format.
         // The conversion logic is handled upstream in the server.
         return this.openAIApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         // The adapter now expects the requestBody to be in the native OpenAI format.
         const stream = this.openAIApiService.generateContentStream(model, requestBody);
         // The stream is yielded directly without conversion.
@@ -224,7 +224,7 @@ export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
         const list = Array.isArray(payload)
             ? payload
             : (Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload?.models) ? payload.models : []));
-        return list.map(item => item?.id || item?.name).filter(Boolean);
+        return list.map((item: any) => item?.id || item?.name).filter(Boolean);
     }
 
     async refreshToken() {
@@ -246,17 +246,17 @@ export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
 export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
     openAIResponsesApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.openAIResponsesApiService = new OpenAIResponsesApiService(config);
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         // The adapter expects the requestBody to be in the OpenAI Responses format.
         return this.openAIResponsesApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         // The adapter expects the requestBody to be in the OpenAI Responses format.
         const stream = this.openAIResponsesApiService.generateContentStream(model, requestBody);
         yield* stream;
@@ -276,7 +276,7 @@ export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
         const list = Array.isArray(payload)
             ? payload
             : (Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload?.models) ? payload.models : []));
-        return list.map(item => item?.id || item?.name).filter(Boolean);
+        return list.map((item: any) => item?.id || item?.name).filter(Boolean);
     }
 
     async refreshToken() {
@@ -298,17 +298,17 @@ export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
 export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
     claudeApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.claudeApiService = new ClaudeApiService(config);
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         // The adapter now expects the requestBody to be in the native Claude format.
         return this.claudeApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         // The adapter now expects the requestBody to be in the native Claude format.
         const stream = this.claudeApiService.generateContentStream(model, requestBody);
         yield* stream;
@@ -328,7 +328,7 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
         const list = Array.isArray(payload)
             ? payload
             : (Array.isArray(payload?.models) ? payload.models : (Array.isArray(payload?.data) ? payload.data : []));
-        return list.map(item => item?.id || item?.name).filter(Boolean);
+        return list.map((item: any) => item?.id || item?.name).filter(Boolean);
     }
 
     async refreshToken() {
@@ -348,7 +348,7 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
 export class KiroApiServiceAdapter extends ApiServiceAdapter {
     kiroApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.kiroApiService = new KiroApiService(config);
         // this.kiroApiService.initialize().catch(error => {
@@ -356,7 +356,7 @@ export class KiroApiServiceAdapter extends ApiServiceAdapter {
         // });
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         // The adapter expects the requestBody to be in OpenAI format for Kiro API
         if (!this.kiroApiService.isInitialized) {
             logger.warn("kiroApiService not initialized, attempting to re-initialize...");
@@ -365,7 +365,7 @@ export class KiroApiServiceAdapter extends ApiServiceAdapter {
         return this.kiroApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         // The adapter expects the requestBody to be in OpenAI format for Kiro API
         if (!this.kiroApiService.isInitialized) {
             logger.warn("kiroApiService not initialized, attempting to re-initialize...");
@@ -426,7 +426,7 @@ export class KiroApiServiceAdapter extends ApiServiceAdapter {
      * @param {Object} requestBody - The request body containing model, messages, system, tools, etc.
      * @returns {Object} { input_tokens: number }
      */
-    countTokens(requestBody) {
+    countTokens(requestBody: any) {
         return this.kiroApiService.countTokens(requestBody);
     }
 }
@@ -437,12 +437,12 @@ export class KiroApiServiceAdapter extends ApiServiceAdapter {
 export class CodexApiServiceAdapter extends ApiServiceAdapter {
     codexApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.codexApiService = new CodexApiService(config);
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         if (!this.codexApiService.isInitialized) {
             logger.warn("codexApiService not initialized, attempting to re-initialize...");
             await this.codexApiService.initialize();
@@ -450,7 +450,7 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         return this.codexApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         if (!this.codexApiService.isInitialized) {
             logger.warn("codexApiService not initialized, attempting to re-initialize...");
             await this.codexApiService.initialize();
@@ -458,7 +458,7 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         yield* this.codexApiService.generateContentStream(model, requestBody);
     }
 
-    async listModels(force = false) {
+    async listModels(force: any = false) {
         return this.codexApiService.listModels(force);
     }
 
@@ -466,7 +466,7 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
      * 获取节点实际支持的可用模型列表（隔离自各账号自身的配额与上游返回）
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false) {
+    async getNodeAvailableModels(force: any = false) {
         if (!this.codexApiService.isInitialized) {
             await this.codexApiService.initialize();
         }
@@ -517,17 +517,17 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
     config: any;
         zedApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.config = config;
         this.zedApiService = new ZedApiService(config);
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         return this.zedApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         yield* this.zedApiService.generateContentStream(model, requestBody);
     }
 
@@ -540,7 +540,7 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
      * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false) {
+    async getNodeAvailableModels(force: any = false) {
         if (force && typeof this.zedApiService.fetchRemoteModels === 'function') {
             await this.zedApiService.fetchRemoteModels(true);
         }
@@ -548,7 +548,7 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
         const list = Array.isArray(res?.data)
             ? res.data
             : (Array.isArray(res?.models) ? res.models : []);
-        return list.map(model => model?.id || model?.name).filter(Boolean);
+        return list.map((model: any) => model?.id || model?.name).filter(Boolean);
     }
 
     async refreshToken() {
@@ -576,17 +576,17 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
     config: any;
         traeApiService: any;
 
-    constructor(config) {
+    constructor(config: any) {
         super();
         this.config = config;
         this.traeApiService = new TraeApiService(config);
     }
 
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         return this.traeApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         yield* this.traeApiService.generateContentStream(model, requestBody);
     }
 
@@ -599,12 +599,12 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
      * @param {boolean} [force=false] 是否强制忽略缓存
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false) {
+    async getNodeAvailableModels(force: any = false) {
         if (force && typeof this.traeApiService.fetchRemoteModels === 'function') {
             await this.traeApiService.fetchRemoteModels(true);
         }
         const res = await this.traeApiService.listModels();
-        return (res?.data || []).map(m => m.id).filter(Boolean);
+        return (res?.data || []).map((m: any) => m.id).filter(Boolean);
     }
 
     async refreshToken() {
@@ -643,14 +643,14 @@ registerAdapter(MODEL_PROVIDER.TRAE_CHAT_V3, TraeApiServiceAdapter);
 // 用于存储服务适配器单例的映射
 export const serviceInstances = {};
 
-export function getServiceInstanceKey(provider, uuid = null) {
+export function getServiceInstanceKey(provider: any, uuid: any = null) {
     return uuid ? provider + uuid : provider;
 }
 
-export function invalidateServiceAdapter(provider, uuid = null) {
+export function invalidateServiceAdapter(provider: any, uuid: any = null) {
     const providerKey = getServiceInstanceKey(provider, uuid);
-    if (serviceInstances[providerKey]) {
-        delete serviceInstances[providerKey];
+    if ((serviceInstances as any)[providerKey]) {
+        delete (serviceInstances as any)[providerKey];
         logger.info(`[Adapter] Invalidated service adapter, provider: ${provider}, uuid: ${uuid || 'default'}`);
         return true;
     }
@@ -662,31 +662,31 @@ export function invalidateServiceAdapter(provider, uuid = null) {
  * @param {string} provider - 提供商名称
  * @returns {boolean} - 是否有效
  */
-export function isRegisteredProvider(provider) {
+export function isRegisteredProvider(provider: any) {
     if (adapterRegistry.has(provider)) {
         return true;
     }
-    
+
     // 检查前缀 (例如 openai-custom-1 -> openai-custom)
     for (const key of adapterRegistry.keys()) {
         if (provider.startsWith(key + '-')) {
             return true;
         }
     }
-    
+
     return false;
 }
 
 // 服务适配器工厂
-export function getServiceAdapter(config) {
+export function getServiceAdapter(config: any) {
     const customNameDisplay = config.customName ? ` (${config.customName})` : '';
     logger.info(`[Adapter] getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}${customNameDisplay}`);
     const provider = config.MODEL_PROVIDER;
     const providerKey = getServiceInstanceKey(provider, config.uuid);
-    
-    if (!serviceInstances[providerKey]) {
+
+    if (!(serviceInstances as any)[providerKey]) {
         let AdapterClass = adapterRegistry.get(provider);
-        
+
         // 如果没找到精确匹配，尝试通过前缀查找 (例如 openai-custom-1 -> openai-custom)
         if (!AdapterClass) {
             for (const [key, value] of adapterRegistry.entries()) {
@@ -696,13 +696,13 @@ export function getServiceAdapter(config) {
                 }
             }
         }
-        
+
         if (AdapterClass) {
-            serviceInstances[providerKey] = new AdapterClass(config);
+            (serviceInstances as any)[providerKey] = new AdapterClass(config);
         } else {
             throw new Error(`Unsupported model provider: ${provider}`);
         }
     }
-    return serviceInstances[providerKey];
+    return (serviceInstances as any)[providerKey];
 }
 

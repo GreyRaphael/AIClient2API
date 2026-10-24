@@ -353,14 +353,14 @@ export class ResponsesSseEmitter {
         const key = this._findToolCallKey(idOrIndex);
         if (key === null) return null;
         const state = this.toolCalls.get(key);
-        return state ? { key, ...state } : null;
+        return state ? { ...state, key } : null;
     }
 
     /**
      * 读取全部工具调用状态。
      */
     getAllToolStates(): Array<ToolCallState & { key: string }> {
-        return Array.from(this.toolCalls.entries()).map(([key, state]) => ({ key, ...state }));
+        return Array.from(this.toolCalls.entries()).map(([key, state]: any) => ({ key, ...state }));
     }
 
     /**

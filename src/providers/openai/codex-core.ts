@@ -22,7 +22,7 @@ export const CODEX_FALLBACK_VERSION = '0.162.1';
  * @param {Object} [config]
  * @returns {string}
  */
-export function getCodexVersion(config = null) {
+export function getCodexVersion(config: any = null) {
     const configVersion = String(config?.CODEX_VERSION ?? '').trim();
     if (configVersion) {
         return configVersion;
@@ -40,21 +40,21 @@ export const CODEX_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
  * @param {Array<string|object>|null} [supportedLevels=null]
  * @returns {string}
  */
-export function normalizeCodexReasoningEffort(effort, defaultEffort = 'medium', supportedLevels = null) {
+export function normalizeCodexReasoningEffort(effort: any, defaultEffort: any = 'medium', supportedLevels: any = null) {
     const canonicalOrder = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
     const canonicalSet = new Set(canonicalOrder);
     const normalizedDefault = String(defaultEffort || 'medium').trim().toLowerCase();
 
     const supported = Array.isArray(supportedLevels)
         ? new Set(supportedLevels
-            .map(level => (typeof level === 'string'
+            .map((level: any) => (typeof level === 'string'
                 ? level
                 : (level?.effort ?? level?.level ?? level?.value)))
             .filter(Boolean)
-            .map(level => String(level).trim().toLowerCase()))
+            .map((level: any) => String(level).trim().toLowerCase()))
         : null;
 
-    let candidate;
+    let candidate: any;
     if (effort === null || effort === undefined || effort === '') {
         candidate = normalizedDefault;
     } else {
@@ -115,22 +115,22 @@ export function normalizeCodexReasoningEffort(effort, defaultEffort = 'medium', 
 
     return supported.has(normalizedDefault)
         ? normalizedDefault
-        : (canonicalOrder.find(level => supported.has(level)) || 'medium');
+        : (canonicalOrder.find((level: any) => supported.has(level)) || 'medium');
 }
 
 /**
  * 获取当前提供商配置对应的全部可用模型
  */
-export function getCodexModels(providerType = MODEL_PROVIDER.CODEX_API) {
+export function getCodexModels(providerType: any = MODEL_PROVIDER.CODEX_API) {
     return getProviderModels(providerType);
 }
 
-function normalizeCodexTerminalError(parsed) {
+function normalizeCodexTerminalError(parsed: any) {
     if (!parsed || typeof parsed !== 'object') {
         return null;
     }
 
-    let errorBody = null;
+    let errorBody: any = null;
     if (parsed.type === 'error') {
         errorBody = parsed.error && typeof parsed.error === 'object'
             ? parsed.error
@@ -155,7 +155,7 @@ function normalizeCodexTerminalError(parsed) {
     return errorBody;
 }
 
-function createCodexTerminalError(parsed) {
+function createCodexTerminalError(parsed: any) {
     const errorBody = normalizeCodexTerminalError(parsed);
     if (!errorBody) {
         return null;
@@ -179,22 +179,22 @@ function createCodexTerminalError(parsed) {
     return error;
 }
 
-function shouldSwitchCodexCredential(errorBody) {
+function shouldSwitchCodexCredential(errorBody: any) {
     const code = String(errorBody?.code || '').toLowerCase();
     const type = String(errorBody?.type || '').toLowerCase();
     return code === 'insufficient_quota' || type === 'insufficient_quota' || isCodexUsageLimitError(errorBody) || isCodexModelCapacityError(errorBody);
 }
 
-function isCodexUsageLimitError(errorBody) {
+function isCodexUsageLimitError(errorBody: any) {
     return String(errorBody?.type || '').trim().toLowerCase() === 'usage_limit_reached';
 }
 
-function isCodexModelCapacityError(errorBody) {
+function isCodexModelCapacityError(errorBody: any) {
     const msg = String(errorBody?.message || '').trim().toLowerCase();
     return msg.includes('selected model is at capacity') || msg.includes('model is at capacity. please try a different model');
 }
 
-function parseCodexRetryAfterMs(errorBody) {
+function parseCodexRetryAfterMs(errorBody: any) {
     const resetsAt = Number(errorBody?.resets_at);
     if (Number.isFinite(resetsAt) && resetsAt > 0) {
         const delay = resetsAt * 1000 - Date.now();
@@ -207,7 +207,7 @@ function parseCodexRetryAfterMs(errorBody) {
     return null;
 }
 
-function extractSSEData(line) {
+function extractSSEData(line: any) {
     const trimmedLine = String(line || '').trim();
     if (!trimmedLine || trimmedLine.startsWith(':') || trimmedLine.startsWith('event:') || trimmedLine.startsWith('id:') || trimmedLine.startsWith('retry:')) {
         return null;
@@ -223,7 +223,7 @@ function extractSSEData(line) {
  * @param {string} token
  * @returns {{ planType: string, accountId: string|null, userId: string|null, exp: number|null }}
  */
-export function parseCodexTokenMetadata(token) {
+export function parseCodexTokenMetadata(token: any) {
     try {
         const parts = String(token || '').split('.');
         if (parts.length >= 2) {
@@ -236,7 +236,7 @@ export function parseCodexTokenMetadata(token) {
                 exp: payload.exp ? payload.exp * 1000 : null
             };
         }
-    } catch (_) {}
+    } catch (_: any) {}
     return { planType: 'unknown', accountId: null, userId: null, exp: null };
 }
 
@@ -267,7 +267,7 @@ export class CodexApiService {
     version: any;
     cleanupInterval: any;
 
-    constructor(config) {
+    constructor(config: any) {
         this.config = config;
         this.baseUrl = config.CODEX_BASE_URL || 'https://chatgpt.com/backend-api/codex';
         this.accessToken = null;
@@ -296,7 +296,7 @@ export class CodexApiService {
         this.version = getCodexVersion(config);
     }
 
-    _applySidecar(axiosConfig) {
+    _applySidecar(axiosConfig: any) {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API, this.baseUrl);
     }
 
@@ -314,7 +314,7 @@ export class CodexApiService {
         logger.info(`[Codex] Initialization complete. Account: ${this.email || 'unknown'}`);
 
         // 异步预热获取远端模型列表（非阻塞）
-        this.fetchRemoteModels().catch(err => {
+        this.fetchRemoteModels().catch((err: any) => {
             logger.debug(`[Codex] Initial remote models fetch notice: ${err.message}`);
         });
     }
@@ -326,8 +326,8 @@ export class CodexApiService {
         const email = this.config.CODEX_EMAIL || 'default';
 
         try {
-            let creds;
-            let credsPath;
+            let creds: any;
+            let credsPath: any;
 
             // 如果指定了具体路径，直接读取
             if (this.config.CODEX_OAUTH_CREDS_FILE_PATH) {
@@ -343,7 +343,7 @@ export class CodexApiService {
                 const targetDir = path.join(projectDir, 'configs', 'codex');
                 const files = await fs.readdir(targetDir);
                 const matchingFile = files
-                    .filter(f => f.includes(`codex-${email}`) && f.endsWith('.json'))
+                    .filter((f: any) => f.includes(`codex-${email}`) && f.endsWith('.json'))
                     .sort()
                     .pop(); // 获取最新的文件
 
@@ -379,7 +379,7 @@ export class CodexApiService {
 
             this.isInitialized = true;
             logger.info(`[Codex] Initialized with account: ${this.email} (plan: ${this.planType})`);
-        } catch (error) {
+        } catch (error: any) {
             logger.warn(`[Codex Auth] Failed to load credentials: ${error.message}`);
         }
     }
@@ -387,7 +387,7 @@ export class CodexApiService {
     /**
      * 初始化认证并执行必要刷新
      */
-    async initializeAuth(forceRefresh = false) {
+    async initializeAuth(forceRefresh: any = false) {
         // 检查 token 是否需要刷新
         const needsRefresh = forceRefresh;
 
@@ -440,7 +440,7 @@ export class CodexApiService {
     /**
      * 生成内容（非流式）
      */
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         if (!this.isInitialized) {
             await this.initialize();
         }
@@ -451,7 +451,7 @@ export class CodexApiService {
             try {
                 await this.fetchRemoteModels(true);
                 supportedModels = this.getSupportedModels();
-            } catch (_) {}
+            } catch (_: any) {}
         }
         if (!supportedModels.includes(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
@@ -498,7 +498,7 @@ export class CodexApiService {
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
             return this.parseNonStreamResponse(response.data);
-        } catch (error) {
+        } catch (error: any) {
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401. Triggering background refresh...');
                 await normalizeProviderErrorMessage(error, { status: 401, context: 'non-stream' });
@@ -524,7 +524,7 @@ export class CodexApiService {
     /**
      * 流式生成内容
      */
-    async* generateContentStream(model, requestBody) {
+    async* generateContentStream(model: any, requestBody: any) {
         if (!this.isInitialized) {
             await this.initialize();
         }
@@ -535,7 +535,7 @@ export class CodexApiService {
             try {
                 await this.fetchRemoteModels(true);
                 supportedModels = this.getSupportedModels();
-            } catch (_) {}
+            } catch (_: any) {}
         }
         if (!supportedModels.includes(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
@@ -582,7 +582,7 @@ export class CodexApiService {
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
             yield* this.parseSSEStream(response.data);
-        } catch (error) {
+        } catch (error: any) {
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401 during stream. Triggering background refresh...');
                 await normalizeProviderErrorMessage(error, { status: 401, context: 'stream' });
@@ -608,7 +608,7 @@ export class CodexApiService {
     /**
      * 构建请求头
      */
-    buildHeaders(cacheId, stream = true) {
+    buildHeaders(cacheId: any, stream: any = true) {
         const version = this.version;
         const headers = {
             'version': version,
@@ -625,15 +625,15 @@ export class CodexApiService {
 
         // 设置 Conversation_id 和 Session_id
         if (cacheId) {
-            headers['Conversation_id'] = cacheId;
-            headers['Session_id'] = cacheId;
+            (headers as any)['Conversation_id'] = cacheId;
+            (headers as any)['Session_id'] = cacheId;
         }
 
         // 根据是否流式设置 Accept 头
         if (stream) {
-            headers['accept'] = 'text/event-stream';
+            (headers as any)['accept'] = 'text/event-stream';
         } else {
-            headers['accept'] = 'application/json';
+            (headers as any)['accept'] = 'application/json';
         }
 
         return headers;
@@ -659,7 +659,7 @@ export class CodexApiService {
     /**
      * 准备请求体
      */
-    async prepareRequestBody(model, requestBody, stream) {
+    async prepareRequestBody(model: any, requestBody: any, stream: any) {
         // 提取 metadata 并从请求体中移除，避免透传到上游
         const metadata = requestBody.metadata || {};
 
@@ -717,7 +717,7 @@ export class CodexApiService {
                 cleanedBody.tools = [];
             }
             if (Array.isArray(cleanedBody.tools)) {
-                const hasWebSearch = cleanedBody.tools.some(t => t.type === 'web_search');
+                const hasWebSearch = cleanedBody.tools.some((t: any) => t.type === 'web_search');
                 if (!hasWebSearch) {
                     cleanedBody.tools.push({type: 'web_search'});
                 }
@@ -812,7 +812,7 @@ export class CodexApiService {
                         converterName: 'prepareRequestBody'
                     });
                 }
-            } catch (e) {
+            } catch (e: any) {
                 logger.error('[Codex] Error calling onInternalRequestConverted hook:', e.message);
             }
         }
@@ -864,7 +864,7 @@ export class CodexApiService {
                 poolManager.resetProviderRefreshStatus(this.config.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API, this.uuid);
             }
             logger.info('[Codex] Token refreshed successfully');
-        } catch (error) {
+        } catch (error: any) {
             logger.error('[Codex] Failed to refresh token:', error.message);
             throw new Error('Failed to refresh Codex token. Please re-authenticate.');
         }
@@ -946,7 +946,7 @@ export class CodexApiService {
     /**
      * 检查文件是否存在
      */
-    async fileExists(filePath) {
+    async fileExists(filePath: any) {
         try {
             await fs.access(filePath);
             return true;
@@ -958,7 +958,7 @@ export class CodexApiService {
     /**
      * 收集 Codex 输出项
      */
-    collectCodexOutputItemDone(eventData, outputItemsByIndex, outputItemsFallback) {
+    collectCodexOutputItemDone(eventData: any, outputItemsByIndex: any, outputItemsFallback: any) {
         if (!eventData.item) {
             return;
         }
@@ -972,7 +972,7 @@ export class CodexApiService {
     /**
      * 修正 Codex 完成输出
      */
-    patchCodexCompletedOutput(eventData, outputItemsByIndex, outputItemsFallback) {
+    patchCodexCompletedOutput(eventData: any, outputItemsByIndex: any, outputItemsFallback: any) {
         const response = eventData.response || {};
         const output = response.output;
 
@@ -983,9 +983,9 @@ export class CodexApiService {
             return eventData;
         }
 
-        const items = [];
+        const items: any[] = [];
         // 按索引排序
-        const sortedIndexes = (Array.from(outputItemsByIndex.keys()) as any[]).sort((a, b) => a - b);
+        const sortedIndexes = (Array.from(outputItemsByIndex.keys()) as any[]).sort((a: any, b: any) => a - b);
         for (const idx of sortedIndexes) {
             items.push(outputItemsByIndex.get(idx));
         }
@@ -1003,15 +1003,15 @@ export class CodexApiService {
     /**
      * 解析 SSE 流
      */
-    async* parseSSEStream(stream) {
+    async* parseSSEStream(stream: any) {
         let buffer = '';
         const outputItemsByIndex = new Map();
-        const outputItemsFallback = [];
+        const outputItemsFallback: any[] = [];
 
         for await (const chunk of stream) {
             buffer += chunk.toString();
             const lines = buffer.split('\n');
-            buffer = lines.pop(); // 保留不完整的行
+            buffer = lines.pop() || ''; // 保留不完整的行
 
             for (const line of lines) {
                 const trimmedLine = line.trim();
@@ -1036,7 +1036,7 @@ export class CodexApiService {
                         }
 
                         yield parsed;
-                    } catch (e) {
+                    } catch (e: any) {
                         if (e.message.startsWith('Codex API error')) {
                             throw e;
                         }
@@ -1069,7 +1069,7 @@ export class CodexApiService {
                     }
 
                     yield parsed;
-                } catch (e) {
+                } catch (e: any) {
                     if (e.message.startsWith('Codex API error')) {
                         throw e;
                     }
@@ -1082,7 +1082,7 @@ export class CodexApiService {
     /**
      * 解析非流式响应
      */
-    parseNonStreamResponse(data) {
+    parseNonStreamResponse(data: any) {
         // 确保 data 是字符串
         const responseText = typeof data === 'string' ? data : String(data);
 
@@ -1092,9 +1092,9 @@ export class CodexApiService {
         const textDeltas = new Map(); // item_id -> accumulated text
 
         const outputItemsByIndex = new Map();
-        const outputItemsFallback = [];
+        const outputItemsFallback: any[] = [];
 
-        let completedEvent = null;
+        let completedEvent: any = null;
 
         for (const line of lines) {
             const trimmedLine = line.trim();
@@ -1144,7 +1144,7 @@ export class CodexApiService {
                         completedEvent = this.patchCodexCompletedOutput(parsed, outputItemsByIndex, outputItemsFallback);
                         break;
                 }
-            } catch (e) {
+            } catch (e: any) {
                 if (e.message.startsWith('Codex API error')) {
                     throw e;
                 }
@@ -1198,7 +1198,7 @@ export class CodexApiService {
                         if (!item.content || item.content.length === 0) {
                             item.content = [{type: 'output_text', text: accumulatedText}];
                         } else {
-                            item.content = item.content.map(c => {
+                            item.content = item.content.map((c: any) => {
                                 if (c.type === 'output_text' && !c.text) {
                                     return {...c, text: accumulatedText};
                                 }
@@ -1240,7 +1240,7 @@ export class CodexApiService {
      * 获取节点专属可用模型（支持号池与节点隔离）
      * @param {boolean} [force=false]
      */
-    async getNodeAvailableModels(force = false) {
+    async getNodeAvailableModels(force: any = false) {
         if (!this.isInitialized) {
             await this.initialize();
         }
@@ -1253,7 +1253,7 @@ export class CodexApiService {
      * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<Object>>}
      */
-    async fetchRemoteModels(force = false) {
+    async fetchRemoteModels(force: any = false) {
         const now = Date.now();
         if (!force && this.modelsCache && this.modelsExpiresAt > now) {
             return this.modelsCache;
@@ -1290,7 +1290,7 @@ export class CodexApiService {
                 const res = await axios.request(/** @type {any} */ (axiosRequestConfig));
                 if (res.data && Array.isArray(res.data.models)) {
                     const rawModels = res.data.models;
-                    const modelIds = [];
+                    const modelIds: any[] = [];
                     this.modelMetadataMap.clear();
 
                     for (const m of rawModels) {
@@ -1322,7 +1322,7 @@ export class CodexApiService {
                         return rawModels;
                     }
                 }
-            } catch (error) {
+            } catch (error: any) {
                 if (error.response?.status === 401) {
                     logger.info('[Codex] Received 401 while fetching remote models, triggering refresh...');
                     this.triggerBackgroundRefresh();
@@ -1345,7 +1345,7 @@ export class CodexApiService {
         const targetProvider = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
         const allModels = getCodexModels(targetProvider);
         this.availableModels = allModels;
-        return allModels.map(id => ({
+        return allModels.map((id: any) => ({
             id,
             slug: id,
             object: 'model',
@@ -1358,12 +1358,12 @@ export class CodexApiService {
      * 列出可用模型（OpenAI 兼容格式）
      * @param {boolean} [force=false]
      */
-    async listModels(force = false) {
+    async listModels(force: any = false) {
         await this.fetchRemoteModels(force);
         const allModels = this.getSupportedModels();
         return {
             object: 'list',
-            data: allModels.map(id => {
+            data: allModels.map((id: any) => {
                 const meta = this.modelMetadataMap.get(id);
                 const item: any = {
                     id,
@@ -1437,7 +1437,7 @@ export class CodexApiService {
                 ...response.data,
                 account: this.email
             };
-        } catch (error) {
+        } catch (error: any) {
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401 during getUsageLimits. Triggering background refresh...');
                 this.triggerBackgroundRefresh();
@@ -1488,7 +1488,7 @@ export class CodexApiService {
                 usage: latestUsage,
                 account: this.email
             };
-        } catch (error) {
+        } catch (error: any) {
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401 during resetUsageQuota. Triggering background refresh...');
                 this.triggerBackgroundRefresh();

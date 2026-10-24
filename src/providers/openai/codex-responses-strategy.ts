@@ -9,13 +9,13 @@ import { applySystemPromptReplacements } from '../../converters/utils.ts';
  * Migrated from Chat Completions API to Responses API.
  */
 class CodexResponsesAPIStrategy extends ProviderStrategy {
-    extractModelAndStreamInfo(req, requestBody) {
+    extractModelAndStreamInfo(req: any, requestBody: any) {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
         return { model, isStream };
     }
 
-    extractResponseText(response) {
+    extractResponseText(response: any) {
         // 兼容两种形状：解包后的 response 本体（顶层 output），
         // 以及 Codex 非流式返回的 response.completed 事件包装（response.response.output）
         const output = response?.output || response?.response?.output;
@@ -36,13 +36,13 @@ class CodexResponsesAPIStrategy extends ProviderStrategy {
         return '';
     }
 
-    extractPromptText(requestBody) {
+    extractPromptText(requestBody: any) {
         // In Responses API, input can be a string or array of items
         if (typeof requestBody.input === 'string') {
             return requestBody.input;
         } else if (Array.isArray(requestBody.input)) {
             // If input is an array of items/messages, get the last user content
-            const userInputItems = requestBody.input.filter(item =>
+            const userInputItems = requestBody.input.filter((item: any) =>
                 (item.role && item.role === 'user') ||
                 (item.type && item.type === 'message' && item.role === 'user') ||
                 (item.type && item.type === 'user')
@@ -53,14 +53,14 @@ class CodexResponsesAPIStrategy extends ProviderStrategy {
                 if (typeof lastInput.content === 'string') {
                     return lastInput.content;
                 } else if (Array.isArray(lastInput.content)) {
-                    return lastInput.content.map(item => item.text || item.content || '').join('\n');
+                    return lastInput.content.map((item: any) => item.text || item.content || '').join('\n');
                 }
             }
         }
         return '';
     }
 
-    async applySystemPromptFromFile(config, requestBody) {
+    async applySystemPromptFromFile(config: any, requestBody: any) {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;
         }
@@ -87,7 +87,7 @@ class CodexResponsesAPIStrategy extends ProviderStrategy {
                 ];
             } else if (Array.isArray(requestBody.input)) {
                 // Check if system message already exists
-                const systemMessageIndex = requestBody.input.findIndex(m =>
+                const systemMessageIndex = requestBody.input.findIndex((m: any) =>
                     m.role === 'developer' || (m.type && m.type === 'developer')
                 );
 
@@ -110,14 +110,14 @@ class CodexResponsesAPIStrategy extends ProviderStrategy {
         return requestBody;
     }
 
-    async manageSystemPrompt(requestBody) {
+    async manageSystemPrompt(requestBody: any) {
         // For Responses API, we may extract instructions or system messages from input
         let incomingSystemText = '';
 
         if (requestBody.instructions) {
             incomingSystemText = requestBody.instructions;
         } else if (Array.isArray(requestBody.input)) {
-            const systemMessage = requestBody.input.find(item =>
+            const systemMessage = requestBody.input.find((item: any) =>
                 item.role === 'developer' || (item.type && item.type === 'developer')
             );
             if (systemMessage && systemMessage.content) {

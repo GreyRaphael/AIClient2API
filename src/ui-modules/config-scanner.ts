@@ -11,12 +11,12 @@ import { getCredentialProviderDefinitions } from '../providers/provider-registry
  * @param {Object} providerPoolManager - Provider pool manager instance
  * @returns {Promise<Array>} Array of configuration file objects
  */
-export async function scanConfigFiles(currentConfig, providerPoolManager) {
-    const configFiles = [];
-    
+export async function scanConfigFiles(currentConfig: any, providerPoolManager: any) {
+    const configFiles: any[] = [];
+
     // 只扫描configs目录
     const configsPath = path.join(process.cwd(), 'configs');
-    
+
     if (!existsSync(configsPath)) {
         // logger.info('[Config Scanner] configs directory not found, creating empty result');
         return configFiles;
@@ -27,7 +27,9 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
 
     // 从配置中提取所有 OAuth 凭据文件路径 - 标准化路径格式
     for (const definition of credentialDefinitions) {
-        addToUsedPaths(usedPaths, currentConfig[definition.credentialPathKey]);
+        const configKey = definition.credentialPathKey;
+        if (!configKey) continue;
+        addToUsedPaths(usedPaths, currentConfig[configKey]);
     }
 
     // 使用最新的提供商池数据
@@ -41,7 +43,9 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
         for (const providers of Object.values(providerPools) as any[]) {
             for (const provider of providers) {
                 for (const definition of credentialDefinitions) {
-                    addToUsedPaths(usedPaths, provider[definition.credentialPathKey]);
+                    const configKey = definition.credentialPathKey;
+                    if (!configKey) continue;
+                    addToUsedPaths(usedPaths, provider[configKey]);
                 }
             }
         }
@@ -51,7 +55,7 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
         // 扫描configs目录下的所有子目录和文件
         const configsFiles = await scanOAuthDirectory(configsPath, usedPaths, currentConfig, providerPools);
         configFiles.push(...configsFiles);
-    } catch (error) {
+    } catch (error: any) {
         logger.warn(`[Config Scanner] Failed to scan configs directory:`, error.message);
     }
 
@@ -64,23 +68,23 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
  * @param {Set} usedPaths - Set of paths currently in use
  * @returns {Promise<Object|null>} OAuth file information object
  */
-export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, providerPools) {
+export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentConfig: any, providerPools: any) {
     try {
         const stats = await fs.stat(filePath);
         const ext = path.extname(filePath).toLowerCase();
         const filename = path.basename(filePath);
         const relativePath = path.relative(process.cwd(), filePath);
-        
+
         // 读取文件内容进行分析
         let content = '';
         let type = 'oauth'; // 默认为 oauth 类型
         let isValid = true;
         let errorMessage = '';
         let oauthProvider = 'unknown';
-        let expiresAt = null;
-        let expiresAtTS = null;
+        let expiresAt: any = null;
+        let expiresAtTS: any = null;
         let usageInfo = getFileUsageInfo(relativePath, filename, usedPaths, currentConfig, providerPools);
-        
+
         // 从路径检测提供商
         const normalizedPath = relativePath.replace(/\\/g, '/').toLowerCase();
         const providerMapping = detectProviderFromPath(normalizedPath);
@@ -101,7 +105,7 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
 
         try {
             content = await fs.readFile(filePath, 'utf8');
-            
+
             // 1. 首先尝试根据文件名识别特定类型的配置 (最高优先级)
             const lowerFilename = filename.toLowerCase();
             if (lowerFilename === 'provider_pools.json' || lowerFilename === 'provider-pools.json') {
@@ -126,7 +130,7 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
             if (ext === '.json') {
                 try {
                     const jsonData = JSON.parse(content);
-                    
+
                     if (jsonData && typeof jsonData === 'object') {
                         // 如果文件名没识别出类型，尝试从内容识别
                         if (type === 'oauth') {
@@ -149,7 +153,7 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
                         }
 
                         // 提取过期信息
-                        const getTimestamp = (val) => {
+                        const getTimestamp = (val: any) => {
                             if (val === null || val === undefined || val === '') return null;
                             if (typeof val === 'number') return val;
                             if (typeof val === 'string') {
@@ -160,25 +164,25 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
                             return null;
                         };
 
-                        const timestamps = [];
-                        
+                        const timestamps: any[] = [];
+
                         // 收集所有可能的过期时间点
                         const possibleSources = [jsonData];
                         if (jsonData.tokens) possibleSources.push(jsonData.tokens);
                         if (jsonData.credentials) possibleSources.push(jsonData.credentials);
                         if (jsonData.auth) possibleSources.push(jsonData.auth);
-                        
-                        possibleSources.forEach(src => {
+
+                        possibleSources.forEach((src: any) => {
                             if (!src || typeof src !== 'object') return;
-                            
-                            ['expiry_date', 'expiresAt', 'expires_at', 'expiry', 'expired'].forEach(key => {
+
+                            ['expiry_date', 'expiresAt', 'expires_at', 'expiry', 'expired'].forEach((key: any) => {
                                 const ts = getTimestamp(src[key]);
                                 if (ts) {
                                     // 启发式转换秒到毫秒
                                     timestamps.push(ts < 10000000000 ? ts * 1000 : ts);
                                 }
                             });
-                            
+
                             // 收集基于相对时间计算的时间点
                             const relExpiresIn = Number(src.expires_in || src.expiresIn);
                             const relIssuedAt = getTimestamp(src.issued_at || src.issuedAt);
@@ -187,13 +191,13 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
                                 timestamps.push(issuedMS + relExpiresIn * 1000);
                             }
                         });
-                        
+
                         if (timestamps.length > 0) {
                             // 取最大的时间点作为过期时间（最宽松策略）
                             expiresAtTS = Math.max(...timestamps);
                             expiresAt = new Date(expiresAtTS).toISOString();
                         }
-                        
+
                         if (jsonData.base_url || jsonData.endpoint) {
                             const baseUrl = (jsonData.base_url || jsonData.endpoint).toLowerCase();
                             if (baseUrl.includes('openai.com')) {
@@ -205,7 +209,7 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
                             }
                         }
                     }
-                } catch (jsonErr) {
+                } catch (jsonErr: any) {
                     isValid = false;
                     errorMessage = `JSON Parse Error: ${jsonErr.message}`;
                 }
@@ -224,11 +228,11 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
                     if (oauthProvider === 'unknown') oauthProvider = 'oauth_credentials';
                 }
             }
-        } catch (readError) {
+        } catch (readError: any) {
             isValid = false;
             errorMessage = `Unable to read file: ${readError.message}`;
         }
-        
+
         return {
             name: filename,
             path: relativePath,
@@ -245,7 +249,7 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
             usageInfo: usageInfo,
             preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
         };
-    } catch (error) {
+    } catch (error: any) {
         logger.warn(`[OAuth Analyzer] Failed to analyze file ${filePath}:`, error.message);
         return null;
     }
@@ -259,8 +263,8 @@ export async function analyzeOAuthFile(filePath, usedPaths, currentConfig, provi
  * @param {Object} currentConfig - Current configuration
  * @returns {Object} Usage information object
  */
-function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, providerPools) {
-    const usageInfo = {
+function getFileUsageInfo(relativePath: any, fileName: any, usedPaths: any, currentConfig: any, providerPools: any) {
+    const usageInfo: any = {
         isUsed: false,
         usageType: null,
         usageDetails: []
@@ -276,7 +280,9 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
 
     // 检查主要配置中的使用情况
     for (const definition of getCredentialProviderDefinitions()) {
-        const configuredPath = currentConfig[definition.credentialPathKey];
+        const configKey = definition.credentialPathKey;
+        if (!configKey) continue;
+        const configuredPath = currentConfig[configKey];
         if (!configuredPath) continue;
         if (!pathsEqual(relativePath, configuredPath) &&
             !pathsEqual(relativePath, configuredPath.replace(/\\/g, '/'))) {
@@ -296,15 +302,17 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
     if (poolsToUse) {
         // 使用 flatMap 将双重循环优化为单层循环 O(n)
         const allProviders = Object.entries(poolsToUse as Record<string, any[]>).flatMap(
-            ([providerType, providers]) =>
-                providers.map((provider, index) => ({ provider, providerType, index }))
+            ([providerType, providers]: any) =>
+                providers.map((provider: any, index: any) => ({ provider, providerType, index }))
         );
 
         for (const { provider, providerType, index } of allProviders) {
-            const providerUsages = [];
+            const providerUsages: any[] = [];
 
             for (const definition of getCredentialProviderDefinitions()) {
-                const configuredPath = provider[definition.credentialPathKey];
+                const configKey = definition.credentialPathKey;
+                if (!configKey) continue;
+                const configuredPath = provider[configKey];
                 if (!configuredPath) continue;
                 if (!pathsEqual(relativePath, configuredPath) &&
                     !pathsEqual(relativePath, configuredPath.replace(/\\/g, '/'))) {
@@ -346,15 +354,15 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
  * @param {Object} currentConfig - Current configuration
  * @returns {Promise<Array>} Array of OAuth configuration file objects
  */
-async function scanOAuthDirectory(dirPath, usedPaths, currentConfig, providerPools) {
-    const oauthFiles = [];
-    
+async function scanOAuthDirectory(dirPath: any, usedPaths: any, currentConfig: any, providerPools: any) {
+    const oauthFiles: any[] = [];
+
     try {
         const files = await fs.readdir(dirPath, { withFileTypes: true });
-        
+
         for (const file of files) {
             const fullPath = path.join(dirPath, file.name);
-            
+
             if (file.isFile()) {
                 const ext = path.extname(file.name).toLowerCase();
                 // 只关注OAuth相关的文件类型
@@ -374,9 +382,9 @@ async function scanOAuthDirectory(dirPath, usedPaths, currentConfig, providerPoo
                 }
             }
         }
-    } catch (error) {
+    } catch (error: any) {
         logger.warn(`[OAuth Scanner] Failed to scan directory ${dirPath}:`, error.message);
     }
-    
+
     return oauthFiles;
 }

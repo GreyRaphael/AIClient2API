@@ -13,42 +13,42 @@ const ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS = [
     'code_execution'
 ];
 
-function hasAntigravityFunctionDeclarations(tools) {
-    return Array.isArray(tools) && tools.some((tool) =>
+function hasAntigravityFunctionDeclarations(tools: any) {
+    return Array.isArray(tools) && tools.some((tool: any) =>
         Array.isArray(tool?.functionDeclarations) && tool.functionDeclarations.length > 0
     );
 }
 
-function hasAntigravityServerSideTools(tools) {
-    return Array.isArray(tools) && tools.some((tool) => {
+function hasAntigravityServerSideTools(tools: any) {
+    return Array.isArray(tools) && tools.some((tool: any) => {
         if (!tool || typeof tool !== 'object') return false;
-        return ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.some((field) =>
+        return ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.some((field: any) =>
             Object.prototype.hasOwnProperty.call(tool, field)
         );
     });
 }
 
-function removeAntigravityServerSideToolFields(tool) {
+function removeAntigravityServerSideToolFields(tool: any) {
     if (!tool || typeof tool !== 'object') return tool;
     const cleaned = { ...tool };
-    ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.forEach((field) => {
+    ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.forEach((field: any) => {
         delete cleaned[field];
     });
     return cleaned;
 }
 
-function stripServerSideToolsWhenFunctionCalling(request) {
+function stripServerSideToolsWhenFunctionCalling(request: any) {
     if (!hasAntigravityFunctionDeclarations(request.tools) ||
         !hasAntigravityServerSideTools(request.tools)) {
         return;
     }
 
     request.tools = request.tools
-        .map((tool) => removeAntigravityServerSideToolFields(tool))
-        .filter((tool) => tool && Object.keys(tool).length > 0);
+        .map((tool: any) => removeAntigravityServerSideToolFields(tool))
+        .filter((tool: any) => tool && Object.keys(tool).length > 0);
 }
 
-function normalizeAntigravityToolConfigShape(toolConfig) {
+function normalizeAntigravityToolConfigShape(toolConfig: any) {
     if (!toolConfig || typeof toolConfig !== 'object') return;
 
     if (toolConfig.function_calling_config && !toolConfig.functionCallingConfig) {
@@ -60,7 +60,7 @@ function normalizeAntigravityToolConfigShape(toolConfig) {
     delete toolConfig.include_server_side_tool_invocations;
 }
 
-export function normalizeAntigravityToolConfig(request, isClaudeModel = false) {
+export function normalizeAntigravityToolConfig(request: any, isClaudeModel: any = false) {
     if (!request || typeof request !== 'object') return;
 
     stripServerSideToolsWhenFunctionCalling(request);

@@ -55,19 +55,19 @@ const CAPABILITY_KEY_SET = new Set(CAPABILITY_KEYS);
  */
 const BUILTIN_PROVIDER_RULES = getBuiltinProviderCapabilityRules();
 
-function wildcardToRegExp(pattern) {
+function wildcardToRegExp(pattern: any) {
     if (pattern instanceof RegExp) return pattern;
     const escaped = String(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
     return new RegExp(`^${escaped}$`);
 }
 
-function matchesPattern(pattern, model) {
+function matchesPattern(pattern: any, model: any) {
     const value = String(model || '');
     if (pattern instanceof RegExp) return pattern.test(value);
     return wildcardToRegExp(pattern).test(value);
 }
 
-function matchesRule(rule, model) {
+function matchesRule(rule: any, model: any) {
     if (!rule || typeof rule !== 'object') return false;
     if (typeof rule.match === 'function') return Boolean(rule.match(model));
     if (rule.match instanceof RegExp) return rule.match.test(String(model || ''));
@@ -80,7 +80,7 @@ function matchesRule(rule, model) {
  * @param {Object} target
  * @param {any} patch
  */
-function applyCapabilityPatch(target, patch) {
+function applyCapabilityPatch(target: any, patch: any) {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return;
     for (const key of CAPABILITY_KEYS) {
         if (typeof patch[key] === 'boolean') {
@@ -95,7 +95,7 @@ function applyCapabilityPatch(target, patch) {
  * @param {any} config
  * @param {string} model
  */
-function applyCapabilityConfig(target, config, model) {
+function applyCapabilityConfig(target: any, config: any, model: any) {
     if (!config || typeof config !== 'object' || Array.isArray(config)) return;
 
     applyCapabilityPatch(target, config);
@@ -128,7 +128,7 @@ function applyCapabilityConfig(target, config, model) {
  * @param {Object} target
  * @param {any} metadata
  */
-function applyMetadataCapabilities(target, metadata) {
+function applyMetadataCapabilities(target: any, metadata: any) {
     if (!metadata || typeof metadata !== 'object') return;
     applyCapabilityPatch(target, metadata.capabilities);
 
@@ -157,9 +157,9 @@ function applyMetadataCapabilities(target, metadata) {
  * @param {string} providerType
  * @returns {string[]}
  */
-function getBuiltinRuleKeys(providerType) {
+function getBuiltinRuleKeys(providerType: any) {
     if (!providerType) return [];
-    const keys = [];
+    const keys: any[] = [];
     for (const key of Object.keys(BUILTIN_PROVIDER_RULES)) {
         if (providerType === key || providerType.startsWith(key + '-')) {
             keys.push(key);
@@ -224,7 +224,7 @@ export function resolveProviderCapabilities({
  * @param {string} key
  * @returns {boolean}
  */
-export function supportsCapability(capabilities, key) {
+export function supportsCapability(capabilities: any, key: any) {
     if (!capabilities || !CAPABILITY_KEY_SET.has(key)) return true;
     return capabilities[key] !== false;
 }

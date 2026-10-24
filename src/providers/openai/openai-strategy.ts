@@ -8,13 +8,13 @@ import { applySystemPromptReplacements } from '../../converters/utils.ts';
  * OpenAI provider strategy implementation.
  */
 class OpenAIStrategy extends ProviderStrategy {
-    extractModelAndStreamInfo(req, requestBody) {
+    extractModelAndStreamInfo(req: any, requestBody: any) {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
         return { model, isStream };
     }
 
-    extractResponseText(response) {
+    extractResponseText(response: any) {
         if (!response.choices) {
             return '';
         }
@@ -31,13 +31,13 @@ class OpenAIStrategy extends ProviderStrategy {
         return '';
     }
 
-    extractPromptText(requestBody) {
+    extractPromptText(requestBody: any) {
         if (requestBody.messages && requestBody.messages.length > 0) {
             const lastMessage = requestBody.messages[requestBody.messages.length - 1];
             let content = lastMessage.content;
             if (typeof content === 'object' && content !== null) {
                 if (Array.isArray(content)) {
-                    return content.map(item => item.text).join('\n');
+                    return content.map((item: any) => item.text).join('\n');
                 } else {
                     return JSON.stringify(content);
                 }
@@ -47,7 +47,7 @@ class OpenAIStrategy extends ProviderStrategy {
         return '';
     }
 
-    async applySystemPromptFromFile(config, requestBody) {
+    async applySystemPromptFromFile(config: any, requestBody: any) {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;
         }
@@ -69,7 +69,7 @@ class OpenAIStrategy extends ProviderStrategy {
         if (!requestBody.messages) {
             requestBody.messages = [];
         }
-        const systemMessageIndex = requestBody.messages.findIndex(m => m.role === 'system' || m.role === 'developer');
+        const systemMessageIndex = requestBody.messages.findIndex((m: any) => m.role === 'system' || m.role === 'developer');
         if (systemMessageIndex !== -1) {
             requestBody.messages[systemMessageIndex].content = finalSystemText;
         } else {
@@ -80,7 +80,7 @@ class OpenAIStrategy extends ProviderStrategy {
         return requestBody;
     }
 
-    async manageSystemPrompt(requestBody) {
+    async manageSystemPrompt(requestBody: any) {
         //logger.info('[System Prompt] Managing system prompt for provider "openai".', requestBody);
         const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI);
         await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.OPENAI);

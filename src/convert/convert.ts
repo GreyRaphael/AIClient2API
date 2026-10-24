@@ -71,7 +71,7 @@ import { ConverterFactory } from '../converters/ConverterFactory.ts';
  * @returns {any} 转换后的数据
  * @throws {Error} 如果找不到合适的转换函数
  */
-export function convertData(data, type, fromProvider, toProvider, model, requestId) {
+export function convertData(data: any, type: any, fromProvider: any, toProvider: any, model: any, requestId: any) {
     try {
         // 获取协议前缀
         const fromProtocol = getProtocolPrefix(fromProvider);
@@ -101,7 +101,7 @@ export function convertData(data, type, fromProvider, toProvider, model, request
             default:
                 throw new Error(`Unsupported conversion type: ${type}`);
         }
-    } catch (error) {
+    } catch (error: any) {
         logger.error(`Conversion error: ${error.message}`);
         throw error;
     }

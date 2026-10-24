@@ -24,14 +24,14 @@ export function getCustomModelConfig(modelId: string, provider: string | null = 
     }
 
     if (!targetProvider) {
-        return CONFIG.customModels.find(m =>
+        return CONFIG.customModels.find((m: any) =>
             m && m.enabled !== false &&
             !m.provider &&
             (m.id === targetModelId || m.alias === targetModelId)
         ) || null;
     }
 
-    return CONFIG.customModels.find(m =>
+    return CONFIG.customModels.find((m: any) =>
         m && m.enabled !== false &&
         m.provider === targetProvider &&
         (m.id === targetModelId || m.alias === targetModelId)
@@ -54,26 +54,26 @@ export const MANAGED_MODEL_LIST_PROVIDERS = [
     'claude-custom'
 ];
 
-export function getManagedModelListProviderType(providerType) {
-    return MANAGED_MODEL_LIST_PROVIDERS.find(baseType =>
+export function getManagedModelListProviderType(providerType: any) {
+    return MANAGED_MODEL_LIST_PROVIDERS.find((baseType: any) =>
         providerType === baseType || providerType.startsWith(baseType + '-')
     ) || null;
 }
 
-export function usesManagedModelList(providerType) {
+export function usesManagedModelList(providerType: any) {
     return getManagedModelListProviderType(providerType) !== null;
 }
 
-export function normalizeModelIds(models = []) {
+export function normalizeModelIds(models: any = []) {
     return [...new Set(
         (Array.isArray(models) ? models : [])
-            .filter(model => typeof model === 'string')
-            .map(model => model.trim())
+            .filter((model: any) => typeof model === 'string')
+            .map((model: any) => model.trim())
             .filter(Boolean)
-    )].sort((a, b) => a.localeCompare(b));
+    )].sort((a: any, b: any) => a.localeCompare(b));
 }
 
-export function getCustomModelActualProvider(modelConfig) {
+export function getCustomModelActualProvider(modelConfig: any) {
     if (!modelConfig) {
         return '';
     }
@@ -83,7 +83,7 @@ export function getCustomModelActualProvider(modelConfig) {
     return modelConfig.provider || '';
 }
 
-export function getCustomModelListProvider(modelConfig) {
+export function getCustomModelListProvider(modelConfig: any) {
     return modelConfig?.provider || getCustomModelActualProvider(modelConfig);
 }
 
@@ -91,35 +91,35 @@ export function getCustomModelListProvider(modelConfig) {
  * 获取归属指定 providerType 的启用自定义模型 ID。
  * 仅用于分组最终集与路由，不参与节点候选列表。
  */
-export function getCustomModelIdsForProvider(customModels, providerType) {
+export function getCustomModelIdsForProvider(customModels: any, providerType: any) {
     const models = Array.isArray(customModels) ? customModels : [];
     return normalizeModelIds(models
-        .filter(model => model && model.enabled !== false && model.id)
-        .filter(model => {
+        .filter((model: any) => model && model.enabled !== false && model.id)
+        .filter((model: any) => {
             const listProvider = getCustomModelListProvider(model);
             return listProvider && (listProvider === providerType || providerType.startsWith(listProvider + '-'));
         })
-        .map(model => model.id));
+        .map((model: any) => model.id));
 }
 
-function extractModelIdsFromListShape(modelList) {
+function extractModelIdsFromListShape(modelList: any) {
     if (!modelList) {
         return [];
     }
 
     if (Array.isArray(modelList)) {
-        return modelList.map(item => {
+        return modelList.map((item: any) => {
             if (typeof item === 'string') return item;
             return item?.id || item?.name || item?.model || null;
         }).filter(Boolean);
     }
 
     if (Array.isArray(modelList.data)) {
-        return modelList.data.map(item => item?.id || item?.name || item?.model || null).filter(Boolean);
+        return modelList.data.map((item: any) => item?.id || item?.name || item?.model || null).filter(Boolean);
     }
 
     if (Array.isArray(modelList.models)) {
-        return modelList.models.map(item => {
+        return modelList.models.map((item: any) => {
             if (typeof item === 'string') return item;
             return item?.id || item?.name || item?.model || null;
         }).filter(Boolean);
@@ -128,7 +128,7 @@ function extractModelIdsFromListShape(modelList) {
     return [];
 }
 
-export function extractModelIdsFromNativeList(modelList, providerType) {
+export function extractModelIdsFromNativeList(modelList: any, providerType: any) {
     let convertedModelList = modelList;
 
     // 只有在提供商类型与目标类型协议不同时才尝试转换
@@ -158,8 +158,8 @@ export function getConfiguredSupportedModels(providerType: string, providerConfi
  * @param {string} providerType - 提供商类型
  * @returns {Array<string>} 模型列表
  */
-export function getProviderModels(providerType) {
-    let models = [];
+export function getProviderModels(providerType: any) {
+    let models: any[] = [];
     if (PROVIDER_MODELS[providerType]) {
         models = [...PROVIDER_MODELS[providerType]];
     } else {

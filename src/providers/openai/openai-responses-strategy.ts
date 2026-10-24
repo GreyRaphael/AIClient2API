@@ -9,13 +9,13 @@ import { applySystemPromptReplacements } from '../../converters/utils.ts';
  * Migrated from Chat Completions API to Responses API.
  */
 class ResponsesAPIStrategy extends ProviderStrategy {
-    extractModelAndStreamInfo(req, requestBody) {
+    extractModelAndStreamInfo(req: any, requestBody: any) {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
         return { model, isStream };
     }
 
-    extractResponseText(response) {
+    extractResponseText(response: any) {
         if (!response.output) {
             return '';
         }
@@ -33,13 +33,13 @@ class ResponsesAPIStrategy extends ProviderStrategy {
         return '';
     }
 
-    extractPromptText(requestBody) {
+    extractPromptText(requestBody: any) {
         // In Responses API, input can be a string or array of items
         if (typeof requestBody.input === 'string') {
             return requestBody.input;
         } else if (Array.isArray(requestBody.input)) {
             // If input is an array of items/messages, get the last user content
-            const userInputItems = requestBody.input.filter(item =>
+            const userInputItems = requestBody.input.filter((item: any) =>
                 (item.role && item.role === 'user') ||
                 (item.type && item.type === 'message' && item.role === 'user') ||
                 (item.type && item.type === 'user')
@@ -50,14 +50,14 @@ class ResponsesAPIStrategy extends ProviderStrategy {
                 if (typeof lastInput.content === 'string') {
                     return lastInput.content;
                 } else if (Array.isArray(lastInput.content)) {
-                    return lastInput.content.map(item => item.text || item.content || '').join('\n');
+                    return lastInput.content.map((item: any) => item.text || item.content || '').join('\n');
                 }
             }
         }
         return '';
     }
 
-    async applySystemPromptFromFile(config, requestBody) {
+    async applySystemPromptFromFile(config: any, requestBody: any) {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;
         }
@@ -81,7 +81,7 @@ class ResponsesAPIStrategy extends ProviderStrategy {
         if (requestBody.instructions !== undefined || !Array.isArray(requestBody.input)) {
             requestBody.instructions = finalSystemText;
         } else {
-            const systemMessageIndex = requestBody.input.findIndex(m =>
+            const systemMessageIndex = requestBody.input.findIndex((m: any) =>
                 m.role === 'system' || m.role === 'developer' || m.type === 'system' || m.type === 'developer'
             );
 
@@ -97,7 +97,7 @@ class ResponsesAPIStrategy extends ProviderStrategy {
         return requestBody;
     }
 
-    async manageSystemPrompt(requestBody) {
+    async manageSystemPrompt(requestBody: any) {
         const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
         await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.OPENAI);
     }

@@ -8,13 +8,13 @@ import { applySystemPromptReplacements } from '../../converters/utils.ts';
  * Claude provider strategy implementation.
  */
 class ClaudeStrategy extends ProviderStrategy {
-    extractModelAndStreamInfo(req, requestBody) {
+    extractModelAndStreamInfo(req: any, requestBody: any) {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
         return { model, isStream };
     }
 
-    extractResponseText(response) {
+    extractResponseText(response: any) {
         if (response.type === 'content_block_delta' && response.delta ) {
             if(response.delta.type === 'text_delta' ){
                 return response.delta.text;
@@ -25,8 +25,8 @@ class ClaudeStrategy extends ProviderStrategy {
         }
         if (response.content && Array.isArray(response.content)) {
             return response.content
-                .filter(block => block.type === 'text' && block.text)
-                .map(block => block.text)
+                .filter((block: any) => block.type === 'text' && block.text)
+                .map((block: any) => block.text)
                 .join('');
         } else if (response.content && response.content.type === 'text') {
             return response.content.text;
@@ -34,18 +34,18 @@ class ClaudeStrategy extends ProviderStrategy {
         return '';
     }
 
-    extractPromptText(requestBody) {
+    extractPromptText(requestBody: any) {
         if (requestBody.messages && requestBody.messages.length > 0) {
             const lastMessage = requestBody.messages[requestBody.messages.length - 1];
             if (lastMessage.content && Array.isArray(lastMessage.content)) {
-                return lastMessage.content.map(block => block.text).join('');
+                return lastMessage.content.map((block: any) => block.text).join('');
             }
             return lastMessage.content;
         }
         return '';
     }
 
-    async applySystemPromptFromFile(config, requestBody) {
+    async applySystemPromptFromFile(config: any, requestBody: any) {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;
         }
@@ -68,7 +68,7 @@ class ClaudeStrategy extends ProviderStrategy {
         return requestBody;
     }
 
-    async manageSystemPrompt(requestBody) {
+    async manageSystemPrompt(requestBody: any) {
         const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.CLAUDE);
         await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.CLAUDE);
     }

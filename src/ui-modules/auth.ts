@@ -33,7 +33,7 @@ export async function readPasswordFile() {
         }
         logger.info('[Auth] Successfully read password file');
         return trimmedPassword;
-    } catch (error) {
+    } catch (error: any) {
         // ENOENT means file does not exist, which is normal
         if (error.code === 'ENOENT') {
             logger.info('[Auth] Password file does not exist, using default password: ' + DEFAULT_PASSWORD);
@@ -48,7 +48,7 @@ export async function readPasswordFile() {
 /**
  * 验证登录凭据
  */
-export async function validateCredentials(password) {
+export async function validateCredentials(password: any) {
     const storedPassword = await readPasswordFile();
     if (!storedPassword || !password) return false;
 
@@ -57,8 +57,8 @@ export async function validateCredentials(password) {
         const parts = storedPassword.split(':');
         if (parts.length !== 3) return false;
         const [, salt, storedHash] = parts;
-        const inputHash = await new Promise<string>((resolve, reject) =>
-            crypto.pbkdf2(password.trim(), salt as string, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err, key) =>
+        const inputHash = await new Promise<string>((resolve: any, reject: any) =>
+            crypto.pbkdf2(password.trim(), salt as string, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err: any, key: any) =>
                 err ? reject(err) : resolve(key.toString('hex'))
             )
         );
@@ -78,8 +78,8 @@ export async function validateCredentials(password) {
  * @param {import('node:http').IncomingMessage} req
  * @param {number} maxBytes 最大允许字节数，默认 10KB（登录接口够用）
  */
-function parseRequestBody(req, maxBytes = 10 * 1024) {
-    return new Promise((resolve, reject) => {
+function parseRequestBody(req: any, maxBytes: any = 10 * 1024) {
+    return new Promise((resolve: any, reject: any) => {
         // 1. 先检查 Content-Length header，快速拒绝超大请求（零读取开销）
         const contentLength = parseInt(req.headers['content-length'] || '0', 10);
         if (!isNaN(contentLength) && contentLength > maxBytes) {
@@ -90,7 +90,7 @@ function parseRequestBody(req, maxBytes = 10 * 1024) {
         let body = '';
         let received = 0;
 
-        req.on('data', chunk => {
+        req.on('data', (chunk: any) => {
             received += chunk.length;
             if (received > maxBytes) {
                 // 超限：立即销毁连接，不再累积数据
@@ -103,7 +103,7 @@ function parseRequestBody(req, maxBytes = 10 * 1024) {
         req.on('end', () => {
             try {
                 resolve(body.trim() ? JSON.parse(body) : {});
-            } catch (error) {
+            } catch (error: any) {
                 reject(new Error('Invalid JSON format'));
             }
         });
@@ -142,7 +142,7 @@ async function readTokenStore() {
             await writeTokenStore({ tokens: {} });
             return { tokens: {} };
         }
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[Token Store] Failed to read token store file:', error);
         return { tokens: {} };
     }
@@ -151,10 +151,10 @@ async function readTokenStore() {
 /**
  * 写入token存储文件
  */
-async function writeTokenStore(tokenStore) {
+async function writeTokenStore(tokenStore: any) {
     try {
         await atomicWriteFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), { encoding: 'utf8', mode: 0o600 });
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[Token Store] Failed to write token store file:', error);
     }
 }
@@ -162,26 +162,26 @@ async function writeTokenStore(tokenStore) {
 /**
  * 验证简单token
  */
-export async function verifyToken(token) {
+export async function verifyToken(token: any) {
     const tokenStore = await readTokenStore();
     const tokenInfo = tokenStore.tokens[token];
     if (!tokenInfo) {
         return null;
     }
-    
+
     // 检查是否过期
     if (Date.now() > tokenInfo.expiryTime) {
         await deleteToken(token);
         return null;
     }
-    
+
     return tokenInfo;
 }
 
 /**
  * 保存token到本地文件
  */
-async function saveToken(token, tokenInfo) {
+async function saveToken(token: any, tokenInfo: any) {
     const tokenStore = await readTokenStore();
     tokenStore.tokens[token] = tokenInfo;
     await writeTokenStore(tokenStore);
@@ -190,7 +190,7 @@ async function saveToken(token, tokenInfo) {
 /**
  * 删除token
  */
-async function deleteToken(token) {
+async function deleteToken(token: any) {
     const tokenStore = await readTokenStore();
     if (tokenStore.tokens[token]) {
         delete tokenStore.tokens[token];
@@ -211,7 +211,7 @@ class LoginAttemptManager {
     /**
      * 获取 IP 的状态
      */
-    getIpStatus(ip) {
+    getIpStatus(ip: any) {
         if (!this.attempts.has(ip)) {
             this.attempts.set(ip, { count: 0, lastAttempt: 0, lockoutUntil: 0 });
         }
@@ -221,7 +221,7 @@ class LoginAttemptManager {
     /**
      * 检查是否被锁定
      */
-    isLockedOut(ip) {
+    isLockedOut(ip: any) {
         const status = this.getIpStatus(ip);
         if (status.lockoutUntil > Date.now()) {
             return {
@@ -240,7 +240,7 @@ class LoginAttemptManager {
     /**
      * 检查是否请求过于频繁
      */
-    isTooFrequent(ip) {
+    isTooFrequent(ip: any) {
         const status = this.getIpStatus(ip);
         const minInterval = CONFIG.LOGIN_MIN_INTERVAL || 1000;
         const now = Date.now();
@@ -254,7 +254,7 @@ class LoginAttemptManager {
     /**
      * 记录一次失败
      */
-    recordFailure(ip) {
+    recordFailure(ip: any) {
         const status = this.getIpStatus(ip);
         status.count++;
         const maxAttempts = CONFIG.LOGIN_MAX_ATTEMPTS || 5;
@@ -271,7 +271,7 @@ class LoginAttemptManager {
     /**
      * 成功后重置
      */
-    reset(ip) {
+    reset(ip: any) {
         this.attempts.delete(ip);
     }
 }
@@ -285,14 +285,14 @@ export async function cleanupExpiredTokens() {
     const tokenStore = await readTokenStore();
     const now = Date.now();
     let hasChanges = false;
-    
+
     for (const token in tokenStore.tokens) {
         if (now > tokenStore.tokens[token].expiryTime) {
             delete tokenStore.tokens[token];
             hasChanges = true;
         }
     }
-    
+
     if (hasChanges) {
         await writeTokenStore(tokenStore);
     }
@@ -302,42 +302,42 @@ export async function cleanupExpiredTokens() {
  * 检查token验证
  * 支持 Authorization Header 或 URL 参数 token (用于 SSE)
  */
-export async function checkAuth(req) {
-    let token = null;
-    
+export async function checkAuth(req: any) {
+    let token: any = null;
+
     // 1. 检查 Authorization header
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.substring(7);
     }
-    
+
     // 2. 检查 URL 参数 (用于 EventSource/SSE)
     if (!token && req.url) {
         try {
             const url = new URL(req.url, 'http://localhost');
             token = url.searchParams.get('token');
-        } catch (e) {
+        } catch (e: any) {
             // 解析失败忽略
         }
     }
-    
+
     if (!token) {
         return false;
     }
 
     const tokenInfo = await verifyToken(token);
-    
+
     return tokenInfo !== null;
 }
 
 /**
  * 处理登录请求
  */
-export async function handleLoginRequest(req, res) {
+export async function handleLoginRequest(req: any, res: any) {
     if (req.method !== 'POST') {
         res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            success: false, 
+        res.end(JSON.stringify({
+            success: false,
             message: 'Only POST requests are supported',
             messageCode: 'login.error.postOnly'
         }));
@@ -345,14 +345,14 @@ export async function handleLoginRequest(req, res) {
     }
 
     const ip = getClientIp(req, CONFIG);
-    
+
     // 1. 检查锁定状态
     const lockout = loginAttemptManager.isLockedOut(ip);
     if (lockout.locked) {
         logger.warn(`[Auth] Login attempt from locked IP: ${ip}, reason: account_locked, remaining: ${lockout.remainingTime}s`);
         res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            success: false, 
+        res.end(JSON.stringify({
+            success: false,
             message: `Account temporarily locked due to too many failed attempts. Please try again in ${lockout.remainingTime} seconds.`,
             messageCode: 'login.error.locked',
             messageParams: { time: lockout.remainingTime }
@@ -364,8 +364,8 @@ export async function handleLoginRequest(req, res) {
     if (loginAttemptManager.isTooFrequent(ip)) {
         logger.warn(`[Auth] Login attempt too frequent from IP: ${ip}, reason: rate_limit`);
         res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            success: false, 
+        res.end(JSON.stringify({
+            success: false,
             message: 'Too many requests, please slow down.',
             messageCode: 'login.error.tooFrequent'
         }));
@@ -375,12 +375,12 @@ export async function handleLoginRequest(req, res) {
     try {
         const requestData = await parseRequestBody(req) as any;
         const { password } = requestData;
-        
+
         if (!password) {
             logger.warn(`[Auth] Login failed from IP: ${ip}, reason: empty_password`);
             res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                success: false, 
+            res.end(JSON.stringify({
+                success: false,
                 message: 'Password cannot be empty',
                 messageCode: 'login.error.empty'
             }));
@@ -388,7 +388,7 @@ export async function handleLoginRequest(req, res) {
         }
 
         const isValid = await validateCredentials(password);
-        
+
         if (isValid) {
             logger.info(`[Auth] Login successful from IP: ${ip}`);
             // 登录成功，重置计数
@@ -398,7 +398,7 @@ export async function handleLoginRequest(req, res) {
             const token = generateToken();
             const loginExpiry = CONFIG.LOGIN_EXPIRY || 3600;
             const expiryTime = Date.now() + (loginExpiry * 1000);
-            
+
             // Store token info to local file
             await saveToken(token, {
                 username: 'admin',
@@ -426,15 +426,15 @@ export async function handleLoginRequest(req, res) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
-                message: isLocked 
-                    ? `Incorrect password. Account locked for ${Math.ceil(lockoutDuration / 60)} minutes.` 
+                message: isLocked
+                    ? `Incorrect password. Account locked for ${Math.ceil(lockoutDuration / 60)} minutes.`
                     : `Incorrect password. ${remaining} attempts remaining.`,
                 messageCode: isLocked ? 'login.error.incorrectWithLock' : 'login.error.incorrectWithRemaining',
                 messageParams: isLocked ? { time: Math.ceil(lockoutDuration / 60) } : { count: remaining }
             }));
         }
 
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[Auth] Login processing error:', error);
         const isJsonError = error.message === 'Invalid JSON format';
         const isBodyTooLarge = error.code === 'BODY_TOO_LARGE';

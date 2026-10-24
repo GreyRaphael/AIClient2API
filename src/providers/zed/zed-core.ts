@@ -25,10 +25,10 @@ export const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 
 /**
  * 解析 JWT 过期时间 (毫秒时间戳)，解析失败或未包含 exp 时兜底 1 小时
- * @param {string} token 
+ * @param {string} token
  * @returns {number}
  */
-export function parseJwtExpiresAt(token) {
+export function parseJwtExpiresAt(token: any) {
     let expiresAt = Date.now() + 3600 * 1000;
     try {
         const parts = String(token || '').split('.');
@@ -39,11 +39,11 @@ export function parseJwtExpiresAt(token) {
                 expiresAt = claims.exp * 1000;
             }
         }
-    } catch (_) {}
+    } catch (_: any) {}
     return expiresAt;
 }
 
-function buildZedAuthHeaders({ userId, accessToken, systemId }) {
+function buildZedAuthHeaders({ userId, accessToken, systemId }: any) {
     return {
         'Authorization': `${userId} ${accessToken}`,
         'Content-Type': 'application/json',
@@ -61,7 +61,7 @@ function buildZedAuthHeaders({ userId, accessToken, systemId }) {
  * @param {Object} [params.config]
  * @returns {Promise<string>}
  */
-export async function fetchZedOrganizationId({ userId, accessToken, systemId, config }) {
+export async function fetchZedOrganizationId({ userId, accessToken, systemId, config }: any) {
     if (!userId || !accessToken) {
         throw new Error('Zed user_id and access_token are required to resolve organization id');
     }
@@ -83,7 +83,7 @@ export async function fetchZedOrganizationId({ userId, accessToken, systemId, co
     }
 
     const organizations = Array.isArray(data.organizations) ? data.organizations : [];
-    const organization = organizations.find(org => org?.is_personal) || organizations[0];
+    const organization = organizations.find((org: any) => org?.is_personal) || organizations[0];
     if (organization?.id) {
         return organization.id;
     }
@@ -145,11 +145,11 @@ export function getZedVersionFromSystem() {
 
 /**
  * 根据模型名推断 Zed 上游 provider 类型
- * @param {string} model 
+ * @param {string} model
  * @param {Map} [metadataMap] 可选模型元数据映射
  * @returns {'anthropic' | 'open_ai' | 'google'}
  */
-export function getZedProviderForModel(model, metadataMap = null) {
+export function getZedProviderForModel(model: any, metadataMap: any = null) {
     if (metadataMap && metadataMap.has(model)) {
         const meta = metadataMap.get(model);
         if (meta?.provider) return meta.provider;
@@ -177,7 +177,7 @@ export function getZedProviderForModel(model, metadataMap = null) {
  * @param {number|string} budget
  * @returns {'low'|'medium'|'high'|'max'}
  */
-function budgetToClaudeEffort(budget) {
+function budgetToClaudeEffort(budget: any) {
     const b = Number(budget);
     if (!Number.isFinite(b) || b <= 0) return 'high';
     if (b <= 2048) return 'low';
@@ -208,7 +208,7 @@ export class ZedApiService {
     modelMetadataMap: any;
     organizationId: any;
 
-    constructor(config) {
+    constructor(config: any) {
         this.config = config || {};
         this.uuid = config.uuid;
         this.credsFilePath = config.ZED_OAUTH_CREDS_FILE_PATH;
@@ -254,7 +254,7 @@ export class ZedApiService {
             }
             this.isInitialized = Boolean(this.userId && this.accessToken);
             return this.isInitialized;
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[Zed] Error reading credentials file: ${error.message}`);
             return false;
         }
@@ -272,7 +272,7 @@ export class ZedApiService {
                 if (fs.existsSync(this.credsFilePath)) {
                     try {
                         existingData = JSON.parse(fs.readFileSync(this.credsFilePath, 'utf8'));
-                    } catch (_) {}
+                    } catch (_: any) {}
                 }
 
                 const updatedData = {
@@ -290,7 +290,7 @@ export class ZedApiService {
                 await atomicWriteFile(this.credsFilePath, JSON.stringify(updatedData, null, 2), 'utf8');
             });
             logger.info(`[Zed] Saved updated credentials to ${this.credsFilePath}`);
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[Zed] Failed to save credentials: ${error.message}`);
         }
     }
@@ -308,7 +308,7 @@ export class ZedApiService {
      * 换取短效 JWT Token
      * @param {boolean} force 是否强制刷新
      */
-    async getToken(force = false) {
+    async getToken(force: any = false) {
         const now = Date.now();
         if (!force && this.jwtToken && (this.jwtExpiresAt - now > 60 * 1000)) {
             return this.jwtToken;
@@ -359,9 +359,9 @@ export class ZedApiService {
 
     /**
      * 根据当前实例元数据或模型名称获取上游提供商
-     * @param {string} model 
+     * @param {string} model
      */
-    getProviderForModel(model) {
+    getProviderForModel(model: any) {
         return getZedProviderForModel(model, this.modelMetadataMap);
     }
 
@@ -370,7 +370,7 @@ export class ZedApiService {
      * 优先级：节点配置 > 全局 PROVIDER_CAPABILITIES > 上游元数据 > 内置规则。
      * @param {string} model
      */
-    resolveModelCapabilities(model) {
+    resolveModelCapabilities(model: any) {
         return resolveProviderCapabilities({
             providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ZED,
             model,
@@ -381,23 +381,23 @@ export class ZedApiService {
 
     /**
      * 构建适合发送给 Zed cloud completions 的 payload
-     * @param {string} model 
+     * @param {string} model
      * @param {object} requestBody Claude 规范的请求体
      */
-    buildPayload(model, requestBody) {
+    buildPayload(model: any, requestBody: any) {
         const provider = this.getProviderForModel(model);
         const capabilities = this.resolveModelCapabilities(model);
 
         // 1. OpenAI 规范请求 (cloud.zed.dev 对 open_ai 使用 Responses API 格式)
         if (provider === 'open_ai') {
-            const input = [];
+            const input: any[] = [];
 
             // 处理系统提示词
             if (requestBody.system) {
                 const sysText = typeof requestBody.system === 'string'
                     ? requestBody.system
                     : Array.isArray(requestBody.system)
-                        ? requestBody.system.map(s => s.text || '').join('\n\n')
+                        ? requestBody.system.map((s: any) => s.text || '').join('\n\n')
                         : String(requestBody.system);
                 if (sysText && sysText.trim()) {
                     input.push({
@@ -424,7 +424,7 @@ export class ZedApiService {
                 }
 
                 if (m.role === 'user') {
-                    const userContent = [];
+                    const userContent: any[] = [];
                     if (typeof m.content === 'string') {
                         if (m.content) userContent.push({ type: 'input_text', text: m.content });
                     } else if (Array.isArray(m.content)) {
@@ -540,7 +540,7 @@ export class ZedApiService {
             }
 
             if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-                provReq.tools = requestBody.tools.map(t => ({
+                provReq.tools = requestBody.tools.map((t: any) => ({
                     type: 'function',
                     name: t.name,
                     description: t.description,
@@ -560,16 +560,16 @@ export class ZedApiService {
 
         // 2. Google AI 规范请求 (cloud.zed.dev 对 google 系列模型如 gemini-3.5-flash)
         if (provider === 'google') {
-            const contents = [];
+            const contents: any[] = [];
             const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
 
             // Zed Google 通道不支持多轮回传 functionCall/functionResponse 历史。
             // 直接在网关侧给出明确错误，避免上游返回 500 空 body 并触发无意义的凭证切换/重试。
-            const hasToolResultHistory = rawMessages.some((m) => {
+            const hasToolResultHistory = rawMessages.some((m: any) => {
                 if (!m) return false;
                 if (m.role === 'tool' || m.tool_call_id) return true;
                 return Array.isArray(m.content) && m.content.some(
-                    (part) => part && (part.type === 'tool_result' || part.type === 'functionResponse')
+                    (part: any) => part && (part.type === 'tool_result' || part.type === 'functionResponse')
                 );
             });
             // Zed Google 通道不支持多轮 functionCall/functionResponse 历史。
@@ -580,7 +580,7 @@ export class ZedApiService {
                 logger.warn(`[Zed] Google channel does not support multi-turn tool history for model ${model}; falling back to text representation.`);
             }
 
-            let systemInstruction = null;
+            let systemInstruction: any = null;
 
             // 预扫描构建 tool_use_id -> 函数名映射（供 tool_result/functionResponse 还原名称）
             const toolIdToName = {};
@@ -589,14 +589,14 @@ export class ZedApiService {
                 if (Array.isArray(m.content)) {
                     for (const p of m.content) {
                         if (p && p.type === 'tool_use' && p.id && p.name) {
-                            toolIdToName[sanitizeToolId(p.id)] = p.name;
+                            (toolIdToName as any)[sanitizeToolId(p.id)] = p.name;
                         }
                     }
                 }
                 if (Array.isArray(m.tool_calls)) {
                     for (const tc of m.tool_calls) {
                         if (tc && tc.id && tc.function?.name) {
-                            toolIdToName[sanitizeToolId(tc.id)] = tc.function.name;
+                            (toolIdToName as any)[sanitizeToolId(tc.id)] = tc.function.name;
                         }
                     }
                 }
@@ -606,7 +606,7 @@ export class ZedApiService {
                 const sysText = typeof requestBody.system === 'string'
                     ? requestBody.system
                     : Array.isArray(requestBody.system)
-                        ? requestBody.system.map(s => s.text || '').join('\n\n')
+                        ? requestBody.system.map((s: any) => s.text || '').join('\n\n')
                         : String(requestBody.system);
                 systemInstruction = { parts: [{ text: sysText }] };
             }
@@ -623,7 +623,7 @@ export class ZedApiService {
                 }
 
                 let role = m.role === 'assistant' ? 'model' : 'user';
-                const parts = [];
+                const parts: any[] = [];
                 if (m.role === 'tool' || m.tool_call_id) {
                     // OpenAI 风格 tool 结果消息 -> functionResponse
                     role = 'user';
@@ -632,7 +632,7 @@ export class ZedApiService {
                         parts.push({ text: `[Tool result${m.tool_call_id ? ` for ${m.tool_call_id}` : ''}]: ${resultText}` });
                     } else {
                         const functionResponse: any = {
-                            name: toolIdToName[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
+                            name: (toolIdToName as any)[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
                             response: {
                                 result: resultText
                             }
@@ -657,7 +657,7 @@ export class ZedApiService {
                             // Claude 风格 assistant 工具调用 -> functionCall
                             let args = {};
                             if (typeof p.input === 'string') {
-                                try { args = JSON.parse(p.input); } catch (_) { args = {}; }
+                                try { args = JSON.parse(p.input); } catch (_: any) { args = {}; }
                             } else if (p.input && typeof p.input === 'object') {
                                 args = p.input;
                             }
@@ -678,7 +678,7 @@ export class ZedApiService {
                                 parts.push({ text: `[Tool result${p.tool_use_id ? ` for ${p.tool_use_id}` : ''}]: ${resultText}` });
                             } else {
                                 const functionResponse: any = {
-                                    name: toolIdToName[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
+                                    name: (toolIdToName as any)[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
                                     response: {
                                         result: resultText
                                     }
@@ -700,7 +700,7 @@ export class ZedApiService {
                             args = typeof tc.function?.arguments === 'string'
                                 ? JSON.parse(tc.function.arguments)
                                 : (tc.function?.arguments || {});
-                        } catch (_) { /* 保持空对象 */ }
+                        } catch (_: any) { /* 保持空对象 */ }
                         if (fallbackToolHistoryToText) {
                             parts.push({ text: `[Tool call: ${tc.function?.name || 'function'}(${JSON.stringify(args)})]` });
                         } else {
@@ -737,8 +737,8 @@ export class ZedApiService {
             if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
                 provReq.tools = [{
                     functionDeclarations: requestBody.tools
-                        .filter(t => t && t.name)
-                        .map(t => ({
+                        .filter((t: any) => t && t.name)
+                        .map((t: any) => ({
                             name: t.name,
                             description: t.description,
                             // Zed Google 通道同样受 Gemini Protobuf Schema 限制；
@@ -751,8 +751,8 @@ export class ZedApiService {
 
                 const tc = requestBody.tool_choice;
                 if (tc) {
-                    let mode = null;
-                    let allowedNames = null;
+                    let mode: any = null;
+                    let allowedNames: any = null;
                     // Zed 的 Google AI 代理端点对 mode 使用小写枚举 (auto / any / none)
                     if (typeof tc === 'string') {
                         if (tc === 'auto') mode = 'auto';
@@ -828,7 +828,7 @@ export class ZedApiService {
             provReq.system = typeof requestBody.system === 'string'
                 ? requestBody.system
                 : Array.isArray(requestBody.system)
-                    ? requestBody.system.map(s => s.text || '').join('\n\n')
+                    ? requestBody.system.map((s: any) => s.text || '').join('\n\n')
                     : String(requestBody.system);
         }
 
@@ -850,7 +850,7 @@ export class ZedApiService {
                 model.includes('opus-4-6');
 
             if (isAdaptive) {
-                let effort = null;
+                let effort: any = null;
                 if (reasoningEffort && reasoningEffort !== 'none') {
                     effort = String(reasoningEffort).toLowerCase().trim();
                 } else if (thinkingObj?.effort) {
@@ -890,7 +890,7 @@ export class ZedApiService {
         }
 
         if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-            provReq.tools = requestBody.tools.map(t => ({
+            provReq.tools = requestBody.tools.map((t: any) => ({
                 name: t.name,
                 description: t.description,
                 input_schema: t.input_schema || t.parameters
@@ -915,7 +915,7 @@ export class ZedApiService {
         }
 
         // 处理并合并连续同角色消息
-        const messages = [];
+        const messages: any[] = [];
         let rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
         // 虚拟签名剥离由 request-pipeline 对 Claude 协议前缀上游统一执行，此处无需重复
 
@@ -927,7 +927,7 @@ export class ZedApiService {
             }
 
             let role = m.role === 'assistant' ? 'assistant' : 'user';
-            let content = [];
+            let content: any[] = [];
 
             if (typeof m.content === 'string') {
                 content.push({ type: 'text', text: m.content });
@@ -935,7 +935,7 @@ export class ZedApiService {
                 // Zed 的 Anthropic 反序列化器要求 tool_result 必须带 is_error；
                 // 原生 Anthropic 允许省略该字段，跨协议转换器通常也不会生成它。
                 // 在 provider 边界统一补齐，覆盖所有 converter 来源。
-                content = m.content.map((block) => {
+                content = m.content.map((block: any) => {
                     if (block && block.type === 'tool_result' && block.is_error === undefined) {
                         return { ...block, is_error: false };
                     }
@@ -953,7 +953,7 @@ export class ZedApiService {
                         input = typeof tc.function?.arguments === 'string'
                             ? JSON.parse(tc.function.arguments)
                             : (tc.function?.arguments || {});
-                    } catch (_) {}
+                    } catch (_: any) {}
 
                     content.push({
                         type: 'tool_use',
@@ -1022,11 +1022,11 @@ export class ZedApiService {
 
     /**
      * 流式生成内容 (输出 Claude 规范的 stream 事件)
-     * @param {string} model 
-     * @param {object} requestBody 
+     * @param {string} model
+     * @param {object} requestBody
      * @returns {AsyncIterable<object>}
      */
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any) {
         const jwt = await this.getToken();
         const payload = this.buildPayload(model, requestBody);
 
@@ -1046,10 +1046,10 @@ export class ZedApiService {
 
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
 
-        let response;
+        let response: any;
         try {
             response = await axios.request(/** @type {any} */ (axiosConfig));
-        } catch (err) {
+        } catch (err: any) {
             const errData = err.response?.data;
             let errMsg = err.message;
             if (errData) {
@@ -1057,16 +1057,16 @@ export class ZedApiService {
                     errMsg = errData;
                 } else if (typeof errData.on === 'function') {
                     try {
-                        const chunks = [];
+                        const chunks: any[] = [];
                         for await (const chunk of errData) chunks.push(chunk);
                         errMsg = Buffer.concat(chunks).toString('utf-8');
-                    } catch (_) {
+                    } catch (_: any) {
                         errMsg = err.message;
                     }
                 } else {
                     try {
                         errMsg = JSON.stringify(errData);
-                    } catch (_) {
+                    } catch (_: any) {
                         errMsg = String(errData);
                     }
                 }
@@ -1080,7 +1080,7 @@ export class ZedApiService {
         let messageStarted = false;
         let messageStopped = false;
         let activeBlockIndex = -1;
-        let activeBlockType = null; // 'thinking' | 'text' | 'tool_use'
+        let activeBlockType: any = null; // 'thinking' | 'text' | 'tool_use'
         let sawToolUse = false; // 流中是否出现过工具调用（closeActiveBlock 会清空 activeBlockType，需独立标志）
 
         const ensureMessageStart = function* () {
@@ -1141,7 +1141,7 @@ export class ZedApiService {
         for await (const chunk of stream) {
             buffer += chunk.toString('utf8');
             const lines = buffer.split('\n');
-            buffer = lines.pop(); // 保留未完整的最后一行
+            buffer = lines.pop() || ''; // 保留未完整的最后一行
 
             for (let rawLine of lines) {
                 let dataStr = rawLine.trim();
@@ -1156,10 +1156,10 @@ export class ZedApiService {
                     continue;
                 }
 
-                let obj;
+                let obj: any;
                 try {
                     obj = JSON.parse(dataStr);
-                } catch (_) {
+                } catch (_: any) {
                     continue;
                 }
 
@@ -1426,10 +1426,10 @@ export class ZedApiService {
 
     /**
      * 单次生成内容 (累积流式输出构建完整响应)
-     * @param {string} model 
-     * @param {object} requestBody 
+     * @param {string} model
+     * @param {object} requestBody
      */
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any) {
         let fullText = '';
         let fullThinking = '';
         const toolCalls = new Map();
@@ -1488,7 +1488,7 @@ export class ZedApiService {
             }
         }
 
-        const content = [];
+        const content: any[] = [];
         if (fullThinking) {
             content.push({
                 type: 'thinking',
@@ -1506,7 +1506,7 @@ export class ZedApiService {
             let input = {};
             try {
                 input = JSON.parse(tc.arguments);
-            } catch (_) {}
+            } catch (_: any) {}
             content.push({
                 type: 'tool_use',
                 id: tc.id,
@@ -1532,7 +1532,7 @@ export class ZedApiService {
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
-    async fetchRemoteModels(force = false) {
+    async fetchRemoteModels(force: any = false) {
         const now = Date.now();
         if (!force && this.modelsCache && (this.modelsExpiresAt > now)) {
             return this.modelsCache;
@@ -1565,7 +1565,7 @@ export class ZedApiService {
                 const res = await axios.request(/** @type {any} */ (axiosConfig));
                 if (res.data && Array.isArray(res.data.models)) {
                     const rawModels = res.data.models;
-                    const modelIds = [];
+                    const modelIds: any[] = [];
                     this.modelMetadataMap.clear();
 
                     for (const m of rawModels) {
@@ -1582,7 +1582,7 @@ export class ZedApiService {
                         return rawModels;
                     }
                 }
-            } catch (error) {
+            } catch (error: any) {
                 logger.warn(`[Zed] Failed to fetch remote models from ${ZED_MODELS_URL}: ${error.message}`);
             } finally {
                 this._modelsFetchPromise = null;
@@ -1599,7 +1599,7 @@ export class ZedApiService {
      */
     _getFallbackModels() {
         const modelIds = PROVIDER_MODELS['zed'] || [];
-        return modelIds.map(id => ({
+        return modelIds.map((id: any) => ({
             id,
             display_name: id,
             provider: this.getProviderForModel(id),
@@ -1613,7 +1613,7 @@ export class ZedApiService {
      */
     async listModels() {
         const rawModels = await this.fetchRemoteModels();
-        const modelObjects = rawModels.map(m => ({
+        const modelObjects = rawModels.map((m: any) => ({
             id: m.id,
             name: m.display_name || m.id,
             object: 'model',

@@ -15,10 +15,10 @@ const USAGE_CACHE_FILE = path.join(process.cwd(), 'configs', 'usage-cache.json')
  * @param {string} eventType - The type of event
  * @param {any} data - The data to broadcast
  */
-export function broadcastEvent(eventType, data) {
-    if (global.eventClients && global.eventClients.length > 0) {
+export function broadcastEvent(eventType: any, data: any) {
+    if ((global as any).eventClients && (global as any).eventClients.length > 0) {
         const payload = typeof data === 'string' ? data : JSON.stringify(data);
-        global.eventClients.forEach(client => {
+        (global as any).eventClients.forEach((client: any) => {
             client.write(`event: ${eventType}\n`);
             client.write(`data: ${payload}\n\n`);
         });
@@ -28,7 +28,7 @@ export function broadcastEvent(eventType, data) {
 /**
  * Server-Sent Events for real-time updates
  */
-export async function handleEvents(req, res) {
+export async function handleEvents(req: any, res: any) {
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -38,36 +38,36 @@ export async function handleEvents(req, res) {
 
     try {
         res.write('\n');
-    } catch (err) {
+    } catch (err: any) {
         logger.error('[Event Broadcast] Failed to write initial data:', err.message);
         return true;
     }
 
     // Store the response object for broadcasting
-    if (!global.eventClients) {
-        global.eventClients = [];
+    if (!(global as any).eventClients) {
+        (global as any).eventClients = [];
     }
-    global.eventClients.push(res);
+    (global as any).eventClients.push(res);
 
     // Keep connection alive
     const keepAlive = setInterval(() => {
         if (!res.writableEnded && !res.destroyed) {
             try {
                 res.write(':\n\n');
-            } catch (err) {
+            } catch (err: any) {
                 logger.error('[Event Broadcast] Failed to write keepalive:', err.message);
                 clearInterval(keepAlive);
-                global.eventClients = global.eventClients.filter(r => r !== res);
+                (global as any).eventClients = (global as any).eventClients.filter((r: any) => r !== res);
             }
         } else {
             clearInterval(keepAlive);
-            global.eventClients = global.eventClients.filter(r => r !== res);
+            (global as any).eventClients = (global as any).eventClients.filter((r: any) => r !== res);
         }
     }, 30000);
 
     req.on('close', () => {
         clearInterval(keepAlive);
-        global.eventClients = global.eventClients.filter(r => r !== res);
+        (global as any).eventClients = (global as any).eventClients.filter((r: any) => r !== res);
     });
 
     return true;
@@ -78,23 +78,23 @@ export async function handleEvents(req, res) {
  */
 export function initializeUIManagement() {
     // Initialize log broadcasting for UI
-    if (!global.eventClients) {
-        global.eventClients = [];
+    if (!(global as any).eventClients) {
+        (global as any).eventClients = [];
     }
-    if (!global.logBuffer) {
-        global.logBuffer = [];
+    if (!(global as any).logBuffer) {
+        (global as any).logBuffer = [];
     }
 
     // Override console.log to broadcast logs
     const originalLog = console.log;
-    console.log = function(...args) {
+    console.log = function(...args: any[]) {
         originalLog.apply(console, args);
-        
-        let message = args.map(arg => {
+
+        let message = args.map((arg: any) => {
             if (typeof arg === 'string') return arg;
             try {
                 return JSON.stringify(arg);
-            } catch (e) {
+            } catch (e: any) {
                 return String(arg);
             }
         }).join(' ');
@@ -107,23 +107,23 @@ export function initializeUIManagement() {
             level: 'info',
             message: message
         };
-        global.logBuffer.push(logEntry);
-        if (global.logBuffer.length > 100) {
-            global.logBuffer.shift();
+        (global as any).logBuffer.push(logEntry);
+        if ((global as any).logBuffer.length > 100) {
+            (global as any).logBuffer.shift();
         }
         broadcastEvent('log', logEntry);
     };
 
     // Override console.error to broadcast errors
     const originalError = console.error;
-    console.error = function(...args) {
+    console.error = function(...args: any[]) {
         originalError.apply(console, args);
-        
-        let message = args.map(arg => {
+
+        let message = args.map((arg: any) => {
             if (typeof arg === 'string') return arg;
             try {
                 return JSON.stringify(arg);
-            } catch (e) {
+            } catch (e: any) {
                 return String(arg);
             }
         }).join(' ');
@@ -136,9 +136,9 @@ export function initializeUIManagement() {
             level: 'error',
             message: message
         };
-        global.logBuffer.push(logEntry);
-        if (global.logBuffer.length > 100) {
-            global.logBuffer.shift();
+        (global as any).logBuffer.push(logEntry);
+        if ((global as any).logBuffer.length > 100) {
+            (global as any).logBuffer.shift();
         }
         broadcastEvent('log', logEntry);
     };
@@ -146,25 +146,25 @@ export function initializeUIManagement() {
 
 // 配置multer中间件
 const storage = multer.diskStorage({
-    destination: async (req, file, cb) => {
+    destination: async (req: any, file: any, cb: any) => {
         try {
             // multer在destination回调时req.body还未解析，先使用默认路径
             // 实际的provider会在文件上传完成后从req.body中获取
             const uploadPath = path.join(process.cwd(), 'configs', 'temp');
             await fs.mkdir(uploadPath, { recursive: true });
             cb(null, uploadPath);
-        } catch (error) {
+        } catch (error: any) {
             cb(error);
         }
     },
-    filename: (req, file, cb) => {
+    filename: (req: any, file: any, cb: any) => {
         const timestamp = Date.now();
         const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
         cb(null, `${timestamp}_${sanitizedName}`);
     }
 });
 
-const fileFilter = (req, file, cb) => {
+const fileFilter = (req: any, file: any, cb: any) => {
     const allowedTypes = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(ext)) {
@@ -209,11 +209,11 @@ export function handleUploadOAuthCredentials(
         userInfo = '',
         customUpload = null
     } = options;
-    
+
     const uploadMiddleware = customUpload ? customUpload.single('file') : upload.single('file');
-    
-    return new Promise((resolve) => {
-        uploadMiddleware(req, res, async (err) => {
+
+    return new Promise((resolve: any) => {
+        uploadMiddleware(req, res, async (err: any) => {
             if (err) {
                 logger.error(`${logPrefix} File upload error:`, err.message);
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -248,10 +248,10 @@ export function handleUploadOAuthCredentials(
                 if (typeof provider !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(provider)) {
                     throw new Error('Invalid provider format');
                 }
-                
+
                 // 根据实际的provider移动文件到正确的目录
                 let targetDir = path.join(process.cwd(), 'configs', provider);
-                
+
                 // 如果是kiro类型的凭证，需要再包裹一层文件夹
                 if (provider === 'kiro') {
                     // 使用时间戳作为子文件夹名称，确保每个上传的文件都有独立的目录
@@ -260,23 +260,23 @@ export function handleUploadOAuthCredentials(
                     const subFolder = `${timestamp}_${originalNameWithoutExt}`;
                     targetDir = path.join(targetDir, subFolder);
                 }
-                
+
                 const targetFilePath = path.join(targetDir, req.file.filename);
 
                 // 安全边界防御：计算绝对路径以防止路径穿越，确保目标文件严格存在于 configs 目录内
                 const allowedBaseDir = path.resolve(process.cwd(), 'configs');
                 const absoluteTargetFilePath = path.resolve(targetFilePath);
-                
+
                 const relativeToConfigs = path.relative(allowedBaseDir, absoluteTargetFilePath);
                 const isInsideConfigs = !path.isAbsolute(relativeToConfigs) && !relativeToConfigs.startsWith('..') && relativeToConfigs !== '..';
-                
+
                 if (!isInsideConfigs) {
                     throw new Error('Target directory escape detected');
                 }
-                
+
                 await fs.mkdir(targetDir, { recursive: true });
                 await fs.rename(tempFilePath, targetFilePath);
-                
+
                 const relativePath = path.relative(process.cwd(), targetFilePath);
 
                 // 广播更新事件
@@ -300,7 +300,7 @@ export function handleUploadOAuthCredentials(
                 }));
                 resolve(true);
 
-            } catch (error) {
+            } catch (error: any) {
                 logger.error(`${logPrefix} File upload processing error:`, error);
                 // 发生错误时确保清理上传至 configs/temp 目录的临时文件，避免堆积
                 if (req.file && req.file.path && existsSync(req.file.path)) {

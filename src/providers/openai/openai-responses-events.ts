@@ -20,7 +20,7 @@ import { v4 as uuidv4 } from 'uuid';
  * @param {number} [options.startTime] - 创建时间戳（秒）
  * @returns {Object} Responses 流式会话状态
  */
-function createResponsesStreamState({ id = null, msgId = null, model = null, startTime = null } = {}) {
+function createResponsesStreamState({ id = null, msgId = null, model = null, startTime = null }: any = {}) {
     return {
         id: id || `resp_${uuidv4().replace(/-/g, '')}`,
         msgId: msgId || `msg_${uuidv4().replace(/-/g, '')}`,
@@ -37,7 +37,7 @@ function createResponsesStreamState({ id = null, msgId = null, model = null, sta
 /**
  * Generates a response.created event
  */
-function generateResponseCreated(state, model) {
+function generateResponseCreated(state: any, model: any) {
   if (model) {
     state.model = model;
   }
@@ -76,7 +76,7 @@ function generateResponseCreated(state, model) {
 /**
  * Generates a response.in_progress event
  */
-function generateResponseInProgress(state) {
+function generateResponseInProgress(state: any) {
   return {
     type: 'response.in_progress',
     response: {
@@ -112,7 +112,7 @@ function generateResponseInProgress(state) {
 /**
  * Generates a response.output_item.added event
  */
-function generateOutputItemAdded(state, outputIndex = 0) {
+function generateOutputItemAdded(state: any, outputIndex: any = 0) {
   return {
     type: 'response.output_item.added',
     output_index: outputIndex,
@@ -130,7 +130,7 @@ function generateOutputItemAdded(state, outputIndex = 0) {
 /**
  * Generates a response.content_part.added event
  */
-function generateContentPartAdded(state, outputIndex = 0) {
+function generateContentPartAdded(state: any, outputIndex: any = 0) {
   return {
     type: 'response.content_part.added',
     item_id: state.msgId,
@@ -148,7 +148,7 @@ function generateContentPartAdded(state, outputIndex = 0) {
 /**
  * Generates a response.output_text.delta event
  */
-function generateOutputTextDelta(state, delta, outputIndex = 0) {
+function generateOutputTextDelta(state: any, delta: any, outputIndex: any = 0) {
   state.fullText += delta;
 
   return {
@@ -165,7 +165,7 @@ function generateOutputTextDelta(state, delta, outputIndex = 0) {
 /**
  * Generates a response.output_text.done event
  */
-function generateOutputTextDone(state, outputIndex = 0) {
+function generateOutputTextDone(state: any, outputIndex: any = 0) {
   return {
     type: 'response.output_text.done',
     item_id: state.msgId,
@@ -179,7 +179,7 @@ function generateOutputTextDone(state, outputIndex = 0) {
 /**
  * Generates a response.content_part.done event
  */
-function generateContentPartDone(state, outputIndex = 0) {
+function generateContentPartDone(state: any, outputIndex: any = 0) {
   return {
     type: 'response.content_part.done',
     item_id: state.msgId,
@@ -197,7 +197,7 @@ function generateContentPartDone(state, outputIndex = 0) {
 /**
  * Generates a response.output_item.done event
  */
-function generateOutputItemDone(state, outputIndex = 0) {
+function generateOutputItemDone(state: any, outputIndex: any = 0) {
   return {
     type: 'response.output_item.done',
     output_index: outputIndex,
@@ -222,7 +222,7 @@ function generateOutputItemDone(state, outputIndex = 0) {
 /**
  * Generates a response.completed event
  */
-function generateResponseCompleted(state, usage) {
+function generateResponseCompleted(state: any, usage: any) {
   return {
     type: 'response.completed',
     response: {
@@ -237,7 +237,7 @@ function generateResponseCompleted(state, usage) {
       model: state.model || 'claude-sonnet-4-6',
       object: 'response',
       output: (() => {
-        const items = [];
+        const items: any[] = [];
         if (state.fullText) {
           items.push({
             id: state.msgId, summary: [], type: 'message', role: 'assistant', status: 'completed',

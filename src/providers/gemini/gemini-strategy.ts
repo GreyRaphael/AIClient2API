@@ -8,27 +8,27 @@ import { applySystemPromptReplacements } from '../../converters/utils.ts';
  * Gemini provider strategy implementation.
  */
 class GeminiStrategy extends ProviderStrategy {
-    extractResponseText(response) {
+    extractResponseText(response: any) {
         if (response.candidates && response.candidates.length > 0) {
             const candidate = response.candidates[0];
             if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
-                return candidate.content.parts.map(part => part.text).join('');
+                return candidate.content.parts.map((part: any) => part.text).join('');
             }
         }
         return '';
     }
 
-    extractPromptText(requestBody) {
+    extractPromptText(requestBody: any) {
         if (requestBody.contents && requestBody.contents.length > 0) {
             const lastContent = requestBody.contents[requestBody.contents.length - 1];
             if (lastContent.parts && lastContent.parts.length > 0) {
-                return lastContent.parts.map(part => part.text).join('');
+                return lastContent.parts.map((part: any) => part.text).join('');
             }
         }
         return '';
     }
 
-    async applySystemPromptFromFile(config, requestBody) {
+    async applySystemPromptFromFile(config: any, requestBody: any) {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;
         }
@@ -56,7 +56,7 @@ class GeminiStrategy extends ProviderStrategy {
         return requestBody;
     }
 
-    async manageSystemPrompt(requestBody) {
+    async manageSystemPrompt(requestBody: any) {
         const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.GEMINI);
         await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.GEMINI);
     }

@@ -52,7 +52,7 @@ export class ClaudeConverter extends BaseConverter {
      * 清理该请求在 Claude 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId) {
+    resetStreamState(requestId: any) {
         if (!requestId) return;
         this.openaiStreamStates.delete(requestId);
         this.openAIResponsesStreamStates.delete(requestId);
@@ -61,7 +61,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换请求
      */
-    convertRequest(data, targetProtocol, requestId) {
+    convertRequest(data: any, targetProtocol: any, requestId: any) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIRequest(data);
@@ -79,7 +79,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data, targetProtocol, model, requestId = null) {
+    convertResponse(data: any, targetProtocol: any, model: any, requestId: any = null) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
@@ -93,7 +93,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk, targetProtocol, model, requestId) {
+    convertStreamChunk(chunk: any, targetProtocol: any, model: any, requestId: any) {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
@@ -107,7 +107,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换模型列表
      */
-    convertModelList(data, targetProtocol) {
+    convertModelList(data: any, targetProtocol: any) {
         return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
             ? this.toOpenAIModelList(data)
             : data;
@@ -117,7 +117,7 @@ export class ClaudeConverter extends BaseConverter {
      * 在向非 Claude 上游发送请求前剥离虚拟签名 thinking 块
      * @private
      */
-    _stripVirtualSignaturesFromRequest(claudeRequest, methodName = 'convert') {
+    _stripVirtualSignaturesFromRequest(claudeRequest: any, methodName: any = 'convert') {
         if (!claudeRequest || typeof claudeRequest !== 'object') {
             return claudeRequest;
         }
@@ -161,15 +161,15 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude请求 -> OpenAI请求
      */
-    toOpenAIRequest(claudeRequest) {
+    toOpenAIRequest(claudeRequest: any) {
         claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toOpenAIRequest');
-        const openaiMessages = [];
+        const openaiMessages: any[] = [];
         let systemMessageContent = '';
 
         // 添加系统消息
         if (claudeRequest.system) {
             if (Array.isArray(claudeRequest.system)) {
-                claudeRequest.system.forEach(s => logOmittedCacheControl('Claude->OpenAI system', s));
+                claudeRequest.system.forEach((s: any) => logOmittedCacheControl('Claude->OpenAI system', s));
                 systemMessageContent = this._normalizeClaudeSystem(claudeRequest.system);
             } else if (typeof claudeRequest.system === 'object') {
                 logOmittedCacheControl('Claude->OpenAI system', claudeRequest.system);
@@ -188,14 +188,14 @@ export class ClaudeConverter extends BaseConverter {
             const thinkingType = claudeRequest.thinking && claudeRequest.thinking.type;
             const thinkingEnabled = thinkingType === "enabled" || thinkingType === "adaptive";
 
-            const tempOpenAIMessages = [];
+            const tempOpenAIMessages: any[] = [];
             for (const msg of claudeRequest.messages) {
                 const role = msg.role;
 
                 // 处理用户的工具结果消息（同时保留用户可能附带的后续指令文本）
                 if (role === "user" && Array.isArray(msg.content)) {
                     const toolResultBlocks = msg.content.filter(
-                        item => item && typeof item === 'object' && item.type === "tool_result"
+                        (item: any) => item && typeof item === 'object' && item.type === "tool_result"
                     );
 
                     if (toolResultBlocks.length > 0) {
@@ -217,7 +217,7 @@ export class ClaudeConverter extends BaseConverter {
 
                         // 检查并保留用户附带的自然语言或多模态指令
                         const nonToolBlocks = msg.content.filter(
-                            item => !item || typeof item !== 'object' || item.type !== "tool_result"
+                            (item: any) => !item || typeof item !== 'object' || item.type !== "tool_result"
                         );
                         if (nonToolBlocks.length > 0) {
                             const convertedUserContent = this.processClaudeContentToOpenAIContent(nonToolBlocks);
@@ -240,7 +240,7 @@ export class ClaudeConverter extends BaseConverter {
                 // 抽取 assistant 消息中的 thinking 块作为 reasoning_content
                 let reasoningContent = '';
                 if (role === "assistant" && Array.isArray(msg.content)) {
-                    const reasoningParts = [];
+                    const reasoningParts: any[] = [];
                     for (const block of msg.content) {
                         if (block && typeof block === 'object' && block.type === 'thinking' && block.thinking) {
                             reasoningParts.push(typeof block.thinking === 'string' ? block.thinking : String(block.thinking));
@@ -253,19 +253,19 @@ export class ClaudeConverter extends BaseConverter {
 
                 // 处理 assistant 消息中的工具调用（完整提取所有并发工具并保留说明文本）
                 if (role === "assistant" && Array.isArray(msg.content) && msg.content.length > 0) {
-                    const toolUseBlocks = msg.content.filter(b => b && typeof b === 'object' && b.type === "tool_use");
+                    const toolUseBlocks = msg.content.filter((b: any) => b && typeof b === 'object' && b.type === "tool_use");
                     if (toolUseBlocks.length > 0) {
                         // 提取伴随的说明文本内容，避免丢失助手的自然语言解释
-                        const nonToolBlocks = msg.content.filter(b => b && typeof b === 'object' && b.type !== "tool_use" && b.type !== "thinking");
-                        let assistantContent = null;
+                        const nonToolBlocks = msg.content.filter((b: any) => b && typeof b === 'object' && b.type !== "tool_use" && b.type !== "thinking");
+                        let assistantContent: any = null;
                         if (nonToolBlocks.length > 0) {
-                            const textBlocks = nonToolBlocks.filter(b => b && b.type === "text" && b.text);
+                            const textBlocks = nonToolBlocks.filter((b: any) => b && b.type === "text" && b.text);
                             if (textBlocks.length > 0) {
-                                assistantContent = textBlocks.map(b => b.text).join('\n');
+                                assistantContent = textBlocks.map((b: any) => b.text).join('\n');
                             }
                         }
 
-                        const toolCalls = toolUseBlocks.map((tu, idx) => {
+                        const toolCalls = toolUseBlocks.map((tu: any, idx: any) => {
                             const funcName = tu.name || "";
                             const funcArgs = tu.input || {};
                             return {
@@ -298,8 +298,8 @@ export class ClaudeConverter extends BaseConverter {
                 const hasContent = contentConverted && (Array.isArray(contentConverted) ? contentConverted.length > 0 : contentConverted.trim().length > 0);
                 if (hasContent) {
                     let finalContent: any = contentConverted;
-                    if (Array.isArray(contentConverted) && contentConverted.every(part => part?.type === 'text')) {
-                        finalContent = contentConverted.map(part => part.text || '').join('\n');
+                    if (Array.isArray(contentConverted) && contentConverted.every((part: any) => part?.type === 'text')) {
+                        finalContent = contentConverted.map((part: any) => part.text || '').join('\n');
                     }
                     const openaiMsg: any = { role: role, content: finalContent };
                     if (reasoningContent) {
@@ -318,11 +318,11 @@ export class ClaudeConverter extends BaseConverter {
             // OpenAI兼容性校验：
             // 1. 过滤掉未被工具回复确认的 tool_calls
             // 2. 过滤掉没有对应 assistant tool_calls 的孤立 tool 消息，防止 400 报错
-            const validatedMessages = [];
+            const validatedMessages: any[] = [];
             for (let idx = 0; idx < tempOpenAIMessages.length; idx++) {
                 const m = tempOpenAIMessages[idx];
                 if (m.role === "assistant" && m.tool_calls) {
-                    const callIds = m.tool_calls.map(tc => tc.id).filter(id => id);
+                    const callIds = m.tool_calls.map((tc: any) => tc.id).filter((id: any) => id);
                     let unmatched = new Set(callIds);
                     for (let laterIdx = idx + 1; laterIdx < tempOpenAIMessages.length; laterIdx++) {
                         const later = tempOpenAIMessages[laterIdx];
@@ -332,7 +332,7 @@ export class ClaudeConverter extends BaseConverter {
                         if (unmatched.size === 0) break;
                     }
                     if (unmatched.size > 0) {
-                        m.tool_calls = m.tool_calls.filter(tc => !unmatched.has(tc.id));
+                        m.tool_calls = m.tool_calls.filter((tc: any) => !unmatched.has(tc.id));
                         if (m.tool_calls.length === 0) {
                             delete m.tool_calls;
                             if (m.content === null) m.content = "";
@@ -345,10 +345,10 @@ export class ClaudeConverter extends BaseConverter {
             const knownToolCallIds = new Set();
             for (const m of validatedMessages) {
                 if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
-                    m.tool_calls.forEach(tc => { if (tc.id) knownToolCallIds.add(tc.id); });
+                    m.tool_calls.forEach((tc: any) => { if (tc.id) knownToolCallIds.add(tc.id); });
                 }
             }
-            const finalMessages = validatedMessages.filter(m => {
+            const finalMessages = validatedMessages.filter((m: any) => {
                 if (m.role === "tool") {
                     return knownToolCallIds.has(m.tool_call_id);
                 }
@@ -383,7 +383,7 @@ export class ClaudeConverter extends BaseConverter {
 
         // 处理工具
         if (claudeRequest.tools) {
-            const openaiTools = [];
+            const openaiTools: any[] = [];
             for (const tool of claudeRequest.tools) {
                 logOmittedCacheControl('Claude->OpenAI tool', tool);
                 openaiTools.push({
@@ -424,7 +424,7 @@ export class ClaudeConverter extends BaseConverter {
             }
             openaiRequest.reasoning_effort = reasoningEffort;
 
-            let maxCompletionTokens = null;
+            let maxCompletionTokens: any = null;
             if (claudeRequest.max_tokens !== undefined) {
                 maxCompletionTokens = claudeRequest.max_tokens;
                 delete openaiRequest.max_tokens;
@@ -433,7 +433,7 @@ export class ClaudeConverter extends BaseConverter {
                 if (envMaxTokens) {
                     try {
                         maxCompletionTokens = parseInt(envMaxTokens, 10);
-                    } catch (e) {
+                    } catch (e: any) {
                         logger.warn(`Invalid OPENAI_REASONING_MAX_TOKENS value '${envMaxTokens}'`);
                     }
                 }
@@ -460,7 +460,7 @@ export class ClaudeConverter extends BaseConverter {
         if (systemMessageContent) {
             let stringifiedSystemMessageContent = systemMessageContent;
             if (Array.isArray(systemMessageContent)) {
-                stringifiedSystemMessageContent = systemMessageContent.map(item =>
+                stringifiedSystemMessageContent = systemMessageContent.map((item: any) =>
                     typeof item === 'string' ? item : item.text).join('\n');
             }
             openaiRequest.messages.unshift({ role: 'system', content: stringifiedSystemMessageContent });
@@ -474,7 +474,7 @@ export class ClaudeConverter extends BaseConverter {
      * @param {Object|string|undefined} toolChoice
      * @returns {Object|string|undefined}
      */
-    _buildOpenAIToolChoice(toolChoice) {
+    _buildOpenAIToolChoice(toolChoice: any) {
         if (!toolChoice) {
             return undefined;
         }
@@ -510,7 +510,7 @@ export class ClaudeConverter extends BaseConverter {
      * @param {Object|string|undefined} toolChoice
      * @returns {Object|string|undefined}
      */
-    _buildCodexToolChoice(toolChoice) {
+    _buildCodexToolChoice(toolChoice: any) {
         if (!toolChoice) {
             return undefined;
         }
@@ -538,7 +538,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude响应 -> OpenAI响应
      */
-    toOpenAIResponse(claudeResponse, model) {
+    toOpenAIResponse(claudeResponse: any, model: any) {
         if (!claudeResponse || !claudeResponse.content || claudeResponse.content.length === 0) {
             return {
                 id: `chatcmpl-${uuidv4()}`,
@@ -569,8 +569,8 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         // 检查是否包含 tool_use
-        const hasToolUse = claudeResponse.content.some(block => block && block.type === 'tool_use');
-        
+        const hasToolUse = claudeResponse.content.some((block: any) => block && block.type === 'tool_use');
+
         let message: any = {
             role: "assistant",
             content: null
@@ -578,7 +578,7 @@ export class ClaudeConverter extends BaseConverter {
 
         if (hasToolUse) {
             // 处理包含工具调用的响应
-            const toolCalls = [];
+            const toolCalls: any[] = [];
             let textContent = '';
 
             for (const block of claudeResponse.content) {
@@ -647,14 +647,14 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
      */
-    _getOpenAIStreamIdentity(requestId) {
+    _getOpenAIStreamIdentity(requestId: any) {
         return getOpenAIStreamIdentity(this.openaiStreamStates, requestId);
     }
 
     /**
      * Claude流式响应 -> OpenAI流式响应
      */
-    toOpenAIStreamChunk(claudeChunk, model, requestId = null) {
+    toOpenAIStreamChunk(claudeChunk: any, model: any, requestId: any = null) {
         if (!claudeChunk) return null;
 
         if (claudeChunk.type === 'error') {
@@ -679,7 +679,7 @@ export class ClaudeConverter extends BaseConverter {
         // 的 tool_calls.index 必须在单个 choice 内从 0 递增，不能直接复用 block index。
         if (!(identity.toolIndexByBlock instanceof Map)) identity.toolIndexByBlock = new Map();
         if (!Number.isInteger(identity.nextToolIndex)) identity.nextToolIndex = 0;
-        const toOpenAIToolIndex = (blockIndex) => {
+        const toOpenAIToolIndex = (blockIndex: any) => {
             const key = blockIndex ?? 0;
             if (!identity.toolIndexByBlock.has(key)) {
                 identity.toolIndexByBlock.set(key, identity.nextToolIndex++);
@@ -723,7 +723,7 @@ export class ClaudeConverter extends BaseConverter {
         // content_block_start 事件
         if (claudeChunk.type === 'content_block_start') {
             const contentBlock = claudeChunk.content_block;
-            
+
             // 处理 tool_use 类型
             if (contentBlock && contentBlock.type === 'tool_use') {
                 return {
@@ -770,7 +770,7 @@ export class ClaudeConverter extends BaseConverter {
         // content_block_delta 事件
         if (claudeChunk.type === 'content_block_delta') {
             const delta = claudeChunk.delta;
-            
+
             // 处理 text_delta
             if (delta && delta.type === 'text_delta') {
                 return {
@@ -859,7 +859,7 @@ export class ClaudeConverter extends BaseConverter {
                 refusal: 'content_filter',
                 pause_turn: 'stop'
             };
-            const finishReason = finishReasonMap[stopReason] || 'stop';
+            const finishReason = (finishReasonMap as any)[stopReason] || 'stop';
 
             const chunk: any = {
                 id: chunkId,
@@ -927,11 +927,11 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude模型列表 -> OpenAI模型列表
      */
-    toOpenAIModelList(claudeModels) {
+    toOpenAIModelList(claudeModels: any) {
         const models = claudeModels?.models || claudeModels?.data || (Array.isArray(claudeModels) ? claudeModels : []);
         return {
             object: "list",
-            data: models.map(m => {
+            data: models.map((m: any) => {
                 const modelId = typeof m === 'string' ? m : (m.id || m.name);
                 return {
                     id: modelId,
@@ -948,9 +948,9 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 处理Claude内容到OpenAI格式
      */
-    processClaudeContentToOpenAIContent(content) {
+    processClaudeContentToOpenAIContent(content: any) {
         if (!content) return [];
-        
+
         // 如果是字符串，直接转换为 OpenAI 的文本块格式
         if (typeof content === 'string') {
             return [{
@@ -960,13 +960,13 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         if (!Array.isArray(content)) return [];
-        
-        const contentArray = [];
-        
-        content.forEach(block => {
+
+        const contentArray: any[] = [];
+
+        content.forEach((block: any) => {
             if (!block) return;
             logOmittedCacheControl('Claude->OpenAI message content', block);
-            
+
             switch (block.type) {
                 case 'text':
                     if (block.text) {
@@ -976,7 +976,7 @@ export class ClaudeConverter extends BaseConverter {
                         });
                     }
                     break;
-                    
+
                 case 'image':
                     if (block.source && block.source.type === 'base64') {
                         contentArray.push({
@@ -999,14 +999,14 @@ export class ClaudeConverter extends BaseConverter {
                         });
                     }
                     break;
-                    
+
                 case 'tool_use':
                     contentArray.push({
                         type: 'text',
                         text: `[Tool use: ${block.name}]`
                     });
                     break;
-                    
+
                 case 'tool_result':
                     contentArray.push({
                         type: 'text',
@@ -1027,7 +1027,7 @@ export class ClaudeConverter extends BaseConverter {
                         });
                     }
                     break;
-                    
+
                 default:
                     if (block.text) {
                         contentArray.push({
@@ -1037,25 +1037,25 @@ export class ClaudeConverter extends BaseConverter {
                     }
             }
         });
-        
+
         return contentArray;
     }
 
     /**
      * 处理Claude响应内容
      */
-    processClaudeResponseContent(content) {
+    processClaudeResponseContent(content: any) {
         if (!content) return '';
-        
+
         if (typeof content === 'string') return content;
 
         if (!Array.isArray(content)) return '';
-        
-        const contentArray = [];
-        
-        content.forEach(block => {
+
+        const contentArray: any[] = [];
+
+        content.forEach((block: any) => {
             if (!block) return;
-            
+
             switch (block.type) {
                 case 'text':
                     contentArray.push({
@@ -1063,7 +1063,7 @@ export class ClaudeConverter extends BaseConverter {
                         text: block.text || ''
                     });
                     break;
-                    
+
                 case 'image':
                     if (block.source && block.source.type === 'base64') {
                         contentArray.push({
@@ -1086,7 +1086,7 @@ export class ClaudeConverter extends BaseConverter {
                         });
                     }
                     break;
-                    
+
                 default:
                     if (block.text) {
                         contentArray.push({
@@ -1096,7 +1096,7 @@ export class ClaudeConverter extends BaseConverter {
                     }
             }
         });
-        
+
         return contentArray.length === 1 && contentArray[0].type === 'text'
             ? contentArray[0].text
             : contentArray;
@@ -1112,7 +1112,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude请求 -> Gemini请求
      */
-    toGeminiRequest(claudeRequest) {
+    toGeminiRequest(claudeRequest: any) {
         if (!claudeRequest || typeof claudeRequest !== 'object') {
             logger.warn("Invalid claudeRequest provided to toGeminiRequest.");
             return { contents: [] };
@@ -1127,8 +1127,8 @@ export class ClaudeConverter extends BaseConverter {
         if (claudeRequest.system) {
             if (Array.isArray(claudeRequest.system)) {
                 // 数组格式的系统指令
-                const systemParts = [];
-                claudeRequest.system.forEach(systemPrompt => {
+                const systemParts: any[] = [];
+                claudeRequest.system.forEach((systemPrompt: any) => {
                     logOmittedCacheControl('Claude->Gemini system', systemPrompt);
                     if (systemPrompt && systemPrompt.type === 'text' && typeof systemPrompt.text === 'string') {
                         systemParts.push({ text: systemPrompt.text });
@@ -1164,8 +1164,8 @@ export class ClaudeConverter extends BaseConverter {
                     for (const block of msg.content) {
                         if (block && block.type === 'tool_use' && block.name) {
                             if (block.id) {
-                                toolIdToName[block.id] = block.name;
-                                toolIdToName[sanitizeToolId(block.id)] = block.name;
+                                (toolIdToName as any)[block.id] = block.name;
+                                (toolIdToName as any)[sanitizeToolId(block.id)] = block.name;
                             }
                         }
                     }
@@ -1174,9 +1174,9 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         // 处理消息
-        const rawGeminiContents = [];
+        const rawGeminiContents: any[] = [];
         if (Array.isArray(claudeRequest.messages)) {
-            claudeRequest.messages.forEach(message => {
+            claudeRequest.messages.forEach((message: any) => {
                 if (!message || typeof message !== 'object' || !message.role) {
                     logger.warn("Skipping invalid message in claudeRequest.messages.");
                     return;
@@ -1187,19 +1187,19 @@ export class ClaudeConverter extends BaseConverter {
 
                 // 处理内容
                 if (Array.isArray(content)) {
-                    const parts = [];
-                    
-                    content.forEach(block => {
+                    const parts: any[] = [];
+
+                    content.forEach((block: any) => {
                         if (!block || typeof block !== 'object') return;
                         logOmittedCacheControl('Claude->Gemini message content', block);
-                        
+
                         switch (block.type) {
                             case 'text':
                                 if (typeof block.text === 'string') {
                                     parts.push({ text: block.text });
                                 }
                                 break;
-                            
+
                             // 添加 thinking 块处理
                             case 'thinking':
                                 if (typeof block.thinking === 'string' && block.thinking.length > 0) {
@@ -1212,18 +1212,18 @@ export class ClaudeConverter extends BaseConverter {
                                     });
                                 }
                                 break;
-                            
+
                             // [FIX] 处理 redacted_thinking 块
                             case 'redacted_thinking':
                                 // 将 redacted_thinking 转换为普通文本
                                 if (block.data) {
                                     logger.warn(`[ClaudeConverter] redacted_thinking block encountered (data size: ${block.data.length} chars), converted to text placeholder`);
-                                    parts.push({ 
-                                        text: `[Redacted Thinking: ${block.data}]` 
+                                    parts.push({
+                                        text: `[Redacted Thinking: ${block.data}]`
                                     });
                                 }
                                 break;
-                                
+
                             case 'tool_use':
                                 // 转换为 Gemini functionCall 格式
                                 // [FIX] 允许 input 为 null/undefined/{} 等任何值，避免 tool_use 块被静默丢弃
@@ -1234,7 +1234,7 @@ export class ClaudeConverter extends BaseConverter {
                                         : JSON.stringify(rawInput);
                                     // [FIX] 当 id 缺失时自动生成，确保 Antigravity 转 Claude 时 tool_use.id 不为空
                                     const toolUseId = sanitizeToolId(block.id) || `toolu_${uuidv4().replace(/-/g, '')}`;
-                                    
+
                                     // 验证 args 是有效的 JSON 对象
                                     try {
                                         const parsedArgs = JSON.parse(args);
@@ -1249,7 +1249,7 @@ export class ClaudeConverter extends BaseConverter {
                                                 functionCall: fc
                                             });
                                         }
-                                    } catch (e) {
+                                    } catch (e: any) {
                                         // 如果解析失败，尝试直接使用 input
                                         const fallbackInput = rawInput && typeof rawInput === 'object' ? rawInput : {};
                                         const fc = {
@@ -1264,14 +1264,14 @@ export class ClaudeConverter extends BaseConverter {
                                     }
                                 }
                                 break;
-                                
+
                             case 'tool_result':
                                 // 转换为 Gemini functionResponse 格式
                                 // [FIX] 从上下文映射表中优先获取真实函数名称，防止将 toolu_xxx 误作 name
                                 const rawToolUseId = block.tool_use_id;
                                 const toolCallId = sanitizeToolId(rawToolUseId) || `tool_result_${uuidv4().replace(/-/g, '')}`;
                                 {
-                                    let funcName = toolIdToName[rawToolUseId] || toolIdToName[toolCallId];
+                                    let funcName = (toolIdToName as any)[rawToolUseId] || (toolIdToName as any)[toolCallId];
                                     if (!funcName) {
                                         if (toolCallId.startsWith('toolu_')) {
                                             if (claudeRequest.tools && claudeRequest.tools.length === 1 && claudeRequest.tools[0].name) {
@@ -1288,23 +1288,23 @@ export class ClaudeConverter extends BaseConverter {
                                             }
                                         }
                                     }
-                                    
+
                                     // 获取响应数据
                                     let responseData = block.content;
-                                    
+
                                     // 的 tool_result_compressor 逻辑
                                     // 处理嵌套的 content 数组（如图片等）
                                     if (Array.isArray(responseData)) {
                                         // 提取文本内容
                                         const textParts = responseData
-                                            .filter(item => item && item.type === 'text')
-                                            .map(item => item.text)
+                                            .filter((item: any) => item && item.type === 'text')
+                                            .map((item: any) => item.text)
                                             .join('\n');
                                         responseData = textParts || JSON.stringify(responseData);
                                     } else if (typeof responseData !== 'string') {
                                         responseData = JSON.stringify(responseData);
                                     }
-                                    
+
                                     parts.push({
                                         functionResponse: {
                                             name: funcName,
@@ -1317,7 +1317,7 @@ export class ClaudeConverter extends BaseConverter {
                                     });
                                 }
                                 break;
-                                
+
                             case 'image':
                                 if (block.source && block.source.type === 'base64') {
                                     parts.push({
@@ -1367,7 +1367,7 @@ export class ClaudeConverter extends BaseConverter {
                                     parts.push({ text: block.source.data });
                                 } else if (block.source && block.source.type === 'content' && Array.isArray(block.source.content)) {
                                     const text = block.source.content
-                                        .map(item => item?.text || '')
+                                        .map((item: any) => item?.text || '')
                                         .filter(Boolean)
                                         .join('\n');
                                     if (text) parts.push({ text });
@@ -1377,7 +1377,7 @@ export class ClaudeConverter extends BaseConverter {
                                 break;
                         }
                     });
-                    
+
                     if (parts.length > 0) {
                         rawGeminiContents.push({
                             role: geminiRole,
@@ -1399,7 +1399,7 @@ export class ClaudeConverter extends BaseConverter {
 
         // 添加生成配置
         const generationConfig: any = {};
-        
+
         if (claudeRequest.max_tokens !== undefined) {
             generationConfig.maxOutputTokens = claudeRequest.max_tokens;
         }
@@ -1422,7 +1422,7 @@ export class ClaudeConverter extends BaseConverter {
         // 处理 thinking 配置 - 统一映射到 Gemini 3+ thinkingLevel
         const thinkingType = claudeRequest.thinking?.type;
         if (thinkingType === 'enabled' || thinkingType === 'adaptive') {
-            let effort;
+            let effort: any;
             if (thinkingType === 'adaptive') {
                 effort = claudeRequest.output_config?.effort
                     || claudeRequest.thinking?.effort
@@ -1438,19 +1438,19 @@ export class ClaudeConverter extends BaseConverter {
                 };
             }
         }
-        
+
         if (Object.keys(generationConfig).length > 0) {
             geminiRequest.generationConfig = generationConfig;
         }
 
         // 处理工具 - 使用 parametersJsonSchema 格式
         if (Array.isArray(claudeRequest.tools) && claudeRequest.tools.length > 0) {
-            const functionDeclarations = [];
-            let googleSearchTool = null;
-            let urlContextTool = null;
-            let googleMapsTool = null;
-            
-            claudeRequest.tools.forEach(tool => {
+            const functionDeclarations: any[] = [];
+            let googleSearchTool: any = null;
+            let urlContextTool: any = null;
+            let googleMapsTool: any = null;
+
+            claudeRequest.tools.forEach((tool: any) => {
                 if (!tool || typeof tool !== 'object') {
                     logger.warn("Skipping invalid tool declaration in claudeRequest.tools.");
                     return;
@@ -1493,15 +1493,15 @@ export class ClaudeConverter extends BaseConverter {
                     name: String(tool.name),
                     description: String(tool.description || '')
                 };
-                
+
                 // 使用 parametersJsonSchema 而不是 parameters
                 if (inputSchema) {
                     funcDecl.parametersJsonSchema = inputSchema;
                 }
-                
+
                 functionDeclarations.push(funcDecl);
             });
-            
+
             if (functionDeclarations.length > 0 || googleSearchTool || urlContextTool || googleMapsTool) {
                 geminiRequest.tools = [];
                 if (functionDeclarations.length > 0) {
@@ -1534,12 +1534,12 @@ export class ClaudeConverter extends BaseConverter {
      * 清理 JSON Schema 中的 URL 格式
      * Gemini 不支持 "format": "uri"
      */
-    cleanUrlFormatFromSchema(schema) {
+    cleanUrlFormatFromSchema(schema: any) {
         if (!schema || typeof schema !== 'object') return;
 
         // Gemini 只接受字符串枚举值：过滤非字符串元素，过滤后为空则移除 enum
         if (Array.isArray(schema.enum)) {
-            schema.enum = schema.enum.filter(v => typeof v === 'string');
+            schema.enum = schema.enum.filter((v: any) => typeof v === 'string');
             if (schema.enum.length === 0) {
                 delete schema.enum;
             }
@@ -1552,7 +1552,7 @@ export class ClaudeConverter extends BaseConverter {
 
         // 递归处理 properties
         if (schema.properties && typeof schema.properties === 'object') {
-            Object.values(schema.properties).forEach(prop => {
+            Object.values(schema.properties).forEach((prop: any) => {
                 this.cleanUrlFormatFromSchema(prop);
             });
         }
@@ -1583,7 +1583,7 @@ export class ClaudeConverter extends BaseConverter {
 
 
 
-    buildGeminiToolConfigFromClaude(claudeToolChoice) {
+    buildGeminiToolConfigFromClaude(claudeToolChoice: any) {
         if (!claudeToolChoice || typeof claudeToolChoice !== 'object' || !claudeToolChoice.type) {
             logger.warn("Invalid claudeToolChoice provided.");
             return undefined;
@@ -1598,11 +1598,11 @@ export class ClaudeConverter extends BaseConverter {
                 return { functionCallingConfig: { mode: 'NONE' } };
             case 'tool':
                 if (claudeToolChoice.name && typeof claudeToolChoice.name === 'string') {
-                    return { 
-                        functionCallingConfig: { 
-                            mode: 'ANY', 
-                            allowedFunctionNames: [claudeToolChoice.name] 
-                        } 
+                    return {
+                        functionCallingConfig: {
+                            mode: 'ANY',
+                            allowedFunctionNames: [claudeToolChoice.name]
+                        }
                     };
                 }
                 logger.warn("Invalid tool name in claudeToolChoice of type 'tool'.");
@@ -1617,7 +1617,7 @@ export class ClaudeConverter extends BaseConverter {
     // Claude -> OpenAI Responses 转换
     // =========================================================================
 
-    _stringifyContentValue(value) {
+    _stringifyContentValue(value: any) {
         if (value === null || value === undefined) {
             return '';
         }
@@ -1634,14 +1634,14 @@ export class ClaudeConverter extends BaseConverter {
      * @param {'Image'|'Document'} kind
      * @returns {string}
      */
-    _claudeFileSourcePlaceholder(block, kind = 'File') {
+    _claudeFileSourcePlaceholder(block: any, kind: any = 'File') {
         const source = block?.source || {};
         const label = source.file_id || source.file_url || source.file_name || 'file';
         logger.warn(`[ClaudeConverter] ${kind} source.type="file" (${label}) cannot be fetched; preserving text placeholder`);
         return `[${kind}: ${label}]`;
     }
 
-    _normalizeClaudeSystem(system) {
+    _normalizeClaudeSystem(system: any) {
         if (!system) {
             return '';
         }
@@ -1650,7 +1650,7 @@ export class ClaudeConverter extends BaseConverter {
         }
         if (Array.isArray(system)) {
             return system
-                .map(part => typeof part === 'string' ? part : (part?.text ?? this._stringifyContentValue(part)))
+                .map((part: any) => typeof part === 'string' ? part : (part?.text ?? this._stringifyContentValue(part)))
                 .filter(Boolean)
                 .join('\n');
         }
@@ -1661,7 +1661,7 @@ export class ClaudeConverter extends BaseConverter {
         return this._stringifyContentValue(system);
     }
 
-    _claudeImageToResponsesPart(block) {
+    _claudeImageToResponsesPart(block: any) {
         const source = block?.source || {};
         const data = source.data || source.base64;
         const mediaType = source.media_type || source.mime_type || 'image/jpeg';
@@ -1687,7 +1687,7 @@ export class ClaudeConverter extends BaseConverter {
         return null;
     }
 
-    _pushResponsesMessage(input, role, content) {
+    _pushResponsesMessage(input: any, role: any, content: any) {
         if (!content || content.length === 0) {
             return;
         }
@@ -1698,7 +1698,7 @@ export class ClaudeConverter extends BaseConverter {
         });
     }
 
-    _mapClaudeToolToResponses(tool) {
+    _mapClaudeToolToResponses(tool: any) {
         if (!tool || typeof tool !== 'object') {
             return null;
         }
@@ -1713,7 +1713,7 @@ export class ClaudeConverter extends BaseConverter {
         };
     }
 
-    _mapClaudeToolChoiceToResponses(toolChoice) {
+    _mapClaudeToolChoiceToResponses(toolChoice: any) {
         if (!toolChoice) {
             return undefined;
         }
@@ -1735,7 +1735,7 @@ export class ClaudeConverter extends BaseConverter {
         return undefined;
     }
 
-    _mapClaudeThinkingToResponses(claudeRequest) {
+    _mapClaudeThinkingToResponses(claudeRequest: any) {
         const thinkingType = claudeRequest.thinking?.type;
         if (thinkingType !== 'enabled' && thinkingType !== 'adaptive') {
             return undefined;
@@ -1750,14 +1750,14 @@ export class ClaudeConverter extends BaseConverter {
         return { effort };
     }
 
-    _buildResponsesMessageItemId(responseId, index = 0) {
+    _buildResponsesMessageItemId(responseId: any, index: any = 0) {
         return responseId ? `msg_${responseId}_${index}` : `msg_${uuidv4().replace(/-/g, '')}`;
     }
 
     /**
      * Claude请求 -> OpenAI Responses请求
      */
-    toOpenAIResponsesRequest(claudeRequest) {
+    toOpenAIResponsesRequest(claudeRequest: any) {
         claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toOpenAIResponsesRequest');
         const responsesRequest: any = {
             model: claudeRequest.model,
@@ -1782,7 +1782,7 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         if (Array.isArray(claudeRequest.system)) {
-            claudeRequest.system.forEach(s => logOmittedCacheControl('Claude->Responses system', s));
+            claudeRequest.system.forEach((s: any) => logOmittedCacheControl('Claude->Responses system', s));
         } else if (typeof claudeRequest.system === 'object') {
             logOmittedCacheControl('Claude->Responses system', claudeRequest.system);
         }
@@ -1801,10 +1801,10 @@ export class ClaudeConverter extends BaseConverter {
         // 处理消息
         let droppedThinkingItems = 0;
         if (claudeRequest.messages && Array.isArray(claudeRequest.messages)) {
-            claudeRequest.messages.forEach(msg => {
+            claudeRequest.messages.forEach((msg: any) => {
                 const role = msg.role;
                 const content = msg.content;
-                let messageContent = [];
+                let messageContent: any[] = [];
 
                 const flushMessage = () => {
                     this._pushResponsesMessage(responsesRequest.input, role, messageContent);
@@ -1914,8 +1914,8 @@ export class ClaudeConverter extends BaseConverter {
 
         // 处理工具
         if (claudeRequest.tools && Array.isArray(claudeRequest.tools)) {
-            claudeRequest.tools.forEach(tool => logOmittedCacheControl('Claude->Responses tool', tool));
-            const tools = claudeRequest.tools.map(tool => this._mapClaudeToolToResponses(tool)).filter(Boolean);
+            claudeRequest.tools.forEach((tool: any) => logOmittedCacheControl('Claude->Responses tool', tool));
+            const tools = claudeRequest.tools.map((tool: any) => this._mapClaudeToolToResponses(tool)).filter(Boolean);
             if (tools.length > 0) {
                 responsesRequest.tools = sortToolsByName(tools);
             }
@@ -1935,10 +1935,10 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude响应 -> OpenAI Responses响应
      */
-    toOpenAIResponsesResponse(claudeResponse, model, requestId = null) {
-        const output = [];
-        const messageContent = [];
-        const reasoningSummary = [];
+    toOpenAIResponsesResponse(claudeResponse: any, model: any, requestId: any = null) {
+        const output: any[] = [];
+        const messageContent: any[] = [];
+        const reasoningSummary: any[] = [];
         const createdAt = Math.floor(Date.now() / 1000);
         const responseId = claudeResponse.id || `resp_${uuidv4().replace(/-/g, '')}`;
         const messageItemId = this._buildResponsesMessageItemId(responseId, 0);
@@ -2048,7 +2048,7 @@ export class ClaudeConverter extends BaseConverter {
                     reasoning_tokens: 0
                 },
                 total_tokens: openaiUsage.total_tokens
-            }, reasoningSummary.map((item) => item.text || '').join('\n'), 'responses'),
+            }, reasoningSummary.map((item: any) => item.text || '').join('\n'), 'responses'),
             user: null
         };
     }
@@ -2058,7 +2058,7 @@ export class ClaudeConverter extends BaseConverter {
      * message_start 提供输入/缓存侧，message_delta 通常只提供输出侧；
      * 直接覆盖会让最终 usage 的 input_tokens 归零。
      */
-    _mergeClaudeUsage(previous, usage) {
+    _mergeClaudeUsage(previous: any, usage: any) {
         const prev = previous || {};
         const cachedTokens = usage?.cache_read_input_tokens
             ?? prev.input_tokens_details?.cached_tokens
@@ -2087,7 +2087,7 @@ export class ClaudeConverter extends BaseConverter {
      * 清理仅用于合并的 Anthropic 内部字段，避免非标准字段泄露到 Responses usage。
      * @private
      */
-    _toResponsesUsage(usage) {
+    _toResponsesUsage(usage: any) {
         if (!usage) return usage;
         const { cache_creation_input_tokens, ...clean } = usage;
         return clean;
@@ -2096,7 +2096,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude流式响应 -> OpenAI Responses流式响应
      */
-    _getOpenAIResponsesStreamEmitter(model, requestId) {
+    _getOpenAIResponsesStreamEmitter(model: any, requestId: any) {
         const stateKey = requestId || 'default';
         if (!this.openAIResponsesStreamStates.has(stateKey)) {
             const responseId = `resp_${uuidv4().replace(/-/g, '')}`;
@@ -2120,7 +2120,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude流式响应 -> OpenAI Responses流式响应
      */
-    toOpenAIResponsesStreamChunk(claudeChunk, model, requestId = null) {
+    toOpenAIResponsesStreamChunk(claudeChunk: any, model: any, requestId: any = null) {
         if (!claudeChunk) return [];
 
         if (claudeChunk.type === 'error') {
@@ -2130,7 +2130,7 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
-        const events = [];
+        const events: any[] = [];
 
         // message_start 事件 - 流开始
         if (claudeChunk.type === 'message_start') {
@@ -2216,7 +2216,7 @@ export class ClaudeConverter extends BaseConverter {
         // message_stop 事件
         if (claudeChunk.type === 'message_stop') {
             let status = 'completed';
-            let incompleteDetails = null;
+            let incompleteDetails: any = null;
             if (emitter.stopReason === 'max_tokens') {
                 status = 'incomplete';
                 incompleteDetails = { reason: 'max_output_tokens' };
@@ -2240,7 +2240,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 应用简单缩短规则缩短工具名称
      */
-    _shortenNameIfNeeded(name) {
+    _shortenNameIfNeeded(name: any) {
         const limit = 64;
         if (name.length <= limit) {
             return name;
@@ -2261,12 +2261,12 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 构建短名称映射以确保请求内唯一性
      */
-    _buildShortNameMap(names) {
+    _buildShortNameMap(names: any) {
         const limit = 64;
         const used = new Set();
         const m = {};
 
-        const baseCandidate = (n) => {
+        const baseCandidate = (n: any) => {
             if (n.length <= limit) {
                 return n;
             }
@@ -2283,7 +2283,7 @@ export class ClaudeConverter extends BaseConverter {
             return n.substring(0, limit);
         };
 
-        const makeUnique = (cand) => {
+        const makeUnique = (cand: any) => {
             if (!used.has(cand)) {
                 return cand;
             }
@@ -2306,7 +2306,7 @@ export class ClaudeConverter extends BaseConverter {
             const cand = baseCandidate(n);
             const uniq = makeUnique(cand);
             used.add(uniq);
-            m[n] = uniq;
+            (m as any)[n] = uniq;
         }
         return m;
     }
@@ -2314,7 +2314,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 标准化工具参数，确保对象 Schema 包含 properties
      */
-    _normalizeToolParameters(schema) {
+    _normalizeToolParameters(schema: any) {
         if (!schema || typeof schema !== 'object') {
             return { type: 'object', properties: {} };
         }
@@ -2331,7 +2331,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * Claude请求 -> Codex请求
      */
-    toCodexRequest(claudeRequest, requestId = null) {
+    toCodexRequest(claudeRequest: any, requestId: any = null) {
         claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toCodexRequest');
         const codexRequest: any = {
             model: claudeRequest.model,
@@ -2352,8 +2352,8 @@ export class ClaudeConverter extends BaseConverter {
         if (claudeRequest.system) {
             let instructions = '';
             if (Array.isArray(claudeRequest.system)) {
-                claudeRequest.system.forEach(s => logOmittedCacheControl('Claude->Codex system', s));
-                instructions = claudeRequest.system.map(s => typeof s === 'string' ? s : s.text).join('\n');
+                claudeRequest.system.forEach((s: any) => logOmittedCacheControl('Claude->Codex system', s));
+                instructions = claudeRequest.system.map((s: any) => typeof s === 'string' ? s : s.text).join('\n');
             } else if (typeof claudeRequest.system === 'object') {
                 logOmittedCacheControl('Claude->Codex system', claudeRequest.system);
                 instructions = claudeRequest.system;
@@ -2366,22 +2366,22 @@ export class ClaudeConverter extends BaseConverter {
         // 处理工具并构建短名称映射
         let shortMap = {};
         if (claudeRequest.tools && Array.isArray(claudeRequest.tools)) {
-            claudeRequest.tools.forEach(t => logOmittedCacheControl('Claude->Codex tool', t));
-            const toolNames = claudeRequest.tools.map(t => t.name).filter(Boolean);
+            claudeRequest.tools.forEach((t: any) => logOmittedCacheControl('Claude->Codex tool', t));
+            const toolNames = claudeRequest.tools.map((t: any) => t.name).filter(Boolean);
             shortMap = this._buildShortNameMap(toolNames);
 
             // 反向映射必须登记到 CodexConverter 的请求级状态，否则响应侧无法还原长工具名。
             this.codexConverter.registerToolNameMap(requestId, shortMap);
 
-            const convertedTools = claudeRequest.tools.map(tool => {
+            const convertedTools = claudeRequest.tools.map((tool: any) => {
                 // 特殊处理：将 Claude Web Search 工具映射到 Codex web_search
                 if (tool.type === "web_search_20250305") {
                     return { type: "web_search" };
                 }
 
                 let name = tool.name;
-                if (shortMap[name]) {
-                    name = shortMap[name];
+                if ((shortMap as any)[name]) {
+                    name = (shortMap as any)[name];
                 } else {
                     name = this._shortenNameIfNeeded(name);
                 }
@@ -2393,7 +2393,7 @@ export class ClaudeConverter extends BaseConverter {
                     parameters: this._normalizeToolParameters(tool.input_schema),
                     strict: false
                 };
-                
+
                 // 移除 parameters.$schema
                 if (convertedTool.parameters && convertedTool.parameters.$schema) {
                     delete convertedTool.parameters.$schema;
@@ -2417,7 +2417,7 @@ export class ClaudeConverter extends BaseConverter {
                 let currentMessage = {
                     type: 'message',
                     role: role,
-                    content: []
+                    content: [] as any[]
                 };
 
                 const flushMessage = () => {
@@ -2427,7 +2427,7 @@ export class ClaudeConverter extends BaseConverter {
                     }
                 };
 
-                const appendTextContent = (text) => {
+                const appendTextContent = (text: any) => {
                     const partType = role === 'assistant' ? 'output_text' : 'input_text';
                     currentMessage.content.push({
                         type: partType,
@@ -2435,7 +2435,7 @@ export class ClaudeConverter extends BaseConverter {
                     });
                 };
 
-                const appendImageContent = (data, mediaType) => {
+                const appendImageContent = (data: any, mediaType: any) => {
                     currentMessage.content.push({
                         type: 'input_image',
                         image_url: `data:${mediaType};base64,${data}`
@@ -2496,8 +2496,8 @@ export class ClaudeConverter extends BaseConverter {
                             case 'tool_use':
                                 flushMessage();
                                 let toolName = block.name;
-                                if (shortMap[toolName]) {
-                                    toolName = shortMap[toolName];
+                                if ((shortMap as any)[toolName]) {
+                                    toolName = (shortMap as any)[toolName];
                                 } else {
                                     toolName = this._shortenNameIfNeeded(toolName);
                                 }
@@ -2528,7 +2528,7 @@ export class ClaudeConverter extends BaseConverter {
         // 处理 thinking 转换（enabled 按 budget 换算，adaptive 取 output_config.effort）
         const codexThinkingType = claudeRequest.thinking?.type;
         if (codexThinkingType === 'enabled' || codexThinkingType === 'adaptive') {
-            let effort;
+            let effort: any;
             if (codexThinkingType === 'adaptive') {
                 effort = claudeRequest.output_config?.effort
                     || claudeRequest.thinking?.effort

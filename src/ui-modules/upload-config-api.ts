@@ -9,13 +9,13 @@ import { scanConfigFiles } from './config-scanner.ts';
 /**
  * 获取上传配置文件列表
  */
-export async function handleGetUploadConfigs(req, res, currentConfig, providerPoolManager) {
+export async function handleGetUploadConfigs(req: any, res: any, currentConfig: any, providerPoolManager: any) {
     try {
         const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(configFiles));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to scan config files:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -30,15 +30,15 @@ export async function handleGetUploadConfigs(req, res, currentConfig, providerPo
 /**
  * 查看特定配置文件
  */
-export async function handleViewConfigFile(req, res, filePath) {
+export async function handleViewConfigFile(req: any, res: any, filePath: any) {
     try {
         const fullPath = path.join(process.cwd(), filePath);
-        
+
         // 安全检查：确保文件路径在允许的目录内
         const allowedDirs = ['configs'];
         const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some(dir => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-        
+        const isAllowed = allowedDirs.some((dir: any) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
+
         if (!isAllowed) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -48,7 +48,7 @@ export async function handleViewConfigFile(req, res, filePath) {
             }));
             return true;
         }
-        
+
         if (!existsSync(fullPath)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -58,10 +58,10 @@ export async function handleViewConfigFile(req, res, filePath) {
             }));
             return true;
         }
-        
+
         const content = await fs.readFile(fullPath, 'utf-8');
         const stats = await fs.stat(fullPath);
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             path: relativePath,
@@ -71,7 +71,7 @@ export async function handleViewConfigFile(req, res, filePath) {
             name: path.basename(fullPath)
         }));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to view config file:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -86,15 +86,15 @@ export async function handleViewConfigFile(req, res, filePath) {
 /**
  * 下载特定配置文件
  */
-export async function handleDownloadConfigFile(req, res, filePath) {
+export async function handleDownloadConfigFile(req: any, res: any, filePath: any) {
     try {
         const fullPath = path.join(process.cwd(), filePath);
-        
+
         // 安全检查：确保文件路径在允许的目录内
         const allowedDirs = ['configs'];
         const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some(dir => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-        
+        const isAllowed = allowedDirs.some((dir: any) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
+
         if (!isAllowed) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -104,7 +104,7 @@ export async function handleDownloadConfigFile(req, res, filePath) {
             }));
             return true;
         }
-        
+
         if (!existsSync(fullPath)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -114,10 +114,10 @@ export async function handleDownloadConfigFile(req, res, filePath) {
             }));
             return true;
         }
-        
+
         const content = await fs.readFile(fullPath);
         const fileName = path.basename(fullPath);
-        
+
         res.writeHead(200, {
             'Content-Type': 'application/octet-stream',
             'Content-Disposition': `attachment; filename="${fileName}"`,
@@ -125,7 +125,7 @@ export async function handleDownloadConfigFile(req, res, filePath) {
         });
         res.end(content);
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to download config file:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -140,15 +140,15 @@ export async function handleDownloadConfigFile(req, res, filePath) {
 /**
  * 删除特定配置文件
  */
-export async function handleDeleteConfigFile(req, res, filePath) {
+export async function handleDeleteConfigFile(req: any, res: any, filePath: any) {
     try {
         const fullPath = path.join(process.cwd(), filePath);
-        
+
         // 安全检查：确保文件路径在允许的目录内
         const allowedDirs = ['configs'];
         const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some(dir => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-        
+        const isAllowed = allowedDirs.some((dir: any) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
+
         if (!isAllowed) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -158,7 +158,7 @@ export async function handleDeleteConfigFile(req, res, filePath) {
             }));
             return true;
         }
-        
+
         if (!existsSync(fullPath)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -168,17 +168,17 @@ export async function handleDeleteConfigFile(req, res, filePath) {
             }));
             return true;
         }
-        
-        
+
+
         await fs.unlink(fullPath);
-        
+
         // 广播更新事件
         broadcastEvent('config_update', {
             action: 'delete',
             filePath: relativePath,
             timestamp: new Date().toISOString()
         });
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: true,
@@ -186,7 +186,7 @@ export async function handleDeleteConfigFile(req, res, filePath) {
             filePath: relativePath
         }));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to delete config file:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -201,7 +201,7 @@ export async function handleDeleteConfigFile(req, res, filePath) {
 /**
  * 下载所有配置为 zip
  */
-export async function handleDownloadAllConfigs(req, res) {
+export async function handleDownloadAllConfigs(req: any, res: any) {
     try {
         const configsPath = path.join(process.cwd(), 'configs');
         if (!existsSync(configsPath)) {
@@ -211,14 +211,14 @@ export async function handleDownloadAllConfigs(req, res) {
         }
 
         const zip = new AdmZip();
-        
+
         // 递归添加目录函数
-        const addDirectoryToZip = async (dirPath, zipPath = '') => {
+        const addDirectoryToZip = async (dirPath: any, zipPath: any = '') => {
             const items = await fs.readdir(dirPath, { withFileTypes: true });
             for (const item of items) {
                 const fullPath = path.join(dirPath, item.name);
                 const itemZipPath = zipPath ? path.join(zipPath, item.name) : item.name;
-                
+
                 if (item.isFile()) {
                     const content = await fs.readFile(fullPath);
                     zip.addFile(itemZipPath.replace(/\\/g, '/'), content);
@@ -229,7 +229,7 @@ export async function handleDownloadAllConfigs(req, res) {
         };
 
         await addDirectoryToZip(configsPath);
-        
+
         const zipBuffer = zip.toBuffer();
         const filename = `configs_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
 
@@ -239,10 +239,10 @@ export async function handleDownloadAllConfigs(req, res) {
             'Content-Length': zipBuffer.length
         });
         res.end(zipBuffer);
-        
+
         logger.info(`[UI API] All configs downloaded as zip: ${filename}`);
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to download all configs:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -258,31 +258,31 @@ export async function handleDownloadAllConfigs(req, res) {
  * 批量删除未绑定的配置文件
  * 只删除 configs/xxx/ 子目录下的未绑定配置文件
  */
-export async function handleDeleteUnboundConfigs(req, res, currentConfig, providerPoolManager) {
+export async function handleDeleteUnboundConfigs(req: any, res: any, currentConfig: any, providerPoolManager: any) {
     try {
         // 首先获取所有配置文件及其绑定状态
         const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
-        
+
         // 筛选出未绑定的配置文件，并且必须在 configs/xxx/ 子目录下
         // 即路径格式为 configs/子目录名/文件名，而不是直接在 configs/ 根目录下
-        const unboundConfigs = configFiles.filter(config => {
+        const unboundConfigs = configFiles.filter((config: any) => {
             if (config.isUsed) return false;
-            
+
             // 检查路径是否在 configs/xxx/ 子目录下
             // 路径格式应该是 configs/子目录/...
             const normalizedPath = config.path.replace(/\\/g, '/');
             const pathParts = normalizedPath.split('/');
-            
+
             // 路径至少需要3部分：configs/子目录/文件名
             // 例如：configs/kiro/xxx.json 或 configs/gemini/xxx.json
             if (pathParts.length >= 3 && pathParts[0] === 'configs') {
                 // 确保第二部分是子目录名（不是文件名）
                 return true;
             }
-            
+
             return false;
         });
-        
+
         if (unboundConfigs.length === 0) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -293,19 +293,19 @@ export async function handleDeleteUnboundConfigs(req, res, currentConfig, provid
             }));
             return true;
         }
-        
-        const deletedFiles = [];
-        const failedFiles = [];
-        
+
+        const deletedFiles: any[] = [];
+        const failedFiles: any[] = [];
+
         for (const config of unboundConfigs) {
             try {
                 const fullPath = path.join(process.cwd(), config.path);
-                
+
                 // 安全检查：确保文件路径在允许的目录内
                 const allowedDirs = ['configs'];
                 const relativePath = path.relative(process.cwd(), fullPath);
-                const isAllowed = allowedDirs.some(dir => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-                
+                const isAllowed = allowedDirs.some((dir: any) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
+
                 if (!isAllowed) {
                     failedFiles.push({
                         path: config.path,
@@ -313,7 +313,7 @@ export async function handleDeleteUnboundConfigs(req, res, currentConfig, provid
                     });
                     continue;
                 }
-                
+
                 if (!existsSync(fullPath)) {
                     failedFiles.push({
                         path: config.path,
@@ -321,18 +321,18 @@ export async function handleDeleteUnboundConfigs(req, res, currentConfig, provid
                     });
                     continue;
                 }
-                
+
                 await fs.unlink(fullPath);
                 deletedFiles.push(config.path);
-                
-            } catch (error) {
+
+            } catch (error: any) {
                 failedFiles.push({
                     path: config.path,
                     error: error.message
                 });
             }
         }
-        
+
         // 广播更新事件
         if (deletedFiles.length > 0) {
             broadcastEvent('config_update', {
@@ -341,7 +341,7 @@ export async function handleDeleteUnboundConfigs(req, res, currentConfig, provid
                 timestamp: new Date().toISOString()
             });
         }
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: true,
@@ -352,7 +352,7 @@ export async function handleDeleteUnboundConfigs(req, res, currentConfig, provid
             failedFiles: failedFiles
         }));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to delete unbound configs:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -367,15 +367,15 @@ export async function handleDeleteUnboundConfigs(req, res, currentConfig, provid
 /**
  * 强制触发凭据关联节点的令牌刷新
  */
-export async function handleForceExpireConfig(req, res, filePath, currentConfig, providerPoolManager) {
+export async function handleForceExpireConfig(req: any, res: any, filePath: any, currentConfig: any, providerPoolManager: any) {
     try {
         const fullPath = path.join(process.cwd(), filePath);
-        
+
         // 安全检查：确保文件路径在允许的目录内
         const allowedDirs = ['configs'];
         const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some(dir => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-        
+        const isAllowed = allowedDirs.some((dir: any) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
+
         if (!isAllowed) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -385,7 +385,7 @@ export async function handleForceExpireConfig(req, res, filePath, currentConfig,
             }));
             return true;
         }
-        
+
         if (!existsSync(fullPath)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -400,8 +400,8 @@ export async function handleForceExpireConfig(req, res, filePath, currentConfig,
         let refreshCount = 0;
         if (providerPoolManager) {
             const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
-            const targetFile = configFiles.find(f => f.path === relativePath || f.path === filePath);
-            
+            const targetFile = configFiles.find((f: any) => f.path === relativePath || f.path === filePath);
+
             if (targetFile && targetFile.usageInfo && targetFile.usageInfo.isUsed && Array.isArray(targetFile.usageInfo.usageDetails)) {
                 for (const usage of targetFile.usageInfo.usageDetails) {
                     if (usage.uuid && usage.providerType) {
@@ -412,7 +412,7 @@ export async function handleForceExpireConfig(req, res, filePath, currentConfig,
                 }
             }
         }
-        
+
         // 广播更新事件
         broadcastEvent('config_update', {
             action: 'force_refresh',
@@ -421,7 +421,7 @@ export async function handleForceExpireConfig(req, res, filePath, currentConfig,
             refreshCount: refreshCount,
             timestamp: new Date().toISOString()
         });
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: true,
@@ -430,7 +430,7 @@ export async function handleForceExpireConfig(req, res, filePath, currentConfig,
             refreshTriggered: refreshCount > 0
         }));
         return true;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('[UI API] Failed to force refresh config:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
