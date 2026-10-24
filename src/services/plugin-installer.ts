@@ -21,7 +21,12 @@ const PLUGINS_DIR = path.join(process.cwd(), 'src', 'plugins-user');
 const MAX_PLUGIN_ZIP_BYTES = 10 * 1024 * 1024;
 const MAX_DOWNLOAD_REDIRECTS = 5;
 
-function isPrivateIPv4(ip) {
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return getErrorMessage(error);
+    return String(error);
+}
+
+function isPrivateIPv4(ip: string): boolean {
     const parts = ip.split('.').map(Number);
     if (parts.length !== 4 || parts.some(part => Number.isNaN(part))) return true;
 
@@ -38,7 +43,7 @@ function isPrivateIPv4(ip) {
     );
 }
 
-function isPrivateIPv6(ip) {
+function isPrivateIPv6(ip: string): boolean {
     const normalized = ip.toLowerCase();
     if (normalized === '::1' || normalized === '::') return true;
     if (normalized.startsWith('fe80:') || normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
@@ -48,14 +53,14 @@ function isPrivateIPv6(ip) {
     return false;
 }
 
-function isBlockedAddress(address) {
+function isBlockedAddress(address: string): boolean {
     const family = net.isIP(address);
     if (family === 4) return isPrivateIPv4(address);
     if (family === 6) return isPrivateIPv6(address);
     return true;
 }
 
-async function resolvePublicAddresses(hostname) {
+async function resolvePublicAddresses(hostname: string): Promise<Array<{ address: string; family: number }>> {
     const normalizedHostname = hostname.replace(/^\[(.*)\]$/, '$1');
     const literalIpFamily = net.isIP(normalizedHostname);
     const addresses = literalIpFamily
@@ -69,7 +74,11 @@ async function resolvePublicAddresses(hostname) {
     return addresses;
 }
 
-function secureLookup(hostname, options, callback) {
+function secureLookup(
+    hostname: string,
+    options: { family?: number },
+    callback: (error: Error | null, address?: string, family?: number) => void
+): void {
     resolvePublicAddresses(hostname)
         .then((addresses) => {
             const family = options?.family;
@@ -83,7 +92,7 @@ function secureLookup(hostname, options, callback) {
         .catch(callback);
 }
 
-export async function validatePluginDownloadUrl(downloadUrl) {
+export async function validatePluginDownloadUrl(downloadUrl: string): Promise<string> {
     let url;
     try {
         url = new URL(downloadUrl);
@@ -104,7 +113,7 @@ export async function validatePluginDownloadUrl(downloadUrl) {
     return url.toString();
 }
 
-async function downloadPluginArchive(downloadUrl, redirectsRemaining = MAX_DOWNLOAD_REDIRECTS) {
+async function downloadPluginArchive(downloadUrl: string, redirectsRemaining = MAX_DOWNLOAD_REDIRECTS): Promise<Buffer> {
     const safeUrl = await validatePluginDownloadUrl(downloadUrl);
     const response = await axios({
         method: 'get',
@@ -114,7 +123,7 @@ async function downloadPluginArchive(downloadUrl, redirectsRemaining = MAX_DOWNL
         maxRedirects: 0,
         maxContentLength: MAX_PLUGIN_ZIP_BYTES,
         maxBodyLength: MAX_PLUGIN_ZIP_BYTES,
-        lookup: secureLookup,
+        lookup: secureLookup as unknown as import('axios').AxiosRequestConfig['lookup'],
         validateStatus: status => (status >= 200 && status < 300) || (status >= 300 && status < 400)
     });
 
@@ -133,7 +142,7 @@ async function downloadPluginArchive(downloadUrl, redirectsRemaining = MAX_DOWNL
     return buffer;
 }
 
-export function validatePluginArchiveBuffer(buffer, label = 'plugin archive') {
+export function validatePluginArchiveBuffer(buffer: Buffer, label = 'plugin archive'): void {
     validatePluginId(label, 'plugin archive id');
     const zip = new AdmZip(buffer);
     const zipEntries = zip.getEntries();
@@ -152,7 +161,7 @@ export function validatePluginArchiveBuffer(buffer, label = 'plugin archive') {
  * 获取插件市场列表
  * @param {string} [url] - 可选的更新 URL，如果提供则从该地址抓取并覆盖本地缓存
  */
-export async function fetchMarketPlugins(url = null) {
+export async function fetchMarketPlugins(url: string | null = null): Promise<unknown> {
     const targetUrl = url || DEFAULT_MARKET_URL;
     
     try {
@@ -165,7 +174,7 @@ export async function fetchMarketPlugins(url = null) {
             await fs.mkdir(path.dirname(LOCAL_MARKET_FILE), { recursive: true });
             await fs.writeFile(LOCAL_MARKET_FILE, JSON.stringify(marketData, null, 2), 'utf8');
         } catch (saveError) {
-            logger.warn('[PluginInstaller] Failed to cache market data locally:', saveError.message);
+            logger.warn('[PluginInstaller] Failed to cache market data locally:', getErrorMessage(saveError));
         }
 
         return marketData;
@@ -173,16 +182,16 @@ export async function fetchMarketPlugins(url = null) {
         // 网络请求失败，尝试使用本地缓存
         if (existsSync(LOCAL_MARKET_FILE)) {
             try {
-                logger.info(`[PluginInstaller] Using local market cache due to fetch error: ${error.message}`);
+                logger.info(`[PluginInstaller] Using local market cache due to fetch error: ${getErrorMessage(error)}`);
                 const content = await fs.readFile(LOCAL_MARKET_FILE, 'utf8');
                 return JSON.parse(content);
             } catch (localError) {
-                logger.error('[PluginInstaller] Failed to read local market cache:', localError.message);
+                logger.error('[PluginInstaller] Failed to read local market cache:', getErrorMessage(localError));
             }
         }
 
-        logger.error('[PluginInstaller] Failed to fetch market index:', error.message);
-        throw new Error('获取插件市场失败（网络请求失败且无可用本地缓存）：' + error.message);
+        logger.error('[PluginInstaller] Failed to fetch market index:', getErrorMessage(error));
+        throw new Error('获取插件市场失败（网络请求失败且无可用本地缓存）：' + getErrorMessage(error));
     }
 }
 
@@ -190,7 +199,7 @@ export async function fetchMarketPlugins(url = null) {
  * 内部通用的安装逻辑
  * @private
  */
-async function _executeInstallFromBuffer(id, zipBuffer) {
+async function _executeInstallFromBuffer(id: string, zipBuffer: Buffer): Promise<boolean> {
     validatePluginId(id);
     const pluginPath = path.join(PLUGINS_DIR, id);
     validatePluginArchiveBuffer(zipBuffer, id);
@@ -229,7 +238,7 @@ async function _executeInstallFromBuffer(id, zipBuffer) {
 /**
  * 下载并安装插件
  */
-export async function installPlugin(pluginInfo) {
+export async function installPlugin(pluginInfo: { id: string; downloadUrl: string }): Promise<boolean> {
     const { id, downloadUrl } = pluginInfo;
     validatePluginId(id);
 
@@ -238,7 +247,7 @@ export async function installPlugin(pluginInfo) {
         await _executeInstallFromBuffer(id, zipBuffer);
         return true;
     } catch (error) {
-        logger.error(`[PluginInstaller] Installation failed for ${id}:`, error.message);
+        logger.error(`[PluginInstaller] Installation failed for ${id}:`, getErrorMessage(error));
         throw error;
     }
 }
@@ -246,7 +255,7 @@ export async function installPlugin(pluginInfo) {
 /**
  * 从上传的文件安装插件
  */
-export async function installPluginFromBuffer(pluginId, buffer) {
+export async function installPluginFromBuffer(pluginId: string, buffer: Buffer): Promise<boolean> {
     validatePluginId(pluginId);
 
     try {
@@ -256,7 +265,7 @@ export async function installPluginFromBuffer(pluginId, buffer) {
         await _executeInstallFromBuffer(pluginId, buffer);
         return true;
     } catch (error) {
-        logger.error(`[PluginInstaller] Upload installation failed:`, error.message);
+        logger.error(`[PluginInstaller] Upload installation failed:`, getErrorMessage(error));
         throw error;
     }
 }

@@ -977,7 +977,7 @@ export class ProviderPoolManager {
      * @param {string} [requestedModel] - Optional. The model name to filter providers by.
      * @returns {Promise<object|null>} The selected provider's configuration, or null if no healthy provider is found.
      */
-    async selectProvider(providerType, requestedModel = null, options = {}) {
+    async selectProvider(providerType: string, requestedModel: string | null = null, options: Record<string, any> = {}) {
         // 参数校验
         if (!providerType || typeof providerType !== 'string') {
             this._log('error', `Invalid providerType: ${providerType}`);
@@ -1177,7 +1177,7 @@ export class ProviderPoolManager {
     /**
      * 获取一个可用的提供商插槽，支持 Fallback 机制
      */
-    async acquireSlotWithFallback(providerType, requestedModel = null, options: any = {}) {
+    async acquireSlotWithFallback(providerType: string, requestedModel: string | null = null, options: Record<string, any> = {}) {
         if (!providerType || typeof providerType !== 'string') {
             this._log('error', `Invalid providerType: ${providerType}`);
             return null;
@@ -1301,7 +1301,7 @@ export class ProviderPoolManager {
      * @param {boolean} [options.skipUsageCount] - Optional. If true, skip incrementing usage count.
      * @returns {Promise<object|null>} An object containing the selected provider's configuration and the actual provider type used, or null if no healthy provider is found.
      */
-    async selectProviderWithFallback(providerType, requestedModel = null, options = {}) {
+    async selectProviderWithFallback(providerType: string, requestedModel: string | null = null, options: Record<string, any> = {}) {
         // 参数校验
         if (!providerType || typeof providerType !== 'string') {
             this._log('error', `Invalid providerType: ${providerType}`);

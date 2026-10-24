@@ -20,7 +20,12 @@ import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../provide
 import { getStatusIdentifyFieldMap } from '../providers/provider-registry.ts';
 
 // 存储 ProviderPoolManager 实例
-let providerPoolManager = null;
+let providerPoolManager: ProviderPoolManager | null = null;
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return getErrorMessage(error);
+    return String(error);
+}
 
 /**
  * 扫描 configs 目录并自动关联未关联的配置文件到对应的提供商
@@ -33,7 +38,7 @@ let providerPoolManager = null;
  * @param {string} [options.host] - 上游 host
  * @returns {Promise<Object>} 更新后的 providerPools 对象
  */
-export async function autoLinkProviderConfigs(config, options: any = {}) {
+export async function autoLinkProviderConfigs(config: Record<string, any>, options: Record<string, any> = {}) {
     const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
     // 确保从现有 provider_pools.json 文件加载已有配置，并与内存中的池合并，避免部分初始化的 config 冲掉未包含的提供商
     let diskPools = {};
@@ -64,7 +69,10 @@ export async function autoLinkProviderConfigs(config, options: any = {}) {
         for (const mapping of PROVIDER_MAPPINGS) {
             const configsPath = path.join(process.cwd(), 'configs', mapping.dirName);
             const { providerType, credPathKey, defaultCheckModel, displayName, needsProjectId } = mapping;
-            
+            if (!credPathKey || !defaultCheckModel) {
+                continue;
+            }
+
             // 确保提供商类型数组存在
             if (!config.providerPools[providerType]) {
                 config.providerPools[providerType] = [];
@@ -85,7 +93,7 @@ export async function autoLinkProviderConfigs(config, options: any = {}) {
             }
             
             // 递归扫描目录
-            const newProviders = [];
+            const newProviders: any[] = [];
             await scanProviderDirectory(configsPath, linkedPaths, newProviders, {
                 credPathKey,
                 defaultCheckModel,
@@ -135,7 +143,7 @@ export async function autoLinkProviderConfigs(config, options: any = {}) {
                 });
             }
         } catch (error) {
-            logger.error(`[Auto-Link] Failed to save provider_pools.json: ${error.message}`);
+            logger.error(`[Auto-Link] Failed to save provider_pools.json: ${getErrorMessage(error)}`);
         }
     } else {
         logger.info('[Auto-Link] No new configs to link');
@@ -156,7 +164,11 @@ export async function autoLinkProviderConfigs(config, options: any = {}) {
  * @param {Object} [options] - 可选参数
  * @returns {Promise<Object|null>} 返回关联结果或 null
  */
-async function linkSingleCredential(config, credPath, options: any = {}) {
+async function linkSingleCredential(
+    config: Record<string, any>,
+    credPath: string,
+    options: Record<string, any> = {}
+): Promise<{ provider: Record<string, any>; displayName: string; providerType: string } | null> {
     try {
         // 规范化路径
         const absolutePath = path.isAbsolute(credPath) ? credPath : path.join(process.cwd(), credPath);
@@ -192,6 +204,10 @@ async function linkSingleCredential(config, credPath, options: any = {}) {
         }
         
         const { providerType: defaultType, credPathKey, defaultCheckModel, displayName, needsProjectId } = matchedMapping;
+        if (!credPathKey || !defaultCheckModel) {
+            logger.warn(`[Auto-Link] Missing provider mapping fields for: ${relativePath}`);
+            return null;
+        }
         const providerType = options.providerType || defaultType;
         const traeDefaults = TRAE_PROVIDER_DEFAULTS[providerType];
         let targetDisplayName = options.providerType ? providerType : displayName;
@@ -245,7 +261,7 @@ async function linkSingleCredential(config, credPath, options: any = {}) {
             providerType
         };
     } catch (error) {
-        logger.error(`[Auto-Link] Failed to link credential ${credPath}: ${error.message}`);
+        logger.error(`[Auto-Link] Failed to link credential ${credPath}: ${getErrorMessage(error)}`);
         return null;
     }
 }
@@ -260,7 +276,12 @@ async function linkSingleCredential(config, credPath, options: any = {}) {
  * @param {string} options.defaultCheckModel - 默认检测模型
  * @param {boolean} options.needsProjectId - 是否需要 PROJECT_ID
  */
-async function scanProviderDirectory(dirPath, linkedPaths, newProviders, options) {
+async function scanProviderDirectory(
+    dirPath: string,
+    linkedPaths: Set<string>,
+    newProviders: any[],
+    options: { credPathKey: string; defaultCheckModel: string; needsProjectId: boolean }
+) {
     const { credPathKey, defaultCheckModel, needsProjectId } = options;
     
     try {
@@ -301,7 +322,7 @@ async function scanProviderDirectory(dirPath, linkedPaths, newProviders, options
             }
         }
     } catch (error) {
-        logger.warn(`[Auto-Link] Failed to scan directory ${dirPath}: ${error.message}`);
+        logger.warn(`[Auto-Link] Failed to scan directory ${dirPath}: ${getErrorMessage(error)}`);
     }
 }
 
@@ -312,7 +333,7 @@ async function scanProviderDirectory(dirPath, linkedPaths, newProviders, options
  * @param {Object} config - The server configuration
  * @returns {Promise<Object>} The initialized services
  */
-export async function initApiService(config, isReady = false) {
+export async function initApiService(config: Record<string, any>, isReady = false): Promise<Record<string, any>> {
 
     // Initialize or update ProviderPoolManager
     if (providerPoolManager) {
@@ -333,18 +354,18 @@ export async function initApiService(config, isReady = false) {
             // --- V2: 触发系统预热 ---
             // 预热逻辑是异步的，不会阻塞服务器启动
             providerPoolManager.warmupNodes().catch(err => {
-                logger.error(`[Initialization] Warmup failed: ${err.message}`);
+                logger.error(`[Initialization] Warmup failed: ${getErrorMessage(err)}`);
             });
 
             // 模型能力启动预热：rehydrate 缓存后后台刷新所有启用节点
             warmProviderCapabilities(providerPoolManager, { reason: 'startup' }).catch(err => {
-                logger.debug(`[Initialization] Model capability warmup notice: ${err.message}`);
+                logger.debug(`[Initialization] Model capability warmup notice: ${getErrorMessage(err)}`);
             });
             startCapabilityRefreshLoop(providerPoolManager);
 
             // 检查并刷新即将过期的节点（异步调用，不阻塞启动）
             providerPoolManager.checkAndRefreshExpiringNodes().catch(err => {
-                logger.error(`[Initialization] Check and refresh expiring nodes failed: ${err.message}`);
+                logger.error(`[Initialization] Check and refresh expiring nodes failed: ${getErrorMessage(err)}`);
             });
         }
     } else {
@@ -405,7 +426,7 @@ export async function initApiService(config, isReady = false) {
                 } catch (error) {
                     totalFailed++;
                     const identifier = providerConfig.customName || providerConfig.uuid || 'unknown';
-                    logger.warn(`  ✗ Failed to initialize node ${identifier}: ${error.message}`);
+                    logger.warn(`  ✗ Failed to initialize node ${identifier}: ${getErrorMessage(error)}`);
                 }
             }
         }
@@ -422,7 +443,10 @@ export async function initApiService(config, isReady = false) {
  * @private
  * @returns {Promise<Object>} { effectiveProvider, actualModelName }
  */
-async function _resolveEffectiveRouting(config, requestedModel) {
+async function _resolveEffectiveRouting(
+    config: Record<string, any>,
+    requestedModel: string | null
+): Promise<{ effectiveProvider: string; actualModelName: string | null }> {
     let effectiveProvider = config.MODEL_PROVIDER;
     let actualModelName = requestedModel;
 
@@ -430,9 +454,10 @@ async function _resolveEffectiveRouting(config, requestedModel) {
     if (requestedModel && (requestedModel.includes(':') || requestedModel.includes('/'))) {
         const sep = requestedModel.includes(':') ? ':' : '/';
         const [prefix, ...modelParts] = requestedModel.split(sep);
+        if (!prefix) return { effectiveProvider, actualModelName };
         const modelSuffix = modelParts.join(sep);
         // 检查前缀是否是有效的提供商标识
-        if (providerPoolManager && (providerPoolManager.providerStatus[prefix] || config.providerPools?.[prefix])) {
+        if (providerPoolManager && ((providerPoolManager as any).providerStatus?.[prefix] || config.providerPools?.[prefix])) {
             effectiveProvider = prefix;
             actualModelName = modelSuffix;
             logger.info(`[Routing] Prefix resolved: ${prefix}${sep}${modelSuffix}`);
@@ -455,7 +480,11 @@ async function _resolveEffectiveRouting(config, requestedModel) {
  * @param {boolean} [options.skipUsageCount] - Optional. If true, skip incrementing usage count.
  * @returns {Promise<Object>} The API service adapter
  */
-export async function getApiService(config, requestedModel = null, options: any = {}) {
+export async function getApiService(
+    config: Record<string, any>,
+    requestedModel: string | null = null,
+    options: Record<string, any> = {}
+) {
     // 1. 前置路由解析
     const { effectiveProvider, actualModelName } = await _resolveEffectiveRouting(config, requestedModel);
     config.MODEL_PROVIDER = effectiveProvider;
@@ -496,7 +525,11 @@ export async function getApiService(config, requestedModel = null, options: any 
  * @param {Object} [options] - Optional. Additional options.
  * @returns {Promise<Object>} Object containing service adapter and metadata
  */
-export async function getApiServiceWithFallback(config, requestedModel = null, options: any = {}) {
+export async function getApiServiceWithFallback(
+    config: Record<string, any>,
+    requestedModel: string | null = null,
+    options: Record<string, any> = {}
+) {
     // 1. 前置路由解析
     const { effectiveProvider, actualModelName } = await _resolveEffectiveRouting(config, requestedModel);
     config.MODEL_PROVIDER = effectiveProvider;
@@ -576,7 +609,7 @@ export async function getApiServiceWithFallback(config, requestedModel = null, o
  * Get the provider pool manager instance
  * @returns {Object} The provider pool manager
  */
-export function getProviderPoolManager() {
+export function getProviderPoolManager(): ProviderPoolManager | null {
     return providerPoolManager;
 }
 
@@ -585,7 +618,7 @@ export function getProviderPoolManager() {
  * @param {string} provider - The model provider
  * @param {Object} providerInfo - Provider information including uuid
  */
-export function markProviderUnhealthy(provider, providerInfo) {
+export function markProviderUnhealthy(provider: string, providerInfo: Record<string, any>): void {
     if (providerPoolManager) {
         providerPoolManager.markProviderUnhealthy(provider, providerInfo);
     }
@@ -599,18 +632,21 @@ export function markProviderUnhealthy(provider, providerInfo) {
  * @param {string} [options.customName] - Optional.customName filter by customName
  * @returns {Promise<Object>} The API service adapter
  */
-export async function getProviderStatus(config, options: any = {}) {
-    let providerPools: any = {};
+export async function getProviderStatus(
+    config: Record<string, any>,
+    options: Record<string, any> = {}
+) {
+    let providerPools: Record<string, any[]> = {};
     const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
     try {
         if (providerPoolManager && providerPoolManager.providerPools) {
             providerPools = providerPoolManager.providerPools;
         } else if (filePath && fs.existsSync(filePath)) {
             const poolsData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-            providerPools = poolsData;
+            providerPools = poolsData as Record<string, any[]>;
         }
     } catch (error) {
-        logger.warn('[API Service] Failed to load provider pools:', error.message);
+        logger.warn('[API Service] Failed to load provider pools:', getErrorMessage(error));
     }
 
     // providerPoolsSlim 只保留顶级 key 及部分字段
@@ -624,14 +660,14 @@ export async function getProviderStatus(config, options: any = {}) {
         'needsRefresh'
     ];
     // identify 字段映射表（OAuth provider 从注册表派生，自定义 provider 使用 Base URL）
-    const identifyFieldMap = {
+    const identifyFieldMap: Record<string, string> = {
         'openai-custom': 'OPENAI_BASE_URL',
         'openaiResponses-custom': 'OPENAI_BASE_URL',
         'claude-custom': 'CLAUDE_BASE_URL',
         ...getStatusIdentifyFieldMap()
     };
     let providerPoolsSlim: any[] = [];
-    let unhealthyProvideIdentifyList = [];
+    let unhealthyProvideIdentifyList: string[] = [];
     let count = 0;
     let unhealthyCount = 0;
     let unhealthyRatio = 0;
@@ -689,7 +725,7 @@ export async function getProviderStatus(config, options: any = {}) {
     if (count > 0) {
         unhealthyRatio = Number((unhealthyCount / count).toFixed(2));
     }
-        let unhealthySummeryMessage = unhealthyProvideIdentifyList.join('\n');
+        let unhealthySummeryMessage: string | null = unhealthyProvideIdentifyList.join('\n');
         if (unhealthySummeryMessage === '') unhealthySummeryMessage = null;
     return {
         providerPoolsSlim,

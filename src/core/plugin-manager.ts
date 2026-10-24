@@ -235,7 +235,7 @@ class PluginManager {
         logger.info(`[PluginManager] Registered plugin: ${plugin.name} v${plugin.version || '1.0.0'}`);
     }
 
-    registerPlaceholder(name, description = '', baseDir = null) {
+    registerPlaceholder(name: string, description = '', baseDir: string | null = null) {
         validatePluginId(name);
         if (this.plugins.has(name)) return;
         this.plugins.set(name, {

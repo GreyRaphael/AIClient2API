@@ -8,11 +8,16 @@ import { serviceInstances } from '../providers/adapter.ts';
 import { MODEL_PROVIDER } from '../utils/common.ts';
 import { getProviderModels } from '../providers/provider-models.ts';
 
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
 /**
  * 用量查询服务类
  */
 export class UsageService {
-    providerHandlers: Record<string, (uuid?: string | null) => Promise<any>>;
+    providerHandlers: Record<string, (uuid?: string | null) => Promise<unknown>>;
     formatters: Record<string, (rawUsage: any) => any>;
 
     constructor() {
@@ -65,7 +70,7 @@ export class UsageService {
      * @param {string} [uuid] - 可选的提供商实例 UUID
      * @returns {Promise<Object>} 格式化后的用量信息
      */
-    async getFormattedUsage(providerType, uuid = null) {
+    async getFormattedUsage(providerType: string, uuid: string | null = null): Promise<any> {
         const rawUsage = await this.getUsage(providerType, uuid);
         return this.formatUsage(providerType, rawUsage);
     }
@@ -74,15 +79,15 @@ export class UsageService {
      * 获取所有提供商的用量信息
      * @returns {Promise<Object>} 所有提供商的用量信息
      */
-    async getAllUsage() {
-        const results = {};
+    async getAllUsage(): Promise<Record<string, any[]>> {
+        const results: Record<string, any[]> = {};
         const poolManager = getProviderPoolManager();
         
         for (const providerType of Object.keys(this.providerHandlers)) {
             try {
                 // 检查是否有号池配置
                 if (poolManager) {
-                    const pools = poolManager.getProviderPools(providerType);
+                    const pools = poolManager.providerPools?.[providerType] || [];
                     if (pools && pools.length > 0) {
                         results[providerType] = [];
                         for (const pool of pools) {
@@ -95,7 +100,7 @@ export class UsageService {
                             } catch (error) {
                                 results[providerType].push({
                                     uuid: pool.uuid,
-                                    error: error.message
+                                    error: getErrorMessage(error)
                                 });
                             }
                         }
@@ -108,7 +113,7 @@ export class UsageService {
                     results[providerType] = [{ uuid: 'default', usage }];
                 }
             } catch (error) {
-                results[providerType] = [{ uuid: 'default', error: error.message }];
+                results[providerType] = [{ uuid: 'default', error: getErrorMessage(error) }];
             }
         }
         
@@ -119,10 +124,11 @@ export class UsageService {
      * 从适配器获取原始用量数据（统一内部方法）
      * @private
      */
-    async _getRawUsageFromAdapter(providerType, uuid = null) {
+    async _getRawUsageFromAdapter(providerType: string, uuid: string | null = null): Promise<any> {
         const targetUuid = (uuid && uuid !== 'default') ? uuid : null;
         const providerKey = targetUuid ? providerType + targetUuid : providerType;
-        const adapter = serviceInstances[providerKey] || serviceInstances[providerType];
+        const instances = serviceInstances as unknown as Record<string, any>;
+        const adapter = instances[providerKey] || instances[providerType];
         
         if (!adapter) {
             throw new Error(`${providerType} 服务实例未找到: ${providerKey}`);
@@ -153,21 +159,21 @@ export class UsageService {
     /**
      * 获取 Kiro 提供商的用量信息
      */
-    async getKiroUsage(uuid = null) {
+    async getKiroUsage(uuid: string | null = null) {
         return this._getRawUsageFromAdapter(MODEL_PROVIDER.KIRO_API, uuid);
     }
 
     /**
      * 获取 Antigravity 提供商的用量信息
      */
-    async getAntigravityUsage(uuid = null) {
+    async getAntigravityUsage(uuid: string | null = null) {
         return this._getRawUsageFromAdapter(MODEL_PROVIDER.ANTIGRAVITY, uuid);
     }
 
     /**
      * 获取 Codex 提供商的用量信息
      */
-    async getCodexUsage(uuid = null) {
+    async getCodexUsage(uuid: string | null = null) {
         return this._getRawUsageFromAdapter(MODEL_PROVIDER.CODEX_API, uuid);
     }
 
@@ -186,7 +192,7 @@ export const usageService = new UsageService();
 /**
  * 获取状态标识
  */
-function getStatus(percent) {
+function getStatus(percent: number): string {
     if (percent > 90) return 'danger';
     if (percent > 70) return 'warning';
     return 'normal';
@@ -195,7 +201,7 @@ function getStatus(percent) {
 /**
  * 转换时间戳
  */
-function formatTimestamp(val) {
+function formatTimestamp(val: any): string | null {
     if (!val) return null;
     if (typeof val === 'number') {
         // 如果是秒（10位），转为毫秒（13位）
@@ -212,7 +218,7 @@ function formatTimestamp(val) {
 /**
  * 解析 Tier ID 获取计划名称
  */
-function parseTierId(tierId) {
+function parseTierId(tierId: any): string {
     if (!tierId) return 'FREE';
     if (typeof tierId !== 'string') return String(tierId);
     const cleaned = tierId.replace(/\(free\)/i, '').trim();
@@ -228,7 +234,7 @@ function parseTierId(tierId) {
 /**
  * 获取计划类别样式类名
  */
-function getPlanClass(plan) {
+function getPlanClass(plan: any): string {
     if (!plan) return 'plan-default';
     const p = plan.toLowerCase();
     if (p.includes('ultra')) return 'plan-ultra';
@@ -247,23 +253,23 @@ function getPlanClass(plan) {
 /**
  * 格式化 Kiro 用量
  */
-export function formatKiroUsage(usageData) {
+export function formatKiroUsage(usageData: any): any {
     if (!usageData) return null;
 
     // 兼容多种命名格式 (usageBreakdownList 是 API 原生, usageBreakdown 是某些版本的处理结果)
     const breakdownList = usageData.usageBreakdownList || usageData.usageBreakdown || [];
-    const items = [];
+    const items: any[] = [];
     const now = Date.now();
     const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000; // 约3个月
     
     // 检查时间戳是否在当前时间前后3个月内
-    const isWithinWindow = (ts) => {
+    const isWithinWindow = (ts: any): boolean => {
         if (!ts) return true;
         const val = ts < 10000000000 ? ts * 1000 : ts;
         return Math.abs(val - now) <= THREE_MONTHS_MS;
     };
     
-    breakdownList.forEach(breakdown => {
+    breakdownList.forEach((breakdown: any) => {
         // 1. 基本资源信息
         if (isWithinWindow(breakdown.nextDateReset)) {
             const used = breakdown.currentUsageWithPrecision ?? breakdown.currentUsage;
@@ -285,7 +291,7 @@ export function formatKiroUsage(usageData) {
 
         // 2. 解析奖励信息 (bonuses)
         if (breakdown.bonuses && Array.isArray(breakdown.bonuses)) {
-            breakdown.bonuses.forEach(bonus => {
+            breakdown.bonuses.forEach((bonus: any) => {
                 if (!isWithinWindow(bonus.expiresAt)) return;
 
                 const bUsed = bonus.currentUsageWithPrecision ?? bonus.currentUsage ?? 0;
@@ -332,9 +338,9 @@ export function formatKiroUsage(usageData) {
     });
 
     // 仅汇总未过期的额度
-    const activeItems = items.filter(item => !item.isExpired);
-    const totalUsed = activeItems.reduce((sum, item) => sum + item.used, 0);
-    const totalLimit = activeItems.reduce((sum, item) => sum + item.limit, 0);
+    const activeItems = items.filter((item: any) => !item.isExpired);
+    const totalUsed = activeItems.reduce((sum: number, item: any) => sum + item.used, 0);
+    const totalLimit = activeItems.reduce((sum: number, item: any) => sum + item.limit, 0);
     const usedPercent = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
 
     // 兼容多种用户信息和计划信息的路径
@@ -369,13 +375,13 @@ export function formatKiroUsage(usageData) {
 /**
  * 格式化 Antigravity 用量
  */
-export function formatAntigravityUsage(usageData) {
+export function formatAntigravityUsage(usageData: any): any {
     if (!usageData) return null;
     if (usageData.summary && usageData.items) return usageData;
 
     // 1. 优先使用按配额组划分的数据 (包含 groups 数组，提供每周限制和5小时限制)
     if (usageData.groups && Array.isArray(usageData.groups)) {
-        const items = [];
+        const items: any[] = [];
         
         for (const group of usageData.groups) {
             if (!group.buckets || !Array.isArray(group.buckets)) continue;
@@ -415,20 +421,20 @@ export function formatAntigravityUsage(usageData) {
         }
 
         // 排序规则：按业务优先级，周配额优先展示 (gemini-weekly -> 3p-weekly -> gemini-5h -> 3p-5h)
-        const bucketOrder = {
+        const bucketOrder: Record<string, number> = {
             'gemini-weekly': 1,
             '3p-weekly': 2,
             'gemini-5h': 3,
             '3p-5h': 4
         };
-        items.sort((a, b) => {
+        items.sort((a: any, b: any) => {
             const orderA = bucketOrder[a.id] || (a.window === 'weekly' ? 10 : 20);
             const orderB = bucketOrder[b.id] || (b.window === 'weekly' ? 10 : 20);
             return orderA - orderB;
         });
 
         // 概要指标：优先展示周用量（用户关心的长期配额核心指标，例如 gemini-weekly）
-        const primaryWeekly = items.find(i => i.id === 'gemini-weekly') || items.find(i => i.window === 'weekly') || items[0];
+        const primaryWeekly = items.find((i: any) => i.id === 'gemini-weekly') || items.find(i => i.window === 'weekly') || items[0];
         const usedPercent = primaryWeekly ? primaryWeekly.percent : 0;
         const remainingPercent = primaryWeekly ? primaryWeekly.remainingPercent : 100;
         const resetAt = primaryWeekly ? primaryWeekly.resetAt : null;
@@ -456,7 +462,7 @@ export function formatAntigravityUsage(usageData) {
     // 2. 兼容回退：如果 API 仅返回 models 对象且无 groups
     if (usageData.models && typeof usageData.models === 'object') {
         const supportedModels = getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
-        const items = [];
+        const items: any[] = [];
         let totalPercent = 0;
         let maxResetAt = null;
         
@@ -494,7 +500,7 @@ export function formatAntigravityUsage(usageData) {
         }
 
         // 按名称排序
-        items.sort((a, b) => a.id.localeCompare(b.id));
+        items.sort((a: any, b: any) => a.id.localeCompare(b.id));
 
         // 计算平均使用率作为概要
         const avgUsedPercent = items.length > 0 ? totalPercent / items.length : 0;
@@ -524,7 +530,7 @@ export function formatAntigravityUsage(usageData) {
 /**
  * 格式化 Codex 用量
  */
-export function formatCodexUsage(usageData) {
+export function formatCodexUsage(usageData: any): any {
     if (!usageData) return null;
 
     // 兼容蛇形命名（原生 API）和驼峰命名
@@ -537,7 +543,7 @@ export function formatCodexUsage(usageData) {
     const primaryUsedPercent = primary?.used_percent ?? primary?.usedPercent ?? 0;
     const secondaryUsedPercent = secondary?.used_percent ?? secondary?.usedPercent ?? 0;
 
-    const items = [];
+    const items: any[] = [];
 
     // 1. 周配额窗口（优先作为主要展示指标）
     if (secondary) {

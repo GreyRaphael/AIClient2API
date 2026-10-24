@@ -95,14 +95,28 @@ import { isRetryableNetworkError } from '../utils/common.ts';
 // 检测是否作为子进程运行
 const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
 
+declare global {
+    // eslint-disable-next-line no-var
+    var reloadHealthCheckTimer: ((interval: number) => number) | undefined;
+    // eslint-disable-next-line no-var
+    var stopHealthCheckTimer: (() => void) | undefined;
+    // eslint-disable-next-line no-var
+    var _activeHealthCheckInterval: number | undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
 // 存储服务器实例，用于优雅关闭
-let serverInstance = null;
+let serverInstance: import('node:http').Server | null = null;
 
 /**
  * 发送消息给主进程
  * @param {Object} message - 消息对象
  */
-function sendToMaster(message) {
+function sendToMaster(message: Record<string, unknown>) {
     if (IS_WORKER_PROCESS && process.send) {
         process.send(message);
     }
@@ -160,7 +174,7 @@ async function gracefulShutdown() {
             await pluginManager.destroyAll();
         }
     } catch (err) {
-        logger.error('[Server] Error destroying plugins:', err.message);
+        logger.error('[Server] Error destroying plugins:', getErrorMessage(err));
     }
 
     // 停止 TLS sidecar
@@ -354,10 +368,10 @@ async function startServer() {
             const DEFAULT_INTERVAL = CONFIG.CRON_NEAR_MINUTES * 60 * 1000;
 
             let isHealthCheckRunning = false;
-            let healthCheckTimerId = null;
+            let healthCheckTimerId: NodeJS.Timeout | null = null;
 
             // 定时健康检查函数（始终注册，无论初始 enabled 状态）
-            const runHealthCheckTimer = (interval) => {
+            const runHealthCheckTimer = (interval: number): number => {
                 // 清除旧的 timer
                 if (healthCheckTimerId) {
                     clearInterval(healthCheckTimerId);
@@ -378,7 +392,7 @@ async function startServer() {
                     }
                     isHealthCheckRunning = true;
                     try {
-                        await poolManager.performHealthChecks();
+                        await poolManager?.performHealthChecks();
                     } catch (error) {
                         logger.error('[ScheduledHealthCheck] Error:', error);
                     } finally {
@@ -412,7 +426,7 @@ async function startServer() {
                     logger.info('[ScheduledHealthCheck] Running scheduled health check on startup...');
                     setTimeout(async () => {
                         try {
-                            await poolManager.performHealthChecks();
+                            await poolManager?.performHealthChecks();
                         } catch (error) {
                             logger.error('[ScheduledHealthCheck] Startup run error:', error);
                         }

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'path';
 import { isUIApiPath } from '../utils/ui-utils.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
@@ -27,7 +28,7 @@ export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials, u
  * @param {string} pathParam - The request path
  * @param {import('node:http').ServerResponse} res - The HTTP response object
  */
-export async function serveStaticFiles(pathParam, res) {
+export async function serveStaticFiles(pathParam: string, res: ServerResponse): Promise<boolean> {
     // 1. 尝试从系统 static 目录服务
     let filePath = path.join(process.cwd(), 'static', pathParam === '/' || pathParam === '/index.html' ? 'index.html' : pathParam.replace('/static/', ''));
 
@@ -36,7 +37,8 @@ export async function serveStaticFiles(pathParam, res) {
         const pluginManager = getPluginManager();
         const plugin = pluginManager.getPluginByStaticPath(pathParam);
         if (plugin && plugin._baseDir) {
-            filePath = resolvePluginStaticFile(plugin, pathParam);
+            const resolved = resolvePluginStaticFile(plugin, pathParam);
+            if (resolved) filePath = resolved;
         }
     }
 
@@ -70,7 +72,14 @@ export async function serveStaticFiles(pathParam, res) {
  * @param {Object} providerPoolManager - The provider pool manager instance
  * @returns {Promise<boolean>} - True if the request was handled by UI API
  */
-export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, providerPoolManager) {
+export async function handleUIApiRequests(
+    method: string,
+    pathParam: string,
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: Record<string, unknown>,
+    providerPoolManager: unknown
+): Promise<boolean> {
     // 处理登录接口
     if (method === 'POST' && pathParam === '/api/login') {
         return await auth.handleLoginRequest(req, res);
@@ -103,7 +112,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
     // 文件上传API
     if (method === 'POST' && pathParam === '/api/upload-oauth-credentials') {
-        return await eventBroadcast.handleUploadOAuthCredentials(req, res);
+        return Boolean(await eventBroadcast.handleUploadOAuthCredentials(req, res));
     }
 
     // Update admin password
@@ -379,7 +388,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
     // Help and API guide for remote AI calling
     if (method === 'GET' && pathParam === '/api/help') {
-        const url = new URL(req.url, `http://${req.headers.host}`);
+        const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
         const format = url.searchParams.get('format');
         
         if (format === 'text') {
@@ -393,7 +402,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     }
 
     if (method === 'GET' && pathParam === '/api/example') {
-        const url = new URL(req.url, `http://${req.headers.host}`);
+        const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
         const format = url.searchParams.get('format');
 
         if (format === 'text') {
@@ -448,7 +457,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
     // Upload plugin
     if (method === 'POST' && pathParam === '/api/plugins/upload') {
-        return await pluginApi.handleUploadPlugin(req, res);
+        return Boolean(await pluginApi.handleUploadPlugin(req, res));
     }
 
     // Toggle plugin status

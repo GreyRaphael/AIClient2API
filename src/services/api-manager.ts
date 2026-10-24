@@ -13,6 +13,28 @@ import { getProviderPoolManager, getApiServiceWithFallback } from './service-man
 import logger from '../utils/logger.ts';
 import busboy from 'busboy';
 import { convertData } from '../convert/convert.ts';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+interface ImageRetryContext {
+    maxRetries?: number;
+    currentRetry?: number;
+    CONFIG?: Record<string, any>;
+    parsedBody?: {
+        model?: any;
+        prompt?: any;
+        n?: any;
+        response_format?: any;
+        size?: any;
+        aspect_ratio?: any;
+        image_size?: any;
+        virtualOpenAIRequest?: any;
+    };
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return getErrorMessage(error);
+    return String(error);
+}
 
 const IMAGE_GEN_MAX_N = 4;
 const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);
@@ -29,7 +51,16 @@ const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);
  * @param {string} promptLogFilename - The prompt log filename
  * @returns {Promise<boolean>} - True if the request was handled by API
  */
-export async function handleAPIRequests(method, path, req, res, currentConfig, apiService, providerPoolManager, promptLogFilename) {
+export async function handleAPIRequests(
+    method: string,
+    path: string,
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: Record<string, any>,
+    apiService: any,
+    providerPoolManager: any,
+    promptLogFilename: string | null
+): Promise<boolean> {
 
 
     // Route model list requests
@@ -74,7 +105,7 @@ export async function handleAPIRequests(method, path, req, res, currentConfig, a
  * @param {Object} services - The initialized services
  * @returns {Function} - The heartbeat and token refresh function
  */
-export function initializeAPIManagement(services) {
+export function initializeAPIManagement(services: Record<string, any>) {
     const providerPoolManager = getProviderPoolManager();
     return async function heartbeatAndRefreshToken() {
         logger.info(`[Heartbeat] Server is running. Current time: ${new Date().toLocaleString()}`, Object.keys(services));
@@ -94,7 +125,7 @@ export function initializeAPIManagement(services) {
                 }
                 // logger.info(`[Token Refresh] Refreshed token for ${providerKey}`);
             } catch (error) {
-                logger.error(`[Token Refresh Error] Failed to refresh token for ${providerKey}: ${error.message}`);
+                logger.error(`[Token Refresh Error] Failed to refresh token for ${providerKey}: ${getErrorMessage(error)}`);
                 // 如果是号池中的某个实例刷新失败，这里需要捕获并更新其状态
                 // 现有的 serviceInstances 存储的是每个配置对应的单例，而非池中的成员
                 // 这意味着如果一个池成员的 token 刷新失败，需要找到它并更新其在 poolManager 中的状态
@@ -107,20 +138,27 @@ export function initializeAPIManagement(services) {
 /**
  * Handle POST /v1/images/generations - OpenAI 标准生图接口
  */
-async function handleImageGenerationRequest(req, res, currentConfig, providerPoolManager, retryContext = null) {
+async function handleImageGenerationRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: Record<string, any>,
+    providerPoolManager: any,
+    retryContext: ImageRetryContext | null = null
+) {
     const maxRetries = retryContext?.maxRetries ?? 3;
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG ?? currentConfig;
     let slotProviderType = null;
     let slotUuid = null;
-    let model, prompt, n, response_format, size, aspect_ratio, image_size, codexRequestBody, virtualOpenAIRequest;
+    let model: any, prompt: any, n: any, response_format: any, size: any, aspect_ratio: any, image_size: any;
+    let codexRequestBody: any, virtualOpenAIRequest: any;
 
     try {
         if (retryContext?.parsedBody) {
             ({model, prompt, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest} = retryContext.parsedBody);
             codexRequestBody = virtualOpenAIRequest;
         } else {
-            const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES }) as any;
+            const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES }) as Record<string, any>;
             model = body.model;
             response_format = body.response_format || 'b64_json';
             size = body.size;
@@ -211,8 +249,8 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
         logger.info(`[Image Generation] model=${model}, protocol=${finalProviderProtocol}, n=${n}, response_format=${response_format}${size ? `, size=${size}` : ''}`);
 
         // 串行发起 n 张图请求，每张独立占用一次上游调用，与号池 slot 计数对应
-        const data = [];
-        const responses = [];
+        const data: any[] = [];
+        const responses: any[] = [];
         for (let i = 0; i < n; i++) {
             const response = await service.generateContent(model, {...codexRequestBody});
             responses.push(response);
@@ -261,17 +299,18 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
                     });
                 }
             } catch (e) {
-                logger.error('[Image Generation] Hook error:', e.message);
+                logger.error('[Image Generation] Hook error:', getErrorMessage(e));
             }
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clientResponse));
     } catch (error) {
-        logger.error('[Image Generation] Error:', error.message);
+        const err = error as Record<string, any>;
+        logger.error('[Image Generation] Error:', getErrorMessage(error));
 
-        const shouldSwitchCredential = error.shouldSwitchCredential === true;
-        let credentialMarkedUnhealthy = error.credentialMarkedUnhealthy === true;
+        const shouldSwitchCredential = err.shouldSwitchCredential === true;
+        let credentialMarkedUnhealthy = err.credentialMarkedUnhealthy === true;
 
         if (providerPoolManager && slotUuid) {
             const rateLimitRecoveryTime = getRateLimitCooldownRecoveryTime(error, CONFIG);
@@ -279,10 +318,10 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
                 logger.info(`[Provider Pool] Applying 429 cooldown for ${slotProviderType} (${slotUuid})`);
                 providerPoolManager.markProviderUnhealthyWithRecoveryTime(slotProviderType, {uuid: slotUuid}, '429 Too Many Requests - short cooldown', rateLimitRecoveryTime);
                 credentialMarkedUnhealthy = true;
-            } else if (!credentialMarkedUnhealthy && !error.skipErrorCount) {
-                if (error.response?.status !== 400) {
-                    logger.info(`[Provider Pool] Marking ${slotProviderType} as unhealthy due to image generation error (status: ${error.response?.status || 'unknown'})`);
-                    providerPoolManager.markProviderUnhealthy(slotProviderType, {uuid: slotUuid}, error.message);
+            } else if (!credentialMarkedUnhealthy && !err.skipErrorCount) {
+                if (err.response?.status !== 400) {
+                    logger.info(`[Provider Pool] Marking ${slotProviderType} as unhealthy due to image generation error (status: ${err.response?.status || 'unknown'})`);
+                    providerPoolManager.markProviderUnhealthy(slotProviderType, {uuid: slotUuid}, getErrorMessage(error));
                     credentialMarkedUnhealthy = true;
                 }
             }
@@ -306,13 +345,13 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
                     parsedBody: {model, n, response_format, size, virtualOpenAIRequest}
                 });
             } catch (retryError) {
-                logger.error('[Image Generation Retry] Failed to get alternative service:', retryError.message);
+                logger.error('[Image Generation Retry] Failed to get alternative service:', getErrorMessage(retryError));
             }
         }
 
         if (!res.writableEnded) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }));
+            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: 'server_error' } }));
         }
     } finally {
         // 确保并发槽在请求结束后归还（与 handleStreamRequest/handleUnaryRequest 保持一致）
@@ -326,14 +365,14 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
  * Extract assistant rejection text from different provider responses.
  * Returns the text if a policy/safety rejection message is found, otherwise null.
  */
-function extractRejectionMessage(responses, providerProtocol) {
+function extractRejectionMessage(responses: any[], providerProtocol: string): string | null {
     for (const response of responses) {
         // Codex/OpenAI Responses style
         if (providerProtocol === MODEL_PROTOCOL_PREFIX.CODEX || providerProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
             const output = response?.response?.output || response?.output || [];
             for (const item of output) {
                 if (item.type === 'message' && item.role === 'assistant') {
-                    const textPart = (item.content || []).find(c => c.type === 'output_text' && c.text);
+                    const textPart = (item.content || []).find((c: any) => c.type === 'output_text' && c.text);
                     if (textPart?.text) return textPart.text;
                 }
             }
@@ -358,7 +397,7 @@ function extractRejectionMessage(responses, providerProtocol) {
  * Returns { fields: {key: string}, files: {key: file|file[]}, fileEntries: [{name, file}] }
  * File buffers are collected in memory; mask field is accepted but ignored.
  */
-function parseMultipartForm(req) {
+function parseMultipartForm(req: IncomingMessage): Promise<any> {
     return new Promise((resolve, reject) => {
         const contentType = req.headers['content-type'] || '';
         if (!contentType.includes('multipart/form-data')) {
@@ -366,31 +405,31 @@ function parseMultipartForm(req) {
         }
 
         const bb = busboy({ headers: req.headers, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB cap
-        const fields = {};
-        const files = {};
-        const fileEntries = [];
+        const fields: Record<string, any> = {};
+        const files: Record<string, any> = {};
+        const fileEntries: any[] = [];
 
         let settled = false;
-        const rejectOnce = (err) => {
+        const rejectOnce = (err: any) => {
             if (!settled) {
                 settled = true;
                 reject(err);
             }
         };
-        const resolveOnce = (val) => {
+        const resolveOnce = (val: any) => {
             if (!settled) {
                 settled = true;
                 resolve(val);
             }
         };
 
-        bb.on('field', (name, value) => { fields[name] = value; });
+        bb.on('field', (name: string, value: any) => { fields[name] = value; });
 
-        bb.on('file', (name, stream, info) => {
-            const chunks = [];
-            const fileEntry = { name, file: null };
+        bb.on('file', (name: string, stream: NodeJS.ReadableStream, info: { mimeType: string }) => {
+            const chunks: Buffer[] = [];
+            const fileEntry: { name: string; file: any } = { name, file: null };
             fileEntries.push(fileEntry);
-            stream.on('data', chunk => chunks.push(chunk));
+            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
             stream.on('end', () => {
                 const file = { buffer: Buffer.concat(chunks), mimetype: info.mimeType };
                 fileEntry.file = file;
@@ -420,16 +459,16 @@ function parseMultipartForm(req) {
     });
 }
 
-function getMultipartFiles(form, fieldNames) {
-    const acceptedNames = new Set(fieldNames);
+function getMultipartFiles(form: any, fieldNames: string[]): any[] {
+    const acceptedNames = new Set<string>(fieldNames);
 
     if (Array.isArray(form.fileEntries)) {
         return form.fileEntries
-            .filter(entry => acceptedNames.has(entry.name) && entry.file)
-            .map(entry => entry.file);
+            .filter((entry: any) => acceptedNames.has(entry.name) && entry.file)
+            .map((entry: any) => entry.file);
     }
 
-    const collected = [];
+    const collected: any[] = [];
     for (const name of fieldNames) {
         const value = form.files?.[name];
         if (Array.isArray(value)) {
@@ -446,7 +485,12 @@ function getMultipartFiles(form, fieldNames) {
  * Accepts multipart/form-data: image (required), prompt (required),
  * mask (ignored), model, n, size, response_format
  */
-async function handleImageEditsRequest(req, res, currentConfig, providerPoolManager) {
+async function handleImageEditsRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: Record<string, any>,
+    providerPoolManager: any
+) {
     let slotProviderType = null;
     let slotUuid = null;
 
@@ -493,16 +537,16 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
             return;
         }
 
-        const imageParts = imageFiles.map(({buffer, mimetype}) => ({
+        const imageParts = imageFiles.map(({ buffer, mimetype }: { buffer: Buffer; mimetype?: string }) => ({
             type: 'image_url',
             image_url: {
                 url: `data:${mimetype || 'image/png'};base64,${buffer.toString('base64')}`
             }
         }));
-        const totalImageBytes = imageFiles.reduce((total, file) => total + file.buffer.length, 0);
+        const totalImageBytes = imageFiles.reduce((total: number, file: any) => total + file.buffer.length, 0);
 
         // 构造虚拟 OpenAI 对话请求，参考对话接口实现自动转换
-        const virtualOpenAIRequest = {
+        const virtualOpenAIRequest: any = {
             model,
             messages: [{
                 role: 'user',
@@ -538,11 +582,11 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
         const toProvider = slotProviderType || currentConfig.MODEL_PROVIDER;
 
         // 执行自动转换：OpenAI -> 目标协议
-        let codexRequestBody = virtualOpenAIRequest;
+        let codexRequestBody: any = virtualOpenAIRequest;
         const fromProtocol = MODEL_PROTOCOL_PREFIX.OPENAI;
         if (fromProtocol !== finalProviderProtocol) {
             logger.info(`[Image Edits] Converting request from ${fromProtocol} to ${finalProviderProtocol}`);
-            codexRequestBody = /** @type {any} */ (convertData(codexRequestBody, 'request', fromProtocol, toProvider, model, currentConfig._monitorRequestId));
+            codexRequestBody = convertData(codexRequestBody, 'request', fromProtocol, toProvider, model, currentConfig._monitorRequestId) as any;
             
             // 保持以 _ 开头的内部属性
             Object.keys(virtualOpenAIRequest).forEach(key => {
@@ -558,7 +602,7 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
             service.generateContent(model, { ...codexRequestBody })
         );
         const responses = await Promise.all(imageRequests);
-        const data = [];
+        const data: any[] = [];
 
         for (let i = 0; i < responses.length; i++) {
             const extracted = extractImagesFromServiceResponse(responses[i], finalProviderProtocol, response_format);
@@ -606,17 +650,17 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
                     });
                 }
             } catch (e) {
-                logger.error('[Image Edits] Hook error:', e.message);
+                logger.error('[Image Edits] Hook error:', getErrorMessage(e));
             }
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clientResponse));
     } catch (error) {
-        logger.error('[Image Edits] Error:', error.message);
+        logger.error('[Image Edits] Error:', getErrorMessage(error));
         if (!res.writableEnded) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }));
+            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: 'server_error' } }));
         }
     } finally {
         if (providerPoolManager && slotProviderType && slotUuid) {
@@ -629,8 +673,8 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
  * Extract image data from a service's generateContent response.
  * Handles different provider output formats.
  */
-function extractImagesFromServiceResponse(response, providerProtocol, responseFormat) {
-    const data = [];
+function extractImagesFromServiceResponse(response: any, providerProtocol: string, responseFormat: string): any[] {
+    const data: any[] = [];
     
     if (providerProtocol === MODEL_PROTOCOL_PREFIX.CODEX || providerProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
         const output = response?.response?.output || response?.output || [];
