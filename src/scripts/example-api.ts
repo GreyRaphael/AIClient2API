@@ -1,4 +1,4 @@
-import { API_GUIDE_DATA, API_EXAMPLES, formatApiGuideText } from '../utils/docs-data.js';
+import { API_GUIDE_DATA, API_EXAMPLES, formatApiGuideText } from '../utils/docs-data.ts';
 
 const args = process.argv.join(' ');
 const isJson = args.includes('--json') || args.includes('-j') || args.includes('--ai') || process.env.npm_config_json;

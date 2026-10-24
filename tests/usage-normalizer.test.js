@@ -6,7 +6,7 @@
  */
 
 import { jest } from '@jest/globals';
-import { toNumber, normalizeUsageCandidate, mergeUsage, extractUsage } from '../src/utils/usage-normalizer.js';
+import { toNumber, normalizeUsageCandidate, mergeUsage, extractUsage } from '../src/utils/usage-normalizer.ts';
 
 describe('toNumber', () => {
     test('数字与数字字符串', () => {

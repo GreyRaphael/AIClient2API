@@ -1,9 +1,10 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
-import logger from '../utils/logger.js';
-import { getRequestBody } from '../utils/common.js';
+import logger from '../utils/logger.ts';
+import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from './event-broadcast.js';
-import { CONFIG } from '../core/config-manager.js';
-import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
+import { CONFIG } from '../core/config-manager.ts';
+import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 
 function syncRuntimeCustomModels(currentConfig, customModels) {
     const normalizedCustomModels = Array.isArray(customModels) ? customModels : [];

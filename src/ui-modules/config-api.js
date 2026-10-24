@@ -1,15 +1,16 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { CONFIG } from '../core/config-manager.js';
+import { CONFIG } from '../core/config-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
 import { initApiService } from '../services/service-manager.js';
-import { getRequestBody } from '../utils/common.js';
+import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';
-import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.js';
-import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
+import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
+import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { validateCredentials } from './auth.js';
 
 function parseBooleanConfig(value) {
@@ -27,7 +28,7 @@ export async function reloadConfig(providerPoolManager) {
         // 使用文件锁进行重载，防止在写入期间读取
         return await withFileLock(configPath, async () => {
             // Import config manager dynamically
-            const { initializeConfig } = await import('../core/config-manager.js');
+            const { initializeConfig } = await import('../core/config-manager.ts');
 
             // Reload main config
             const newConfig = await initializeConfig(process.argv.slice(2), configPath);

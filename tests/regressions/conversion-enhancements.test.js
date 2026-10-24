@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, jest } from "@jest/globals";
-import logger from "../../src/utils/logger.js";
-import configManager from "../../src/core/config-manager.js";
+import logger from "../../src/utils/logger.ts";
+import configManager from "../../src/core/config-manager.ts";
 import {
     mergeConsecutiveSameRoleContents,
     isSortToolsEnabled,

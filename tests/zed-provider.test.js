@@ -2,8 +2,8 @@ jest.mock('open', () => ({ default: jest.fn() }));
 
 import { Readable } from 'stream';
 import axios from 'axios';
-import { MODEL_PROVIDER } from '../src/utils/constants.js';
-import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
+import { MODEL_PROVIDER } from '../src/utils/constants.ts';
+import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.ts';
 import { isRegisteredProvider, ZedApiServiceAdapter } from '../src/providers/adapter.ts';
 import {
     ZedApiService,

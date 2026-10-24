@@ -1,7 +1,7 @@
 // @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
-import { atomicWriteFile } from '../../utils/file-lock.js';
+import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 import { v4 as uuidv4 } from 'uuid';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -16,9 +16,9 @@ import {
     countTokensAnthropic as countTokensUtil,
     processContent as processContentUtil,
     getContentText as getContentTextUtil
-} from '../../utils/token-utils.js';
-import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
-import { isRetryableNetworkError, MODEL_PROVIDER, formatExpiryLog, getNormalizedErrorResponseText, buildHttpErrorReason, normalizeProviderErrorMessage, createEmptyUpstreamResponseError } from '../../utils/common.js';
+} from '../../utils/token-utils.ts';
+import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
+import { isRetryableNetworkError, MODEL_PROVIDER, formatExpiryLog, getNormalizedErrorResponseText, buildHttpErrorReason, normalizeProviderErrorMessage, createEmptyUpstreamResponseError } from '../../utils/common.ts';
 import { getProviderPoolManager } from '../../services/service-manager.js';
 
 const KIRO_THINKING = {
@@ -1855,7 +1855,7 @@ async saveCredentialsToFile(filePath, newData) {
         // 监控钩子：内部请求转换
         if (this.config?._monitorRequestId) {
             try {
-                const { getPluginManager } = await import('../../core/plugin-manager.js');
+                const { getPluginManager } = await import('../../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
                     await pluginManager.executeHook('onInternalRequestConverted', {

@@ -16,9 +16,9 @@ import {
     geminiUsageToResponses,
     geminiUsageToAnthropic
 } from '../utils.ts';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
-import { getConfigToggle } from '../../core/config-manager.js';
+import { getConfigToggle } from '../../core/config-manager.ts';
 import {
     isCustomTool,
     extractCustomToolInput

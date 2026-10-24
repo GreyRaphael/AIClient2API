@@ -6,12 +6,12 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import logger from '../utils/logger.js';
-import { getConfigToggle } from '../core/config-manager.js';
-import { countTextTokens } from '../utils/token-utils.js';
+import logger from '../utils/logger.ts';
+import { getConfigToggle } from '../core/config-manager.ts';
+import { countTextTokens } from '../utils/token-utils.ts';
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
-export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.js';
+export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.ts';
 export { budgetTokensToEffort } from './thinking-budget.ts';
 import { budgetTokensToEffort } from './thinking-budget.ts';
 

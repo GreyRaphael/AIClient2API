@@ -1,6 +1,6 @@
 import '../src/converters/register-converters.ts';
 import { convertData } from '../src/convert/convert.js';
-import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
+import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.ts';
 import { mapFinishReason } from '../src/converters/utils.ts';
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.ts';
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.ts';

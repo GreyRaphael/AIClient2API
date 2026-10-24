@@ -7,8 +7,8 @@
  */
 
 import * as path from 'path';
-import logger from './logger.js';
-import { MODEL_PROTOCOL_PREFIX } from './constants.js';
+import logger from './logger.ts';
+import { MODEL_PROTOCOL_PREFIX } from './constants.ts';
 import { getProviderDefinition } from '../providers/provider-registry.ts';
 
 /**

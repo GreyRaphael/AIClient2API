@@ -17,7 +17,7 @@ import {
     stopCapabilityRefreshLoop,
     warmProviderCapabilities
 } from '../src/providers/model-capability.ts';
-import { CONFIG } from '../src/core/config-manager.js';
+import { CONFIG } from '../src/core/config-manager.ts';
 import { PROVIDER_MODELS } from '../src/providers/provider-models.ts';
 
 function liveEntry(models, extra = {}) {

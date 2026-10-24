@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**

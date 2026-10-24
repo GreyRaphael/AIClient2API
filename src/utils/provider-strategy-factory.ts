@@ -1,4 +1,4 @@
-import { MODEL_PROTOCOL_PREFIX } from './constants.js';
+import { MODEL_PROTOCOL_PREFIX } from './constants.ts';
 import { GeminiStrategy } from '../providers/gemini/gemini-strategy.ts';
 import { OpenAIStrategy } from '../providers/openai/openai-strategy.ts';
 import { ClaudeStrategy } from '../providers/claude/claude-strategy.ts';

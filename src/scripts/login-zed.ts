@@ -1,8 +1,8 @@
 // @ts-nocheck - Phase 5 type ratchet pending
 import readline from 'readline';
 import { handleZedOAuth, handleZedOAuthCallback } from '../auth/zed-oauth.ts';
-import { CONFIG, initializeConfig } from '../core/config-manager.js';
-import logger from '../utils/logger.js';
+import { CONFIG, initializeConfig } from '../core/config-manager.ts';
+import logger from '../utils/logger.ts';
 
 async function main() {
     await initializeConfig();

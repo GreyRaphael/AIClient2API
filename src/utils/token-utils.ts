@@ -1,5 +1,5 @@
 import { countTokens } from '@anthropic-ai/tokenizer';
-import logger from './logger.js';
+import logger from './logger.ts';
 
 /**
  * Extract text content from message format

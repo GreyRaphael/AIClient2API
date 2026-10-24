@@ -3,7 +3,7 @@ import {
     OpenAIApiService,
     normalizeToolChoiceForProvider
 } from '../src/providers/openai/openai-core.ts';
-import { resolveEmptyUpstreamResponseRetry } from '../src/handlers/request-pipeline.js';
+import { resolveEmptyUpstreamResponseRetry } from '../src/handlers/request-pipeline.ts';
 
 const weatherTool = {
     type: 'function',

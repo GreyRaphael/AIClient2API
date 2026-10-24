@@ -1,15 +1,16 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
-import { atomicWriteFile, withFileLock } from '../utils/file-lock.js';
-import logger from '../utils/logger.js';
+import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
+import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import axios from 'axios';
-import { CONFIG } from '../core/config-manager.js';
-import { parseProxyUrl } from '../utils/proxy-utils.js';
-import { getRequestBody } from '../utils/common.js';
-import { isValidVersionTag } from '../utils/version-tag.js';
+import { CONFIG } from '../core/config-manager.ts';
+import { parseProxyUrl } from '../utils/proxy-utils.ts';
+import { getRequestBody } from '../utils/common.ts';
+import { isValidVersionTag } from '../utils/version-tag.ts';
 import { assertNativeTypeScriptSupport } from '../bootstrap/runtime.js';
 
 const execAsync = promisify(exec);

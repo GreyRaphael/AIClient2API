@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * TLS Sidecar Manager
  * 
@@ -11,7 +12,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import logger from './logger.js';
+import logger from './logger.ts';
 import http from 'http';
 
 let __dirname = process.cwd();

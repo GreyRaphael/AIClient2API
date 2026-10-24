@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
-import logger from './logger.js';
-import { FETCH_SYSTEM_PROMPT_FILE } from './protocol.js';
+import logger from './logger.ts';
+import { FETCH_SYSTEM_PROMPT_FILE } from './protocol.ts';
 
 /**
  * Abstract provider strategy class, defining the interface for handling different model providers.

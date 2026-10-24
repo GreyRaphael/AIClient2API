@@ -7,8 +7,8 @@ import { KiroApiService } from './claude/claude-kiro.ts';
 import { CodexApiService } from './openai/codex-core.ts';
 import { ZedApiService } from './zed/zed-core.ts';
 import { TraeApiService } from './trae/trae-core.ts';
-import { MODEL_PROVIDER } from '../utils/constants.js';
-import logger from '../utils/logger.js';
+import { MODEL_PROVIDER } from '../utils/constants.ts';
+import logger from '../utils/logger.ts';
 
 // 适配器注册表
 const adapterRegistry = new Map();

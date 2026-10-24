@@ -1,5 +1,5 @@
 import { existsSync } from 'fs';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';

@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 主进程 (Master Process)
  * 
@@ -11,13 +12,13 @@
  * node src/core/master.js [原有的命令行参数]
  */
 
-import './security-hardening.js';
+import './security-hardening.ts';
 import { fork } from 'child_process';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import * as http from 'http';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { isRetryableNetworkError } from '../utils/common.js';
+import { isRetryableNetworkError } from '../utils/common.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -1,14 +1,14 @@
 // @ts-nocheck - Phase 5 type ratchet pending
 import { OAuth2Client } from 'google-auth-library';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { broadcastEvent } from '../services/ui-manager.js';
 import { autoLinkProviderConfigs } from '../services/service-manager.js';
-import { CONFIG } from '../core/config-manager.js';
-import { getGoogleAuthProxyConfig } from '../utils/proxy-utils.js';
+import { CONFIG } from '../core/config-manager.ts';
+import { getGoogleAuthProxyConfig } from '../utils/proxy-utils.ts';
 
 /**
  * OAuth 提供商配置

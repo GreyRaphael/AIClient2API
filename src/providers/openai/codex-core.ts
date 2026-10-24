@@ -1,16 +1,16 @@
 // @ts-nocheck - Phase 5 type ratchet pending
-import { atomicWriteFile } from '../../utils/file-lock.js';
+import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 import crypto from 'crypto';
 import {promises as fs} from 'fs';
 import path from 'path';
 import os from 'os';
 import {refreshCodexTokensWithRetry} from '../../auth/oauth-handlers.ts';
 import {getProviderPoolManager} from '../../services/service-manager.js';
-import {configureTLSSidecar, isTLSSidecarEnabledForProvider} from '../../utils/proxy-utils.js';
-import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.js';
-import {getProxyConfigForProvider} from '../../utils/proxy-utils.js';
+import {configureTLSSidecar, isTLSSidecarEnabledForProvider} from '../../utils/proxy-utils.ts';
+import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.ts';
+import {getProxyConfigForProvider} from '../../utils/proxy-utils.ts';
 import {getProviderModels} from '../provider-models.ts';
 import {normalizeCodexInstructions} from './codex-request-utils.ts';
 import {resolveProviderCapabilities} from '../provider-capabilities.ts';
@@ -781,7 +781,7 @@ export class CodexApiService {
         // 监控钩子：内部请求转换
         if (this.config?._monitorRequestId) {
             try {
-                const {getPluginManager} = await import('../../core/plugin-manager.js');
+                const {getPluginManager} = await import('../../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
                     await pluginManager.executeHook('onInternalRequestConverted', {

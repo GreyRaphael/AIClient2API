@@ -1,18 +1,19 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import deepmerge from 'deepmerge';
-import logger from '../utils/logger.js';
-import requestContext from '../utils/context.js';
-import { getClientIp, getRequestBody } from '../utils/common.js';
-import { handleError } from './request-pipeline.js';
+import logger from '../utils/logger.ts';
+import requestContext from '../utils/context.ts';
+import { getClientIp, getRequestBody } from '../utils/common.ts';
+import { handleError } from './request-pipeline.ts';
 import { handleUIApiRequests, serveStaticFiles } from '../services/ui-manager.js';
-import { isUIPath, isUIApiPath } from '../utils/ui-utils.js';
+import { isUIPath, isUIApiPath } from '../utils/ui-utils.ts';
 import { handleAPIRequests } from '../services/api-manager.js';
 import { getApiService, getProviderStatus } from '../services/service-manager.js';
 import { getProviderPoolManager } from '../services/service-manager.js';
-import { MODEL_PROVIDER } from '../utils/constants.js';
+import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { getRegisteredProviders, isRegisteredProvider } from '../providers/adapter.ts';
-import { countTokensAnthropic } from '../utils/token-utils.js';
-import { PROMPT_LOG_FILENAME } from '../core/config-manager.js';
-import { getPluginManager } from '../core/plugin-manager.js';
+import { countTokensAnthropic } from '../utils/token-utils.ts';
+import { PROMPT_LOG_FILENAME } from '../core/config-manager.ts';
+import { getPluginManager } from '../core/plugin-manager.ts';
 import { randomUUID } from 'crypto';
 
 /**

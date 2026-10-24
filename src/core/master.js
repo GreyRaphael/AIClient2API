@@ -14,4 +14,4 @@ try {
     process.exit(1);
 }
 
-await import('./master-core.js');
+await import('./master-core.ts');

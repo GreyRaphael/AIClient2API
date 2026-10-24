@@ -1,14 +1,14 @@
 // @ts-nocheck - Phase 5 type ratchet pending
 import http from 'http';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import os from 'os';
 import { broadcastEvent } from '../services/ui-manager.js';
 import { autoLinkProviderConfigs } from '../services/service-manager.js';
-import { CONFIG } from '../core/config-manager.js';
-import { getProxyConfigForProvider } from '../utils/proxy-utils.js';
+import { CONFIG } from '../core/config-manager.ts';
+import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
 
 /**
  * Kiro OAuth 配置（支持多种认证方式）

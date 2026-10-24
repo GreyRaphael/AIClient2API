@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 请求处理管线（从 utils/common.js 迁出）
  *
@@ -7,13 +8,13 @@
  */
 
 import { promises as fs } from 'fs';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { convertData } from '../convert/convert.js';
 import { ConverterFactory } from '../converters/ConverterFactory.ts';
-import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.js';
-import { getPluginManager } from '../core/plugin-manager.js';
-import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from '../utils/constants.js';
-import { getProtocolPrefix, ENDPOINT_TYPE } from '../utils/protocol.js';
+import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.ts';
+import { getPluginManager } from '../core/plugin-manager.ts';
+import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from '../utils/constants.ts';
+import { getProtocolPrefix, ENDPOINT_TYPE } from '../utils/protocol.ts';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../converters/signature-vault.ts';
 import {
     ensureValidStatusCode,
@@ -21,7 +22,7 @@ import {
     getRequestBody,
     createEmptyUpstreamResponseError,
     getErrorStatusCode
-} from '../utils/common.js';
+} from '../utils/common.ts';
 import {
     getCustomModelConfig,
     getCustomModelActualProvider,

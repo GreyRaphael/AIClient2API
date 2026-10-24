@@ -1,10 +1,10 @@
-import { CONFIG } from '../core/config-manager.js';
-import logger from '../utils/logger.js';
+import { CONFIG } from '../core/config-manager.ts';
+import logger from '../utils/logger.ts';
 import { serviceInstances, getServiceAdapter } from '../providers/adapter.ts';
 import { usageService } from '../services/usage-service.js';
 import { readUsageCache, writeUsageCache, readProviderUsageCache, updateProviderUsageCache } from './usage-cache.js';
-import { PROVIDER_MAPPINGS } from '../utils/provider-utils.js';
-import { MODEL_PROVIDER } from '../utils/common.js';
+import { PROVIDER_MAPPINGS } from '../utils/provider-utils.ts';
+import { MODEL_PROVIDER } from '../utils/common.ts';
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 

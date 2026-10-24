@@ -1,8 +1,8 @@
 // @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
-import { atomicWriteFile, withFileLock } from '../utils/file-lock.js';
-import logger from '../utils/logger.js';
-import { CONFIG } from '../core/config-manager.js';
+import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
+import logger from '../utils/logger.ts';
+import { CONFIG } from '../core/config-manager.ts';
 import {
     getConfiguredSupportedModels,
     getCustomModelIdsForProvider,

@@ -1,13 +1,13 @@
 // @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 import { randomUUID, randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { configureAxiosProxy } from '../../utils/proxy-utils.js';
-import { MODEL_PROVIDER } from '../../utils/constants.js';
+import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
+import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
-import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.js';
+import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.ts';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.ts';
 import {
     TRAE_CHANNEL_MODES,

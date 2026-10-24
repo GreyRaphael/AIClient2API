@@ -1,4 +1,4 @@
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 
 /**
  * Canonical 五档规范表（OpenAI / Responses → Claude）

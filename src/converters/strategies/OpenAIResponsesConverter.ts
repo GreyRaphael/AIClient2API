@@ -5,18 +5,18 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.ts';
 import { CodexConverter } from './CodexConverter.ts';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import {
     effortToClaudeBudget,
     effortToGeminiThinking
 } from '../thinking-budget.ts';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.ts';
-import { getConfigToggle } from '../../core/config-manager.js';
+import { getConfigToggle } from '../../core/config-manager.ts';
 import {
     cleanJsonSchemaForOpenAI,
     isOpenAIReasoningModel,

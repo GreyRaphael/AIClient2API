@@ -1,10 +1,10 @@
 // @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 import * as http from 'http';
 import * as https from 'https';
-import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
-import { MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.js';
+import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
+import { MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 
 // OpenAI Responses API specification service for interacting with third-party models
 export class OpenAIResponsesApiService {

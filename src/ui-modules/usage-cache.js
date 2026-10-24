@@ -1,6 +1,7 @@
-import { atomicWriteFile } from '../utils/file-lock.js';
+// @ts-nocheck - Phase 5 type ratchet pending
+import { atomicWriteFile } from '../utils/file-lock.ts';
 import { existsSync } from 'fs';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
 

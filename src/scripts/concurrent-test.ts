@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 并发测试脚本
  * 用于测试 API 服务器在高并发场景下的性能和稳定性

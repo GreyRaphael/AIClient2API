@@ -1,8 +1,8 @@
 // @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 
-import { atomicWriteFile } from '../../utils/file-lock.js';
+import { atomicWriteFile } from '../../utils/file-lock.ts';
 import { OAuth2Client } from 'google-auth-library';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 import * as http from 'http';
 import * as https from 'https';
 import * as crypto from 'crypto';
@@ -12,16 +12,16 @@ import * as os from 'os';
 import * as readline from 'readline';
 import { v4 as uuidv4 } from 'uuid';
 import open from 'open';
-import { configureTLSSidecar } from '../../utils/proxy-utils.js';
-import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.js';
+import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
+import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.ts';
 import { getProviderModels } from '../provider-models.ts';
 import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.ts';
-import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
+import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
 import { cleanJsonSchemaProperties } from '../../converters/utils.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import { getProviderPoolManager } from '../../services/service-manager.js';
-import { getConfigToggle } from '../../core/config-manager.js';
-import { MODEL_PROVIDER } from '../../utils/common.js';
+import { getConfigToggle } from '../../core/config-manager.ts';
+import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';

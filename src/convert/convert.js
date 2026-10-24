@@ -3,8 +3,8 @@
  * 基于 ConverterFactory 的转换器架构，提供通用数据转换入口
  */
 
-import logger from '../utils/logger.js';
-import { getProtocolPrefix } from '../utils/protocol.js';
+import logger from '../utils/logger.ts';
+import { getProtocolPrefix } from '../utils/protocol.ts';
 import { ConverterFactory } from '../converters/ConverterFactory.ts';
 
 /**

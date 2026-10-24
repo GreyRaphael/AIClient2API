@@ -1,7 +1,7 @@
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import { extractSystemPromptFromRequestBody } from '../../utils/protocol.js';
-import logger from '../../utils/logger.js';
-import { ProviderStrategy } from '../../utils/provider-strategy-base.js';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
+import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
+import logger from '../../utils/logger.ts';
+import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 import { applySystemPromptReplacements } from '../../converters/utils.ts';
 
 /**

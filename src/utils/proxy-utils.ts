@@ -4,12 +4,12 @@
  */
 
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import logger from './logger.js';
-import requestContext from './context.js';
+import logger from './logger.ts';
+import requestContext from './context.ts';
 import { HttpProxyAgent } from 'http-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { getTLSSidecar } from './tls-sidecar.js';
-import { NETWORK } from './constants.js';
+import { getTLSSidecar } from './tls-sidecar.ts';
+import { NETWORK } from './constants.ts';
 
 // 代理 Agent 缓存，避免重复创建 Agent 导致连接池失效和内存泄漏
 const agentCache = new Map();

@@ -5,15 +5,15 @@ import { existsSync } from 'fs';
 import path from 'path';
 import dns from 'dns/promises';
 import net from 'net';
-import logger from '../utils/logger.js';
-import { getPluginManager } from '../core/plugin-manager.js';
+import logger from '../utils/logger.ts';
+import { getPluginManager } from '../core/plugin-manager.ts';
 import {
     assertPathInside,
     normalizePluginArchiveEntryName,
     shouldScanPluginFile,
     validatePluginId,
     validatePluginTextContent
-} from '../core/plugin-security.js';
+} from '../core/plugin-security.ts';
 
 const DEFAULT_MARKET_URL = 'https://source.hex2077.dev/files/market.json';
 const LOCAL_MARKET_FILE = path.join(process.cwd(), 'configs', 'market.json');

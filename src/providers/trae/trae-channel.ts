@@ -12,7 +12,7 @@
  * 与服务端判定是不同层，其语义以本模块为准但不直接共享代码。
  */
 
-import { MODEL_PROVIDER } from '../../utils/constants.js';
+import { MODEL_PROVIDER } from '../../utils/constants.ts';
 
 /**
  * Trae 通道模式枚举

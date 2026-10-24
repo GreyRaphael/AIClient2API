@@ -1,16 +1,17 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import {
     ENDPOINT_TYPE,
     getRequestBody,
     getRateLimitCooldownRecoveryTime,
     getProtocolPrefix,
     MODEL_PROTOCOL_PREFIX
-} from '../utils/common.js';
+} from '../utils/common.ts';
 import {
     handleModelListRequest,
     handleContentGenerationRequest
-} from '../handlers/request-pipeline.js';
+} from '../handlers/request-pipeline.ts';
 import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.js';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import busboy from 'busboy';
 import { convertData } from '../convert/convert.js';
 
@@ -238,7 +239,7 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
         // 监控钩子：内容生成后与一元响应
         if (currentConfig._monitorRequestId) {
             try {
-                const { getPluginManager } = await import('../core/plugin-manager.js');
+                const { getPluginManager } = await import('../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
                     await pluginManager.executeHook('onContentGenerated', {
@@ -583,7 +584,7 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
         // 监控钩子
         if (currentConfig._monitorRequestId) {
             try {
-                const { getPluginManager } = await import('../core/plugin-manager.js');
+                const { getPluginManager } = await import('../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
                     await pluginManager.executeHook('onContentGenerated', {

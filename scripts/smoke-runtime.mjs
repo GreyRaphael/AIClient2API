@@ -19,10 +19,10 @@ import { spawn } from 'node:child_process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODULES = [
     'src/converters/register-converters.ts',
-    'src/core/plugin-security.js',
+    'src/core/plugin-security.ts',
     'src/providers/adapter.ts',
     'src/providers/provider-pool-manager.ts',
-    'src/handlers/request-pipeline.js',
+    'src/handlers/request-pipeline.ts',
     'src/services/service-manager.js',
     'src/auth/index.ts',
     'src/ui-modules/update-api.js'

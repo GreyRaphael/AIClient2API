@@ -1,7 +1,7 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
 import axios from 'axios';
-import { MODEL_PROVIDER } from '../src/utils/constants.js';
+import { MODEL_PROVIDER } from '../src/utils/constants.ts';
 import {
     CodexApiService,
     getCodexModels,

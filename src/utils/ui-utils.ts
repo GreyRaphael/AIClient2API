@@ -1,7 +1,7 @@
 /**
  * UI 相关的工具函数
  */
-import { UI_PATHS } from './constants.js';
+import { UI_PATHS } from './constants.ts';
 
 /**
  * 判断是否为 UI 静态资源路径

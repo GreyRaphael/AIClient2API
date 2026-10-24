@@ -47,10 +47,10 @@
     "check:imports": "node scripts/check-imports.mjs",
     "test:runtime": "node scripts/smoke-runtime.mjs",
     "verify": "npm run typecheck && npm run check:imports && npm test -- --runInBand && npm run test:runtime",
-    "help": "node src/scripts/help.js",
-    "example:api": "node src/scripts/example-api.js",
-    "login:zed": "node src/scripts/login-zed.js",
-    "login:trae": "node src/scripts/login-trae.js",
-    "benchmark:concurrent": "node src/scripts/concurrent-test.js"
+    "help": "node src/scripts/help.ts",
+    "example:api": "node src/scripts/example-api.ts",
+    "login:zed": "node src/scripts/login-zed.ts",
+    "login:trae": "node src/scripts/login-trae.ts",
+    "benchmark:concurrent": "node src/scripts/concurrent-test.ts"
   }
 }

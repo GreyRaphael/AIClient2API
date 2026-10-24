@@ -6,7 +6,7 @@ import { GeminiConverter } from "../../src/converters/strategies/GeminiConverter
 import { CodexConverter } from "../../src/converters/strategies/CodexConverter.ts";
 import { OpenAIApiService } from "../../src/providers/openai/openai-core.ts";
 import { aggregateChatCompletionChunks } from "../../src/providers/openai/openai-core.ts";
-import { MODEL_PROTOCOL_PREFIX } from "../../src/utils/constants.js";
+import { MODEL_PROTOCOL_PREFIX } from "../../src/utils/constants.ts";
 import { isVirtualSignature } from "../../src/converters/signature-vault.ts";
 import { ZedApiService } from "../../src/providers/zed/zed-core.ts";
 import { ResponsesSseEmitter } from "../../src/converters/responses-sse-emitter.ts";
@@ -20,7 +20,7 @@ import {
     extractTerminalFinishReason,
     isTerminalEmptyFinishReason,
     isInStreamErrorPayload
-} from "../../src/handlers/request-pipeline.js";
+} from "../../src/handlers/request-pipeline.ts";
 import { extractSseStreamError } from "../e2e/e2e-helpers.js";
 
 const flat = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);

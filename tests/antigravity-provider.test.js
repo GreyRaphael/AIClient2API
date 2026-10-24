@@ -9,7 +9,7 @@ import {
     resetCapabilityStore,
     setCapabilityStore
 } from '../src/providers/model-capability.ts';
-import { CONFIG } from '../src/core/config-manager.js';
+import { CONFIG } from '../src/core/config-manager.ts';
 
 function seedNodeModels(providerType, nodesByUuid) {
     const nodes = {};

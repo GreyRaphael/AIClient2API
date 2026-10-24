@@ -1,15 +1,15 @@
 // @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
-import '../core/security-hardening.js';
-import logger from '../utils/logger.js';
+import '../core/security-hardening.ts';
+import logger from '../utils/logger.ts';
 import * as http from 'http';
-import { initializeConfig, CONFIG } from '../core/config-manager.js';
+import { initializeConfig, CONFIG } from '../core/config-manager.ts';
 import { initApiService, autoLinkProviderConfigs } from './service-manager.js';
 import { initializeUIManagement } from './ui-manager.js';
 import { initializeAPIManagement } from './api-manager.js';
-import { createRequestHandler } from '../handlers/request-handler.js';
-import { discoverPlugins, getPluginManager } from '../core/plugin-manager.js';
-import { getTLSSidecar } from '../utils/tls-sidecar.js';
-import { HEALTH_CHECK } from '../utils/constants.js';
+import { createRequestHandler } from '../handlers/request-handler.ts';
+import { discoverPlugins, getPluginManager } from '../core/plugin-manager.ts';
+import { getTLSSidecar } from '../utils/tls-sidecar.ts';
+import { HEALTH_CHECK } from '../utils/constants.ts';
 
 /**
  * @license
@@ -91,7 +91,7 @@ import { HEALTH_CHECK } from '../utils/constants.js';
 import 'dotenv/config'; // Import dotenv and configure it
 import '../converters/register-converters.ts'; // 注册所有转换器
 import { getProviderPoolManager } from './service-manager.js';
-import { isRetryableNetworkError } from '../utils/common.js';
+import { isRetryableNetworkError } from '../utils/common.ts';
 
 // 检测是否作为子进程运行
 const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';

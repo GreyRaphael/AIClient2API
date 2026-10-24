@@ -1,7 +1,8 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { promises as fs } from 'fs';
 import { existsSync, realpathSync } from 'fs';
 import path from 'path';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 
 export const PLUGIN_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 

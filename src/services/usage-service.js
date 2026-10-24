@@ -5,7 +5,7 @@
 
 import { getProviderPoolManager } from './service-manager.js';
 import { serviceInstances } from '../providers/adapter.ts';
-import { MODEL_PROVIDER } from '../utils/common.js';
+import { MODEL_PROVIDER } from '../utils/common.ts';
 import { getProviderModels } from '../providers/provider-models.ts';
 
 /**

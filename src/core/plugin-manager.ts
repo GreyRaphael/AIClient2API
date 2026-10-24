@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 插件管理器 - 可插拔插件系统核心
  * 
@@ -8,9 +9,9 @@
  * 4. 插件配置管理
  */
 
-import { atomicWriteFile } from '../utils/file-lock.js';
+import { atomicWriteFile } from '../utils/file-lock.ts';
 import { promises as fs } from 'fs';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { existsSync } from 'fs';
 import path from 'path';
 import {
@@ -19,7 +20,7 @@ import {
     scanPluginDirectory,
     validatePluginExport,
     validatePluginId
-} from './plugin-security.js';
+} from './plugin-security.ts';
 
 // 插件配置文件路径
 const PLUGINS_CONFIG_FILE = path.join(process.cwd(), 'configs', 'plugins.json');

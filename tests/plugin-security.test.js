@@ -2,7 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
-import { scanPluginDirectory, shouldScanPluginFile } from '../src/core/plugin-security.js';
+import { scanPluginDirectory, shouldScanPluginFile } from '../src/core/plugin-security.ts';
 
 describe('plugin-security text file extensions', () => {
     test('scans TypeScript source files', () => {

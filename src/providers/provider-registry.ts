@@ -6,7 +6,7 @@
  * 需要同步修改 10+ 个映射表。
  */
 
-import { MODEL_PROVIDER, MODEL_PROTOCOL_PREFIX } from '../utils/constants.js';
+import { MODEL_PROVIDER, MODEL_PROTOCOL_PREFIX } from '../utils/constants.ts';
 
 export const PROVIDER_DEFINITIONS = [
     {

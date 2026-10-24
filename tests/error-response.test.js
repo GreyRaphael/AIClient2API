@@ -1,5 +1,5 @@
 import { describe, test, expect } from '@jest/globals';
-import { createErrorResponse } from '../src/handlers/request-pipeline.js';
+import { createErrorResponse } from '../src/handlers/request-pipeline.ts';
 
 describe('错误响应保留上游 4xx 细节', () => {
     test('OpenAI 4xx 追加 upstream 错误信息', () => {

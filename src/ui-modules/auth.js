@@ -1,12 +1,13 @@
-import { atomicWriteFile } from '../utils/file-lock.js';
+// @ts-nocheck - Phase 5 type ratchet pending
+import { atomicWriteFile } from '../utils/file-lock.ts';
 import { existsSync } from 'fs';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { CONFIG } from '../core/config-manager.js';
-import { getClientIp } from '../utils/common.js';
-import { PASSWORD } from '../utils/constants.js';
+import { CONFIG } from '../core/config-manager.ts';
+import { getClientIp } from '../utils/common.ts';
+import { PASSWORD } from '../utils/constants.ts';
 
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = path.join(process.cwd(), 'configs', 'token-store.json');

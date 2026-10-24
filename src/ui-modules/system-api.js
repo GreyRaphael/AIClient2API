@@ -1,5 +1,6 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync, createReadStream } from 'fs';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import path from 'path';
 import { getCpuUsagePercent } from './system-monitor.js';
 

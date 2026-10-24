@@ -1,14 +1,15 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
-import logger from '../utils/logger.js';
-import { getRequestBody } from '../utils/common.js';
+import logger from '../utils/logger.ts';
+import { getRequestBody } from '../utils/common.ts';
 import {
     normalizeModelIds
 } from '../providers/provider-models.ts';
-import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath, addToUsedPaths, isPathUsed, pathsEqual } from '../utils/provider-utils.js';
+import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath, addToUsedPaths, isPathUsed, pathsEqual } from '../utils/provider-utils.ts';
 import { broadcastEvent } from './event-broadcast.js';
 import { getRegisteredProviders, invalidateServiceAdapter } from '../providers/adapter.ts';
-import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
-import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.js';
+import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
+import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.ts';
 import { isTraeProviderType, isSoloFamilyProviderType, isSoloFamilyChannel, TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.ts';
 import {
     ensureProviderCapability,

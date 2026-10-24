@@ -1,6 +1,6 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
-import { ENDPOINT_TYPE } from '../src/utils/protocol.js';
+import { ENDPOINT_TYPE } from '../src/utils/protocol.ts';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import {
     CAPABILITY_SOURCE,
@@ -11,7 +11,7 @@ import {
     setCapabilityStore
 } from '../src/providers/model-capability.ts';
 import { handleGetProviderModels, handleGetProviders } from '../src/ui-modules/provider-api.js';
-import { CONFIG } from '../src/core/config-manager.js';
+import { CONFIG } from '../src/core/config-manager.ts';
 
 function createResponse() {
     return {

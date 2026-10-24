@@ -3,13 +3,13 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { randomBytes, randomUUID } from 'crypto';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { autoLinkProviderConfigs } from '../services/service-manager.js';
 import { broadcastEvent } from '../services/ui-manager.js';
-import { CONFIG } from '../core/config-manager.js';
-import { configureAxiosProxy } from '../utils/proxy-utils.js';
-import { MODEL_PROVIDER } from '../utils/constants.js';
-import { withFileLock, atomicWriteFileSync } from '../utils/file-lock.js';
+import { CONFIG } from '../core/config-manager.ts';
+import { configureAxiosProxy } from '../utils/proxy-utils.ts';
+import { MODEL_PROVIDER } from '../utils/constants.ts';
+import { withFileLock, atomicWriteFileSync } from '../utils/file-lock.ts';
 
 export const TRAE_AUTH_CONFIG = {
     defaultHost: 'https://api.enterprise.trae.cn',

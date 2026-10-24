@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
-import { isUIApiPath } from '../utils/ui-utils.js';
-import { getPluginManager } from '../core/plugin-manager.js';
-import { resolvePluginStaticFile } from '../core/plugin-security.js';
+import { isUIApiPath } from '../utils/ui-utils.ts';
+import { getPluginManager } from '../core/plugin-manager.ts';
+import { resolvePluginStaticFile } from '../core/plugin-security.ts';
 
 // Import UI modules
 import * as auth from '../ui-modules/auth.js';
@@ -17,7 +17,7 @@ import * as oauthApi from '../ui-modules/oauth-api.js';
 import * as customModelsApi from '../ui-modules/custom-models-api.js';
 import * as accessApi from '../ui-modules/access-api.js';
 import * as eventBroadcast from '../ui-modules/event-broadcast.js';
-import { HELP_DATA, API_GUIDE_DATA, API_EXAMPLES, formatHelpText, formatApiGuideText } from '../utils/docs-data.js';
+import { HELP_DATA, API_GUIDE_DATA, API_EXAMPLES, formatHelpText, formatApiGuideText } from '../utils/docs-data.ts';
 
 // Re-export from event-broadcast module
 export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials, upload } from '../ui-modules/event-broadcast.js';

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
 import multer from 'multer';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = path.join(process.cwd(), 'configs', 'token-store.json');

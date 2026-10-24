@@ -2,7 +2,7 @@
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { auditSecurityEvent } from './plugin-security.js';
+import { auditSecurityEvent } from './plugin-security.ts';
 
 const require = createRequire(import.meta.url);
 const fs = require('fs');

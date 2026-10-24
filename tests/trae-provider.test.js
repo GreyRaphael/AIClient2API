@@ -2,12 +2,12 @@ jest.mock('open', () => ({ default: jest.fn() }));
 
 import fs from 'fs';
 import path from 'path';
-import { MODEL_PROVIDER } from '../src/utils/constants.js';
-import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
+import { MODEL_PROVIDER } from '../src/utils/constants.ts';
+import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.ts';
 import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.ts';
 import { TraeApiService } from '../src/providers/trae/trae-core.ts';
 import { PROVIDER_MODELS } from '../src/providers/provider-models.ts';
-import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.js';
+import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.ts';
 
 describe('Trae Provider Implementation Tests', () => {
     test('Trae provider is properly registered and configured', () => {

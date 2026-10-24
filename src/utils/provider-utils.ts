@@ -1,10 +1,11 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 提供商工具模块
  * 包含 ui-manager.js 和 service-manager.js 共用的工具函数
  */
 
 import * as path from 'path';
-import logger from './logger.js';
+import logger from './logger.ts';
 import { promises as fs } from 'fs';
 import { getProviderMappings } from '../providers/provider-registry.ts';
 

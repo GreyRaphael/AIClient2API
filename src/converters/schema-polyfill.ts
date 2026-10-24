@@ -1,7 +1,7 @@
 // @ts-nocheck - Phase 5 type ratchet pending
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 import { cleanJsonSchemaProperties } from './utils.ts';
-import { getConfigToggle, getConfigPositiveInt } from '../core/config-manager.js';
+import { getConfigToggle, getConfigPositiveInt } from '../core/config-manager.ts';
 
 /**
  * 判断 Schema Polyfill 是否启用（默认启用）

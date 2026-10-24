@@ -1,6 +1,6 @@
 // @ts-nocheck - Phase 5 type ratchet pending
-import { getRequestBody } from '../utils/common.js';
-import logger from '../utils/logger.js';
+import { getRequestBody } from '../utils/common.ts';
+import logger from '../utils/logger.ts';
 import {
     handleGeminiAntigravityOAuth,
     batchImportGeminiTokensStream,

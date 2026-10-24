@@ -1,10 +1,11 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
-import { DEFAULT_REQUEST_BODY_MAX_BYTES, INPUT_SYSTEM_PROMPT_FILE } from '../utils/protocol.js';
-import { MODEL_PROVIDER } from '../utils/constants.js';
-import { atomicWriteFile } from '../utils/file-lock.js';
+import { DEFAULT_REQUEST_BODY_MAX_BYTES, INPUT_SYSTEM_PROMPT_FILE } from '../utils/protocol.ts';
+import { MODEL_PROVIDER } from '../utils/constants.ts';
+import { atomicWriteFile } from '../utils/file-lock.ts';
 import { migrateLegacyTraeProviderPools, normalizeLegacyTraeProviderType } from '../providers/trae/trae-channel.ts';
-import logger from '../utils/logger.js';
+import logger from '../utils/logger.ts';
 
 export let CONFIG = {}; // Make CONFIG exportable
 export let PROMPT_LOG_FILENAME = ''; // Make PROMPT_LOG_FILENAME exportable

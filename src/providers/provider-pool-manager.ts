@@ -1,10 +1,10 @@
 // @ts-nocheck - Phase 5 type ratchet pending
 import * as fs from 'fs';
-import { CONFIG } from '../core/config-manager.js';
+import { CONFIG } from '../core/config-manager.ts';
 import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.ts';
-import logger from '../utils/logger.js';
-import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.js';
-import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
+import logger from '../utils/logger.ts';
+import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.ts';
+import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { convertData } from '../convert/convert.js';
 
 import {
@@ -18,7 +18,7 @@ import {
 } from './model-capability.ts';
 import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';
-import { ENDPOINT_TYPE } from '../utils/common.js';
+import { ENDPOINT_TYPE } from '../utils/common.ts';
 
 /**
  * Manages a pool of API service providers, handling their health and selection.

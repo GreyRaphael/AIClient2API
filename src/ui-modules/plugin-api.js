@@ -1,6 +1,7 @@
-import { getPluginManager } from '../core/plugin-manager.js';
-import logger from '../utils/logger.js';
-import { getRequestBody } from '../utils/common.js';
+// @ts-nocheck - Phase 5 type ratchet pending
+import { getPluginManager } from '../core/plugin-manager.ts';
+import logger from '../utils/logger.ts';
+import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from './event-broadcast.js';
 import { fetchMarketPlugins, installPlugin, installPluginFromBuffer } from '../services/plugin-installer.js';
 import multer from 'multer';
