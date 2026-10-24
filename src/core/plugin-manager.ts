@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 插件管理器 - 可插拔插件系统核心
  * 
@@ -72,6 +71,11 @@ export const PLUGIN_TYPE = {
  * 插件管理器类
  */
 class PluginManager {
+    plugins: Map<string, any>;
+    pluginsConfig: any;
+    initialized: boolean;
+    config: any;
+
     constructor() {
         /** @type {Map<string, Plugin>} */
         this.plugins = new Map();
@@ -90,7 +94,7 @@ class PluginManager {
     async loadConfig() {
         try {
             // 1. 永远生成默认配置
-            const defaultConfig = await this.generateDefaultConfig();
+            const defaultConfig: any = await this.generateDefaultConfig();
             
             // 2. 如果本地文件存在，读取并合并
             if (existsSync(PLUGINS_CONFIG_FILE)) {
@@ -98,7 +102,7 @@ class PluginManager {
                 const localConfig = JSON.parse(content);
                 
                 // 3. 合并配置：遍历默认配置中的所有插件
-                for (const [pluginName, defaultPluginConfig] of Object.entries(defaultConfig.plugins)) {
+                for (const [pluginName, defaultPluginConfig] of Object.entries(defaultConfig.plugins) as [string, any][]) {
                     const localPluginConfig = localConfig.plugins?.[pluginName];
                     
                     if (localPluginConfig) {
@@ -566,7 +570,7 @@ class PluginManager {
         }
     }
 
-    executePluginOperation(plugin, operationName, fn) {
+    executePluginOperation(plugin: any, operationName: string, fn: () => any): Promise<any> {
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {

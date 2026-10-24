@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 并发测试脚本
  * 用于测试 API 服务器在高并发场景下的性能和稳定性
@@ -97,6 +96,13 @@ function parseArgs() {
 
 // 统计数据
 class Statistics {
+    completed: number;
+    failed: number;
+    responseTimes: number[];
+    errors: Record<string, number>;
+    startTime: number | null;
+    endTime: number | null;
+
     constructor() {
         this.completed = 0;
         this.failed = 0;
@@ -216,7 +222,7 @@ function createRequestBody(config, requestId) {
 }
 
 // 发送单个请求
-function sendRequest(config, requestId) {
+function sendRequest(config, requestId): Promise<any> {
     return new Promise((resolve, reject) => {
         const startTime = Date.now();
         const url = new URL(config.endpoint, config.url);
@@ -298,13 +304,17 @@ function sendRequest(config, requestId) {
 
 // 并发控制器
 class ConcurrencyController {
+    concurrency: number;
+    running: number;
+    queue: any[];
+
     constructor(concurrency) {
         this.concurrency = concurrency;
         this.running = 0;
         this.queue = [];
     }
 
-    async run(task) {
+    async run(task: any): Promise<any> {
         return new Promise((resolve, reject) => {
             this.queue.push({ task, resolve, reject });
             this.processQueue();

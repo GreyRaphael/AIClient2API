@@ -1,9 +1,16 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 速率追踪器 - 用于统计 QPS 和 TPS
  * 使用滑动窗口（桶）实现，性能较好
  */
 export class RateTracker {
+    windowSeconds: number;
+    buckets: Array<{ count: number; total: number }>;
+    lastUpdateTime: number;
+    firstRecordTime: number;
+    maxQps: number;
+    maxTps: number;
+    maxRpm: number;
+
     /**
      * @param {number} windowSeconds - 窗口大小（秒），默认 10 秒
      */
@@ -109,6 +116,11 @@ export class RateTracker {
  * 速率管理类 - 用于管理多个追踪器
  */
 export class RateManager {
+    windowSeconds: number;
+    maxTrackers: number;
+    trackers: Map<string, RateTracker>;
+    globalTracker: RateTracker;
+
     constructor(windowSeconds = 10, maxTrackers = 5000) {
         this.windowSeconds = windowSeconds;
         this.maxTrackers = maxTrackers; // 防止内存泄露，限制追踪器数量

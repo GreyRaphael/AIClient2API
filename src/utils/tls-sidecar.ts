@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * TLS Sidecar Manager
  * 
@@ -27,6 +26,14 @@ const MAX_RESTART_ATTEMPTS = 5;
 const RESTART_DELAY = 2000;          // 2s
 
 class TLSSidecar {
+    process: any;
+    port: number;
+    baseUrl: string | null;
+    healthCheckTimer: ReturnType<typeof setInterval> | null;
+    restartCount: number;
+    isShuttingDown: boolean;
+    ready: boolean;
+
     constructor() {
         this.process = null;
         this.port = DEFAULT_PORT;
@@ -44,7 +51,7 @@ class TLSSidecar {
      * @param {string} [options.binaryPath] - 自定义二进制路径
      * @returns {Promise<boolean>}
      */
-    async start(options = {}) {
+    async start(options: any = {}) {
         if (this.process) {
             logger.info('[TLS-Sidecar] Already running');
             return true;
@@ -134,7 +141,7 @@ class TLSSidecar {
 
         if (this.process) {
             logger.info('[TLS-Sidecar] Stopping...');
-            return new Promise((resolve) => {
+            return new Promise<void>((resolve) => {
                 const timeout = setTimeout(() => {
                     if (this.process) {
                         logger.warn('[TLS-Sidecar] Force killing');
