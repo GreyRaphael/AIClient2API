@@ -1,3 +1,17 @@
+import { describe, test, expect, beforeEach, afterEach, jest } from "@jest/globals";
+import logger from "../../src/utils/logger.js";
+import configManager from "../../src/core/config-manager.js";
+import {
+    mergeConsecutiveSameRoleContents,
+    isSortToolsEnabled,
+    sortToolsByName,
+    logOmittedCacheControl
+} from "../../src/converters/utils.js";
+import { OpenAIConverter } from "../../src/converters/strategies/OpenAIConverter.js";
+import { ClaudeConverter } from "../../src/converters/strategies/ClaudeConverter.js";
+import { OpenAIResponsesConverter } from "../../src/converters/strategies/OpenAIResponsesConverter.js";
+import { CodexConverter } from "../../src/converters/strategies/CodexConverter.js";
+
 /**
  * Phase 4 可选增强测试套件
  * 
@@ -6,20 +20,6 @@
  * 2. 工具列表确定性排序（sortToolsByName、isSortToolsEnabled 与全转换器端到端接入）
  * 3. Claude cache_control 跨协议转换日志化（logOmittedCacheControl）
  */
-
-import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import logger from '../src/utils/logger.js';
-import configManager from '../src/core/config-manager.js';
-import {
-    mergeConsecutiveSameRoleContents,
-    isSortToolsEnabled,
-    sortToolsByName,
-    logOmittedCacheControl
-} from '../src/converters/utils.js';
-import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
-import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
-import { OpenAIResponsesConverter } from '../src/converters/strategies/OpenAIResponsesConverter.js';
-import { CodexConverter } from '../src/converters/strategies/CodexConverter.js';
 
 describe('Phase 4: 跨协议可选增强测试套件', () => {
     let originalEnv;
