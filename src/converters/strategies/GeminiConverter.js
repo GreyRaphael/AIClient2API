@@ -5,10 +5,10 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { BaseConverter } from '../BaseConverter.js';
+import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
-import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import {
     mapFinishReason,
     getOpenAIStreamIdentity,
@@ -22,7 +22,7 @@ import { getConfigToggle } from '../../core/config-manager.js';
 import {
     isCustomTool,
     extractCustomToolInput
-} from '../custom-tool-registry.js';
+} from '../custom-tool-registry.ts';
 
 /**
  * Claude Code 专用工具参数启发式开关。

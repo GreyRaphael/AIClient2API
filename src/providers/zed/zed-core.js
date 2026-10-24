@@ -11,7 +11,7 @@ import { withFileLock, atomicWriteFile } from '../../utils/file-lock.js';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.js';
 // 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
 import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.js';
-import { budgetTokensToEffort, effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.js';
+import { budgetTokensToEffort, effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.js';
 import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
@@ -164,7 +164,7 @@ export function getZedProviderForModel(model, metadataMap = null) {
 /**
  * 将 Claude thinking budget 映射为 adaptive effort。
  *
- * 与 `src/converters/thinking-budget.js` 的 canonical 五档表对齐：
+ * 与 `src/converters/thinking-budget.ts` 的 canonical 五档表对齐：
  * high = 20000。budget 无法区分 xhigh / max（两者都是 32000），
  * 因此超过 20000 统一回退到 max；需要 xhigh 时请显式提供 thinking.effort。
  *

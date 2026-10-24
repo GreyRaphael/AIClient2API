@@ -6,7 +6,7 @@
 
 import {v4 as uuidv4} from 'uuid';
 import logger from '../../utils/logger.js';
-import {BaseConverter} from '../BaseConverter.js';
+import {BaseConverter} from '../BaseConverter.ts';
 import {CodexConverter} from './CodexConverter.js';
 import {StreamSessionStore} from '../stream-session.js';
 import {
@@ -23,13 +23,13 @@ import {
 } from '../utils.js';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import {getConfigToggle} from '../../core/config-manager.js';
-import {effortToGeminiThinking} from '../thinking-budget.js';
-import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.js';
+import {effortToGeminiThinking} from '../thinking-budget.ts';
+import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.ts';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 import {
     isCustomTool,
     extractCustomToolInput
-} from '../custom-tool-registry.js';
+} from '../custom-tool-registry.ts';
 
 /**
  * Claude转换器类

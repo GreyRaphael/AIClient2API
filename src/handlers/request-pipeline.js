@@ -9,12 +9,12 @@
 import { promises as fs } from 'fs';
 import logger from '../utils/logger.js';
 import { convertData } from '../convert/convert.js';
-import { ConverterFactory } from '../converters/ConverterFactory.js';
+import { ConverterFactory } from '../converters/ConverterFactory.ts';
 import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.js';
 import { getPluginManager } from '../core/plugin-manager.js';
 import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from '../utils/constants.js';
 import { getProtocolPrefix, ENDPOINT_TYPE } from '../utils/protocol.js';
-import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../converters/signature-vault.js';
+import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../converters/signature-vault.ts';
 import {
     ensureValidStatusCode,
     getRateLimitCooldownRecoveryTime,

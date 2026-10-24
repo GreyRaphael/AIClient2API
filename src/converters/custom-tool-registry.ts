@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 请求级 custom tool 注册表
  *
@@ -13,28 +12,36 @@
 
 import { StreamSessionStore } from './stream-session.js';
 
+export interface CustomToolRecord {
+    name: string;
+    description: string;
+    format: any;
+}
+
+export interface CustomToolInput {
+    name?: string;
+    description?: string;
+    format?: any;
+}
+
 const registry = new StreamSessionStore({ label: 'custom-tool-registry' });
 
 /**
  * 从工具对象中读取名称。兼容 Responses / Chat / Claude 三种形状。
- * @param {any} tool
- * @returns {string}
  */
-function toolName(tool) {
+function toolName(tool: any): string {
     if (!tool || typeof tool !== 'object') return '';
     return String(tool.name || tool.function?.name || '');
 }
 
 /**
  * 登记本次请求中声明为 custom 的工具。
- * @param {string|null|undefined} requestId
- * @param {Array<any>} tools
  */
-export function registerCustomTools(requestId, tools = []) {
+export function registerCustomTools(requestId: string | null | undefined, tools: any[] = []): void {
     // 没有 requestId 时不做登记：'default' 共享桶会让并发请求互相污染。
     if (!requestId) return;
     const key = requestId;
-    const map = new Map();
+    const map = new Map<string, CustomToolRecord>();
     for (const tool of Array.isArray(tools) ? tools : []) {
         if (!tool || typeof tool !== 'object' || tool.type !== 'custom') continue;
         const name = toolName(tool);
@@ -52,37 +59,20 @@ export function registerCustomTools(requestId, tools = []) {
     }
 }
 
-/**
- * @param {string|null|undefined} requestId
- * @returns {Map<string, {name: string, description: string, format: any}>}
- */
-export function getCustomTools(requestId) {
+export function getCustomTools(requestId: string | null | undefined): Map<string, CustomToolRecord> {
     if (!requestId) return new Map();
     return registry.get(requestId) || new Map();
 }
 
-/**
- * @param {string|null|undefined} requestId
- * @param {string} name
- * @returns {{name: string, description: string, format: any}|null}
- */
-export function getCustomTool(requestId, name) {
+export function getCustomTool(requestId: string | null | undefined, name: string): CustomToolRecord | null {
     return getCustomTools(requestId).get(name) || null;
 }
 
-/**
- * @param {string|null|undefined} requestId
- * @param {string} name
- * @returns {boolean}
- */
-export function isCustomTool(requestId, name) {
+export function isCustomTool(requestId: string | null | undefined, name: string): boolean {
     return Boolean(getCustomTool(requestId, name));
 }
 
-/**
- * @param {string|null|undefined} requestId
- */
-export function clearCustomTools(requestId) {
+export function clearCustomTools(requestId: string | null | undefined): void {
     if (!requestId) return;
     registry.delete(requestId);
 }
@@ -91,10 +81,8 @@ export function clearCustomTools(requestId) {
  * 将 custom tool 降级为 function 工具参数 Schema。
  * - apply_patch 保留现有 patch/input 双字段启发式；
  * - 其他 custom tool 使用单个 `input` 自由文本字段。
- * @param {{name?: string, description?: string, format?: any}} [tool]
- * @returns {Object}
  */
-export function buildCustomToolParameters(tool = {}) {
+export function buildCustomToolParameters(tool: CustomToolInput = {}): Record<string, any> {
     const name = typeof tool.name === 'string' ? tool.name : '';
     if (name === 'apply_patch') {
         return {
@@ -130,10 +118,8 @@ export function buildCustomToolParameters(tool = {}) {
 
 /**
  * 将 custom tool 转换为 function 工具声明（不含 type 包装）。
- * @param {any} tool
- * @returns {{name: string, description: string, parameters: Object}|null}
  */
-export function customToolToFunction(tool) {
+export function customToolToFunction(tool: any): { name: string; description: string; parameters: Record<string, any> } | null {
     const name = toolName(tool);
     if (!name) return null;
     return {
@@ -149,10 +135,8 @@ export function customToolToFunction(tool) {
 
 /**
  * 从 function_call / tool_use 的参数中还原 custom tool 的自由文本 input。
- * @param {any} value
- * @returns {string}
  */
-export function extractCustomToolInput(value) {
+export function extractCustomToolInput(value: any): string {
     if (value === null || value === undefined) return '';
     if (typeof value === 'string') return value;
     if (typeof value === 'object') {
@@ -161,7 +145,7 @@ export function extractCustomToolInput(value) {
         if (typeof value.content === 'string') return value.content;
         if (typeof value.text === 'string') return value.text;
         try {
-            return JSON.stringify(value);
+            return JSON.stringify(value) ?? String(value);
         } catch {
             return String(value);
         }
@@ -171,9 +155,7 @@ export function extractCustomToolInput(value) {
 
 /**
  * Responses 的 custom_tool_call -> Chat function 参数。
- * @param {any} input
- * @returns {string}
  */
-export function customInputToFunctionArguments(input) {
-    return JSON.stringify({ input: extractCustomToolInput(input) });
+export function customInputToFunctionArguments(input: any): string {
+    return JSON.stringify({ input: extractCustomToolInput(input) }) ?? '{}';
 }

@@ -5,7 +5,7 @@
 
 import logger from '../utils/logger.js';
 import { getProtocolPrefix } from '../utils/protocol.js';
-import { ConverterFactory } from '../converters/ConverterFactory.js';
+import { ConverterFactory } from '../converters/ConverterFactory.ts';
 
 /**
  * @typedef {import('../../types/protocols/common.js').CrossProtocolRequest} CrossProtocolRequest

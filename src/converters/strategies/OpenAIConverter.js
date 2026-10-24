@@ -6,7 +6,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../../utils/logger.js';
-import { BaseConverter } from '../BaseConverter.js';
+import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
 import { CodexConverter } from './CodexConverter.js';
@@ -35,16 +35,16 @@ import { ResponsesSseEmitter } from '../responses-sse-emitter.js';
 import {
     effortToClaudeBudget,
     effortToGeminiThinking
-} from '../thinking-budget.js';
+} from '../thinking-budget.ts';
 import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
-import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
     registerCustomTools,
     isCustomTool,
     customToolToFunction,
     extractCustomToolInput
-} from '../custom-tool-registry.js';
+} from '../custom-tool-registry.ts';
 
 /**
  * 将任意来源的 tool id 收敛为 Anthropic 合法的 `[a-zA-Z0-9_-]+`。

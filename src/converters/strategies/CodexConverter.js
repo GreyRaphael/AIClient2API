@@ -6,16 +6,16 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
-import { BaseConverter } from '../BaseConverter.js';
+import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.js';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
-import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { sortToolsByName, anthropicUsageFromInclusiveInput, applyEstimatedReasoningTokens } from '../utils.js';
 import {
     customInputToFunctionArguments,
     extractCustomToolInput
-} from '../custom-tool-registry.js';
+} from '../custom-tool-registry.ts';
 
 /**
  * 提取并规范化 reasoning effort：

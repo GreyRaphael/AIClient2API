@@ -6,15 +6,15 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../../utils/logger.js';
-import { BaseConverter } from '../BaseConverter.js';
+import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.js';
 import { CodexConverter } from './CodexConverter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {
     effortToClaudeBudget,
     effortToGeminiThinking
-} from '../thinking-budget.js';
-import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.js';
+} from '../thinking-budget.ts';
+import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import { polyfillAndCleanSchemaForGemini } from '../schema-polyfill.js';
 import { getConfigToggle } from '../../core/config-manager.js';
 import {
@@ -36,7 +36,7 @@ import {
     buildCustomToolParameters,
     extractCustomToolInput,
     customInputToFunctionArguments
-} from '../custom-tool-registry.js';
+} from '../custom-tool-registry.ts';
 
 /**
  * 提取 Responses reasoning item 的文本。

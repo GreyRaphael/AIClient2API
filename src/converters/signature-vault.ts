@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 签名金库 (Signature Vault)
  *
@@ -14,97 +13,90 @@
  * 6. 降级容错：即使重启导致 HMAC 校验失败，仍依据前缀识别剥离，绝不阻断请求。
  */
 
-import crypto from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import logger from '../utils/logger.js';
 import { getConfigToggle } from '../core/config-manager.js';
 
-let processVaultSecret = null;
+let processVaultSecret: string | null = null;
 
 /**
  * 获取进程级签名金库密钥
  * 优先取 env.SIGNATURE_VAULT_SECRET，缺省时生成 32 字节随机密钥并在当前进程缓存
- * @returns {string}
  */
-export function getVaultSecret() {
+export function getVaultSecret(): string {
     if (process.env.SIGNATURE_VAULT_SECRET) {
         return process.env.SIGNATURE_VAULT_SECRET;
     }
     if (!processVaultSecret) {
-        processVaultSecret = crypto.randomBytes(32).toString('hex');
+        processVaultSecret = randomBytes(32).toString('hex');
     }
     return processVaultSecret;
 }
 
 /**
  * 设置或重置金库密钥（供单元测试及模拟进程重启使用）
- * @param {string|null} [newSecret]
  */
-export function setVaultSecret(newSecret = null) {
+export function setVaultSecret(newSecret: string | null = null): void {
     processVaultSecret = newSecret;
 }
 
 /**
  * 是否启用签名金库注入逻辑（默认开启，SIGNATURE_VAULT=off/false/0 时关闭）
- * @returns {boolean}
  */
-export function isSignatureVaultEnabled() {
+export function isSignatureVaultEnabled(): boolean {
     return getConfigToggle('SIGNATURE_VAULT', true);
 }
 
 /**
  * 是否启用虚拟签名剥离逻辑（默认开启，SIGNATURE_VAULT_STRIP=off/false/0 时关闭）
- * @returns {boolean}
  */
-export function isSignatureStrippingEnabled() {
+export function isSignatureStrippingEnabled(): boolean {
     return getConfigToggle('SIGNATURE_VAULT_STRIP', true);
+}
+
+export interface MintVirtualSignatureOptions {
+    sessionKey?: string;
+    blockIndex?: number;
+    thinkingText?: string;
 }
 
 /**
  * 铸造无状态虚拟签名
  * 格式: "vsig1.<base64url(sessionKeyHash|blockIndex|textHash)>.<base64url(HMAC-SHA256)>"
- * @param {Object} params
- * @param {string} [params.sessionKey] - 会话标识（如 streamRequestId / responseId）
- * @param {number} [params.blockIndex] - 内容块索引
- * @param {string} [params.thinkingText] - 思考文本内容
- * @returns {string}
  */
-export function mintVirtualSignature({ sessionKey = '', blockIndex = 0, thinkingText = '' } = {}) {
-    const sessionKeyHash = crypto.createHash('sha256').update(String(sessionKey || '')).digest('base64url').slice(0, 16);
-    const textHash = crypto.createHash('sha256').update(String(thinkingText || '')).digest('base64url').slice(0, 16);
+export function mintVirtualSignature({ sessionKey = '', blockIndex = 0, thinkingText = '' }: MintVirtualSignatureOptions = {}): string {
+    const sessionKeyHash = createHash('sha256').update(String(sessionKey || '')).digest('base64url').slice(0, 16);
+    const textHash = createHash('sha256').update(String(thinkingText || '')).digest('base64url').slice(0, 16);
     const rawPayload = `${sessionKeyHash}|${Number(blockIndex) || 0}|${textHash}`;
     const encodedPayload = Buffer.from(rawPayload, 'utf-8').toString('base64url');
     const secret = getVaultSecret();
-    const hmac = crypto.createHmac('sha256', secret).update(encodedPayload).digest('base64url');
+    const hmac = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
     return `vsig1.${encodedPayload}.${hmac}`;
 }
 
 /**
  * 前缀识别是否为虚拟签名，O(1)
- * @param {any} sig
- * @returns {boolean}
  */
-export function isVirtualSignature(sig) {
+export function isVirtualSignature(sig: unknown): sig is string {
     return typeof sig === 'string' && sig.startsWith('vsig1.');
 }
 
 /**
  * 重算 HMAC 校验虚拟签名有效性
- * @param {any} sig
- * @returns {boolean}
  */
-export function verifyVirtualSignature(sig) {
+export function verifyVirtualSignature(sig: unknown): boolean {
     if (!isVirtualSignature(sig)) return false;
     const parts = sig.split('.');
     if (parts.length !== 3 || parts[0] !== 'vsig1') return false;
     const [, encodedPayload, hmac] = parts;
     if (!encodedPayload || !hmac) return false;
     const secret = getVaultSecret();
-    const expectedHmac = crypto.createHmac('sha256', secret).update(encodedPayload).digest('base64url');
+    const expectedHmac = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
     const bufA = Buffer.from(hmac);
     const bufB = Buffer.from(expectedHmac);
     if (bufA.length !== bufB.length) return false;
     try {
-        return crypto.timingSafeEqual(bufA, bufB);
+        return timingSafeEqual(bufA, bufB);
     } catch {
         return false;
     }
@@ -114,15 +106,13 @@ export function verifyVirtualSignature(sig) {
  * 剥离消息列表中的虚拟签名 thinking 块
  * 凡 isVirtualSignature 的 thinking 块整块移除；真签名块原样保留。
  * 若 assistant 消息仅包含虚拟 thinking 块而被全部剥离且无 tool_calls，则剔除该消息以避免上游报 400。
- * @param {Array<Object>} messages
- * @returns {{ messages: Array<Object>, stripped: number }}
  */
-export function stripVirtualSignatures(messages) {
+export function stripVirtualSignatures(messages: any): { messages: any; stripped: number } {
     if (!Array.isArray(messages)) {
         return { messages, stripped: 0 };
     }
     let stripped = 0;
-    const newMessages = [];
+    const newMessages: any[] = [];
 
     for (const msg of messages) {
         if (!msg || typeof msg !== 'object') {
@@ -131,7 +121,7 @@ export function stripVirtualSignatures(messages) {
         }
 
         if (Array.isArray(msg.content)) {
-            const filteredContent = [];
+            const filteredContent: any[] = [];
             for (const block of msg.content) {
                 if (block && typeof block === 'object' && (block.type === 'thinking' || block.type === 'redacted_thinking')) {
                     const sig = block.signature || block.data;

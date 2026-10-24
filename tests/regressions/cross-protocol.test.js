@@ -7,13 +7,13 @@ import { CodexConverter } from "../../src/converters/strategies/CodexConverter.j
 import { OpenAIApiService } from "../../src/providers/openai/openai-core.js";
 import { aggregateChatCompletionChunks } from "../../src/providers/openai/openai-core.js";
 import { MODEL_PROTOCOL_PREFIX } from "../../src/utils/constants.js";
-import { isVirtualSignature } from "../../src/converters/signature-vault.js";
+import { isVirtualSignature } from "../../src/converters/signature-vault.ts";
 import { ZedApiService } from "../../src/providers/zed/zed-core.js";
 import { ResponsesSseEmitter } from "../../src/converters/responses-sse-emitter.js";
 import { guessImageMimeTypeFromUrl } from "../../src/converters/utils.js";
-import { isCustomTool } from "../../src/converters/custom-tool-registry.js";
-import { ConverterFactory } from "../../src/converters/ConverterFactory.js";
-import "../../src/converters/register-converters.js";
+import { isCustomTool } from "../../src/converters/custom-tool-registry.ts";
+import { ConverterFactory } from "../../src/converters/ConverterFactory.ts";
+import "../../src/converters/register-converters.ts";
 import {
     handleStreamRequest,
     handleUnaryRequest,

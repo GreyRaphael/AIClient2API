@@ -3,7 +3,7 @@ import {
     effortToClaudeBudget,
     effortToGeminiThinking,
     CANONICAL_CLAUDE_BUDGET
-} from '../src/converters/thinking-budget.js';
+} from '../src/converters/thinking-budget.ts';
 
 describe('thinking-budget 思考预算与等级换算', () => {
     test('budgetTokensToEffort 边界值与默认行为', () => {

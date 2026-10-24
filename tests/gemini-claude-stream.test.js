@@ -6,7 +6,7 @@
  */
 
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
-import { isVirtualSignature } from '../src/converters/signature-vault.js';
+import { isVirtualSignature } from '../src/converters/signature-vault.ts';
 
 describe('Gemini -> Claude stream 事件序列合规', () => {
     test('message_start 开头、块 index 递增、tool_use 收尾、message_stop 结尾', () => {

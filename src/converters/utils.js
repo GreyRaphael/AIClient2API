@@ -12,8 +12,8 @@ import { countTextTokens } from '../utils/token-utils.js';
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.js';
-export { budgetTokensToEffort } from './thinking-budget.js';
-import { budgetTokensToEffort } from './thinking-budget.js';
+export { budgetTokensToEffort } from './thinking-budget.ts';
+import { budgetTokensToEffort } from './thinking-budget.ts';
 
 // =============================================================================
 // 常量定义
@@ -628,7 +628,7 @@ export function getOpenAIStreamIdentity(store, requestId) {
 
 /**
  * 根据budget_tokens智能判断OpenAI reasoning_effort等级
- * @deprecated 请使用 thinking-budget.js 中的 budgetTokensToEffort
+ * @deprecated 请使用 thinking-budget.ts 中的 budgetTokensToEffort
  * @param {number|null} budgetTokens - Anthropic thinking的budget_tokens值
  * @returns {string} OpenAI reasoning_effort等级
  */

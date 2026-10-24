@@ -89,7 +89,7 @@ import { HEALTH_CHECK } from '../utils/constants.js';
  */
 
 import 'dotenv/config'; // Import dotenv and configure it
-import '../converters/register-converters.js'; // 注册所有转换器
+import '../converters/register-converters.ts'; // 注册所有转换器
 import { getProviderPoolManager } from './service-manager.js';
 import { isRetryableNetworkError } from '../utils/common.js';
 

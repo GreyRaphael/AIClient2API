@@ -163,7 +163,9 @@ function collectProblems() {
     const files = walk(SRC_DIR);
     const problems = [];
     const patterns = [
-        /\b(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g,
+        // Type-only imports (`import type ...`) are erased by Node and may point
+        // at a `.d.ts` file through a `.js` specifier; tsc validates those.
+        /\b(?:import|export)\s+(?!type\b)(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g,
         /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
         /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g
     ];

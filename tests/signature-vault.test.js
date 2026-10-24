@@ -20,7 +20,7 @@ import {
     setVaultSecret,
     isSignatureVaultEnabled,
     isSignatureStrippingEnabled
-} from '../src/converters/signature-vault.js';
+} from '../src/converters/signature-vault.ts';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
 

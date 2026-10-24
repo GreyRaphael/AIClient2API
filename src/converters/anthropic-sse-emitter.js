@@ -17,7 +17,7 @@
  *   字段构成保留在调用方——各上游语义不同，不属于公共骨架。
  */
 
-import { mintVirtualSignature, isSignatureVaultEnabled } from './signature-vault.js';
+import { mintVirtualSignature, isSignatureVaultEnabled } from './signature-vault.ts';
 
 let emitterSeq = 0;
 

@@ -1,11 +1,11 @@
-import '../src/converters/register-converters.js';
+import '../src/converters/register-converters.ts';
 import { convertData } from '../src/convert/convert.js';
 import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
 import { mapFinishReason } from '../src/converters/utils.js';
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
-import { ConverterFactory } from '../src/converters/ConverterFactory.js';
+import { ConverterFactory } from '../src/converters/ConverterFactory.ts';
 import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.js';
 
 describe('Protocol Converters Matrix & Edge Cases', () => {
@@ -295,7 +295,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
     });
 
     test('Fix 9: Forward-compatible generic flash models (3.9, 3.10, 4.0) use thinking levels and map properly', () => {
-        const { ConverterFactory } = require('../src/converters/ConverterFactory.js');
+        const { ConverterFactory } = require('../src/converters/ConverterFactory.ts');
         const openaiConverter = ConverterFactory.getConverter(MODEL_PROTOCOL_PREFIX.OPENAI);
 
         // 验证未来版本均被识别为支持 thinking levels
