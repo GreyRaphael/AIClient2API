@@ -10,6 +10,7 @@ import { CONFIG } from '../core/config-manager.js';
 import { parseProxyUrl } from '../utils/proxy-utils.js';
 import { getRequestBody } from '../utils/common.js';
 import { isValidVersionTag } from '../utils/version-tag.js';
+import { assertNativeTypeScriptSupport } from '../bootstrap/runtime.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -382,6 +383,11 @@ export async function checkForUpdates() {
  * @returns {Promise<Object>} 更新结果
  */
 export async function performUpdate(targetTag = null) {
+    // Prevent updating to a release that requires native TypeScript support
+    // when the current runtime cannot execute it. This must run before any
+    // checkout/install work so an update cannot brick the service.
+    assertNativeTypeScriptSupport();
+
     if (targetTag !== null) {
         if (!isValidVersionTag(targetTag)) {
             throw new Error('Invalid version tag format');
