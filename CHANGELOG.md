@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.1] - 2026-10-24
+
+### Fixed
+
+- **WebUI `#upload-config` 空白**：补齐前端 provider 注册表相关 import，修复渲染配置列表时 `detectProviderFromPath is not defined` 导致的 `ReferenceError`。
+  - `upload-config-manager.js` 补回 `detectProviderFromPath`
+  - `file-upload.js` 补回 `getProviderUploadDir`
+  - `modal.js` 补回 `isOAuthProvider`
+- 该问题由 v5.0.0 的前端 provider 注册表合并引入；后端 `/api/upload-configs` 数据本身正常。
+
+### Verification
+
+- `npm test -- --runInBand`：**27 suites / 486 tests 全绿**。
+- `npm run typecheck`：**0 errors**。
+- `npx jest tests/static-syntax.test.js`：**27 / 27 通过**。
+
 ## [v5.0.0] - 2026-10-24
 
 ### Breaking Changes
