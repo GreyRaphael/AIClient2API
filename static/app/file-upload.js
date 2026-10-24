@@ -1,6 +1,7 @@
 // 文件上传功能模块
 
 import { showToast } from './utils.js';
+import { getProviderUploadDir } from './provider-registry.js';
 import { t } from './i18n.js';
 
 /**
