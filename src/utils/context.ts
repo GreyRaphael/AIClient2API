@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * 使用 AsyncLocalStorage 实现线程级（请求级）变量存储
  */
 class RequestContext {
-    storage: AsyncLocalStorage<any>;
+    storage: AsyncLocalStorage<Record<string, unknown>>;
 
     constructor() {
         this.storage = new AsyncLocalStorage();
@@ -17,15 +17,15 @@ class RequestContext {
      * @param {Function} callback - 回调函数
      * @returns {any}
      */
-    run(context, callback) {
-        return this.storage.run(context || {}, /** @type {() => any} */ (callback));
+    run<T>(context: Record<string, unknown> | undefined, callback: () => T): T {
+        return this.storage.run(context || {}, callback);
     }
 
     /**
      * 获取当前上下文
      * @returns {Object}
      */
-    getStore() {
+    getStore(): Record<string, unknown> {
         return this.storage.getStore() || {};
     }
 
@@ -34,7 +34,7 @@ class RequestContext {
      * @param {string} key 
      * @param {any} value 
      */
-    set(key, value) {
+    set(key: string, value: unknown): void {
         const store = this.storage.getStore();
         if (store) {
             store[key] = value;
@@ -46,9 +46,9 @@ class RequestContext {
      * @param {string} key 
      * @returns {any}
      */
-    get(key) {
+    get<T = unknown>(key: string): T | undefined {
         const store = this.storage.getStore();
-        return store ? store[key] : undefined;
+        return store ? store[key] as T | undefined : undefined;
     }
 }
 

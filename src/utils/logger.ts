@@ -7,11 +7,34 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * 统一日志工具类
  * 支持控制台和文件输出，自动添加请求ID和时间戳
  */
+interface LoggerConfig {
+    enabled: boolean;
+    outputMode: string;
+    logDir: string;
+    logLevel: string;
+    includeRequestId: boolean;
+    includeTimestamp: boolean;
+    maxFileSize: number;
+    maxFiles: number;
+    [key: string]: unknown;
+}
+
+interface LoggerContext {
+    requestId?: string;
+    _createdAt?: number;
+    [key: string]: unknown;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
 class Logger {
-    config: Record<string, any>;
+    config: LoggerConfig;
     currentLogFile: string | null;
-    logStream: any;
-    asyncStorage: AsyncLocalStorage<any>;
+    logStream: fs.WriteStream | null;
+    asyncStorage: AsyncLocalStorage<LoggerContext>;
     levels: Record<string, number>;
 
     constructor() {
@@ -41,7 +64,7 @@ class Logger {
      * 初始化日志配置
      * @param {Object} config - 日志配置对象
      */
-    initialize(config = {}) {
+    initialize(config: Partial<LoggerConfig> = {}) {
         this.config = { ...this.config, ...config };
         
         if (this.config.outputMode === 'none') {
@@ -76,11 +99,11 @@ class Logger {
             this.logStream = fs.createWriteStream(this.currentLogFile, { flags: 'a' });
             
             // 监听错误
-            this.logStream.on('error', (err) => {
+            this.logStream.on('error', (err: Error) => {
                 console.error('[Logger] Failed to write to log file:', err.message);
             });
         } catch (error) {
-            console.error('[Logger] Failed to initialize file logging:', error.message);
+            console.error('[Logger] Failed to initialize file logging:', getErrorMessage(error));
         }
     }
 
@@ -90,12 +113,10 @@ class Logger {
      * @param {Function} callback - 回调函数
      * @returns {any}
      */
-    runWithContext(requestId, callback) {
-        if (!requestId) {
-            requestId = randomUUID().substring(0, 8);
-        }
+    runWithContext<T>(requestId: string | null | undefined, callback: () => T): T {
+        const resolvedRequestId = requestId || randomUUID().substring(0, 8);
         // 直接存储对象，避免使用外部 Map 导致内存堆积
-        return this.asyncStorage.run({ requestId, _createdAt: Date.now() }, /** @type {() => any} */ (callback));
+        return this.asyncStorage.run({ requestId: resolvedRequestId, _createdAt: Date.now() }, callback);
     }
 
     /**
@@ -103,22 +124,20 @@ class Logger {
      * @param {string} requestId - 请求ID
      * @param {Object} context - 上下文信息
      */
-    setRequestContext(requestId, context = {}) {
-        if (!requestId) {
-            requestId = randomUUID().substring(0, 8);
-        }
-        const fullContext = { ...context, requestId, _createdAt: Date.now() };
+    setRequestContext(requestId: string | null | undefined, context: Record<string, unknown> = {}): string {
+        const resolvedRequestId = requestId || randomUUID().substring(0, 8);
+        const fullContext: LoggerContext = { ...context, requestId: resolvedRequestId, _createdAt: Date.now() };
         this.asyncStorage.enterWith(fullContext);
-        return requestId;
+        return resolvedRequestId;
     }
 
     /**
      * 获取当前请求ID
      * @returns {string} 请求ID
      */
-    getCurrentRequestId() {
+    getCurrentRequestId(): string | undefined {
         const store = this.asyncStorage.getStore();
-        return typeof store === 'object' ? store.requestId : store;
+        return store?.requestId;
     }
 
     /**
@@ -126,12 +145,12 @@ class Logger {
      * @param {string} requestId - 请求ID (已弃用，优先从当前异步环境获取)
      * @returns {Object} 上下文信息
      */
-    getRequestContext(requestId) {
+    getRequestContext(requestId?: string | null): LoggerContext {
         const store = this.asyncStorage.getStore();
-        if (typeof store === 'object') {
+        if (store) {
             return store;
         }
-        return store ? { requestId: store } : {};
+        return requestId ? { requestId } : {};
     }
 
     /**
@@ -155,8 +174,8 @@ class Logger {
      * @param {string} requestId - 请求ID
      * @returns {string} 格式化后的日志
      */
-    formatMessage(level, args, requestId) {
-        const parts = [];
+    formatMessage(level: string, args: unknown[], requestId?: string | null): string {
+        const parts: string[] = [];
 
         // 添加本地时间戳
         if (this.config.includeTimestamp) {
@@ -181,11 +200,11 @@ class Logger {
         parts.push(`[${level.toUpperCase()}]`);
 
         // 添加消息内容
-        const message = args.map(arg => {
+        const message = args.map((arg: unknown) => {
             if (typeof arg === 'object') {
                 try {
                     return JSON.stringify(arg, null, 2);
-                } catch (e) {
+                } catch {
                     return String(arg);
                 }
             }
@@ -202,7 +221,7 @@ class Logger {
      * @param {string} level - 日志级别
      * @returns {boolean}
      */
-    shouldLog(level) {
+    shouldLog(level: string): boolean {
         if (!this.config.enabled) return false;
         const currentLevel = this.levels[this.config.logLevel] ?? 1;
         const targetLevel = this.levels[level] ?? 1;
@@ -234,7 +253,7 @@ class Logger {
 
                 // 重新创建日志流
                 this.logStream = fs.createWriteStream(this.currentLogFile, { flags: 'a' });
-                this.logStream.on('error', (err) => {
+                this.logStream.on('error', (err: Error) => {
                     console.error('[Logger] Failed to write to log file:', err.message);
                 });
 
@@ -242,7 +261,7 @@ class Logger {
                 this.cleanupOldLogs();
             }
         } catch (error) {
-            console.error('[Logger] Failed to rotate log file:', error.message);
+            console.error('[Logger] Failed to rotate log file:', getErrorMessage(error));
         }
     }
 
@@ -252,7 +271,7 @@ class Logger {
      * @param {Array} args - 日志参数
      * @param {string} requestId - 请求ID
      */
-    log(level, args, requestId = null) {
+    log(level: string, args: unknown[], requestId: string | null = null): void {
         if (!this.shouldLog(level)) return;
 
         const message = this.formatMessage(level, args, requestId);
@@ -274,7 +293,7 @@ class Logger {
                     this.logStream.write(message + '\n');
                 } catch (err) {
                     // 如果写入失败，输出到控制台作为备份
-                    console.error('[Logger] Failed to write to log file:', err.message);
+                    console.error('[Logger] Failed to write to log file:', getErrorMessage(err));
                 }
             }
         }
@@ -284,7 +303,7 @@ class Logger {
      * Debug 级别日志
      * @param {...any} args - 日志参数
      */
-    debug(...args) {
+    debug(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
         this.log('debug', args, requestId);
     }
@@ -293,7 +312,7 @@ class Logger {
      * Info 级别日志
      * @param {...any} args - 日志参数
      */
-    info(...args) {
+    info(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
         this.log('info', args, requestId);
     }
@@ -302,7 +321,7 @@ class Logger {
      * Warn 级别日志
      * @param {...any} args - 日志参数
      */
-    warn(...args) {
+    warn(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
         this.log('warn', args, requestId);
     }
@@ -311,7 +330,7 @@ class Logger {
      * Error 级别日志
      * @param {...any} args - 日志参数
      */
-    error(...args) {
+    error(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
         this.log('error', args, requestId);
     }
@@ -321,16 +340,14 @@ class Logger {
      * @param {string} requestId - 请求ID
      * @returns {Object} 带请求上下文的日志方法
      */
-    withRequest(requestId) {
-        if (!requestId) {
-            requestId = this.getCurrentRequestId();
-        }
+    withRequest(requestId?: string | null) {
+        const resolvedRequestId = requestId || this.getCurrentRequestId() || null;
 
         return {
-            debug: (...args) => this.log('debug', args, requestId),
-            info: (...args) => this.log('info', args, requestId),
-            warn: (...args) => this.log('warn', args, requestId),
-            error: (...args) => this.log('error', args, requestId)
+            debug: (...args: unknown[]) => this.log('debug', args, resolvedRequestId),
+            info: (...args: unknown[]) => this.log('info', args, resolvedRequestId),
+            warn: (...args: unknown[]) => this.log('warn', args, resolvedRequestId),
+            error: (...args: unknown[]) => this.log('error', args, resolvedRequestId)
         };
     }
 
@@ -368,12 +385,12 @@ class Logger {
                     try {
                         fs.unlinkSync(files[i].path);
                     } catch (err) {
-                        console.error('[Logger] Failed to delete old log file:', files[i].name, err.message);
+                        console.error('[Logger] Failed to delete old log file:', files[i].name, getErrorMessage(err));
                     }
                 }
             }
         } catch (error) {
-            console.error('[Logger] Failed to cleanup old logs:', error.message);
+            console.error('[Logger] Failed to cleanup old logs:', getErrorMessage(error));
         }
     }
 
@@ -398,14 +415,14 @@ class Logger {
 
             // 重新创建日志流
             this.logStream = fs.createWriteStream(this.currentLogFile, { flags: 'a' });
-            this.logStream.on('error', (err) => {
+            this.logStream.on('error', (err: Error) => {
                 console.error('[Logger] Failed to write to log file:', err.message);
             });
 
             console.log('[Logger] Today\'s log file cleared successfully');
             return true;
         } catch (error) {
-            console.error('[Logger] Failed to clear today\'s log file:', error.message);
+            console.error('[Logger] Failed to clear today\'s log file:', getErrorMessage(error));
             return false;
         }
     }

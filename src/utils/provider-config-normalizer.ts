@@ -8,7 +8,7 @@ const PROVIDER_BOOLEAN_CONFIG_FIELDS = [
     'TLS_SIDECAR_ENABLED'
 ];
 
-function normalizeStringArrayConfigValue(value) {
+function normalizeStringArrayConfigValue(value: unknown): string[] {
     if (Array.isArray(value)) {
         return value
             .filter(item => item !== undefined && item !== null && item !== false)
@@ -46,7 +46,7 @@ function normalizeStringArrayConfigValue(value) {
     return [];
 }
 
-function normalizeBooleanConfigValue(value) {
+function normalizeBooleanConfigValue(value: unknown): boolean {
     if (typeof value === 'boolean') {
         return value;
     }
@@ -70,10 +70,10 @@ function normalizeBooleanConfigValue(value) {
  * round-trip as strings and silently disable proxy routing. Normalize only known
  * typed fields that are present in the request, without adding new fields.
  */
-export function normalizeProviderConfigFields(data) {
+export function normalizeProviderConfigFields<T>(data: T): T {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
 
-    const result = { ...data };
+    const result: Record<string, unknown> = { ...(data as Record<string, unknown>) };
     for (const key of PROVIDER_STRING_ARRAY_CONFIG_FIELDS) {
         if (Object.prototype.hasOwnProperty.call(result, key)) {
             result[key] = normalizeStringArrayConfigValue(result[key]);
@@ -86,5 +86,5 @@ export function normalizeProviderConfigFields(data) {
         }
     }
 
-    return result;
+    return result as T;
 }

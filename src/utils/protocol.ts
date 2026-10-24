@@ -17,7 +17,46 @@ import { getProviderDefinition } from '../providers/provider-registry.ts';
  * @param {string} provider - The model provider string (e.g., 'gemini-antigravity', 'openai-custom').
  * @returns {string} The protocol prefix (e.g., 'gemini', 'openai', 'claude').
  */
-export function getProtocolPrefix(provider) {
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+    return value !== null && typeof value === 'object';
+}
+
+function getMessages(requestBody: UnknownRecord): UnknownRecord[] {
+    const messages = requestBody.messages;
+    return Array.isArray(messages) ? messages.filter(isRecord) : [];
+}
+
+function contentToText(content: unknown): string {
+    if (content === null || content === undefined) return '';
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map(item => {
+                if (typeof item === 'string') return item;
+                if (isRecord(item)) {
+                    if (typeof item.text === 'string') return item.text;
+                    if (typeof item.content === 'string') return item.content;
+                }
+                return JSON.stringify(item);
+            })
+            .join('\n');
+    }
+    if (typeof content === 'object') return JSON.stringify(content);
+    return String(content);
+}
+
+function extractPartsText(parts: unknown): string {
+    if (!Array.isArray(parts)) return '';
+    return parts
+        .filter(isRecord)
+        .map(part => part.text)
+        .filter((text): text is string => typeof text === 'string' && text.length > 0)
+        .join('\n');
+}
+
+export function getProtocolPrefix(provider: string): string {
     const definition = getProviderDefinition(provider);
     if (definition?.protocolPrefix) {
         return definition.protocolPrefix;
@@ -48,77 +87,75 @@ export const DEFAULT_REQUEST_BODY_MAX_BYTES = 10 * 1024 * 1024;
  * @param {string} provider - 提供商类型（'openai', 'gemini', 'claude'）。
  * @returns {string} 提取到的系统提示词字符串。
  */
-export function extractSystemPromptFromRequestBody(requestBody, provider) {
+export function extractSystemPromptFromRequestBody(requestBody: UnknownRecord, provider: string): string {
     let incomingSystemText = '';
     switch (provider) {
-        case MODEL_PROTOCOL_PREFIX.OPENAI:
-            const openaiSystemMessage = requestBody.messages?.find(m => m.role === 'system' || m.role === 'developer');
+        case MODEL_PROTOCOL_PREFIX.OPENAI: {
+            const messages = getMessages(requestBody);
+            const openaiSystemMessage = messages.find(m => m.role === 'system' || m.role === 'developer');
             if (openaiSystemMessage?.content) {
-                incomingSystemText = openaiSystemMessage.content;
-            } else if (requestBody.messages?.length > 0) {
+                incomingSystemText = contentToText(openaiSystemMessage.content);
+            } else if (messages.length > 0) {
                 // Fallback to first user message if no system message
-                const userMessage = requestBody.messages.find(m => m.role === 'user');
+                const userMessage = messages.find(m => m.role === 'user');
                 if (userMessage) {
-                    incomingSystemText = userMessage.content;
-                }
-            }
-            if (typeof incomingSystemText === 'object' && incomingSystemText !== null) {
-                if (Array.isArray(incomingSystemText)) {
-                    incomingSystemText = (incomingSystemText || [])
-                        .map(item => (typeof item === 'string' ? item : item.text || JSON.stringify(item)))
-                        .join('\n');
-                } else {
-                    incomingSystemText = JSON.stringify(incomingSystemText);
+                    incomingSystemText = contentToText(userMessage.content);
                 }
             }
             break;
-        case MODEL_PROTOCOL_PREFIX.GEMINI:
-            const geminiSystemInstruction = requestBody.system_instruction || requestBody.systemInstruction;
-            if (geminiSystemInstruction?.parts) {
-                incomingSystemText = geminiSystemInstruction.parts
-                    .filter(p => p?.text)
-                    .map(p => p.text)
-                    .join('\n');
-            } else if (requestBody.contents?.length > 0) {
+        }
+        case MODEL_PROTOCOL_PREFIX.GEMINI: {
+            const systemInstruction = isRecord(requestBody.system_instruction)
+                ? requestBody.system_instruction
+                : isRecord(requestBody.systemInstruction)
+                    ? requestBody.systemInstruction
+                    : null;
+            if (systemInstruction && Array.isArray(systemInstruction.parts)) {
+                incomingSystemText = extractPartsText(systemInstruction.parts);
+            } else {
+                const contents = Array.isArray(requestBody.contents) ? requestBody.contents.filter(isRecord) : [];
                 // Fallback to first user content if no system instruction
-                const userContent = requestBody.contents[0];
+                const userContent = contents[0];
                 if (userContent?.parts) {
-                    incomingSystemText = userContent.parts
-                        .filter(p => p?.text)
-                        .map(p => p.text)
-                        .join('\n');
+                    incomingSystemText = extractPartsText(userContent.parts);
                 }
             }
             break;
-        case MODEL_PROTOCOL_PREFIX.CLAUDE:
+        }
+        case MODEL_PROTOCOL_PREFIX.CLAUDE: {
             if (typeof requestBody.system === 'string') {
                 incomingSystemText = requestBody.system;
-            } else if (typeof requestBody.system === 'object') {
+            } else if (typeof requestBody.system === 'object' && requestBody.system !== null) {
                 incomingSystemText = JSON.stringify(requestBody.system);
-            } else if (requestBody.messages?.length > 0) {
+            } else {
+                const messages = getMessages(requestBody);
                 // Fallback to first user message if no system property
-                const userMessage = requestBody.messages.find(m => m.role === 'user');
+                const userMessage = messages.find(m => m.role === 'user');
                 if (userMessage) {
                     if (Array.isArray(userMessage.content)) {
-                        incomingSystemText = userMessage.content.map(block => block.text).join('');
+                        incomingSystemText = userMessage.content
+                            .map(block => isRecord(block) && typeof block.text === 'string' ? block.text : '')
+                            .join('');
                     } else {
-                        incomingSystemText = userMessage.content;
+                        incomingSystemText = contentToText(userMessage.content);
                     }
                 }
             }
             break;
+        }
         case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES: {
             if (typeof requestBody.instructions === 'string') {
                 incomingSystemText = requestBody.instructions;
             } else if (requestBody.instructions) {
                 incomingSystemText = JSON.stringify(requestBody.instructions);
             } else if (Array.isArray(requestBody.input)) {
-                const responsesSystemItem = requestBody.input.find(item =>
-                    item?.role === 'system' ||
-                    item?.role === 'developer' ||
-                    item?.type === 'system' ||
-                    item?.type === 'developer' ||
-                    (item?.type === 'message' && (item?.role === 'system' || item?.role === 'developer'))
+                const input = requestBody.input.filter(isRecord);
+                const responsesSystemItem = input.find(item =>
+                    item.role === 'system' ||
+                    item.role === 'developer' ||
+                    item.type === 'system' ||
+                    item.type === 'developer' ||
+                    (item.type === 'message' && (item.role === 'system' || item.role === 'developer'))
                 );
 
                 const content = responsesSystemItem?.content;
@@ -126,7 +163,14 @@ export function extractSystemPromptFromRequestBody(requestBody, provider) {
                     incomingSystemText = content;
                 } else if (Array.isArray(content)) {
                     incomingSystemText = content
-                        .map(part => typeof part === 'string' ? part : (part?.text || part?.content || JSON.stringify(part)))
+                        .map(part => {
+                            if (typeof part === 'string') return part;
+                            if (isRecord(part)) {
+                                if (typeof part.text === 'string') return part.text;
+                                if (typeof part.content === 'string') return part.content;
+                            }
+                            return JSON.stringify(part);
+                        })
                         .join('\n');
                 } else if (content) {
                     incomingSystemText = JSON.stringify(content);

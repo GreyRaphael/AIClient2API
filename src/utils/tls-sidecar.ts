@@ -8,11 +8,23 @@
  */
 
 import { spawn } from 'child_process';
+import type { ChildProcess } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import logger from './logger.ts';
 import http from 'http';
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
 
 let __dirname = process.cwd();
 try {
@@ -26,7 +38,7 @@ const MAX_RESTART_ATTEMPTS = 5;
 const RESTART_DELAY = 2000;          // 2s
 
 class TLSSidecar {
-    process: any;
+    process: ChildProcess | null;
     port: number;
     baseUrl: string | null;
     healthCheckTimer: ReturnType<typeof setInterval> | null;
@@ -51,13 +63,13 @@ class TLSSidecar {
      * @param {string} [options.binaryPath] - 自定义二进制路径
      * @returns {Promise<boolean>}
      */
-    async start(options: any = {}) {
+    async start(options: { port?: number; binaryPath?: string } = {}): Promise<boolean> {
         if (this.process) {
             logger.info('[TLS-Sidecar] Already running');
             return true;
         }
 
-        this.port = options.port || parseInt(process.env.TLS_SIDECAR_PORT) || DEFAULT_PORT;
+        this.port = options.port || parseInt(process.env.TLS_SIDECAR_PORT || '', 10) || DEFAULT_PORT;
         this.baseUrl = `http://127.0.0.1:${this.port}`;
 
         // 查找二进制文件
@@ -75,30 +87,31 @@ class TLSSidecar {
                 try {
                     fs.chmodSync(binaryPath, 0o755);
                 } catch (e) {
-                    logger.warn(`[TLS-Sidecar] Failed to chmod binary: ${e.message}`);
+                    logger.warn(`[TLS-Sidecar] Failed to chmod binary: ${getErrorMessage(e)}`);
                 }
             }
 
-            this.process = spawn(binaryPath, [], {
+            const child = spawn(binaryPath, [], {
                 env: {
                     ...process.env,
                     TLS_SIDECAR_PORT: String(this.port),
                 },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
+            this.process = child;
 
             // 转发 sidecar 日志
-            this.process.stdout.on('data', (data) => {
+            child.stdout?.on('data', (data: Buffer) => {
                 const msg = data.toString().trim();
                 if (msg) logger.info(`[TLS-Sidecar] ${msg}`);
             });
 
-            this.process.stderr.on('data', (data) => {
+            child.stderr?.on('data', (data: Buffer) => {
                 const msg = data.toString().trim();
                 if (msg) logger.error(`[TLS-Sidecar] ${msg}`);
             });
 
-            this.process.on('exit', (code, signal) => {
+            child.on('exit', (code, signal) => {
                 logger.warn(`[TLS-Sidecar] Process exited (code=${code}, signal=${signal})`);
                 this.process = null;
                 this.ready = false;
@@ -110,7 +123,7 @@ class TLSSidecar {
                 }
             });
 
-            this.process.on('error', (err) => {
+            child.on('error', (err: Error) => {
                 logger.error(`[TLS-Sidecar] Spawn error: ${err.message}`);
                 this.process = null;
                 this.ready = false;
@@ -127,7 +140,7 @@ class TLSSidecar {
             return ok;
 
         } catch (err) {
-            logger.error(`[TLS-Sidecar] Failed to start: ${err.message}`);
+            logger.error(`[TLS-Sidecar] Failed to start: ${getErrorMessage(err)}`);
             return false;
         }
     }
@@ -139,18 +152,17 @@ class TLSSidecar {
         this.isShuttingDown = true;
         this._stopHealthCheck();
 
-        if (this.process) {
+        const child = this.process;
+        if (child) {
             logger.info('[TLS-Sidecar] Stopping...');
             return new Promise<void>((resolve) => {
                 const timeout = setTimeout(() => {
-                    if (this.process) {
-                        logger.warn('[TLS-Sidecar] Force killing');
-                        this.process.kill('SIGKILL');
-                    }
+                    logger.warn('[TLS-Sidecar] Force killing');
+                    child.kill('SIGKILL');
                     resolve();
                 }, 5000);
 
-                this.process.once('exit', () => {
+                child.once('exit', () => {
                     clearTimeout(timeout);
                     this.process = null;
                     this.ready = false;
@@ -158,7 +170,7 @@ class TLSSidecar {
                     resolve();
                 });
 
-                this.process.kill('SIGTERM');
+                child.kill('SIGTERM');
             });
         }
     }
@@ -167,7 +179,7 @@ class TLSSidecar {
      * 检查 sidecar 是否正在运行且健康
      * @returns {boolean}
      */
-    isReady() {
+    isReady(): boolean {
         return this.ready && this.process !== null;
     }
 
@@ -175,7 +187,7 @@ class TLSSidecar {
      * 获取 sidecar base URL
      * @returns {string|null}
      */
-    getBaseUrl() {
+    getBaseUrl(): string | null {
         return this.isReady() ? this.baseUrl : null;
     }
 
@@ -187,8 +199,8 @@ class TLSSidecar {
      * @param {string} [proxyUrl] - 上游代理 URL（可选）
      * @returns {Object} 修改后的 axios 配置
      */
-    wrapAxiosConfig(axiosConfig, proxyUrl) {
-        if (!this.isReady()) {
+    wrapAxiosConfig(axiosConfig: UnknownRecord, proxyUrl: string | null): UnknownRecord {
+        if (!this.isReady() || !this.baseUrl) {
             return axiosConfig; // sidecar 不可用，原样返回
         }
 
@@ -198,11 +210,12 @@ class TLSSidecar {
         axiosConfig.url = this.baseUrl;
 
         // 通过 header 传递目标和代理信息
-        axiosConfig.headers = axiosConfig.headers || {};
-        axiosConfig.headers['X-Target-Url'] = targetUrl;
+        const headers = isRecord(axiosConfig.headers) ? axiosConfig.headers : {};
+        headers['X-Target-Url'] = targetUrl;
         if (proxyUrl) {
-            axiosConfig.headers['X-Proxy-Url'] = proxyUrl;
+            headers['X-Proxy-Url'] = proxyUrl;
         }
+        axiosConfig.headers = headers;
 
         // 走 sidecar 不需要 Node.js 侧的 TLS agent
         delete axiosConfig.httpAgent;
@@ -215,7 +228,7 @@ class TLSSidecar {
 
     // ──── 内部方法 ────
 
-    _findBinary() {
+    _findBinary(): string | null {
         const projectRoot = path.resolve(__dirname, '..', '..');
         const isWin = process.platform === 'win32';
         const ext = isWin ? '.exe' : '';
@@ -238,7 +251,7 @@ class TLSSidecar {
         return null;
     }
 
-    async _waitForReady(timeoutMs = 10000) {
+    async _waitForReady(timeoutMs = 10000): Promise<boolean> {
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
             try {
@@ -251,11 +264,11 @@ class TLSSidecar {
         return false;
     }
 
-    _healthCheck() {
+    _healthCheck(): Promise<boolean> {
         return new Promise((resolve) => {
             const req = http.get(`${this.baseUrl}/health`, { timeout: HEALTH_CHECK_TIMEOUT }, (res) => {
                 let body = '';
-                res.on('data', (chunk) => body += chunk);
+                res.on('data', (chunk: Buffer) => body += chunk);
                 res.on('end', () => {
                     resolve(res.statusCode === 200);
                 });
@@ -290,14 +303,14 @@ class TLSSidecar {
     }
 }
 
-function sleep(ms) {
+function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // 单例
-let instance = null;
+let instance: TLSSidecar | null = null;
 
-export function getTLSSidecar() {
+export function getTLSSidecar(): TLSSidecar {
     if (!instance) {
         instance = new TLSSidecar();
     }

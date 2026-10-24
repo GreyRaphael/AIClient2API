@@ -5,6 +5,18 @@ import * as http from 'http'; // Add http for IncomingMessage and ServerResponse
 import logger from './logger.ts';
 import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from './constants.ts';
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (isRecord(error) && typeof error.message === 'string') return error.message;
+    return String(error);
+}
+
 // ==================== 时间与时区 ====================
 
 /**
@@ -42,13 +54,13 @@ export const RETRYABLE_NETWORK_ERRORS = [
  * @param {Error} error - 错误对象
  * @returns {boolean} - 是否为可重试的网络错误
  */
-export function isRetryableNetworkError(error) {
-    if (!error) return false;
-    
-    const errorCode = error.code || '';
-    const errorMessage = error.message || '';
-    
-    return RETRYABLE_NETWORK_ERRORS.some(err => 
+export function isRetryableNetworkError(error: unknown): boolean {
+    if (!isRecord(error)) return false;
+
+    const errorCode = typeof error.code === 'string' ? error.code : '';
+    const errorMessage = typeof error.message === 'string' ? error.message : '';
+
+    return RETRYABLE_NETWORK_ERRORS.some(err =>
         errorCode === err || errorMessage.includes(err)
     );
 }
@@ -58,8 +70,8 @@ export function isRetryableNetworkError(error) {
  * @param {any} code - 待检查的状态码
  * @returns {number} - 有效的 HTTP 状态码 (100-599)，默认为 500
  */
-export function ensureValidStatusCode(code) {
-    const num = parseInt(code, 10);
+export function ensureValidStatusCode(code: unknown): number {
+    const num = parseInt(String(code), 10);
     if (!isNaN(num) && num >= 100 && num < 600) {
         return num;
     }
@@ -67,11 +79,20 @@ export function ensureValidStatusCode(code) {
 }
 
 
-export function getErrorStatusCode(error) {
-    return error?.response?.status || error?.status || error?.statusCode || error?.code || null;
+export function getErrorStatusCode(error: unknown): number | string | null {
+    if (!isRecord(error)) return null;
+
+    const response = isRecord(error.response) ? error.response : null;
+    const candidates = [response?.status, error.status, error.statusCode, error.code];
+    for (const candidate of candidates) {
+        if (typeof candidate === 'number' || typeof candidate === 'string') {
+            return candidate;
+        }
+    }
+    return null;
 }
 
-function getHttpStatusLabel(status) {
+function getHttpStatusLabel(status: number | string | null): string {
     switch (status) {
         case 400: return 'Bad Request';
         case 401: return 'Unauthorized';
@@ -90,7 +111,7 @@ function getHttpStatusLabel(status) {
     }
 }
 
-function extractReadableErrorText(data) {
+function extractReadableErrorText(data: unknown): string {
     if (data === undefined || data === null) return '';
     if (typeof data === 'string') return data;
     if (Buffer.isBuffer(data)) return data.toString('utf8');
@@ -102,7 +123,7 @@ function extractReadableErrorText(data) {
             .join(' | ');
     }
 
-    if (typeof data !== 'object') {
+    if (!isRecord(data)) {
         return String(data);
     }
 
@@ -113,7 +134,7 @@ function extractReadableErrorText(data) {
         data.detail,
         data.reason,
         data.msg
-    ].filter(value => typeof value === 'string' && value.trim());
+    ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
 
     if (directFields.length > 0) {
         return directFields.join(' | ');
@@ -123,7 +144,7 @@ function extractReadableErrorText(data) {
         return data.error;
     }
 
-    if (data.error && typeof data.error === 'object') {
+    if (isRecord(data.error)) {
         const nestedError = extractReadableErrorText(data.error);
         if (nestedError) return nestedError;
     }
@@ -136,7 +157,7 @@ function extractReadableErrorText(data) {
         if (detailText) return detailText;
     }
 
-    if (data.metadata && typeof data.metadata === 'object') {
+    if (isRecord(data.metadata)) {
         const metadataText = extractReadableErrorText(data.metadata);
         if (metadataText) return metadataText;
     }
@@ -148,17 +169,20 @@ function extractReadableErrorText(data) {
     }
 }
 
-export async function getNormalizedErrorResponseText(error) {
-    const data = error?.response?.data;
-    const fallbackText = extractReadableErrorText(data) || error?.message || '';
+export async function getNormalizedErrorResponseText(error: unknown): Promise<string> {
+    const errorRecord = isRecord(error) ? error : null;
+    const response = errorRecord && isRecord(errorRecord.response) ? errorRecord.response : null;
+    const data = response?.data;
+    const message = errorRecord && typeof errorRecord.message === 'string' ? errorRecord.message : '';
+    const fallbackText = extractReadableErrorText(data) || message;
 
-    if (!data || typeof data?.on !== 'function' || typeof data?.read !== 'function') {
+    if (!isRecord(data) || typeof data.on !== 'function' || typeof data.read !== 'function') {
         return fallbackText;
     }
 
-    const chunks = [];
+    const chunks: Buffer[] = [];
     try {
-        for await (const chunk of data) {
+        for await (const chunk of data as unknown as AsyncIterable<unknown>) {
             chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
         }
 
@@ -166,18 +190,18 @@ export async function getNormalizedErrorResponseText(error) {
         if (!bodyText) return fallbackText;
 
         try {
-            const parsed = JSON.parse(bodyText);
+            const parsed: unknown = JSON.parse(bodyText);
             return extractReadableErrorText(parsed) || bodyText;
         } catch {
             return bodyText;
         }
     } catch (readError) {
-        logger.warn(`[Error Normalize] Failed to read error response stream: ${readError.message}`);
+        logger.warn(`[Error Normalize] Failed to read error response stream: ${getErrorMessage(readError)}`);
         return fallbackText;
     }
 }
 
-export function buildHttpErrorReason(status, context, responseText = '', options: any = {}) {
+export function buildHttpErrorReason(status: number | string | null, context: string, responseText = '', options: { suffix?: string } = {}): string {
     const statusLabel = getHttpStatusLabel(status);
     const responseSnippet = responseText ? responseText.substring(0, 500) : '';
     const suffix = options.suffix ? ` - ${options.suffix}` : '';
@@ -185,7 +209,10 @@ export function buildHttpErrorReason(status, context, responseText = '', options
     return `${prefix}${context ? ` (${context})` : ''}${suffix}${responseSnippet ? `: ${responseSnippet}` : ''}`;
 }
 
-export async function normalizeProviderErrorMessage(error, options: any = {}) {
+export async function normalizeProviderErrorMessage(
+    error: unknown,
+    options: { status?: number | string | null; context?: string; suffix?: string } = {}
+): Promise<{ responseText: string; reason: string; status: number | string | null }> {
     const status = options.status ?? getErrorStatusCode(error);
     const responseText = await getNormalizedErrorResponseText(error);
     const reason = buildHttpErrorReason(status, options.context || '', responseText, {
@@ -193,28 +220,37 @@ export async function normalizeProviderErrorMessage(error, options: any = {}) {
     });
     // Normalize in place so existing throw/logging paths that keep using `error`
     // automatically see the readable message without forcing every caller to reassign.
-    error.message = reason;
+    if (isRecord(error)) {
+        error.message = reason;
+    }
     return { responseText, reason, status };
 }
 
-function getHeaderValue(headers, headerName) {
+function getHeaderValue(headers: unknown, headerName: string): string | null {
     if (!headers) return null;
 
-    if (typeof headers.get === 'function') {
-        return headers.get(headerName) || headers.get(headerName.toLowerCase());
+    if (isRecord(headers) && typeof headers.get === 'function') {
+        const get = headers.get as (name: string) => unknown;
+        const value = get.call(headers, headerName) ?? get.call(headers, headerName.toLowerCase());
+        if (value === null || value === undefined) return null;
+        return typeof value === 'string' ? value : String(value);
     }
+
+    if (!isRecord(headers)) return null;
 
     const lowerName = headerName.toLowerCase();
     for (const [key, value] of Object.entries(headers)) {
         if (key.toLowerCase() === lowerName) {
-            return Array.isArray(value) ? value[0] : value;
+            if (Array.isArray(value)) return value.length > 0 ? String(value[0]) : null;
+            if (value === null || value === undefined) return null;
+            return String(value);
         }
     }
 
     return null;
 }
 
-function parseRetryAfterMs(value, now = Date.now()) {
+function parseRetryAfterMs(value: unknown, now = Date.now()): number | null {
     if (value === null || value === undefined) return null;
 
     const rawValue = Array.isArray(value) ? value[0] : value;
@@ -234,7 +270,7 @@ function parseRetryAfterMs(value, now = Date.now()) {
     return null;
 }
 
-function parseDurationMs(value) {
+function parseDurationMs(value: unknown): number | null {
     if (value === null || value === undefined) return null;
     if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
 
@@ -248,22 +284,26 @@ function parseDurationMs(value) {
     return Math.max(0, Math.round(match[2]?.toLowerCase() === 's' ? amount * 1000 : amount));
 }
 
-function getRetryDelayFromBody(errorBody) {
+function getRetryDelayFromBody(errorBody: unknown): number | null {
     try {
-        const data = typeof errorBody === 'string' ? JSON.parse(errorBody) : errorBody;
+        const parsed: unknown = typeof errorBody === 'string' ? JSON.parse(errorBody) : errorBody;
+        const data = isRecord(parsed) ? parsed : null;
+        const error = data && isRecord(data.error) ? data.error : null;
 
         const directDelay = parseDurationMs(data?.retryDelay ?? data?.retry_delay ?? data?.retryAfterMs);
         if (directDelay !== null) return directDelay;
 
-        const details = data?.error?.details;
+        const details = error?.details;
         if (Array.isArray(details)) {
             for (const detail of details) {
-                const retryDelay = parseDurationMs(detail?.retryDelay || detail?.metadata?.quotaResetDelay);
+                const detailRecord = isRecord(detail) ? detail : null;
+                const metadata = detailRecord && isRecord(detailRecord.metadata) ? detailRecord.metadata : null;
+                const retryDelay = parseDurationMs(detailRecord?.retryDelay || metadata?.quotaResetDelay);
                 if (retryDelay !== null) return retryDelay;
             }
         }
 
-        const message = data?.error?.message;
+        const message = typeof error?.message === 'string' ? error.message : '';
         if (message) {
             const match = message.match(/after\s+([\d.]+)\s*(ms|s)?\.?/i);
             if (match) {
@@ -276,23 +316,27 @@ function getRetryDelayFromBody(errorBody) {
     return null;
 }
 
-export function getRetryAfterMs(error, now = Date.now()) {
-    const headerDelay = parseRetryAfterMs(getHeaderValue(error?.response?.headers, 'retry-after'), now);
+export function getRetryAfterMs(error: unknown, now = Date.now()): number | null {
+    const errorRecord = isRecord(error) ? error : null;
+    const response = errorRecord && isRecord(errorRecord.response) ? errorRecord.response : null;
+    const responseData = response && isRecord(response.data) ? response.data : null;
+
+    const headerDelay = parseRetryAfterMs(getHeaderValue(response?.headers, 'retry-after'), now);
     if (headerDelay !== null) return headerDelay;
 
-    const explicitDelay = parseDurationMs(error?.retryAfterMs);
+    const explicitDelay = parseDurationMs(errorRecord?.retryAfterMs);
     if (explicitDelay !== null) return explicitDelay;
 
-    const internalRetryAfterDelay = parseDurationMs(error?.retryAfter);
+    const internalRetryAfterDelay = parseDurationMs(errorRecord?.retryAfter);
     if (internalRetryAfterDelay !== null) return internalRetryAfterDelay;
 
-    const retryAfterDelay = parseRetryAfterMs(error?.response?.data?.retryAfter ?? error?.response?.data?.retry_after, now);
+    const retryAfterDelay = parseRetryAfterMs(responseData?.retryAfter ?? responseData?.retry_after, now);
     if (retryAfterDelay !== null) return retryAfterDelay;
 
-    return getRetryDelayFromBody(error?.response?.data);
+    return getRetryDelayFromBody(response?.data);
 }
 
-function getPositiveInteger(value, fallback) {
+function getPositiveInteger(value: unknown, fallback: number): number {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : fallback;
 }
@@ -301,7 +345,11 @@ function getPositiveInteger(value, fallback) {
  * Calculates a scheduled recovery time for optional 429 account cooldown.
  * Returns null when cooldown is disabled or the error is not an HTTP 429.
  */
-export function getRateLimitCooldownRecoveryTime(error, config: any = {}, now = Date.now()) {
+export function getRateLimitCooldownRecoveryTime(
+    error: unknown,
+    config: Record<string, unknown> = {},
+    now = Date.now()
+): Date | null {
     if (!config?.RATE_LIMIT_COOLDOWN_ENABLED || Number(getErrorStatusCode(error)) !== 429) {
         return null;
     }
@@ -327,7 +375,7 @@ export function getRateLimitCooldownRecoveryTime(error, config: any = {}, now = 
 
 
 
-export function formatExpiryTime(expiryTimestamp) {
+export function formatExpiryTime(expiryTimestamp: unknown): string {
     if (!expiryTimestamp || typeof expiryTimestamp !== 'number') return "No expiry date available";
     const diffMs = expiryTimestamp - Date.now();
     if (diffMs <= 0) return "Token has expired";
@@ -336,7 +384,7 @@ export function formatExpiryTime(expiryTimestamp) {
     totalSeconds %= 3600;
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
-    const pad = (num) => String(num).padStart(2, '0');
+    const pad = (num: number) => String(num).padStart(2, '0');
     return `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
 }
 
@@ -347,20 +395,20 @@ export function formatExpiryTime(expiryTimestamp) {
  * @param {Object} [data] - 可选的数据对象，将被格式化输出
  * @returns {string} 格式化后的日志字符串
  */
-export function formatLog(tag, message, data = null) {
+export function formatLog(tag: string, message: string, data: unknown = null): string {
     let logMessage = `[${tag}] ${message}`;
-    
+
     if (data !== null && data !== undefined) {
         if (typeof data === 'object') {
             const dataStr = Object.entries(data)
-                .map(([key, value]) => `${key}: ${value}`)
+                .map(([key, value]) => `${key}: ${String(value)}`)
                 .join(', ');
             logMessage += ` | ${dataStr}`;
         } else {
-            logMessage += ` | ${data}`;
+            logMessage += ` | ${String(data)}`;
         }
     }
-    
+
     return logMessage;
 }
 
@@ -371,7 +419,7 @@ export function formatLog(tag, message, data = null) {
  * @param {number} nearMinutes - 临近过期的分钟数
  * @returns {{message: string, isNearExpiry: boolean}} 格式化后的日志字符串和是否临近过期
  */
-export function formatExpiryLog(tag, expiryDate, nearMinutes) {
+export function formatExpiryLog(tag: string, expiryDate: number, nearMinutes: number): { message: string; isNearExpiry: boolean } {
     const currentTime = Date.now();
     const nearMinutesInMillis = nearMinutes * 60 * 1000;
     const thresholdTime = currentTime + nearMinutesInMillis;
@@ -387,7 +435,7 @@ export function formatExpiryLog(tag, expiryDate, nearMinutes) {
     return { message, isNearExpiry };
 }
 
-function normalizeIpAddress(ip) {
+function normalizeIpAddress(ip: unknown): string | null {
     if (!ip) return null;
 
     let normalized = String(ip).trim();
@@ -401,11 +449,9 @@ function normalizeIpAddress(ip) {
     return normalized || null;
 }
 
-function parseTrustedProxyIps(value) {
+function parseTrustedProxyIps(value: unknown): string[] {
     if (Array.isArray(value)) {
-        return value
-            .flatMap(item => parseTrustedProxyIps(item))
-            .filter(Boolean);
+        return value.flatMap(item => parseTrustedProxyIps(item));
     }
 
     if (typeof value !== 'string') {
@@ -415,10 +461,10 @@ function parseTrustedProxyIps(value) {
     return value
         .split(',')
         .map(item => normalizeIpAddress(item))
-        .filter(Boolean);
+        .filter((item): item is string => Boolean(item));
 }
 
-function isTrustedProxyIp(ip, trustedProxyIps) {
+function isTrustedProxyIp(ip: unknown, trustedProxyIps: unknown): boolean {
     const normalizedIp = normalizeIpAddress(ip);
     if (!normalizedIp) return false;
 
@@ -435,7 +481,7 @@ function isTrustedProxyIp(ip, trustedProxyIps) {
  * @param {Object} [config] - Optional server configuration.
  * @returns {string} The client IP address.
  */
-export function getClientIp(req, config: any = {}) {
+export function getClientIp(req: http.IncomingMessage, config: Record<string, unknown> = {}): string {
     const socketIp = normalizeIpAddress(req.socket?.remoteAddress);
 
     if (config?.TRUST_PROXY === true && isTrustedProxyIp(socketIp, config.TRUSTED_PROXY_IPS)) {
@@ -457,7 +503,10 @@ export function getClientIp(req, config: any = {}) {
  * @returns {Promise<Object>} A promise that resolves with the parsed JSON request body.
  * @throws {Error} If the request body is not valid JSON.
  */
-export function getRequestBody(req, options: any = {}) {
+export function getRequestBody(
+    req: http.IncomingMessage,
+    options: { maxBytes?: number } = {}
+): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
         let body = '';
         let receivedBytes = 0;
@@ -466,16 +515,19 @@ export function getRequestBody(req, options: any = {}) {
 
         // 1. Quick check Content-Length header
         const headers = req.headers || {};
-        const contentLength = parseInt(headers['content-length'] || '0', 10);
+        const contentLength = parseInt(String(headers['content-length'] || '0'), 10);
         if (!isNaN(contentLength) && contentLength > maxBytes) {
             req.resume(); // drain & discard
-            const error = new Error(`Request body too large. Maximum size is ${maxBytes} bytes.`);
+            const error = new Error(`Request body too large. Maximum size is ${maxBytes} bytes.`) as Error & {
+                statusCode?: number;
+                code?: string;
+            };
             error.statusCode = 413;
             error.code = 'BODY_TOO_LARGE';
             return reject(error);
         }
 
-        const fail = (error) => {
+        const fail = (error: Error) => {
             if (settled) return;
             settled = true;
             if (typeof req.destroy === 'function') {
@@ -484,7 +536,7 @@ export function getRequestBody(req, options: any = {}) {
             reject(error);
         };
 
-        const rejectTooLarge = (error) => {
+        const rejectTooLarge = (error: Error) => {
             if (settled) return;
             settled = true;
             if (typeof req.resume === 'function') {
@@ -493,11 +545,14 @@ export function getRequestBody(req, options: any = {}) {
             reject(error);
         };
 
-        req.on('data', chunk => {
+        req.on('data', (chunk: Buffer) => {
             if (settled) return;
             receivedBytes += chunk.length;
             if (maxBytes && receivedBytes > maxBytes) {
-                const error = new Error(`Request body too large. Maximum size is ${maxBytes} bytes.`);
+                const error = new Error(`Request body too large. Maximum size is ${maxBytes} bytes.`) as Error & {
+                    statusCode?: number;
+                    code?: string;
+                };
                 error.statusCode = 413;
                 error.code = 'BODY_TOO_LARGE';
                 rejectTooLarge(error);
@@ -512,12 +567,12 @@ export function getRequestBody(req, options: any = {}) {
                 return resolve({});
             }
             try {
-                resolve(JSON.parse(body));
-            } catch (error) {
+                resolve(JSON.parse(body) as Record<string, unknown>);
+            } catch {
                 reject(new Error("Invalid JSON in request body."));
             }
         });
-        req.on('error', err => {
+        req.on('error', (err: Error) => {
             fail(err);
         });
     });
@@ -531,11 +586,11 @@ export function getRequestBody(req, options: any = {}) {
  * @param {string} REQUIRED_API_KEY - The API key required for authorization.
  * @returns {boolean} True if authorized, false otherwise.
  */
-export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
-    const authHeader = req.headers['authorization'];
+export function isAuthorized(req: http.IncomingMessage, requestUrl: URL, REQUIRED_API_KEY: string): boolean {
+    const authHeader = getHeaderValue(req.headers, 'authorization');
     const queryKey = requestUrl.searchParams.get('key');
-    const googApiKey = req.headers['x-goog-api-key'];
-    const claudeApiKey = req.headers['x-api-key']; // Claude-specific header
+    const googApiKey = getHeaderValue(req.headers, 'x-goog-api-key');
+    const claudeApiKey = getHeaderValue(req.headers, 'x-api-key'); // Claude-specific header
 
     // Check for Bearer token in Authorization header (OpenAI style)
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -573,8 +628,14 @@ export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
  *
  * @param {string} providerLabel - 用于日志/错误信息的标签，如 'Kiro'、'Qwen' 等
  */
-export function createEmptyUpstreamResponseError(providerLabel = 'Upstream') {
-    const error = new Error(`[${providerLabel}] Upstream returned an empty response (no text, tool call, or thinking content).`);
+export interface EmptyUpstreamResponseError extends Error {
+    isEmptyUpstreamResponse: boolean;
+    shouldSwitchCredential: boolean;
+    skipErrorCount: boolean;
+}
+
+export function createEmptyUpstreamResponseError(providerLabel = 'Upstream'): EmptyUpstreamResponseError {
+    const error = new Error(`[${providerLabel}] Upstream returned an empty response (no text, tool call, or thinking content).`) as EmptyUpstreamResponseError;
     error.isEmptyUpstreamResponse = true;
     error.shouldSwitchCredential = true;
     error.skipErrorCount = true;

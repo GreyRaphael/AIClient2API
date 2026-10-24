@@ -8,6 +8,11 @@ import logger from './logger.ts';
 import { promises as fs } from 'fs';
 import { getProviderMappings } from '../providers/provider-registry.ts';
 
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
 /**
  * 提供商目录映射配置（从 provider registry 派生）
  */
@@ -35,7 +40,7 @@ export function generateUUID() {
  * @param {string} filePath - 文件路径
  * @returns {string} 使用正斜杠的标准化路径
  */
-export function normalizePath(filePath) {
+export function normalizePath(filePath: string): string {
     if (!filePath) return filePath;
     
     // 使用 path 模块标准化，然后转换为正斜杠
@@ -48,7 +53,7 @@ export function normalizePath(filePath) {
  * @param {string} filePath - 文件路径
  * @returns {string} 文件名
  */
-export function getFileName(filePath) {
+export function getFileName(filePath: string): string {
     return path.basename(filePath);
 }
 
@@ -57,7 +62,7 @@ export function getFileName(filePath) {
  * @param {string} relativePath - 相对路径
  * @returns {string} 格式化后的路径（带有 ./ 或 .\ 前缀）
  */
-export function formatSystemPath(relativePath) {
+export function formatSystemPath(relativePath: string): string {
     if (!relativePath) return relativePath;
     
     // 根据操作系统判断使用对应的路径分隔符
@@ -74,7 +79,7 @@ export function formatSystemPath(relativePath) {
  * @param {string} path2 - 第二个路径
  * @returns {boolean} 如果路径指向同一文件则返回 true
  */
-export function pathsEqual(path1, path2) {
+export function pathsEqual(path1: string, path2: string): boolean {
     if (!path1 || !path2) return false;
     
     try {
@@ -102,7 +107,7 @@ export function pathsEqual(path1, path2) {
         
         return false;
     } catch (error) {
-        logger.warn(`[Path Comparison] Error comparing paths: ${path1} vs ${path2}`, error.message);
+        logger.warn(`[Path Comparison] Error comparing paths: ${path1} vs ${path2}`, getErrorMessage(error));
         return false;
     }
 }
@@ -114,7 +119,7 @@ export function pathsEqual(path1, path2) {
  * @param {Set} usedPaths - 已使用路径的集合
  * @returns {boolean} 如果文件正在被使用则返回 true
  */
-export function isPathUsed(relativePath, fileName, usedPaths) {
+export function isPathUsed(relativePath: string, fileName: string, usedPaths: Iterable<string>): boolean {
     if (!relativePath) return false;
     
     // 标准化相对路径
@@ -180,7 +185,16 @@ export function isPathUsed(relativePath, fileName, usedPaths) {
  * @param {string} normalizedPath - 标准化的文件路径（小写，正斜杠）
  * @returns {Object|null} 提供商映射对象，如果未检测到则返回 null
  */
-export function detectProviderFromPath(normalizedPath) {
+export interface DetectedProviderMapping {
+    providerType: string;
+    credPathKey: string | undefined;
+    defaultCheckModel: string | undefined;
+    displayName: string;
+    needsProjectId: boolean;
+    urlKeys: string[];
+}
+
+export function detectProviderFromPath(normalizedPath: string): DetectedProviderMapping | null {
     // 遍历映射关系，查找匹配的提供商
     for (const mapping of PROVIDER_MAPPINGS) {
         for (const pattern of mapping.patterns) {
@@ -206,7 +220,7 @@ export function detectProviderFromPath(normalizedPath) {
  * @param {string} filePath - 文件路径
  * @returns {Promise<boolean>} 是否有效
  */
-export async function isValidOAuthCredentials(filePath) {
+export async function isValidOAuthCredentials(filePath: string): Promise<boolean> {
     try {
         const content = await fs.readFile(filePath, 'utf8');
         const jsonData = JSON.parse(content);
@@ -244,10 +258,17 @@ export async function isValidOAuthCredentials(filePath) {
  * @param {Array} [options.urlKeys] - 可选的 URL 配置项键名列表
  * @returns {Object} 新的提供商配置对象
  */
-export function createProviderConfig(options) {
+export function createProviderConfig(options: {
+    credPathKey: string;
+    credPath: string;
+    defaultCheckModel: string;
+    defaultCheckHealth?: boolean;
+    needsProjectId: boolean;
+    urlKeys?: string[];
+}): Record<string, unknown> {
     const { credPathKey, credPath, defaultCheckModel, defaultCheckHealth, needsProjectId, urlKeys } = options;
-    
-    const newProvider = {
+
+    const newProvider: Record<string, unknown> = {
         [credPathKey]: credPath,
         uuid: generateUUID(),
         checkModelName: defaultCheckModel,
@@ -265,7 +286,7 @@ export function createProviderConfig(options) {
     
     // 如果需要 PROJECT_ID，添加空字符串占位
     if (needsProjectId) {
-        (newProvider as any).PROJECT_ID = '';
+        newProvider.PROJECT_ID = '';
     }
 
     // 初始化可选的 URL 配置项
@@ -283,7 +304,7 @@ export function createProviderConfig(options) {
  * @param {Set} usedPaths - 已使用路径的集合
  * @param {string} filePath - 要添加的文件路径
  */
-export function addToUsedPaths(usedPaths, filePath) {
+export function addToUsedPaths(usedPaths: Set<string>, filePath: string): void {
     if (!filePath) return;
     
     const normalizedPath = filePath.replace(/\\/g, '/');

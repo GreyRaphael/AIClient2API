@@ -22,7 +22,7 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
         return configFiles;
     }
 
-    const usedPaths = new Set(); // 存储已使用的路径，用于判断关联状态
+    const usedPaths = new Set<string>(); // 存储已使用的路径，用于判断关联状态
     const credentialDefinitions = getCredentialProviderDefinitions();
 
     // 从配置中提取所有 OAuth 凭据文件路径 - 标准化路径格式

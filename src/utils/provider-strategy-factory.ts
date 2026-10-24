@@ -9,7 +9,7 @@ import { CodexResponsesAPIStrategy } from '../providers/openai/codex-responses-s
  * Strategy factory that returns the appropriate strategy instance based on the provider protocol.
  */
 class ProviderStrategyFactory {
-    static getStrategy(providerProtocol) {
+    static getStrategy(providerProtocol: string) {
         switch (providerProtocol) {
             case MODEL_PROTOCOL_PREFIX.GEMINI:
                 return new GeminiStrategy();

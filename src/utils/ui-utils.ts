@@ -8,7 +8,7 @@ import { UI_PATHS } from './constants.ts';
  * @param {string} path - 请求路径
  * @returns {boolean}
  */
-export function isUIPath(path) {
+export function isUIPath(path: string): boolean {
     // 检查常见静态文件扩展名
     const isStaticExtension = /\.(png|jpg|jpeg|gif|svg|ico)$/i.test(path);
     
@@ -22,7 +22,7 @@ export function isUIPath(path) {
  * @param {string} path - 请求路径
  * @returns {boolean}
  */
-export function isUIApiPath(path) {
+export function isUIApiPath(path: string): boolean {
     // 检查是否以 API 前缀开始，且不在白名单中
     return path.startsWith(UI_PATHS.API_PREFIX) && 
            !UI_PATHS.API_WHITELIST.includes(path);

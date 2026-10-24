@@ -15,7 +15,20 @@
  * - Responses API: response.usage / message.usage
  */
 
-export function toNumber(value) {
+export interface NormalizedUsage {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cachedTokens: number;
+}
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+    return value !== null && typeof value === 'object';
+}
+
+export function toNumber(value: unknown): number {
     const num = Number(value);
     return Number.isFinite(num) ? num : 0;
 }
@@ -26,12 +39,12 @@ export function toNumber(value) {
  * @param {object|Array} candidate - usage 候选对象（可为响应体、usage 子对象或其数组）
  * @returns {{promptTokens: number, completionTokens: number, totalTokens: number, cachedTokens: number}|null}
  */
-export function normalizeUsageCandidate(candidate) {
+export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | null {
     if (!candidate || typeof candidate !== 'object') {
         return null;
     }
     if (Array.isArray(candidate)) {
-        const usage = candidate.reduce((merged, item) => mergeUsage(merged, normalizeUsageCandidate(item)), {
+        const usage = candidate.reduce<NormalizedUsage>((merged, item) => mergeUsage(merged, normalizeUsageCandidate(item)), {
             promptTokens: 0,
             completionTokens: 0,
             totalTokens: 0,
@@ -41,40 +54,57 @@ export function normalizeUsageCandidate(candidate) {
         return hasUsage ? usage : null;
     }
 
-    const usage = candidate.usage || candidate.message?.usage || candidate.usageMetadata || candidate.response?.usage || null;
+    const record = candidate as UnknownRecord;
+    const message = isRecord(record.message) ? record.message : null;
+    const response = isRecord(record.response) ? record.response : null;
+    const usage = isRecord(record.usage)
+        ? record.usage
+        : isRecord(message?.usage)
+            ? message.usage
+            : isRecord(record.usageMetadata)
+                ? record.usageMetadata
+                : isRecord(response?.usage)
+                    ? response.usage
+                    : null;
+
+    const completionDetails = isRecord(record.completion_tokens_details) ? record.completion_tokens_details : null;
+    const outputDetails = isRecord(record.output_tokens_details) ? record.output_tokens_details : null;
+    const usageCompletionDetails = isRecord(usage?.completion_tokens_details) ? usage.completion_tokens_details : null;
+    const usageOutputDetails = isRecord(usage?.output_tokens_details) ? usage.output_tokens_details : null;
+
     const reasoningTokens = toNumber(
-        candidate.completion_tokens_details?.reasoning_tokens ??
-        candidate.output_tokens_details?.reasoning_tokens ??
-        usage?.completion_tokens_details?.reasoning_tokens ??
-        usage?.output_tokens_details?.reasoning_tokens ??
+        completionDetails?.reasoning_tokens ??
+        outputDetails?.reasoning_tokens ??
+        usageCompletionDetails?.reasoning_tokens ??
+        usageOutputDetails?.reasoning_tokens ??
         usage?.thoughtsTokenCount ??
-        candidate.thoughtsTokenCount
+        record.thoughtsTokenCount
     );
     const promptTokens = toNumber(
-        candidate.prompt_tokens ??
+        record.prompt_tokens ??
         usage?.prompt_tokens ??
         usage?.input_tokens ??
-        candidate.input_tokens ??
+        record.input_tokens ??
         usage?.promptTokenCount ??
-        candidate.promptTokenCount ??
+        record.promptTokenCount ??
         usage?.inputTokenCount ??
-        candidate.inputTokenCount
+        record.inputTokenCount
     );
     const rawCompletionTokens = toNumber(
-        candidate.completion_tokens ??
+        record.completion_tokens ??
         usage?.completion_tokens ??
         usage?.output_tokens ??
-        candidate.output_tokens ??
+        record.output_tokens ??
         usage?.candidatesTokenCount ??
-        candidate.candidatesTokenCount ??
+        record.candidatesTokenCount ??
         usage?.outputTokenCount ??
-        candidate.outputTokenCount
+        record.outputTokenCount
     );
     const totalTokensCandidate = toNumber(
-        candidate.total_tokens ??
+        record.total_tokens ??
         usage?.total_tokens ??
         usage?.totalTokenCount ??
-        candidate.totalTokenCount
+        record.totalTokenCount
     );
 
     // 标准 OpenAI 响应中 completion_tokens 已包含 reasoning_tokens；
@@ -83,24 +113,30 @@ export function normalizeUsageCandidate(candidate) {
     if (reasoningTokens > 0) {
         if (totalTokensCandidate > 0 && rawCompletionTokens + promptTokens < totalTokensCandidate) {
             completionTokens = Math.min(rawCompletionTokens + reasoningTokens, totalTokensCandidate - promptTokens);
-        } else if (totalTokensCandidate === 0 && (usage?.candidatesTokenCount !== undefined || candidate?.candidatesTokenCount !== undefined)) {
+        } else if (totalTokensCandidate === 0 && (usage?.candidatesTokenCount !== undefined || record.candidatesTokenCount !== undefined)) {
             completionTokens += reasoningTokens;
         }
     }
     const totalTokens = totalTokensCandidate;
+    const promptDetails = isRecord(record.prompt_tokens_details) ? record.prompt_tokens_details : null;
+    const inputDetails = isRecord(record.input_tokens_details) ? record.input_tokens_details : null;
+    const inputTokenDetails = isRecord(record.input_token_details) ? record.input_token_details : null;
+    const usagePromptDetails = isRecord(usage?.prompt_tokens_details) ? usage.prompt_tokens_details : null;
+    const usageInputDetails = isRecord(usage?.input_tokens_details) ? usage.input_tokens_details : null;
+    const usageInputTokenDetails = isRecord(usage?.input_token_details) ? usage.input_token_details : null;
     const cachedTokens = toNumber(
-        candidate.cached_tokens ??
+        record.cached_tokens ??
         usage?.cached_tokens ??
-        candidate.prompt_tokens_details?.cached_tokens ??
-        candidate.input_tokens_details?.cached_tokens ??
-        candidate.input_token_details?.cached_tokens ??
-        usage?.prompt_tokens_details?.cached_tokens ??
-        usage?.input_tokens_details?.cached_tokens ??
-        usage?.input_token_details?.cached_tokens ??
+        promptDetails?.cached_tokens ??
+        inputDetails?.cached_tokens ??
+        inputTokenDetails?.cached_tokens ??
+        usagePromptDetails?.cached_tokens ??
+        usageInputDetails?.cached_tokens ??
+        usageInputTokenDetails?.cached_tokens ??
         usage?.cache_read_input_tokens ??
-        candidate.cache_read_input_tokens ??
+        record.cache_read_input_tokens ??
         usage?.cachedContentTokenCount ??
-        candidate.cachedContentTokenCount
+        record.cachedContentTokenCount
     );
 
     const hasUsage = promptTokens > 0 || completionTokens > 0 || totalTokens > 0 || cachedTokens > 0;
@@ -122,7 +158,7 @@ export function normalizeUsageCandidate(candidate) {
  * @param {object|null} nextUsage - 待合并用量（null 时原样返回 baseUsage）
  * @returns {{promptTokens: number, completionTokens: number, totalTokens: number, cachedTokens: number}}
  */
-export function mergeUsage(baseUsage, nextUsage) {
+export function mergeUsage(baseUsage: NormalizedUsage, nextUsage: NormalizedUsage | null): NormalizedUsage {
     if (!nextUsage) {
         return baseUsage;
     }
@@ -140,8 +176,8 @@ export function mergeUsage(baseUsage, nextUsage) {
  * @param {...object} candidates - usage 候选对象
  * @returns {{promptTokens: number, completionTokens: number, totalTokens: number, cachedTokens: number}}
  */
-export function extractUsage(...candidates) {
-    return candidates.reduce((usage, candidate) => {
+export function extractUsage(...candidates: unknown[]): NormalizedUsage {
+    return candidates.reduce<NormalizedUsage>((usage, candidate) => {
         const normalized = normalizeUsageCandidate(candidate);
         return mergeUsage(usage, normalized);
     }, {

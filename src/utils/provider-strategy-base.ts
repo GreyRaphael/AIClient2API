@@ -2,6 +2,21 @@ import { promises as fs } from 'fs';
 import logger from './logger.ts';
 import { FETCH_SYSTEM_PROMPT_FILE } from './protocol.ts';
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
+function getErrorCode(error: unknown): unknown {
+    return isRecord(error) ? error.code : undefined;
+}
+
 /**
  * Abstract provider strategy class, defining the interface for handling different model providers.
  */
@@ -12,7 +27,7 @@ export class ProviderStrategy {
      * @param {object} requestBody - Parsed request body.
      * @returns {{model: string, isStream: boolean}} Object containing model name and stream status.
      */
-    extractModelAndStreamInfo(req, requestBody) {
+    extractModelAndStreamInfo(req: unknown, requestBody: UnknownRecord): { model: string; isStream: boolean } {
         throw new Error("Method 'extractModelAndStreamInfo()' must be implemented.");
     }
 
@@ -21,7 +36,7 @@ export class ProviderStrategy {
      * @param {object} response - API response object.
      * @returns {string} Extracted text content.
      */
-    extractResponseText(response) {
+    extractResponseText(response: unknown): string {
         throw new Error("Method 'extractResponseText()' must be implemented.");
     }
 
@@ -30,7 +45,7 @@ export class ProviderStrategy {
      * @param {object} requestBody - Request body object.
      * @returns {string} Extracted prompt text.
      */
-    extractPromptText(requestBody) {
+    extractPromptText(requestBody: UnknownRecord): string {
         throw new Error("Method 'extractPromptText()' must be implemented.");
     }
 
@@ -40,7 +55,7 @@ export class ProviderStrategy {
      * @param {object} requestBody - Request body object.
      * @returns {Promise<object>} Modified request body.
      */
-    async applySystemPromptFromFile(config, requestBody) {
+    async applySystemPromptFromFile(config: UnknownRecord, requestBody: UnknownRecord): Promise<UnknownRecord> {
         throw new Error("Method 'applySystemPromptFromFile()' must be implemented.");
     }
 
@@ -49,7 +64,7 @@ export class ProviderStrategy {
      * @param {object} requestBody - Request body object.
      * @returns {Promise<void>}
      */
-    async manageSystemPrompt(requestBody) {
+    async manageSystemPrompt(requestBody: UnknownRecord): Promise<void> {
         throw new Error("Method 'manageSystemPrompt()' must be implemented.");
     }
 
@@ -59,23 +74,23 @@ export class ProviderStrategy {
      * @param {string} providerName - Provider name (for logging).
      * @returns {Promise<void>}
      */
-    async _updateSystemPromptFile(incomingSystemText, providerName) {
+    async _updateSystemPromptFile(incomingSystemText: unknown, providerName: string): Promise<void> {
         let currentSystemText = '';
         try {
             currentSystemText = await fs.readFile(FETCH_SYSTEM_PROMPT_FILE, 'utf8');
         } catch (error) {
-            if (error.code !== 'ENOENT') {
-                logger.error(`[System Prompt Manager] Error reading system prompt file: ${error.message}`);
+            if (getErrorCode(error) !== 'ENOENT') {
+                logger.error(`[System Prompt Manager] Error reading system prompt file: ${getErrorMessage(error)}`);
             }
         }
 
         try {
-            let textToWrite = incomingSystemText;
+            let textToWrite: unknown = incomingSystemText;
             if (typeof textToWrite === 'object' && textToWrite !== null) {
                 textToWrite = JSON.stringify(textToWrite);
             }
 
-            if (textToWrite !== undefined && textToWrite !== null && textToWrite !== currentSystemText) {
+            if (typeof textToWrite === 'string' && textToWrite !== currentSystemText) {
                 await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, textToWrite);
                 logger.info(`[System Prompt Manager] System prompt updated in file for provider '${providerName}'.`);
             } else if ((textToWrite === '' || textToWrite === undefined || textToWrite === null) && currentSystemText) {
@@ -83,7 +98,7 @@ export class ProviderStrategy {
                 logger.info('[System Prompt Manager] System prompt cleared from file.');
             }
         } catch (error) {
-            logger.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
+            logger.error(`[System Prompt Manager] Failed to manage system prompt file: ${getErrorMessage(error)}`);
         }
     }
 }

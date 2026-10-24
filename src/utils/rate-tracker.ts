@@ -1,3 +1,12 @@
+export interface RateStats {
+    qps: number;
+    tps: number;
+    rpm: number;
+    maxQps: number;
+    maxTps: number;
+    maxRpm: number;
+}
+
 /**
  * 速率追踪器 - 用于统计 QPS 和 TPS
  * 使用滑动窗口（桶）实现，性能较好
@@ -38,7 +47,7 @@ export class RateTracker {
      * 向前推进时间，清理过期的桶
      * @private
      */
-    _advance(nowSeconds) {
+    _advance(nowSeconds: number): void {
         const diff = nowSeconds - this.lastUpdateTime;
         if (diff <= 0) return;
 
@@ -55,7 +64,7 @@ export class RateTracker {
      * 记录一次请求和对应的 Token 数量
      * @param {number} tokens - 本次请求产生的 Token 数量
      */
-    record(tokens = 0) {
+    record(tokens = 0): void {
         const nowSeconds = Math.floor(Date.now() / 1000);
         if (this.firstRecordTime === 0) {
             this.firstRecordTime = nowSeconds;
@@ -71,7 +80,7 @@ export class RateTracker {
      * 获取当前的速率统计
      * @returns {{qps: number, tps: number, rpm: number, maxQps: number, maxTps: number, maxRpm: number}}
      */
-    getStats() {
+    getStats(): RateStats {
         const nowSeconds = Math.floor(Date.now() / 1000);
         
         // 如果从未有记录，直接返回 0
@@ -133,7 +142,7 @@ export class RateManager {
      * @param {string} key - 标识符（如 provider 或 model）
      * @param {number} tokens - Token 数量
      */
-    record(key, tokens = 0) {
+    record(key: string, tokens = 0): void {
         this.globalTracker.record(tokens);
         if (key) {
             if (!this.trackers.has(key)) {
@@ -143,7 +152,7 @@ export class RateManager {
                 }
                 this.trackers.set(key, new RateTracker(this.windowSeconds));
             }
-            this.trackers.get(key).record(tokens);
+            this.trackers.get(key)?.record(tokens);
         }
     }
 
@@ -151,7 +160,7 @@ export class RateManager {
      * 删除指定的追踪器
      * @param {string} key 
      */
-    remove(key) {
+    remove(key: string): void {
         if (key) {
             this.trackers.delete(key);
         }
@@ -178,25 +187,26 @@ export class RateManager {
     /**
      * 获取全局统计
      */
-    getGlobalStats() {
+    getGlobalStats(): RateStats {
         return this.globalTracker.getStats();
     }
 
     /**
      * 获取指定标识符的统计
      */
-    getStats(key) {
+    getStats(key: string): RateStats {
         if (!key || !this.trackers.has(key)) {
             return { qps: 0, tps: 0, rpm: 0, maxQps: 0, maxTps: 0, maxRpm: 0 };
         }
-        return this.trackers.get(key).getStats();
+        const tracker = this.trackers.get(key);
+        return tracker ? tracker.getStats() : { qps: 0, tps: 0, rpm: 0, maxQps: 0, maxTps: 0, maxRpm: 0 };
     }
 
     /**
      * 获取所有统计
      */
-    getAllStats() {
-        const result = {
+    getAllStats(): { global: RateStats; items: Record<string, RateStats> } {
+        const result: { global: RateStats; items: Record<string, RateStats> } = {
             global: this.globalTracker.getStats(),
             items: {}
         };

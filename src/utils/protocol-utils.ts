@@ -12,7 +12,7 @@
  * @param {string} id - 原始工具调用 ID
  * @returns {string} 清洗后的 ID
  */
-export function sanitizeToolId(id) {
+export function sanitizeToolId(id: string): string {
     if (!id) return id;
     return String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
@@ -24,8 +24,8 @@ export function sanitizeToolId(id) {
  * @param {string} targetFormat - 目标格式
  * @returns {string} 映射后的结束原因
  */
-export function mapFinishReason(reason, sourceFormat, targetFormat) {
-    const reasonMappings = {
+export function mapFinishReason(reason: string, sourceFormat: string, targetFormat: string): string {
+    const reasonMappings: Record<string, Record<string, Record<string, string>>> = {
         openai: {
             anthropic: {
                 stop: "end_turn",
@@ -69,15 +69,15 @@ export function mapFinishReason(reason, sourceFormat, targetFormat) {
     };
 
     // 各目标协议的兜底值：映射缺失或异常时返回该协议的"正常结束"语义
-    const defaultByTarget = {
+    const defaultByTarget: Record<string, string> = {
         anthropic: "end_turn",
         openai: "stop"
     };
     const fallback = defaultByTarget[targetFormat] || "end_turn";
 
     try {
-        return reasonMappings[sourceFormat][targetFormat][reason] || fallback;
-    } catch (e) {
+        return reasonMappings[sourceFormat]?.[targetFormat]?.[reason] || fallback;
+    } catch {
         return fallback;
     }
 }

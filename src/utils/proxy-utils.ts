@@ -3,6 +3,7 @@
  * 支持 HTTP、HTTPS 和 SOCKS5 代理
  */
 
+import type { Agent } from 'node:http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import logger from './logger.ts';
 import requestContext from './context.ts';
@@ -11,17 +12,60 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 import { getTLSSidecar } from './tls-sidecar.ts';
 import { NETWORK } from './constants.ts';
 
+type UnknownRecord = Record<string, unknown>;
+
+interface ProxyConfig {
+    httpAgent: Agent;
+    httpsAgent: Agent;
+    proxyType: 'socks' | 'http';
+}
+
+type WildcardProxyResolver = (providerType: string, uuid: unknown) => string | null | undefined;
+
+interface NodeProxyBinding {
+    getProxyUrl: (providerType: string, uuid: unknown) => unknown;
+    clientIp?: unknown;
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+    return value !== null && typeof value === 'object';
+}
+
+function getNodeProxyBinding(value: unknown): NodeProxyBinding | null {
+    if (!isRecord(value) || typeof value.getProxyUrl !== 'function') return null;
+    return value as unknown as NodeProxyBinding;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
+function getString(value: unknown): string | null {
+    return typeof value === 'string' ? value : null;
+}
+
+function getStringArray(value: unknown): string[] | null {
+    if (!Array.isArray(value)) return null;
+    return value.filter((item): item is string => typeof item === 'string');
+}
+
+function getClientIp(value: unknown): string {
+    const binding = getNodeProxyBinding(value);
+    return binding && typeof binding.clientIp === 'string' ? binding.clientIp : 'unknown';
+}
+
 // 代理 Agent 缓存，避免重复创建 Agent 导致连接池失效和内存泄漏
-const agentCache = new Map();
+const agentCache = new Map<string, ProxyConfig>();
 
 // 用于存储全局通配符代理获取器，解决启动初始化时无请求上下文的问题
-let wildcardProxyResolver = null;
+let wildcardProxyResolver: WildcardProxyResolver | null = null;
 
 /**
  * 注册全局通配符代理获取器
- * @param {Function} resolver 
+ * @param {Function} resolver
  */
-export function registerWildcardProxyResolver(resolver) {
+export function registerWildcardProxyResolver(resolver: WildcardProxyResolver) {
     wildcardProxyResolver = resolver;
 }
 
@@ -33,31 +77,34 @@ export function registerWildcardProxyResolver(resolver) {
  * @param {string} providerType - 提供商类型
  * @returns {string|null} 绑定的代理 URL
  */
-export function getNodeProxyUrlFromBinding(config, providerType) {
+export function getNodeProxyUrlFromBinding(config: UnknownRecord | null | undefined, providerType: string): string | null {
     // 优先从线程级上下文获取（解决提供商实例缓存 config 导致获取不到最新插件方法的问题）
-    const contextIpNodeProxy = requestContext.get('ipNodeProxy');
-    if (typeof contextIpNodeProxy?.getProxyUrl === 'function') {
+    const contextIpNodeProxy = getNodeProxyBinding(requestContext.get('ipNodeProxy'));
+    if (contextIpNodeProxy) {
         try {
-            return contextIpNodeProxy.getProxyUrl(providerType, config.uuid);
+            const url = contextIpNodeProxy.getProxyUrl(providerType, config?.uuid);
+            return typeof url === 'string' ? url : null;
         } catch (error) {
             const nodeName = config?.customName || config?.uuid || 'unknown';
-            logger.error(`[Proxy] Error calling ipNodeProxy.getProxyUrl from context for ${providerType}/${nodeName}:`, error.message);
+            logger.error(`[Proxy] Error calling ipNodeProxy.getProxyUrl from context for ${providerType}/${String(nodeName)}:`, getErrorMessage(error));
         }
     }
 
     // 兜底：从 config 获取
-    if (typeof config?.ipNodeProxy?.getProxyUrl === 'function') {
+    const configIpNodeProxy = getNodeProxyBinding(config?.ipNodeProxy);
+    if (configIpNodeProxy) {
         try {
-            return config.ipNodeProxy.getProxyUrl(providerType, config.uuid);
+            const url = configIpNodeProxy.getProxyUrl(providerType, config?.uuid);
+            return typeof url === 'string' ? url : null;
         } catch (error) {
             const nodeName = config?.customName || config?.uuid || 'unknown';
-            logger.error(`[Proxy] Error calling ipNodeProxy.getProxyUrl from config for ${providerType}/${nodeName}:`, error.message);
+            logger.error(`[Proxy] Error calling ipNodeProxy.getProxyUrl from config for ${providerType}/${String(nodeName)}:`, getErrorMessage(error));
         }
     }
 
     // 最后的兜底：如果没有上下文（如项目启动初始化），使用全局通配符 '*'
-    if (typeof wildcardProxyResolver === 'function') {
-        return wildcardProxyResolver(providerType, config.uuid);
+    if (wildcardProxyResolver) {
+        return wildcardProxyResolver(providerType, config?.uuid) ?? null;
     }
 
     return null;
@@ -69,7 +116,7 @@ export function getNodeProxyUrlFromBinding(config, providerType) {
  * @param {string} proxyUrl - 代理URL，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
  * @returns {Object|null} 代理配置对象，包含 httpAgent 和 httpsAgent
  */
-export function parseProxyUrl(proxyUrl) {
+export function parseProxyUrl(proxyUrl: unknown): ProxyConfig | null {
     if (!proxyUrl || typeof proxyUrl !== 'string') {
         return null;
     }
@@ -80,8 +127,9 @@ export function parseProxyUrl(proxyUrl) {
     }
 
     // 检查缓存
-    if (agentCache.has(trimmedUrl)) {
-        return agentCache.get(trimmedUrl);
+    const cached = agentCache.get(trimmedUrl);
+    if (cached) {
+        return cached;
     }
 
     try {
@@ -96,7 +144,7 @@ export function parseProxyUrl(proxyUrl) {
             timeout: NETWORK.DEFAULT_TIMEOUT
         };
 
-        let result = null;
+        let result: ProxyConfig | null = null;
         if (protocol === 'socks5:' || protocol === 'socks4:' || protocol === 'socks:') {
             // SOCKS 代理
             const socksAgent = new SocksProxyAgent(trimmedUrl, agentOptions);
@@ -123,7 +171,7 @@ export function parseProxyUrl(proxyUrl) {
         }
         return result;
     } catch (error) {
-        logger.error(`[Proxy] Failed to parse proxy URL: ${error.message}`);
+        logger.error(`[Proxy] Failed to parse proxy URL: ${getErrorMessage(error)}`);
         return null;
     }
 }
@@ -134,7 +182,7 @@ export function parseProxyUrl(proxyUrl) {
  * @param {string} providerType - 提供商类型
  * @returns {boolean} 是否启用代理
  */
-export function isProxyEnabledForProvider(config, providerType) {
+export function isProxyEnabledForProvider(config: UnknownRecord | null | undefined, providerType: string): boolean {
     if (getNodeProxyUrlFromBinding(config, providerType)) {
         return true;
     }
@@ -143,8 +191,8 @@ export function isProxyEnabledForProvider(config, providerType) {
         return false;
     }
 
-    const enabledProviders = config.PROXY_ENABLED_PROVIDERS;
-    if (!Array.isArray(enabledProviders)) {
+    const enabledProviders = getStringArray(config.PROXY_ENABLED_PROVIDERS);
+    if (!enabledProviders) {
         return false;
     }
 
@@ -163,8 +211,8 @@ export function isProxyEnabledForProvider(config, providerType) {
  * @param {string} providerType - 提供商类型
  * @returns {Object|null} 代理配置对象或 null
  */
-export function getProxyConfigForProvider(config, providerType) {
-    if (!isProxyEnabledForProvider(config, providerType)) {
+export function getProxyConfigForProvider(config: UnknownRecord | null | undefined, providerType: string): ProxyConfig | null {
+    if (!config || !isProxyEnabledForProvider(config, providerType)) {
         return null;
     }
 
@@ -173,14 +221,15 @@ export function getProxyConfigForProvider(config, providerType) {
     const proxyConfig = parseProxyUrl(proxyUrl);
     if (proxyConfig) {
         const nodeName = config?.customName || config?.uuid;
-        const nodeDisplay = nodeName ? `${providerType}/${nodeName}` : providerType;
-        
+        const nodeDisplay = nodeName ? `${providerType}/${String(nodeName)}` : providerType;
+
         // 优先从上下文中获取 clientIp
-        const contextIpNodeProxy = requestContext.get('ipNodeProxy');
-        const clientIp = contextIpNodeProxy?.clientIp || config.ipNodeProxy?.clientIp || 'unknown';
-        
+        const clientIp = getClientIp(requestContext.get('ipNodeProxy')) !== 'unknown'
+            ? getClientIp(requestContext.get('ipNodeProxy'))
+            : getClientIp(config.ipNodeProxy);
+
         const source = boundProxyUrl ? `${nodeDisplay} (IP binding ${clientIp})` : nodeDisplay;
-        logger.info(`[Proxy] Using ${proxyConfig.proxyType} proxy for ${source}: ${proxyUrl}`);
+        logger.info(`[Proxy] Using ${proxyConfig.proxyType} proxy for ${source}: ${String(proxyUrl)}`);
     }
 
     return proxyConfig;
@@ -193,7 +242,7 @@ export function getProxyConfigForProvider(config, providerType) {
  * @param {string} providerType - 提供商类型
  * @returns {Object} 更新后的 axios 配置
  */
-export function configureAxiosProxy(axiosConfig, config, providerType) {
+export function configureAxiosProxy(axiosConfig: UnknownRecord, config: UnknownRecord | null | undefined, providerType: string): UnknownRecord {
     const proxyConfig = getProxyConfigForProvider(config, providerType);
 
     if (proxyConfig) {
@@ -213,7 +262,7 @@ export function configureAxiosProxy(axiosConfig, config, providerType) {
  * @param {string} providerType - 提供商类型
  * @returns {boolean} 是否启用 TLS Sidecar
  */
-export function isTLSSidecarEnabledForProvider(config, providerType) {
+export function isTLSSidecarEnabledForProvider(config: UnknownRecord | null | undefined, providerType: string): boolean {
     // if (getNodeProxyUrlFromBinding(config, providerType)) {
     //     return true;
     // }
@@ -222,8 +271,8 @@ export function isTLSSidecarEnabledForProvider(config, providerType) {
         return false;
     }
 
-    const enabledProviders = config.TLS_SIDECAR_ENABLED_PROVIDERS;
-    if (!Array.isArray(enabledProviders)) {
+    const enabledProviders = getStringArray(config.TLS_SIDECAR_ENABLED_PROVIDERS);
+    if (!enabledProviders) {
         return false;
     }
 
@@ -244,32 +293,43 @@ export function isTLSSidecarEnabledForProvider(config, providerType) {
  * @param {string} [defaultBaseUrl] - 默认基础 URL（用于处理相对路径）
  * @returns {Object} 更新后的 axios 配置
  */
-export function configureTLSSidecar(axiosConfig, config, providerType, defaultBaseUrl = null) {
+export function configureTLSSidecar(
+    axiosConfig: UnknownRecord,
+    config: UnknownRecord | null | undefined,
+    providerType: string,
+    defaultBaseUrl: string | null = null
+): UnknownRecord {
+    if (!config) {
+        return configureAxiosProxy(axiosConfig, config, providerType);
+    }
+
     const sidecar = getTLSSidecar();
     if (sidecar.isReady() && isTLSSidecarEnabledForProvider(config, providerType)) {
         // 优先使用 IP 绑定的代理，其次使用 Sidecar 专用的代理，最后使用全局代理
         const boundProxyUrl = getNodeProxyUrlFromBinding(config, providerType);
-        const proxyUrl = boundProxyUrl || config.TLS_SIDECAR_PROXY_URL || config.PROXY_URL || null;
-        
+        const proxyUrl = boundProxyUrl || getString(config.TLS_SIDECAR_PROXY_URL) || getString(config.PROXY_URL) || null;
+
         // 处理相对路径
-        if (axiosConfig.url && !axiosConfig.url.startsWith('http')) {
-            const baseUrl = (axiosConfig.baseURL || defaultBaseUrl || '').replace(/\/$/, '');
+        const requestUrl = getString(axiosConfig.url);
+        if (requestUrl && !requestUrl.startsWith('http')) {
+            const baseUrl = (getString(axiosConfig.baseURL) || defaultBaseUrl || '').replace(/\/$/, '');
             if (baseUrl) {
-                const path = axiosConfig.url.startsWith('/') ? axiosConfig.url : '/' + axiosConfig.url;
+                const path = requestUrl.startsWith('/') ? requestUrl : '/' + requestUrl;
                 axiosConfig.url = baseUrl + path;
             }
         }
-        
+
         const nodeName = config?.customName || config?.uuid;
-        const nodeDisplay = nodeName ? `${providerType}/${nodeName}` : providerType;
-        
+        const nodeDisplay = nodeName ? `${providerType}/${String(nodeName)}` : providerType;
+
         // 优先从上下文中获取 clientIp
-        const contextIpNodeProxy = requestContext.get('ipNodeProxy');
-        const clientIp = contextIpNodeProxy?.clientIp || config.ipNodeProxy?.clientIp || 'unknown';
-        
+        const clientIp = getClientIp(requestContext.get('ipNodeProxy')) !== 'unknown'
+            ? getClientIp(requestContext.get('ipNodeProxy'))
+            : getClientIp(config.ipNodeProxy);
+
         const source = boundProxyUrl ? `${nodeDisplay} (IP binding ${clientIp})` : nodeDisplay;
         logger.info(`[TLS Sidecar] Using sidecar for ${source}${proxyUrl ? ` (proxy: ${proxyUrl})` : ''}`);
-        
+
         sidecar.wrapAxiosConfig(axiosConfig, proxyUrl);
     }else{
         // 未启用 TLS Sidecar，直接使用全局代理
@@ -284,7 +344,7 @@ export function configureTLSSidecar(axiosConfig, config, providerType, defaultBa
  * @param {string} providerType - 提供商类型
  * @returns {Object|null} transporter 配置对象或 null
  */
-export function getGoogleAuthProxyConfig(config, providerType) {
+export function getGoogleAuthProxyConfig(config: UnknownRecord | null | undefined, providerType: string): { agent: Agent } | null {
     const proxyConfig = getProxyConfigForProvider(config, providerType);
 
     if (proxyConfig) {

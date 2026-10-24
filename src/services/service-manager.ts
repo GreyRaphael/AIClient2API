@@ -76,7 +76,7 @@ export async function autoLinkProviderConfigs(config, options: any = {}) {
             }
             
             // 获取已关联的配置文件路径集合
-            const linkedPaths = new Set();
+            const linkedPaths = new Set<string>();
             for (const provider of config.providerPools[providerType]) {
                 if (provider[credPathKey]) {
                     // 使用公共方法添加路径的所有变体格式
@@ -205,7 +205,7 @@ async function linkSingleCredential(config, credPath, options: any = {}) {
         }
         
         // 检查是否已关联
-        const linkedPaths = new Set();
+        const linkedPaths = new Set<string>();
         for (const provider of config.providerPools[providerType]) {
             if (provider[credPathKey]) {
                 addToUsedPaths(linkedPaths, provider[credPathKey]);
