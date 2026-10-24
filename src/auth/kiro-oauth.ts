@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import http from 'http';
 import logger from '../utils/logger.ts';
 import fs from 'fs';
@@ -66,11 +65,11 @@ const activeKiroPollingTasks = new Map();
  * @param {string} providerType - 提供商类型，用于获取代理配置
  * @returns {Promise<Object>} 返回类似 fetch Response 的对象
  */
-async function fetchWithProxy(url, options = {}, providerType) {
+async function fetchWithProxy(url, options: any = {}, providerType) {
     const proxyConfig = getProxyConfigForProvider(CONFIG, providerType);
 
     // 构建 axios 配置
-    const axiosConfig = {
+    const axiosConfig: any = {
         url,
         method: options.method || 'GET',
         headers: options.headers || {},
@@ -212,7 +211,7 @@ function generateCodeChallenge(codeVerifier) {
  *   - saveToConfigs: boolean
  * @returns {Promise<Object>} 返回授权URL和相关信息
  */
-export async function handleKiroOAuth(currentConfig, options = {}) {
+export async function handleKiroOAuth(currentConfig, options: any = {}) {
     const method = options.method || options.authMethod || 'google';  // 默认使用 Google，同时支持 authMethod 参数
     
     logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Starting OAuth with method: ${method}`);
@@ -232,7 +231,7 @@ export async function handleKiroOAuth(currentConfig, options = {}) {
 /**
  * Kiro Social Auth (Google/GitHub) - 使用 HTTP localhost 回调
  */
-async function handleKiroSocialAuth(provider, currentConfig, options = {}) {
+async function handleKiroSocialAuth(provider, currentConfig, options: any = {}) {
     // 生成 PKCE 参数
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -281,7 +280,7 @@ async function handleKiroSocialAuth(provider, currentConfig, options = {}) {
 /**
  * Kiro Builder ID - Device Code Flow（类似 Qwen OAuth 模式）
  */
-async function handleKiroBuilderIDDeviceCode(currentConfig, options = {}) {
+async function handleKiroBuilderIDDeviceCode(currentConfig, options: any = {}) {
     // 停止之前的轮询任务
     for (const [existingTaskId] of activeKiroPollingTasks.entries()) {
         if (existingTaskId.startsWith('kiro-')) {
@@ -377,7 +376,7 @@ async function handleKiroBuilderIDDeviceCode(currentConfig, options = {}) {
 /**
  * 轮询获取 Kiro Builder ID Token
  */
-async function pollKiroBuilderIDToken(clientId, clientSecret, deviceCode, interval, expiresIn, taskId, options = {}) {
+async function pollKiroBuilderIDToken(clientId, clientSecret, deviceCode, interval, expiresIn, taskId, options: any = {}) {
     let credPath = path.join(os.homedir(), KIRO_OAUTH_CONFIG.credentialsDir, KIRO_OAUTH_CONFIG.credentialsFile);
     const maxAttempts = Math.floor(expiresIn / interval);
     let attempts = 0;
@@ -502,7 +501,7 @@ function stopKiroPollingTask(taskId) {
 /**
  * 启动 Kiro 回调服务器（用于 Social Auth HTTP 回调）
  */
-async function startKiroCallbackServer(codeVerifier, expectedState, options = {}) {
+async function startKiroCallbackServer(codeVerifier, expectedState, options: any = {}) {
     const providerKey = 'claude-kiro-oauth';
     const portStart = KIRO_OAUTH_CONFIG.callbackPortStart;
     const portEnd = KIRO_OAUTH_CONFIG.callbackPortEnd;
@@ -547,7 +546,7 @@ async function closeKiroServer(provider, port = null) {
                     existing.server.closeAllConnections();
                 }
 
-                const closePromise = new Promise((resolve, reject) => {
+                const closePromise = new Promise<void>((resolve, reject) => {
                     existing.server.close((err) => {
                         if (err) reject(err);
                         else resolve();
@@ -590,7 +589,7 @@ async function closeKiroServer(provider, port = null) {
 /**
  * 创建 Kiro HTTP 回调服务器
  */
-function createKiroHttpCallbackServer(port, codeVerifier, expectedState, options = {}) {
+function createKiroHttpCallbackServer(port, codeVerifier, expectedState, options: any = {}) {
     const redirectUri = `kiro://kiro.kiroAgent/authenticate-success`;
     const providerKey = options.providerKey || 'claude-kiro-oauth';
     
@@ -1099,7 +1098,7 @@ export async function batchImportKiroRefreshTokensStream(refreshTokens, region =
  * @param {boolean} skipDuplicateCheck - 是否跳过重复检查 (默认: false)
  * @returns {Promise<Object>} 导入结果
  */
-export async function importAwsCredentials(credentials, skipDuplicateCheck = false) {
+export async function importAwsCredentials(credentials: any, skipDuplicateCheck = false) {
     try {
         // 验证必需字段 - 需要四个字段都存在
         const missingFields = [];
@@ -1130,7 +1129,7 @@ export async function importAwsCredentials(credentials, skipDuplicateCheck = fal
         logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Importing AWS credentials...`);
         
         // 准备凭据数据 - 四个字段都是必需的
-        const credentialsData = {
+        const credentialsData: any = {
             clientId: credentials.clientId,
             clientSecret: credentials.clientSecret,
             accessToken: credentials.accessToken,

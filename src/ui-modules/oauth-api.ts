@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { getRequestBody } from '../utils/common.ts';
 import logger from '../utils/logger.ts';
 import {
@@ -30,9 +29,9 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
         let authInfo = {};
         
         // 解析 options
-        let options = {};
+        let options: any = {};
         try {
-            options = await getRequestBody(req);
+            options = await getRequestBody(req) as any;
             logger.debug(`[UI API] Parsed options for ${providerType}:`, JSON.stringify(options));
         } catch (e) {
             logger.warn(`[UI API] Failed to parse request body for ${providerType}, using empty options`);
@@ -128,7 +127,7 @@ export async function handleGenerateAuthUrl(req, res, currentConfig, providerTyp
  */
 export async function handleManualOAuthCallback(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { provider, callbackUrl, authMethod } = body;
 
         if (!provider || !callbackUrl) {
@@ -244,7 +243,7 @@ export async function handleManualOAuthCallback(req, res) {
  */
 export async function handleBatchImportKiroTokens(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { refreshTokens, region, skipDuplicateCheck } = body;
         
         if (!refreshTokens || !Array.isArray(refreshTokens) || refreshTokens.length === 0) {
@@ -335,7 +334,7 @@ export async function handleBatchImportKiroTokens(req, res) {
  */
 export async function handleBatchImportGeminiTokens(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { providerType, tokens, skipDuplicateCheck } = body;
         
         if (!providerType || !tokens || !Array.isArray(tokens) || tokens.length === 0) {
@@ -412,7 +411,7 @@ export async function handleBatchImportGeminiTokens(req, res) {
  */
 export async function handleBatchImportCodexTokens(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { tokens, skipDuplicateCheck } = body;
 
         if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
@@ -488,7 +487,7 @@ export async function handleBatchImportCodexTokens(req, res) {
  */
 export async function handleImportCodexExternalCredentials(req, res) {
     try {
-        const body = await getRequestBody(req, { maxBytes: CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES });
+        const body = await getRequestBody(req, { maxBytes: CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES }) as any;
         const { source, payload, skipDuplicateCheck } = body;
 
         if (!['cpa', 'sub2api'].includes(source) || payload === undefined) {
@@ -586,7 +585,7 @@ export async function handleImportCodexExternalCredentials(req, res) {
  */
 export async function handleImportAwsCredentials(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { credentials, skipDuplicateCheck } = body;
         
         if (!credentials) {

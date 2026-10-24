@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import http from 'http';
 import logger from '../utils/logger.ts';
 import fs from 'fs';
@@ -48,7 +47,7 @@ async function closeActiveServer(provider, port = null) {
     if (existing) {
         try {
             // 1. 使用 Promise.race() 添加 2 秒超时
-            const closePromise = new Promise((resolve, reject) => {
+            const closePromise = new Promise<void>((resolve, reject) => {
                 existing.server.close((err) => {
                     if (err) reject(err);
                     else resolve();
@@ -85,11 +84,15 @@ async function closeActiveServer(provider, port = null) {
  * 实现 OAuth2 + PKCE 流程
  */
 class CodexAuth {
-    constructor(config) {
+    config: any;
+    httpClient: any;
+    server: any;
+
+    constructor(config: any) {
         this.config = config;
         
         // 配置代理支持
-        const axiosConfig = { timeout: 30000 };
+        const axiosConfig: any = { timeout: 30000 };
         const proxyConfig = getProxyConfigForProvider(config, 'openai-codex-oauth');
         if (proxyConfig) {
             axiosConfig.httpAgent = proxyConfig.httpAgent;
@@ -122,7 +125,7 @@ class CodexAuth {
      * 生成授权 URL（不启动完整流程）
      * @returns {Promise<{authUrl: string, state: string, pkce: Object, server: Object}>}
      */
-    async generateAuthUrl() {
+    async generateAuthUrl(): Promise<any> {
         const pkce = this.generatePKCECodes();
         const state = crypto.randomBytes(16).toString('hex');
 
@@ -373,7 +376,7 @@ class CodexAuth {
      * @param {string} expectedState
      * @returns {Promise<{code: string, state: string}>}
      */
-    async waitForCallback(server, expectedState) {
+    async waitForCallback(server: any, expectedState: any): Promise<any> {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 server.close();
@@ -481,7 +484,7 @@ class CodexAuth {
      * @param {string} token
      * @returns {Object}
      */
-    parseJWT(token) {
+    parseJWT(token: string): any {
         try {
             const parts = token.split('.');
             if (parts.length !== 3) {
@@ -711,7 +714,7 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
             }
 
             // 解析 JWT 提取账户信息。外部导入格式可能没有 id_token，因此回退解析 access_token。
-            let claims = {};
+            let claims: any = {};
             for (const candidate of [tokenData.id_token, tokenData.access_token]) {
                 if (!candidate) continue;
                 try {

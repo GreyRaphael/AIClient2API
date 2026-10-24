@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { getServiceAdapter, serviceInstances } from '../providers/adapter.ts';
 import logger from '../utils/logger.ts';
 import { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
@@ -34,7 +33,7 @@ let providerPoolManager = null;
  * @param {string} [options.host] - 上游 host
  * @returns {Promise<Object>} 更新后的 providerPools 对象
  */
-export async function autoLinkProviderConfigs(config, options = {}) {
+export async function autoLinkProviderConfigs(config, options: any = {}) {
     const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
     // 确保从现有 provider_pools.json 文件加载已有配置，并与内存中的池合并，避免部分初始化的 config 冲掉未包含的提供商
     let diskPools = {};
@@ -51,7 +50,7 @@ export async function autoLinkProviderConfigs(config, options = {}) {
     };
     
     let totalNewProviders = 0;
-    const allNewProviders = {};
+    const allNewProviders: Record<string, any[]> = {};
     
     // 如果只关联当前凭证
     if (options.onlyCurrentCred && options.credPath) {
@@ -157,7 +156,7 @@ export async function autoLinkProviderConfigs(config, options = {}) {
  * @param {Object} [options] - 可选参数
  * @returns {Promise<Object|null>} 返回关联结果或 null
  */
-async function linkSingleCredential(config, credPath, options = {}) {
+async function linkSingleCredential(config, credPath, options: any = {}) {
     try {
         // 规范化路径
         const absolutePath = path.isAbsolute(credPath) ? credPath : path.join(process.cwd(), credPath);
@@ -222,7 +221,7 @@ async function linkSingleCredential(config, credPath, options = {}) {
         }
         
         // 创建新的提供商配置
-        const newProvider = createProviderConfig({
+        const newProvider: any = createProviderConfig({
             credPathKey,
             credPath: formatSystemPath(relativePath),
             defaultCheckModel,
@@ -391,7 +390,7 @@ export async function initApiService(config, isReady = false) {
                 
                 try {
                     // 合并全局配置和节点配置
-                    const nodeConfig = deepmerge(config, {
+                    const nodeConfig: any = deepmerge(config, {
                         ...providerConfig,
                         MODEL_PROVIDER: providerType
                     });
@@ -456,7 +455,7 @@ async function _resolveEffectiveRouting(config, requestedModel) {
  * @param {boolean} [options.skipUsageCount] - Optional. If true, skip incrementing usage count.
  * @returns {Promise<Object>} The API service adapter
  */
-export async function getApiService(config, requestedModel = null, options = {}) {
+export async function getApiService(config, requestedModel = null, options: any = {}) {
     // 1. 前置路由解析
     const { effectiveProvider, actualModelName } = await _resolveEffectiveRouting(config, requestedModel);
     config.MODEL_PROVIDER = effectiveProvider;
@@ -497,7 +496,7 @@ export async function getApiService(config, requestedModel = null, options = {})
  * @param {Object} [options] - Optional. Additional options.
  * @returns {Promise<Object>} Object containing service adapter and metadata
  */
-export async function getApiServiceWithFallback(config, requestedModel = null, options = {}) {
+export async function getApiServiceWithFallback(config, requestedModel = null, options: any = {}) {
     // 1. 前置路由解析
     const { effectiveProvider, actualModelName } = await _resolveEffectiveRouting(config, requestedModel);
     config.MODEL_PROVIDER = effectiveProvider;
@@ -600,8 +599,8 @@ export function markProviderUnhealthy(provider, providerInfo) {
  * @param {string} [options.customName] - Optional.customName filter by customName
  * @returns {Promise<Object>} The API service adapter
  */
-export async function getProviderStatus(config, options = {}) {
-    let providerPools = {};
+export async function getProviderStatus(config, options: any = {}) {
+    let providerPools: any = {};
     const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
     try {
         if (providerPoolManager && providerPoolManager.providerPools) {
@@ -631,7 +630,7 @@ export async function getProviderStatus(config, options = {}) {
         'claude-custom': 'CLAUDE_BASE_URL',
         ...getStatusIdentifyFieldMap()
     };
-    let providerPoolsSlim = [];
+    let providerPoolsSlim: any[] = [];
     let unhealthyProvideIdentifyList = [];
     let count = 0;
     let unhealthyCount = 0;
@@ -660,7 +659,7 @@ export async function getProviderStatus(config, options = {}) {
                 return true;
             })
             .map(item => {
-                const slim = {};
+                const slim: any = {};
                 for (const f of slimFields) {
                     let val = item.hasOwnProperty(f) ? item[f] : null;
                     if (f === 'uuid' && typeof val === 'string' && val.length > 8) {
