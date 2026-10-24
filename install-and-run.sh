@@ -47,6 +47,16 @@ fi
 NODE_VERSION=$(node --version 2>/dev/null)
 echo "[成功] Node.js已安装，版本: $NODE_VERSION"
 
+# 检查 Node.js 是否支持原生 TypeScript 执行（>= 22.18.0）
+echo "[检查] 正在检查 Node.js 原生 TypeScript 支持..."
+if ! node -e "if (!process.features || !process.features.typescript) process.exit(1)" > /dev/null 2>&1; then
+    echo "[错误] 当前 Node.js 版本 ($NODE_VERSION) 不支持原生 TypeScript 执行。"
+    echo "请升级到 Node.js 22.18.0 或更高版本（推荐 Node.js 22 LTS / 24）。"
+    echo "下载地址：https://nodejs.org/"
+    exit 1
+fi
+echo "[成功] Node.js 原生 TypeScript 支持已就绪"
+
 # 检查npm是否可用
 echo "[检查] 正在检查npm是否可用..."
 npm --version > /dev/null 2>&1

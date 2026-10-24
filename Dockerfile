@@ -16,9 +16,9 @@ COPY tls-sidecar/ ./
 RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o tls-sidecar .
 
 # ── Stage 2: Node.js 应用 ──
-# 使用官方Node.js运行时作为基础镜像
-# 选择20-alpine版本以满足undici包的要求（需要Node.js >=20.18.1）
-FROM node:20-alpine
+# 使用官方 Node.js 运行时作为基础镜像。
+# 必须 >= 22.18.0：Node 从 22.18.0 起默认支持原生 TypeScript 类型擦除。
+FROM node:22-alpine
 
 # 设置标签
 LABEL maintainer="AIClient2API Team"

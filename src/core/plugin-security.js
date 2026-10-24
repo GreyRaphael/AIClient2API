@@ -6,7 +6,9 @@ import logger from '../utils/logger.js';
 export const PLUGIN_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 const TEXT_FILE_EXTENSIONS = new Set([
-    '.js', '.mjs', '.cjs', '.json', '.html', '.css', '.txt', '.md', '.yml', '.yaml', '.env'
+    '.js', '.mjs', '.cjs',
+    '.ts', '.mts', '.cts',
+    '.json', '.html', '.css', '.txt', '.md', '.yml', '.yaml', '.env'
 ]);
 
 export const DANGEROUS_PLUGIN_PATTERNS = [

@@ -31,7 +31,7 @@
 
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/justlovemaki/AIClient-2-API)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Node.js](https://img.shields.io/badge/Node.js-≥20.0.0-green.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-≥22.18.0-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-≥20.0.0-blue.svg)](https://hub.docker.com/r/justlikemaki/aiclient-2-api)
 [![GitHub stars](https://img.shields.io/github/stars/justlovemaki/AIClient-2-API.svg?style=flat&label=Star)](https://github.com/justlovemaki/AIClient-2-API/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/justlovemaki/AIClient-2-API.svg)](https://github.com/justlovemaki/AIClient-2-API/issues)
@@ -245,6 +245,8 @@
 
 使用 AIClient2API 最推荐的方式是通过自动化脚本启动，并直接在 **Web UI 控制台** 进行可视化配置。
 
+> **⚠️ 环境要求**：Node.js **>= 22.18.0**（推荐 Node.js 22 LTS 或 24）。本版本起服务端直接运行 `.ts` 源码，依赖 Node.js 原生 TypeScript 类型擦除；Node 20 及更早版本无法启动。
+
 #### 🐳 Docker 快捷启动 (推荐)
 
 ```bash
@@ -319,7 +321,7 @@ docker compose up -d
 ========================================
 
 [检查] 正在检查Node.js是否已安装...
-✅ Node.js已安装，版本: v20.10.0
+✅ Node.js已安装，版本: v22.18.0
 ✅ 找到package.json文件
 ✅ node_modules目录已存在
 ✅ 项目文件检查完成

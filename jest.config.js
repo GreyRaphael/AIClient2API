@@ -1,7 +1,7 @@
 export default {
   testEnvironment: 'node',
   transform: {
-    '^.+\\.(js|mjs)$': 'babel-jest',
+    '^.+\\.(js|mjs|ts|mts)$': 'babel-jest',
   },
   transformIgnorePatterns: [
     '/node_modules/(?!(uuid|open)/)', // uuid and open are ESM modules that need to be transformed
@@ -20,11 +20,11 @@ export default {
     '/tests/e2e/'
   ],
   testMatch: [
-    '**/tests/**/*.test.js'
+    '**/tests/**/*.test.{js,ts}'
   ],
   collectCoverageFrom: [
-    'src/**/*.js',
-    '!src/**/*.test.js',
+    'src/**/*.{js,ts}',
+    '!src/**/*.test.{js,ts}',
     '!**/node_modules/**'
   ],
   coverageDirectory: 'coverage',

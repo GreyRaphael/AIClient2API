@@ -9,11 +9,17 @@
     "strict": false,
     "skipLibCheck": true,
     "maxNodeModuleJsDepth": 0,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": false,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "types": ["node"],
     "lib": ["ES2022"]
   },
   "include": [
     "src/**/*.js",
-    "types/**/*.d.ts"
+    "src/**/*.ts",
+    "types/**/*.d.ts",
+    "types/**/*.ts"
   ]
 }
