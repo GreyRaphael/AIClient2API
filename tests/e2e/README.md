@@ -52,13 +52,13 @@ npm run test:e2e
 ### 定向用例（16 项）
 
 - openai-custom 指定 function 强制 `tool_choice` 在 30s 内返回
-- `zed:gpt-6-luna` 32×32 红图识别
-- `zed:gemini-3.8-flash` 多轮工具历史降级为文本并返回 200
+- 多模态模型 32×32 红图识别
+- Zed Gemini 多轮工具历史降级为文本并返回 200
 - Gemini 流式 thinking 回退后仍返回 reasoning
 - Gemini max_tokens 截断不触发空响应重试
-- 多步 prompt 下 GPT 3 次采样 reasoning
-- 同一 run 三协议 reasoning 一致性
-- CoT-present Chat / Claude 多轮工具回放
+- GPT 模型 3 次采样 reasoning
+- DeepSeek 模型三协议 reasoning 一致性
+- DeepSeek 模型 CoT-present Chat / Claude 多轮工具回放
 - oneOf 对象分支合并后字段名保持正确
 - OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗
 - 上游 4xx 错误响应保留可读细节
@@ -66,6 +66,9 @@ npm run test:e2e
 - 三下游协议（Chat / Responses / Claude）流式工具调用生命周期完整
 - Responses→Gemini input 内 developer 消息与 `text.format` JSON Schema 结构化输出
 - Responses→Gemini 仅 system/developer 消息返回本地 400，不请求上游
+
+> 定向用例不再硬编码具体模型：从 `/auto/v1/models` 按 provider 前缀和模型名特征动态选择。
+> 测试名会显示实际选中的模型；若没有匹配模型（例如某个 provider 被移除或模型下线），该用例自动 `skip`，不会误报失败。
 
 ## 长尾重试与故障分类
 

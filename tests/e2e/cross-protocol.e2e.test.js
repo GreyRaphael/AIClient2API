@@ -51,6 +51,48 @@ const HARD_REASONING_PROMPT = 'A farmer has 17 sheep. All but 9 run away. Then h
 
 let apiKey;
 
+/**
+ * 从 /auto/v1/models 结果中按 provider 前缀和可选条件选择模型。
+ * 定向用例不再硬编码具体模型；模型下线时自动换用同 provider 的其他模型，找不到则跳过。
+ */
+function pickModel(providerPrefix, predicate = () => true) {
+    return MODELS.find(model => model.startsWith(providerPrefix + ':') && predicate(model)) || null;
+}
+
+function pickModelFromProviders(providerPrefixes, predicate = () => true) {
+    for (const prefix of providerPrefixes) {
+        const model = pickModel(prefix, predicate);
+        if (model) return model;
+    }
+    return null;
+}
+
+function registerTargetTest(name, model, fn, timeout = TARGET_TIMEOUT_MS) {
+    const label = model ? `${name} [${model}]` : `${name} [skipped: no matching model]`;
+    const run = model ? test : test.skip;
+    run(label, model ? fn : () => {}, timeout);
+}
+
+const OPENAI_CUSTOM_TOOL_MODEL =
+    pickModel('openai-custom', model => /glm/i.test(model)) ||
+    pickModel('openai-custom');
+const MULTIMODAL_MODEL = pickModelFromProviders(
+    ['zed', 'gemini-antigravity'],
+    model => /:(gpt|gemini|claude)-/.test(model)
+);
+const ZED_GEMINI_MODEL = pickModel('zed', model => model.includes(':gemini-'));
+const ZED_CLAUDE_MODEL = pickModel('zed', model => model.includes(':claude-'));
+const GEMINI_MODEL = pickModel('gemini-antigravity', model => model.includes(':gemini-'));
+const GPT_REASONING_MODEL = pickModelFromProviders(
+    ['zed', 'openai-codex-oauth', 'openai-custom'],
+    model => /:gpt-/.test(model)
+);
+const DEEPSEEK_MODEL = pickModel('openai-custom', model => /deepseek/i.test(model));
+const RESPONSES_MODEL = pickModel('openaiResponses-custom');
+const TOOL_MODEL =
+    DEEPSEEK_MODEL ||
+    pickModelFromProviders(['openai-custom', 'zed', 'gemini-antigravity']);
+
 async function chatReasoningOnce(model, prompt = HARD_REASONING_PROMPT) {
     const result = await postJson({
         baseUrl: BASE_URL,
@@ -443,14 +485,14 @@ describe('跨协议核心转译 E2E（真实上游）', () => {
 });
 
 describe('跨协议定向 E2E（真实上游）', () => {
-    test('openai-custom 指定 function 强制 tool_choice 在 30s 内返回工具调用', async () => {
+    registerTargetTest('openai-custom 指定 function 强制 tool_choice 在 30s 内返回工具调用', OPENAI_CUSTOM_TOOL_MODEL, async () => {
         const started = Date.now();
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'openai-custom:glm-5.3',
+                model: OPENAI_CUSTOM_TOOL_MODEL,
                 messages: [{ role: 'user', content: E2E_WEATHER_QUESTION }],
                 tools: chatTools(),
                 tool_choice: { type: 'function', function: { name: 'get_weather' } },
@@ -464,13 +506,13 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(Date.now() - started).toBeLessThan(30000);
     }, TARGET_TIMEOUT_MS);
 
-    test('zed:gpt-6-luna 图片转译返回 Red', async () => {
+    registerTargetTest('图片转译返回 Red', MULTIMODAL_MODEL, async () => {
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'zed:gpt-6-luna',
+                model: MULTIMODAL_MODEL,
                 messages: [{
                     role: 'user',
                     content: [
@@ -485,9 +527,9 @@ describe('跨协议定向 E2E（真实上游）', () => {
         const summary = chatTextSummary(result);
         expect(summary.httpStatus).toBe(200);
         expect(summary.content).toMatch(/red|红/i);
-    }, TARGET_TIMEOUT_MS);
+    }, resolveModelTimeoutMs(MULTIMODAL_MODEL));
 
-    test('zed:gemini-3.8-flash 多轮工具历史降级为文本并返回 200', async () => {
+    registerTargetTest('Zed Gemini 多轮工具历史降级为文本并返回 200', ZED_GEMINI_MODEL, async () => {
         let firstCall;
         for (let attempt = 0; attempt < 3; attempt++) {
             const first = await postJson({
@@ -495,7 +537,7 @@ describe('跨协议定向 E2E（真实上游）', () => {
                 apiKey,
                 pathName: '/v1/chat/completions',
                 body: {
-                    model: 'zed:gemini-3.8-flash',
+                    model: ZED_GEMINI_MODEL,
                     messages: [{ role: 'user', content: E2E_WEATHER_QUESTION }],
                     tools: chatTools(),
                     tool_choice: 'auto',
@@ -513,7 +555,7 @@ describe('跨协议定向 E2E（真实上游）', () => {
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'zed:gemini-3.8-flash',
+                model: ZED_GEMINI_MODEL,
                 messages: [
                     { role: 'user', content: E2E_WEATHER_QUESTION },
                     {
@@ -536,9 +578,9 @@ describe('跨协议定向 E2E（真实上游）', () => {
         const secondSummary = chatTextSummary(second);
         expect(secondSummary.httpStatus).toBe(200);
         expect(secondSummary.content).toContain('18');
-    }, TARGET_TIMEOUT_MS);
+    }, resolveModelTimeoutMs(ZED_GEMINI_MODEL));
 
-    test('OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗', async () => {
+    registerTargetTest('OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗', ZED_CLAUDE_MODEL, async () => {
         const unsafeId = 'call:bad/id|1';
         let summary;
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -547,7 +589,7 @@ describe('跨协议定向 E2E（真实上游）', () => {
                 apiKey,
                 pathName: '/v1/chat/completions',
                 body: {
-                    model: 'zed:claude-haiku-5-5',
+                    model: ZED_CLAUDE_MODEL,
                     messages: [
                         { role: 'user', content: 'What is the weather in Paris?' },
                         {
@@ -574,13 +616,13 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(summary.content).toContain('18');
     }, TARGET_TIMEOUT_MS);
 
-    test('Gemini 流式 thinking 回退后仍返回 reasoning', async () => {
+    registerTargetTest('Gemini 流式 thinking 回退后仍返回 reasoning', GEMINI_MODEL, async () => {
         const result = await postSse({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                model: GEMINI_MODEL,
                 messages: [{ role: 'user', content: HARD_REASONING_PROMPT }],
                 reasoning_effort: 'high',
                 max_tokens: 2048,
@@ -593,14 +635,14 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(summary.reasoning.length).toBeGreaterThan(0);
     }, TARGET_TIMEOUT_MS);
 
-    test('Gemini max_tokens 截断不触发空响应重试', async () => {
+    registerTargetTest('Gemini max_tokens 截断不触发空响应重试', GEMINI_MODEL, async () => {
         const started = Date.now();
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                model: GEMINI_MODEL,
                 messages: [{ role: 'user', content: 'Count from 1 to 200, comma separated.' }],
                 max_tokens: 8,
                 stream: false
@@ -612,17 +654,17 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(Date.now() - started).toBeLessThan(30000);
     }, TARGET_TIMEOUT_MS);
 
-    test('多步 prompt 下 GPT 3 次采样至少 2 次返回 reasoning', async () => {
+    registerTargetTest('多步 prompt 下 GPT 3 次采样至少 2 次返回 reasoning', GPT_REASONING_MODEL, async () => {
         let reasoningSamples = 0;
         for (let attempt = 0; attempt < 3; attempt++) {
-            const { summary } = await chatReasoningOnce('zed:gpt-6-luna');
+            const { summary } = await chatReasoningOnce(GPT_REASONING_MODEL);
             if (summary.httpStatus === 200 && summary.reasoning.length > 0) reasoningSamples++;
         }
         expect(reasoningSamples).toBeGreaterThanOrEqual(2);
     }, TARGET_TIMEOUT_MS);
 
-    test('同一 run 三协议 reasoning 一致性（DeepSeek）', async () => {
-        const model = 'openai-custom:deepseek-v4-pro';
+    registerTargetTest('同一 run 三协议 reasoning 一致性（DeepSeek）', DEEPSEEK_MODEL, async () => {
+        const model = DEEPSEEK_MODEL;
         let chat;
         let responses;
         let claude;
@@ -642,8 +684,8 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(claude.summary.thinking.length).toBeGreaterThan(0);
     }, MODEL_TIMEOUT_MS);
 
-    test('CoT-present Chat 多轮工具回放', async () => {
-        const model = 'openai-custom:deepseek-v4-pro';
+    registerTargetTest('CoT-present Chat 多轮工具回放', DEEPSEEK_MODEL, async () => {
+        const model = DEEPSEEK_MODEL;
         const prompt = 'I need the weather in Paris. Think step by step about why you need the get_weather tool, then call it.';
         let first;
         let firstSummary;
@@ -705,8 +747,8 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(secondSummary.content).toContain('18');
     }, MODEL_TIMEOUT_MS);
 
-    test('CoT-present Claude 多轮工具回放', async () => {
-        const model = 'openai-custom:deepseek-v4-pro';
+    registerTargetTest('CoT-present Claude 多轮工具回放', DEEPSEEK_MODEL, async () => {
+        const model = DEEPSEEK_MODEL;
         const prompt = 'I need the weather in Paris. Think step by step about why you need the get_weather tool, then call it.';
         let first;
         let thinkingBlock;
@@ -763,7 +805,7 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(secondSummary.text).toContain('18');
     }, MODEL_TIMEOUT_MS);
 
-    test('oneOf 对象分支合并后字段名保持正确', async () => {
+    registerTargetTest('oneOf 对象分支合并后字段名保持正确', TOOL_MODEL, async () => {
         const complexTool = {
             type: 'function',
             function: {
@@ -805,7 +847,7 @@ describe('跨协议定向 E2E（真实上游）', () => {
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'zed:gemini-3.8-flash',
+                model: TOOL_MODEL,
                 messages: [{
                     role: 'user',
                     content: 'Create an order for VIP customer Alice with 2 units of SKU ABC-1234, standard shipping. Use create_order.'
@@ -824,13 +866,13 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(args?.shipping?.method).toMatch(/standard|express/);
     }, TARGET_TIMEOUT_MS);
 
-    test('上游 4xx 错误响应保留可读细节', async () => {
+    registerTargetTest('上游 4xx 错误响应保留可读细节', RESPONSES_MODEL, async () => {
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'openaiResponses-custom:deepseek-v4-flash',
+                model: RESPONSES_MODEL,
                 messages: [{
                     role: 'user',
                     content: [
@@ -846,13 +888,13 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(result.text).toContain('upstream:');
     }, TARGET_TIMEOUT_MS);
 
-    test('多 system 消息折叠后模型遵循唯一指令标记（ZEBRA42）', async () => {
+    registerTargetTest('多 system 消息折叠后模型遵循唯一指令标记（ZEBRA42）', GEMINI_MODEL, async () => {
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
-                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                model: GEMINI_MODEL,
                 messages: [
                     { role: 'system', content: 'You are a concise assistant.' },
                     { role: 'system', content: 'CRITICAL RULE: Every reply MUST start with the exact token ZEBRA42.' },
@@ -868,8 +910,8 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(hasNumber(summary.content, 4)).toBe(true);
     }, TARGET_TIMEOUT_MS);
 
-    test('三下游协议（Chat / Responses / Claude）流式工具调用生命周期完整', async () => {
-        const model = 'openai-custom:deepseek-v4-pro';
+    registerTargetTest('三下游协议（Chat / Responses / Claude）流式工具调用生命周期完整', TOOL_MODEL, async () => {
+        const model = TOOL_MODEL;
 
         // 1) Chat 下游流式工具调用
         let chatStreamTool;
@@ -951,13 +993,13 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(String(claudeStreamTool.toolCalls?.[0]?.arguments?.city || '').toLowerCase()).toContain('paris');
     }, MODEL_TIMEOUT_MS);
 
-    test('Responses→Gemini input 内 developer 消息与 text.format json_schema 结构化输出', async () => {
+    registerTargetTest('Responses→Gemini input 内 developer 消息与 text.format json_schema 结构化输出', GEMINI_MODEL, async () => {
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/responses',
             body: {
-                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                model: GEMINI_MODEL,
                 instructions: 'You are a helpful math assistant.',
                 input: [
                     {
@@ -998,13 +1040,13 @@ describe('跨协议定向 E2E（真实上游）', () => {
         expect(parsed.product).toBe(42);
     }, TARGET_TIMEOUT_MS);
 
-    test('Responses→Gemini 仅 system/developer 消息返回本地 400，不请求上游', async () => {
+    registerTargetTest('Responses→Gemini 仅 system/developer 消息返回本地 400，不请求上游', GEMINI_MODEL, async () => {
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/responses',
             body: {
-                model: 'gemini-antigravity:gemini-3.8-flash-high',
+                model: GEMINI_MODEL,
                 input: [
                     {
                         type: 'message',
