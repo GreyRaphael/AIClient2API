@@ -1072,64 +1072,6 @@ async function reloadConfig() {
 }
 
 /**
- * 根据文件路径检测对应的提供商类型
- * @param {string} filePath - 文件路径
- * @returns {Object|null} 提供商信息对象或null
- */
-function detectProviderFromPath(filePath) {
-    const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
-    
-    // 定义目录到提供商的映射关系
-    const providerMappings = [
-        {
-            patterns: ['configs/kiro/', '/kiro/'],
-            providerType: 'claude-kiro-oauth',
-            displayName: 'Claude Kiro OAuth',
-            shortName: 'kiro-oauth'
-        },
-        {
-            patterns: ['configs/antigravity/', '/antigravity/'],
-            providerType: 'gemini-antigravity',
-            displayName: 'Gemini Antigravity',
-            shortName: 'antigravity'
-        },
-        {
-            patterns: ['configs/codex/', '/codex/'],
-            providerType: 'openai-codex-oauth',
-            displayName: 'OpenAI Codex OAuth',
-            shortName: 'codex-oauth'
-        },
-        {
-            patterns: ['configs/zed/', '/zed/'],
-            providerType: 'zed',
-            displayName: 'Zed OAuth',
-            shortName: 'zed'
-        },
-        {
-            patterns: ['configs/trae/', '/trae/'],
-            providerType: 'trae',
-            displayName: 'Trae',
-            shortName: 'trae'
-        }
-    ];
-
-    // 遍历映射关系，查找匹配的提供商
-    for (const mapping of providerMappings) {
-        for (const pattern of mapping.patterns) {
-            if (normalizedPath.includes(pattern)) {
-                return {
-                    providerType: mapping.providerType,
-                    displayName: mapping.displayName,
-                    shortName: mapping.shortName
-                };
-            }
-        }
-    }
-
-    return null;
-}
-
-/**
  * 一键关联配置到对应的提供商
  * @param {string} filePath - 配置文件路径
  */

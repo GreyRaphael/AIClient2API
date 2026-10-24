@@ -5,6 +5,11 @@
 
 import { t } from './i18n.js';
 import { apiClient } from './auth.js';
+import {
+    findProviderDefinition,
+    getProviderName,
+    getProviderIcon as getRegistryProviderIcon
+} from './provider-registry.js';
 
 // 模型数据缓存
 let modelsCache = null;
@@ -181,32 +186,17 @@ function getProviderDisplayName(providerType) {
         }
     }
 
-    const displayNames = {
-        'gemini-antigravity': 'Gemini Antigravity',
-        'claude-custom': 'Claude Custom',
-        'claude-kiro-oauth': 'Claude Kiro (OAuth)',
-        'openai-custom': 'OpenAI Custom',
-        'openaiResponses-custom': 'OpenAI Responses Custom',
-        'openai-codex-oauth': 'OpenAI Codex (OAuth)',
-        'zed': 'Zed (OAuth)',
-        'trae': 'Trae (tob_raw_chat)',
-        'trae-solo_work_lite': 'Trae (solo_work_lite)',
-        'trae-chat_v3': 'Trae (chat_v3)'
-    };
-
-    if (displayNames[providerType]) {
-        return displayNames[providerType];
+    const definition = findProviderDefinition(providerType);
+    if (!definition) {
+        return providerType;
     }
 
-    // 尝试前缀匹配
-    for (const baseType in displayNames) {
-        if (providerType.startsWith(baseType + '-')) {
-            const suffix = providerType.substring(baseType.length + 1);
-            return `${displayNames[baseType]} (${suffix})`;
-        }
+    const baseName = getProviderName(definition);
+    if (providerType === definition.id) {
+        return baseName;
     }
 
-    return providerType;
+    return `${baseName} (${providerType.substring(definition.id.length + 1)})`;
 }
 
 /**
@@ -224,19 +214,11 @@ function getProviderIcon(providerType) {
         }
     }
 
-    const iconMap = {
-        'gemini': 'fas fa-gem',
-        'claude': 'fas fa-robot',
-        'openai': 'fas fa-brain'
-    };
-
-    for (const key in iconMap) {
-        if (providerType.includes(key)) {
-            return iconMap[key];
-        }
+    const icon = getRegistryProviderIcon(providerType, '');
+    if (!icon) {
+        return 'fas fa-server';
     }
-    
-    return 'fas fa-server';
+    return icon.startsWith('fa-') ? `fas ${icon}` : icon;
 }
 
 /**

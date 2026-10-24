@@ -399,7 +399,7 @@ function showProviderManagerModal(data, initialSearchTerm = '') {
                         <button class="btn btn-success" onclick="window.showAddProviderForm('${providerType}')">
                             <i class="fas fa-plus"></i> <span data-i18n="modal.provider.add">添加新提供商</span>
                         </button>
-                        ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'zed', 'trae'].includes(providerType) || providerType.startsWith('trae-') ? `
+                        ${isOAuthProvider(providerType) ? `
                         <button class="btn btn-primary generate-auth-btn-modal" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                             <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
                         </button>
@@ -1594,7 +1594,7 @@ function showAddProviderForm(providerType) {
             <button class="btn btn-success" onclick="window.addProvider('${providerType}')">
                 <i class="fas fa-save"></i> <span data-i18n="modal.provider.save">保存</span>
             </button>
-            ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'zed', 'trae'].includes(providerType) || providerType.startsWith('trae-') ? `
+            ${isOAuthProvider(providerType) ? `
             <button type="button" class="btn btn-primary" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                 <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
             </button>

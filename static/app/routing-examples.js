@@ -1,6 +1,7 @@
 // 路径路由示例功能模块
 
 import { showToast, copyToClipboard } from './utils.js';
+import { getProviderDefaultModel, getProviderIcon } from './provider-registry.js';
 import { t } from './i18n.js';
 
 /**
@@ -446,34 +447,6 @@ function renderRoutingExamples(providerConfigs) {
     // 获取路由端点基础信息
     const routes = getAvailableRoutes();
     
-    // 图标映射
-    const iconMap = {
-        'gemini-antigravity': 'fa-rocket',
-        'openai-custom': 'fa-comments',
-        'claude-custom': 'fa-brain',
-        'claude-kiro-oauth': 'fa-robot',
-        'openaiResponses-custom': 'fa-comment-alt',
-        'openai-codex-oauth': 'fa-keyboard',
-        'zed': 'fa-edit',
-        'trae': 'fa-bolt',
-        'trae-solo_work_lite': 'fa-robot',
-        'trae-chat_v3': 'fa-comments'
-    };
-
-    // 默认模型映射 (用于 curl 示例)
-    const modelMap = {
-        'gemini-antigravity': 'gemini-3-flash',
-        'claude-custom': 'claude-sonnet-4-5',
-        'claude-kiro-oauth': 'claude-sonnet-4-5',
-        'openai-custom': 'gpt-5.5',
-        'openai-codex-oauth': 'gpt-5.5',
-        'openaiResponses-custom': 'gpt-5.5',
-        'zed': 'claude-sonnet-4-5',
-        'trae': 'glm-5.2',
-        'trae-solo_work_lite': 'glm-5.2',
-        'trae-chat_v3': 'glm-5.2'
-    };
-
     providerConfigs.forEach(config => {
         if (config.visible === false) return;
         
@@ -503,29 +476,8 @@ function renderRoutingExamples(providerConfigs) {
             };
         }
 
-        // 确定图标：尝试精确匹配，然后尝试前缀匹配
-        let icon = iconMap[config.id];
-        if (!icon) {
-            for (const baseId in iconMap) {
-                if (config.id.startsWith(baseId + '-')) {
-                    icon = iconMap[baseId];
-                    break;
-                }
-            }
-        }
-        icon = icon || 'fa-route';
-
-        // 确定默认模型：尝试精确匹配，然后尝试前缀匹配
-        let defaultModel = modelMap[config.id];
-        if (!defaultModel) {
-            for (const baseId in modelMap) {
-                if (config.id.startsWith(baseId + '-')) {
-                    defaultModel = modelMap[baseId];
-                    break;
-                }
-            }
-        }
-        defaultModel = defaultModel || 'default-model';
+        const icon = getProviderIcon(config.id, 'fa-route');
+        const defaultModel = getProviderDefaultModel(config.id, 'default-model');
         const hostname = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 
                          `http://${window.location.host}` : 
                          `${window.location.protocol}//${window.location.host}`;

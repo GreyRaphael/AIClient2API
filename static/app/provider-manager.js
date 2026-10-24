@@ -6,6 +6,7 @@ import { fileUploadHandler } from './file-upload.js';
 import { t, getCurrentLanguage } from './i18n.js';
 import { renderRoutingExamples } from './routing-examples.js';
 import { updateModelsProviderConfigs } from './models-manager.js';
+import { isOAuthProvider, getGroupableProviderIds, getProviderAuthFilePath } from './provider-registry.js';
 import { updateTutorialProviderConfigs } from './tutorial-manager.js';
 import { updateUsageProviderConfigs } from './usage-manager.js';
 import { updateConfigProviderConfigs } from './config-manager.js';
@@ -768,10 +769,8 @@ async function openProviderManager(providerType, searchTerm = '') {
  * @returns {string} 授权按钮HTML
  */
 function generateAuthButton(providerType) {
-    // 只为支持OAuth或批量导入的提供商显示授权按钮
-    const oauthProviders = ['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'zed', 'trae', 'trae-solo_work_lite', 'trae-chat_v3'];
-
-    if (!oauthProviders.includes(providerType) && !providerType.startsWith('trae-')) {
+    // 只为支持 OAuth / 批量导入的提供商显示授权按钮
+    if (!isOAuthProvider(providerType)) {
         return '';
     }
 
@@ -886,7 +885,7 @@ function showSimplePrompt(title, placeholder, callback) {
  * @returns {string} 按钮HTML
  */
 function generateAddGroupButton(providerType) {
-    const allowedTypes = ['claude-custom', 'openai-custom', 'openaiResponses-custom'];
+    const allowedTypes = getGroupableProviderIds();
     if (!allowedTypes.includes(providerType)) {
         return '';
     }
@@ -3552,15 +3551,8 @@ async function executeGenerateAuthUrl(providerType, extraOptions = {}) {
  * @returns {string} 授权文件路径
  */
 function getAuthFilePath(provider) {
-    const authFilePaths = {
-        'gemini-antigravity': '~/.antigravity/oauth_creds.json',
-        'claude-kiro-oauth': '~/.aws/sso/cache/kiro-auth-token.json',
-        'zed': 'configs/zed/',
-        'trae': 'configs/trae/',
-        'trae-solo_work_lite': 'configs/trae/',
-        'trae-chat_v3': 'configs/trae/'
-    };
-    return authFilePaths[provider] || (getCurrentLanguage() === 'en-US' ? 'Unknown Path' : '未知路径');
+    return getProviderAuthFilePath(provider)
+        || (getCurrentLanguage() === 'en-US' ? 'Unknown Path' : '未知路径');
 }
 
 /**
@@ -4317,7 +4309,7 @@ function showAddProviderGroupModal(defaultBaseType = null) {
         const isSupported = cachedSupportedProviders.includes(config.id);
         
         // 2. 限制只能添加特定类型的配置组 (Claude Custom, OpenAI Custom, OpenAI Responses)
-        const allowedTypes = ['claude-custom', 'openai-custom', 'openaiResponses-custom'];
+        const allowedTypes = getGroupableProviderIds();
         const isAllowed = allowedTypes.includes(config.id);
         
         return isSupported && isAllowed;

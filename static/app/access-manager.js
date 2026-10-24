@@ -1,22 +1,10 @@
 import { getProviderConfigs, copyToClipboard, showToast, escapeHtml } from './utils.js';
 import { getAvailableRoutes, copyCurlExample } from './routing-examples.js';
+import { getProviderDefaultModel } from './provider-registry.js';
 import { t } from './i18n.js';
 
 let latestAccessData = null;
 let latestSnippetFormat = 'markdown';
-
-const recommendedModelMap = {
-    'gemini-antigravity': 'gemini-3-flash',
-    'claude-custom': 'claude-sonnet-4-5',
-    'claude-kiro-oauth': 'claude-sonnet-4-5',
-    'openai-custom': 'gpt-5.5',
-    'openai-codex-oauth': 'gpt-5.5',
-    'openaiResponses-custom': 'gpt-5.5',
-    'zed': 'claude-sonnet-4-5',
-    'trae': 'glm-5.2',
-    'trae-solo_work_lite': 'glm-5.2',
-    'trae-chat_v3': 'glm-5.2'
-};
 
 function getElement(id) {
     return document.getElementById(id);
@@ -97,16 +85,7 @@ function getVisibleProviders(providers) {
 }
 
 function getRecommendedModel(providerId) {
-    if (recommendedModelMap[providerId]) {
-        return recommendedModelMap[providerId];
-    }
-
-    const matchedBaseId = Object.keys(recommendedModelMap).find(baseId => providerId.startsWith(baseId + '-'));
-    if (matchedBaseId) {
-        return recommendedModelMap[matchedBaseId];
-    }
-
-    return 'gpt-5.5';
+    return getProviderDefaultModel(providerId);
 }
 
 function toPrettyJson(value) {

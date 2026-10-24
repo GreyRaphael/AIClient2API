@@ -53,16 +53,7 @@ class FileUploadHandler {
      * @returns {string} - 提供商标识
      */
     getProviderKey(provider) {
-        const providerMap = {
-            'gemini-antigravity': 'antigravity',
-            'claude-kiro-oauth': 'kiro',
-            'openai-codex-oauth': 'codex',
-            'zed': 'zed',
-            'trae': 'trae',
-            'trae-solo_work_lite': 'trae',
-            'trae-chat_v3': 'trae'
-        };
-        return providerMap[provider] || 'antigravity';
+        return getProviderUploadDir(provider, 'antigravity');
     }
 
     /**
