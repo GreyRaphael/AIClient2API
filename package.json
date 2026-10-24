@@ -50,11 +50,12 @@
     "metrics:types": "node scripts/type-metrics.mjs",
     "metrics:strict": "node scripts/strict-metrics.mjs",
     "check:strict": "node scripts/strict-metrics.mjs --check",
-    "verify": "npm run typecheck && npm run check:strict && npm run check:imports && npm test -- --runInBand && npm run test:runtime",
+    "verify": "npm run typecheck && npm run check:strict && npm run check:any && npm run check:imports && npm test -- --runInBand && npm run test:runtime",
     "help": "node src/scripts/help.ts",
     "example:api": "node src/scripts/example-api.ts",
     "login:zed": "node src/scripts/login-zed.ts",
     "login:trae": "node src/scripts/login-trae.ts",
-    "benchmark:concurrent": "node src/scripts/concurrent-test.ts"
+    "benchmark:concurrent": "node src/scripts/concurrent-test.ts",
+    "check:any": "node scripts/type-metrics.mjs --check"
   }
 }

@@ -54,6 +54,37 @@ const anyAssertions = countMatches(/\bas\s+any\b/g);
 const unknownAnnotations = countMatches(/:\s*unknown\b/g);
 const unknownAssertions = countMatches(/\bas\s+unknown\b/g);
 
+const ANY_BASELINE_PATH = path.join(ROOT, 'scripts', 'any-baseline.json');
+const args = new Set(process.argv.slice(2));
+const shouldCheckAny = args.has('--check');
+const shouldUpdateAny = args.has('--update');
+
+function writeAnyBaseline() {
+    fs.writeFileSync(ANY_BASELINE_PATH, `${JSON.stringify({
+        annotations: anyAnnotations,
+        assertions: anyAssertions
+    }, null, 2)}\n`);
+    console.log(`[type-metrics] any baseline updated: ${anyAnnotations} annotations / ${anyAssertions} assertions`);
+}
+
+if (shouldUpdateAny) {
+    writeAnyBaseline();
+} else if (shouldCheckAny) {
+    if (!fs.existsSync(ANY_BASELINE_PATH)) {
+        console.error('[type-metrics] Missing scripts/any-baseline.json; run npm run metrics:types -- --update');
+        process.exit(1);
+    }
+    const baseline = JSON.parse(fs.readFileSync(ANY_BASELINE_PATH, 'utf8'));
+    if (anyAnnotations > baseline.annotations || anyAssertions > baseline.assertions) {
+        console.error(
+            `[type-metrics] any ratchet failed: current ${anyAnnotations}/${anyAssertions}, ` +
+            `baseline ${baseline.annotations}/${baseline.assertions}`
+        );
+        process.exit(1);
+    }
+    console.log('[type-metrics] any ratchet OK (annotations/assertions did not increase)');
+}
+
 console.log('[type-metrics] TypeScript files:', tsFiles.length);
 console.log('[type-metrics] JavaScript files:', jsFiles.length);
 console.log(`[type-metrics] @ts-nocheck: ${nocheckFiles.length} files / ${lineCount(nocheckFiles)} lines`);

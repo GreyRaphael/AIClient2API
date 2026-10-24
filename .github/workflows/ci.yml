@@ -38,6 +38,9 @@ jobs:
       - name: 严格度棘轮检查
         run: npm run check:strict
 
+      - name: any 债务棘轮检查
+        run: npm run check:any
+
       - name: 运行时导入完整性检查
         run: npm run check:imports
 

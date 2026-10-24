@@ -1,10 +1,4 @@
 {
-  "total": 2477,
-  "directories": {
-    "convert": 7,
-    "converters": 521,
-    "core": 372,
-    "providers": 909,
-    "ui-modules": 668
-  }
+  "total": 0,
+  "directories": {}
 }
