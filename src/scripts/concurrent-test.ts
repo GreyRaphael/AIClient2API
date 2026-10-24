@@ -20,8 +20,45 @@
 import http from 'http';
 import https from 'https';
 
+interface TestConfig {
+    url: string;
+    apiKey: string;
+    concurrency: number;
+    totalRequests: number;
+    rpm: number;
+    endpoint: string;
+    model: string;
+    stream: boolean;
+    timeout: number;
+    verbose: boolean;
+}
+
+interface TestResult {
+    success: true;
+    requestId: number;
+    statusCode: number;
+    responseTime: number;
+    dataLength: number;
+}
+
+interface TestFailure {
+    success: false;
+    requestId: number;
+    statusCode?: number;
+    responseTime: number;
+    error: string;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+        return (error as { message: string }).message;
+    }
+    return String(error);
+}
+
 // 解析命令行参数
-function parseArgs() {
+function parseArgs(): TestConfig {
     const args = process.argv.slice(2);
     const config = {
         url: 'http://localhost:3000',
@@ -112,30 +149,30 @@ class Statistics {
         this.endTime = null;
     }
 
-    recordSuccess(responseTime) {
+    recordSuccess(responseTime: number): void {
         this.completed++;
         this.responseTimes.push(responseTime);
     }
 
-    recordFailure(error) {
+    recordFailure(error: unknown): void {
         this.failed++;
-        const errorKey = error.message || String(error);
+        const errorKey = getErrorMessage(error);
         this.errors[errorKey] = (this.errors[errorKey] || 0) + 1;
     }
 
-    start() {
+    start(): void {
         this.startTime = Date.now();
     }
 
-    end() {
+    end(): void {
         this.endTime = Date.now();
     }
 
     getReport() {
-        const totalTime = this.endTime - this.startTime;
+        const totalTime = (this.endTime ?? 0) - (this.startTime ?? 0);
         const sortedTimes = [...this.responseTimes].sort((a, b) => a - b);
-        
-        const percentile = (p) => {
+
+        const percentile = (p: number): number => {
             if (sortedTimes.length === 0) return 0;
             const index = Math.ceil((p / 100) * sortedTimes.length) - 1;
             return sortedTimes[Math.max(0, index)];
@@ -167,7 +204,7 @@ class Statistics {
 }
 
 // 创建测试请求体
-function createRequestBody(config, requestId) {
+function createRequestBody(config: TestConfig, requestId: number): string {
     // OpenAI Chat Completions 格式
     if (config.endpoint.includes('/chat/completions')) {
         return JSON.stringify({
@@ -222,7 +259,7 @@ function createRequestBody(config, requestId) {
 }
 
 // 发送单个请求
-function sendRequest(config, requestId): Promise<any> {
+function sendRequest(config: TestConfig, requestId: number): Promise<TestResult> {
     return new Promise((resolve, reject) => {
         const startTime = Date.now();
         const url = new URL(config.endpoint, config.url);
@@ -247,54 +284,58 @@ function sendRequest(config, requestId): Promise<any> {
         const req = client.request(options, (res) => {
             let data = '';
 
-            res.on('data', (chunk) => {
-                data += chunk;
+            res.on('data', (chunk: Buffer) => {
+                data += chunk.toString();
             });
 
             res.on('end', () => {
                 const responseTime = Date.now() - startTime;
-                
-                if (res.statusCode >= 200 && res.statusCode < 300) {
+                const statusCode = res.statusCode ?? 0;
+
+                if (statusCode >= 200 && statusCode < 300) {
                     resolve({
                         success: true,
                         requestId,
-                        statusCode: res.statusCode,
+                        statusCode,
                         responseTime,
                         dataLength: data.length
                     });
                 } else {
-                    reject({
+                    const failure: TestFailure = {
                         success: false,
                         requestId,
-                        statusCode: res.statusCode,
+                        statusCode,
                         responseTime,
-                        error: `HTTP ${res.statusCode}: ${data.substring(0, 200)}`
-                    });
+                        error: `HTTP ${statusCode}: ${data.substring(0, 200)}`
+                    };
+                    reject(failure);
                 }
             });
         });
 
-        req.on('error', (error) => {
+        req.on('error', (error: Error & { code?: string }) => {
             const responseTime = Date.now() - startTime;
-            reject({
+            const failure: TestFailure = {
                 success: false,
                 requestId,
                 responseTime,
-                error: error.code === 'ECONNREFUSED' 
-                    ? `连接被拒绝 (${url.hostname}:${url.port || (isHttps ? 443 : 80)})` 
+                error: error.code === 'ECONNREFUSED'
+                    ? `连接被拒绝 (${url.hostname}:${url.port || (isHttps ? 443 : 80)})`
                     : (error.message || error.code || 'Unknown error')
-            });
+            };
+            reject(failure);
         });
 
         req.on('timeout', () => {
             req.destroy();
             const responseTime = Date.now() - startTime;
-            reject({
+            const failure: TestFailure = {
                 success: false,
                 requestId,
                 responseTime,
                 error: '请求超时'
-            });
+            };
+            reject(failure);
         });
 
         req.write(requestBody);
@@ -303,32 +344,39 @@ function sendRequest(config, requestId): Promise<any> {
 }
 
 // 并发控制器
+interface QueueItem {
+    task: () => Promise<unknown>;
+    resolve: (value: unknown) => void;
+    reject: (reason?: unknown) => void;
+}
+
 class ConcurrencyController {
     concurrency: number;
     running: number;
-    queue: any[];
+    queue: QueueItem[];
 
-    constructor(concurrency) {
+    constructor(concurrency: number) {
         this.concurrency = concurrency;
         this.running = 0;
         this.queue = [];
     }
 
-    async run(task: any): Promise<any> {
-        return new Promise((resolve, reject) => {
-            this.queue.push({ task, resolve, reject });
+    async run<T>(task: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            this.queue.push({ task, resolve: resolve as (value: unknown) => void, reject });
             this.processQueue();
         });
     }
 
-    async processQueue() {
+    async processQueue(): Promise<void> {
         while (this.running < this.concurrency && this.queue.length > 0) {
-            const { task, resolve, reject } = this.queue.shift();
+            const item = this.queue.shift();
+            if (!item) break;
             this.running++;
 
-            task()
-                .then(resolve)
-                .catch(reject)
+            item.task()
+                .then(item.resolve)
+                .catch(item.reject)
                 .finally(() => {
                     this.running--;
                     this.processQueue();
@@ -338,7 +386,7 @@ class ConcurrencyController {
 }
 
 // 进度条显示
-function showProgress(current, total, stats) {
+function showProgress(current: number, total: number, stats: Statistics): void {
     const percentage = ((current / total) * 100).toFixed(1);
     const barLength = 30;
     const filled = Math.round((current / total) * barLength);
@@ -370,7 +418,7 @@ async function main() {
     console.log('开始测试...\n');
     stats.start();
 
-    const tasks = [];
+    const tasks: Promise<void>[] = [];
     for (let i = 1; i <= config.totalRequests; i++) {
         const requestId = i;
 
@@ -386,7 +434,7 @@ async function main() {
                             console.log(`\n[成功] 请求 #${result.requestId} - ${result.responseTime}ms - ${result.dataLength} bytes`);
                         }
                     })
-                    .catch((result) => {
+                    .catch((result: TestFailure) => {
                         stats.recordFailure(new Error(result.error));
                         if (config.verbose) {
                             console.log(`\n[失败] 请求 #${result.requestId} - ${result.error}`);
@@ -405,7 +453,7 @@ async function main() {
                             console.log(`\n[成功] 请求 #${result.requestId} - ${result.responseTime}ms - ${result.dataLength} bytes`);
                         }
                     })
-                    .catch((result) => {
+                    .catch((result: TestFailure) => {
                         stats.recordFailure(new Error(result.error));
                         if (config.verbose) {
                             console.log(`\n[失败] 请求 #${result.requestId} - ${result.error}`);
@@ -459,7 +507,7 @@ async function main() {
 }
 
 // 运行主函数
-main().catch((error) => {
+main().catch((error: unknown) => {
     console.error('测试脚本执行失败:', error);
     process.exit(1);
 });

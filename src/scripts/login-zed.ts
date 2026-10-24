@@ -3,6 +3,11 @@ import { handleZedOAuth, handleZedOAuthCallback } from '../auth/zed-oauth.ts';
 import { CONFIG, initializeConfig } from '../core/config-manager.ts';
 import logger from '../utils/logger.ts';
 
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
 async function main() {
     await initializeConfig();
     const args = process.argv.slice(2);
@@ -63,7 +68,7 @@ async function main() {
             })
             .catch(err => {
                 if (finished) return;
-                console.error(`\n\x1b[31m[ERROR] 回调等待出错: ${err.message}\x1b[0m\n`);
+                console.error(`\n\x1b[31m[ERROR] 回调等待出错: ${getErrorMessage(err)}\x1b[0m\n`);
                 cleanupAndExit(1);
             });
 
@@ -81,14 +86,14 @@ async function main() {
                     console.log(`节点已自动挂载至 provider_pools.json (Zed - ${result.email || result.userId})\n`);
                     cleanupAndExit(0);
                 } catch (err) {
-                    console.error(`\n\x1b[31m[ERROR] 手动回调解析失败: ${err.message}\x1b[0m\n`);
+                    console.error(`\n\x1b[31m[ERROR] 手动回调解析失败: ${getErrorMessage(err)}\x1b[0m\n`);
                     cleanupAndExit(1);
                 }
             }
         });
 
     } catch (err) {
-        console.error(`\n\x1b[31m[ERROR] 初始化登录失败: ${err.message}\x1b[0m\n`);
+        console.error(`\n\x1b[31m[ERROR] 初始化登录失败: ${getErrorMessage(err)}\x1b[0m\n`);
         process.exit(1);
     }
 }

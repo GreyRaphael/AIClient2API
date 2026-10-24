@@ -220,7 +220,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) 
 /**
  * 手动处理 Zed 回调（用于无头服务器模式或 UI 手动粘贴回调 URL / 参数）
  */
-export async function handleZedOAuthCallback(rawInput, sessionId = null, currentConfig = CONFIG) {
+export async function handleZedOAuthCallback(rawInput: string | Record<string, unknown>, sessionId: string | null = null, currentConfig = CONFIG) {
     let session = null;
     let targetSessionId = sessionId;
 
@@ -239,8 +239,8 @@ export async function handleZedOAuthCallback(rawInput, sessionId = null, current
         throw new Error('No active Zed OAuth session found. Please initiate authentication again.');
     }
 
-    let userId = null;
-    let encAccessToken = null;
+    let userId: string | null = null;
+    let encAccessToken: string | null = null;
 
     if (typeof rawInput === 'string') {
         let input = rawInput.trim();
@@ -253,8 +253,10 @@ export async function handleZedOAuthCallback(rawInput, sessionId = null, current
         userId = params.get('user_id');
         encAccessToken = params.get('access_token');
     } else if (typeof rawInput === 'object' && rawInput !== null) {
-        userId = rawInput.user_id || rawInput.userId;
-        encAccessToken = rawInput.access_token || rawInput.accessToken;
+        const userIdValue = rawInput.user_id ?? rawInput.userId;
+        if (typeof userIdValue === 'string') userId = userIdValue;
+        const tokenValue = rawInput.access_token ?? rawInput.accessToken;
+        if (typeof tokenValue === 'string') encAccessToken = tokenValue;
     }
 
     if (!userId || !encAccessToken) {

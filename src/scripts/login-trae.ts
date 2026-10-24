@@ -3,10 +3,15 @@ import { handleTraePATLogin, TRAE_AUTH_CONFIG } from '../auth/trae-auth.ts';
 import { initializeConfig } from '../core/config-manager.ts';
 import logger from '../utils/logger.ts';
 
-async function performLoginAndDisplay({ token, host, customName }) {
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
+async function performLoginAndDisplay({ token, host, customName }: { token: string; host: string; customName: string }) {
     try {
         console.log('正在向 Trae 端点执行 ExchangeToken 握手与身份验证...');
-        const res = await handleTraePATLogin({ token, host, customName } as any);
+        const res = await handleTraePATLogin({ token, host, customName });
         console.log('\n\x1b[32m[SUCCESS] Trae 凭据验证与录入成功！\x1b[0m');
         console.log(`  用户标识: ${res.nickname} (UID: ${res.userId || 'N/A'})`);
         if (res.enterpriseId) {
@@ -17,7 +22,7 @@ async function performLoginAndDisplay({ token, host, customName }) {
         console.log('\n凭据已自动注入 configs/provider_pools.json，启动 AIClient2API 即可直接调用 Trae 模型！');
         process.exit(0);
     } catch (err) {
-        console.error('\n\x1b[31m[ERROR] 凭证换取失败:\x1b[0m', err.message);
+        console.error('\n\x1b[31m[ERROR] 凭证换取失败:\x1b[0m', getErrorMessage(err));
         process.exit(1);
     }
 }
