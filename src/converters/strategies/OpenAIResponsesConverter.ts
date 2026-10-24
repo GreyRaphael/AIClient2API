@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 /**
  * OpenAI Responses API 转换器
  * 处理 OpenAI Responses API 格式与其他协议之间的转换
@@ -72,6 +71,11 @@ function extractResponsesReasoningText(item) {
  * 支持 OpenAI Responses 格式与 OpenAI、Claude、Gemini 之间的转换
  */
 export class OpenAIResponsesConverter extends BaseConverter {
+    codexConverter: any;
+    claudeStreamStates: any;
+    codexResponsesStreamStates: any;
+    openaiChatStreamStates: any;
+
     constructor() {
         super(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
         this.codexConverter = new CodexConverter();
@@ -159,7 +163,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      */
     toOpenAIRequest(responsesRequest, requestId = null) {
         registerCustomTools(requestId, responsesRequest.tools);
-        const openaiRequest = {
+        const openaiRequest: any = {
             model: responsesRequest.model,
             messages: [],
             stream: responsesRequest.stream || false
@@ -295,7 +299,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                     pendingReasoning = '';
                                 }
                             } else {
-                                const newMsg = {
+                                const newMsg: any = {
                                     role: role,
                                     content: content
                                 };
@@ -321,7 +325,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     case 'custom_tool_call':
                     case 'function_call': {
                         flushPendingReasoning();
-                        const toolCallObj = {
+                        const toolCallObj: any = {
                             id: item.call_id || item.id,
                             type: 'function',
                             function: {
@@ -504,7 +508,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             };
         }
 
-        const message = {
+        const message: any = {
             role: 'assistant',
             content: contentParts.length > 0 ? contentParts.join('') : (toolCalls.length > 0 ? null : '')
         };
@@ -641,7 +645,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         const { stateKey, state } = this._getOpenAIStreamState(responsesChunk, requestId);
-        const delta = {};
+        const delta: any = {};
         let finish_reason = null;
 
         if (responsesChunk.type === 'response.output_text.delta') {
@@ -766,7 +770,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return null;
         }
 
-        const chunkObj = {
+        const chunkObj: any = {
             id: state.id,
             object: 'chat.completion.chunk',
             created: state.created,
@@ -1181,7 +1185,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      */
     toClaudeRequest(responsesRequest, requestId = null) {
         registerCustomTools(requestId, responsesRequest.tools);
-        const claudeRequest = {
+        const claudeRequest: any = {
             model: responsesRequest.model,
             messages: [],
             max_tokens: clampClaudeMaxTokens(responsesRequest.max_output_tokens ?? responsesRequest.max_tokens),
@@ -1357,7 +1361,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 } else if (item.type === 'reasoning') {
                     const thinking = extractResponsesReasoningText(item);
                     if (thinking) {
-                        const block = { type: 'thinking', thinking };
+                        const block: any = { type: 'thinking', thinking };
                         if (isSignatureVaultEnabled()) {
                             block.signature = mintVirtualSignature({
                                 sessionKey: responsesResponse.id || 'responses',
@@ -1415,7 +1419,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return this.claudeStreamStates.get(key);
     }
 
-    _mapResponsesUsageToClaude(usage = {}) {
+    _mapResponsesUsageToClaude(usage: any = {}) {
         return anthropicUsageFromInclusiveInput({
             inputTokens: usage.input_tokens || 0,
             cachedTokens: usage.input_tokens_details?.cached_tokens || 0,
@@ -1530,7 +1534,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
             if (responsesChunk.part?.type === 'output_text' && !state.textBlocks.has(index)) {
                 state.textBlocks.add(index);
-                const events = [{
+                const events: any[] = [{
                     type: 'content_block_start',
                     index,
                     content_block: {
@@ -1926,7 +1930,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      */
     toGeminiRequest(responsesRequest, requestId = null) {
         registerCustomTools(requestId, responsesRequest.tools);
-        const geminiRequest = {
+        const geminiRequest: any = {
             contents: [],
             generationConfig: {}
         };
@@ -2100,7 +2104,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         // Responses 的稳定配对键是 call_id；item.id（fc_*）只是 output item 标识。
                         const callId = item.call_id || item.id;
                         const callName = item.name || (callId && callIdToName.get(callId)) || 'function_call';
-                        const fc = {
+                        const fc: any = {
                             name: callName,
                             args: parsedArgs
                         };
@@ -2186,7 +2190,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                 responseObj = { content: item.output };
                             }
                         }
-                        const fr = {
+                        const fr: any = {
                             name: callName,
                             response: responseObj
                         };

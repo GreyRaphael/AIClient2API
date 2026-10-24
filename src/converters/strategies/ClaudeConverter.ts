@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 /**
  * Claude转换器
  * 处理Claude（Anthropic）协议与其他协议之间的转换
@@ -36,6 +35,10 @@ import {
  * 实现Claude协议到其他协议的转换
  */
 export class ClaudeConverter extends BaseConverter {
+    codexConverter: any;
+    openaiStreamStates: any;
+    openAIResponsesStreamStates: any;
+
     constructor() {
         super('claude');
         // Codex 转换器实例；请求级工具名映射在 CodexConverter 模块内跨实例共享
@@ -138,7 +141,7 @@ export class ClaudeConverter extends BaseConverter {
      * 而 OpenAI 的 prompt_tokens 是输入总量，必须把缓存侧 token 加回去。
      * @private
      */
-    _claudeUsageToOpenAI(usage = {}) {
+    _claudeUsageToOpenAI(usage: any = {}) {
         const cacheRead = usage?.cache_read_input_tokens || 0;
         const cacheCreation = usage?.cache_creation_input_tokens || 0;
         const promptTokens = (usage?.input_tokens || 0) + cacheRead + cacheCreation;
@@ -276,7 +279,7 @@ export class ClaudeConverter extends BaseConverter {
                             };
                         });
 
-                        const toolCallMsg = {
+                        const toolCallMsg: any = {
                             role: "assistant",
                             content: assistantContent,
                             tool_calls: toolCalls
@@ -291,14 +294,14 @@ export class ClaudeConverter extends BaseConverter {
                 }
 
                 // 普通文本消息
-                const contentConverted = this.processClaudeContentToOpenAIContent(msg.content || "");
+                const contentConverted: any = this.processClaudeContentToOpenAIContent(msg.content || "");
                 const hasContent = contentConverted && (Array.isArray(contentConverted) ? contentConverted.length > 0 : contentConverted.trim().length > 0);
                 if (hasContent) {
-                    let finalContent = contentConverted;
+                    let finalContent: any = contentConverted;
                     if (Array.isArray(contentConverted) && contentConverted.every(part => part?.type === 'text')) {
                         finalContent = contentConverted.map(part => part.text || '').join('\n');
                     }
-                    const openaiMsg = { role: role, content: finalContent };
+                    const openaiMsg: any = { role: role, content: finalContent };
                     if (reasoningContent) {
                         openaiMsg.reasoning_content = reasoningContent;
                     }
@@ -354,7 +357,7 @@ export class ClaudeConverter extends BaseConverter {
             openaiMessages.push(...finalMessages);
         }
 
-        const openaiRequest = {
+        const openaiRequest: any = {
             model: claudeRequest.model,
             messages: openaiMessages,
             stream: claudeRequest.stream,
@@ -568,7 +571,7 @@ export class ClaudeConverter extends BaseConverter {
         // 检查是否包含 tool_use
         const hasToolUse = claudeResponse.content.some(block => block && block.type === 'tool_use');
         
-        let message = {
+        let message: any = {
             role: "assistant",
             content: null
         };
@@ -858,7 +861,7 @@ export class ClaudeConverter extends BaseConverter {
             };
             const finishReason = finishReasonMap[stopReason] || 'stop';
 
-            const chunk = {
+            const chunk: any = {
                 id: chunkId,
                 object: "chat.completion.chunk",
                 created: timestamp,
@@ -1116,7 +1119,7 @@ export class ClaudeConverter extends BaseConverter {
         }
         claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toGeminiRequest');
 
-        const geminiRequest = {
+        const geminiRequest: any = {
             contents: []
         };
 
@@ -1395,7 +1398,7 @@ export class ClaudeConverter extends BaseConverter {
         geminiRequest.contents = mergeConsecutiveSameRoleContents(rawGeminiContents);
 
         // 添加生成配置
-        const generationConfig = {};
+        const generationConfig: any = {};
         
         if (claudeRequest.max_tokens !== undefined) {
             generationConfig.maxOutputTokens = claudeRequest.max_tokens;
@@ -1486,7 +1489,7 @@ export class ClaudeConverter extends BaseConverter {
                     this.cleanUrlFormatFromSchema(inputSchema);
                 }
 
-                const funcDecl = {
+                const funcDecl: any = {
                     name: String(tool.name),
                     description: String(tool.description || '')
                 };
@@ -1756,7 +1759,7 @@ export class ClaudeConverter extends BaseConverter {
      */
     toOpenAIResponsesRequest(claudeRequest) {
         claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toOpenAIResponsesRequest');
-        const responsesRequest = {
+        const responsesRequest: any = {
             model: claudeRequest.model,
             input: [],
             stream: claudeRequest.stream || false
@@ -2330,7 +2333,7 @@ export class ClaudeConverter extends BaseConverter {
      */
     toCodexRequest(claudeRequest, requestId = null) {
         claudeRequest = this._stripVirtualSignaturesFromRequest(claudeRequest, 'toCodexRequest');
-        const codexRequest = {
+        const codexRequest: any = {
             model: claudeRequest.model,
             instructions: '',
             input: [],

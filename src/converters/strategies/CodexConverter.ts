@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 /**
  * Codex 转换器
  * 处理 OpenAI 协议与 Codex 协议之间的转换
@@ -33,6 +32,9 @@ function resolveReasoningEffort(source) {
 const sharedRequestStates = new StreamSessionStore({ label: 'codex-converter-request' });
 
 export class CodexConverter extends BaseConverter {
+    streamSessions: any;
+    requestStates: any;
+
     constructor() {
         super('codex');
         this.streamSessions = new StreamSessionStore({ label: 'codex-converter' }); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
@@ -186,7 +188,7 @@ export class CodexConverter extends BaseConverter {
         return data;
     }
 
-    getCachedInputTokens(usage = {}) {
+    getCachedInputTokens(usage: any = {}) {
         return usage.input_tokens_details?.cached_tokens ??
             usage.prompt_tokens_details?.cached_tokens ??
             usage.cache_read_input_tokens ??
@@ -315,7 +317,7 @@ export class CodexConverter extends BaseConverter {
         this.buildToolNameMap(data.tools || [], requestId);
 
         const userEffort = resolveReasoningEffort(data);
-        const codexRequest = {
+        const codexRequest: any = {
             model: data.model,
             instructions: this.buildInstructions(data),
             input: this.convertMessages((data.messages || []).filter(m => m.role !== 'system' && m.role !== 'developer'), requestId),
@@ -390,7 +392,7 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (data.response_format || data.text?.verbosity) {
-            const textObj = {};
+            const textObj: any = {};
             if (data.response_format) {
                 const converted = this.convertResponseFormat(data.response_format);
                 if (converted) {
@@ -756,7 +758,7 @@ export class CodexConverter extends BaseConverter {
         const response = root.response;
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
-        const openaiResponse = {
+        const openaiResponse: any = {
             id: response.id || `chatcmpl-${Date.now()}`,
             object: 'chat.completion',
             created: unixTimestamp,
@@ -1023,7 +1025,7 @@ export class CodexConverter extends BaseConverter {
                             .join('\n');
                     }
                     if (reasoningText) {
-                        const block = { type: "thinking", thinking: reasoningText };
+                        const block: any = { type: "thinking", thinking: reasoningText };
                         if (isSignatureVaultEnabled()) {
                             block.signature = mintVirtualSignature({
                                 sessionKey: response.id || 'codex',
@@ -1113,7 +1115,7 @@ export class CodexConverter extends BaseConverter {
         const state = this.streamSessions.get(stateKey);
 
         // 构建模板时使用当前状态中的值
-        const buildTemplate = () => ({
+        const buildTemplate = (): any => ({
             id: state.responseID,
             object: 'chat.completion.chunk',
             created: state.createdAt,
