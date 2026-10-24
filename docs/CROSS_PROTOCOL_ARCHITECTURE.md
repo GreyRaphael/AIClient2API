@@ -118,8 +118,9 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 | 文档 | 内容 |
 |---|---|
 | [`docs/PROVIDER_ADAPTER_GUIDE.md`](./PROVIDER_ADAPTER_GUIDE.md) | 新增 provider 的接入契约 |
-| [`docs/CONVERTER_STREAM_DESIGN.md`](./archive/CONVERTER_STREAM_DESIGN.md) | 流式共享层设计 |
-| [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](./archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md) | 2026-10-23 当前代码（`87a8d95`）19 模型全量 E2E、残留问题收口与核心转译 review（当前） |
+| [`docs/CONFIG_PRECEDENCE.md`](./CONFIG_PRECEDENCE.md) | 配置分层、开关与模型/能力优先级 |
+| [`docs/CONVERTER_STREAM_DESIGN.md`](./archive/CONVERTER_STREAM_DESIGN.md) | 流式共享层设计（历史归档） |
+| [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](./archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md) | 2026-10-23 19 模型全量 E2E 与转译 review（历史归档） |
 | [`docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`](./TRAE_CHANNELS_UPSTREAM_GUIDE.md) | Trae 三通道上游细节 |
 | [`docs/ANTIGRAVITY_NOTES.md`](./ANTIGRAVITY_NOTES.md) | Antigravity 模型发现与思考机制 |
 
