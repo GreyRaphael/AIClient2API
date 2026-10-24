@@ -38,6 +38,9 @@ jobs:
       - name: 运行时导入完整性检查
         run: npm run check:imports
 
+      - name: 类型债务指标
+        run: npm run metrics:types
+
       - name: 单元测试
         run: npm test -- --runInBand
 

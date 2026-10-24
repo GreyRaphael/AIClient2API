@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 /**
  * Trae 通道判定纯函数模块（single source of truth）
  *

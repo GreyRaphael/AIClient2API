@@ -46,6 +46,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:imports": "node scripts/check-imports.mjs",
     "test:runtime": "node scripts/smoke-runtime.mjs",
+    "metrics:types": "node scripts/type-metrics.mjs",
     "verify": "npm run typecheck && npm run check:imports && npm test -- --runInBand && npm run test:runtime",
     "help": "node src/scripts/help.ts",
     "example:api": "node src/scripts/example-api.ts",
