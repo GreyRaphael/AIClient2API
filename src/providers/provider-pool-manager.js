@@ -15,6 +15,7 @@ import {
     resolveProviderCapability,
     resolveProviderCapabilityWithRefresh
 } from './model-capability.js';
+import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.js';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';
 import { ENDPOINT_TYPE } from '../utils/common.js';
 
@@ -24,15 +25,7 @@ import { ENDPOINT_TYPE } from '../utils/common.js';
 export class ProviderPoolManager {
     // 默认健康检查模型配置
     // 键名必须与 MODEL_PROVIDER 常量值一致
-    static DEFAULT_HEALTH_CHECK_MODELS = {
-        'gemini-antigravity': 'gemini-3-flash',
-        'claude-custom': 'claude-sonnet-4-5',
-        'claude-kiro-oauth': 'claude-sonnet-4-5',
-        'openai-custom': 'gpt-5.5',
-        'openai-codex-oauth': 'gpt-5.5',
-        'openaiResponses-custom': 'gpt-5.5',
-        'zed': 'gpt-5-nano'
-    };
+    static DEFAULT_HEALTH_CHECK_MODELS = getDefaultHealthCheckModels();
 
     constructor(providerPools, options = {}) {
         this.providerPools = providerPools;
@@ -115,19 +108,9 @@ export class ProviderPoolManager {
             for (const providerStatus of providers) {
                 const config = providerStatus.config;
                 
-                // 根据 providerType 确定配置文件路径字段名
-                let configPath = null;
-                if (providerType.startsWith('claude-kiro')) {
-                    configPath = config.KIRO_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('gemini-antigravity')) {
-                    configPath = config.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('openai-codex')) {
-                    configPath = config.CODEX_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('zed')) {
-                    configPath = config.ZED_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('trae')) {
-                    configPath = config.TRAE_OAUTH_CREDS_FILE_PATH;
-                }
+                // 根据 providerType 从注册表派生凭据路径字段名
+                const credentialPathKey = getProviderDefinition(providerType)?.credentialPathKey;
+                const configPath = credentialPathKey ? config[credentialPathKey] : null;
                 
                 // logger.info(`Checking node ${this._getDisplayName(config)} (${providerType}) expiry date... configPath: ${configPath}`);
                 // 排除禁用的节点（不健康节点也应允许尝试刷新以恢复健康）

@@ -17,6 +17,7 @@ import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
 import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
 import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../providers/model-capability.js';
+import { getStatusIdentifyFieldMap } from '../providers/provider-registry.js';
 
 // 存储 ProviderPoolManager 实例
 let providerPoolManager = null;
@@ -619,14 +620,12 @@ export async function getProviderStatus(config, options = {}) {
         'lastErrorMessage',
         'needsRefresh'
     ];
-    // identify 字段映射表
+    // identify 字段映射表（OAuth provider 从注册表派生，自定义 provider 使用 Base URL）
     const identifyFieldMap = {
         'openai-custom': 'OPENAI_BASE_URL',
         'openaiResponses-custom': 'OPENAI_BASE_URL',
         'claude-custom': 'CLAUDE_BASE_URL',
-        'claude-kiro-oauth': 'KIRO_OAUTH_CREDS_FILE_PATH',
-        'gemini-antigravity': 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH',
-        'openai-codex-oauth': 'CODEX_OAUTH_CREDS_FILE_PATH'
+        ...getStatusIdentifyFieldMap()
     };
     let providerPoolsSlim = [];
     let unhealthyProvideIdentifyList = [];

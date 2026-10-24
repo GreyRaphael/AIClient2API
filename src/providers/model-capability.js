@@ -9,6 +9,7 @@ import {
     normalizeModelIds,
     usesManagedModelList
 } from './provider-models.js';
+import { getDynamicProviderTypes, getProviderCapabilityTtlMs } from './provider-registry.js';
 
 /**
  * 模型能力层（Model Capability）
@@ -35,23 +36,8 @@ const DEFAULT_COLD_START_TIMEOUT_MS = 2000;
 const MAX_BACKOFF_MS = 30 * 60 * 1000;
 const BASE_BACKOFF_MS = 60 * 1000;
 
-const PROVIDER_TTL_MS = {
-    'gemini-antigravity': 30 * 60 * 1000,
-    'openai-codex-oauth': 30 * 60 * 1000,
-    'trae': 60 * 60 * 1000,
-    'trae-solo_work_lite': 60 * 60 * 1000,
-    'trae-chat_v3': 60 * 60 * 1000,
-    'zed': 60 * 60 * 1000
-};
-
-const DYNAMIC_PROVIDERS = new Set([
-    'gemini-antigravity',
-    'openai-codex-oauth',
-    'trae',
-    'trae-solo_work_lite',
-    'trae-chat_v3',
-    'zed'
-]);
+const PROVIDER_TTL_MS = getProviderCapabilityTtlMs();
+const DYNAMIC_PROVIDERS = getDynamicProviderTypes();
 
 const SOURCE_PRIORITY = {
     [CAPABILITY_SOURCE.LIVE]: 4,

@@ -9,6 +9,7 @@
 import * as path from 'path';
 import logger from './logger.js';
 import { MODEL_PROTOCOL_PREFIX } from './constants.js';
+import { getProviderDefinition } from '../providers/provider-registry.js';
 
 /**
  * Extracts the protocol prefix from a given model provider string.
@@ -17,17 +18,9 @@ import { MODEL_PROTOCOL_PREFIX } from './constants.js';
  * @returns {string} The protocol prefix (e.g., 'gemini', 'openai', 'claude').
  */
 export function getProtocolPrefix(provider) {
-    // Special case for Codex - it needs its own protocol
-    if (provider === 'openai-codex-oauth') {
-        return MODEL_PROTOCOL_PREFIX.CODEX;
-    }
-    // Special case for Trae - OpenAI-compatible provider.
-    if (provider === 'trae' || provider.startsWith('trae-')) {
-        return MODEL_PROTOCOL_PREFIX.OPENAI;
-    }
-    // Special case for Zed - protocol is Claude/Anthropic compatible
-    if (provider === 'zed' || provider.startsWith('zed-')) {
-        return MODEL_PROTOCOL_PREFIX.CLAUDE;
+    const definition = getProviderDefinition(provider);
+    if (definition?.protocolPrefix) {
+        return definition.protocolPrefix;
     }
 
     const hyphenIndex = provider.indexOf('-');

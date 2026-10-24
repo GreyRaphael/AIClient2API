@@ -1,6 +1,7 @@
 import { convertData } from '../convert/convert.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
 import { CONFIG } from '../core/config-manager.js';
+import { getProviderStaticModels } from './provider-registry.js';
 
 /**
  * 获取模型配置元数据
@@ -41,140 +42,7 @@ export function getCustomModelConfig(modelId, provider = null) {
  * 各提供商支持的模型列表
  * 用于节点候选与静态基线
  */
-export const PROVIDER_MODELS = {
-    'gemini-antigravity': [
-        'gemini-3.8-flash-high',
-        'gemini-3.7-flash-high',
-        'gemini-3.6-flash-high',
-        'gemini-3.1-pro-high',
-        'gemini-3.1-flash-image',
-        'claude-sonnet-5-5-high',
-        'claude-opus-5-5-high',
-        'claude-sonnet-4-6',
-        'claude-opus-4-6-thinking',
-    ],
-    'claude-custom': [],
-    'claude-kiro-oauth': [
-        'gpt-5.6-sol',
-        'gpt-5.6-terra',
-        'gpt-5.6-luna',
-        'claude-haiku-4-5',
-        'claude-haiku-4-5-20251001',
-        'claude-sonnet-5',
-        'claude-opus-5',
-        'claude-opus-4-8',
-        'claude-opus-4-7',
-        'claude-opus-4-6',
-        'claude-sonnet-4-6',
-        'claude-opus-4-5',
-        'claude-opus-4-5-20251101',
-        'claude-sonnet-4-5',
-        'claude-sonnet-4-5-20250929',
-    ],
-    'openai-custom': [],
-    'openaiResponses-custom': [],
-    'openai-codex-oauth': [
-        'gpt-6-astra',
-        'gpt-6.1-sol',
-        'gpt-6-sol',
-        'gpt-6-luna',
-        'gpt-5.6-terra',
-        'gpt-5.6-luna',
-        'gpt-5.5',
-    ],
-    'zed': [
-        'claude-sonnet-5-5',
-        'claude-sonnet-5',
-        'claude-sonnet-4-6',
-        'claude-sonnet-4-5',
-        'claude-haiku-4-5',
-        'gpt-6.1-sol',
-        'gpt-6-sol',
-        'gpt-6-luna',
-        'gpt-5.6-sol',
-        'gpt-5.6-terra',
-        'gpt-5.6-luna',
-        'gpt-5.5',
-        'gpt-5.4',
-        'gpt-5.3-codex',
-        'gpt-5.2',
-        'gpt-5-mini',
-        'gpt-5-nano',
-        'gemini-3.1-pro-preview',
-        'gemini-3.8-flash',
-        'gemini-3.5-flash',
-        'gemini-3-flash'
-    ],
-    'trae': [
-        'Doubao-Seed-Evolving',
-        'Doubao-Seed-2.1-pro',
-        'Doubao-Seed-2.1-turbo',
-        'Doubao-Seed-2.0-Code',
-        'Doubao_1_6',
-        'glm-5.3-flashx',
-        'step-5-preview',
-        'glm-5.3-flash',
-        'glm-5.3',
-        'glm-5.2',
-        'glm-5v-turbo',
-        'minimax-m3',
-        'minimax-m2.7',
-        'qwen3.8-max',
-        'qwen-3.7-plus',
-        'kimi-k2.8-preview',
-        'kimi-k3',
-        'kimi-k2.7-code',
-        'mimo-v2.6-pro',
-        'mimo-v2.6-flash',
-        'DeepSeek-V4.1-Flash',
-        'DeepSeek-V4-Pro-Official',
-        'deepseek-V4-Pro',
-        'DeepSeek-V4-Flash-Official'
-    ],
-    'trae-solo_work_lite': [
-        'Doubao-Seed-Evolving',
-        'Doubao-Seed-2.1-Pro',
-        'Doubao-Seed-2.1-Turbo',
-        'mimo-v2.6-flash',
-        'mimo-v2.6-pro',
-        'step-5-preview',
-        'glm-5.3-flashx',
-        'glm-5.3-flash',
-        'glm-5.3',
-        'glm-5.2',
-        'deepseek-v4.1-flash',
-        'DeepSeek-V4-Flash-Official',
-        'DeepSeek-V4-Pro-Official',
-        'kimi-k3',
-        'kimi-k2.7-code',
-        'kimi-k2.6',
-        'minimax-m3',
-        'qwen3.8-max',
-        'qwen-3.7-plus'
-    ],
-    'trae-chat_v3': [
-        'Doubao-Seed-Evolving',
-        'Doubao-Seed-2.1-Pro',
-        'Doubao-Seed-2.1-Turbo',
-        'Doubao-Seed-Code',
-        'mimo-v2.6-flash',
-        'mimo-v2.6-pro',
-        'step-5-preview',
-        'glm-5.3-flashx',
-        'glm-5.3-flash',
-        'glm-5.3',
-        'glm-5.2',
-        'deepseek-v4.1-flash',
-        'DeepSeek-V4-Flash-Official',
-        'DeepSeek-V4-Pro-Official',
-        'kimi-k3',
-        'kimi-k2.8-preview',
-        'minimax-m3',
-        'qwen3.8-flash',
-        'qwen3.8-max',
-        'qwen-3.7-plus'
-    ]
-};
+export const PROVIDER_MODELS = getProviderStaticModels();
 
 export const BASE_TRAE_MODELS = [...PROVIDER_MODELS.trae];
 export const BASE_TRAE_SOLO_WORK_LITE_MODELS = [...PROVIDER_MODELS['trae-solo_work_lite']];

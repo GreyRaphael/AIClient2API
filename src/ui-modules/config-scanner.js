@@ -22,12 +22,12 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
     }
 
     const usedPaths = new Set(); // 存储已使用的路径，用于判断关联状态
+    const credentialDefinitions = getCredentialProviderDefinitions();
 
-    // 从配置中提取所有OAuth凭据文件路径 - 标准化路径格式
-    addToUsedPaths(usedPaths, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH);
-    addToUsedPaths(usedPaths, currentConfig.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH);
-    addToUsedPaths(usedPaths, currentConfig.CODEX_OAUTH_CREDS_FILE_PATH);
-    addToUsedPaths(usedPaths, currentConfig.ZED_OAUTH_CREDS_FILE_PATH);
+    // 从配置中提取所有 OAuth 凭据文件路径 - 标准化路径格式
+    for (const definition of credentialDefinitions) {
+        addToUsedPaths(usedPaths, currentConfig[definition.credentialPathKey]);
+    }
 
     // 使用最新的提供商池数据
     let providerPools = currentConfig.providerPools;
@@ -35,14 +35,13 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
         providerPools = providerPoolManager.providerPools;
     }
 
-    // 检查提供商池文件中的所有OAuth凭据路径 - 标准化路径格式
+    // 检查提供商池文件中的所有 OAuth 凭据路径 - 标准化路径格式
     if (providerPools) {
-        for (const [providerType, providers] of Object.entries(providerPools)) {
+        for (const providers of Object.values(providerPools)) {
             for (const provider of providers) {
-                addToUsedPaths(usedPaths, provider.KIRO_OAUTH_CREDS_FILE_PATH);
-                addToUsedPaths(usedPaths, provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH);
-                addToUsedPaths(usedPaths, provider.CODEX_OAUTH_CREDS_FILE_PATH);
-                addToUsedPaths(usedPaths, provider.ZED_OAUTH_CREDS_FILE_PATH);
+                for (const definition of credentialDefinitions) {
+                    addToUsedPaths(usedPaths, provider[definition.credentialPathKey]);
+                }
             }
         }
     }
@@ -275,39 +274,19 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
     usageInfo.isUsed = true;
 
     // 检查主要配置中的使用情况
+    for (const definition of getCredentialProviderDefinitions()) {
+        const configuredPath = currentConfig[definition.credentialPathKey];
+        if (!configuredPath) continue;
+        if (!pathsEqual(relativePath, configuredPath) &&
+            !pathsEqual(relativePath, configuredPath.replace(/\\/g, '/'))) {
+            continue;
+        }
 
-    if (currentConfig.KIRO_OAUTH_CREDS_FILE_PATH &&
-        (pathsEqual(relativePath, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH) ||
-         pathsEqual(relativePath, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
         usageInfo.usageType = 'main_config';
         usageInfo.usageDetails.push({
             type: 'Main Config',
-            location: 'Kiro OAuth credentials file path',
-            configKey: 'KIRO_OAUTH_CREDS_FILE_PATH'
-        });
-    }
-
-
-
-    if (currentConfig.CODEX_OAUTH_CREDS_FILE_PATH &&
-        (pathsEqual(relativePath, currentConfig.CODEX_OAUTH_CREDS_FILE_PATH) ||
-         pathsEqual(relativePath, currentConfig.CODEX_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-        usageInfo.usageType = 'main_config';
-        usageInfo.usageDetails.push({
-            type: 'Main Config',
-            location: 'Codex OAuth credentials file path',
-            configKey: 'CODEX_OAUTH_CREDS_FILE_PATH'
-        });
-    }
-
-    if (currentConfig.ZED_OAUTH_CREDS_FILE_PATH &&
-        (pathsEqual(relativePath, currentConfig.ZED_OAUTH_CREDS_FILE_PATH) ||
-         pathsEqual(relativePath, currentConfig.ZED_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-        usageInfo.usageType = 'main_config';
-        usageInfo.usageDetails.push({
-            type: 'Main Config',
-            location: 'Zed OAuth credentials file path',
-            configKey: 'ZED_OAUTH_CREDS_FILE_PATH'
+            location: `${definition.credentialLabel} OAuth credentials file path`,
+            configKey: definition.credentialPathKey
         });
     }
 
@@ -323,73 +302,27 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
         for (const { provider, providerType, index } of allProviders) {
             const providerUsages = [];
 
+            for (const definition of getCredentialProviderDefinitions()) {
+                const configuredPath = provider[definition.credentialPathKey];
+                if (!configuredPath) continue;
+                if (!pathsEqual(relativePath, configuredPath) &&
+                    !pathsEqual(relativePath, configuredPath.replace(/\\/g, '/'))) {
+                    continue;
+                }
 
-            if (provider.KIRO_OAUTH_CREDS_FILE_PATH &&
-                (pathsEqual(relativePath, provider.KIRO_OAUTH_CREDS_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.KIRO_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
                 providerUsages.push({
                     type: 'Provider Pool',
-                    location: `Kiro OAuth credentials (node ${index + 1})`,
+                    location: `${definition.credentialLabel} OAuth credentials (node ${index + 1})`,
                     providerType: providerType,
                     providerIndex: index,
                     nodeName: provider.customName,
                     uuid: provider.uuid,
                     isHealthy: provider.isHealthy !== false,
                     isDisabled: provider.isDisabled === true,
-                    configKey: 'KIRO_OAUTH_CREDS_FILE_PATH'
+                    configKey: definition.credentialPathKey
                 });
             }
 
-
-            if (provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH &&
-                (pathsEqual(relativePath, provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-                providerUsages.push({
-                    type: 'Provider Pool',
-                    location: `Antigravity OAuth credentials (node ${index + 1})`,
-                    providerType: providerType,
-                    providerIndex: index,
-                    nodeName: provider.customName,
-                    uuid: provider.uuid,
-                    isHealthy: provider.isHealthy !== false,
-                    isDisabled: provider.isDisabled === true,
-                    configKey: 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH'
-                });
-            }
-
-
-            if (provider.CODEX_OAUTH_CREDS_FILE_PATH &&
-                (pathsEqual(relativePath, provider.CODEX_OAUTH_CREDS_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.CODEX_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-                providerUsages.push({
-                    type: 'Provider Pool',
-                    location: `Codex OAuth credentials (node ${index + 1})`,
-                    providerType: providerType,
-                    providerIndex: index,
-                    nodeName: provider.customName,
-                    uuid: provider.uuid,
-                    isHealthy: provider.isHealthy !== false,
-                    isDisabled: provider.isDisabled === true,
-                    configKey: 'CODEX_OAUTH_CREDS_FILE_PATH'
-                });
-            }
-
-            if (provider.ZED_OAUTH_CREDS_FILE_PATH &&
-                (pathsEqual(relativePath, provider.ZED_OAUTH_CREDS_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.ZED_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-                providerUsages.push({
-                    type: 'Provider Pool',
-                    location: `Zed OAuth credentials (node ${index + 1})`,
-                    providerType: providerType,
-                    providerIndex: index,
-                    nodeName: provider.customName,
-                    uuid: provider.uuid,
-                    isHealthy: provider.isHealthy !== false,
-                    isDisabled: provider.isDisabled === true,
-                    configKey: 'ZED_OAUTH_CREDS_FILE_PATH'
-                });
-            }
-            
             if (providerUsages.length > 0) {
                 usageInfo.usageType = 'provider_pool';
                 usageInfo.usageDetails.push(...providerUsages);

@@ -6,68 +6,12 @@
 import * as path from 'path';
 import logger from './logger.js';
 import { promises as fs } from 'fs';
+import { getProviderMappings } from '../providers/provider-registry.js';
 
 /**
- * 提供商目录映射配置
- * 定义目录名称到提供商类型的映射关系
+ * 提供商目录映射配置（从 provider registry 派生）
  */
-export const PROVIDER_MAPPINGS = [
-    {
-        // Kiro OAuth 配置
-        dirName: 'kiro',
-        patterns: ['configs/kiro/', '/kiro/', 'kiro-auth-token'],
-        providerType: 'claude-kiro-oauth',
-        credPathKey: 'KIRO_OAUTH_CREDS_FILE_PATH',
-        defaultCheckModel: 'claude-haiku-4-5',
-        displayName: 'Claude Kiro OAuth',
-        needsProjectId: false,
-        urlKeys: ['KIRO_BASE_URL', 'KIRO_REFRESH_URL', 'KIRO_REFRESH_IDC_URL']
-    },
-    {
-        // Antigravity OAuth 配置
-        dirName: 'antigravity',
-        patterns: ['configs/antigravity/', '/antigravity/', '/.antigravity/'],
-        providerType: 'gemini-antigravity',
-        credPathKey: 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH',
-        defaultCheckModel: 'gemini-3.8-flash-high',
-        displayName: 'Gemini Antigravity',
-        needsProjectId: true,
-        urlKeys: ['ANTIGRAVITY_BASE_URL_DAILY', 'ANTIGRAVITY_BASE_URL_AUTOPUSH']
-    },
-    {
-        // Codex OAuth 配置
-        dirName: 'codex',
-        patterns: ['configs/codex/', '/codex/', '/.codex/'],
-        providerType: 'openai-codex-oauth',
-        credPathKey: 'CODEX_OAUTH_CREDS_FILE_PATH',
-        defaultCheckModel: 'gpt-5.5',
-        displayName: 'OpenAI Codex OAuth',
-        needsProjectId: false,
-        urlKeys: ['CODEX_BASE_URL', 'CODEX_VERSION']
-    },
-    {
-        // Zed OAuth 配置
-        dirName: 'zed',
-        patterns: ['configs/zed/', '/zed/', '/.zed/'],
-        providerType: 'zed',
-        credPathKey: 'ZED_OAUTH_CREDS_FILE_PATH',
-        defaultCheckModel: 'claude-sonnet-4-5',
-        displayName: 'Zed OAuth',
-        needsProjectId: false,
-        urlKeys: ['ZED_BASE_URL']
-    },
-    {
-        // Trae 配置
-        dirName: 'trae',
-        patterns: ['configs/trae/', '/trae/', '/.trae/'],
-        providerType: 'trae',
-        credPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
-        defaultCheckModel: 'glm-5.2',
-        displayName: 'Trae',
-        needsProjectId: false,
-        urlKeys: ['TRAE_BASE_URL', 'TRAE_HOST', 'TRAE_CHANNEL_MODE']
-    }
-];
+export const PROVIDER_MAPPINGS = getProviderMappings();
 
 /**
  * 生成 UUID
