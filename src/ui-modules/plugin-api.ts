@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { getPluginManager } from '../core/plugin-manager.ts';
 import logger from '../utils/logger.ts';
 import { getRequestBody } from '../utils/common.ts';
@@ -116,7 +115,7 @@ export async function handleGetMarketPlugins(req, res) {
  */
 export async function handleInstallPlugin(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { plugin } = body;
 
         if (!plugin || !plugin.id || !plugin.downloadUrl) {
@@ -154,7 +153,7 @@ export async function handleInstallPlugin(req, res) {
  */
 export async function handleTogglePlugin(req, res, pluginName) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { enabled } = body;
 
         if (typeof enabled !== 'boolean') {

@@ -402,6 +402,11 @@ export async function handleTraePATLogin({
     host = TRAE_AUTH_CONFIG.defaultHost,
     customName,
     providerType = 'trae'
+}: {
+    token?: string;
+    host?: string;
+    customName?: string;
+    providerType?: string;
 } = {}) {
     if (!token || typeof token !== 'string') {
         throw new Error('A valid Personal Access Token (trae-lt-...) or Callback URL is required');

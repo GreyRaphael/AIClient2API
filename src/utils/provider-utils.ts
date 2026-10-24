@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 提供商工具模块
  * 包含 ui-manager.js 和 service-manager.js 共用的工具函数
@@ -266,7 +265,7 @@ export function createProviderConfig(options) {
     
     // 如果需要 PROJECT_ID，添加空字符串占位
     if (needsProjectId) {
-        newProvider.PROJECT_ID = '';
+        (newProvider as any).PROJECT_ID = '';
     }
 
     // 初始化可选的 URL 配置项

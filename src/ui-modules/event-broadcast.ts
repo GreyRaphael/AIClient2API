@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -194,7 +193,16 @@ export const upload = multer({
  * @param {Object} [options.customUpload] - 自定义 multer 实例
  * @returns {Promise<boolean>} 始终返回 true 表示请求已处理
  */
-export function handleUploadOAuthCredentials(req, res, options = {}) {
+export function handleUploadOAuthCredentials(
+    req: any,
+    res: any,
+    options: {
+        providerMap?: Record<string, any>;
+        logPrefix?: string;
+        userInfo?: string;
+        customUpload?: any;
+    } = {}
+) {
     const {
         providerMap = {},
         logPrefix = '[UI API]',

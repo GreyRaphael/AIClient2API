@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
@@ -39,7 +38,7 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
 
     // 检查提供商池文件中的所有 OAuth 凭据路径 - 标准化路径格式
     if (providerPools) {
-        for (const providers of Object.values(providerPools)) {
+        for (const providers of Object.values(providerPools) as any[]) {
             for (const provider of providers) {
                 for (const definition of credentialDefinitions) {
                     addToUsedPaths(usedPaths, provider[definition.credentialPathKey]);
@@ -296,7 +295,7 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
     const poolsToUse = providerPools || currentConfig.providerPools;
     if (poolsToUse) {
         // 使用 flatMap 将双重循环优化为单层循环 O(n)
-        const allProviders = Object.entries(poolsToUse).flatMap(
+        const allProviders = Object.entries(poolsToUse as Record<string, any[]>).flatMap(
             ([providerType, providers]) =>
                 providers.map((provider, index) => ({ provider, providerType, index }))
         );

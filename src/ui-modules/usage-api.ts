@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { CONFIG } from '../core/config-manager.ts';
 import logger from '../utils/logger.ts';
 import { serviceInstances, getServiceAdapter } from '../providers/adapter.ts';
@@ -247,7 +246,7 @@ function getProviderConfigFilePath(provider, providerType) {
 function reformatUsageResults(results) {
     if (!results || !results.providers) return;
     
-    for (const [providerType, providerData] of Object.entries(results.providers)) {
+    for (const [providerType, providerData] of Object.entries(results.providers as Record<string, any>)) {
         if (providerData.instances && Array.isArray(providerData.instances)) {
             for (const instance of providerData.instances) {
                 // 如果有原始数据（保存在 usage.raw 中），重新执行格式化
@@ -409,8 +408,8 @@ export async function handleGetUsage(req, res, currentConfig, providerPoolManage
                             cacheValid = false;
                             break;
                         }
-                        const cachedUuidMap = new Map(cachedList.map(inst => [inst.uuid, inst]));
-                        for (const p of currentList) {
+                        const cachedUuidMap = new Map((cachedList as any[]).map(inst => [inst.uuid, inst]));
+                        for (const p of currentList as any[]) {
                             const pUuid = p.uuid || 'default';
                             const cachedInst = cachedUuidMap.get(pUuid);
                             if (!cachedInst || cachedInst.isDisabled !== (p.isDisabled === true)) {

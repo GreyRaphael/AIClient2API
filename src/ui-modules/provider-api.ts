@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { getRequestBody } from '../utils/common.ts';
@@ -321,7 +320,7 @@ export async function handleGetProviders(req, res, currentConfig, providerPoolMa
     // 2. 从管理器获取当前所有池的状态
     const providerStatus = {};
     if (providerPoolManager) {
-        for (const [type, providers] of Object.entries(providerPoolManager.providerStatus)) {
+        for (const [type, providers] of Object.entries(providerPoolManager.providerStatus as Record<string, any>)) {
             providerStatus[type] = await Promise.all(providers.map(async p => {
                 const item = {
                     ...p.config,
@@ -537,7 +536,7 @@ export async function handleRefreshProviderModels(req, res, currentConfig, provi
 export async function handleDetectProviderModels(req, res, currentConfig, providerPoolManager, providerType, providerUuid) {
     try {
         const body = await getRequestBody(req);
-        const draftConfig = normalizeProviderConfigFields(filterMaskedData(body?.providerConfig || {}));
+        const draftConfig = normalizeProviderConfigFields(filterMaskedData((body as any)?.providerConfig || {}));
 
         const providerPools = loadProviderPools(currentConfig, providerPoolManager);
         const providers = providerPools[providerType] || [];
@@ -1517,7 +1516,7 @@ export async function handleSingleProviderHealthCheck(req, res, currentConfig, p
 export async function handleQuickLinkProvider(req, res, currentConfig, providerPoolManager) {
     try {
         const body = await getRequestBody(req);
-        const { filePath, filePaths } = body;
+        const { filePath, filePaths } = body as any;
 
         // 支持单个文件路径或文件路径数组
         const pathsToLink = filePaths || (filePath ? [filePath] : []);

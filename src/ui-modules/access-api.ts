@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 
 function getProviderPoolsFilePath(currentConfig) {
@@ -24,7 +23,7 @@ function collectProviderStatus(currentConfig, providerPoolManager) {
     const providerStatus = {};
 
     if (providerPoolManager?.providerStatus) {
-        for (const [type, providers] of Object.entries(providerPoolManager.providerStatus)) {
+        for (const [type, providers] of Object.entries(providerPoolManager.providerStatus as Record<string, any>)) {
             providerStatus[type] = providers.map(provider => ({
                 ...provider.config,
                 activeRequests: provider.state?.activeCount || 0,

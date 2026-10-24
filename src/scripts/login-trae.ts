@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import readline from 'readline';
 import { handleTraePATLogin, TRAE_AUTH_CONFIG } from '../auth/trae-auth.ts';
 import { initializeConfig } from '../core/config-manager.ts';
@@ -7,7 +6,7 @@ import logger from '../utils/logger.ts';
 async function performLoginAndDisplay({ token, host, customName }) {
     try {
         console.log('正在向 Trae 端点执行 ExchangeToken 握手与身份验证...');
-        const res = await handleTraePATLogin({ token, host, customName });
+        const res = await handleTraePATLogin({ token, host, customName } as any);
         console.log('\n\x1b[32m[SUCCESS] Trae 凭据验证与录入成功！\x1b[0m');
         console.log(`  用户标识: ${res.nickname} (UID: ${res.userId || 'N/A'})`);
         if (res.enterpriseId) {

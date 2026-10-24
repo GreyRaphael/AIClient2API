@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 主进程 (Master Process)
  * 
@@ -101,7 +100,7 @@ function startWorker() {
  * @returns {Promise<void>}
  */
 function stopWorker(graceful = true) {
-    return new Promise((resolve) => {
+    return new Promise<void>((resolve) => {
         if (!workerProcess) {
             logger.info('[Master] No worker process to stop');
             resolve();

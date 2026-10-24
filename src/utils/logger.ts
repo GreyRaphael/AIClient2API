@@ -9,6 +9,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * 支持控制台和文件输出，自动添加请求ID和时间戳
  */
 class Logger {
+    config: Record<string, any>;
+    currentLogFile: string | null;
+    logStream: any;
+    asyncStorage: AsyncLocalStorage<any>;
+    levels: Record<string, number>;
+
     constructor() {
         this.config = {
             enabled: true,

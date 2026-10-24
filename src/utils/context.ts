@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
@@ -6,6 +5,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * 使用 AsyncLocalStorage 实现线程级（请求级）变量存储
  */
 class RequestContext {
+    storage: AsyncLocalStorage<any>;
+
     constructor() {
         this.storage = new AsyncLocalStorage();
     }

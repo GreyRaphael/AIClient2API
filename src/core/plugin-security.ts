@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { promises as fs } from 'fs';
 import { existsSync, realpathSync } from 'fs';
 import path from 'path';
@@ -54,7 +53,7 @@ export function isInsidePath(basePath, targetPath) {
     return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-export function assertPathInside(basePath, targetPath, message) {
+export function assertPathInside(basePath, targetPath, message = '') {
     if (!isInsidePath(basePath, targetPath)) {
         throw new Error(message || `[Security Hardening] Path escapes allowed directory: ${targetPath}`);
     }

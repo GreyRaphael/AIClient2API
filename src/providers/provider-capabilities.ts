@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { getBuiltinProviderCapabilityRules } from './provider-registry.ts';
 /**
  * 统一 Provider 能力声明
@@ -184,6 +183,11 @@ export function resolveProviderCapabilities({
     model = '',
     config = {},
     metadata = null
+}: {
+    providerType?: string;
+    model?: string;
+    config?: any;
+    metadata?: any;
 } = {}) {
     const capabilities = { ...DEFAULT_PROVIDER_CAPABILITIES };
 

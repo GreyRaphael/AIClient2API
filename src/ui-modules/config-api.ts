@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
@@ -483,7 +482,7 @@ export async function handleReloadConfig(req, res, providerPoolManager) {
  */
 export async function handleUpdateAdminPassword(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const { password } = body;
 
         if (!password || password.trim() === '') {

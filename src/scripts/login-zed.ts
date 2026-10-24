@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import readline from 'readline';
 import { handleZedOAuth, handleZedOAuthCallback } from '../auth/zed-oauth.ts';
 import { CONFIG, initializeConfig } from '../core/config-manager.ts';
@@ -54,7 +53,7 @@ async function main() {
 
         // 监听自动回调
         waitForCallback()
-            .then(result => {
+            .then((result: any) => {
                 if (finished) return;
                 console.log('\n\x1b[32m[SUCCESS] Zed 授权成功！\x1b[0m');
                 console.log(`User ID: ${result.userId}`);

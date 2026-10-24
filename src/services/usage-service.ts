@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 用量查询服务
  * 用于处理各个提供商的授权文件用量查询
@@ -13,6 +12,9 @@ import { getProviderModels } from '../providers/provider-models.ts';
  * 用量查询服务类
  */
 export class UsageService {
+    providerHandlers: Record<string, (uuid?: string | null) => Promise<any>>;
+    formatters: Record<string, (rawUsage: any) => any>;
+
     constructor() {
         this.providerHandlers = {
             [MODEL_PROVIDER.KIRO_API]: this.getKiroUsage.bind(this),
@@ -30,11 +32,11 @@ export class UsageService {
 
     /**
      * 获取指定提供商的用量信息（原始数据）
-     * @param {string} providerType - 提供商类型
-     * @param {string} [uuid] - 可选的提供商实例 UUID
-     * @returns {Promise<Object>} 原始用量数据
+     * @param providerType - 提供商类型
+     * @param uuid - 可选的提供商实例 UUID
+     * @returns 原始用量数据
      */
-    async getUsage(providerType, uuid = null) {
+    async getUsage(providerType: string, uuid: string | null = null): Promise<any> {
         const handler = this.providerHandlers[providerType];
         if (!handler) {
             throw new Error(`不支持的提供商类型: ${providerType}`);
@@ -44,11 +46,11 @@ export class UsageService {
 
     /**
      * 格式化指定的原始用量数据
-     * @param {string} providerType - 提供商类型
-     * @param {Object} rawUsage - 原始用量数据
-     * @returns {Object} 格式化后的用量信息
+     * @param providerType - 提供商类型
+     * @param rawUsage - 原始用量数据
+     * @returns 格式化后的用量信息
      */
-    formatUsage(providerType, rawUsage) {
+    formatUsage(providerType: string, rawUsage: any): any {
         if (!rawUsage) return null;
         const formatter = this.formatters[providerType];
         if (typeof formatter === 'function') {
@@ -458,7 +460,7 @@ export function formatAntigravityUsage(usageData) {
         let totalPercent = 0;
         let maxResetAt = null;
         
-        for (const [modelId, modelData] of Object.entries(usageData.models)) {
+        for (const [modelId, modelData] of Object.entries(usageData.models as Record<string, any>)) {
             // 只处理包含配额信息且在支持列表中的模型
             // 对 Claude 模型添加别名显示 (保持与原逻辑一致)
             const aliasName = modelId.startsWith('claude-') ? `gemini-${modelId}` : modelId;

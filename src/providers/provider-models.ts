@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { convertData } from '../convert/convert.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { CONFIG } from '../core/config-manager.ts';
@@ -135,7 +134,7 @@ export function extractModelIdsFromNativeList(modelList, providerType) {
     // 只有在提供商类型与目标类型协议不同时才尝试转换
     if (providerType !== MODEL_PROVIDER.OPENAI_CUSTOM && !providerType.startsWith(MODEL_PROVIDER.OPENAI_CUSTOM + '-')) {
         try {
-            convertedModelList = convertData(modelList, 'modelList', providerType, MODEL_PROVIDER.OPENAI_CUSTOM);
+            convertedModelList = convertData(modelList, 'modelList', providerType, MODEL_PROVIDER.OPENAI_CUSTOM, undefined, undefined);
         } catch {
             convertedModelList = modelList;
         }
@@ -149,7 +148,7 @@ export function extractModelIdsFromNativeList(modelList, providerType) {
     return normalizeModelIds(extractModelIdsFromListShape(modelList));
 }
 
-export function getConfiguredSupportedModels(providerType, providerConfig = {}) {
+export function getConfiguredSupportedModels(providerType: string, providerConfig: any = {}) {
     return normalizeModelIds(providerConfig?.supportedModels);
 }
 

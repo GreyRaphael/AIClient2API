@@ -134,7 +134,7 @@ export function getProcessCpuUsagePercent(pid) {
  * @param {number} [pid] - 可选的进程 ID，如果提供则统计该进程，否则统计系统整体
  * @returns {string} CPU 使用率字符串
  */
-export function getCpuUsagePercent(pid) {
+export function getCpuUsagePercent(pid: number | null = null) {
     if (pid) {
         return getProcessCpuUsagePercent(pid);
     }
