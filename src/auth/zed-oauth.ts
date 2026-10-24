@@ -21,10 +21,34 @@ const ZED_OAUTH_CONFIG = {
     logPrefix: '[Zed Auth]'
 };
 
-// 存储当前正在进行的会话信息
-const activeSessions = new Map();
+interface ZedCallbackResult {
+    success: true;
+    userId: string;
+    email: string | null;
+    credPath: string;
+}
 
-function sanitizeFilenamePart(value) {
+interface ZedSession {
+    server: http.Server;
+    port: number;
+    privateKey: string;
+    systemId: string;
+    version: string;
+    email: string | null;
+    callbackResolve: ((result: ZedCallbackResult) => void) | null;
+    callbackReject: ((reason?: unknown) => void) | null;
+    timeoutTimer: NodeJS.Timeout;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
+// 存储当前正在进行的会话信息
+const activeSessions = new Map<string, ZedSession>();
+
+function sanitizeFilenamePart(value: unknown): string {
     const sanitized = String(value || 'default')
         .trim()
         .replace(/[^a-zA-Z0-9@._+-]/g, '_')
@@ -70,9 +94,9 @@ export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) 
 
     const pubB64 = publicKey.toString('base64url');
 
-    let callbackResolve = null;
-    let callbackReject = null;
-    const callbackPromise = new Promise((resolve, reject) => {
+    let callbackResolve: ((result: ZedCallbackResult) => void) | null = null;
+    let callbackReject: ((reason?: unknown) => void) | null = null;
+    const callbackPromise = new Promise<ZedCallbackResult>((resolve, reject) => {
         callbackResolve = resolve;
         callbackReject = reject;
     });
@@ -80,7 +104,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) 
     // 2. 创建本地临时回调服务
     const server = http.createServer(async (req, res) => {
         try {
-            const reqUrl = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+            const reqUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
             const userId = reqUrl.searchParams.get('user_id');
             const encAccessToken = reqUrl.searchParams.get('access_token');
 
@@ -138,10 +162,10 @@ export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) 
                 });
             }
         } catch (err) {
-            logger.error(`${ZED_OAUTH_CONFIG.logPrefix} Callback handling error: ${err.message}`);
+            logger.error(`${ZED_OAUTH_CONFIG.logPrefix} Callback handling error: ${getErrorMessage(err)}`);
             try {
                 res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-                res.end(`Authentication failed: ${err.message}`);
+                res.end(`Authentication failed: ${getErrorMessage(err)}`);
             } catch (_) {}
             cleanupSession(sessionId);
             if (callbackReject) {
@@ -157,7 +181,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) 
         server.listen(targetPort, targetHost, () => {
             resolve();
         });
-        server.on('error', (err) => {
+        server.on('error', (err: NodeJS.ErrnoException) => {
             if (err.code === 'EADDRINUSE' && !options.port) {
                 logger.warn(`${ZED_OAUTH_CONFIG.logPrefix} Port ${targetPort} is in use, falling back to random available port`);
                 server.listen(0, targetHost, () => {
@@ -169,7 +193,8 @@ export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) 
         });
     });
 
-    const port = (server.address() as any)?.port;
+    const address = server.address();
+    const port = address && typeof address === 'object' ? address.port : targetPort;
     const authUrl = `${ZED_OAUTH_CONFIG.authBaseUrl}?native_app_port=${port}&native_app_public_key=${encodeURIComponent(pubB64)}`;
 
     // 存储当前 session 信息，方便手动回调处理
@@ -199,7 +224,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) 
             await open(authUrl);
             logger.info(`${ZED_OAUTH_CONFIG.logPrefix} Opened browser for authentication`);
         } catch (e) {
-            logger.warn(`${ZED_OAUTH_CONFIG.logPrefix} Could not open browser automatically: ${e.message}`);
+            logger.warn(`${ZED_OAUTH_CONFIG.logPrefix} Could not open browser automatically: ${getErrorMessage(e)}`);
         }
     }
 
@@ -373,7 +398,7 @@ async function saveZedCredentials({
 
         logger.info(`${ZED_OAUTH_CONFIG.logPrefix} Successfully auto-linked Zed node into provider pools`);
     } catch (e) {
-        logger.warn(`${ZED_OAUTH_CONFIG.logPrefix} autoLinkProviderConfigs warning: ${e.message}`);
+        logger.warn(`${ZED_OAUTH_CONFIG.logPrefix} autoLinkProviderConfigs warning: ${getErrorMessage(e)}`);
     }
 
     // 广播事件通知前端 UI 刷新
@@ -388,7 +413,7 @@ async function saveZedCredentials({
     return credPath;
 }
 
-function cleanupSession(sessionId) {
+function cleanupSession(sessionId: string | null | undefined): void {
     if (!sessionId) {
         return;
     }

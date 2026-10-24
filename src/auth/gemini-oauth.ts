@@ -24,10 +24,60 @@ const OAUTH_PROVIDERS = {
     }
 };
 
+interface OAuthProviderConfig {
+    clientId: string;
+    clientSecret: string;
+    port: number;
+    credentialsDir: string;
+    credentialsFile: string;
+    scope: string[];
+    logPrefix: string;
+}
+
+interface ActiveServerInfo {
+    server: http.Server;
+    port: number;
+    pollTimer: NodeJS.Timeout | null;
+}
+
+interface OAuthOptions {
+    port?: number | string;
+    saveToConfigs?: boolean;
+    providerDir?: string;
+    [key: string]: unknown;
+}
+
+interface ImportProgressCurrent {
+    index: number;
+    success: boolean;
+    error?: string;
+    existingPath?: string;
+    path?: string;
+}
+
+interface GeminiToken {
+    access_token?: string;
+    refresh_token?: string;
+    [key: string]: unknown;
+}
+
+interface ImportProgressData {
+    index: number;
+    total: number;
+    current: ImportProgressCurrent | null;
+    successCount: number;
+    failedCount: number;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
 /**
  * 活动的服务器实例管理
  */
-const activeServers = new Map();
+const activeServers = new Map<string, ActiveServerInfo>();
 
 /**
  * 生成 HTML 响应页面
@@ -36,7 +86,7 @@ const activeServers = new Map();
  * @param {string|null} provider - 提供商标识
  * @returns {string} HTML 内容
  */
-function generateResponsePage(isSuccess, message, provider = null) {
+function generateResponsePage(isSuccess: boolean, message: string, provider: string | null = null): string {
     const title = isSuccess ? '授权成功！' : '授权失败';
     const countdownHtml = isSuccess ? `
         <p>此窗口将在 <span id="countdown" style="font-weight: bold; color: #2196f3;">10</span> 秒后自动关闭。</p>
@@ -114,7 +164,7 @@ function generateResponsePage(isSuccess, message, provider = null) {
  * @param {number} port - 端口号
  * @returns {Promise<void>}
  */
-async function closeActiveServer(provider, port = null) {
+async function closeActiveServer(provider: string, port: number | null = null): Promise<void> {
     // 1. 关闭该提供商之前的所有服务器
     const existing = activeServers.get(provider);
     if (existing) {
@@ -126,7 +176,7 @@ async function closeActiveServer(provider, port = null) {
 
         try {
             const closePromise = new Promise<void>((resolve, reject) => {
-                existing.server.close((err) => {
+                existing.server.close((err?: Error) => {
                     if (err) reject(err);
                     else resolve();
                 });
@@ -139,7 +189,7 @@ async function closeActiveServer(provider, port = null) {
             await Promise.race([closePromise, timeoutPromise]);
             logger.info(`[OAuth] 已关闭提供商 ${provider} 在端口 ${existing.port} 上的旧服务器`);
         } catch (error) {
-            logger.warn(`[OAuth] 关闭提供商 ${provider} 服务器失败或超时: ${error.message}`);
+            logger.warn(`[OAuth] 关闭提供商 ${provider} 服务器失败或超时: ${getErrorMessage(error)}`);
         } finally {
             activeServers.delete(provider);
         }
@@ -164,8 +214,15 @@ async function closeActiveServer(provider, port = null) {
  * @param {string} provider - 提供商标识
  * @returns {Promise<http.Server>} HTTP 服务器实例
  */
-async function createOAuthCallbackServer(config, redirectUri, authClient, credPath, provider, options: any = {}) {
-    const port = parseInt(options.port) || config.port;
+async function createOAuthCallbackServer(
+    config: OAuthProviderConfig,
+    redirectUri: string,
+    authClient: OAuth2Client,
+    credPath: string,
+    provider: string,
+    options: OAuthOptions = {}
+): Promise<http.Server> {
+    const port = parseInt(String(options.port)) || config.port;
     // 先关闭该提供商之前可能运行的所有服务器，或该端口上的旧服务器
     await closeActiveServer(provider, port);
     
@@ -173,7 +230,7 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
         let pollCount = 0;
         const maxPollCount = 100; // 约 5 分钟 (100 * 3s = 300s)
         const pollInterval = 3000;
-        let pollTimer = null;
+        let pollTimer: NodeJS.Timeout | null = null;
 
         const clearPollTimer = () => {
             if (pollTimer) {
@@ -184,7 +241,7 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
 
         const server = http.createServer(async (req, res) => {
             try {
-                const url = new URL(req.url, redirectUri);
+                const url = new URL(req.url || '/', redirectUri);
                 const code = url.searchParams.get('code');
                 const errorParam = url.searchParams.get('error');
                 
@@ -198,7 +255,7 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
                         
                         // 如果指定了保存到 configs 目录
                         if (options.saveToConfigs) {
-                            const providerDir = options.providerDir;
+                            const providerDir = typeof options.providerDir === 'string' ? options.providerDir : '';
                             const targetDir = path.join(process.cwd(), 'configs', providerDir);
                             await fs.promises.mkdir(targetDir, { recursive: true });
                             const timestamp = Date.now();
@@ -234,12 +291,12 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
                         // 广播授权失败事件
                         broadcastEvent('oauth_error', {
                             provider: provider,
-                            error: tokenError.message,
+                            error: getErrorMessage(tokenError),
                             timestamp: new Date().toISOString()
                         });
                         
                         res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-                        res.end(generateResponsePage(false, `获取令牌失败: ${tokenError.message}`, provider));
+                        res.end(generateResponsePage(false, `获取令牌失败: ${getErrorMessage(tokenError)}`, provider));
                     } finally {
                         server.close(() => {
                             activeServers.delete(provider);
@@ -271,7 +328,7 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
                 clearPollTimer();
                 logger.error(`${config.logPrefix} 处理回调时出错:`, error);
                 res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end(generateResponsePage(false, `服务器错误: ${error.message}`, provider));
+                res.end(generateResponsePage(false, `服务器错误: ${getErrorMessage(error)}`, provider));
                 
                 if (server.listening) {
                     server.close(() => {
@@ -281,7 +338,7 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
             }
         });
         
-        server.on('error', (err) => {
+        server.on('error', (err: NodeJS.ErrnoException) => {
             clearPollTimer();
             if (err.code === 'EADDRINUSE') {
                 logger.error(`${config.logPrefix} 端口 ${port} 已被占用`);
@@ -325,13 +382,17 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
  * @param {Object} options - 额外选项
  * @returns {Promise<Object>} 返回授权URL和相关信息
  */
-async function handleGoogleOAuth(providerKey, currentConfig, options: any = {}) {
-    const config = OAUTH_PROVIDERS[providerKey];
+async function handleGoogleOAuth(
+    providerKey: string,
+    currentConfig: Record<string, unknown>,
+    options: OAuthOptions = {}
+) {
+    const config = (OAUTH_PROVIDERS as Record<string, OAuthProviderConfig>)[providerKey];
     if (!config) {
         throw new Error(`未知的提供商: ${providerKey}`);
     }
-    
-    const port = parseInt(options.port) || config.port;
+
+    const port = parseInt(String(options.port)) || config.port;
     const host = 'localhost';
     const redirectUri = `http://${host}:${port}`;
 
@@ -339,32 +400,32 @@ async function handleGoogleOAuth(providerKey, currentConfig, options: any = {}) 
     const proxyConfig = getGoogleAuthProxyConfig(currentConfig, providerKey);
 
     // 构建 OAuth2Client 选项
-    const oauth2Options: any = {
+    const oauth2Options = {
         clientId: config.clientId,
         clientSecret: config.clientSecret,
+        ...(proxyConfig ? { transporterOptions: proxyConfig } : {})
     };
 
     if (proxyConfig) {
-        oauth2Options.transporterOptions = proxyConfig;
         logger.info(`${config.logPrefix} Using proxy for OAuth token exchange`);
     }
 
     const authClient = new OAuth2Client(oauth2Options);
-    (authClient as any).redirectUri = redirectUri;
-    
+    (authClient as unknown as { redirectUri: string }).redirectUri = redirectUri;
+
     const authUrl = authClient.generateAuthUrl({
         access_type: 'offline',
         prompt: 'select_account',
         scope: config.scope
     });
-    
+
     // 启动回调服务器
     const credPath = path.join(os.homedir(), config.credentialsDir, config.credentialsFile);
-    
+
     try {
         await createOAuthCallbackServer(config, redirectUri, authClient, credPath, providerKey, options);
     } catch (error) {
-        throw new Error(`启动回调服务器失败: ${error.message}`);
+        throw new Error(`启动回调服务器失败: ${getErrorMessage(error)}`);
     }
     
     return {
@@ -384,7 +445,10 @@ async function handleGoogleOAuth(providerKey, currentConfig, options: any = {}) 
  * @param {Object} options - 额外选项
  * @returns {Promise<Object>} 返回授权URL和相关信息
  */
-export async function handleGeminiAntigravityOAuth(currentConfig, options = {}) {
+export async function handleGeminiAntigravityOAuth(
+    currentConfig: Record<string, unknown>,
+    options: OAuthOptions = {}
+) {
     return handleGoogleOAuth('gemini-antigravity', currentConfig, options);
 }
 
@@ -394,8 +458,11 @@ export async function handleGeminiAntigravityOAuth(currentConfig, options = {}) 
  * @param {string} refreshToken - 要检查的 refreshToken
  * @returns {Promise<{isDuplicate: boolean, existingPath?: string}>} 检查结果
  */
-export async function checkGeminiCredentialsDuplicate(providerType, refreshToken) {
-    const config = OAUTH_PROVIDERS[providerType];
+export async function checkGeminiCredentialsDuplicate(
+    providerType: string,
+    refreshToken: string
+): Promise<{ isDuplicate: boolean; existingPath?: string }> {
+    const config = (OAUTH_PROVIDERS as Record<string, OAuthProviderConfig>)[providerType];
     if (!config) return { isDuplicate: false };
 
     const providerDir = config.credentialsDir.replace('.', '');
@@ -412,9 +479,10 @@ export async function checkGeminiCredentialsDuplicate(providerType, refreshToken
                 try {
                     const fullPath = path.join(targetDir, file);
                     const content = await fs.promises.readFile(fullPath, 'utf8');
-                    const credentials = JSON.parse(content);
-                    
-                    if (credentials.refresh_token === refreshToken) {
+                    const credentials: unknown = JSON.parse(content);
+
+                    if (credentials !== null && typeof credentials === 'object' &&
+                        (credentials as { refresh_token?: unknown }).refresh_token === refreshToken) {
                         const relativePath = path.relative(process.cwd(), fullPath);
                         return {
                             isDuplicate: true,
@@ -428,7 +496,7 @@ export async function checkGeminiCredentialsDuplicate(providerType, refreshToken
         }
         return { isDuplicate: false };
     } catch (error) {
-        logger.warn(`[Gemini Auth] Error checking duplicates for ${providerType}:`, error.message);
+        logger.warn(`[Gemini Auth] Error checking duplicates for ${providerType}:`, getErrorMessage(error));
         return { isDuplicate: false };
     }
 }
@@ -441,27 +509,32 @@ export async function checkGeminiCredentialsDuplicate(providerType, refreshToken
  * @param {boolean} skipDuplicateCheck - 是否跳过重复检查 (默认: false)
  * @returns {Promise<Object>} 批量处理结果
  */
-export async function batchImportGeminiTokensStream(providerType, tokens, onProgress = null, skipDuplicateCheck = false) {
-    const config = OAUTH_PROVIDERS[providerType];
+export async function batchImportGeminiTokensStream(
+    providerType: string,
+    tokens: GeminiToken[],
+    onProgress: ((data: ImportProgressData) => void) | null = null,
+    skipDuplicateCheck = false
+) {
+    const config = (OAUTH_PROVIDERS as Record<string, OAuthProviderConfig>)[providerType];
     if (!config) {
         throw new Error(`未知的提供商: ${providerType}`);
     }
 
-    const results = {
+    const results: { total: number; success: number; failed: number; details: ImportProgressCurrent[] } = {
         total: tokens.length,
         success: 0,
         failed: 0,
         details: []
     };
-    
+
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i];
         const progressData = {
             index: i + 1,
-            total: tokens.length,
-            current: null
+            total: tokens.length
         };
-        
+        let current: ImportProgressCurrent;
+
         try {
             // 验证 token 是否包含必需字段 (通常是 access_token 和 refresh_token)
             if (!token.access_token || !token.refresh_token) {
@@ -472,17 +545,18 @@ export async function batchImportGeminiTokensStream(providerType, tokens, onProg
             if (!skipDuplicateCheck) {
                 const duplicateCheck = await checkGeminiCredentialsDuplicate(providerType, token.refresh_token);
                 if (duplicateCheck.isDuplicate) {
-                    progressData.current = {
+                    current = {
                         index: i + 1,
                         success: false,
                         error: 'duplicate',
                         existingPath: duplicateCheck.existingPath
                     };
                     results.failed++;
-                    results.details.push(progressData.current);
+                    results.details.push(current);
                     if (onProgress) {
                         onProgress({
                             ...progressData,
+                            current,
                             successCount: results.success,
                             failedCount: results.failed
                         });
@@ -496,17 +570,17 @@ export async function batchImportGeminiTokensStream(providerType, tokens, onProg
             const providerDir = config.credentialsDir.replace('.', ''); // 去掉开头的点
             const targetDir = path.join(process.cwd(), 'configs', providerDir);
             await fs.promises.mkdir(targetDir, { recursive: true });
-            
+
             const filename = `${timestamp}_${i}_oauth_creds.json`;
             const credPath = path.join(targetDir, filename);
-            
+
             await fs.promises.writeFile(credPath, JSON.stringify(token, null, 2));
-            
+
             const relativePath = path.relative(process.cwd(), credPath);
-            
+
             logger.info(`${config.logPrefix} Token ${i + 1} 已导入并保存: ${relativePath}`);
-            
-            progressData.current = {
+
+            current = {
                 index: i + 1,
                 success: true,
                 path: relativePath
@@ -518,24 +592,25 @@ export async function batchImportGeminiTokensStream(providerType, tokens, onProg
                 onlyCurrentCred: true,
                 credPath: relativePath
             });
-            
+
         } catch (error) {
-            logger.error(`${config.logPrefix} Token ${i + 1} 导入失败:`, error.message);
-            
-            progressData.current = {
+            logger.error(`${config.logPrefix} Token ${i + 1} 导入失败:`, getErrorMessage(error));
+
+            current = {
                 index: i + 1,
                 success: false,
-                error: error.message
+                error: getErrorMessage(error)
             };
             results.failed++;
         }
-        
-        results.details.push(progressData.current);
+
+        results.details.push(current);
 
         // 发送进度更新
         if (onProgress) {
             onProgress({
                 ...progressData,
+                current,
                 successCount: results.success,
                 failedCount: results.failed
             });

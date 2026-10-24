@@ -1,12 +1,33 @@
-function isPlainObject(value) {
+type UnknownRecord = Record<string, unknown>;
+
+interface NormalizedCodexCredential {
+    source: string;
+    index?: number;
+    error?: string;
+    skipped?: boolean;
+    reason?: string;
+    email?: string;
+    id_token?: string;
+    access_token?: string;
+    refresh_token?: string;
+    account_id?: string;
+    chatgpt_account_id?: string;
+    name?: string;
+    type?: string;
+    last_refresh?: string;
+    expired?: string;
+    access_token_only?: boolean;
+}
+
+function isPlainObject(value: unknown): value is UnknownRecord {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function cleanString(value) {
+function cleanString(value: unknown): string {
     return typeof value === 'string' ? value.trim() : '';
 }
 
-function parseJwtPayload(token) {
+function parseJwtPayload(token: unknown): UnknownRecord | null {
     const tokenValue = cleanString(token);
     if (!tokenValue) return null;
 
@@ -14,26 +35,38 @@ function parseJwtPayload(token) {
     if (parts.length !== 3) return null;
 
     try {
-        const payload = Buffer.from(parts[1], 'base64url').toString('utf8');
-        return JSON.parse(payload);
+        const payload: unknown = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        return isPlainObject(payload) ? payload : null;
     } catch {
         return null;
     }
 }
 
-function getAuthClaims(claims) {
-    return claims?.['https://api.openai.com/auth'] || {};
+function getAuthClaims(claims: UnknownRecord): UnknownRecord {
+    const authClaims = claims['https://api.openai.com/auth'];
+    return isPlainObject(authClaims) ? authClaims : {};
 }
 
-function getProfileClaims(claims) {
-    return claims?.['https://api.openai.com/profile'] || {};
+function getProfileClaims(claims: UnknownRecord): UnknownRecord {
+    const profileClaims = claims['https://api.openai.com/profile'];
+    return isPlainObject(profileClaims) ? profileClaims : {};
 }
 
-function expiryFromValues({ expired, expiresAt, expires_at, expires_in, claims }) {
+function expiryFromValues({ expired, expiresAt, expires_at, expires_in, claims }: {
+    expired?: unknown;
+    expiresAt?: unknown;
+    expires_at?: unknown;
+    expires_in?: unknown;
+    claims: UnknownRecord;
+}): string {
     const explicit = expired || expiresAt;
     if (explicit) {
-        const date = new Date(explicit);
-        if (!Number.isNaN(date.getTime())) return date.toISOString();
+        const date = explicit instanceof Date
+            ? explicit
+            : (typeof explicit === 'string' || typeof explicit === 'number')
+                ? new Date(explicit)
+                : null;
+        if (date && !Number.isNaN(date.getTime())) return date.toISOString();
     }
 
     if (expires_at) {
@@ -52,7 +85,7 @@ function expiryFromValues({ expired, expiresAt, expires_at, expires_in, claims }
         }
     }
 
-    if (claims?.exp) {
+    if (claims.exp) {
         const exp = Number(claims.exp);
         if (Number.isFinite(exp)) {
             return new Date(exp * 1000).toISOString();
@@ -62,12 +95,17 @@ function expiryFromValues({ expired, expiresAt, expires_at, expires_in, claims }
     return new Date(Date.now() + 3600 * 1000).toISOString();
 }
 
-function makeFallbackEmail(accountId, index) {
+function makeFallbackEmail(accountId: string, index: number): string {
     if (accountId) return `codex-${accountId}`;
     return `codex-import-${index}`;
 }
 
-function normalizeCredential(raw, source, index, exportedAt = null) {
+function normalizeCredential(
+    raw: unknown,
+    source: string,
+    index: number,
+    exportedAt: string | null = null
+): NormalizedCodexCredential {
     if (!isPlainObject(raw)) {
         return {
             error: '凭据必须是 JSON 对象',
@@ -78,7 +116,7 @@ function normalizeCredential(raw, source, index, exportedAt = null) {
 
     const nestedCredentials = isPlainObject(raw.credentials) ? raw.credentials : {};
     const nestedExtra = isPlainObject(raw.extra) ? raw.extra : {};
-    const data = { ...raw, ...nestedCredentials };
+    const data: UnknownRecord = { ...raw, ...nestedCredentials };
 
     const accessToken = cleanString(data.access_token);
     if (!accessToken) {
@@ -146,27 +184,27 @@ function normalizeCredential(raw, source, index, exportedAt = null) {
     };
 }
 
-export function normalizeCpaCodexCredentials(payload) {
+export function normalizeCpaCodexCredentials(payload: unknown): NormalizedCodexCredential[] {
     const items = Array.isArray(payload) ? payload : [payload];
     return items.map((item, index) => normalizeCredential(item, 'cpa', index + 1));
 }
 
-export function normalizeSub2ApiCodexCredentials(payload) {
-    let accounts;
-    let exportedAt = null;
+export function normalizeSub2ApiCodexCredentials(payload: unknown): NormalizedCodexCredential[] {
+    let accounts: unknown[];
+    let exportedAt: string | null = null;
 
     if (Array.isArray(payload)) {
         accounts = payload;
     } else if (isPlainObject(payload) && Array.isArray(payload.accounts)) {
         accounts = payload.accounts;
-        exportedAt = payload.exported_at || null;
+        exportedAt = cleanString(payload.exported_at) || null;
     } else if (isPlainObject(payload) && isPlainObject(payload.credentials)) {
         accounts = [payload];
     } else {
         throw new Error('sub2api 数据必须是完整导出对象、账号数组或单个账号对象');
     }
 
-    const results = [];
+    const results: NormalizedCodexCredential[] = [];
 
     accounts.forEach((account, index) => {
         if (!isPlainObject(account)) {
@@ -179,12 +217,13 @@ export function normalizeSub2ApiCodexCredentials(payload) {
         }
 
         if (account.platform && account.platform !== 'openai') {
+            const extra = isPlainObject(account.extra) ? account.extra : {};
             results.push({
                 skipped: true,
                 source: 'sub2api',
                 index: index + 1,
-                email: cleanString(account.extra?.email || account.name),
-                reason: `跳过非 openai 平台账号: ${account.platform}`
+                email: cleanString(extra.email || account.name),
+                reason: `跳过非 openai 平台账号: ${String(account.platform)}`
             });
             return;
         }
@@ -195,7 +234,7 @@ export function normalizeSub2ApiCodexCredentials(payload) {
     return results;
 }
 
-export function normalizeCodexExternalCredentials(source, payload) {
+export function normalizeCodexExternalCredentials(source: string, payload: unknown): NormalizedCodexCredential[] {
     if (source === 'cpa') {
         return normalizeCpaCodexCredentials(payload);
     }

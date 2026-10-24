@@ -17,10 +17,57 @@ export const TRAE_AUTH_CONFIG = {
     logPrefix: '[Trae Auth]'
 };
 
+interface TraeJwtPayload {
+    user_id?: string;
+    id?: string;
+    email?: string;
+    tob_tenant_id?: string;
+    tenant_id?: string;
+    [key: string]: unknown;
+}
+
+interface TraeCredentialInput {
+    nickname?: string;
+    userId?: string;
+    enterpriseId?: string;
+    authHost?: string;
+    host?: string;
+    agentHost?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    personalAccessToken?: string;
+    machineId?: string;
+    deviceId?: string;
+    expiresAt?: number;
+}
+
+interface TraeCallbackData {
+    refreshToken: string;
+    accessToken: string;
+    userId: string;
+    nickname: string;
+    enterpriseId: string;
+    expiresAt: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
+function getStringField(record: Record<string, unknown>, key: string): string {
+    const value = record[key];
+    return typeof value === 'string' ? value : '';
+}
+
 /**
  * 清理文件名参数
  */
-function sanitizeFilenamePart(value) {
+function sanitizeFilenamePart(value: unknown): string {
     return String(value || 'default')
         .trim()
         .replace(/[^a-zA-Z0-9@._+-]/g, '_')
@@ -46,6 +93,12 @@ export async function exchangeTraeToken({
     refreshToken = '',
     clientId = TRAE_AUTH_CONFIG.defaultClientId,
     userId = ''
+}: {
+    host?: string;
+    personalAccessToken?: string;
+    refreshToken?: string;
+    clientId?: string;
+    userId?: string;
 } = {}) {
     const tokenToExchange = refreshToken || personalAccessToken;
     if (!tokenToExchange) {
@@ -106,12 +159,14 @@ export async function exchangeTraeToken({
 /**
  * 解码 JWT Payload
  */
-function decodeJwtPayload(token) {
+function decodeJwtPayload(token: unknown): TraeJwtPayload | null {
     try {
         const parts = String(token || '').split('.');
         if (parts.length >= 2) {
-            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
-            return payload.data || payload;
+            const parsed: unknown = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+            if (isRecord(parsed)) {
+                return (isRecord(parsed.data) ? parsed.data : parsed) as TraeJwtPayload;
+            }
         }
     } catch (_) {}
     return null;
@@ -180,7 +235,7 @@ export async function getTraeUserInfo({
             enterpriseId
         };
     } catch (e) {
-        logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} GetUserInfo error: ${e.message}`);
+        logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} GetUserInfo error: ${getErrorMessage(e)}`);
         const jwtPayload = decodeJwtPayload(accessToken);
         const userId = String(jwtPayload?.user_id || jwtPayload?.id || '');
         const nickname = String(jwtPayload?.email?.split('@')[0] || jwtPayload?.email || 'user');
@@ -201,7 +256,10 @@ export async function getTraeUserInfo({
  * @param {Object} options
  * @returns {Promise<{ credPath: string, accountName: string }>}
  */
-export async function saveTraeCredentials(credData, options: any = {}) {
+export async function saveTraeCredentials(
+    credData: TraeCredentialInput,
+    options: { providerType?: string; customName?: string; host?: string } = {}
+) {
     const baseDir = path.join(process.cwd(), 'configs', 'trae');
     if (!fs.existsSync(baseDir)) {
         fs.mkdirSync(baseDir, { recursive: true });
@@ -250,7 +308,7 @@ export async function saveTraeCredentials(credData, options: any = {}) {
         });
         logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Auto-linked ${relCredPath} into provider pools (${providerType})`);
     } catch (err) {
-        logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} Failed to auto-link ${relCredPath}: ${err.message}`);
+        logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} Failed to auto-link ${relCredPath}: ${getErrorMessage(err)}`);
     }
 
     // 广播事件通知前端 UI 刷新
@@ -288,6 +346,11 @@ export function buildTraeWebLoginUrl({
     callbackPort = '18080',
     callbackUrl = `http://127.0.0.1:${callbackPort}/authorize`,
     clientId = TRAE_AUTH_CONFIG.defaultClientId
+}: {
+    host?: string;
+    callbackPort?: string | number;
+    callbackUrl?: string;
+    clientId?: string;
 } = {}) {
     const machineId = randomBytes(16).toString('hex');
     const deviceId = randomBytes(16).toString('hex');
@@ -334,28 +397,30 @@ export function buildTraeWebLoginUrl({
  * @param {string} rawUrl 
  * @returns {{ refreshToken: string, accessToken: string, userId: string, nickname: string, enterpriseId: string, expiresAt: number }}
  */
-export function parseTraeCallback(rawUrl) {
+export function parseTraeCallback(rawUrl: string): TraeCallbackData {
     if (!rawUrl || typeof rawUrl !== 'string') {
         throw new Error('Callback URL is required');
     }
     const cleanUrl = rawUrl.trim();
-    let urlObj;
+    let urlObj: URL;
     try {
         urlObj = new URL(cleanUrl.startsWith('http') ? cleanUrl : `http://127.0.0.1${cleanUrl.startsWith('/') ? '' : '/'}${cleanUrl}`);
     } catch (e) {
-        throw new Error(`Invalid callback URL: ${e.message}`);
+        throw new Error(`Invalid callback URL: ${getErrorMessage(e)}`);
     }
 
     const q = urlObj.searchParams;
     let refreshToken = q.get('refreshToken') || '';
 
-    const parseJsonParam = (val) => {
+    const parseJsonParam = (val: string | null): Record<string, unknown> => {
         if (!val) return {};
         try {
-            return JSON.parse(decodeURIComponent(val));
+            const parsed: unknown = JSON.parse(decodeURIComponent(val));
+            return isRecord(parsed) ? parsed : {};
         } catch (_) {
             try {
-                return JSON.parse(val);
+                const parsed: unknown = JSON.parse(val);
+                return isRecord(parsed) ? parsed : {};
             } catch (_) {
                 return {};
             }
@@ -365,8 +430,9 @@ export function parseTraeCallback(rawUrl) {
     const userInfo = parseJsonParam(q.get('userInfo'));
     const userJwt = parseJsonParam(q.get('userJwt'));
 
-    if (!refreshToken && userJwt.RefreshToken) {
-        refreshToken = userJwt.RefreshToken;
+    const jwtRefreshToken = getStringField(userJwt, 'RefreshToken');
+    if (!refreshToken && jwtRefreshToken) {
+        refreshToken = jwtRefreshToken;
     }
 
     const rawExpiresAt = Number(userJwt.TokenExpireAt || 0);
@@ -381,10 +447,10 @@ export function parseTraeCallback(rawUrl) {
 
     return {
         refreshToken,
-        accessToken: userJwt.Token || '',
-        userId: userInfo.UserID || '',
-        nickname: userInfo.ScreenName || '',
-        enterpriseId: userInfo.TenantID || '',
+        accessToken: getStringField(userJwt, 'Token'),
+        userId: getStringField(userInfo, 'UserID'),
+        nickname: getStringField(userInfo, 'ScreenName'),
+        enterpriseId: getStringField(userInfo, 'TenantID'),
         expiresAt: expiresAtMs
     };
 }
@@ -420,7 +486,7 @@ export async function handleTraePATLogin({
     logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Starting login with host: ${cleanHost} for provider: ${providerType}`);
 
     let tokenToExchange = cleanToken;
-    let callbackData = null;
+    let callbackData: TraeCallbackData | null = null;
 
     if (cleanToken.startsWith('http://') || cleanToken.startsWith('https://') || cleanToken.includes('refreshToken=') || cleanToken.includes('userJwt=')) {
         callbackData = parseTraeCallback(cleanToken);
@@ -447,7 +513,7 @@ export async function handleTraePATLogin({
         expiresAt = exchanged.expiresAt;
     } catch (exErr) {
         if (callbackData && callbackData.accessToken) {
-            logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} ExchangeToken failed on callback, falling back to callback accessToken: ${exErr.message}`);
+            logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} ExchangeToken failed on callback, falling back to callback accessToken: ${getErrorMessage(exErr)}`);
             accessToken = callbackData.accessToken;
             refreshToken = callbackData.refreshToken || '';
             expiresAt = callbackData.expiresAt || (Date.now() + 7 * 86400 * 1000);
@@ -474,7 +540,7 @@ export async function handleTraePATLogin({
             enterpriseId: fetchedUserInfo.enterpriseId || userInfo.enterpriseId
         };
     } catch (userErr) {
-        logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} GetUserInfo warning: ${userErr.message}`);
+        logger.warn(`${TRAE_AUTH_CONFIG.logPrefix} GetUserInfo warning: ${getErrorMessage(userErr)}`);
         if (!userInfo.userId) {
             userInfo.userId = randomUUID().slice(0, 8);
         }

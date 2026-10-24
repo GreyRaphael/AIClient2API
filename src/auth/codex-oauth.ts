@@ -5,10 +5,134 @@ import path from 'path';
 import crypto from 'crypto';
 import open from 'open';
 import axios from 'axios';
+import type { AxiosInstance } from 'axios';
 import { broadcastEvent } from '../services/ui-manager.ts';
 import { autoLinkProviderConfigs } from '../services/service-manager.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
+
+interface CodexAuthConfig {
+    CODEX_OAUTH_CREDS_FILE_PATH?: string;
+    CODEX_EMAIL?: string;
+    [key: string]: unknown;
+}
+
+interface PkceCodes {
+    verifier: string;
+    challenge: string;
+}
+
+interface CodexClaims {
+    sub?: string;
+    email?: string;
+    exp?: number;
+    'https://api.openai.com/auth'?: { chatgpt_account_id?: string };
+    [key: string]: unknown;
+}
+
+interface CodexTokens {
+    id_token?: string;
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    [key: string]: unknown;
+}
+
+interface CodexCredentialRecord {
+    id_token?: string;
+    access_token: string;
+    refresh_token?: string;
+    account_id: string;
+    last_refresh: string;
+    email?: string | null;
+    type: string;
+    expired: string;
+    access_token_only?: boolean;
+}
+
+interface CallbackResult {
+    code: string;
+    state: string;
+}
+
+interface AuthUrlResult {
+    authUrl: string;
+    state: string;
+    pkce: PkceCodes;
+    server: http.Server;
+}
+
+interface CodexOAuthSession {
+    auth: CodexAuth;
+    state: string;
+    pkce: PkceCodes;
+    server: http.Server;
+    pollTimer: NodeJS.Timeout | null;
+    createdAt: number;
+}
+
+interface ImportProgressCurrent {
+    index: number;
+    success: boolean;
+    error?: string;
+    email?: string | null;
+    accountId?: string;
+    existingPath?: string;
+    accessTokenOnly?: boolean;
+    path?: string;
+}
+
+interface ImportProgressData {
+    index: number;
+    total: number;
+    current: ImportProgressCurrent | null;
+    successCount: number;
+    failedCount: number;
+}
+
+declare global {
+    // eslint-disable-next-line no-var
+    var codexOAuthSessions: Map<string, CodexOAuthSession> | undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (isRecord(error) && typeof error.message === 'string') return error.message;
+    return String(error);
+}
+
+function getErrorCode(error: unknown): unknown {
+    return isRecord(error) ? error.code : undefined;
+}
+
+function getErrorResponseData(error: unknown): unknown {
+    return isRecord(error) && isRecord(error.response) ? error.response.data : undefined;
+}
+
+function getAxiosErrorDescription(error: unknown): string {
+    const data = getErrorResponseData(error);
+    if (isRecord(data) && typeof data.error_description === 'string') return data.error_description;
+    return getErrorMessage(error);
+}
+
+function getStringValue(record: Record<string, unknown>, ...keys: string[]): string {
+    for (const key of keys) {
+        const value = record[key];
+        if (typeof value === 'string' && value) return value;
+    }
+    return '';
+}
+
+function getCodexOAuthSessions(): Map<string, CodexOAuthSession> {
+    if (!global.codexOAuthSessions) {
+        global.codexOAuthSessions = new Map();
+    }
+    return global.codexOAuthSessions;
+}
 
 /**
  * Codex OAuth 配置
@@ -26,9 +150,15 @@ const CODEX_OAUTH_CONFIG = {
 /**
  * 活动的服务器实例管理（与 gemini-oauth 一致）
  */
-const activeServers = new Map();
+interface ActiveServerInfo {
+    server: http.Server;
+    port: number;
+    pollTimer?: NodeJS.Timeout | null;
+}
 
-function sanitizeCodexCredentialFilenamePart(value) {
+const activeServers = new Map<string, ActiveServerInfo>();
+
+function sanitizeCodexCredentialFilenamePart(value: unknown): string {
     const sanitized = String(value || 'default')
         .trim()
         .replace(/[^a-zA-Z0-9@._+-]/g, '_')
@@ -41,14 +171,14 @@ function sanitizeCodexCredentialFilenamePart(value) {
 /**
  * 关闭指定端口的活动服务器
  */
-async function closeActiveServer(provider, port = null) {
+async function closeActiveServer(provider: string, port: number | null = null): Promise<void> {
     const existing = activeServers.get(provider);
     
     if (existing) {
         try {
             // 1. 使用 Promise.race() 添加 2 秒超时
             const closePromise = new Promise<void>((resolve, reject) => {
-                existing.server.close((err) => {
+                existing.server.close((err?: Error) => {
                     if (err) reject(err);
                     else resolve();
                 });
@@ -62,7 +192,7 @@ async function closeActiveServer(provider, port = null) {
             logger.info(`[Codex Auth] ${provider} server closed successfully`);
         } catch (error) {
             // 2. try-catch 捕获错误
-            logger.warn(`[Codex Auth] Server close failed or timed out: ${error.message}`);
+            logger.warn(`[Codex Auth] Server close failed or timed out: ${getErrorMessage(error)}`);
         } finally {
             // 3. finally 块强制清理，防止阻塞
             activeServers.delete(provider);
@@ -84,15 +214,15 @@ async function closeActiveServer(provider, port = null) {
  * 实现 OAuth2 + PKCE 流程
  */
 class CodexAuth {
-    config: any;
-    httpClient: any;
-    server: any;
+    config: CodexAuthConfig;
+    httpClient: AxiosInstance;
+    server: http.Server | null;
 
-    constructor(config: any) {
+    constructor(config: CodexAuthConfig) {
         this.config = config;
-        
+
         // 配置代理支持
-        const axiosConfig: any = { timeout: 30000 };
+        const axiosConfig: Record<string, unknown> = { timeout: 30000 };
         const proxyConfig = getProxyConfigForProvider(config, 'openai-codex-oauth');
         if (proxyConfig) {
             axiosConfig.httpAgent = proxyConfig.httpAgent;
@@ -125,7 +255,7 @@ class CodexAuth {
      * 生成授权 URL（不启动完整流程）
      * @returns {Promise<{authUrl: string, state: string, pkce: Object, server: Object}>}
      */
-    async generateAuthUrl(): Promise<any> {
+    async generateAuthUrl(): Promise<AuthUrlResult> {
         const pkce = this.generatePKCECodes();
         const state = crypto.randomBytes(16).toString('hex');
 
@@ -164,7 +294,7 @@ class CodexAuth {
      * @param {Object} pkce - PKCE 代码
      * @returns {Promise<Object>} tokens 和凭据路径
      */
-    async completeOAuthFlow(code, state, expectedState, pkce) {
+    async completeOAuthFlow(code: string, state: string, expectedState: string, pkce: PkceCodes) {
         // 验证 state
         if (state !== expectedState) {
             throw new Error('State mismatch - possible CSRF attack');
@@ -174,14 +304,14 @@ class CodexAuth {
         const tokens = await this.exchangeCodeForTokens(code, pkce.verifier);
 
         // 解析 JWT 提取账户信息
-        const claims = this.parseJWT(tokens.id_token);
+        const claims = this.parseJWT(tokens.id_token || '');
 
         // 保存凭据（遵循 CLIProxyAPI 格式）
-        const credentials = {
-            id_token: tokens.id_token,
-            access_token: tokens.access_token,
-            refresh_token: tokens.refresh_token,
-            account_id: claims['https://api.openai.com/auth']?.chatgpt_account_id || claims.sub,
+        const credentials: CodexCredentialRecord = {
+            id_token: tokens.id_token || '',
+            access_token: tokens.access_token || '',
+            refresh_token: tokens.refresh_token || '',
+            account_id: claims['https://api.openai.com/auth']?.chatgpt_account_id || claims.sub || '',
             last_refresh: new Date().toISOString(),
             email: claims.email,
             type: 'codex',
@@ -242,7 +372,7 @@ class CodexAuth {
         try {
             await open(authUrl.toString());
         } catch (error) {
-            logger.warn(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to open browser automatically:`, error.message);
+            logger.warn(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to open browser automatically:`, getErrorMessage(error));
         }
 
         // 等待回调
@@ -252,14 +382,14 @@ class CodexAuth {
         const tokens = await this.exchangeCodeForTokens(result.code, pkce.verifier);
 
         // 解析 JWT 提取账户信息
-        const claims = this.parseJWT(tokens.id_token);
+        const claims = this.parseJWT(tokens.id_token || '');
 
         // 保存凭据（遵循 CLIProxyAPI 格式）
-        const credentials = {
-            id_token: tokens.id_token,
-            access_token: tokens.access_token,
-            refresh_token: tokens.refresh_token,
-            account_id: claims['https://api.openai.com/auth']?.chatgpt_account_id || claims.sub,
+        const credentials: CodexCredentialRecord = {
+            id_token: tokens.id_token || '',
+            access_token: tokens.access_token || '',
+            refresh_token: tokens.refresh_token || '',
+            account_id: claims['https://api.openai.com/auth']?.chatgpt_account_id || claims.sub || '',
             last_refresh: new Date().toISOString(),
             email: claims.email,
             type: 'codex',
@@ -279,7 +409,7 @@ class CodexAuth {
      * 启动回调服务器
      * @returns {Promise<http.Server>}
      */
-    async startCallbackServer() {
+    async startCallbackServer(): Promise<http.Server> {
         // 先清理该提供商或该端口的旧服务器
         await closeActiveServer('openai-codex-oauth', CODEX_OAUTH_CONFIG.port);
 
@@ -287,8 +417,8 @@ class CodexAuth {
             const server = http.createServer();
 
             server.on('request', (req, res) => {
-                if (req.url.startsWith('/auth/callback')) {
-                    const url = new URL(req.url, `http://localhost:${CODEX_OAUTH_CONFIG.port}`);
+                if ((req.url || '').startsWith('/auth/callback')) {
+                    const url = new URL(req.url || '/', `http://localhost:${CODEX_OAUTH_CONFIG.port}`);
                     const code = url.searchParams.get('code');
                     const state = url.searchParams.get('state');
                     const error = url.searchParams.get('error');
@@ -361,7 +491,7 @@ class CodexAuth {
             });
 
             server.on('error', (error) => {
-                if (error.code === 'EADDRINUSE') {
+                if (getErrorCode(error) === 'EADDRINUSE') {
                     reject(new Error(`Port ${CODEX_OAUTH_CONFIG.port} is already in use. Please close other applications using this port.`));
                 } else {
                     reject(error);
@@ -376,14 +506,14 @@ class CodexAuth {
      * @param {string} expectedState
      * @returns {Promise<{code: string, state: string}>}
      */
-    async waitForCallback(server: any, expectedState: any): Promise<any> {
+    async waitForCallback(server: http.Server, expectedState: string): Promise<CallbackResult> {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 server.close();
                 reject(new Error('Authentication timeout (10 minutes)'));
             }, 10 * 60 * 1000); // 10 分钟
 
-            server.once('auth-success', (result) => {
+            server.once('auth-success', (result: CallbackResult) => {
                 clearTimeout(timeout);
                 server.close();
 
@@ -394,7 +524,7 @@ class CodexAuth {
                 }
             });
 
-            server.once('auth-error', (error) => {
+            server.once('auth-error', (error: Error) => {
                 clearTimeout(timeout);
                 server.close();
                 reject(error);
@@ -408,7 +538,7 @@ class CodexAuth {
      * @param {string} codeVerifier
      * @returns {Promise<Object>}
      */
-    async exchangeCodeForTokens(code, codeVerifier) {
+    async exchangeCodeForTokens(code: string, codeVerifier: string): Promise<CodexTokens> {
         logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Exchanging authorization code for tokens...`);
 
         try {
@@ -431,8 +561,8 @@ class CodexAuth {
 
             return response.data;
         } catch (error) {
-            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Token exchange failed:`, error.response?.data || error.message);
-            throw new Error(`Failed to exchange code for tokens: ${error.response?.data?.error_description || error.message}`);
+            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Token exchange failed:`, getErrorResponseData(error) || getErrorMessage(error));
+            throw new Error(`Failed to exchange code for tokens: ${getAxiosErrorDescription(error)}`);
         }
     }
 
@@ -441,7 +571,7 @@ class CodexAuth {
      * @param {string} refreshToken
      * @returns {Promise<Object>}
      */
-    async refreshTokens(refreshToken) {
+    async refreshTokens(refreshToken: string): Promise<CodexCredentialRecord> {
         logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Refreshing access token...`);
 
         try {
@@ -461,21 +591,21 @@ class CodexAuth {
             );
 
             const tokens = response.data;
-            const claims = this.parseJWT(tokens.id_token);
+            const claims = this.parseJWT(tokens.id_token || '');
 
             return {
-                id_token: tokens.id_token,
-                access_token: tokens.access_token,
+                id_token: tokens.id_token || '',
+                access_token: tokens.access_token || '',
                 refresh_token: tokens.refresh_token || refreshToken,
-                account_id: claims['https://api.openai.com/auth']?.chatgpt_account_id || claims.sub,
+                account_id: claims['https://api.openai.com/auth']?.chatgpt_account_id || claims.sub || '',
                 last_refresh: new Date().toISOString(),
                 email: claims.email,
                 type: 'codex',
                 expired: new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString()
             };
         } catch (error) {
-            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Token refresh failed:`, error.response?.data || error.message);
-            throw new Error(`Failed to refresh tokens: ${error.response?.data?.error_description || error.message}`);
+            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Token refresh failed:`, getErrorResponseData(error) || getErrorMessage(error));
+            throw new Error(`Failed to refresh tokens: ${getAxiosErrorDescription(error)}`);
         }
     }
 
@@ -484,7 +614,7 @@ class CodexAuth {
      * @param {string} token
      * @returns {Object}
      */
-    parseJWT(token: string): any {
+    parseJWT(token: string): CodexClaims {
         try {
             const parts = token.split('.');
             if (parts.length !== 3) {
@@ -495,8 +625,8 @@ class CodexAuth {
             const payload = Buffer.from(parts[1], 'base64url').toString('utf8');
             return JSON.parse(payload);
         } catch (error) {
-            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to parse JWT:`, error.message);
-            throw new Error(`Failed to parse JWT token: ${error.message}`);
+            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to parse JWT:`, getErrorMessage(error));
+            throw new Error(`Failed to parse JWT token: ${getErrorMessage(error)}`);
         }
     }
 
@@ -505,12 +635,12 @@ class CodexAuth {
      * @param {Object} creds
      * @returns {Promise<Object>}
      */
-    async saveCredentials(creds) {
+    async saveCredentials(creds: CodexCredentialRecord): Promise<{ credsPath: string; relativePath: string }> {
         const email = creds.email || this.config.CODEX_EMAIL || 'default';
         const safeEmail = sanitizeCodexCredentialFilenamePart(email);
 
         // 优先使用配置中指定的路径，否则保存到 configs/codex 目录
-        let credsPath;
+        let credsPath: string;
         if (this.config.CODEX_OAUTH_CREDS_FILE_PATH) {
             credsPath = this.config.CODEX_OAUTH_CREDS_FILE_PATH;
         } else {
@@ -534,8 +664,8 @@ class CodexAuth {
             // 返回保存路径供后续使用
             return { credsPath, relativePath };
         } catch (error) {
-            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to save credentials:`, error.message);
-            throw new Error(`Failed to save credentials: ${error.message}`);
+            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to save credentials:`, getErrorMessage(error));
+            throw new Error(`Failed to save credentials: ${getErrorMessage(error)}`);
         }
     }
 
@@ -544,9 +674,9 @@ class CodexAuth {
      * @param {string} email
      * @returns {Promise<Object|null>}
      */
-    async loadCredentials(email) {
+    async loadCredentials(email: string | null = null): Promise<Record<string, unknown> | null> {
         // 优先使用配置中指定的路径，否则从 configs/codex 目录加载
-        let credsPath;
+        let credsPath: string;
         if (this.config.CODEX_OAUTH_CREDS_FILE_PATH) {
             credsPath = this.config.CODEX_OAUTH_CREDS_FILE_PATH;
         } else {
@@ -569,7 +699,7 @@ class CodexAuth {
                     return null;
                 }
             } catch (error) {
-                if (error.code === 'ENOENT') {
+                if (getErrorCode(error) === 'ENOENT') {
                     return null;
                 }
                 throw error;
@@ -580,7 +710,7 @@ class CodexAuth {
             const data = await fs.promises.readFile(credsPath, 'utf8');
             return JSON.parse(data);
         } catch (error) {
-            if (error.code === 'ENOENT') {
+            if (getErrorCode(error) === 'ENOENT') {
                 return null; // 文件不存在
             }
             throw error;
@@ -592,9 +722,9 @@ class CodexAuth {
      * @param {string} email
      * @returns {Promise<boolean>}
      */
-    async credentialsExist(email) {
+    async credentialsExist(email: string | null = null): Promise<boolean> {
         // 优先使用配置中指定的路径，否则从 configs/codex 目录检查
-        let credsPath;
+        let credsPath: string;
         if (this.config.CODEX_OAUTH_CREDS_FILE_PATH) {
             credsPath = this.config.CODEX_OAUTH_CREDS_FILE_PATH;
         } else {
@@ -627,7 +757,7 @@ class CodexAuth {
      * @param {string} refreshToken 
      * @returns {Promise<{isDuplicate: boolean, existingPath?: string}>}
      */
-    async checkDuplicate(accountId, refreshToken, email = null) {
+    async checkDuplicate(accountId: string, refreshToken: string, email: string | null = null): Promise<{ isDuplicate: boolean; existingPath?: string }> {
         const projectDir = process.cwd();
         const targetDir = path.join(projectDir, 'configs', 'codex');
 
@@ -669,7 +799,7 @@ class CodexAuth {
             }
             return { isDuplicate: false };
         } catch (error) {
-            logger.warn(`${CODEX_OAUTH_CONFIG.logPrefix} Error checking duplicates:`, error.message);
+            logger.warn(`${CODEX_OAUTH_CONFIG.logPrefix} Error checking duplicates:`, getErrorMessage(error));
             return { isDuplicate: false };
         }
     }
@@ -682,9 +812,13 @@ class CodexAuth {
  * @param {boolean} skipDuplicateCheck - 是否跳过重复检查
  * @returns {Promise<Object>} 批量处理结果
  */
-export async function batchImportCodexTokensStream(tokens, onProgress = null, skipDuplicateCheck = false) {
+export async function batchImportCodexTokensStream(
+    tokens: unknown[],
+    onProgress: ((data: ImportProgressData) => void) | null = null,
+    skipDuplicateCheck = false
+) {
     const auth = new CodexAuth({});
-    const results = {
+    const results: { total: number; success: number; failed: number; details: ImportProgressCurrent[] } = {
         total: tokens.length,
         success: 0,
         failed: 0,
@@ -695,27 +829,28 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
         const tokenData = tokens[i];
         const progressData = {
             index: i + 1,
-            total: tokens.length,
-            current: null
+            total: tokens.length
         };
+        let current: ImportProgressCurrent;
 
         try {
-            if (!tokenData || typeof tokenData !== 'object') {
+            if (!isRecord(tokenData)) {
                 throw new Error('Token 数据必须是 JSON 对象');
             }
 
             if (tokenData.skipped || tokenData.error) {
-                throw new Error(tokenData.reason || tokenData.error || 'skipped');
+                throw new Error(getStringValue(tokenData, 'reason', 'error') || 'skipped');
             }
 
             // 验证 token 数据：access_token 是唯一必需字段，id_token/refresh_token 可为空。
-            if (!tokenData.access_token) {
+            const accessToken = getStringValue(tokenData, 'access_token');
+            if (!accessToken) {
                 throw new Error('Token 缺少必需字段 access_token');
             }
 
             // 解析 JWT 提取账户信息。外部导入格式可能没有 id_token，因此回退解析 access_token。
-            let claims: any = {};
-            for (const candidate of [tokenData.id_token, tokenData.access_token]) {
+            let claims: CodexClaims = {};
+            for (const candidate of [getStringValue(tokenData, 'id_token'), accessToken]) {
                 if (!candidate) continue;
                 try {
                     claims = auth.parseJWT(candidate);
@@ -725,22 +860,22 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
                 }
             }
 
-            const authClaims = claims['https://api.openai.com/auth'] || {};
-            const profileClaims = claims['https://api.openai.com/profile'] || {};
-            const accountId = tokenData.account_id || tokenData.chatgpt_account_id || authClaims.chatgpt_account_id || claims.sub;
-            const email = tokenData.email || tokenData.name || profileClaims.email || claims.email || (accountId ? `codex-${accountId}` : null);
+            const authClaims = isRecord(claims['https://api.openai.com/auth']) ? claims['https://api.openai.com/auth'] as Record<string, unknown> : {};
+            const profileClaims = isRecord(claims['https://api.openai.com/profile']) ? claims['https://api.openai.com/profile'] as Record<string, unknown> : {};
+            const accountId = getStringValue(tokenData, 'account_id', 'chatgpt_account_id') || getStringValue(authClaims, 'chatgpt_account_id') || claims.sub || '';
+            const email = getStringValue(tokenData, 'email', 'name') || getStringValue(profileClaims, 'email') || claims.email || (accountId ? `codex-${accountId}` : null);
 
             if (!accountId) {
                 throw new Error('Token 缺少 account_id/chatgpt_account_id，且无法从 JWT 中解析账号 ID');
             }
 
-            const refreshToken = tokenData.refresh_token || '';
+            const refreshToken = getStringValue(tokenData, 'refresh_token');
 
             // 检查重复
             if (!skipDuplicateCheck) {
                 const duplicateCheck = await auth.checkDuplicate(accountId, refreshToken, email);
                 if (duplicateCheck.isDuplicate) {
-                    progressData.current = {
+                    current = {
                         index: i + 1,
                         success: false,
                         error: 'duplicate',
@@ -749,10 +884,11 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
                         existingPath: duplicateCheck.existingPath
                     };
                     results.failed++;
-                    results.details.push(progressData.current);
+                    results.details.push(current);
                     if (onProgress) {
                         onProgress({
                             ...progressData,
+                            current,
                             successCount: results.success,
                             failedCount: results.failed
                         });
@@ -761,13 +897,15 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
                 }
             }
 
-            const expiredValue = tokenData.expired || tokenData.expiresAt || tokenData.expire || tokenData.expires_at;
-            let expired;
+            const expiredValue = tokenData.expired ?? tokenData.expiresAt ?? tokenData.expire ?? tokenData.expires_at;
+            let expired: string | null = null;
             if (expiredValue) {
                 const parsed = typeof expiredValue === 'number'
                     ? new Date(expiredValue > 1000000000000 ? expiredValue : expiredValue * 1000)
-                    : new Date(expiredValue);
-                expired = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+                    : typeof expiredValue === 'string'
+                        ? new Date(expiredValue)
+                        : null;
+                expired = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : null;
             }
             if (!expired && tokenData.expires_in) {
                 const seconds = Number(tokenData.expires_in);
@@ -789,12 +927,12 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
             }
 
             // 构建凭据对象
-            const credentials = {
-                id_token: tokenData.id_token || '',
-                access_token: tokenData.access_token,
+            const credentials: CodexCredentialRecord = {
+                id_token: getStringValue(tokenData, 'id_token'),
+                access_token: accessToken,
                 refresh_token: refreshToken,
                 account_id: accountId,
-                last_refresh: tokenData.last_refresh || new Date().toISOString(),
+                last_refresh: getStringValue(tokenData, 'last_refresh') || new Date().toISOString(),
                 email: email,
                 type: 'codex',
                 expired,
@@ -807,7 +945,7 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
 
             logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Token ${i + 1} imported: ${relativePath}`);
 
-            progressData.current = {
+            current = {
                 index: i + 1,
                 success: true,
                 email,
@@ -818,23 +956,24 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
             results.success++;
 
         } catch (error) {
-            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Token ${i + 1} import failed:`, error.message);
+            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Token ${i + 1} import failed:`, getErrorMessage(error));
 
-            progressData.current = {
+            current = {
                 index: i + 1,
                 success: false,
-                email: tokenData?.email || tokenData?.name,
-                accountId: tokenData?.account_id || tokenData?.chatgpt_account_id,
-                error: error.message
+                email: isRecord(tokenData) ? getStringValue(tokenData, 'email', 'name') || null : null,
+                accountId: isRecord(tokenData) ? getStringValue(tokenData, 'account_id', 'chatgpt_account_id') : '',
+                error: getErrorMessage(error)
             };
             results.failed++;
         }
 
-        results.details.push(progressData.current);
+        results.details.push(current);
 
         if (onProgress) {
             onProgress({
                 ...progressData,
+                current,
                 successCount: results.success,
                 failedCount: results.failed
             });
@@ -845,7 +984,7 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
         try {
             await autoLinkProviderConfigs(CONFIG);
         } catch (linkError) {
-            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to auto-link imported tokens:`, linkError.message);
+            logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to auto-link imported tokens:`, getErrorMessage(linkError));
         }
 
         broadcastEvent('oauth_batch_success', {
@@ -865,7 +1004,7 @@ export async function batchImportCodexTokensStream(tokens, onProgress = null, sk
  * @param {number} maxRetries
  * @returns {Promise<Object>}
  */
-export async function refreshCodexTokensWithRetry(refreshToken, config = {}, maxRetries = 3) {
+export async function refreshCodexTokensWithRetry(refreshToken: string, config: CodexAuthConfig = {}, maxRetries = 3): Promise<CodexCredentialRecord> {
     const auth = new CodexAuth(config);
     let lastError;
 
@@ -874,7 +1013,7 @@ export async function refreshCodexTokensWithRetry(refreshToken, config = {}, max
             return await auth.refreshTokens(refreshToken);
         } catch (error) {
             lastError = error;
-            logger.warn(`${CODEX_OAUTH_CONFIG.logPrefix} Retry ${i + 1}/${maxRetries} failed:`, error.message);
+            logger.warn(`${CODEX_OAUTH_CONFIG.logPrefix} Retry ${i + 1}/${maxRetries} failed:`, getErrorMessage(error));
 
             if (i < maxRetries - 1) {
                 // 指数退避
@@ -893,25 +1032,25 @@ export async function refreshCodexTokensWithRetry(refreshToken, config = {}, max
  * @param {Object} options - 选项
  * @returns {Promise<Object>} 返回认证结果
  */
-export async function handleCodexOAuth(currentConfig, options = {}) {
+export async function handleCodexOAuth(currentConfig: CodexAuthConfig, options: Record<string, unknown> = {}) {
     const auth = new CodexAuth(currentConfig);
 
     try {
         logger.info('[Codex Auth] Generating OAuth URL...');
 
         // 清理所有旧的会话和服务器
-        if (global.codexOAuthSessions && global.codexOAuthSessions.size > 0) {
+        if (getCodexOAuthSessions() && getCodexOAuthSessions().size > 0) {
             logger.info('[Codex Auth] Cleaning up old OAuth sessions...');
-            for (const [sessionId, session] of global.codexOAuthSessions.entries()) {
+            for (const [sessionId, session] of getCodexOAuthSessions().entries()) {
                 try {
                     // 清理定时器
                     if (session.pollTimer) {
                         clearInterval(session.pollTimer);
                     }
                     // 不在这里显式关闭 server，由 startCallbackServer 中的 closeActiveServer 处理
-                    global.codexOAuthSessions.delete(sessionId);
+                    getCodexOAuthSessions().delete(sessionId);
                 } catch (error) {
-                    logger.warn(`[Codex Auth] Failed to clean up session ${sessionId}:`, error.message);
+                    logger.warn(`[Codex Auth] Failed to clean up session ${sessionId}:`, getErrorMessage(error));
                 }
             }
         }
@@ -922,21 +1061,17 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
         logger.info('[Codex Auth] OAuth URL generated successfully');
 
         // 存储 OAuth 会话信息，供后续回调使用
-        if (!global.codexOAuthSessions) {
-            global.codexOAuthSessions = new Map();
-        }
-
         const sessionId = state; // 使用 state 作为 session ID
         
         // 轮询计数器
         let pollCount = 0;
         const maxPollCount = 100; // 增加到约 5 分钟 (100 * 3s = 300s)
         const pollInterval = 3000; // 轮询间隔（毫秒）
-        let pollTimer = null;
+        let pollTimer: NodeJS.Timeout | null = null;
         let isCompleted = false;
         
         // 创建会话对象
-        const session = {
+        const session: CodexOAuthSession = {
             auth,
             state,
             pkce,
@@ -945,7 +1080,7 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
             createdAt: Date.now()
         };
         
-        global.codexOAuthSessions.set(sessionId, session);
+        getCodexOAuthSessions().set(sessionId, session);
 
         // 启动轮询日志
         pollTimer = setInterval(() => {
@@ -955,13 +1090,13 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
             }
             
             if (pollCount >= maxPollCount && !isCompleted) {
-                clearInterval(pollTimer);
+                if (pollTimer) clearInterval(pollTimer);
                 const totalSeconds = (maxPollCount * pollInterval) / 1000;
                 logger.info(`[Codex Auth] Polling timeout (${totalSeconds}s), releasing session for next authorization`);
                 
                 // 清理会话
-                if (global.codexOAuthSessions.has(sessionId)) {
-                    global.codexOAuthSessions.delete(sessionId);
+                if (getCodexOAuthSessions().has(sessionId)) {
+                    getCodexOAuthSessions().delete(sessionId);
                 }
             }
         }, pollInterval);
@@ -970,7 +1105,7 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
         session.pollTimer = pollTimer;
 
         // 监听回调服务器的 auth-success 事件，自动完成 OAuth 流程
-        server.once('auth-success', async (result) => {
+        server.once('auth-success', async (result: CallbackResult) => {
             isCompleted = true;
             if (pollTimer) {
                 clearInterval(pollTimer);
@@ -979,7 +1114,7 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
             try {
                 logger.info('[Codex Auth] Received auth callback, completing OAuth flow...');
                 
-                const session = global.codexOAuthSessions.get(sessionId);
+                const session = getCodexOAuthSessions().get(sessionId);
                 if (!session) {
                     logger.error('[Codex Auth] Session not found');
                     return;
@@ -989,7 +1124,7 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
                 const credentials = await auth.completeOAuthFlow(result.code, result.state, session.state, session.pkce);
 
                 // 清理会话
-                global.codexOAuthSessions.delete(sessionId);
+                getCodexOAuthSessions().delete(sessionId);
 
                 // 广播认证成功事件
                 broadcastEvent('oauth_success', {
@@ -1009,30 +1144,30 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
 
                 logger.info('[Codex Auth] OAuth flow completed successfully');
             } catch (error) {
-                logger.error('[Codex Auth] Failed to complete OAuth flow:', error.message);
+                logger.error('[Codex Auth] Failed to complete OAuth flow:', getErrorMessage(error));
                 
                 // 广播认证失败事件
                 broadcastEvent('oauth_error', {
                     provider: 'openai-codex-oauth',
-                    error: error.message,
+                    error: getErrorMessage(error),
                     timestamp: new Date().toISOString()
                 });
             }
         });
 
         // 监听 auth-error 事件
-        server.once('auth-error', (error) => {
+        server.once('auth-error', (error: Error) => {
             isCompleted = true;
             if (pollTimer) {
                 clearInterval(pollTimer);
             }
             
-            logger.error('[Codex Auth] Auth error:', error.message);
-            global.codexOAuthSessions.delete(sessionId);
+            logger.error('[Codex Auth] Auth error:', getErrorMessage(error));
+            getCodexOAuthSessions().delete(sessionId);
             
             broadcastEvent('oauth_error', {
                 provider: 'openai-codex-oauth',
-                error: error.message,
+                error: getErrorMessage(error),
                 timestamp: new Date().toISOString()
             });
         });
@@ -1056,11 +1191,11 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
             }
         };
     } catch (error) {
-        logger.error('[Codex Auth] Failed to generate OAuth URL:', error.message);
+        logger.error('[Codex Auth] Failed to generate OAuth URL:', getErrorMessage(error));
 
         return {
             success: false,
-            error: error.message,
+            error: getErrorMessage(error),
             authInfo: {
                 provider: 'openai-codex-oauth',
                 method: 'oauth2-pkce',
@@ -1081,13 +1216,16 @@ export async function handleCodexOAuth(currentConfig, options = {}) {
  * @param {string} state - 状态参数
  * @returns {Promise<Object>} 返回认证结果
  */
-export async function handleCodexOAuthCallback(code, state) {
+export async function handleCodexOAuthCallback(code: string, state: string) {
     try {
-        if (!global.codexOAuthSessions || !global.codexOAuthSessions.has(state)) {
+        if (!getCodexOAuthSessions().has(state)) {
             throw new Error('Invalid or expired OAuth session');
         }
 
-        const session = global.codexOAuthSessions.get(state);
+        const session = getCodexOAuthSessions().get(state);
+        if (!session) {
+            throw new Error('Invalid or expired OAuth session');
+        }
         const { auth, state: expectedState, pkce } = session;
 
         logger.info('[Codex Auth] Processing OAuth callback...');
@@ -1096,7 +1234,7 @@ export async function handleCodexOAuthCallback(code, state) {
         const result = await auth.completeOAuthFlow(code, state, expectedState, pkce);
 
         // 清理会话
-        global.codexOAuthSessions.delete(state);
+        getCodexOAuthSessions().delete(state);
 
         // 广播认证成功事件（与 gemini 格式一致）
         broadcastEvent('oauth_success', {
@@ -1126,18 +1264,18 @@ export async function handleCodexOAuthCallback(code, state) {
             relativePath: result.relativePath
         };
     } catch (error) {
-        logger.error('[Codex Auth] OAuth callback failed:', error.message);
+        logger.error('[Codex Auth] OAuth callback failed:', getErrorMessage(error));
 
         // 广播认证失败事件
         broadcastEvent('oauth_error', {
             provider: 'openai-codex-oauth',
-            error: error.message,
+            error: getErrorMessage(error),
             timestamp: new Date().toISOString()
         });
 
         return {
             success: false,
-            error: error.message
+            error: getErrorMessage(error)
         };
     }
 }
