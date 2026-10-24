@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.0] - 2026-10-24
+
+### Breaking Changes
+
+- **移除 `grok-cli-oauth` provider**：删除 Grok CLI core、OAuth、适配器注册、模型清单、号池与用量查询、OAuth/批量导入路由、前端入口与配置示例。其他 provider（Antigravity、Kiro、Codex、OpenAI、Claude、Zed、Trae）保持不变。
+- 升级后请删除 `configs/grok-cli/`、`provider_pools.json` 中的 `grok-cli-oauth` 节点及相关缓存；这些运行时数据不会被自动清理。
+
+### Added
+
+- 新增前端 `static/app/provider-registry.js` 与后端 `src/providers/provider-registry.js`，统一维护 provider 类型、协议、模型 baseline、健康检查模型、凭据路径、图标与 UI 元数据。
+- 新增 `npm run typecheck`，`tsconfig.json` 纳入 `src/**/*.js` 并开启 `checkJs`；新增 GitHub Actions CI（typecheck + 单测）。
+- 新增 `docs/CONFIG_PRECEDENCE.md`，明确配置读取、provider 能力、模型列表与 fallback 优先级。
+- E2E 新增动态模型选择：定向用例从 `/auto/v1/models` 按 provider 前缀选择，无匹配模型时自动 skip。
+- 新增 `npm run test:e2e:providers`，用于运行 Zed / Gemini 方言 canary。
+
+### Changed
+
+- P0 工程精简：统一使用 npm，删除 `pnpm-lock.yaml` 与安装脚本 pnpm 分支；移除未使用依赖 `ws`、`supertest`、`jest-environment-node`；删除未引用资源与一次性迁移脚本。
+- 过期评审/流式设计文档归档到 `docs/archive/`；历史回归测试合并为 `tests/regressions/` 两个领域文件，126 个用例全部保留。
+- 通用 E2E 定向用例从 16 项压缩到 6 项；4 项 provider 方言用例移入 opt-in canary；移除模型采样/质量类 E2E。
+- 动态 provider 的静态模型清单压缩为少量冷启动 baseline，完整模型以 `/auto/v1/models` 为准。
+- 内置 provider 能力规则并入 provider registry，减少方言知识散落。
+- 类型检查修复了生图 `prompt` 作用域、Trae header 数组、`update-api` arrayBuffer 返回值、`config-scanner` 注册表导入等实际缺陷。
+
+### Verification
+
+- `npm test -- --runInBand`：**27 suites / 486 tests 全绿**。
+- `npm run typecheck`：**0 errors**。
+- 默认 E2E（19 模型全量）：**25 / 25 通过**（19 个模型 × 11 项核心 + 6 项通用定向）。
+- Provider 方言 canary：**4 / 4 通过**。
+- `npx jest tests/static-syntax.test.js`：**27 / 27 通过**。
+
 ## [v4.1.9] - 2026-10-23
 
 ### Fixed (跨协议转译语义与健壮性收口)
