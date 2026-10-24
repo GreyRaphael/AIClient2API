@@ -4,7 +4,7 @@ import { Readable } from 'stream';
 import axios from 'axios';
 import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
-import { isRegisteredProvider, ZedApiServiceAdapter } from '../src/providers/adapter.js';
+import { isRegisteredProvider, ZedApiServiceAdapter } from '../src/providers/adapter.ts';
 import {
     ZedApiService,
     getZedProviderForModel,
@@ -12,7 +12,7 @@ import {
     fetchZedOrganizationId,
     ZED_TOKEN_URL,
     ZED_USERS_ME_URL
-} from '../src/providers/zed/zed-core.js';
+} from '../src/providers/zed/zed-core.ts';
 
 describe('Zed Provider & OAuth Implementation Tests', () => {
     test('Zed provider is properly registered and configured', () => {
@@ -22,7 +22,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('zed uses gpt-5-nano as the default health check model', async () => {
-        const { ProviderPoolManager } = await import('../src/providers/provider-pool-manager.js');
+        const { ProviderPoolManager } = await import('../src/providers/provider-pool-manager.ts');
         expect(ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS.zed).toBe('gpt-5-nano');
     });
 

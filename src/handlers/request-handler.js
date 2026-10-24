@@ -9,7 +9,7 @@ import { handleAPIRequests } from '../services/api-manager.js';
 import { getApiService, getProviderStatus } from '../services/service-manager.js';
 import { getProviderPoolManager } from '../services/service-manager.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
-import { getRegisteredProviders, isRegisteredProvider } from '../providers/adapter.js';
+import { getRegisteredProviders, isRegisteredProvider } from '../providers/adapter.ts';
 import { countTokensAnthropic } from '../utils/token-utils.js';
 import { PROMPT_LOG_FILENAME } from '../core/config-manager.js';
 import { getPluginManager } from '../core/plugin-manager.js';

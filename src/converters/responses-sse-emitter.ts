@@ -10,7 +10,7 @@ import {
     generateContentPartDone,
     generateOutputItemDone,
     generateResponseCompleted
-} from '../providers/openai/openai-responses-events.js';
+} from '../providers/openai/openai-responses-events.ts';
 
 let emitterSeq = 0;
 

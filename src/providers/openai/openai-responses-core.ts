@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.js';
 import * as http from 'http';

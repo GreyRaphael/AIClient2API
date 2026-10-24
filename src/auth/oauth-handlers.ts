@@ -26,4 +26,4 @@ export {
     handleTraeOAuth,
     buildTraeWebLoginUrl,
     parseTraeCallback
-} from './index.js';
+} from './index.ts';

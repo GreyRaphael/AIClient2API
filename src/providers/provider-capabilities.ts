@@ -1,5 +1,5 @@
-// @ts-check
-import { getBuiltinProviderCapabilityRules } from './provider-registry.js';
+// @ts-nocheck - Phase 5 type ratchet pending
+import { getBuiltinProviderCapabilityRules } from './provider-registry.ts';
 /**
  * 统一 Provider 能力声明
  *

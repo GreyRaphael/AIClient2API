@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { atomicWriteFile } from '../../utils/file-lock.js';
 import axios from 'axios';
 import logger from '../../utils/logger.js';
@@ -5,14 +6,14 @@ import crypto from 'crypto';
 import {promises as fs} from 'fs';
 import path from 'path';
 import os from 'os';
-import {refreshCodexTokensWithRetry} from '../../auth/oauth-handlers.js';
+import {refreshCodexTokensWithRetry} from '../../auth/oauth-handlers.ts';
 import {getProviderPoolManager} from '../../services/service-manager.js';
 import {configureTLSSidecar, isTLSSidecarEnabledForProvider} from '../../utils/proxy-utils.js';
 import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.js';
 import {getProxyConfigForProvider} from '../../utils/proxy-utils.js';
-import {getProviderModels} from '../provider-models.js';
-import {normalizeCodexInstructions} from './codex-request-utils.js';
-import {resolveProviderCapabilities} from '../provider-capabilities.js';
+import {getProviderModels} from '../provider-models.ts';
+import {normalizeCodexInstructions} from './codex-request-utils.ts';
+import {resolveProviderCapabilities} from '../provider-capabilities.ts';
 
 export const CODEX_FALLBACK_VERSION = '0.162.1';
 

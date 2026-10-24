@@ -9,7 +9,7 @@
 import * as path from 'path';
 import logger from './logger.js';
 import { MODEL_PROTOCOL_PREFIX } from './constants.js';
-import { getProviderDefinition } from '../providers/provider-registry.js';
+import { getProviderDefinition } from '../providers/provider-registry.ts';
 
 /**
  * Extracts the protocol prefix from a given model provider string.

@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import http from 'http';
 import logger from '../utils/logger.js';
 import fs from 'fs';

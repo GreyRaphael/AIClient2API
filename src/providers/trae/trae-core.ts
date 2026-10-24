@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.js';
 import { randomUUID, randomBytes } from 'crypto';
@@ -5,16 +6,16 @@ import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../../utils/constants.js';
-import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.js';
+import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.js';
-import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.js';
+import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.ts';
 import {
     TRAE_CHANNEL_MODES,
     TRAE_CHANNEL_PRESETS,
     resolveTraeChannelMode,
     isSoloFamilyChannel,
     resolveAliasTableKind
-} from './trae-channel.js';
+} from './trae-channel.ts';
 
 // 通道模式枚举与预设已迁移至 trae-channel.js（single source of truth），此处再导出以保持兼容
 export { TRAE_CHANNEL_MODES, TRAE_CHANNEL_PRESETS };

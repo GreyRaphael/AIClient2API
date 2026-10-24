@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';

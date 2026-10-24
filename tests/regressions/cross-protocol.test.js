@@ -4,11 +4,11 @@ import { OpenAIResponsesConverter } from "../../src/converters/strategies/OpenAI
 import { ClaudeConverter } from "../../src/converters/strategies/ClaudeConverter.ts";
 import { GeminiConverter } from "../../src/converters/strategies/GeminiConverter.ts";
 import { CodexConverter } from "../../src/converters/strategies/CodexConverter.ts";
-import { OpenAIApiService } from "../../src/providers/openai/openai-core.js";
-import { aggregateChatCompletionChunks } from "../../src/providers/openai/openai-core.js";
+import { OpenAIApiService } from "../../src/providers/openai/openai-core.ts";
+import { aggregateChatCompletionChunks } from "../../src/providers/openai/openai-core.ts";
 import { MODEL_PROTOCOL_PREFIX } from "../../src/utils/constants.js";
 import { isVirtualSignature } from "../../src/converters/signature-vault.ts";
-import { ZedApiService } from "../../src/providers/zed/zed-core.js";
+import { ZedApiService } from "../../src/providers/zed/zed-core.ts";
 import { ResponsesSseEmitter } from "../../src/converters/responses-sse-emitter.ts";
 import { guessImageMimeTypeFromUrl } from "../../src/converters/utils.ts";
 import { isCustomTool } from "../../src/converters/custom-tool-registry.ts";

@@ -6,9 +6,9 @@ import {
     resolveProviderCapabilities,
     supportsCapability,
     getKnownCapabilityKeys
-} from '../src/providers/provider-capabilities.js';
-import { geminiToAntigravity } from '../src/providers/gemini/antigravity-core.js';
-import { ZedApiService } from '../src/providers/zed/zed-core.js';
+} from '../src/providers/provider-capabilities.ts';
+import { geminiToAntigravity } from '../src/providers/gemini/antigravity-core.ts';
+import { ZedApiService } from '../src/providers/zed/zed-core.ts';
 
 describe('Provider 能力声明：默认值与键', () => {
     test('默认全部支持', () => {

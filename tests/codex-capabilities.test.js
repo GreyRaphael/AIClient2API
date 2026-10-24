@@ -2,8 +2,8 @@ jest.mock('open', () => ({ default: jest.fn() }));
 
 import { describe, test, expect } from '@jest/globals';
 import { CodexConverter } from '../src/converters/strategies/CodexConverter.ts';
-import { CodexApiService } from '../src/providers/openai/codex-core.js';
-import { resolveProviderCapabilities } from '../src/providers/provider-capabilities.js';
+import { CodexApiService } from '../src/providers/openai/codex-core.ts';
+import { resolveProviderCapabilities } from '../src/providers/provider-capabilities.ts';
 
 describe('Codex 输出长度上限能力', () => {
     test('openai-codex-oauth 默认透传输出上限', () => {

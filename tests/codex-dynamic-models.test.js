@@ -9,7 +9,7 @@ import {
     CODEX_MODELS_CACHE_TTL_MS,
     parseCodexTokenMetadata,
     normalizeCodexReasoningEffort
-} from '../src/providers/openai/codex-core.js';
+} from '../src/providers/openai/codex-core.ts';
 
 describe('Codex Dynamic Models & Remote Sync Tests', () => {
     test('getCodexModels generates base models without virtual gpt-image-2 or -fast variants', () => {

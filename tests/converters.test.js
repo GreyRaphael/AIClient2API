@@ -6,7 +6,7 @@ import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.ts
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.ts';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.ts';
 import { ConverterFactory } from '../src/converters/ConverterFactory.ts';
-import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.js';
+import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.ts';
 
 describe('Protocol Converters Matrix & Edge Cases', () => {
     test('Fix 1: OpenAI streaming tool_calls converts to Claude events with stop_reason=tool_use', () => {
@@ -274,7 +274,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
     });
 
     test('Fix 8: Antigravity model list contains clean models and no tiered or internal test IDs', () => {
-        const { PROVIDER_MODELS } = require('../src/providers/provider-models.js');
+        const { PROVIDER_MODELS } = require('../src/providers/provider-models.ts');
         const antigravityModels = PROVIDER_MODELS['gemini-antigravity'];
 
         // 静态清单只保留少量冷启动 baseline，完整模型以 /auto/v1/models 发现结果为准。

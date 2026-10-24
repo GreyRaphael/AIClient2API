@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { OAuth2Client } from 'google-auth-library';
 import logger from '../utils/logger.js';
 import http from 'http';

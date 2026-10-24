@@ -1,6 +1,6 @@
-import { getServiceAdapter, serviceInstances } from '../providers/adapter.js';
+import { getServiceAdapter, serviceInstances } from '../providers/adapter.ts';
 import logger from '../utils/logger.js';
-import { ProviderPoolManager } from '../providers/provider-pool-manager.js';
+import { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import deepmerge from 'deepmerge';
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
@@ -15,9 +15,9 @@ import {
 } from '../utils/provider-utils.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
-import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
-import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../providers/model-capability.js';
-import { getStatusIdentifyFieldMap } from '../providers/provider-registry.js';
+import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.ts';
+import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../providers/model-capability.ts';
+import { getStatusIdentifyFieldMap } from '../providers/provider-registry.ts';
 
 // 存储 ProviderPoolManager 实例
 let providerPoolManager = null;

@@ -4,9 +4,9 @@
  */
 
 import { getProviderPoolManager } from './service-manager.js';
-import { serviceInstances } from '../providers/adapter.js';
+import { serviceInstances } from '../providers/adapter.ts';
 import { MODEL_PROVIDER } from '../utils/common.js';
-import { getProviderModels } from '../providers/provider-models.js';
+import { getProviderModels } from '../providers/provider-models.ts';
 
 /**
  * 用量查询服务类

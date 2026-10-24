@@ -1,11 +1,12 @@
-import { OpenAIResponsesApiService } from './openai/openai-responses-core.js';
-import { AntigravityApiService } from './gemini/antigravity-core.js';
-import { OpenAIApiService } from './openai/openai-core.js';
-import { ClaudeApiService } from './claude/claude-core.js';
-import { KiroApiService } from './claude/claude-kiro.js';
-import { CodexApiService } from './openai/codex-core.js';
-import { ZedApiService } from './zed/zed-core.js';
-import { TraeApiService } from './trae/trae-core.js';
+// @ts-nocheck - Phase 5 type ratchet pending
+import { OpenAIResponsesApiService } from './openai/openai-responses-core.ts';
+import { AntigravityApiService } from './gemini/antigravity-core.ts';
+import { OpenAIApiService } from './openai/openai-core.ts';
+import { ClaudeApiService } from './claude/claude-core.ts';
+import { KiroApiService } from './claude/claude-kiro.ts';
+import { CodexApiService } from './openai/codex-core.ts';
+import { ZedApiService } from './zed/zed-core.ts';
+import { TraeApiService } from './trae/trae-core.ts';
 import { MODEL_PROVIDER } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 

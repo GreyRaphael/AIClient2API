@@ -6,7 +6,7 @@
 import * as path from 'path';
 import logger from './logger.js';
 import { promises as fs } from 'fs';
-import { getProviderMappings } from '../providers/provider-registry.js';
+import { getProviderMappings } from '../providers/provider-registry.ts';
 
 /**
  * 提供商目录映射配置（从 provider registry 派生）

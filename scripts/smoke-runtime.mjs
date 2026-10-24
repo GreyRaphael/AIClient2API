@@ -20,11 +20,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODULES = [
     'src/converters/register-converters.ts',
     'src/core/plugin-security.js',
-    'src/providers/adapter.js',
-    'src/providers/provider-pool-manager.js',
+    'src/providers/adapter.ts',
+    'src/providers/provider-pool-manager.ts',
     'src/handlers/request-pipeline.js',
     'src/services/service-manager.js',
-    'src/auth/index.js',
+    'src/auth/index.ts',
     'src/ui-modules/update-api.js'
 ];
 

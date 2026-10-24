@@ -9,7 +9,7 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import * as http from 'http';
 import * as https from 'https';
-import { getProviderModels } from '../provider-models.js';
+import { getProviderModels } from '../provider-models.ts';
 import { 
     countTextTokens as countTextTokensUtil, 
     estimateInputTokens as estimateInputTokensUtil, 

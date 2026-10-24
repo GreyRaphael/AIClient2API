@@ -3,19 +3,19 @@ import logger from '../utils/logger.js';
 import { getRequestBody } from '../utils/common.js';
 import {
     normalizeModelIds
-} from '../providers/provider-models.js';
+} from '../providers/provider-models.ts';
 import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath, addToUsedPaths, isPathUsed, pathsEqual } from '../utils/provider-utils.js';
 import { broadcastEvent } from './event-broadcast.js';
-import { getRegisteredProviders, invalidateServiceAdapter } from '../providers/adapter.js';
+import { getRegisteredProviders, invalidateServiceAdapter } from '../providers/adapter.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.js';
-import { isTraeProviderType, isSoloFamilyProviderType, isSoloFamilyChannel, TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.js';
+import { isTraeProviderType, isSoloFamilyProviderType, isSoloFamilyChannel, TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.ts';
 import {
     ensureProviderCapability,
     refreshNodeCapability,
     refreshProviderCapabilities,
     resolveNodeCapability
-} from '../providers/model-capability.js';
+} from '../providers/model-capability.ts';
 
 
 

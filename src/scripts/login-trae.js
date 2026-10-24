@@ -1,5 +1,6 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import readline from 'readline';
-import { handleTraePATLogin, TRAE_AUTH_CONFIG } from '../auth/trae-auth.js';
+import { handleTraePATLogin, TRAE_AUTH_CONFIG } from '../auth/trae-auth.ts';
 import { initializeConfig } from '../core/config-manager.js';
 import logger from '../utils/logger.js';
 

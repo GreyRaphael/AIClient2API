@@ -1,10 +1,11 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.js';
 import * as http from 'http';
 import * as https from 'https';
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.js';
-import { resolveProviderCapabilities } from '../provider-capabilities.js';
+import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 
 /**
  * 判断非流式响应体是否实际上是 SSE 文本。

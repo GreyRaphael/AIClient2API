@@ -14,17 +14,17 @@ import { v4 as uuidv4 } from 'uuid';
 import open from 'open';
 import { configureTLSSidecar } from '../../utils/proxy-utils.js';
 import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.js';
-import { getProviderModels } from '../provider-models.js';
-import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.js';
+import { getProviderModels } from '../provider-models.ts';
+import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.ts';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
 import { cleanJsonSchemaProperties } from '../../converters/utils.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import { getProviderPoolManager } from '../../services/service-manager.js';
 import { getConfigToggle } from '../../core/config-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
-import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
+import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
-import { resolveProviderCapabilities } from '../provider-capabilities.js';
+import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 
 // --- Constants ---
 const CREDENTIALS_DIR = '.antigravity';

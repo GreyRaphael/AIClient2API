@@ -1,9 +1,9 @@
 import { MODEL_PROTOCOL_PREFIX } from './constants.js';
-import { GeminiStrategy } from '../providers/gemini/gemini-strategy.js';
-import { OpenAIStrategy } from '../providers/openai/openai-strategy.js';
-import { ClaudeStrategy } from '../providers/claude/claude-strategy.js';
-import { ResponsesAPIStrategy } from '../providers/openai/openai-responses-strategy.js';
-import { CodexResponsesAPIStrategy } from '../providers/openai/codex-responses-strategy.js';
+import { GeminiStrategy } from '../providers/gemini/gemini-strategy.ts';
+import { OpenAIStrategy } from '../providers/openai/openai-strategy.ts';
+import { ClaudeStrategy } from '../providers/claude/claude-strategy.ts';
+import { ResponsesAPIStrategy } from '../providers/openai/openai-responses-strategy.ts';
+import { CodexResponsesAPIStrategy } from '../providers/openai/codex-responses-strategy.ts';
 
 /**
  * Strategy factory that returns the appropriate strategy instance based on the provider protocol.

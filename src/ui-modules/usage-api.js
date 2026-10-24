@@ -1,6 +1,6 @@
 import { CONFIG } from '../core/config-manager.js';
 import logger from '../utils/logger.js';
-import { serviceInstances, getServiceAdapter } from '../providers/adapter.js';
+import { serviceInstances, getServiceAdapter } from '../providers/adapter.ts';
 import { usageService } from '../services/usage-service.js';
 import { readUsageCache, writeUsageCache, readProviderUsageCache, updateProviderUsageCache } from './usage-cache.js';
 import { PROVIDER_MAPPINGS } from '../utils/provider-utils.js';

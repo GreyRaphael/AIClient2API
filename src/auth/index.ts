@@ -4,14 +4,14 @@ export {
     handleCodexOAuth,
     handleCodexOAuthCallback,
     batchImportCodexTokensStream
-} from './codex-oauth.js';
+} from './codex-oauth.ts';
 
 // Gemini OAuth
 export {
     handleGeminiAntigravityOAuth,
     batchImportGeminiTokensStream,
     checkGeminiCredentialsDuplicate
-} from './gemini-oauth.js';
+} from './gemini-oauth.ts';
 
 // Kiro OAuth
 export {
@@ -20,13 +20,13 @@ export {
     batchImportKiroRefreshTokens,
     batchImportKiroRefreshTokensStream,
     importAwsCredentials
-} from './kiro-oauth.js';
+} from './kiro-oauth.ts';
 
 // Zed OAuth
 export {
     handleZedOAuth,
     handleZedOAuthCallback
-} from './zed-oauth.js';
+} from './zed-oauth.ts';
 
 // Trae Auth
 export {
@@ -34,6 +34,6 @@ export {
     handleTraeOAuth,
     buildTraeWebLoginUrl,
     parseTraeCallback
-} from './trae-auth.js';
+} from './trae-auth.ts';
 
 

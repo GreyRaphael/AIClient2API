@@ -1,7 +1,7 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
 import { ENDPOINT_TYPE } from '../src/utils/protocol.js';
-import { ProviderPoolManager } from '../src/providers/provider-pool-manager.js';
+import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import {
     CAPABILITY_SOURCE,
     MemoryCapabilityStore,
@@ -9,7 +9,7 @@ import {
     resetCapabilityStore,
     resolveNodeCapability,
     setCapabilityStore
-} from '../src/providers/model-capability.js';
+} from '../src/providers/model-capability.ts';
 import { handleGetProviderModels, handleGetProviders } from '../src/ui-modules/provider-api.js';
 import { CONFIG } from '../src/core/config-manager.js';
 

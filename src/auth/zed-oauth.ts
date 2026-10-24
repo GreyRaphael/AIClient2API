@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import http from 'http';
 import logger from '../utils/logger.js';
 import fs from 'fs';
@@ -10,7 +11,7 @@ import { autoLinkProviderConfigs, getProviderPoolManager } from '../services/ser
 import { CONFIG } from '../core/config-manager.js';
 import { configureAxiosProxy, getProxyConfigForProvider } from '../utils/proxy-utils.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
-import { getZedVersionFromSystem, exchangeZedToken } from '../providers/zed/zed-core.js';
+import { getZedVersionFromSystem, exchangeZedToken } from '../providers/zed/zed-core.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
 
 const ZED_OAUTH_CONFIG = {

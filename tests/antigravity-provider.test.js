@@ -1,14 +1,14 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
-import { AntigravityApiService } from '../src/providers/gemini/antigravity-core.js';
-import { ProviderPoolManager } from '../src/providers/provider-pool-manager.js';
+import { AntigravityApiService } from '../src/providers/gemini/antigravity-core.ts';
+import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import {
     CAPABILITY_SOURCE,
     MemoryCapabilityStore,
     capabilityKey,
     resetCapabilityStore,
     setCapabilityStore
-} from '../src/providers/model-capability.js';
+} from '../src/providers/model-capability.ts';
 import { CONFIG } from '../src/core/config-manager.js';
 
 function seedNodeModels(providerType, nodesByUuid) {

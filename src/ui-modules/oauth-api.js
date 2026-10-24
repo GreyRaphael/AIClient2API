@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { getRequestBody } from '../utils/common.js';
 import logger from '../utils/logger.js';
 import {
@@ -13,8 +14,8 @@ import {
     batchImportCodexTokensStream,
     batchImportKiroRefreshTokensStream,
     importAwsCredentials
-} from '../auth/oauth-handlers.js';
-import { normalizeCodexExternalCredentials } from '../auth/codex-import-normalizer.js';
+} from '../auth/oauth-handlers.ts';
+import { normalizeCodexExternalCredentials } from '../auth/codex-import-normalizer.ts';
 
 const CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES = 5 * 1024 * 1024;
 const CODEX_EXTERNAL_IMPORT_MAX_ITEMS = 1000;
@@ -144,7 +145,7 @@ export async function handleManualOAuthCallback(req, res) {
 
         // 特殊处理 Zed OAuth 回调
         if (provider === 'zed') {
-            const { handleZedOAuthCallback } = await import('../auth/oauth-handlers.js');
+            const { handleZedOAuthCallback } = await import('../auth/oauth-handlers.ts');
             const result = await handleZedOAuthCallback(callbackUrl);
 
             res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });
@@ -154,7 +155,7 @@ export async function handleManualOAuthCallback(req, res) {
 
         // 特殊处理 Trae OAuth / Callback 回调
         if (provider === 'trae' || provider.startsWith('trae-')) {
-            const { handleTraePATLogin } = await import('../auth/oauth-handlers.js');
+            const { handleTraePATLogin } = await import('../auth/oauth-handlers.ts');
             const result = await handleTraePATLogin({
                 token: callbackUrl,
                 host: body.host,
@@ -183,7 +184,7 @@ export async function handleManualOAuthCallback(req, res) {
 
         // 特殊处理 Codex OAuth 回调
         if (provider === 'openai-codex-oauth' && code && state) {
-            const { handleCodexOAuthCallback } = await import('../auth/oauth-handlers.js');
+            const { handleCodexOAuthCallback } = await import('../auth/oauth-handlers.ts');
             const result = await handleCodexOAuthCallback(code, state);
 
             res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });

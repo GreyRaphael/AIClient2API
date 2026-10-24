@@ -2,7 +2,7 @@ import { describe, test, expect, jest } from '@jest/globals';
 import {
     OpenAIApiService,
     normalizeToolChoiceForProvider
-} from '../src/providers/openai/openai-core.js';
+} from '../src/providers/openai/openai-core.ts';
 import { resolveEmptyUpstreamResponseRetry } from '../src/handlers/request-pipeline.js';
 
 const weatherTool = {

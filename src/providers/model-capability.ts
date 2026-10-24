@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import { atomicWriteFile, withFileLock } from '../utils/file-lock.js';
 import logger from '../utils/logger.js';
@@ -8,8 +9,8 @@ import {
     getProviderModels,
     normalizeModelIds,
     usesManagedModelList
-} from './provider-models.js';
-import { getDynamicProviderTypes, getProviderCapabilityTtlMs } from './provider-registry.js';
+} from './provider-models.ts';
+import { getDynamicProviderTypes, getProviderCapabilityTtlMs } from './provider-registry.ts';
 
 /**
  * 模型能力层（Model Capability）
@@ -379,7 +380,7 @@ function isBackgroundRefreshEnabled() {
 const inFlightRefreshes = new Map();
 
 async function resolveAdapterForNode(providerType, nodeConfig, globalConfig) {
-    const { getServiceAdapter } = await import('./adapter.js');
+    const { getServiceAdapter } = await import('./adapter.ts');
     const config = {
         ...(globalConfig || CONFIG),
         ...(nodeConfig || {}),

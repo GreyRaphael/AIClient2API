@@ -105,7 +105,7 @@ export function buildAccessInfoPayload(currentConfig, providerPoolManager, regis
 }
 
 export async function handleGetAccessInfo(req, res, currentConfig, providerPoolManager) {
-    const { getRegisteredProviders } = await import('../providers/adapter.js');
+    const { getRegisteredProviders } = await import('../providers/adapter.ts');
     const payload = buildAccessInfoPayload(currentConfig, providerPoolManager, getRegisteredProviders());
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload));

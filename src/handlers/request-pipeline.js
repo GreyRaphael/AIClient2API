@@ -26,8 +26,8 @@ import {
     getCustomModelConfig,
     getCustomModelActualProvider,
     getCustomModelListProvider
-} from '../providers/provider-models.js';
-import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.js';
+} from '../providers/provider-models.ts';
+import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.ts';
 
 function getCustomModelEntriesForProvider(config, providerType = null, options = {}) {
     const customModels = Array.isArray(config?.customModels) ? config.customModels : [];

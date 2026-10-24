@@ -1,6 +1,7 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import * as fs from 'fs';
 import { CONFIG } from '../core/config-manager.js';
-import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.js';
+import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.ts';
 import logger from '../utils/logger.js';
 import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.js';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.js';
@@ -8,14 +9,14 @@ import { convertData } from '../convert/convert.js';
 
 import {
     getCustomModelListProvider
-} from './provider-models.js';
+} from './provider-models.ts';
 import {
     nodeSupportsModel,
     resolveNodeCapability,
     resolveProviderCapability,
     resolveProviderCapabilityWithRefresh
-} from './model-capability.js';
-import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.js';
+} from './model-capability.ts';
+import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';
 import { ENDPOINT_TYPE } from '../utils/common.js';
 

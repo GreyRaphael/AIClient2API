@@ -4,9 +4,9 @@ import fs from 'fs';
 import path from 'path';
 import { MODEL_PROVIDER } from '../src/utils/constants.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
-import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.js';
-import { TraeApiService } from '../src/providers/trae/trae-core.js';
-import { PROVIDER_MODELS } from '../src/providers/provider-models.js';
+import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.ts';
+import { TraeApiService } from '../src/providers/trae/trae-core.ts';
+import { PROVIDER_MODELS } from '../src/providers/provider-models.ts';
 import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.js';
 
 describe('Trae Provider Implementation Tests', () => {
@@ -246,7 +246,7 @@ describe('Trae Provider Implementation Tests', () => {
     });
 
     test('Trae Web Auth URL generation and callback parser work as expected', async () => {
-        const { buildTraeWebLoginUrl, parseTraeCallback, handleTraeOAuth } = await import('../src/auth/trae-auth.js');
+        const { buildTraeWebLoginUrl, parseTraeCallback, handleTraeOAuth } = await import('../src/auth/trae-auth.ts');
 
         const { loginUrl, machineId, deviceId } = buildTraeWebLoginUrl({
             host: 'https://api.enterprise.trae.cn'

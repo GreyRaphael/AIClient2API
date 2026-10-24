@@ -13,7 +13,7 @@ import {
     TRAE_PROVIDER_DEFAULTS,
     normalizeLegacyTraeProviderType,
     migrateLegacyTraeProviderPools
-} from '../src/providers/trae/trae-channel.js';
+} from '../src/providers/trae/trae-channel.ts';
 
 describe('resolveTraeChannelMode: 显式 configuredMode / providerType 判定', () => {
     test('configuredMode 直选（含大小写归一化与 legacy 别名）', () => {

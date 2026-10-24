@@ -4,7 +4,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { CONFIG } from '../core/config-manager.js';
-import { serviceInstances } from '../providers/adapter.js';
+import { serviceInstances } from '../providers/adapter.ts';
 import { initApiService } from '../services/service-manager.js';
 import { getRequestBody } from '../utils/common.js';
 import { broadcastEvent } from '../ui-modules/event-broadcast.js';

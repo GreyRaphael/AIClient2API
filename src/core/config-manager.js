@@ -3,7 +3,7 @@ import { promises as pfs } from 'fs';
 import { DEFAULT_REQUEST_BODY_MAX_BYTES, INPUT_SYSTEM_PROMPT_FILE } from '../utils/protocol.js';
 import { MODEL_PROVIDER } from '../utils/constants.js';
 import { atomicWriteFile } from '../utils/file-lock.js';
-import { migrateLegacyTraeProviderPools, normalizeLegacyTraeProviderType } from '../providers/trae/trae-channel.js';
+import { migrateLegacyTraeProviderPools, normalizeLegacyTraeProviderType } from '../providers/trae/trae-channel.ts';
 import logger from '../utils/logger.js';
 
 export let CONFIG = {}; // Make CONFIG exportable
