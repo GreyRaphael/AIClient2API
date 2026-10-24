@@ -8,7 +8,7 @@
  * 并发 requestId 隔离。
  */
 
-import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
+import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.ts';
 
 const flat = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);
 const drive = (converter, chunks, model, reqId) => {

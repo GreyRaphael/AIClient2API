@@ -17,13 +17,13 @@ import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAft
 import { getProviderModels } from '../provider-models.js';
 import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.js';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.js';
-import { cleanJsonSchemaProperties } from '../../converters/utils.js';
+import { cleanJsonSchemaProperties } from '../../converters/utils.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import { getProviderPoolManager } from '../../services/service-manager.js';
 import { getConfigToggle } from '../../core/config-manager.js';
 import { MODEL_PROVIDER } from '../../utils/common.js';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.js';
-import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.js';
+import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.js';
 
 // --- Constants ---

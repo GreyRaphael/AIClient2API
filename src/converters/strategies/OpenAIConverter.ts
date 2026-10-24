@@ -9,7 +9,7 @@ import logger from '../../utils/logger.js';
 import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.ts';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.ts';
-import { CodexConverter } from './CodexConverter.js';
+import { CodexConverter } from './CodexConverter.ts';
 import {
     extractAndProcessSystemMessages as extractSystemMessages,
     extractTextFromMessageContent as extractText,
@@ -29,7 +29,7 @@ import {
     mimeTypeFromFilename,
     guessImageMimeTypeFromUrl,
     parseBase64DataUrl
-} from '../utils.js';
+} from '../utils.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
 import {

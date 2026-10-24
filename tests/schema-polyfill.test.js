@@ -4,7 +4,7 @@ import {
     isSchemaPolyfillEnabled,
     getSchemaPolyfillMaxDesc
 } from '../src/converters/schema-polyfill.ts';
-import { cleanJsonSchemaProperties } from '../src/converters/utils.js';
+import { cleanJsonSchemaProperties } from '../src/converters/utils.ts';
 
 describe('Schema Polyfill 降级编译器', () => {
     describe('1. $ref 静态内联展开', () => {

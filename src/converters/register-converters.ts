@@ -5,11 +5,11 @@
 
 import { MODEL_PROTOCOL_PREFIX } from '../utils/constants.js';
 import { ConverterFactory } from './ConverterFactory.ts';
-import { OpenAIConverter } from './strategies/OpenAIConverter.js';
-import { OpenAIResponsesConverter } from './strategies/OpenAIResponsesConverter.js';
-import { ClaudeConverter } from './strategies/ClaudeConverter.js';
-import { GeminiConverter } from './strategies/GeminiConverter.js';
-import { CodexConverter } from './strategies/CodexConverter.js';
+import { OpenAIConverter } from './strategies/OpenAIConverter.ts';
+import { OpenAIResponsesConverter } from './strategies/OpenAIResponsesConverter.ts';
+import { ClaudeConverter } from './strategies/ClaudeConverter.ts';
+import { GeminiConverter } from './strategies/GeminiConverter.ts';
+import { CodexConverter } from './strategies/CodexConverter.ts';
 
 /**
  * 注册所有转换器到工厂

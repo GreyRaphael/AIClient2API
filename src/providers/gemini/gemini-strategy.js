@@ -2,7 +2,7 @@ import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { extractSystemPromptFromRequestBody } from '../../utils/protocol.js';
 import logger from '../../utils/logger.js';
 import { ProviderStrategy } from '../../utils/provider-strategy-base.js';
-import { applySystemPromptReplacements } from '../../converters/utils.js';
+import { applySystemPromptReplacements } from '../../converters/utils.ts';
 
 /**
  * Gemini provider strategy implementation.

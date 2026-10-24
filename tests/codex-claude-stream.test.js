@@ -11,7 +11,7 @@
  *    （原实现整个流都不发 message_start，非合规）。
  */
 
-import { CodexConverter } from '../src/converters/strategies/CodexConverter.js';
+import { CodexConverter } from '../src/converters/strategies/CodexConverter.ts';
 
 const flat = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);
 const drive = (converter, chunks, model, reqId) => {

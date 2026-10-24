@@ -6,11 +6,11 @@ import {
     isSortToolsEnabled,
     sortToolsByName,
     logOmittedCacheControl
-} from "../../src/converters/utils.js";
-import { OpenAIConverter } from "../../src/converters/strategies/OpenAIConverter.js";
-import { ClaudeConverter } from "../../src/converters/strategies/ClaudeConverter.js";
-import { OpenAIResponsesConverter } from "../../src/converters/strategies/OpenAIResponsesConverter.js";
-import { CodexConverter } from "../../src/converters/strategies/CodexConverter.js";
+} from "../../src/converters/utils.ts";
+import { OpenAIConverter } from "../../src/converters/strategies/OpenAIConverter.ts";
+import { ClaudeConverter } from "../../src/converters/strategies/ClaudeConverter.ts";
+import { OpenAIResponsesConverter } from "../../src/converters/strategies/OpenAIResponsesConverter.ts";
+import { CodexConverter } from "../../src/converters/strategies/CodexConverter.ts";
 
 /**
  * Phase 4 可选增强测试套件

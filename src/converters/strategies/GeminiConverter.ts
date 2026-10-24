@@ -15,7 +15,7 @@ import {
     geminiUsageToOpenAI,
     geminiUsageToResponses,
     geminiUsageToAnthropic
-} from '../utils.js';
+} from '../utils.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
 import { getConfigToggle } from '../../core/config-manager.js';
@@ -395,7 +395,7 @@ export class GeminiConverter extends BaseConverter {
             }
         }
 
-        // 处理finishReason（映射表统一收编至 converters/utils.js 的 mapFinishReason）
+        // 处理finishReason（映射表统一收编至 converters/utils.ts 的 mapFinishReason）
         // 只有上游明确给出 finishReason 时才写终止原因；工具 chunk 本身不是流终点。
         // 若在工具 chunk 上提前写 tool_calls，Agent 客户端会把该 chunk 当作流结束，
         // 从而丢掉后续正文/工具参数。最终 STOP 帧由 pipeline 的 hasToolCall 逻辑覆盖。

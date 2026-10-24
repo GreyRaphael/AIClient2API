@@ -21,8 +21,8 @@ import {
     isSignatureVaultEnabled,
     isSignatureStrippingEnabled
 } from '../src/converters/signature-vault.ts';
-import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
-import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
+import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.ts';
+import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.ts';
 
 describe('Phase 2: 签名金库 (Signature Vault)', () => {
     const originalSecret = getVaultSecret();

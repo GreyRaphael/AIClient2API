@@ -1,6 +1,6 @@
 import { describe, test, expect } from '@jest/globals';
-import { applyEstimatedReasoningTokens } from '../src/converters/utils.js';
-import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
+import { applyEstimatedReasoningTokens } from '../src/converters/utils.ts';
+import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.ts';
 
 describe('reasoning_tokens 估算', () => {
     test('缺失 reasoning_tokens 时按文本估算并标记 estimated', () => {

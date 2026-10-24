@@ -7,7 +7,7 @@
 import {v4 as uuidv4} from 'uuid';
 import logger from '../../utils/logger.js';
 import {BaseConverter} from '../BaseConverter.ts';
-import {CodexConverter} from './CodexConverter.js';
+import {CodexConverter} from './CodexConverter.ts';
 import {StreamSessionStore} from '../stream-session.ts';
 import {
     cleanJsonSchemaForOpenAI,
@@ -20,7 +20,7 @@ import {
     sortToolsByName,
     logOmittedCacheControl,
     applyEstimatedReasoningTokens
-} from '../utils.js';
+} from '../utils.ts';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.js';
 import {getConfigToggle} from '../../core/config-manager.js';
 import {effortToGeminiThinking} from '../thinking-budget.ts';

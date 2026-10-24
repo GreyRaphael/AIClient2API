@@ -1377,7 +1377,7 @@ export class ZedApiService {
 
                     if (candidate.finishReason) {
                         yield* closeActiveBlock();
-                        // 映射表统一收编至 converters/utils.js 的 mapFinishReason（SAFETY 族->refusal）；
+                        // 映射表统一收编至 converters/utils.ts 的 mapFinishReason（SAFETY 族->refusal）；
                         // sawToolUse 无条件优先（zed 现行外部行为保持不变）
                         const stopReason = sawToolUse
                             ? 'tool_use'

@@ -1,6 +1,6 @@
 import { describe, test, expect } from '@jest/globals';
-import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
-import { geminiUsageToOpenAI } from '../src/converters/utils.js';
+import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.ts';
+import { geminiUsageToOpenAI } from '../src/converters/utils.ts';
 
 const MODEL = 'gemini-3.8-flash-high';
 const USAGE = {

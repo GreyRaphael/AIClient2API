@@ -1,10 +1,10 @@
 import '../src/converters/register-converters.ts';
 import { convertData } from '../src/convert/convert.js';
 import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.js';
-import { mapFinishReason } from '../src/converters/utils.js';
-import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
-import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.js';
-import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.js';
+import { mapFinishReason } from '../src/converters/utils.ts';
+import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.ts';
+import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.ts';
+import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.ts';
 import { ConverterFactory } from '../src/converters/ConverterFactory.ts';
 import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.js';
 
@@ -313,7 +313,7 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
     });
 
     test('Fix 10: Gemini schema parameters filters empty and whitespace-only enum values', async () => {
-        const { cleanJsonSchemaProperties } = await import('../src/converters/utils.js');
+        const { cleanJsonSchemaProperties } = await import('../src/converters/utils.ts');
 
         // 1. 直接针对 cleanJsonSchemaProperties 进行单元测试
         const schema = {

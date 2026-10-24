@@ -1,7 +1,7 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
 import { describe, test, expect } from '@jest/globals';
-import { CodexConverter } from '../src/converters/strategies/CodexConverter.js';
+import { CodexConverter } from '../src/converters/strategies/CodexConverter.ts';
 import { CodexApiService } from '../src/providers/openai/codex-core.js';
 import { resolveProviderCapabilities } from '../src/providers/provider-capabilities.js';
 

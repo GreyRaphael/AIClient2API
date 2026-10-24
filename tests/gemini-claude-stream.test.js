@@ -5,7 +5,7 @@
  * message_start -> content_block_start -> content_block_delta* -> content_block_stop -> message_delta -> message_stop
  */
 
-import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.js';
+import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.ts';
 import { isVirtualSignature } from '../src/converters/signature-vault.ts';
 
 describe('Gemini -> Claude stream 事件序列合规', () => {

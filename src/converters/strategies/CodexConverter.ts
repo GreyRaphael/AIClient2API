@@ -11,7 +11,7 @@ import { StreamSessionStore } from '../stream-session.ts';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.ts';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
-import { sortToolsByName, anthropicUsageFromInclusiveInput, applyEstimatedReasoningTokens } from '../utils.js';
+import { sortToolsByName, anthropicUsageFromInclusiveInput, applyEstimatedReasoningTokens } from '../utils.ts';
 import {
     customInputToFunctionArguments,
     extractCustomToolInput
