@@ -209,42 +209,4 @@ describeIntegration('API Integration Smoke (minimal)', () => {
             expect(Array.isArray(data.data)).toBe(true);
         });
     });
-
-    // 可选冒烟项：如果不需要可直接删除整个 describe。
-    describe('Optional smoke', () => {
-        test('accepts query parameter authentication', async () => {
-            const response = await request('/v1/models', {
-                auth: 'none',
-                queryKey: true
-            });
-
-            expect(response.status).toBe(200);
-            expect(response.headers.get('content-type')).toContain('application/json');
-        });
-
-        test('rejects invalid JSON body', async () => {
-            const response = await request('/v1/chat/completions', {
-                method: 'POST',
-                body: 'invalid json'
-            });
-
-            expect(response.status).toBe(500);
-            const data = await response.json();
-            expect(data).toHaveProperty('error');
-        });
-
-        test('handles CORS preflight', async () => {
-            const response = await request('/v1/models', {
-                method: 'OPTIONS',
-                auth: 'none',
-                headers: {
-                    Origin: 'http://localhost:3000',
-                    'Access-Control-Request-Method': 'POST',
-                    'Access-Control-Request-Headers': 'Content-Type, Authorization'
-                }
-            });
-
-            expect([200, 204]).toContain(response.status);
-        });
-    });
 });

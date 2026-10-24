@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - 新增 `tests/v4-1-6-regressions.test.js`（9 个 P1/P2 回归用例）。
-- 清理过时的跨协议评估/优化文档；评估入口后续见 [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)。
+- 清理过时的跨协议评估/优化文档；评估入口后续见 [`docs/archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](docs/archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)。
 - 清理 E2E 测试中未使用的 `addQuotaFailure` 别名。
 
 ### Verification
@@ -219,7 +219,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 删除 Codex `if(true)` 死代码、Grok 占位解构、未使用 Emitter API/常量、pipeline 不可达 Gemini 分支。
   - 移除 Grok 静态共享 UUID/baseUrl，改为请求级状态。
   - 新增 `tests/cross-protocol-v4-fixes.test.js`（18 个回归测试）。
-- 文档：跨协议转译复评后续收敛到 [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)（历史复评文档已在 v4.1.7 清理）。
+- 文档：跨协议转译复评后续收敛到 [`docs/archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](docs/archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)（历史复评文档已在 v4.1.7 清理）。
 
 ### Verification
 
@@ -429,7 +429,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **流式会话状态存储器 (StreamSessionStore)**：
   - 引入统一的带 TTL 的 `StreamSessionStore` 管理多协议转码过程中的临时会话上下文，解决长连接会话泄漏隐患。
 - **架构设计规范**：
-  - 新增 `docs/CONVERTER_STREAM_DESIGN.md` 流式转换共享层设计规范。
+  - 新增 `docs/archive/CONVERTER_STREAM_DESIGN.md` 流式转换共享层设计规范。
 
 ### Changed (变更)
 - **finish_reason 统一归一化**：

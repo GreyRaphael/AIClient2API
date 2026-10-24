@@ -76,7 +76,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 - 异常中断后由 TTL 兜底回收；
 - 状态所有权从全局单例收编到 Converter 的 `StreamSessionStore`。
 
-详细设计见 [`docs/CONVERTER_STREAM_DESIGN.md`](./CONVERTER_STREAM_DESIGN.md)。
+详细设计见 [`docs/CONVERTER_STREAM_DESIGN.md`](./archive/CONVERTER_STREAM_DESIGN.md)。
 
 ---
 
@@ -118,8 +118,8 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 | 文档 | 内容 |
 |---|---|
 | [`docs/PROVIDER_ADAPTER_GUIDE.md`](./PROVIDER_ADAPTER_GUIDE.md) | 新增 provider 的接入契约 |
-| [`docs/CONVERTER_STREAM_DESIGN.md`](./CONVERTER_STREAM_DESIGN.md) | 流式共享层设计 |
-| [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](./CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md) | 2026-10-23 当前代码（`87a8d95`）19 模型全量 E2E、残留问题收口与核心转译 review（当前） |
+| [`docs/CONVERTER_STREAM_DESIGN.md`](./archive/CONVERTER_STREAM_DESIGN.md) | 流式共享层设计 |
+| [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](./archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md) | 2026-10-23 当前代码（`87a8d95`）19 模型全量 E2E、残留问题收口与核心转译 review（当前） |
 | [`docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`](./TRAE_CHANNELS_UPSTREAM_GUIDE.md) | Trae 三通道上游细节 |
 | [`docs/ANTIGRAVITY_NOTES.md`](./ANTIGRAVITY_NOTES.md) | Antigravity 模型发现与思考机制 |
 
@@ -129,5 +129,5 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 
 - 本文档是跨协议架构的当前入口；架构变化时优先更新本文。
 - 历史评估/优化文档不再保留在仓库；需要追溯时查看 git 历史。
-- 当前评估矩阵见 [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](./CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)，历史矩阵不再作为当前实现说明。
+- 当前评估矩阵见 [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](./archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)，历史矩阵不再作为当前实现说明。
 - 新增模型代际策略时，同步更新第 2 节与 `thinking-budget.js` 的测试。

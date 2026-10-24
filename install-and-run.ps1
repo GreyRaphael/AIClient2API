@@ -42,11 +42,9 @@ if (-not (Test-Path "package.json")) {
     exit 1
 }
 
-# Determine package manager
-$pkgManager = if (Get-Command pnpm -ErrorAction SilentlyContinue) { "pnpm" } else { "npm" }
-Write-Host "[INSTALL] Installing/updating dependencies using $pkgManager..." -ForegroundColor Cyan
+Write-Host "[INSTALL] Installing/updating dependencies using npm..." -ForegroundColor Cyan
 
-& $pkgManager install
+& npm install
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Dependency installation failed. Please check your network connection." -ForegroundColor Red
     Pause

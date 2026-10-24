@@ -79,7 +79,7 @@
 
 ## 📚 相关文档
 
-- [跨协议转译复评（19 模型全量 E2E · 2026-10-23）](docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)
+- [跨协议转译复评（19 模型全量 E2E · 2026-10-23）](docs/archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md)
 - [跨协议架构](docs/CROSS_PROTOCOL_ARCHITECTURE.md)
-- [流式转换设计](docs/CONVERTER_STREAM_DESIGN.md)
+- [流式转换设计](docs/archive/CONVERTER_STREAM_DESIGN.md)
 - [Provider 适配指南](docs/PROVIDER_ADAPTER_GUIDE.md)

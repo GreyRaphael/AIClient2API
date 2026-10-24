@@ -64,21 +64,14 @@ fi
 
 echo "[成功] 找到package.json文件"
 
-# 检查 pnpm 是否安装
-if command -v pnpm > /dev/null 2>&1; then
-    PKG_MANAGER=pnpm
-else
-    PKG_MANAGER=npm
-fi
-
-echo "[安装] 正在使用 $PKG_MANAGER 安装/更新依赖..."
+echo "[安装] 正在使用 npm 安装/更新依赖..."
 echo "这可能需要几分钟时间，请耐心等待..."
-echo "正在执行: $PKG_MANAGER install..."
+echo "正在执行: npm install..."
 
-$PKG_MANAGER install
+npm install
 if [ $? -ne 0 ]; then
     echo "[错误] 依赖安装失败"
-    echo "请检查网络连接或手动运行 '$PKG_MANAGER install'"
+    echo "请检查网络连接或手动运行 'npm install'"
     exit 1
 fi
 echo "[成功] 依赖安装/更新完成"

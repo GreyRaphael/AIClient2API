@@ -38,7 +38,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # 构建时代理（如果提供了的话）
-RUN npm install || npm install --ignore-scripts
+RUN npm ci --ignore-scripts || npm install --ignore-scripts
 
 # 复制源代码
 COPY . .
