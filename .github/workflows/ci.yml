@@ -35,6 +35,9 @@ jobs:
       - name: 类型检查
         run: npm run typecheck
 
+      - name: 严格度棘轮检查
+        run: npm run check:strict
+
       - name: 运行时导入完整性检查
         run: npm run check:imports
 

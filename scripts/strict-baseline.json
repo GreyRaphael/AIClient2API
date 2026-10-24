@@ -1,0 +1,14 @@
+{
+  "total": 3166,
+  "directories": {
+    "auth": 243,
+    "convert": 7,
+    "converters": 521,
+    "core": 374,
+    "handlers": 197,
+    "providers": 913,
+    "scripts": 22,
+    "services": 202,
+    "ui-modules": 687
+  }
+}
