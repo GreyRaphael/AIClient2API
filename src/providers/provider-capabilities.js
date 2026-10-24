@@ -1,4 +1,5 @@
 // @ts-check
+import { getBuiltinProviderCapabilityRules } from './provider-registry.js';
 /**
  * 统一 Provider 能力声明
  *
@@ -53,57 +54,7 @@ const CAPABILITY_KEY_SET = new Set(CAPABILITY_KEYS);
 /**
  * 内置 provider 规则。仅保留无法从上游元数据获知、且经实测确认的硬约束。
  */
-const BUILTIN_PROVIDER_RULES = {
-    // 多数第三方 OpenAI 兼容端点对“指定 function”的 tool_choice 支持不完整：
-    // 有的返回空 200，有的直接超时。统一降级为 required + 收窄 tools，
-    // 语义上仍保证“必须调用该工具”；标准 OpenAI 端点可通过配置覆盖回 true。
-    'openai-custom': [
-        {
-            match: () => true,
-            capabilities: {
-                supportsForcedToolChoice: false
-            }
-        }
-    ],
-    // Zed 的 Claude 5.x 已弃用 temperature，且不支持强制 tool_choice。
-    zed: [
-        {
-            match: 'claude-*-5*',
-            capabilities: {
-                supportsTemperature: false,
-                supportsForcedToolChoice: false
-            }
-        },
-        {
-            // Zed Google 通道对多轮 functionCall/functionResponse 历史返回 500；
-            // 通过能力位改为明确的客户端错误，避免把空 500 透传。
-            match: 'gemini-*',
-            capabilities: {
-                supportsToolResultHistory: false
-            }
-        }
-    ],
-    // Codex 使用 Responses 规范，max_output_tokens 作为标准字段透传；
-    // 若上游忽略该字段，由客户端超时/取消兜底，而不是网关静默删除。
-    'openai-codex-oauth': [
-        {
-            match: () => true,
-            capabilities: {
-                supportsMaxOutputTokens: true
-            }
-        }
-    ],
-    // Antigravity 仅 Gemini 原生模型的 streamGenerateContent 不返回 thought 文本，
-    // 只有非流式 generateContent 才带 thought parts；Claude 与 GPT 走标准流式输出。
-    'gemini-antigravity': [
-        {
-            match: (model) => !/(claude|gpt)/i.test(String(model || '')),
-            capabilities: {
-                supportsStreamingThoughts: false
-            }
-        }
-    ]
-};
+const BUILTIN_PROVIDER_RULES = getBuiltinProviderCapabilityRules();
 
 function wildcardToRegExp(pattern) {
     if (pattern instanceof RegExp) return pattern;

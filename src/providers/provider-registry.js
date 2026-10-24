@@ -12,6 +12,14 @@ export const PROVIDER_DEFINITIONS = [
     {
         type: MODEL_PROVIDER.ANTIGRAVITY,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.GEMINI,
+        // Gemini 原生模型的 streamGenerateContent 不返回 thought 文本；
+        // Claude / GPT 走标准流式输出。
+        capabilityRules: [
+            {
+                match: (model) => !/(claude|gpt)/i.test(String(model || '')),
+                capabilities: { supportsStreamingThoughts: false }
+            }
+        ],
         healthCheckModel: 'gemini-3-flash',
         credentialPathKey: 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Antigravity',
@@ -20,14 +28,7 @@ export const PROVIDER_DEFINITIONS = [
         capabilityTtlMs: 30 * 60 * 1000,
         staticModels: [
             'gemini-3.8-flash-high',
-            'gemini-3.7-flash-high',
-            'gemini-3.6-flash-high',
-            'gemini-3.1-pro-high',
-            'gemini-3.1-flash-image',
-            'claude-sonnet-5-5-high',
-            'claude-opus-5-5-high',
-            'claude-sonnet-4-6',
-            'claude-opus-4-6-thinking'
+            'gemini-3.1-pro-high'
         ],
         providerUtils: {
             mappingOrder: 2,
@@ -82,6 +83,13 @@ export const PROVIDER_DEFINITIONS = [
     {
         type: MODEL_PROVIDER.OPENAI_CUSTOM,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.OPENAI,
+        // 多数第三方 OpenAI 兼容端点对“指定 function”的 tool_choice 支持不完整。
+        capabilityRules: [
+            {
+                match: () => true,
+                capabilities: { supportsForcedToolChoice: false }
+            }
+        ],
         healthCheckModel: 'gpt-5.5',
         staticModels: []
     },
@@ -94,6 +102,13 @@ export const PROVIDER_DEFINITIONS = [
     {
         type: MODEL_PROVIDER.CODEX_API,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.CODEX,
+        // Codex 使用 Responses 规范，max_output_tokens 作为标准字段透传。
+        capabilityRules: [
+            {
+                match: () => true,
+                capabilities: { supportsMaxOutputTokens: true }
+            }
+        ],
         healthCheckModel: 'gpt-5.5',
         credentialPathKey: 'CODEX_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Codex',
@@ -101,11 +116,6 @@ export const PROVIDER_DEFINITIONS = [
         dynamicModels: true,
         capabilityTtlMs: 30 * 60 * 1000,
         staticModels: [
-            'gpt-6-astra',
-            'gpt-6.1-sol',
-            'gpt-6-sol',
-            'gpt-6-luna',
-            'gpt-5.6-terra',
             'gpt-5.6-luna',
             'gpt-5.5'
         ],
@@ -122,33 +132,27 @@ export const PROVIDER_DEFINITIONS = [
     {
         type: MODEL_PROVIDER.ZED,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.CLAUDE,
+        // Zed Claude 5.x 已弃用 temperature，且不支持强制 tool_choice；
+        // Zed Google 通道不支持多轮 functionCall/functionResponse 历史。
+        capabilityRules: [
+            {
+                match: 'claude-*-5*',
+                capabilities: { supportsTemperature: false, supportsForcedToolChoice: false }
+            },
+            {
+                match: 'gemini-*',
+                capabilities: { supportsToolResultHistory: false }
+            }
+        ],
         healthCheckModel: 'gpt-5-nano',
         credentialPathKey: 'ZED_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Zed',
         dynamicModels: true,
         capabilityTtlMs: 60 * 60 * 1000,
         staticModels: [
-            'claude-sonnet-5-5',
             'claude-sonnet-5',
-            'claude-sonnet-4-6',
-            'claude-sonnet-4-5',
-            'claude-haiku-4-5',
-            'gpt-6.1-sol',
-            'gpt-6-sol',
             'gpt-6-luna',
-            'gpt-5.6-sol',
-            'gpt-5.6-terra',
-            'gpt-5.6-luna',
-            'gpt-5.5',
-            'gpt-5.4',
-            'gpt-5.3-codex',
-            'gpt-5.2',
-            'gpt-5-mini',
-            'gpt-5-nano',
-            'gemini-3.1-pro-preview',
-            'gemini-3.8-flash',
-            'gemini-3.5-flash',
-            'gemini-3-flash'
+            'gemini-3.8-flash'
         ],
         providerUtils: {
             mappingOrder: 4,
@@ -166,30 +170,8 @@ export const PROVIDER_DEFINITIONS = [
         dynamicModels: true,
         capabilityTtlMs: 60 * 60 * 1000,
         staticModels: [
-            'Doubao-Seed-Evolving',
-            'Doubao-Seed-2.1-pro',
-            'Doubao-Seed-2.1-turbo',
-            'Doubao-Seed-2.0-Code',
-            'Doubao_1_6',
-            'glm-5.3-flashx',
-            'step-5-preview',
-            'glm-5.3-flash',
-            'glm-5.3',
             'glm-5.2',
-            'glm-5v-turbo',
-            'minimax-m3',
-            'minimax-m2.7',
-            'qwen3.8-max',
-            'qwen-3.7-plus',
-            'kimi-k2.8-preview',
-            'kimi-k3',
-            'kimi-k2.7-code',
-            'mimo-v2.6-pro',
-            'mimo-v2.6-flash',
-            'DeepSeek-V4.1-Flash',
-            'DeepSeek-V4-Pro-Official',
-            'deepseek-V4-Pro',
-            'DeepSeek-V4-Flash-Official'
+            'DeepSeek-V4.1-Flash'
         ],
         credentialPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Trae',
@@ -211,25 +193,8 @@ export const PROVIDER_DEFINITIONS = [
         credentialPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Trae',
         staticModels: [
-            'Doubao-Seed-Evolving',
-            'Doubao-Seed-2.1-Pro',
-            'Doubao-Seed-2.1-Turbo',
-            'mimo-v2.6-flash',
-            'mimo-v2.6-pro',
-            'step-5-preview',
-            'glm-5.3-flashx',
-            'glm-5.3-flash',
-            'glm-5.3',
             'glm-5.2',
-            'deepseek-v4.1-flash',
-            'DeepSeek-V4-Flash-Official',
-            'DeepSeek-V4-Pro-Official',
-            'kimi-k3',
-            'kimi-k2.7-code',
-            'kimi-k2.6',
-            'minimax-m3',
-            'qwen3.8-max',
-            'qwen-3.7-plus'
+            'deepseek-v4.1-flash'
         ]
     },
     {
@@ -240,26 +205,8 @@ export const PROVIDER_DEFINITIONS = [
         credentialPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Trae',
         staticModels: [
-            'Doubao-Seed-Evolving',
-            'Doubao-Seed-2.1-Pro',
-            'Doubao-Seed-2.1-Turbo',
-            'Doubao-Seed-Code',
-            'mimo-v2.6-flash',
-            'mimo-v2.6-pro',
-            'step-5-preview',
-            'glm-5.3-flashx',
-            'glm-5.3-flash',
-            'glm-5.3',
             'glm-5.2',
-            'deepseek-v4.1-flash',
-            'DeepSeek-V4-Flash-Official',
-            'DeepSeek-V4-Pro-Official',
-            'kimi-k3',
-            'kimi-k2.8-preview',
-            'minimax-m3',
-            'qwen3.8-flash',
-            'qwen3.8-max',
-            'qwen-3.7-plus'
+            'qwen3.8-flash'
         ]
     }
 ];
@@ -279,6 +226,18 @@ export function getProviderDefinition(providerType) {
     if (exact) return exact;
 
     return DEFINITIONS_BY_LONGEST_TYPE.find(item => providerType.startsWith(item.type + '-')) || null;
+}
+
+/**
+ * 派生内置 provider 能力规则。
+ * @returns {Object<string, Object[]>}
+ */
+export function getBuiltinProviderCapabilityRules() {
+    return Object.fromEntries(
+        PROVIDER_DEFINITIONS
+            .filter(item => item.capabilityRules)
+            .map(item => [item.type, item.capabilityRules])
+    );
 }
 
 /**

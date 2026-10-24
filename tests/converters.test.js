@@ -277,15 +277,10 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         const { PROVIDER_MODELS } = require('../src/providers/provider-models.js');
         const antigravityModels = PROVIDER_MODELS['gemini-antigravity'];
 
+        // 静态清单只保留少量冷启动 baseline，完整模型以 /auto/v1/models 发现结果为准。
         expect(antigravityModels).toContain('gemini-3.8-flash-high');
-        expect(antigravityModels).toContain('gemini-3.7-flash-high');
-        expect(antigravityModels).toContain('gemini-3.6-flash-high');
         expect(antigravityModels).toContain('gemini-3.1-pro-high');
-        expect(antigravityModels).toContain('gemini-3.1-flash-image');
-        expect(antigravityModels).toContain('claude-sonnet-5-5-high');
-        expect(antigravityModels).toContain('claude-opus-5-5-high');
-        expect(antigravityModels).toContain('claude-sonnet-4-6');
-        expect(antigravityModels).toContain('claude-opus-4-6-thinking');
+        expect(antigravityModels.length).toBeGreaterThan(0);
 
         // 确保不包含任何 tiered、medium/low/lite 降级模型或内部测试模型及重复前缀
         expect(antigravityModels.some(m => m.includes('-tiered'))).toBe(false);

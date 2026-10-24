@@ -49,26 +49,40 @@ npm run test:e2e
 - usage 不变量（部分路径强断言：`responses_stream` 与 `responses_tool` 对所有模型检查 `output_tokens >= reasoning_tokens`；`chat_text`、`chat_stream`、`responses_text` 仅对 `gemini-antigravity:*` 检查）
 - Reasoning/thinking 存在性作为非阻塞 `[E2E warnings]` 输出（部分 Provider/模型如 Zed 的 Claude/Gemini 分支不向外暴露 thinking block）。
 
-### 定向用例（16 项）
+### 通用定向契约（6 项，默认运行）
 
 - openai-custom 指定 function 强制 `tool_choice` 在 30s 内返回
 - 多模态模型 32×32 红图识别
-- Zed Gemini 多轮工具历史降级为文本并返回 200
-- Gemini 流式 thinking 回退后仍返回 reasoning
-- Gemini max_tokens 截断不触发空响应重试
-- GPT 模型 3 次采样 reasoning
-- DeepSeek 模型三协议 reasoning 一致性
-- DeepSeek 模型 CoT-present Chat / Claude 多轮工具回放
-- oneOf 对象分支合并后字段名保持正确
-- OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗
 - 上游 4xx 错误响应保留可读细节
-- 多 system 消息折叠后模型遵循唯一指令标记（`ZEBRA42`）
 - 三下游协议（Chat / Responses / Claude）流式工具调用生命周期完整
 - Responses→Gemini input 内 developer 消息与 `text.format` JSON Schema 结构化输出
 - Responses→Gemini 仅 system/developer 消息返回本地 400，不请求上游
 
 > 定向用例不再硬编码具体模型：从 `/auto/v1/models` 按 provider 前缀和模型名特征动态选择。
 > 测试名会显示实际选中的模型；若没有匹配模型（例如某个 provider 被移除或模型下线），该用例自动 `skip`，不会误报失败。
+
+### Provider 方言 canary（4 项，opt-in）
+
+```bash
+npm run test:e2e:providers
+```
+
+- Zed Gemini 多轮工具历史降级为文本并返回 200
+- OpenAI → Zed Claude 多轮工具历史中的非法 tool id 被清洗
+- Gemini 流式 thinking 回退后仍返回 reasoning
+- Gemini max_tokens 截断不触发空响应重试
+
+这些用例依赖特定 provider 的方言行为，默认不随通用 E2E 运行，避免日常回归被单一 provider 绑架。
+
+### 已移除的模型行为抽样
+
+以下用例测的是模型采样/质量，而不是网关正确性，已从 E2E 移除；对应映射逻辑由确定性单测覆盖（`tests/converters.test.js`、`tests/openai-claude-stream.test.js`、`tests/regressions/cross-protocol.test.js` 等）：
+
+- GPT 3 次采样 reasoning
+- DeepSeek 三协议 reasoning 一致性
+- CoT-present Chat / Claude 多轮工具回放
+- `oneOf` schema 合并（已由 `tests/schema-polyfill.test.js` 覆盖）
+- 多 system 折叠（已由 `tests/regressions/conversion-enhancements.test.js` 覆盖）
 
 ## 长尾重试与故障分类
 
@@ -89,7 +103,7 @@ npm run test:e2e
 
 ## 注意
 
-- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 19 个模型时约 209 次核心请求，另有 16 项定向用例。
+- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 19 个模型时约 209 次核心请求，另有 6 项通用定向契约。4 项 provider 方言 canary 仅在 `test:e2e:providers` 中运行。
 - 建议使用独立实例端口，避免影响主实例。
 - 默认串行执行（`--runInBand`），避免并发触发上游限流。
 - 发布前建议至少跑一次默认全量矩阵；仅本地快速回归时可传 `AICLIENT_E2E_MODELS=...` 子集。

@@ -30,10 +30,10 @@ describe('Trae Provider Implementation Tests', () => {
         expect(PROVIDER_MODELS['trae-solo_work_lite']).not.toContain('auto');
         expect(PROVIDER_MODELS['trae-chat_v3']).not.toContain('auto');
 
-        expect(PROVIDER_MODELS['trae-solo_work_lite']).toContain('Doubao-Seed-2.1-Pro');
+        // 静态清单只保留少量冷启动 baseline，完整模型以 /auto/v1/models 发现结果为准。
+        expect(PROVIDER_MODELS['trae']).toContain('glm-5.2');
         expect(PROVIDER_MODELS['trae-solo_work_lite']).toContain('deepseek-v4.1-flash');
         expect(PROVIDER_MODELS['trae-chat_v3']).toContain('qwen3.8-flash');
-        expect(PROVIDER_MODELS['trae-chat_v3']).toContain('Doubao-Seed-Code');
     });
 
     test('TraeApiService.prepareRequestBody formats request for ToB raw chat upstream by default', () => {
@@ -277,12 +277,10 @@ describe('Trae Provider Implementation Tests', () => {
         });
 
         const fallback = traeService._getFallbackModels();
-        expect(fallback.length).toBeGreaterThan(5);
+        expect(fallback.length).toBeGreaterThanOrEqual(2);
         const ids = fallback.map(m => m.id);
         expect(ids).toContain('DeepSeek-V4.1-Flash');
-        expect(ids).toContain('deepseek-V4-Pro');
         expect(ids).toContain('glm-5.2');
-        expect(ids).toContain('qwen-3.7-plus');
 
         const deepseekModel = fallback.find(m => m.id === 'DeepSeek-V4.1-Flash');
         expect(deepseekModel).toBeDefined();
@@ -346,12 +344,9 @@ describe('Trae Provider Implementation Tests', () => {
         const res = await traeService.listModels();
         const modelIds = res.data.map(m => m.id);
 
-        // 必须使用底层 ID
-        expect(modelIds).toContain('DeepSeek-V4-Pro-Official');
-        expect(modelIds).toContain('DeepSeek-V4-Flash-Official');
-        expect(modelIds).toContain('Doubao-Seed-2.1-pro');
+        // 必须使用底层 ID（静态 baseline；完整列表以 /auto/v1/models 为准）
         expect(modelIds).toContain('DeepSeek-V4.1-Flash');
-        expect(modelIds).toContain('glm-5.3');
+        expect(modelIds).toContain('glm-5.2');
 
         // 严禁将中文显示名作为模型 ID
         expect(modelIds).not.toContain('DeepSeek-V4-Pro 正式版');
@@ -364,13 +359,13 @@ describe('Trae Provider Implementation Tests', () => {
         expect(modelIds.some(id => id.toLowerCase().includes('claude'))).toBe(false);
 
         // 验证 1M context_window 与 reasoning
-        const deepseekOfficial = res.data.find(m => m.id === 'DeepSeek-V4-Pro-Official');
-        expect(deepseekOfficial).toBeDefined();
-        expect(deepseekOfficial.context_window).toBe(1000000);
-        expect(deepseekOfficial.max_tokens).toBe(64000);
-        expect(deepseekOfficial.supports_thinking).toBe(true);
-        expect(deepseekOfficial.default_reasoning_effort).toBe('high');
-        expect(deepseekOfficial.reasoning_effort_levels).toEqual(['low', 'high', 'xhigh']);
+        const deepseekModel = res.data.find(m => m.id === 'DeepSeek-V4.1-Flash');
+        expect(deepseekModel).toBeDefined();
+        expect(deepseekModel.context_window).toBe(1000000);
+        expect(deepseekModel.max_tokens).toBe(64000);
+        expect(deepseekModel.supports_thinking).toBe(true);
+        expect(deepseekModel.default_reasoning_effort).toBe('high');
+        expect(deepseekModel.reasoning_effort_levels).toEqual(['low', 'high', 'xhigh']);
     });
 
     test('TraeApiService.normalizeModelName handles aliases, mixed casing and dynamic resolution', () => {

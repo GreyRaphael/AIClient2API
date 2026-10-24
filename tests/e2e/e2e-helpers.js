@@ -14,6 +14,11 @@ export const E2E_SYSTEM = SYSTEM;
 export const E2E_MATH_QUESTION = 'What is 17*23? Reply with the number only.';
 export const E2E_WEATHER_QUESTION = 'What is the weather in Paris? Use the get_weather tool.';
 
+// 32×32 纯红 PNG，用于多模态转译断言
+export const E2E_RED_32_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg==';
+
+export const E2E_HARD_REASONING_PROMPT = 'A farmer has 17 sheep. All but 9 run away. Then he buys 3 times as many sheep as remain, and sells 5. How many sheep does he have now? Show your step-by-step reasoning.';
+
 export function resolveApiKey() {
     if (process.env.AICLIENT_API_KEY) return process.env.AICLIENT_API_KEY;
     const configPath = process.env.AICLIENT_CONFIG_PATH
