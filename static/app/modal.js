@@ -399,7 +399,7 @@ function showProviderManagerModal(data, initialSearchTerm = '') {
                         <button class="btn btn-success" onclick="window.showAddProviderForm('${providerType}')">
                             <i class="fas fa-plus"></i> <span data-i18n="modal.provider.add">添加新提供商</span>
                         </button>
-                        ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'zed', 'trae'].includes(providerType) || providerType.startsWith('trae-') ? `
+                        ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'zed', 'trae'].includes(providerType) || providerType.startsWith('trae-') ? `
                         <button class="btn btn-primary generate-auth-btn-modal" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                             <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
                         </button>
@@ -541,7 +541,6 @@ function getFilteredProviders() {
             p.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH,
             p.CODEX_OAUTH_CREDS_FILE_PATH,
             p.CODEX_VERSION,
-            p.GROK_CLI_OAUTH_CREDS_FILE_PATH,
             p.ZED_OAUTH_CREDS_FILE_PATH,
             p.TRAE_OAUTH_CREDS_FILE_PATH,
             p.checkModelName
@@ -1214,8 +1213,6 @@ function getFieldOrder(provider) {
             providerType = 'gemini-antigravity';
         } else if (provider.CODEX_OAUTH_CREDS_FILE_PATH) {
             providerType = 'openai-codex-oauth';
-        } else if (provider.GROK_CLI_OAUTH_CREDS_FILE_PATH) {
-            providerType = 'grok-cli-oauth';
         } else if (provider.ZED_OAUTH_CREDS_FILE_PATH) {
             providerType = 'zed';
         } else if (provider.TRAE_OAUTH_CREDS_FILE_PATH) {
@@ -1597,7 +1594,7 @@ function showAddProviderForm(providerType) {
             <button class="btn btn-success" onclick="window.addProvider('${providerType}')">
                 <i class="fas fa-save"></i> <span data-i18n="modal.provider.save">保存</span>
             </button>
-            ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'grok-cli-oauth', 'zed', 'trae'].includes(providerType) || providerType.startsWith('trae-') ? `
+            ${['gemini-antigravity', 'claude-kiro-oauth', 'openai-codex-oauth', 'zed', 'trae'].includes(providerType) || providerType.startsWith('trae-') ? `
             <button type="button" class="btn btn-primary" onclick="window.handleGenerateAuthUrl('${providerType}')" title="${t('providers.auth.generateTitle') || '生成授权'}">
                 <i class="fas fa-key"></i> <span>${t('providers.auth.generate') || '生成授权'}</span>
             </button>

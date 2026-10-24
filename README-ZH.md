@@ -4,7 +4,7 @@
 
 # AIClient2API（A2）🚀
 
-**一个能将多种仅客户端内使用的大模型 API（Antigravity, Codex, Grok, Kiro ...），模拟请求，统一封装为本地 OpenAI 兼容接口的强大代理。**
+**一个能将多种仅客户端内使用的大模型 API（Antigravity, Codex, Kiro ...），模拟请求，统一封装为本地 OpenAI 兼容接口的强大代理。**
 
 </div>
 
@@ -144,7 +144,7 @@
 
 ## 🚀 项目概览
 
-`AIClient2API` 是一个突破客户端限制的 API 代理服务，将 Gemini、Antigravity、Codex, Grok、Kiro 等原本仅限客户端内使用的免费大模型，转换为可供任何应用调用的标准 OpenAI 兼容接口。基于 Node.js 构建，支持 OpenAI、Claude、Gemini 三大协议的智能互转，让 Cherry-Studio、NextChat、Cline 等工具能够免费大量使用 Claude Opus、Gemini Pro 等高级模型。项目采用策略模式和适配器模式的模块化架构，内置账号池管理、智能轮询、自动故障转移和健康检查机制，确保 99.9% 的服务可用性。
+`AIClient2API` 是一个突破客户端限制的 API 代理服务，将 Gemini、Antigravity、Codex、Kiro 等原本仅限客户端内使用的免费大模型，转换为可供任何应用调用的标准 OpenAI 兼容接口。基于 Node.js 构建，支持 OpenAI、Claude、Gemini 三大协议的智能互转，让 Cherry-Studio、NextChat、Cline 等工具能够免费大量使用 Claude Opus、Gemini Pro 等高级模型。项目采用策略模式和适配器模式的模块化架构，内置账号池管理、智能轮询、自动故障转移和健康检查机制，确保 99.9% 的服务可用性。
 
 > [!NOTE]
 > **🎉 重要里程碑**
@@ -199,14 +199,14 @@
 >   ```
 
 ### 🎯 统一接入，一站式管理
-*   **多模型统一接口**：通过标准 OpenAI 兼容协议，一次配置即可接入 Gemini、Claude、Grok、Codex、Kimi、MiniMax 等主流大模型
+*   **多模型统一接口**：通过标准 OpenAI 兼容协议，一次配置即可接入 Gemini、Claude、Codex、Kimi、MiniMax 等主流大模型
 *   **灵活切换机制**：Path 路由、支持通过启动参数、环境变量三种方式动态切换模型，满足不同场景需求
 *   **零成本迁移**：完全兼容 OpenAI API 规范，Cherry-Studio、NextChat、Cline 等工具无需修改即可使用
-*   **多协议智能转换**：下游支持 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议，上游可接入 Gemini、Claude、Grok、Codex、Kiro 等提供方并自动转换
+*   **多协议智能转换**：下游支持 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议，上游可接入 Gemini、Claude、Codex、Kiro 等提供方并自动转换
 
 ### 🚀 突破限制，提升效率
 *   **绕过官方限制**：利用 OAuth 授权机制，有效突破 Gemini, Antigravity 等服务的免费 API 速率和配额限制
-*   **TLS 指纹绕过**：内置 TLS Sidecar (Go uTLS) 模拟浏览器特征，有效绕过 Grok 等服务的 Cloudflare 403 封锁
+*   **TLS 指纹绕过**：内置 TLS Sidecar (Go uTLS) 模拟浏览器特征，有效绕过部分上游服务的 Cloudflare 403 封锁
 *   **免费高级模型**：通过 Kiro API 模式免费使用 Claude Opus，降低使用成本
 *   **账号池智能调度**：支持多账号轮询、自动故障转移和配置降级，确保 99.9% 服务可用性
 
@@ -248,12 +248,12 @@
 #### 🐳 Docker 快捷启动 (推荐)
 
 ```bash
-docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 56121:56121 -p 19876-19880:19876-19880 --restart=always -v "指定路径/configs:/app/configs" -v "指定路径/plugins:/app/src/plugins-user" --name aiclient2api justlikemaki/aiclient-2-api
+docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "指定路径/configs:/app/configs" -v "指定路径/plugins:/app/src/plugins-user" --name aiclient2api justlikemaki/aiclient-2-api
 ```
 
 **参数说明**：
 - `-d`：后台运行容器
-- `-p 3000:3000 ...`：端口映射。3000 为 Web UI，其余为 OAuth 回调端口（Antigravity: 8086, Codex: 1455, Grok CLI: 56121, Kiro: 19876-19880）
+- `-p 3000:3000 ...`：端口映射。3000 为 Web UI，其余为 OAuth 回调端口（Antigravity: 8086, Codex: 1455, Kiro: 19876-19880）
 - `--restart=always`：容器自动重启策略
 - `-v "指定路径/configs:/app/configs"`：挂载配置目录（请将"指定路径"替换为实际路径，如 `/home/user/aiclient2api`）
 - `-v "指定路径/plugins:/app/src/plugins-user"`：挂载用户插件目录
@@ -304,7 +304,7 @@ docker compose up -d
 *   ✅ 监控健康状态和实时请求日志
 
 #### 4. 本地环境准备 (非 Docker 用户)
-如果您是在本地直接运行（通过脚本或 Node.js），且需要绕过 Grok 等服务的 TLS 检测，请务必：
+如果您是在本地直接运行（通过脚本或 Node.js），且需要绕过部分上游服务的 TLS 检测，请务必：
 *   ✅ **安装 Go 语言环境**：前往 [Go 官网](https://go.dev/) 下载并安装 (1.20+)。
 *   ✅ **手动编译 Sidecar**：执行以下命令编译 TLS 代理组件：
     ```bash
@@ -364,7 +364,6 @@ docker compose up -d
 
 #### 最新模型支持
 无缝支持以下最新大模型，仅需在 Web UI 或 [`configs/config.json`](./configs/config.json) 中配置相应的端点：
-*   **Grok / Grok Build** - xAI 旗舰模型，现已通过 Grok CLI OAuth 支持，支持思考模型、Grok Build、内置工具、图片生成及视频生成
 *   **Claude Opus** - Anthropic 史上最强模型，现已通过 Kiro, Antigravity 支持
 *   **Gemini Pro** - Google 下一代架构预览版，现已通过 Gemini, Antigravity 支持
 *   **Kimi / MiniMax** - 国内顶级旗舰模型同步支持，现已通过自定义OpenAI，Claude 支持
@@ -442,12 +441,6 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 3. **自动保存**：授权成功后，系统会自动保存 Codex 的 OAuth 凭据文件
 4. **回调端口**：确保 OAuth 回调端口 `1455` 未被占用
 
-#### Grok CLI OAuth 配置
-1. **生成授权**：在 Web UI 的“提供商池”或“配置管理”页面，点击 Grok CLI 的“生成授权”按钮
-2. **浏览器登录**：系统将打开 xAI 授权页面，完成 OAuth 登录
-3. **自动保存**：授权成功后，系统会自动保存 Grok CLI OAuth 凭据文件到 `configs/grok-cli/`
-4. **回调端口**：确保 OAuth 回调端口 `56121` 未被占用
-
 #### 账号池管理配置
 1. **创建号池配置文件**：参考 [provider_pools.json.example](./configs/provider_pools.json.example) 创建配置文件
 2. **配置号池参数**：在 `configs/config.json` 中设置 `PROVIDER_POOLS_FILE_PATH` 指向号池配置文件
@@ -468,7 +461,6 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 | **Kiro** | `~/.aws/sso/cache/kiro-auth-token.json` | Kiro 认证令牌 |
 | **Antigravity** | `~/.antigravity/oauth_creds.json` | Antigravity OAuth 凭据 (支持 Claude Opus) |
 | **Codex** | `~/.codex/oauth_creds.json` | Codex OAuth 凭据 |
-| **Grok CLI** | `configs/grok-cli/..._xai-..._oauth_creds.json` | Grok CLI OAuth 凭据 |
 
 > **说明**：`~` 表示用户主目录（Windows: `C:\Users\用户名`，Linux/macOS: `/home/用户名` 或 `/Users/用户名`）
 
@@ -505,8 +497,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
      "PROXY_URL": "http://127.0.0.1:7890",
       "PROXY_ENABLED_PROVIDERS": [
         "gemini-antigravity",
-        "claude-kiro-oauth",
-        "grok-cli-oauth"
+        "claude-kiro-oauth"
       ]
     }
     ```
@@ -601,7 +592,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 
 #### 4. TLS Sidecar (Bypass 403/Cloudflare)
 
-针对 Grok 等对 TLS 指纹（JA3/JA4）校验严格的服务，本项目集成了基于 Go uTLS 的 Sidecar 代理，通过模拟浏览器 TLS 特征有效解决 403 Forbidden 报错。
+针对部分对 TLS 指纹（JA3/JA4）校验严格的上游服务，本项目集成了基于 Go uTLS 的 Sidecar 代理，通过模拟浏览器 TLS 特征有效解决 403 Forbidden 报错。
 
 **配置说明**：
 
@@ -624,7 +615,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 
 3.  **工作原理**：
     - 开启后系统自动启动并管理该 Go 进程。
-    - 针对特定提供商（如 Grok）的请求会自动路由至 Sidecar。
+    - 针对配置为使用 Sidecar 的提供商请求会自动路由至 Sidecar。
     - Sidecar 使用 Chrome 最新指纹进行 TLS 握手，支持 HTTP/2 自动协商。
 
 **注意事项**：
@@ -646,7 +637,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 
 **解决方案**：
 - **检查网络连接**：确保能够正常访问 Google、阿里云等服务
-- **检查端口占用**：OAuth 回调需要特定端口（Antigravity: 8086, Codex: 1455, Grok CLI: 56121, Kiro: 19876-19880），确保这些端口未被占用
+- **检查端口占用**：OAuth 回调需要特定端口（Antigravity: 8086, Codex: 1455, Kiro: 19876-19880），确保这些端口未被占用
 - **清除浏览器缓存**：尝试使用无痕模式或清除浏览器缓存后重试
 - **检查防火墙设置**：确保防火墙允许本地回调端口的访问
 - **Docker 用户**：确保已正确映射所有 OAuth 回调端口
@@ -798,7 +789,7 @@ kill -9 <PID>
 **问题描述**：API 请求返回 403 Forbidden 错误。
 
 **解决方案**：
-- **开启 TLS Sidecar**：针对 Grok 等服务，403 通常是因为 TLS 指纹被屏蔽。请参考 [高级配置 - TLS Sidecar](#5-tls-sidecar-bypass-403cloudflare) 开启并编译 Sidecar。
+- **开启 TLS Sidecar**：针对部分上游服务，403 通常是因为 TLS 指纹被屏蔽。请参考 [高级配置 - TLS Sidecar](#5-tls-sidecar-bypass-403cloudflare) 开启并编译 Sidecar。
 - **检查节点状态**：如果在 Web UI 的"提供商池"页面中看到节点状态正常（健康检查通过），则可以忽略此报错，系统会自动处理
 - **检查账号权限**：确认使用的账号有权限访问请求的模型或服务
 - **检查 API Key 权限**：某些提供商的 API Key 可能有访问范围限制，确保 Key 有足够权限

@@ -22,14 +22,6 @@ export {
     importAwsCredentials
 } from './kiro-oauth.js';
 
-// Grok CLI OAuth
-export {
-    refreshGrokCliTokensWithRetry,
-    handleGrokCliOAuth,
-    handleGrokCliOAuthCallback,
-    batchImportGrokCliTokensStream
-} from './grok-cli-oauth.js';
-
 // Zed OAuth
 export {
     handleZedOAuth,

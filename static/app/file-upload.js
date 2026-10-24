@@ -57,7 +57,6 @@ class FileUploadHandler {
             'gemini-antigravity': 'antigravity',
             'claude-kiro-oauth': 'kiro',
             'openai-codex-oauth': 'codex',
-            'grok-cli-oauth': 'grok-cli',
             'zed': 'zed',
             'trae': 'trae',
             'trae-solo_work_lite': 'trae',

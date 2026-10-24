@@ -29,7 +29,7 @@
 | 上游（Provider） | Gemini | `gemini` | `GeminiConverter` |
 | 上游（Provider） | Codex | `codex` | `CodexConverter` |
 
-下游只暴露 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议；Gemini/Codex 仅作为上游协议参与请求与响应转换（Grok CLI 接入 xAI Responses 协议；Grok Web 与 GrokConverter 已移除）。原生 Gemini 下游端点 `/v1beta/models` 与 `:generateContent` 已移除。
+下游只暴露 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议；Gemini/Codex 仅作为上游协议参与请求与响应转换。原生 Gemini 下游端点 `/v1beta/models` 与 `:generateContent` 已移除。
 
 转换器注册入口：`src/converters/register-converters.js`。  
 转换器工厂：`src/converters/ConverterFactory.js`。
@@ -55,7 +55,7 @@ Gemini 3+   → thinkingConfig.thinkingLevel（LOW/MEDIUM/HIGH）
 Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`。  
 具体实现：`src/converters/thinking-budget.js`。
 
-其他模型家族（DeepSeek、GLM、Kimi、Qwen、Doubao、Grok 等）仍由各自 provider 的模型清单与请求适配层处理，不受上述三家代际规则限制。
+其他模型家族（DeepSeek、GLM、Kimi、Qwen、Doubao 等）仍由各自 provider 的模型清单与请求适配层处理，不受上述三家代际规则限制。
 
 ---
 

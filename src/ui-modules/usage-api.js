@@ -19,10 +19,9 @@ function sendJson(res, statusCode, payload) {
 }
 
 const supportedProviders = [
-    MODEL_PROVIDER.KIRO_API, 
-    MODEL_PROVIDER.ANTIGRAVITY, 
-    MODEL_PROVIDER.CODEX_API, 
-    MODEL_PROVIDER.GROK_CLI
+    MODEL_PROVIDER.KIRO_API,
+    MODEL_PROVIDER.ANTIGRAVITY,
+    MODEL_PROVIDER.CODEX_API
 ];
 
 

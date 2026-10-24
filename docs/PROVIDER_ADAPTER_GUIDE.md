@@ -237,7 +237,6 @@ provider 代码里添加模型名判断。只有无法用能力键表达的行�
 | `trae` / `trae-solo_work_lite` / `trae-chat_v3` | 返回 `listModels()` 的模型 ID |
 | `zed` | 返回当前实例 `modelsCache` 的模型 ID |
 | 托管 provider（`openai-custom` 等） | 返回上游 `/models` 的模型 ID；`supportedModels` 非空时由配置优先 |
-| `grok-cli-oauth` | 返回 `fetchAvailableModels()` 的模型 ID，必要时 `initialize()` |
 | 静态 provider（Kiro） | 返回 `null`，由静态基线兜底 |
 
 ### 6.2 数据分层

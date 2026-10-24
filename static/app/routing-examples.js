@@ -178,17 +178,6 @@ function getAvailableRoutes() {
             badgeClass: 'oauth'
         },
         {
-            provider: 'grok-cli-oauth',
-            name: t('dashboard.routing.nodeName.grokCli'),
-            paths: {
-                openai: '/grok-cli-oauth/v1/responses',
-                claude: '/grok-cli-oauth/v1/messages'
-            },
-            description: t('dashboard.routing.oauth'),
-            badge: t('dashboard.routing.oauth'),
-            badgeClass: 'oauth'
-        },
-        {
             provider: 'openaiResponses-custom',
             name: t('dashboard.routing.nodeName.responses'),
             paths: {
@@ -395,7 +384,6 @@ async function copyCurlExample(provider, options = {}) {
             break;
             
         case 'openaiResponses-custom':
-        case 'grok-cli-oauth':
             if (protocol === 'openai') {
                 curlCommand = `curl ${hostname}${path} \\
   -H "Content-Type: application/json" \\
@@ -466,7 +454,6 @@ function renderRoutingExamples(providerConfigs) {
         'claude-kiro-oauth': 'fa-robot',
         'openaiResponses-custom': 'fa-comment-alt',
         'openai-codex-oauth': 'fa-keyboard',
-        'grok-cli-oauth': 'fa-terminal',
         'zed': 'fa-edit',
         'trae': 'fa-bolt',
         'trae-solo_work_lite': 'fa-robot',
@@ -481,7 +468,6 @@ function renderRoutingExamples(providerConfigs) {
         'openai-custom': 'gpt-5.5',
         'openai-codex-oauth': 'gpt-5.5',
         'openaiResponses-custom': 'gpt-5.5',
-        'grok-cli-oauth': 'grok-4.3',
         'zed': 'claude-sonnet-4-5',
         'trae': 'glm-5.2',
         'trae-solo_work_lite': 'glm-5.2',

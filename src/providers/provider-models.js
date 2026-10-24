@@ -82,11 +82,6 @@ export const PROVIDER_MODELS = {
         'gpt-5.6-luna',
         'gpt-5.5',
     ],
-    'grok-cli-oauth': [
-        'grok-4.7',
-        'grok-4.6',
-        'grok-4.5',
-    ],
     'zed': [
         'claude-sonnet-5-5',
         'claude-sonnet-5',

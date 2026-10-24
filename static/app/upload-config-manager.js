@@ -1100,12 +1100,6 @@ function detectProviderFromPath(filePath) {
             shortName: 'codex-oauth'
         },
         {
-            patterns: ['configs/grok-cli/', '/grok-cli/'],
-            providerType: 'grok-cli-oauth',
-            displayName: 'Grok CLI OAuth',
-            shortName: 'grok-cli-oauth'
-        },
-        {
             patterns: ['configs/zed/', '/zed/'],
             providerType: 'zed',
             displayName: 'Zed OAuth',

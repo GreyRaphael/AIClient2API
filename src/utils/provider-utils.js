@@ -46,17 +46,6 @@ export const PROVIDER_MAPPINGS = [
         urlKeys: ['CODEX_BASE_URL', 'CODEX_VERSION']
     },
     {
-        // Grok CLI OAuth 配置
-        dirName: 'grok-cli',
-        patterns: ['configs/grok-cli/', '/grok-cli/', '/.grok-cli/'],
-        providerType: 'grok-cli-oauth',
-        credPathKey: 'GROK_CLI_OAUTH_CREDS_FILE_PATH',
-        defaultCheckModel: 'grok-4.7',
-        displayName: 'Grok CLI OAuth',
-        needsProjectId: false,
-        urlKeys: ['GROK_CLI_BASE_URL']
-    },
-    {
         // Zed OAuth 配置
         dirName: 'zed',
         patterns: ['configs/zed/', '/zed/', '/.zed/'],

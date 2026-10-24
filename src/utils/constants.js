@@ -60,7 +60,6 @@ export const MODEL_PROVIDER = {
     CLAUDE_CUSTOM: 'claude-custom',
     KIRO_API: 'claude-kiro-oauth',
     CODEX_API: 'openai-codex-oauth',
-    GROK_CLI: 'grok-cli-oauth',
     ZED: 'zed',
     TRAE: 'trae',
     TRAE_SOLO_WORK_LITE: 'trae-solo_work_lite',

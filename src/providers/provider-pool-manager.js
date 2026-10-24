@@ -31,7 +31,6 @@ export class ProviderPoolManager {
         'openai-custom': 'gpt-5.5',
         'openai-codex-oauth': 'gpt-5.5',
         'openaiResponses-custom': 'gpt-5.5',
-        'grok-cli-oauth': 'grok-4.7',
         'zed': 'gpt-5-nano'
     };
 
@@ -124,8 +123,6 @@ export class ProviderPoolManager {
                     configPath = config.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('openai-codex')) {
                     configPath = config.CODEX_OAUTH_CREDS_FILE_PATH;
-                } else if (providerType.startsWith('grok-cli')) {
-                    configPath = config.GROK_CLI_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('zed')) {
                     configPath = config.ZED_OAUTH_CREDS_FILE_PATH;
                 } else if (providerType.startsWith('trae')) {

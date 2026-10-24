@@ -24,8 +24,8 @@ import { HEALTH_CHECK } from '../utils/constants.js';
  * This version includes all features and bug fixes, designed to be robust, flexible, and easy to monitor through a comprehensive and controllable logging system.
  *
  * 主要功能 / Key Features:
- * - OpenAI Chat / OpenAI Responses / Anthropic Messages 下游兼容：客户端可使用三种主流协议访问统一网关，上游仍支持 Gemini、Antigravity、Codex、Grok、Kiro 等提供方。
- *   OpenAI Chat / OpenAI Responses / Anthropic Messages downstream compatibility: clients can use the three mainstream protocols while the gateway still supports upstream providers such as Gemini, Antigravity, Codex, Grok and Kiro.
+ * - OpenAI Chat / OpenAI Responses / Anthropic Messages 下游兼容：客户端可使用三种主流协议访问统一网关，上游仍支持 Gemini、Antigravity、Codex、Kiro 等提供方。
+ *   OpenAI Chat / OpenAI Responses / Anthropic Messages downstream compatibility: clients can use the three mainstream protocols while the gateway still supports upstream providers such as Gemini, Antigravity, Codex and Kiro.
  * 
  * - 强大的身份验证管理：支持多种身份验证方法，包括通过 Base64 字符串、文件路径或自动发现本地凭据的 OAuth 2.0 配置。能够自动刷新过期令牌以确保服务持续运行。
  *   Robust Authentication Management: Supports multiple authentication methods, including OAuth 2.0 configuration via Base64 strings, file paths, or automatic discovery of local credentials. Capable of automatically refreshing expired tokens to ensure continuous service operation.

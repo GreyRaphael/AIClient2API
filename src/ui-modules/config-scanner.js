@@ -27,7 +27,6 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
     addToUsedPaths(usedPaths, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.CODEX_OAUTH_CREDS_FILE_PATH);
-    addToUsedPaths(usedPaths, currentConfig.GROK_CLI_OAUTH_CREDS_FILE_PATH);
     addToUsedPaths(usedPaths, currentConfig.ZED_OAUTH_CREDS_FILE_PATH);
 
     // 使用最新的提供商池数据
@@ -43,7 +42,6 @@ export async function scanConfigFiles(currentConfig, providerPoolManager) {
                 addToUsedPaths(usedPaths, provider.KIRO_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.CODEX_OAUTH_CREDS_FILE_PATH);
-                addToUsedPaths(usedPaths, provider.GROK_CLI_OAUTH_CREDS_FILE_PATH);
                 addToUsedPaths(usedPaths, provider.ZED_OAUTH_CREDS_FILE_PATH);
             }
         }
@@ -302,17 +300,6 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
         });
     }
 
-    if (currentConfig.GROK_CLI_OAUTH_CREDS_FILE_PATH &&
-        (pathsEqual(relativePath, currentConfig.GROK_CLI_OAUTH_CREDS_FILE_PATH) ||
-         pathsEqual(relativePath, currentConfig.GROK_CLI_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-        usageInfo.usageType = 'main_config';
-        usageInfo.usageDetails.push({
-            type: 'Main Config',
-            location: 'Grok CLI OAuth credentials file path',
-            configKey: 'GROK_CLI_OAUTH_CREDS_FILE_PATH'
-        });
-    }
-
     if (currentConfig.ZED_OAUTH_CREDS_FILE_PATH &&
         (pathsEqual(relativePath, currentConfig.ZED_OAUTH_CREDS_FILE_PATH) ||
          pathsEqual(relativePath, currentConfig.ZED_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
@@ -384,22 +371,6 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig, prov
                     isHealthy: provider.isHealthy !== false,
                     isDisabled: provider.isDisabled === true,
                     configKey: 'CODEX_OAUTH_CREDS_FILE_PATH'
-                });
-            }
-
-            if (provider.GROK_CLI_OAUTH_CREDS_FILE_PATH &&
-                (pathsEqual(relativePath, provider.GROK_CLI_OAUTH_CREDS_FILE_PATH) ||
-                 pathsEqual(relativePath, provider.GROK_CLI_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
-                providerUsages.push({
-                    type: 'Provider Pool',
-                    location: `Grok CLI OAuth credentials (node ${index + 1})`,
-                    providerType: providerType,
-                    providerIndex: index,
-                    nodeName: provider.customName,
-                    uuid: provider.uuid,
-                    isHealthy: provider.isHealthy !== false,
-                    isDisabled: provider.isDisabled === true,
-                    configKey: 'GROK_CLI_OAUTH_CREDS_FILE_PATH'
                 });
             }
 

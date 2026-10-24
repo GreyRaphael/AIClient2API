@@ -21,10 +21,6 @@ export function getProtocolPrefix(provider) {
     if (provider === 'openai-codex-oauth') {
         return MODEL_PROTOCOL_PREFIX.CODEX;
     }
-    // Grok CLI OAuth talks to xAI Responses API directly.
-    if (provider === 'grok-cli-oauth' || provider.startsWith('grok-cli-oauth-')) {
-        return MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
-    }
     // Special case for Trae - OpenAI-compatible provider.
     if (provider === 'trae' || provider.startsWith('trae-')) {
         return MODEL_PROTOCOL_PREFIX.OPENAI;

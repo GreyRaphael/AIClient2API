@@ -4,7 +4,7 @@
 
 # AIClient2API（A2）🚀
 
-**A powerful proxy that can unify the requests of various client-only large model APIs (Antigravity, Codex, Grok, Kiro ...), simulate requests, and encapsulate them into a local OpenAI-compatible interface.**
+**A powerful proxy that can unify the requests of various client-only large model APIs (Antigravity, Codex, Kiro ...), simulate requests, and encapsulate them into a local OpenAI-compatible interface.**
 
 </div>
 
@@ -144,7 +144,7 @@
 
 ## 🚀 Overview
 
-`AIClient2API` is an API proxy service that breaks through client limitations, converting free large models originally restricted to client use only (such as Gemini, Antigravity, Codex, Grok, Kiro) into standard OpenAI-compatible interfaces that can be called by any application. Built on Node.js, it supports intelligent conversion between OpenAI, Claude, and Gemini protocols, enabling tools like Cherry-Studio, NextChat, and Cline to freely use advanced models such as Claude Opus and Gemini Pro at scale. The project adopts a modular architecture based on strategy and adapter patterns, with built-in account pool management, intelligent polling, automatic failover, and health check mechanisms, ensuring 99.9% service availability.
+`AIClient2API` is an API proxy service that breaks through client limitations, converting free large models originally restricted to client use only (such as Gemini, Antigravity, Codex, Kiro) into standard OpenAI-compatible interfaces that can be called by any application. Built on Node.js, it supports intelligent conversion between OpenAI, Claude, and Gemini protocols, enabling tools like Cherry-Studio, NextChat, and Cline to freely use advanced models such as Claude Opus and Gemini Pro at scale. The project adopts a modular architecture based on strategy and adapter patterns, with built-in account pool management, intelligent polling, automatic failover, and health check mechanisms, ensuring 99.9% service availability.
 
 > [!NOTE]
 > **🎉 Important Milestone**
@@ -200,14 +200,14 @@
 >   ```
 
 ### 🎯 Unified Access, One-Stop Management
-*   **Multi-Model Unified Interface**: Through standard OpenAI-compatible protocol, configure once to access mainstream large models including Gemini, Claude, Grok, Codex, Kimi, MiniMax
+*   **Multi-Model Unified Interface**: Through standard OpenAI-compatible protocol, configure once to access mainstream large models including Gemini, Claude, Codex, Kimi, MiniMax
 *   **Flexible Switching Mechanism**: Path routing, support dynamic model switching via startup parameters or environment variables to meet different scenario requirements
 *   **Zero-Cost Migration**: Fully compatible with OpenAI API specifications, tools like Cherry-Studio, NextChat, Cline can be used without modification
-*   **Multi-Protocol Intelligent Conversion**: Downstream supports OpenAI Chat, OpenAI Responses, and Anthropic Messages, while upstream providers such as Gemini, Claude, Grok, Codex, and Kiro are converted automatically
+*   **Multi-Protocol Intelligent Conversion**: Downstream supports OpenAI Chat, OpenAI Responses, and Anthropic Messages, while upstream providers such as Gemini, Claude, Codex, and Kiro are converted automatically
 
 ### 🚀 Break Through Limitations, Improve Efficiency
 *   **Bypass Official Restrictions**: Utilize OAuth authorization mechanism to effectively break through rate and quota limits of services like Gemini, Antigravity
-*   **TLS Fingerprint Bypass**: Built-in TLS Sidecar (Go uTLS) to simulate browser features, effectively bypassing Cloudflare 403 blocks for services like Grok
+*   **TLS Fingerprint Bypass**: Built-in TLS Sidecar (Go uTLS) to simulate browser features, effectively bypassing Cloudflare 403 blocks for some upstream services
 *   **Free Advanced Models**: Use Claude Opus for free via Kiro API mode, reducing usage costs
 *   **Intelligent Account Pool Scheduling**: Support multi-account polling, automatic failover, and configuration degradation, ensuring 99.9% service availability
 
@@ -249,12 +249,12 @@ The most recommended way to use AIClient2API is to start it through an automated
 #### 🐳 Docker Quick Start (Recommended)
 
 ```bash
-docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 56121:56121 -p 19876-19880:19876-19880 --restart=always -v "your_path/configs:/app/configs" -v "your_path/plugins:/app/src/plugins-user" --name aiclient2api justlikemaki/aiclient-2-api
+docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "your_path/configs:/app/configs" -v "your_path/plugins:/app/src/plugins-user" --name aiclient2api justlikemaki/aiclient-2-api
 ```
 
 **Parameter Description**:
 - `-d`: Run container in background
-- `-p 3000:3000 ...`: Port mapping. 3000 is for Web UI, others are for OAuth callbacks (Antigravity: 8086, Codex: 1455, Grok CLI: 56121, Kiro: 19876-19880)
+- `-p 3000:3000 ...`: Port mapping. 3000 is for Web UI, others are for OAuth callbacks (Antigravity: 8086, Codex: 1455, Kiro: 19876-19880)
 - `--restart=always`: Container auto-restart policy
 - `-v "your_path/configs:/app/configs"`: Mount configuration directory (replace "your_path" with actual path, e.g., `/home/user/aiclient2api`)
 - `-v "your_path/plugins:/app/src/plugins-user"`: Mount user plugins directory
@@ -305,7 +305,7 @@ Go to the **"Configuration"** page, you can:
 *   ✅ Monitor health status and real-time request logs
 
 #### 4. Local Environment Preparation (Non-Docker Users)s
-If you are running directly on your local machine (via script or Node.js) and need to bypass TLS detection for services like Grok, please ensure:
+If you are running directly on your local machine (via script or Node.js) and need to bypass TLS detection for some upstream services, please ensure:
 *   ✅ **Install Go Language**: Go to the [official Go website](https://go.dev/) to download and install (1.20+).
 *   ✅ **Manually Compile Sidecar**: Execute the following command to compile the TLS proxy component:
     ```bash
@@ -365,7 +365,6 @@ Supports various input types such as images and documents, providing you with a 
 
 #### Latest Model Support
 Seamlessly support the following latest large models, just configure the corresponding endpoint in Web UI or [`configs/config.json`](./configs/config.json):
-*   **Grok / Grok Build** - xAI's flagship models, now supported via Grok CLI OAuth, supporting thinking models, Grok Build, built-in tools, image generation, and video generation
 *   **Claude Opus** - Anthropic's strongest model ever, now supported via Kiro, Antigravity
 *   **Gemini Pro** - Google's next-generation architecture preview, now supported via Gemini, Antigravity
 *   **Kimi / MiniMax** - Synchronized support for top domestic flagship models, now supported via custom OpenAI, Claude
@@ -443,12 +442,6 @@ Notes:
 3. **Auto Save**: After successful authorization, the system automatically saves the Codex OAuth credential file
 4. **Callback Port**: Ensure the OAuth callback port `1455` is not occupied
 
-#### Grok CLI OAuth Configuration
-1. **Generate Authorization**: On the Web UI "Provider Pools" or "Configuration" page, click the "Generate Authorization" button for Grok CLI
-2. **Browser Login**: The system opens the xAI authorization page to complete OAuth login
-3. **Auto Save**: After successful authorization, the system automatically saves the Grok CLI OAuth credential file to `configs/grok-cli/`
-4. **Callback Port**: Ensure the OAuth callback port `56121` is not occupied
-
 #### Account Pool Management Configuration
 1. **Create Pool Configuration File**: Create a configuration file referencing [provider_pools.json.example](./configs/provider_pools.json.example)
 2. **Configure Pool Parameters**: Set `PROVIDER_POOLS_FILE_PATH` in `configs/config.json` to point to the pool configuration file
@@ -469,7 +462,6 @@ Default storage locations for authorization credential files of each service:
 | **Kiro** | `~/.aws/sso/cache/kiro-auth-token.json` | Kiro authentication token |
 | **Antigravity** | `~/.antigravity/oauth_creds.json` | Antigravity OAuth credentials (supports Claude Opus) |
 | **Codex** | `~/.codex/oauth_creds.json` | Codex OAuth credentials |
-| **Grok CLI** | `configs/grok-cli/..._xai-..._oauth_creds.json` | Grok CLI OAuth credentials |
 
 > **Note**: `~` represents the user home directory (Windows: `C:\Users\username`, Linux/macOS: `/home/username` or `/Users/username`)
 
@@ -506,8 +498,7 @@ This project supports flexible proxy configuration, allowing you to configure a 
      "PROXY_URL": "http://127.0.0.1:7890",
       "PROXY_ENABLED_PROVIDERS": [
         "gemini-antigravity",
-        "claude-kiro-oauth",
-        "grok-cli-oauth"
+        "claude-kiro-oauth"
       ]
     }
     ```
@@ -602,7 +593,7 @@ When all accounts under a Provider Type (e.g., `claude-kiro-oauth`) are exhauste
 
 #### 4. TLS Sidecar (Bypass 403/Cloudflare)
 
-For services like Grok that strictly validate TLS fingerprints (JA3/JA4), this project integrates a Sidecar proxy based on Go uTLS, which effectively solves 403 Forbidden errors by simulating browser TLS features.
+For upstream services that strictly validate TLS fingerprints (JA3/JA4), this project integrates a Sidecar proxy based on Go uTLS, which effectively solves 403 Forbidden errors by simulating browser TLS features.
 
 **Configuration Instructions**:
 
@@ -625,7 +616,7 @@ For services like Grok that strictly validate TLS fingerprints (JA3/JA4), this p
 
 3.  **How It Works**:
     - When enabled, the system automatically starts and manages the Go process.
-    - Requests for specific providers (like Grok) are automatically routed to the Sidecar.
+    - Requests for providers configured to use the Sidecar are automatically routed to the Sidecar.
     - The Sidecar uses the latest Chrome fingerprint for TLS handshakes and supports automatic HTTP/2 negotiation.
 
 **Notes**:
@@ -647,7 +638,7 @@ For services like Grok that strictly validate TLS fingerprints (JA3/JA4), this p
 
 **Solutions**:
 - **Check Network Connection**: Ensure you can access Google, Alibaba Cloud, and other services normally
-- **Check Port Occupation**: OAuth callbacks require specific ports (Antigravity: 8086, Codex: 1455, Grok CLI: 56121, Kiro: 19876-19880), ensure these ports are not occupied
+- **Check Port Occupation**: OAuth callbacks require specific ports (Antigravity: 8086, Codex: 1455, Kiro: 19876-19880), ensure these ports are not occupied
 - **Clear Browser Cache**: Try using incognito mode or clearing browser cache and retry
 - **Check Firewall Settings**: Ensure the firewall allows access to local callback ports
 - **Docker Users**: Ensure all OAuth callback ports are correctly mapped
@@ -774,7 +765,7 @@ Or modify the port configuration in `configs/config.json` to use a different por
 **Problem Description**: API requests return 403 Forbidden error.
 
 **Solutions**:
-- **Enable TLS Sidecar**: For services like Grok, 403 is often due to TLS fingerprint blocking. Please refer to [Advanced Configuration - TLS Sidecar](#5-tls-sidecar-bypass-403cloudflare) to enable and compile the Sidecar.
+- **Enable TLS Sidecar**: For some upstream services, 403 is often due to TLS fingerprint blocking. Please refer to [Advanced Configuration - TLS Sidecar](#5-tls-sidecar-bypass-403cloudflare) to enable and compile the Sidecar.
 - **Check Node Status**: If you see the node status is normal (health check passed) on the "Provider Pools" page in Web UI, you can ignore this error as the system will handle it automatically
 - **Check Account Permissions**: Confirm the account has permission to access the requested model or service
 - **Check API Key Permissions**: Some providers' API Keys may have access scope restrictions; ensure the Key has sufficient permissions

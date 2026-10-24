@@ -266,7 +266,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	outReq.Host = parsed.Host
 
-	// 针对 Grok 的特殊处理：如果 Accept-Encoding 包含 br 且环境可能存在压缩协商问题
+	// 针对部分上游的特殊处理：如果 Accept-Encoding 包含 br 且环境可能存在压缩协商问题
 	// 强制设置为标准的浏览器组合
 	if ae := outReq.Header["Accept-Encoding"]; len(ae) > 0 {
 		outReq.Header["Accept-Encoding"] = []string{"gzip, deflate, br, zstd"}

@@ -188,7 +188,6 @@ function getProviderDisplayName(providerType) {
         'openai-custom': 'OpenAI Custom',
         'openaiResponses-custom': 'OpenAI Responses Custom',
         'openai-codex-oauth': 'OpenAI Codex (OAuth)',
-        'grok-cli-oauth': 'Grok CLI (OAuth)',
         'zed': 'Zed (OAuth)',
         'trae': 'Trae (tob_raw_chat)',
         'trae-solo_work_lite': 'Trae (solo_work_lite)',
@@ -228,8 +227,7 @@ function getProviderIcon(providerType) {
     const iconMap = {
         'gemini': 'fas fa-gem',
         'claude': 'fas fa-robot',
-        'openai': 'fas fa-brain',
-        'grok-cli-oauth': 'fas fa-terminal'
+        'openai': 'fas fa-brain'
     };
 
     for (const key in iconMap) {

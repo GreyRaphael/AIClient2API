@@ -35,14 +35,7 @@ function getBaseProviderConfigs() {
             defaultPath: 'configs/codex/'
         },
         {
-            id: 'grok-cli-oauth',
-            name: t('dashboard.routing.nodeName.grokCli'),
-            usageName: 'Grok CLI',
-            icon: 'fa-terminal',
-            defaultPath: 'configs/grok-cli/'
-        },
-        { 
-            id: 'openai-custom', 
+            id: 'openai-custom',
             name: t('dashboard.routing.nodeName.openai'), 
             icon: 'fa-microchip'
         },
@@ -221,7 +214,6 @@ function getFieldLabel(key) {
         'KIRO_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'CODEX_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
-        'GROK_CLI_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'KIRO_BASE_URL': t('modal.provider.field.baseUrl'),
         'KIRO_REFRESH_URL': t('modal.provider.field.refreshUrl'),
         'KIRO_REFRESH_IDC_URL': t('modal.provider.field.refreshIdcUrl'),
@@ -363,26 +355,6 @@ function getProviderTypeFields(providerType) {
                 label: `${t('modal.provider.field.codexVersion')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: t('modal.provider.field.codexVersion.placeholder')
-            }
-        ],
-        'grok-cli-oauth': [
-            {
-                id: 'GROK_CLI_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
-                type: 'text',
-                placeholder: 'configs/grok-cli/..._xai-..._oauth_creds.json'
-            },
-            {
-                id: 'GROK_CLI_EMAIL',
-                label: `${t('modal.provider.field.email')} <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'email',
-                placeholder: t('modal.provider.field.email.placeholder')
-            },
-            {
-                id: 'GROK_CLI_BASE_URL',
-                label: `xAI Base URL <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'https://api.x.ai/v1'
             }
         ],
         'zed': [

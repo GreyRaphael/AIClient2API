@@ -467,7 +467,7 @@ export function nativePayloadHasMeaningfulContent(payload, toProvider) {
         case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
         case MODEL_PROTOCOL_PREFIX.CODEX: {
             // 完整响应（非流式）。注意两种形状的兼容：
-            //   - Grok 等 OPENAI_RESPONSES provider 返回解包后的 response 本体（顶层即有 output）；
+            //   - OPENAI_RESPONSES provider 返回解包后的 response 本体（顶层即有 output）；
             //   - Codex 非流式返回的是 response.completed 事件包装
             //     （{type: 'response.completed', response: {output: [...]}}），output 在 payload.response 下。
             // 旧逻辑只看顶层 output，导致 Codex 非流式响应永远被判为空响应而误触发重试。

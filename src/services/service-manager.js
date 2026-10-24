@@ -626,7 +626,6 @@ export async function getProviderStatus(config, options = {}) {
         'claude-custom': 'CLAUDE_BASE_URL',
         'claude-kiro-oauth': 'KIRO_OAUTH_CREDS_FILE_PATH',
         'gemini-antigravity': 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH',
-        'grok-cli-oauth': 'GROK_CLI_OAUTH_CREDS_FILE_PATH',
         'openai-codex-oauth': 'CODEX_OAUTH_CREDS_FILE_PATH'
     };
     let providerPoolsSlim = [];

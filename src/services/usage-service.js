@@ -17,7 +17,6 @@ export class UsageService {
             [MODEL_PROVIDER.KIRO_API]: this.getKiroUsage.bind(this),
             [MODEL_PROVIDER.ANTIGRAVITY]: this.getAntigravityUsage.bind(this),
             [MODEL_PROVIDER.CODEX_API]: this.getCodexUsage.bind(this),
-            [MODEL_PROVIDER.GROK_CLI]: this.getGrokCliUsage.bind(this),
         };
 
         // 映射提供商到对应的格式化函数
@@ -25,7 +24,6 @@ export class UsageService {
             [MODEL_PROVIDER.KIRO_API]: formatKiroUsage,
             [MODEL_PROVIDER.ANTIGRAVITY]: formatAntigravityUsage,
             [MODEL_PROVIDER.CODEX_API]: formatCodexUsage,
-            [MODEL_PROVIDER.GROK_CLI]: formatGrokCliUsage,
         };
     }
 
@@ -136,9 +134,8 @@ export class UsageService {
         const apiServiceNames = [
             'kiroApiService', 
             'geminiApiService', 
-            'antigravityApiService', 
-            'codexApiService',
-            'grokCliApiService'
+            'antigravityApiService',
+            'codexApiService'
         ];
 
         for (const serviceName of apiServiceNames) {
@@ -169,13 +166,6 @@ export class UsageService {
      */
     async getCodexUsage(uuid = null) {
         return this._getRawUsageFromAdapter(MODEL_PROVIDER.CODEX_API, uuid);
-    }
-
-    /**
-     * 获取 Grok CLI 提供商的用量信息
-     */
-    async getGrokCliUsage(uuid = null) {
-        return this._getRawUsageFromAdapter(MODEL_PROVIDER.GROK_CLI, uuid);
     }
 
     /**
@@ -526,63 +516,6 @@ export function formatAntigravityUsage(usageData) {
         };
     }
     return null;
-}
-
-/**
- * 格式化 Grok CLI 用量。
- */
-export function formatGrokCliUsage(usageData) {
-    if (!usageData) return null;
-
-    const summaryData = usageData.summary || {};
-    const config = usageData.config || {};
-    const products = Array.isArray(summaryData.products) ? summaryData.products : [];
-    const weeklyLimitPercent = summaryData.weeklyLimitPercent ?? config.creditUsagePercent ?? 0;
-    const periodEnd = summaryData.periodEnd || config.currentPeriod?.end || config.billingPeriodEnd || usageData.expiresAt || null;
-    const plan = summaryData.grokAccountTier || summaryData.subscriptionTier || config.subscription_tier || null;
-
-    const items = products.map(item => {
-        const percent = item.usagePercent ?? 0;
-        return {
-            id: item.product || 'product',
-            label: item.product || 'Product Usage',
-            used: percent,
-            limit: 100,
-            percent,
-            unit: 'percent',
-            status: getStatus(percent),
-            resetAt: periodEnd
-        };
-    });
-
-    if (items.length === 0) {
-        items.push({
-            id: 'weekly_limit',
-            label: 'Weekly Limit',
-            used: weeklyLimitPercent,
-            limit: 100,
-            percent: weeklyLimitPercent,
-            unit: 'percent',
-            status: getStatus(weeklyLimitPercent),
-            resetAt: periodEnd
-        });
-    }
-
-    return {
-        summary: {
-            usedPercent: weeklyLimitPercent,
-            status: getStatus(weeklyLimitPercent),
-            resetAt: periodEnd,
-            plan,
-            planClass: plan ? getPlanClass(plan) : 'plan-default',
-            unit: 'percent'
-        },
-        user: {
-            email: usageData.account || null
-        },
-        items,
-        raw: usageData
-    };
 }
 
 /**
