@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import {
     ENDPOINT_TYPE,
     getRequestBody,
@@ -121,7 +120,7 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
             ({model, prompt, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest} = retryContext.parsedBody);
             codexRequestBody = virtualOpenAIRequest;
         } else {
-            const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES });
+            const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES }) as any;
             model = body.model;
             response_format = body.response_format || 'b64_json';
             size = body.size;
@@ -452,7 +451,7 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
     let slotUuid = null;
 
     try {
-        const form = await parseMultipartForm(req);
+        const form = await parseMultipartForm(req) as any;
         const { fields, files } = form;
 
         const model = fields.model;
@@ -637,7 +636,7 @@ function extractImagesFromServiceResponse(response, providerProtocol, responseFo
         const output = response?.response?.output || response?.output || [];
         for (const item of output) {
             if (item.type === 'image_generation_call' && item.result) {
-                const dataItem = responseFormat === 'url'
+                const dataItem: any = responseFormat === 'url'
                     ? { url: `data:image/${item.output_format || 'png'};base64,${item.result}` }
                     : { b64_json: item.result };
                 if (item.revised_prompt) dataItem.revised_prompt = item.revised_prompt;

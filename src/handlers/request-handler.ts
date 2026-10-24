@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import deepmerge from 'deepmerge';
 import logger from '../utils/logger.ts';
 import requestContext from '../utils/context.ts';
@@ -39,7 +38,7 @@ export function createRequestHandler(config, providerPoolManager) {
         return requestContext.run({ requestId }, async () => {
             return logger.runWithContext(requestId, async () => {
                 // Deep copy the config for each request to allow dynamic modification
-                const currentConfig = deepmerge({}, config);
+                const currentConfig: any = deepmerge({}, config);
                 currentConfig._monitorRequestId = requestId;
                 
                 // 计算当前请求的基础 URL
@@ -222,7 +221,7 @@ export function createRequestHandler(config, providerPoolManager) {
                     // Handle count_tokens requests (Anthropic API compatible)
                     if (path.includes('/count_tokens') && method === 'POST') {
                         try {
-                            const body = await getRequestBody(req, { maxBytes: 1024 * 1024 * 2 }); // Limit to 1MB
+                            const body = await getRequestBody(req, { maxBytes: 1024 * 1024 * 2 }) as any; // Limit to 1MB
                             logger.info(`[Server] Handling count_tokens request for model: ${body.model}`);
 
                             // Use common utility method directly

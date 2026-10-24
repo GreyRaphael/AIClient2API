@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import http from 'http';
 import logger from '../utils/logger.ts';
 import fs from 'fs';
@@ -48,7 +47,7 @@ function sanitizeFilenamePart(value) {
  * @param {Object} options 
  * @returns {Promise<{ authUrl: string, authInfo: Object, waitForCallback: Function }>}
  */
-export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
+export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) {
     const email = options.email || null;
     const sessionId = randomUUID();
     const systemId = options.systemId || randomUUID();
@@ -154,7 +153,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
     const targetPort = options.port || ZED_OAUTH_CONFIG.defaultPort;
     const targetHost = options.host || '0.0.0.0';
 
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
         server.listen(targetPort, targetHost, () => {
             resolve();
         });
@@ -170,7 +169,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
         });
     });
 
-    const port = /** @type {import('node:net').AddressInfo} */ (server.address()).port;
+    const port = (server.address() as any)?.port;
     const authUrl = `${ZED_OAUTH_CONFIG.authBaseUrl}?native_app_port=${port}&native_app_public_key=${encodeURIComponent(pubB64)}`;
 
     // 存储当前 session 信息，方便手动回调处理
@@ -313,7 +312,7 @@ async function saveZedCredentials({
     jwtToken,
     expiresAt,
     currentConfig
-}) {
+}: any) {
     const zedConfigsDir = path.join(process.cwd(), 'configs', 'zed');
     if (!fs.existsSync(zedConfigsDir)) {
         fs.mkdirSync(zedConfigsDir, { recursive: true });

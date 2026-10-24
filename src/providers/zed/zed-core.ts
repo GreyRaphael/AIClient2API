@@ -102,7 +102,13 @@ export async function fetchZedOrganizationId({ userId, accessToken, systemId, co
  * @param {Object} [params.config]
  * @returns {Promise<{ token: string, expiresAt: number, organizationId: string }>}
  */
-export async function exchangeZedToken({ userId, accessToken, systemId, organizationId, config }) {
+export async function exchangeZedToken({ userId, accessToken, systemId, organizationId, config }: {
+    userId?: string;
+    accessToken?: string;
+    systemId?: string;
+    organizationId?: string;
+    config?: any;
+} = {}) {
     if (!userId || !accessToken) {
         throw new Error('Zed user_id and access_token are required for token exchange');
     }

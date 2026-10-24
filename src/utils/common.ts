@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 export { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from './constants.ts';
 import { getProtocolPrefix, ENDPOINT_TYPE, DEFAULT_REQUEST_BODY_MAX_BYTES, FETCH_SYSTEM_PROMPT_FILE, INPUT_SYSTEM_PROMPT_FILE, extractSystemPromptFromRequestBody } from './protocol.ts';
 export { getProtocolPrefix, ENDPOINT_TYPE, DEFAULT_REQUEST_BODY_MAX_BYTES, FETCH_SYSTEM_PROMPT_FILE, INPUT_SYSTEM_PROMPT_FILE, extractSystemPromptFromRequestBody } from './protocol.ts';
@@ -178,7 +177,7 @@ export async function getNormalizedErrorResponseText(error) {
     }
 }
 
-export function buildHttpErrorReason(status, context, responseText = '', options = {}) {
+export function buildHttpErrorReason(status, context, responseText = '', options: any = {}) {
     const statusLabel = getHttpStatusLabel(status);
     const responseSnippet = responseText ? responseText.substring(0, 500) : '';
     const suffix = options.suffix ? ` - ${options.suffix}` : '';
@@ -186,7 +185,7 @@ export function buildHttpErrorReason(status, context, responseText = '', options
     return `${prefix}${context ? ` (${context})` : ''}${suffix}${responseSnippet ? `: ${responseSnippet}` : ''}`;
 }
 
-export async function normalizeProviderErrorMessage(error, options = {}) {
+export async function normalizeProviderErrorMessage(error, options: any = {}) {
     const status = options.status ?? getErrorStatusCode(error);
     const responseText = await getNormalizedErrorResponseText(error);
     const reason = buildHttpErrorReason(status, options.context || '', responseText, {
@@ -302,7 +301,7 @@ function getPositiveInteger(value, fallback) {
  * Calculates a scheduled recovery time for optional 429 account cooldown.
  * Returns null when cooldown is disabled or the error is not an HTTP 429.
  */
-export function getRateLimitCooldownRecoveryTime(error, config = {}, now = Date.now()) {
+export function getRateLimitCooldownRecoveryTime(error, config: any = {}, now = Date.now()) {
     if (!config?.RATE_LIMIT_COOLDOWN_ENABLED || Number(getErrorStatusCode(error)) !== 429) {
         return null;
     }
@@ -436,7 +435,7 @@ function isTrustedProxyIp(ip, trustedProxyIps) {
  * @param {Object} [config] - Optional server configuration.
  * @returns {string} The client IP address.
  */
-export function getClientIp(req, config = {}) {
+export function getClientIp(req, config: any = {}) {
     const socketIp = normalizeIpAddress(req.socket?.remoteAddress);
 
     if (config?.TRUST_PROXY === true && isTrustedProxyIp(socketIp, config.TRUSTED_PROXY_IPS)) {
@@ -458,7 +457,7 @@ export function getClientIp(req, config = {}) {
  * @returns {Promise<Object>} A promise that resolves with the parsed JSON request body.
  * @throws {Error} If the request body is not valid JSON.
  */
-export function getRequestBody(req, options = {}) {
+export function getRequestBody(req, options: any = {}) {
     return new Promise((resolve, reject) => {
         let body = '';
         let receivedBytes = 0;

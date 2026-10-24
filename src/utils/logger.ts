@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';

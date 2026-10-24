@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';

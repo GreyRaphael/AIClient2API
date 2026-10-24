@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import logger from '../utils/logger.ts';
 import { cleanJsonSchemaProperties } from './utils.ts';
 import { getConfigToggle, getConfigPositiveInt } from '../core/config-manager.ts';
@@ -113,7 +112,7 @@ function summarizeSchemaForDescription(schema) {
  * @param {'gemini'|'trae'} [options.dialect='gemini'] - 目标方言（预留接口：Trae 通道本期不接入，行为同 'gemini'）
  * @returns {{ schema: Object, report: { expandedRefs: number, injectedConstraints: Array<{path: string, kinds: string[]}>, collapsedOneOf: Array<{path: string}>, truncated: boolean } }}
  */
-export function polyfillSchemaForGemini(rawSchema, options = {}) {
+export function polyfillSchemaForGemini(rawSchema, options: any = {}) {
     const injectConstraints = options.injectConstraints !== false;
     const maxDescriptionLength = (typeof options.maxDescriptionLength === 'number' && options.maxDescriptionLength > 0)
         ? options.maxDescriptionLength
@@ -376,14 +375,14 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
             // 但 required 取各分支交集，避免把某个互斥分支的必填字段强加到所有分支。
             const objectBranches = transformedBranches.filter(b => b.type === 'object' || (b.properties && typeof b.properties === 'object'));
             if ((allSameType && branchTypes[0] === 'object') || (isNullableSingleType && nonNullTypes[0] === 'object')) {
-                const mergedProperties = {};
+                const mergedProperties: Record<string, any> = {};
                 const requiredSets = objectBranches.map(
                     (branch) => new Set(Array.isArray(branch.required) ? branch.required : [])
                 );
 
                 for (const branch of objectBranches) {
                     if (branch.properties && typeof branch.properties === 'object') {
-                        for (const [key, value] of Object.entries(branch.properties)) {
+                        for (const [key, value] of Object.entries(branch.properties as Record<string, any>)) {
                             const existing = mergedProperties[key];
                             if (!existing) {
                                 mergedProperties[key] = value;
@@ -637,7 +636,7 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
         // 只统计“清洗后仍可达”的节点：properties / items / 根节点。
         // patternProperties、dependentSchemas、if/then/else、not 等子 Schema 会被白名单删除，
         // 其约束已经汇总到父节点 description，不能单独参与裁剪计数。
-        const reachableNodes = new Set();
+        const reachableNodes = new Set<any>();
         function collectReachableNodes(node) {
             if (!node || typeof node !== 'object' || reachableNodes.has(node)) return;
             reachableNodes.add(node);
@@ -718,7 +717,7 @@ export function polyfillSchemaForGemini(rawSchema, options = {}) {
  * @param {Object} [options={}] - Polyfill 参数
  * @returns {Object} 清理后的 JSON Schema
  */
-export function polyfillAndCleanSchemaForGemini(schema, options = {}) {
+export function polyfillAndCleanSchemaForGemini(schema, options: any = {}) {
     if (!schema || typeof schema !== 'object') {
         return cleanJsonSchemaProperties(schema);
     }

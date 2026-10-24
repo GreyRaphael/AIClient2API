@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { getRequestBody } from '../utils/common.ts';
