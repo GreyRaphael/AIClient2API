@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';

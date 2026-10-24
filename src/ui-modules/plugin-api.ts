@@ -2,8 +2,8 @@
 import { getPluginManager } from '../core/plugin-manager.ts';
 import logger from '../utils/logger.ts';
 import { getRequestBody } from '../utils/common.ts';
-import { broadcastEvent } from './event-broadcast.js';
-import { fetchMarketPlugins, installPlugin, installPluginFromBuffer } from '../services/plugin-installer.js';
+import { broadcastEvent } from './event-broadcast.ts';
+import { fetchMarketPlugins, installPlugin, installPluginFromBuffer } from '../services/plugin-installer.ts';
 import multer from 'multer';
 import path from 'path';
 

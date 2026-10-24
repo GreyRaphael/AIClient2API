@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, createReadStream } from 'fs';
 import logger from '../utils/logger.ts';
 import path from 'path';
-import { getCpuUsagePercent } from './system-monitor.js';
+import { getCpuUsagePercent } from './system-monitor.ts';
 
 /**
  * 获取系统信息
@@ -84,7 +84,7 @@ export async function handleClearTodayLog(req, res) {
         
         if (success) {
             // 广播日志清空事件
-            const { broadcastEvent } = await import('./event-broadcast.js');
+            const { broadcastEvent } = await import('./event-broadcast.ts');
             broadcastEvent('log_cleared', {
                 action: 'log_cleared',
                 timestamp: new Date().toISOString(),
@@ -158,7 +158,7 @@ export async function handleRestartService(req, res) {
             process.send({ type: 'restart_request' });
             
             // 广播重启事件
-            const { broadcastEvent } = await import('./event-broadcast.js');
+            const { broadcastEvent } = await import('./event-broadcast.ts');
             broadcastEvent('service_restart', {
                 action: 'restart_requested',
                 timestamp: new Date().toISOString(),

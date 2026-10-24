@@ -19,7 +19,7 @@ import { handleGeminiAntigravityOAuth } from '../../auth/oauth-handlers.ts';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
 import { cleanJsonSchemaProperties } from '../../converters/utils.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
-import { getProviderPoolManager } from '../../services/service-manager.js';
+import { getProviderPoolManager } from '../../services/service-manager.ts';
 import { getConfigToggle } from '../../core/config-manager.ts';
 import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';

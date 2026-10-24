@@ -19,7 +19,7 @@ import {
 } from '../../utils/token-utils.ts';
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, formatExpiryLog, getNormalizedErrorResponseText, buildHttpErrorReason, normalizeProviderErrorMessage, createEmptyUpstreamResponseError } from '../../utils/common.ts';
-import { getProviderPoolManager } from '../../services/service-manager.js';
+import { getProviderPoolManager } from '../../services/service-manager.ts';
 
 const KIRO_THINKING = {
     MIN_BUDGET_TOKENS: 1024,

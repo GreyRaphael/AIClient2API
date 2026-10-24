@@ -6,12 +6,12 @@ import path from 'path';
 import crypto from 'crypto';
 import { CONFIG } from '../core/config-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
-import { initApiService } from '../services/service-manager.js';
+import { initApiService } from '../services/service-manager.ts';
 import { getRequestBody } from '../utils/common.ts';
-import { broadcastEvent } from '../ui-modules/event-broadcast.js';
+import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
-import { validateCredentials } from './auth.js';
+import { validateCredentials } from './auth.ts';
 
 function parseBooleanConfig(value) {
     if (typeof value === 'boolean') return value;

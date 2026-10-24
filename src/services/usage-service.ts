@@ -1,9 +1,10 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 用量查询服务
  * 用于处理各个提供商的授权文件用量查询
  */
 
-import { getProviderPoolManager } from './service-manager.js';
+import { getProviderPoolManager } from './service-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
 import { MODEL_PROVIDER } from '../utils/common.ts';
 import { getProviderModels } from '../providers/provider-models.ts';

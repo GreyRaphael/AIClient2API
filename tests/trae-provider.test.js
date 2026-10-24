@@ -562,7 +562,7 @@ describe('Trae Provider Implementation Tests', () => {
     });
 
     test('autoLinkProviderConfigs preserves custom host for Trae provider node', async () => {
-        const { autoLinkProviderConfigs } = await import('../src/services/service-manager.js');
+        const { autoLinkProviderConfigs } = await import('../src/services/service-manager.ts');
         const os = await import('os');
         const fixtureDir = path.join(process.cwd(), 'configs', 'trae');
         const fixturePath = path.join(fixtureDir, 'test_fixture_custom_host.json');
@@ -602,7 +602,7 @@ describe('Trae Provider Implementation Tests', () => {
     });
 
     test('validateTraeProviderConfig prevents mismatched host and preserves custom mode', async () => {
-        const { validateTraeProviderConfig } = await import('../src/ui-modules/provider-api.js');
+        const { validateTraeProviderConfig } = await import('../src/ui-modules/provider-api.ts');
 
         // 1. ToB with mchost.guru should fail
         const errTobMismatch = validateTraeProviderConfig('trae', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' });

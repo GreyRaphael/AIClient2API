@@ -23,9 +23,9 @@ const MODULES = [
     'src/providers/adapter.ts',
     'src/providers/provider-pool-manager.ts',
     'src/handlers/request-pipeline.ts',
-    'src/services/service-manager.js',
+    'src/services/service-manager.ts',
     'src/auth/index.ts',
-    'src/ui-modules/update-api.js'
+    'src/ui-modules/update-api.ts'
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

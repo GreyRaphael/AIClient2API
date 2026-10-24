@@ -6,8 +6,8 @@ import path from 'path';
 import crypto from 'crypto';
 import open from 'open';
 import axios from 'axios';
-import { broadcastEvent } from '../services/ui-manager.js';
-import { autoLinkProviderConfigs } from '../services/service-manager.js';
+import { broadcastEvent } from '../services/ui-manager.ts';
+import { autoLinkProviderConfigs } from '../services/service-manager.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
 

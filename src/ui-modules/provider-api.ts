@@ -6,7 +6,7 @@ import {
     normalizeModelIds
 } from '../providers/provider-models.ts';
 import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath, addToUsedPaths, isPathUsed, pathsEqual } from '../utils/provider-utils.ts';
-import { broadcastEvent } from './event-broadcast.js';
+import { broadcastEvent } from './event-broadcast.ts';
 import { getRegisteredProviders, invalidateServiceAdapter } from '../providers/adapter.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { normalizeProviderConfigFields } from '../utils/provider-config-normalizer.ts';

@@ -7,7 +7,7 @@ import {promises as fs} from 'fs';
 import path from 'path';
 import os from 'os';
 import {refreshCodexTokensWithRetry} from '../../auth/oauth-handlers.ts';
-import {getProviderPoolManager} from '../../services/service-manager.js';
+import {getProviderPoolManager} from '../../services/service-manager.ts';
 import {configureTLSSidecar, isTLSSidecarEnabledForProvider} from '../../utils/proxy-utils.ts';
 import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.ts';
 import {getProxyConfigForProvider} from '../../utils/proxy-utils.ts';

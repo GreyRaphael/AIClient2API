@@ -15,4 +15,4 @@ try {
     process.exit(1);
 }
 
-await import('./api-server-core.js');
+await import('./api-server-core.ts');

@@ -1,5 +1,5 @@
 // @ts-nocheck - Phase 5 type ratchet pending
-import { convertData } from '../convert/convert.js';
+import { convertData } from '../convert/convert.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProviderStaticModels } from './provider-registry.ts';

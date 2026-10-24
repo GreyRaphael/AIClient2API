@@ -10,10 +10,10 @@ import {
     handleModelListRequest,
     handleContentGenerationRequest
 } from '../handlers/request-pipeline.ts';
-import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.js';
+import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.ts';
 import logger from '../utils/logger.ts';
 import busboy from 'busboy';
-import { convertData } from '../convert/convert.js';
+import { convertData } from '../convert/convert.ts';
 
 const IMAGE_GEN_MAX_N = 4;
 const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);

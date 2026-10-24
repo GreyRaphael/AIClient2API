@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 
 function getProviderPoolsFilePath(currentConfig) {

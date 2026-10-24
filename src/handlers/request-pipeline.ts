@@ -9,7 +9,7 @@
 
 import { promises as fs } from 'fs';
 import logger from '../utils/logger.ts';
-import { convertData } from '../convert/convert.js';
+import { convertData } from '../convert/convert.ts';
 import { ConverterFactory } from '../converters/ConverterFactory.ts';
 import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
@@ -222,7 +222,7 @@ export async function resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsM
 
     try {
         // 动态导入以避免循环依赖
-        const { getApiServiceWithFallback } = await import('../services/service-manager.js');
+        const { getApiServiceWithFallback } = await import('../services/service-manager.ts');
         const result = await getApiServiceWithFallback(CONFIG, model, {
             acquireSlot: true,
             allowUnselectedModel: Boolean(CONFIG.customConfig)
@@ -966,7 +966,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             
             try {
                 // 动态导入以避免循环依赖
-                const { getApiServiceWithFallback } = await import('../services/service-manager.js');
+                const { getApiServiceWithFallback } = await import('../services/service-manager.ts');
                 // 使用 acquireSlot: true 以占用新凭证的并发插槽
                 const result = await getApiServiceWithFallback(CONFIG, model, {
                     acquireSlot: true,
@@ -1293,7 +1293,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
             
             try {
                 // 动态导入以避免循环依赖
-                const { getApiServiceWithFallback } = await import('../services/service-manager.js');
+                const { getApiServiceWithFallback } = await import('../services/service-manager.ts');
                 // 使用 acquireSlot: true 以占用新凭证的并发插槽
                 const result = await getApiServiceWithFallback(CONFIG, model, {
                     acquireSlot: true,
@@ -1507,7 +1507,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     // 注意：仅在号池场景开启 acquireSlot，占用并发名额或进入队列
     const shouldSelectByPool = providerPoolManager && (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO || (CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]));
     if (!service || shouldSelectByPool) {
-        const { getApiServiceWithFallback } = await import('../services/service-manager.js');
+        const { getApiServiceWithFallback } = await import('../services/service-manager.ts');
         const result = await getApiServiceWithFallback(CONFIG, model, {
             acquireSlot: shouldSelectByPool,
             allowUnselectedModel: Boolean(customModelConfig),

@@ -3,8 +3,8 @@ import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
-import { broadcastEvent } from './event-broadcast.js';
-import { scanConfigFiles } from './config-scanner.js';
+import { broadcastEvent } from './event-broadcast.ts';
+import { scanConfigFiles } from './config-scanner.ts';
 
 /**
  * 获取上传配置文件列表

@@ -5,22 +5,22 @@ import { getPluginManager } from '../core/plugin-manager.ts';
 import { resolvePluginStaticFile } from '../core/plugin-security.ts';
 
 // Import UI modules
-import * as auth from '../ui-modules/auth.js';
-import * as configApi from '../ui-modules/config-api.js';
-import * as providerApi from '../ui-modules/provider-api.js';
-import * as usageApi from '../ui-modules/usage-api.js';
-import * as pluginApi from '../ui-modules/plugin-api.js';
-import * as uploadConfigApi from '../ui-modules/upload-config-api.js';
-import * as systemApi from '../ui-modules/system-api.js';
-import * as updateApi from '../ui-modules/update-api.js';
-import * as oauthApi from '../ui-modules/oauth-api.js';
-import * as customModelsApi from '../ui-modules/custom-models-api.js';
-import * as accessApi from '../ui-modules/access-api.js';
-import * as eventBroadcast from '../ui-modules/event-broadcast.js';
+import * as auth from '../ui-modules/auth.ts';
+import * as configApi from '../ui-modules/config-api.ts';
+import * as providerApi from '../ui-modules/provider-api.ts';
+import * as usageApi from '../ui-modules/usage-api.ts';
+import * as pluginApi from '../ui-modules/plugin-api.ts';
+import * as uploadConfigApi from '../ui-modules/upload-config-api.ts';
+import * as systemApi from '../ui-modules/system-api.ts';
+import * as updateApi from '../ui-modules/update-api.ts';
+import * as oauthApi from '../ui-modules/oauth-api.ts';
+import * as customModelsApi from '../ui-modules/custom-models-api.ts';
+import * as accessApi from '../ui-modules/access-api.ts';
+import * as eventBroadcast from '../ui-modules/event-broadcast.ts';
 import { HELP_DATA, API_GUIDE_DATA, API_EXAMPLES, formatHelpText, formatApiGuideText } from '../utils/docs-data.ts';
 
 // Re-export from event-broadcast module
-export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials, upload } from '../ui-modules/event-broadcast.js';
+export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials, upload } from '../ui-modules/event-broadcast.ts';
 
 /**
  * Serve static files for the UI

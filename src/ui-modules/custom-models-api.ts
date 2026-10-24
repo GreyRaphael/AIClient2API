@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { getRequestBody } from '../utils/common.ts';
-import { broadcastEvent } from './event-broadcast.js';
+import { broadcastEvent } from './event-broadcast.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 

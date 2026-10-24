@@ -1,8 +1,9 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { CONFIG } from '../core/config-manager.ts';
 import logger from '../utils/logger.ts';
 import { serviceInstances, getServiceAdapter } from '../providers/adapter.ts';
-import { usageService } from '../services/usage-service.js';
-import { readUsageCache, writeUsageCache, readProviderUsageCache, updateProviderUsageCache } from './usage-cache.js';
+import { usageService } from '../services/usage-service.ts';
+import { readUsageCache, writeUsageCache, readProviderUsageCache, updateProviderUsageCache } from './usage-cache.ts';
 import { PROVIDER_MAPPINGS } from '../utils/provider-utils.ts';
 import { MODEL_PROVIDER } from '../utils/common.ts';
 import path from 'path';

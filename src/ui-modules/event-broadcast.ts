@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';

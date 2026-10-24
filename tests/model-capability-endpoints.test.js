@@ -10,7 +10,7 @@ import {
     resolveNodeCapability,
     setCapabilityStore
 } from '../src/providers/model-capability.ts';
-import { handleGetProviderModels, handleGetProviders } from '../src/ui-modules/provider-api.js';
+import { handleGetProviderModels, handleGetProviders } from '../src/ui-modules/provider-api.ts';
 import { CONFIG } from '../src/core/config-manager.ts';
 
 function createResponse() {

@@ -5,7 +5,7 @@ import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } f
 import logger from '../utils/logger.ts';
 import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
-import { convertData } from '../convert/convert.js';
+import { convertData } from '../convert/convert.ts';
 
 import {
     getCustomModelListProvider
@@ -17,7 +17,7 @@ import {
     resolveProviderCapabilityWithRefresh
 } from './model-capability.ts';
 import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.ts';
-import { broadcastEvent } from '../ui-modules/event-broadcast.js';
+import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { ENDPOINT_TYPE } from '../utils/common.ts';
 
 /**
