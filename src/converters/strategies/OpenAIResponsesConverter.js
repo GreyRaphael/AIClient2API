@@ -7,7 +7,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../../utils/logger.js';
 import { BaseConverter } from '../BaseConverter.ts';
-import { StreamSessionStore } from '../stream-session.js';
+import { StreamSessionStore } from '../stream-session.ts';
 import { CodexConverter } from './CodexConverter.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.js';
 import {

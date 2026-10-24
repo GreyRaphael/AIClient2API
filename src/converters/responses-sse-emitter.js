@@ -39,7 +39,7 @@ export class ResponsesSseEmitter {
      * @param {string} [options.responseId] - 响应 ID（默认 resp_...）
      * @param {string} [options.model] - 输出 response.* 时携带的模型名
      * @param {number} [options.createdAt] - 创建时间戳（秒）
-     * @param {import('./stream-session.js').StreamSessionStore} [options.store] - 并发隔离会话存储
+     * @param {import('./stream-session.ts').StreamSessionStore} [options.store] - 并发隔离会话存储
      */
     constructor({ requestId = null, responseId = null, model = 'claude-sonnet-4-6', createdAt = null, store = null } = {}) {
         this.requestId = requestId || `req_${Date.now().toString(36)}_${(emitterSeq++).toString(36)}`;

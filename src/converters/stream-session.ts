@@ -20,20 +20,38 @@ const DEFAULT_TTL_MS = 30 * 60 * 1000;       // 30 分钟无访问过期
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 每 5 分钟清扫一次
 const SWEEP_ON_SET_THRESHOLD = 512;          // set 时超过该规模先清扫再写入
 
-export class StreamSessionStore {
-    /**
-     * @param {object} [options]
-     * @param {number} [options.ttlMs] - 条目无访问过期时间（毫秒）
-     * @param {number} [options.sweepIntervalMs] - 定期清扫间隔；传 0 禁用定时器
-     * @param {string} [options.label] - 日志/调试标识
-     * @param {() => number} [options.now] - 时钟注入（测试用）
-     */
-    constructor({ ttlMs = DEFAULT_TTL_MS, sweepIntervalMs = DEFAULT_SWEEP_INTERVAL_MS, label = 'stream-session', now = Date.now } = {}) {
-        this._states = new Map(); // key -> { value, lastAccess }
+export interface StreamSessionOptions {
+    /** 条目无访问过期时间（毫秒） */
+    ttlMs?: number;
+    /** 定期清扫间隔；传 0 禁用定时器 */
+    sweepIntervalMs?: number;
+    /** 日志/调试标识 */
+    label?: string;
+    /** 时钟注入（测试用） */
+    now?: () => number;
+}
+
+interface StreamSessionEntry<T> {
+    value: T;
+    lastAccess: number;
+}
+
+export class StreamSessionStore<T = any> {
+    private _states = new Map<string, StreamSessionEntry<T>>();
+    private _ttlMs: number;
+    private _now: () => number;
+    private _label: string;
+    private _sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+    constructor({
+        ttlMs = DEFAULT_TTL_MS,
+        sweepIntervalMs = DEFAULT_SWEEP_INTERVAL_MS,
+        label = 'stream-session',
+        now = Date.now
+    }: StreamSessionOptions = {}) {
         this._ttlMs = ttlMs;
         this._now = now;
         this._label = label;
-        this._sweepTimer = null;
         if (sweepIntervalMs > 0) {
             this._sweepTimer = setInterval(() => this._sweep(), sweepIntervalMs);
             if (typeof this._sweepTimer.unref === 'function') {
@@ -43,12 +61,12 @@ export class StreamSessionStore {
     }
 
     /** 当前存活条目数（先触发一次清扫） */
-    get size() {
+    get size(): number {
         this._sweep();
         return this._states.size;
     }
 
-    has(key) {
+    has(key: string): boolean {
         const entry = this._states.get(key);
         if (!entry) return false;
         if (this._isExpired(entry)) {
@@ -59,7 +77,7 @@ export class StreamSessionStore {
         return true;
     }
 
-    get(key) {
+    get(key: string): T | undefined {
         const entry = this._states.get(key);
         if (!entry) return undefined;
         if (this._isExpired(entry)) {
@@ -70,7 +88,7 @@ export class StreamSessionStore {
         return entry.value;
     }
 
-    set(key, value) {
+    set(key: string, value: T): this {
         if (this._states.size >= SWEEP_ON_SET_THRESHOLD) {
             this._sweep();
         }
@@ -78,20 +96,20 @@ export class StreamSessionStore {
         return this;
     }
 
-    delete(key) {
+    delete(key: string): boolean {
         return this._states.delete(key);
     }
 
-    clear() {
+    clear(): void {
         this._states.clear();
     }
 
     /**
      * 获取已有条目，不存在时用 init 创建并写入。
-     * @param {string} key
-     * @param {() => any} init - 仅在缺失/过期时调用
+     * @param key
+     * @param init - 仅在缺失/过期时调用
      */
-    getOrCreate(key, init) {
+    getOrCreate(key: string, init: () => T): T {
         let value = this.get(key);
         if (value === undefined) {
             value = init();
@@ -101,18 +119,18 @@ export class StreamSessionStore {
     }
 
     /** 停止定期清扫定时器（进程退出或测试收尾用） */
-    dispose() {
+    dispose(): void {
         if (this._sweepTimer) {
             clearInterval(this._sweepTimer);
             this._sweepTimer = null;
         }
     }
 
-    _isExpired(entry) {
+    private _isExpired(entry: StreamSessionEntry<T>): boolean {
         return this._now() - entry.lastAccess > this._ttlMs;
     }
 
-    _sweep() {
+    private _sweep(): void {
         const now = this._now();
         for (const [key, entry] of this._states) {
             if (now - entry.lastAccess > this._ttlMs) {

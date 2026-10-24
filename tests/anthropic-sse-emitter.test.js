@@ -6,7 +6,7 @@
  * -> message_delta -> message_stop
  */
 
-import { AnthropicSseEmitter } from '../src/converters/anthropic-sse-emitter.js';
+import { AnthropicSseEmitter } from '../src/converters/anthropic-sse-emitter.ts';
 
 const types = (events) => events.map(e => e.type);
 

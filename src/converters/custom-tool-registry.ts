@@ -10,7 +10,7 @@
  * Codex 原生支持 custom tool，请求侧应直接保留 `type: "custom"`，不经过降级。
  */
 
-import { StreamSessionStore } from './stream-session.js';
+import { StreamSessionStore } from './stream-session.ts';
 
 export interface CustomToolRecord {
     name: string;

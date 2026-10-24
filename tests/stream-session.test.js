@@ -3,7 +3,7 @@
  */
 
 import { jest } from '@jest/globals';
-import { StreamSessionStore } from '../src/converters/stream-session.js';
+import { StreamSessionStore } from '../src/converters/stream-session.ts';
 
 function makeStore({ ttlMs = 1000, ...rest } = {}) {
     let now = 1_000_000;

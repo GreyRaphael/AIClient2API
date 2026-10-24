@@ -21,16 +21,56 @@ import { mintVirtualSignature, isSignatureVaultEnabled } from './signature-vault
 
 let emitterSeq = 0;
 
+export type AnthropicBlockType = 'thinking' | 'text' | 'tool_use';
+export type AnthropicBlockMode = 'sequential' | 'multi';
+
+export interface AnthropicSseEmitterOptions {
+    /** 输出 message_start 时携带的模型名 */
+    model?: string;
+    /** 消息 ID（默认自动生成 msg_ 前缀） */
+    messageId?: string | null;
+    /** 块管理语义 */
+    blockMode?: AnthropicBlockMode;
+    /** 流式会话键 */
+    sessionKey?: string | null;
+    /** 是否生成虚拟思考签名 */
+    mintSignatures?: boolean;
+}
+
+export interface AnthropicFinishOptions {
+    /** 终态原因（调用方负责映射与覆盖规则） */
+    stopReason?: string;
+    /** message_delta.usage 完整对象（字段构成由调用方决定） */
+    usage?: any;
+}
+
+interface ThinkingBlockState {
+    text: string;
+    sawSignature: boolean;
+}
+
 export class AnthropicSseEmitter {
-    /**
-     * @param {Object} [options]
-     * @param {string} [options.model] - 输出 message_start 时携带的模型名
-     * @param {string} [options.messageId] - 消息 ID（默认自动生成 msg_ 前缀）
-     * @param {'sequential'|'multi'} [options.blockMode] - 块管理语义
-     * @param {string|null} [options.sessionKey] - 流式会话键
-     * @param {boolean} [options.mintSignatures] - 是否生成虚拟思考签名
-     */
-    constructor({ model = 'unknown', messageId = null, blockMode = 'sequential', sessionKey = null, mintSignatures = false } = {}) {
+    model: string;
+    messageId: string;
+    blockMode: AnthropicBlockMode;
+    sessionKey: string | null;
+    mintSignatures: boolean;
+    msgStarted: boolean;
+    done: boolean;
+    sawToolUse: boolean;
+    nextBlockIndex: number;
+    activeIndex: number;
+    activeType: AnthropicBlockType | null;
+    openBlocks: Map<number, AnthropicBlockType>;
+    thinkingBlocks: Map<number, ThinkingBlockState>;
+
+    constructor({
+        model = 'unknown',
+        messageId = null,
+        blockMode = 'sequential',
+        sessionKey = null,
+        mintSignatures = false
+    }: AnthropicSseEmitterOptions = {}) {
         if (blockMode !== 'sequential' && blockMode !== 'multi') {
             throw new Error(`AnthropicSseEmitter: unknown blockMode '${blockMode}'`);
         }
@@ -51,24 +91,23 @@ export class AnthropicSseEmitter {
         this.thinkingBlocks = new Map(); // index -> { text: string, sawSignature: boolean }
     }
 
-    get started() {
+    get started(): boolean {
         return this.msgStarted;
     }
 
     /**
      * 更新模型名（上游首帧之后才拿到模型名的场景）
-     * @param {string} model
      */
-    setModel(model) {
+    setModel(model: string): void {
         if (model) this.model = model;
     }
 
     /**
      * 发送 message_start（幂等，仅首次生效；已终结则为空操作）
-     * @param {Object} [usage] - message_start.message.usage，默认全零
-     * @returns {Array} 产生的事件数组（空数组表示已发过或已终结）
+     * @param usage - message_start.message.usage，默认全零
+     * @returns 产生的事件数组（空数组表示已发过或已终结）
      */
-    ensureStarted(usage = null) {
+    ensureStarted(usage: any = null): any[] {
         if (this.done || this.msgStarted) return [];
         this.msgStarted = true;
         return [{
@@ -90,13 +129,13 @@ export class AnthropicSseEmitter {
      * 开启一个内容块。
      * - sequential：若当前活动块类型不同，先关闭再开；同类型重复调用为空操作。
      * - multi：总是新块并存（调用方自行管理各块生命周期）。
-     * @param {'thinking'|'text'|'tool_use'} type - 块类型
-     * @param {Object} contentBlock - content_block_start 携带的块体（如 {type:'text',text:''}）
-     * @returns {{ events: Array, index: number }} 事件数组与新块 index（同类型空操作时返回当前 index）
+     * @param type - 块类型
+     * @param contentBlock - content_block_start 携带的块体（如 {type:'text',text:''}）
+     * @returns 事件数组与新块 index（同类型空操作时返回当前 index）
      */
-    openBlock(type, contentBlock) {
+    openBlock(type: AnthropicBlockType, contentBlock: any): { events: any[]; index: number } {
         if (this.done) return { events: [], index: -1 };
-        const events = [];
+        const events: any[] = [];
         if (type === 'tool_use') this.sawToolUse = true;
 
         if (this.blockMode === 'sequential') {
@@ -132,11 +171,11 @@ export class AnthropicSseEmitter {
 
     /**
      * 在当前活动块上产生 content_block_delta（sequential 语义）
-     * @param {Object} deltaObj - delta 体（如 {type:'text_delta',text:'...'}）
-     * @returns {Object} 事件对象
-     * @throws {Error} multi 模式下或无活动块时抛出（误用会产生 index:-1 的非法事件）
+     * @param deltaObj - delta 体（如 {type:'text_delta',text:'...'}）
+     * @returns 事件对象
+     * @throws multi 模式下或无活动块时抛出（误用会产生 index:-1 的非法事件）
      */
-    delta(deltaObj) {
+    delta(deltaObj: any): any {
         if (this.blockMode !== 'sequential') {
             throw new Error("AnthropicSseEmitter: delta() 仅适用于 sequential 模式，multi 模式请使用 deltaAt(index, ...)");
         }
@@ -159,11 +198,11 @@ export class AnthropicSseEmitter {
 
     /**
      * 在指定块上产生 content_block_delta（multi 语义或显式索引）
-     * @param {number} index - 块 index
-     * @param {Object} deltaObj - delta 体
-     * @returns {Object} 事件对象
+     * @param index - 块 index
+     * @param deltaObj - delta 体
+     * @returns 事件对象
      */
-    deltaAt(index, deltaObj) {
+    deltaAt(index: number, deltaObj: any): any {
         if (deltaObj?.type === 'thinking_delta') {
             const tb = this.thinkingBlocks.get(index);
             if (tb) tb.text += (deltaObj.thinking || '');
@@ -180,11 +219,11 @@ export class AnthropicSseEmitter {
 
     /**
      * 关闭当前活动块（sequential 语义；无活动块时为空操作）
-     * @returns {Array} 事件数组
+     * @returns 事件数组
      */
-    closeActiveBlock() {
+    closeActiveBlock(): any[] {
         if (this.blockMode === 'sequential' && this.activeType !== null) {
-            const events = [];
+            const events: any[] = [];
             const index = this.activeIndex;
             if (this.activeType === 'thinking') {
                 events.push(...this._maybeMintSignature(index));
@@ -199,13 +238,13 @@ export class AnthropicSseEmitter {
 
     /**
      * 关闭指定块（multi 语义；块不存在时为空操作）
-     * @param {number} index - 块 index
-     * @returns {Array} 事件数组
+     * @param index - 块 index
+     * @returns 事件数组
      */
-    closeBlockAt(index) {
+    closeBlockAt(index: number): any[] {
         const type = this.openBlocks.get(index);
         if (this.openBlocks.delete(index)) {
-            const events = [];
+            const events: any[] = [];
             if (type === 'thinking') {
                 events.push(...this._maybeMintSignature(index));
             }
@@ -217,13 +256,13 @@ export class AnthropicSseEmitter {
 
     /**
      * 关闭所有仍打开的块（sequential 关闭活动块；multi 清空并存集合）
-     * @returns {Array} 事件数组
+     * @returns 事件数组
      */
-    closeAllBlocks() {
+    closeAllBlocks(): any[] {
         if (this.blockMode === 'sequential') {
             return this.closeActiveBlock();
         }
-        const events = [];
+        const events: any[] = [];
         for (const [index, type] of this.openBlocks.entries()) {
             if (type === 'thinking') {
                 events.push(...this._maybeMintSignature(index));
@@ -234,10 +273,7 @@ export class AnthropicSseEmitter {
         return events;
     }
 
-    /**
-     * @private
-     */
-    _maybeMintSignature(index) {
+    _maybeMintSignature(index: number): any[] {
         if (!this.mintSignatures) return [];
         const tb = this.thinkingBlocks.get(index);
         this.thinkingBlocks.delete(index);
@@ -260,14 +296,10 @@ export class AnthropicSseEmitter {
 
     /**
      * 终结消息：确保 message_start -> 兜底空内容块（若全流未开启过块）-> 关闭所有块 -> message_delta -> message_stop（幂等，done 后为空操作）
-     * @param {Object} [options]
-     * @param {string} [options.stopReason] - 终态原因（调用方负责映射与覆盖规则）
-     * @param {Object} [options.usage] - message_delta.usage 完整对象（字段构成由调用方决定）
-     * @returns {Array} 事件数组
      */
-    finish({ stopReason = 'end_turn', usage = null } = {}) {
+    finish({ stopReason = 'end_turn', usage = null }: AnthropicFinishOptions = {}): any[] {
         if (this.done) return [];
-        const events = [];
+        const events: any[] = [];
         if (!this.msgStarted) {
             events.push(...this.ensureStarted());
         }

@@ -6,8 +6,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.ts';
-import { StreamSessionStore } from '../stream-session.js';
-import { AnthropicSseEmitter } from '../anthropic-sse-emitter.js';
+import { StreamSessionStore } from '../stream-session.ts';
+import { AnthropicSseEmitter } from '../anthropic-sse-emitter.ts';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
 import {
     mapFinishReason,

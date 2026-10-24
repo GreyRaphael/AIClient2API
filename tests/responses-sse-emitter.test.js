@@ -7,7 +7,7 @@
  */
 
 import { ResponsesSseEmitter } from '../src/converters/responses-sse-emitter.js';
-import { StreamSessionStore } from '../src/converters/stream-session.js';
+import { StreamSessionStore } from '../src/converters/stream-session.ts';
 
 const types = (events) => events.map(e => e.type);
 
