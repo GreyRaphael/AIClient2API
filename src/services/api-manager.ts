@@ -59,7 +59,7 @@ export async function handleAPIRequests(
     currentConfig: Record<string, any>,
     apiService: any,
     providerPoolManager: any,
-    promptLogFilename: string | null
+    promptLogFilename: string
 ): Promise<boolean> {
 
 

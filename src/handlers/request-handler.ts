@@ -15,6 +15,11 @@ import { PROMPT_LOG_FILENAME } from '../core/config-manager.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
 import { randomUUID } from 'crypto';
 
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return getErrorMessage(error);
+    return String(error);
+}
+
 /**
  * Generate a short unique request ID (8 characters)
  */
@@ -29,8 +34,8 @@ function generateRequestId() {
  * @param {Object} providerPoolManager - The provider pool manager instance
  * @returns {Function} - The request handler function
  */
-export function createRequestHandler(config, providerPoolManager) {
-    return async function requestHandler(req, res) {
+export function createRequestHandler(config: any, providerPoolManager: any) {
+    return async function requestHandler(req: any, res: any) {
         // Generate unique request ID and set it in logger context
         const clientIp = getClientIp(req, config);
         const requestId = `${clientIp}:${generateRequestId()}`;
@@ -154,8 +159,8 @@ export function createRequestHandler(config, providerPoolManager) {
                             }));
                             return true;
                         } catch (error) {
-                            logger.info(`[Server] req provider_health error: ${error.message}`);
-                            handleError(res, { status: 500, message: `Failed to get providers health: ${error.message}` }, currentConfig.MODEL_PROVIDER, null, req);
+                            logger.info(`[Server] req provider_health error: ${getErrorMessage(error)}`);
+                            handleError(res, { status: 500, message: `Failed to get providers health: ${getErrorMessage(error)}` }, currentConfig.MODEL_PROVIDER, null, req);
                             return;
                         }
                     }
@@ -230,15 +235,15 @@ export function createRequestHandler(config, providerPoolManager) {
                                 res.writeHead(200, { 'Content-Type': 'application/json' });
                                 res.end(JSON.stringify(result));
                             } catch (tokenError) {
-                                logger.warn(`[Server] Common countTokens failed, falling back: ${tokenError.message}`);
+                                logger.warn(`[Server] Common countTokens failed, falling back: ${getErrorMessage(tokenError)}`);
                                 // Last resort: return 0
                                 res.writeHead(200, { 'Content-Type': 'application/json' });
                                 res.end(JSON.stringify({ input_tokens: 0 }));
                             }
                             return true;
                         } catch (error) {
-                            logger.error(`[Server] count_tokens error: ${error.message}`);
-                            handleError(res, { status: 500, message: `Failed to count tokens: ${error.message}` }, currentConfig.MODEL_PROVIDER, null, req);
+                            logger.error(`[Server] count_tokens error: ${getErrorMessage(error)}`);
+                            handleError(res, { status: 500, message: `Failed to count tokens: ${getErrorMessage(error)}` }, currentConfig.MODEL_PROVIDER, null, req);
                             return;
                         }
                     }

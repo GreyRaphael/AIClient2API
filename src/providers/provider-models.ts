@@ -9,7 +9,7 @@ import { getProviderStaticModels } from './provider-registry.ts';
  * @param {string|null} provider - 自定义模型归属的提供商
  * @returns {Object|null} 模型配置
  */
-export function getCustomModelConfig(modelId, provider = null) {
+export function getCustomModelConfig(modelId: string, provider: string | null = null) {
     if (!CONFIG.customModels || !Array.isArray(CONFIG.customModels)) {
         return null;
     }
