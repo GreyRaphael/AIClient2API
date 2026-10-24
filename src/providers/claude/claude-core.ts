@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
 import * as http from 'http';
@@ -11,6 +10,12 @@ import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../
  * Encapsulates the interaction logic with the Anthropic Claude API.
  */
 export class ClaudeApiService {
+    config: any;
+    apiKey: any;
+    baseUrl: any;
+    useSystemProxy: any;
+    client: any;
+
     /**
      * Constructor
      * @param {Object} config - Claude provider configuration.

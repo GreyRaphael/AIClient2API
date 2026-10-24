@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
 import * as http from 'http';
@@ -8,6 +7,12 @@ import { MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 
 // OpenAI Responses API specification service for interacting with third-party models
 export class OpenAIResponsesApiService {
+    config: any;
+    apiKey: any;
+    baseUrl: any;
+    useSystemProxy: any;
+    axiosInstance: any;
+
     constructor(config) {
         if (!config.OPENAI_API_KEY) {
             throw new Error("OpenAI API Key is required for OpenAIResponsesApiService.");

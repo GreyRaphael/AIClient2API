@@ -188,7 +188,7 @@ export function resolveProviderCapabilities({
     model?: string;
     config?: any;
     metadata?: any;
-} = {}) {
+} = {}): any {
     const capabilities = { ...DEFAULT_PROVIDER_CAPABILITIES };
 
     // 2. 内置规则

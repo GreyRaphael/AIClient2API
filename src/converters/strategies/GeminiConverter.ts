@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 /**
  * Gemini转换器
  * 处理Gemini（Google）协议与其他协议之间的转换
@@ -179,6 +178,10 @@ function normalizeToolName(name) {
  * 实现Gemini协议到其他协议的转换
  */
 export class GeminiConverter extends BaseConverter {
+    openAIResponsesStreamStates: any;
+    claudeStreamStates: any;
+    openaiStreamStates: any;
+
     constructor() {
         super('gemini');
         this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'gemini-converter-responses-stream' });
@@ -287,7 +290,7 @@ export class GeminiConverter extends BaseConverter {
             ? "tool_calls"
             : mapFinishReason(geminiResponse?.candidates?.[0]?.finishReason, 'gemini', 'openai');
         
-        const message = {
+        const message: any = {
             role: "assistant",
             content: content
         };
@@ -405,7 +408,7 @@ export class GeminiConverter extends BaseConverter {
         }
 
         // 构建delta对象
-        const delta = {};
+        const delta: any = {};
         if (content) delta.content = content;
         if (reasoning_content) delta.reasoning_content = reasoning_content;
         if (toolCalls.length > 0) delta.tool_calls = toolCalls;
@@ -417,7 +420,7 @@ export class GeminiConverter extends BaseConverter {
             return null;
         }
 
-        const chunk = {
+        const chunk: any = {
             id: identity.id,
             object: "chat.completion.chunk",
             created: identity.created,
@@ -702,7 +705,7 @@ export class GeminiConverter extends BaseConverter {
                     if (part.text) {
                         if (part.thought === true) {
                             // 这是一个 thinking 块
-                            const thinkingBlock = {
+                            const thinkingBlock: any = {
                                 type: 'thinking',
                                 thinking: part.text
                             };

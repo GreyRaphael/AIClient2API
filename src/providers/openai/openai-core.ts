@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
 import * as http from 'http';
@@ -206,7 +205,7 @@ export function aggregateChatCompletionChunks(chunks) {
         }
     }
 
-    const message = result.choices[0].message;
+    const message: any = result.choices[0].message;
     if (sawContent || !toolCalls.size) {
         message.content = content;
     } else {
@@ -232,6 +231,13 @@ export function aggregateChatCompletionChunks(chunks) {
 
 // Assumed OpenAI API specification service for interacting with third-party models
 export class OpenAIApiService {
+    config: any;
+    apiKey: any;
+    baseUrl: any;
+    useSystemProxy: any;
+    axiosInstance: any;
+    _loggedNonStreamCapability: any;
+
     constructor(config) {
         if (!config.OPENAI_API_KEY) {
             throw new Error("OpenAI API Key is required for OpenAIApiService.");

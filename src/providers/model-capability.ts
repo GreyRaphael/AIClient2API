@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
 import logger from '../utils/logger.ts';
@@ -65,7 +64,7 @@ export function isDynamicProvider(providerType) {
     return DYNAMIC_PROVIDERS.has(getBaseProviderType(providerType));
 }
 
-export function capabilityKey(providerType, nodeConfig = {}) {
+export function capabilityKey(providerType, nodeConfig: any = {}) {
     return `${providerType}:${nodeConfig?.uuid || 'default'}`;
 }
 
@@ -107,6 +106,8 @@ function pickSource(sources) {
  * 内存缓存实现（测试与降级使用）
  */
 export class MemoryCapabilityStore {
+    entries: Map<string, any>;
+
     constructor(initial = null) {
         this.entries = new Map();
         if (initial && typeof initial === 'object') {
@@ -155,6 +156,9 @@ export class MemoryCapabilityStore {
  * 文件缓存实现（生产使用）
  */
 export class FileCapabilityStore extends MemoryCapabilityStore {
+    filePath: string;
+    _writeChain: Promise<any>;
+
     constructor(filePath) {
         super();
         this.filePath = filePath;
@@ -166,10 +170,10 @@ export class FileCapabilityStore extends MemoryCapabilityStore {
         try {
             if (!existsSync(this.filePath)) return;
             const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-            const nodes = parsed?.nodes && typeof parsed.nodes === 'object' ? parsed.nodes : null;
+            const nodes: any = parsed?.nodes && typeof parsed.nodes === 'object' ? parsed.nodes : null;
             if (!nodes) return;
             for (const [key, entry] of Object.entries(nodes)) {
-                if (entry && typeof entry === 'object' && Array.isArray(entry.models)) {
+                if (entry && typeof entry === 'object' && Array.isArray((entry as any).models)) {
                     this.entries.set(key, entry);
                 }
             }
@@ -247,7 +251,7 @@ function resolveSelectedModels(providerType, nodeConfig, candidateModels) {
 /**
  * 解析单个节点的模型能力（同步，不发起网络请求）。
  */
-export function resolveNodeCapability(providerType, nodeConfig = {}) {
+export function resolveNodeCapability(providerType, nodeConfig: any = {}) {
     const key = capabilityKey(providerType, nodeConfig);
     const entry = getCapabilityStore().getEntry(key);
     const dynamic = isDynamicProvider(providerType);
@@ -261,7 +265,7 @@ export function resolveNodeCapability(providerType, nodeConfig = {}) {
     // 这种情况不能把“空结果”当成可靠发现，否则会遮蔽静态基线。
     const hasUsableDiscovery = Boolean(entry) && (
         (entry.fetchedAt || 0) > 0 ||
-        (Array.isArray(entry.models) && entry.models.length > 0)
+        (Array.isArray((entry as any).models) && entry.models.length > 0)
     );
 
     if (hasUsableDiscovery) {
@@ -304,7 +308,7 @@ export function resolveNodeCapability(providerType, nodeConfig = {}) {
  * 分组最终集 = 活跃节点选择集的并集 ∪ 该分组的自定义模型。
  * 已知能力的节点优先，避免“无能力节点”的静态基线污染实时列表。
  */
-export function resolveProviderCapability(providerType, nodes = [], options = {}) {
+export function resolveProviderCapability(providerType, nodes: any[] = [], options: any = {}) {
     const { includeUnhealthy = false } = options;
     const configs = (Array.isArray(nodes) ? nodes : [])
         .map(node => node?.config || node)
@@ -320,7 +324,7 @@ export function resolveProviderCapability(providerType, nodes = [], options = {}
     const knownCapabilities = nodeCapabilities.filter(capability => capability.known);
     const contributors = knownCapabilities.length > 0 ? knownCapabilities : nodeCapabilities;
 
-    const modelSet = new Set();
+    const modelSet = new Set<string>();
     for (const capability of contributors) {
         for (const model of capability.selectedModels) {
             modelSet.add(model);
@@ -401,7 +405,7 @@ async function resolveAdapterForNode(providerType, nodeConfig, globalConfig) {
  * @param {object} [options.globalConfig] 全局配置（默认 CONFIG）
  * @param {object} [options.adapter] 可注入 adapter，便于测试
  */
-export async function refreshNodeCapability(providerType, nodeConfig, options = {}) {
+export async function refreshNodeCapability(providerType, nodeConfig: any, options: any = {}) {
     const {
         force = false,
         reason = 'manual',
@@ -484,7 +488,7 @@ export async function refreshNodeCapability(providerType, nodeConfig, options = 
 /**
  * 刷新一个 providerType 下所有启用节点。
  */
-export async function refreshProviderCapabilities(providerType, nodes = [], options = {}) {
+export async function refreshProviderCapabilities(providerType, nodes: any[] = [], options: any = {}) {
     if (!isBackgroundRefreshEnabled() && !options.adapter) {
         return [];
     }
@@ -503,7 +507,7 @@ export async function refreshProviderCapabilities(providerType, nodes = [], opti
  * 读取能力，并在 stale / 冷启动时触发后台刷新。
  * 读路径本身不阻塞。
  */
-export function resolveProviderCapabilityWithRefresh(providerType, nodes = [], options = {}) {
+export function resolveProviderCapabilityWithRefresh(providerType, nodes: any[] = [], options: any = {}) {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (isBackgroundRefreshEnabled() && (!capability.known || capability.stale)) {
         refreshProviderCapabilities(providerType, nodes, {
@@ -521,7 +525,7 @@ export function resolveProviderCapabilityWithRefresh(providerType, nodes = [], o
  * 冷启动场景：在有限时间内等待一次刷新，然后返回能力。
  * 仅建议在启动预热或显式刷新接口中使用，普通读路径使用 resolveProviderCapabilityWithRefresh。
  */
-export async function ensureProviderCapability(providerType, nodes = [], options = {}) {
+export async function ensureProviderCapability(providerType, nodes: any[] = [], options: any = {}) {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (capability.known) {
         if (capability.stale) {
@@ -550,15 +554,15 @@ export async function ensureProviderCapability(providerType, nodes = [], options
     return resolveProviderCapability(providerType, nodes, options);
 }
 
-function getProviderNodeEntries(providerPoolManager) {
-    return Object.entries(providerPoolManager?.providerStatus || {})
+function getProviderNodeEntries(providerPoolManager): Array<[string, any[]]> {
+    return (Object.entries(providerPoolManager?.providerStatus || {}) as Array<[string, any[]]>)
         .filter(([, nodes]) => Array.isArray(nodes) && nodes.length > 0);
 }
 
 /**
  * 刷新号池中所有 providerType 的启用节点（启动预热与定时任务共用）。
  */
-export async function warmProviderCapabilities(providerPoolManager, options = {}) {
+export async function warmProviderCapabilities(providerPoolManager, options: any = {}) {
     const { force = false, reason = 'startup' } = options;
     const entries = getProviderNodeEntries(providerPoolManager);
     await Promise.allSettled(entries.map(([providerType, nodes]) =>
@@ -572,7 +576,7 @@ let capabilityRefreshTimer = null;
  * 启动周期性模型能力刷新。
  * 与健康检查解耦，默认 15 分钟；测试环境自动禁用。
  */
-export function startCapabilityRefreshLoop(providerPoolManager, options = {}) {
+export function startCapabilityRefreshLoop(providerPoolManager, options: any = {}) {
     stopCapabilityRefreshLoop();
     if (!isBackgroundRefreshEnabled()) return null;
 
