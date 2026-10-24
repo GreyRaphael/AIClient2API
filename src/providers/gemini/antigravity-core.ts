@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import { OAuth2Client } from 'google-auth-library';
@@ -666,7 +665,7 @@ function convertStreamToNonStream(stream) {
             }
         } else if (pendingKind === 'thought') {
             if (text.trim() || pendingThoughtSig) {
-                const part = { thought: true, text: text };
+                const part: any = { thought: true, text: text };
                 if (pendingThoughtSig) {
                     part.thoughtSignature = pendingThoughtSig;
                 }
@@ -836,7 +835,7 @@ function convertStreamToNonStream(stream) {
 function toGeminiApiResponse(antigravityResponse) {
     if (!antigravityResponse) return null;
 
-    const compliantResponse = {
+    const compliantResponse: any = {
         candidates: antigravityResponse.candidates
     };
 
@@ -913,6 +912,23 @@ function ensureRolesInContents(requestBody, modelName) {
 }
 
 export class AntigravityApiService {
+    httpAgent: any;
+    httpsAgent: any;
+    availableModels: any;
+    isInitialized: any;
+    config: any;
+    host: any;
+    oauthCredsFilePath: any;
+    userAgent: any;
+    projectId: any;
+    uuid: any;
+    baseURLs: any;
+    proxyConfig: any;
+    authClient: any;
+    accountEmail: any;
+    tierId: any;
+    upstreamModelMetadata: any;
+
     constructor(config) {
         // 配置 HTTP/HTTPS agent 限制连接池大小，避免资源泄漏
         this.httpAgent = new http.Agent({
@@ -951,7 +967,7 @@ export class AntigravityApiService {
         const isTLSSidecarEnabled = isTLSSidecarEnabledForProvider(config, config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY);
 
         // 配置 OAuth2Client 使用自定义的 HTTP agent
-        const oauth2Options = {
+        const oauth2Options: any = {
             clientId: OAUTH_CLIENT_ID,
             clientSecret: OAUTH_CLIENT_SECRET,
         };
@@ -1265,7 +1281,7 @@ export class AntigravityApiService {
         for (const baseURL of this.baseURLs) {
             try {
                 const modelsURL = `${baseURL}/${ANTIGRAVITY_API_VERSION}:fetchAvailableModels`;
-                const requestOptions = {
+                const requestOptions: any = {
                     url: modelsURL,
                     method: 'POST',
                     headers: {
@@ -1302,7 +1318,7 @@ export class AntigravityApiService {
                     // 3. 构建候选列表并处理内部 gemini-pro-agent / deprecatedModelIds 规范化映射到 gemini-3.1-pro-high
                     const deprecatedMap = res.data.deprecatedModelIds || {};
                     const reverseDeprecatedMap = new Map();
-                    for (const [pubId, detail] of Object.entries(deprecatedMap)) {
+                    for (const [pubId, detail] of Object.entries(deprecatedMap) as [string, any][]) {
                         if (detail?.newModelId) {
                             reverseDeprecatedMap.set(detail.newModelId, pubId);
                         }
@@ -1374,7 +1390,7 @@ export class AntigravityApiService {
                 word.charAt(0).toUpperCase() + word.slice(1)
             ).join(' ');
 
-            const modelInfo = {
+            const modelInfo: any = {
                 name: `models/${modelId}`,
                 version: '1.0.0',
                 displayName: displayName,
@@ -1415,7 +1431,7 @@ export class AntigravityApiService {
         const baseURL = this.baseURLs[baseURLIndex];
 
         try {
-            const requestOptions = {
+            const requestOptions: any = {
                 url: `${baseURL}/${ANTIGRAVITY_API_VERSION}:${method}`,
                 method: 'POST',
                 headers: {
@@ -1520,7 +1536,7 @@ export class AntigravityApiService {
         let hasYielded = false;
 
         try {
-            const requestOptions = {
+            const requestOptions: any = {
                 url: `${baseURL}/${ANTIGRAVITY_API_VERSION}:${method}`,
                 method: 'POST',
                 params: { alt: 'sse' },

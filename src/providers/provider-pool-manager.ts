@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import * as fs from 'fs';
 import { CONFIG } from '../core/config-manager.ts';
 import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.ts';
@@ -24,11 +23,37 @@ import { ENDPOINT_TYPE } from '../utils/common.ts';
  * Manages a pool of API service providers, handling their health and selection.
  */
 export class ProviderPoolManager {
+    providerPools: any;
+    globalConfig: any;
+    providerStatus: any;
+    roundRobinIndex: any;
+    maxErrorCount: any;
+    healthCheckInterval: any;
+    logLevel: any;
+    saveDebounceTime: any;
+    saveTimer: any;
+    pendingSaves: any;
+    fallbackChain: any;
+    modelFallbackMapping: any;
+    _selectionLocks: any;
+    _isSelecting: any;
+    refreshConcurrency: any;
+    activeProviderRefreshes: any;
+    globalRefreshWaiters: any;
+    warmupTarget: any;
+    refreshingUuids: any;
+    refreshQueues: any;
+    refreshBufferQueues: any;
+    refreshBufferTimers: any;
+    bufferDelay: any;
+    refreshTaskTimeoutMs: any;
+    _selectionSequence: any;
+
     // 默认健康检查模型配置
     // 键名必须与 MODEL_PROVIDER 常量值一致
     static DEFAULT_HEALTH_CHECK_MODELS = getDefaultHealthCheckModels();
 
-    constructor(providerPools, options = {}) {
+    constructor(providerPools, options: any = {}) {
         this.providerPools = providerPools;
         this.globalConfig = options.globalConfig || {}; // 存储全局配置
         this.providerStatus = {}; // Tracks health and usage for each provider instance
@@ -848,7 +873,7 @@ export class ProviderPoolManager {
      * @param {string} requestedModel 
      * @param {object} options 
      */
-    async acquireSlot(providerType, requestedModel = null, options = {}) {
+    async acquireSlot(providerType, requestedModel = null, options: any = {}) {
         // 使用 selectProvider 进行初次选择（评分逻辑已经包含了并发考虑）
         const selectedConfig = await this.selectProvider(providerType, requestedModel, { ...options, skipUsageCount: true });
         
@@ -883,7 +908,7 @@ export class ProviderPoolManager {
             state.waitingCount++;
             try {
                 // 等待释放信号
-                await new Promise((resolve, reject) => {
+                await new Promise<void>((resolve, reject) => {
                     // 设置较短的超时用于测试验证，或者由外部控制
                     const timeoutMs = options.queueTimeout || 300000;
                     const timeout = setTimeout(() => {
@@ -1015,7 +1040,7 @@ export class ProviderPoolManager {
      * 用于 fallback chain / model fallback mapping 的预检。
      * @private
      */
-    _providerTypeSupportsModel(providerType, requestedModel, options = {}) {
+    _providerTypeSupportsModel(providerType, requestedModel, options: any = {}) {
         const nodes = this.providerStatus[providerType] || [];
         if (nodes.length === 0) {
             return false;
@@ -1152,7 +1177,7 @@ export class ProviderPoolManager {
     /**
      * 获取一个可用的提供商插槽，支持 Fallback 机制
      */
-    async acquireSlotWithFallback(providerType, requestedModel = null, options = {}) {
+    async acquireSlotWithFallback(providerType, requestedModel = null, options: any = {}) {
         if (!providerType || typeof providerType !== 'string') {
             this._log('error', `Invalid providerType: ${providerType}`);
             return null;
@@ -1598,7 +1623,7 @@ export class ProviderPoolManager {
             this._debouncedSave(providerType);
         } else {
             let matchedType = null;
-            for (const [type, providers] of Object.entries(this.providerStatus || {})) {
+            for (const [type, providers] of Object.entries(this.providerStatus || {}) as [string, any[]][]) {
                 if (providers.some(p => p.uuid === providerConfig.uuid)) {
                     matchedType = type;
                     break;
@@ -2217,7 +2242,9 @@ export class ProviderPoolManager {
                 openAICompatibleRequest,
                 'request',
                 MODEL_PROVIDER.OPENAI_CUSTOM,
-                MODEL_PROVIDER.CODEX_API
+                MODEL_PROVIDER.CODEX_API,
+                undefined,
+                undefined
             ));
             return requests;
         }
@@ -2366,7 +2393,7 @@ export class ProviderPoolManager {
         // 使用文件锁确保并发安全
         await withFileLock(filePath, async (checkValidity) => {
             // 原子化提取待保存任务并清空，防止在异步循环期间丢失新更新
-            const typesToSave = Array.from(this.pendingSaves);
+            const typesToSave = Array.from(this.pendingSaves) as string[];
             if (typesToSave.length === 0) return;
             this.pendingSaves.clear();
 

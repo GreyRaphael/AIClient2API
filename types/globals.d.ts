@@ -8,6 +8,7 @@ declare global {
         response?: any;
         retryAfterMs?: number;
         shouldSwitchCredential?: boolean;
+        credentialMarkedUnhealthy?: boolean;
         skipErrorCount?: boolean;
         isEmptyUpstreamResponse?: boolean;
     }

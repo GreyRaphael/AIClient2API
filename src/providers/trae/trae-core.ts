@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
 import { randomUUID, randomBytes } from 'crypto';
@@ -122,6 +121,27 @@ const traeAccountCacheMap = new Map();
  * 封装与 Trae / SOLO 上游端点 (api.enterprise.trae.cn / api.trae.cn) 的交互与 SSE 转换
  */
 export class TraeApiService {
+    config: any;
+    uuid: any;
+    credsFilePath: any;
+    authHost: any;
+    agentHost: any;
+    host: any;
+    channelMode: any;
+    _aliasKind: any;
+    userId: any;
+    enterpriseId: any;
+    nickname: any;
+    accessToken: any;
+    refreshToken: any;
+    personalAccessToken: any;
+    machineId: any;
+    deviceId: any;
+    expiresAt: any;
+    isInitialized: any;
+    _tokenRefreshPromise: any;
+    _fetchModelsPromise: any;
+
     constructor(config = {}) {
         this.config = config || {};
         this.uuid = this.config.uuid;
@@ -717,7 +737,7 @@ export class TraeApiService {
         const headers = await this.buildHeaders(true);
         const url = channel.url;
 
-        const axiosConfig = {
+        const axiosConfig: any = {
             method: 'POST',
             url,
             data: payload,
@@ -820,7 +840,7 @@ export class TraeApiService {
                         }
 
                         if (contentDelta || reasoningDelta || toolCalls) {
-                            const delta = {};
+                            const delta: any = {};
                             if (isFirst) {
                                 delta.role = 'assistant';
                                 isFirst = false;
@@ -859,7 +879,7 @@ export class TraeApiService {
                         if (hasSeenToolCalls && (!finalFinishReason || finalFinishReason === 'stop')) {
                             finalFinishReason = 'tool_calls';
                         }
-                        const doneChunk = {
+                        const doneChunk: any = {
                             id: `chatcmpl-${chatId}`,
                             object: 'chat.completion.chunk',
                             created,
@@ -953,7 +973,7 @@ export class TraeApiService {
         }
 
         /** @type {any} */
-        const message = {
+        const message: any = {
             role: 'assistant',
             content: fullContent || (aggregatedToolCalls.length > 0 ? null : ''),
             ...(fullReasoning ? { reasoning_content: fullReasoning } : {})
@@ -1027,7 +1047,7 @@ export class TraeApiService {
                         agent_type: null
                     };
                     try {
-                        const axiosConfig = {
+                        const axiosConfig: any = {
                             method: 'POST',
                             url: targetUrl,
                             data: agentBody,
@@ -1056,7 +1076,7 @@ export class TraeApiService {
                         show_custom_model: false
                     };
                     try {
-                        const axiosConfig = {
+                        const axiosConfig: any = {
                             method: 'POST',
                             url: targetUrl,
                             data: batchBody,

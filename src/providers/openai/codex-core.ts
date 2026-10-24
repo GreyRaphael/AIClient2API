@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
@@ -245,6 +244,29 @@ export function parseCodexTokenMetadata(token) {
  * Codex API 服务类
  */
 export class CodexApiService {
+    config: any;
+    baseUrl: any;
+    accessToken: any;
+    refreshToken: any;
+    accountId: any;
+    email: any;
+    planType: any;
+    expiresAt: any;
+    idToken: any;
+    last_refresh: any;
+    credsPath: any;
+    accessTokenOnlyRefreshLogged: any;
+    uuid: any;
+    isInitialized: any;
+    conversationCache: any;
+    modelsCache: any;
+    modelsExpiresAt: any;
+    _modelsFetchPromise: any;
+    modelMetadataMap: any;
+    availableModels: any;
+    version: any;
+    cleanupInterval: any;
+
     constructor(config) {
         this.config = config;
         this.baseUrl = config.CODEX_BASE_URL || 'https://chatgpt.com/backend-api/codex';
@@ -459,7 +481,7 @@ export class CodexApiService {
         const headers = this.buildHeaders(body.prompt_cache_key, true);
 
         try {
-            const config = {
+            const config: any = {
                 headers,
                 responseType: 'text', // 确保以文本形式接收 SSE 流
                 timeout: 300000 // 5 分钟超时，适应慢速模型
@@ -543,7 +565,7 @@ export class CodexApiService {
         const headers = this.buildHeaders(body.prompt_cache_key, true);
 
         try {
-            const config = {
+            const config: any = {
                 headers,
                 responseType: 'stream',
                 timeout: 300000 // 5 分钟超时
@@ -679,7 +701,7 @@ export class CodexApiService {
 
             // 直接使用真实 upstreamModel，不再硬编码改写为 gpt-5.5
             effectiveUpstreamModel = upstreamModel;
-            const imageToolConfig = {type: 'image_generation'};
+            const imageToolConfig: any = { type: 'image_generation' };
             if (cleanedBody._imageSize) {
                 imageToolConfig.size = cleanedBody._imageSize;
             }
@@ -808,7 +830,7 @@ export class CodexApiService {
         }
 
         try {
-            const newTokens = await refreshCodexTokensWithRetry(this.refreshToken, this.config);
+            const newTokens: any = await refreshCodexTokensWithRetry(this.refreshToken, this.config);
 
             this.idToken = newTokens.id_token || this.idToken;
             this.accessToken = newTokens.access_token;
@@ -963,7 +985,7 @@ export class CodexApiService {
 
         const items = [];
         // 按索引排序
-        const sortedIndexes = Array.from(outputItemsByIndex.keys()).sort((a, b) => a - b);
+        const sortedIndexes = (Array.from(outputItemsByIndex.keys()) as any[]).sort((a, b) => a - b);
         for (const idx of sortedIndexes) {
             items.push(outputItemsByIndex.get(idx));
         }
@@ -1343,7 +1365,7 @@ export class CodexApiService {
             object: 'list',
             data: allModels.map(id => {
                 const meta = this.modelMetadataMap.get(id);
-                const item = {
+                const item: any = {
                     id,
                     object: 'model',
                     created: Math.floor(Date.now() / 1000),
@@ -1398,7 +1420,7 @@ export class CodexApiService {
             const url = 'https://chatgpt.com/backend-api/wham/usage';
             const headers = this.buildManagementHeaders();
 
-            const config = {
+            const config: any = {
                 headers,
                 timeout: 30000
             };

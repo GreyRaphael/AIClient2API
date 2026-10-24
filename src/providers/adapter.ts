@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { OpenAIResponsesApiService } from './openai/openai-responses-core.ts';
 import { AntigravityApiService } from './gemini/antigravity-core.ts';
 import { OpenAIApiService } from './openai/openai-core.ts';
@@ -46,7 +45,7 @@ export class ApiServiceAdapter {
      * @param {object} requestBody - 请求体
      * @returns {Promise<object>} - API响应
      */
-    async generateContent(model, requestBody) {
+    async generateContent(model: any, requestBody: any): Promise<any> {
         throw new Error("Method 'generateContent()' must be implemented.");
     }
 
@@ -56,7 +55,7 @@ export class ApiServiceAdapter {
      * @param {object} requestBody - 请求体
      * @returns {AsyncIterable<object>} - API响应流
      */
-    async *generateContentStream(model, requestBody) {
+    async *generateContentStream(model: any, requestBody: any): AsyncGenerator<any, any, any> {
         throw new Error("Method 'generateContentStream()' must be implemented.");
     }
 
@@ -64,7 +63,7 @@ export class ApiServiceAdapter {
      * 列出可用模型
      * @returns {Promise<object>} - 模型列表
      */
-    async listModels() {
+    async listModels(): Promise<any> {
         throw new Error("Method 'listModels()' must be implemented.");
     }
 
@@ -72,7 +71,7 @@ export class ApiServiceAdapter {
      * 刷新认证令牌
      * @returns {Promise<boolean>} - 是否执行了实际的刷新操作
      */
-    async refreshToken() {
+    async refreshToken(): Promise<any> {
         throw new Error("Method 'refreshToken()' must be implemented.");
     }
 
@@ -80,7 +79,7 @@ export class ApiServiceAdapter {
      * 强制刷新认证令牌（不判断是否接近过期）
      * @returns {Promise<boolean>} - 是否执行了实际的刷新操作
      */
-    async forceRefreshToken() {
+    async forceRefreshToken(): Promise<any> {
         throw new Error("Method 'forceRefreshToken()' must be implemented.");
     }
 
@@ -88,7 +87,7 @@ export class ApiServiceAdapter {
      * 获取节点专属的可用模型列表（若提供商不区分节点或未探测则返回 null）
      * @returns {Promise<Array<string>|null>}
      */
-    async getNodeAvailableModels() {
+    async getNodeAvailableModels(): Promise<any[] | null> {
         return null;
     }
 
@@ -96,7 +95,7 @@ export class ApiServiceAdapter {
      * 判断日期是否接近过期
      * @returns {boolean}
      */
-    isExpiryDateNear() {
+    isExpiryDateNear(): boolean {
         throw new Error("Method 'isExpiryDateNear()' must be implemented.");
     }
 }
@@ -104,6 +103,8 @@ export class ApiServiceAdapter {
 
 // Antigravity API 服务适配器
 export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
+    antigravityApiService: any;
+
     constructor(config) {
         super();
         this.antigravityApiService = new AntigravityApiService(config);
@@ -189,6 +190,8 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
 
 // OpenAI API 服务适配器
 export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
+    openAIApiService: any;
+
     constructor(config) {
         super();
         this.openAIApiService = new OpenAIApiService(config);
@@ -241,6 +244,8 @@ export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
 
 // OpenAI Responses API 服务适配器
 export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
+    openAIResponsesApiService: any;
+
     constructor(config) {
         super();
         this.openAIResponsesApiService = new OpenAIResponsesApiService(config);
@@ -291,6 +296,8 @@ export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
 
 // Claude API 服务适配器
 export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
+    claudeApiService: any;
+
     constructor(config) {
         super();
         this.claudeApiService = new ClaudeApiService(config);
@@ -339,6 +346,8 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
 
 // Kiro API 服务适配器
 export class KiroApiServiceAdapter extends ApiServiceAdapter {
+    kiroApiService: any;
+
     constructor(config) {
         super();
         this.kiroApiService = new KiroApiService(config);
@@ -426,6 +435,8 @@ export class KiroApiServiceAdapter extends ApiServiceAdapter {
 
 // Codex API 服务适配器
 export class CodexApiServiceAdapter extends ApiServiceAdapter {
+    codexApiService: any;
+
     constructor(config) {
         super();
         this.codexApiService = new CodexApiService(config);
@@ -503,6 +514,9 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
 
 // Zed API 服务适配器
 export class ZedApiServiceAdapter extends ApiServiceAdapter {
+    config: any;
+        zedApiService: any;
+
     constructor(config) {
         super();
         this.config = config;
@@ -559,6 +573,9 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
 
 // Trae API 服务适配器
 export class TraeApiServiceAdapter extends ApiServiceAdapter {
+    config: any;
+        traeApiService: any;
+
     constructor(config) {
         super();
         this.config = config;

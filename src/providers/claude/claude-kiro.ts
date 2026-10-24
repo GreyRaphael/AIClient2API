@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
@@ -228,7 +227,7 @@ function normalizeContextLength(value) {
     return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
 }
 
-function findCustomModelConfigForModel(model, config = {}) {
+function findCustomModelConfigForModel(model, config: any = {}) {
     const targetModel = typeof model === 'string'
         ? model.replace(/^[^:]+:/, '')
         : '';
@@ -237,12 +236,12 @@ function findCustomModelConfigForModel(model, config = {}) {
     }
 
     const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
-    return customModels.find(({ id, alias, actualModel, enabled } = {}) =>
+    return customModels.find(({ id, alias, actualModel, enabled }: any = {}) =>
         enabled !== false && (id === targetModel || alias === targetModel || actualModel === targetModel)
     ) || null;
 }
 
-function getContextTokensForModel(model, config = {}, fallbackModel = null) {
+function getContextTokensForModel(model, config: any = {}, fallbackModel = null) {
     const customModelConfig = findCustomModelConfigForModel(model, config) ||
         findCustomModelConfigForModel(fallbackModel, config);
     const configuredModelContextLength = normalizeContextLength(customModelConfig?.contextLength);
@@ -279,7 +278,7 @@ const MODEL_MAPPING = Object.fromEntries(
     Object.entries(FULL_MODEL_MAPPING).filter(([key]) => KIRO_MODELS.includes(key))
 );
 
-function resolveKiroModel(model, config = {}) {
+function resolveKiroModel(model, config: any = {}) {
     if (MODEL_MAPPING[model]) {
         return MODEL_MAPPING[model];
     }
@@ -323,7 +322,7 @@ function getSystemRuntimeInfo() {
     const osRelease = os.release();
     const nodeVersion = process.version.replace('v', '');
     
-    let osName = osPlatform;
+    let osName: string = osPlatform;
     if (osPlatform === 'win32') osName = `windows#${osRelease}`;
     else if (osPlatform === 'darwin') osName = `macos#${osRelease}`;
     else osName = `${osPlatform}#${osRelease}`;
@@ -467,7 +466,7 @@ function repairJson(jsonStr) {
  * @returns {Object|null} 提取的凭证对象或 null
  */
 function extractCredentialsFromCorruptedJson(content) {
-    const extracted = {};
+    const extracted: any = {};
 
     // 定义需要提取的关键字段及其正则模式
     const fieldPatterns = {
@@ -639,7 +638,34 @@ async function getKiroErrorResponsePreview(error, maxLength = 500) {
 }
 
 export class KiroApiService {
-    constructor(config = {}) {
+    _tokenRefreshPromise: any;
+    accessToken: any;
+    amazonQUrl: any;
+    apiKey: any;
+    authMethod: any;
+    axiosInstance: any;
+    axiosSocialRefreshInstance: any;
+    base64Creds: any;
+    baseUrl: any;
+    clientId: any;
+    clientSecret: any;
+    config: any;
+    credPath: any;
+    credsBase64: any;
+    credsFilePath: any;
+    expiresAt: any;
+    idcRegion: any;
+    isInitialized: any;
+    modelName: any;
+    profileArn: any;
+    refreshIDCUrl: any;
+    refreshToken: any;
+    refreshUrl: any;
+    region: any;
+    useSystemProxy: any;
+    uuid: any;
+
+    constructor(config: any = {}) {
         this.isInitialized = false;
         this.config = config;
         this.credPath = config.KIRO_OAUTH_CREDS_DIR_PATH || path.join(os.homedir(), ".aws", "sso", "cache");
@@ -694,7 +720,7 @@ export class KiroApiService {
         const kiroVersion = KIRO_CONSTANTS.KIRO_VERSION;
         const { osName, nodeVersion } = getSystemRuntimeInfo();
 
-        const axiosConfig = {
+        const axiosConfig: any = {
             timeout: KIRO_CONSTANTS.AXIOS_TIMEOUT,
             headers: {
                 'Content-Type': KIRO_CONSTANTS.CONTENT_TYPE_JSON,
@@ -763,7 +789,7 @@ async loadCredentials() {
     };
 
     try {
-        let mergedCredentials = {};
+        let mergedCredentials: any = {};
 
         // Priority 1: Load from Base64 credentials if available
         if (this.base64Creds) {
@@ -790,7 +816,7 @@ async loadCredentials() {
             for (const file of files) {
                 if (file.endsWith('.json') && file !== targetFileName) {
                     const filePath = path.join(dirPath, file);
-                    const credentials = await loadCredentialsFromFile(filePath);
+                    const credentials: any = await loadCredentialsFromFile(filePath);
                     if (credentials) {
                         credentials.expiresAt = mergedCredentials.expiresAt;
                         Object.assign(mergedCredentials, credentials);
@@ -900,7 +926,7 @@ async _discoverProfileArn() {
     const { osName, nodeVersion } = getSystemRuntimeInfo();
     const kiroVersion = KIRO_CONSTANTS.KIRO_VERSION;
 
-    const axiosConfig = {
+    const axiosConfig: any = {
         method: 'post',
         url,
         data: { maxResults: 10 },
@@ -1038,7 +1064,7 @@ async saveCredentialsToFile(filePath, newData) {
      */
     async _doTokenRefresh(saveCredentialsToFile, tokenFilePath) {
         try {
-            const requestBody = {
+            const requestBody: any = {
                 refreshToken: this.refreshToken,
             };
 
@@ -1065,7 +1091,7 @@ async saveCredentialsToFile(filePath, newData) {
             // 使用更短的超时时间进行 token 刷新，避免阻塞其他请求
             const refreshConfig = { timeout: KIRO_CONSTANTS.TOKEN_REFRESH_TIMEOUT };
             
-            const axiosConfig = {
+            const axiosConfig: any = {
                 method: 'post',
                 url: refreshUrl,
                 data: requestBody,
@@ -1095,7 +1121,7 @@ async saveCredentialsToFile(filePath, newData) {
                 // request and before persisting the refreshed credentials.
                 await this._ensureProfileArn(isSocialAuth);
 
-                const updatedTokenData = {
+                const updatedTokenData: any = {
                     accessToken: this.accessToken,
                     refreshToken: this.refreshToken,
                     expiresAt: expiresAt,
@@ -1422,7 +1448,7 @@ async saveCredentialsToFile(filePath, newData) {
         const toolNameMaps = buildKiroToolNameMaps(tools);
         
         // 动态压缩 tools（保留全部工具，但过滤掉 web_search/websearch）
-        let toolsContext = {};
+        let toolsContext: any = {};
         if (tools && Array.isArray(tools) && tools.length > 0) {
             // 过滤掉 web_search 或 websearch 工具（忽略大小写）
             const filteredTools = tools.filter(tool => {
@@ -1509,7 +1535,7 @@ async saveCredentialsToFile(filePath, newData) {
                 const firstImagePlaceholder = firstUserPayload.imageCount > 0 && firstUserPayload.images.length === 0
                     ? `[此消息包含 ${firstUserPayload.imageCount} 张图片，已在历史记录中省略]`
                     : '';
-                const firstHistoryMsg = {
+                const firstHistoryMsg: any = {
                     userInputMessage: {
                         content: firstUserPayload.text
                             ? `${systemPrompt}\n\n${firstUserPayload.text}${firstImagePlaceholder ? `\n${firstImagePlaceholder}` : ''}`
@@ -1546,7 +1572,7 @@ async saveCredentialsToFile(filePath, newData) {
             const shouldKeepImages = distanceFromEnd <= keepImageThreshold;
             
             if (message.role === 'user') {
-                let userInputMessage = {
+                let userInputMessage: any = {
                     content: '',
                     modelId: codewhispererModel,
                     origin: KIRO_CONSTANTS.ORIGIN_AI_EDITOR
@@ -1626,7 +1652,7 @@ async saveCredentialsToFile(filePath, newData) {
 
                 history.push({ userInputMessage });
             } else if (message.role === 'assistant') {
-                let assistantResponseMessage = {
+                let assistantResponseMessage: any = {
                     content: ''
                 };
                 let toolUses = [];
@@ -1684,7 +1710,7 @@ async saveCredentialsToFile(filePath, newData) {
             logger.info('[Kiro] Last message is assistant, moving it to history and creating user currentMessage');
             
             // 构建 assistant 消息并加入 history
-            let assistantResponseMessage = {
+            let assistantResponseMessage: any = {
                 content: '',
                 toolUses: []
             };
@@ -1776,7 +1802,7 @@ async saveCredentialsToFile(filePath, newData) {
             }
         }
 
-        const request = {
+        const request: any = {
             conversationState: {
                 agentTaskType: "vibe",
                 chatTriggerType: KIRO_CONSTANTS.CHAT_TRIGGER_TYPE_MANUAL,
@@ -1792,7 +1818,7 @@ async saveCredentialsToFile(filePath, newData) {
 
         // currentMessage 始终是 userInputMessage 类型
         // 注意：API 不接受 null 值，空字段应该完全不包含
-        const userInputMessage = {
+        const userInputMessage: any = {
             content: currentContent,
             modelId: codewhispererModel,
             origin: KIRO_CONSTANTS.ORIGIN_AI_EDITOR
@@ -1804,7 +1830,7 @@ async saveCredentialsToFile(filePath, newData) {
         }
 
         // 构建 userInputMessageContext，只包含非空字段
-        const userInputMessageContext = {};
+        const userInputMessageContext: any = {};
         if (currentToolResults.length > 0) {
             // 去重 toolResults - Kiro API 不接受重复的 toolUseId
             const uniqueToolResults = [];
@@ -2016,7 +2042,7 @@ async saveCredentialsToFile(filePath, newData) {
 
             // 当 model 以 kiro-amazonq 开头时，使用 amazonQUrl，否则使用 baseUrl
             const requestUrl = model.startsWith('amazonq') ? this.amazonQUrl : this.baseUrl;
-            const axiosConfig = {
+            const axiosConfig: any = {
                 method: 'post',
                 url: requestUrl,
                 data: requestData,
@@ -2627,7 +2653,7 @@ async saveCredentialsToFile(filePath, newData) {
         // 一旦产出过内容，流中途断线就不能重发（会导致内容重复/错位）。
         let hasYieldedContent = false;
         try {
-            const axiosConfig = {
+            const axiosConfig: any = {
                 method: 'post',
                 url: requestUrl,
                 data: requestData,
@@ -3764,7 +3790,7 @@ async saveCredentialsToFile(filePath, newData) {
             headers['TokenType'] = 'API_KEY';
         }
 
-        const axiosConfig = {
+        const axiosConfig: any = {
             method: 'get',
             url: fullUrl,
             headers

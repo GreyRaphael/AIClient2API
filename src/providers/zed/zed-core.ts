@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
 import { randomUUID } from 'crypto';
@@ -67,7 +66,7 @@ export async function fetchZedOrganizationId({ userId, accessToken, systemId, co
         throw new Error('Zed user_id and access_token are required to resolve organization id');
     }
 
-    const axiosConfig = {
+    const axiosConfig: any = {
         method: 'get',
         url: ZED_USERS_ME_URL,
         headers: buildZedAuthHeaders({ userId, accessToken, systemId }),
@@ -116,7 +115,7 @@ export async function exchangeZedToken({ userId, accessToken, systemId, organiza
     const resolvedOrganizationId = organizationId
         || await fetchZedOrganizationId({ userId, accessToken, systemId, config });
 
-    const axiosConfig = {
+    const axiosConfig: any = {
         method: 'post',
         url: ZED_TOKEN_URL,
         headers: buildZedAuthHeaders({ userId, accessToken, systemId }),
@@ -192,6 +191,23 @@ function budgetToClaudeEffort(budget) {
  * 封装与 Zed 官方云端接口 (cloud.zed.dev) 的通信逻辑
  */
 export class ZedApiService {
+    config: any;
+    uuid: any;
+    credsFilePath: any;
+    userId: any;
+    accessToken: any;
+    systemId: any;
+    version: any;
+    jwtToken: any;
+    jwtExpiresAt: any;
+    isInitialized: any;
+    _tokenRefreshPromise: any;
+    _modelsFetchPromise: any;
+    modelsCache: any;
+    modelsExpiresAt: any;
+    modelMetadataMap: any;
+    organizationId: any;
+
     constructor(config) {
         this.config = config || {};
         this.uuid = config.uuid;
@@ -501,7 +517,7 @@ export class ZedApiService {
                 }
             }
 
-            const provReq = {
+            const provReq: any = {
                 model: model,
                 input: input,
                 stream: true
@@ -615,7 +631,7 @@ export class ZedApiService {
                     if (fallbackToolHistoryToText) {
                         parts.push({ text: `[Tool result${m.tool_call_id ? ` for ${m.tool_call_id}` : ''}]: ${resultText}` });
                     } else {
-                        const functionResponse = {
+                        const functionResponse: any = {
                             name: toolIdToName[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
                             response: {
                                 result: resultText
@@ -648,7 +664,7 @@ export class ZedApiService {
                             if (fallbackToolHistoryToText) {
                                 parts.push({ text: `[Tool call: ${p.name}(${JSON.stringify(args)})]` });
                             } else {
-                                const functionCall = {
+                                const functionCall: any = {
                                     name: p.name,
                                     args
                                 };
@@ -661,7 +677,7 @@ export class ZedApiService {
                             if (fallbackToolHistoryToText) {
                                 parts.push({ text: `[Tool result${p.tool_use_id ? ` for ${p.tool_use_id}` : ''}]: ${resultText}` });
                             } else {
-                                const functionResponse = {
+                                const functionResponse: any = {
                                     name: toolIdToName[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
                                     response: {
                                         result: resultText
@@ -688,7 +704,7 @@ export class ZedApiService {
                         if (fallbackToolHistoryToText) {
                             parts.push({ text: `[Tool call: ${tc.function?.name || 'function'}(${JSON.stringify(args)})]` });
                         } else {
-                            const functionCall = {
+                            const functionCall: any = {
                                 name: tc.function?.name || 'function',
                                 args
                             };
@@ -708,7 +724,7 @@ export class ZedApiService {
                 }
             }
 
-            const provReq = {
+            const provReq: any = {
                 model: model,
                 contents: contents
             };
@@ -763,7 +779,7 @@ export class ZedApiService {
             }
 
             // 超参数与 Gemini 3.1+ 思考配置
-            const generationConfig = {};
+            const generationConfig: any = {};
             if (requestBody.temperature !== undefined && capabilities.supportsTemperature) {
                 generationConfig.temperature = requestBody.temperature;
             }
@@ -800,7 +816,7 @@ export class ZedApiService {
 
         // 3. Anthropic 规范请求
         let maxTokens = Math.min(requestBody.max_tokens || 8192, 64000);
-        const provReq = {
+        const provReq: any = {
             model: model,
             max_tokens: maxTokens,
             temperature: capabilities.supportsTemperature ? requestBody.temperature : undefined,
@@ -988,10 +1004,10 @@ export class ZedApiService {
      * @param {Object} rawUsage - 上游原始 usage 对象
      * @returns {Object}
      */
-    _formatClaudeUsage(rawUsage = {}) {
+    _formatClaudeUsage(rawUsage: any = {}) {
         const normalized = normalizeUsageCandidate(rawUsage);
 
-        const res = {
+        const res: any = {
             input_tokens: normalized?.promptTokens ?? 0,
             output_tokens: normalized?.completionTokens ?? 0,
             cache_read_input_tokens: normalized?.cachedTokens ?? 0
@@ -1014,7 +1030,7 @@ export class ZedApiService {
         const jwt = await this.getToken();
         const payload = this.buildPayload(model, requestBody);
 
-        const axiosConfig = {
+        const axiosConfig: any = {
             method: 'post',
             url: ZED_COMPLETIONS_URL,
             headers: {
@@ -1418,7 +1434,7 @@ export class ZedApiService {
         let fullThinking = '';
         const toolCalls = new Map();
         let stopReason = 'end_turn';
-        const usage = {
+        const usage: any = {
             input_tokens: 0,
             output_tokens: 0
         };
@@ -1534,7 +1550,7 @@ export class ZedApiService {
                     return this.modelsCache || this._getFallbackModels();
                 }
 
-                const axiosConfig = {
+                const axiosConfig: any = {
                     method: 'get',
                     url: ZED_MODELS_URL,
                     headers: {
