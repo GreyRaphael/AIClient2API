@@ -14,12 +14,15 @@ import logger from '../utils/logger.js';
 import busboy from 'busboy';
 import { convertData } from '../convert/convert.js';
 
+const IMAGE_GEN_MAX_N = 4;
+const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);
+
 /**
  * Handle API authentication and routing
  * @param {string} method - The HTTP method
  * @param {string} path - The request path
- * @param {http.IncomingMessage} req - The HTTP request object
- * @param {http.ServerResponse} res - The HTTP response object
+ * @param {import('node:http').IncomingMessage} req - The HTTP request object
+ * @param {import('node:http').ServerResponse} res - The HTTP response object
  * @param {Object} currentConfig - The current configuration object
  * @param {Object} apiService - The API service instance
  * @param {Object} providerPoolManager - The provider pool manager instance
@@ -105,19 +108,16 @@ export function initializeAPIManagement(services) {
  * Handle POST /v1/images/generations - OpenAI 标准生图接口
  */
 async function handleImageGenerationRequest(req, res, currentConfig, providerPoolManager, retryContext = null) {
-    const IMAGE_GEN_MAX_N = 4;
-    const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);
-
     const maxRetries = retryContext?.maxRetries ?? 3;
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG ?? currentConfig;
     let slotProviderType = null;
     let slotUuid = null;
-    let model, n, response_format, size, aspect_ratio, image_size, codexRequestBody, virtualOpenAIRequest;
+    let model, prompt, n, response_format, size, aspect_ratio, image_size, codexRequestBody, virtualOpenAIRequest;
 
     try {
         if (retryContext?.parsedBody) {
-            ({model, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest} = retryContext.parsedBody);
+            ({model, prompt, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest} = retryContext.parsedBody);
             codexRequestBody = virtualOpenAIRequest;
         } else {
             const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES });
@@ -128,7 +128,7 @@ async function handleImageGenerationRequest(req, res, currentConfig, providerPoo
             image_size = body.image_size || body.imageSize || body.sampleImageSize;
             // cap n：至少 1，最多 IMAGE_GEN_MAX_N，非数字降级为 1
             n = Math.min(Math.max(1, parseInt(body.n) || 1), IMAGE_GEN_MAX_N);
-            const prompt = body.prompt;
+            prompt = body.prompt;
 
             if (!model) {
                 res.writeHead(400, {'Content-Type': 'application/json'});
@@ -542,7 +542,7 @@ async function handleImageEditsRequest(req, res, currentConfig, providerPoolMana
         const fromProtocol = MODEL_PROTOCOL_PREFIX.OPENAI;
         if (fromProtocol !== finalProviderProtocol) {
             logger.info(`[Image Edits] Converting request from ${fromProtocol} to ${finalProviderProtocol}`);
-            codexRequestBody = convertData(codexRequestBody, 'request', fromProtocol, toProvider, model, currentConfig._monitorRequestId);
+            codexRequestBody = /** @type {any} */ (convertData(codexRequestBody, 'request', fromProtocol, toProvider, model, currentConfig._monitorRequestId));
             
             // 保持以 _ 开头的内部属性
             Object.keys(virtualOpenAIRequest).forEach(key => {

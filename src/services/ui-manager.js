@@ -25,7 +25,7 @@ export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials, u
 /**
  * Serve static files for the UI
  * @param {string} pathParam - The request path
- * @param {http.ServerResponse} res - The HTTP response object
+ * @param {import('node:http').ServerResponse} res - The HTTP response object
  */
 export async function serveStaticFiles(pathParam, res) {
     // 1. 尝试从系统 static 目录服务
@@ -63,9 +63,9 @@ export async function serveStaticFiles(pathParam, res) {
 /**
  * Handle UI management API requests
  * @param {string} method - The HTTP method
- * @param {string} path - The request path
- * @param {http.IncomingMessage} req - The HTTP request object
- * @param {http.ServerResponse} res - The HTTP response object
+ * @param {string} pathParam - The request path
+ * @param {import('node:http').IncomingMessage} req - The HTTP request object
+ * @param {import('node:http').ServerResponse} res - The HTTP response object
  * @param {Object} currentConfig - The current configuration object
  * @param {Object} providerPoolManager - The provider pool manager instance
  * @returns {Promise<boolean>} - True if the request was handled by UI API

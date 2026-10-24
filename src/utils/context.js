@@ -16,7 +16,7 @@ class RequestContext {
      * @returns {any}
      */
     run(context, callback) {
-        return this.storage.run(context || {}, callback);
+        return this.storage.run(context || {}, /** @type {() => any} */ (callback));
     }
 
     /**

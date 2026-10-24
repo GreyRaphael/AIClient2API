@@ -25,9 +25,12 @@ let providerPoolManager = null;
 /**
  * 扫描 configs 目录并自动关联未关联的配置文件到对应的提供商
  * @param {Object} config - 服务器配置对象
- * @param {Object} options - 可选参数
- * @param {boolean} options.onlyCurrentCred - 为 true 时，只自动关联当前凭证
- * @param {string} options.credPath - 当前凭证的路径（当 onlyCurrentCred 为 true 时必需）
+ * @param {Object} [options] - 可选参数
+ * @param {boolean} [options.onlyCurrentCred] - 为 true 时，只自动关联当前凭证
+ * @param {string} [options.credPath] - 当前凭证的路径（当 onlyCurrentCred 为 true 时必需）
+ * @param {string} [options.providerType] - 指定关联的 provider 类型
+ * @param {string} [options.customName] - 自定义节点名称
+ * @param {string} [options.host] - 上游 host
  * @returns {Promise<Object>} 更新后的 providerPools 对象
  */
 export async function autoLinkProviderConfigs(config, options = {}) {
@@ -592,8 +595,8 @@ export function markProviderUnhealthy(provider, providerInfo) {
  * Get providers status
  * @param {Object} config - The current request configuration
  * @param {Object} [options] - Optional. Additional options.
- * @param {boolean} [options.provider] - Optional.provider filter by provider type
- * @param {boolean} [options.customName] - Optional.customName filter by customName
+ * @param {string} [options.provider] - Optional.provider filter by provider type
+ * @param {string} [options.customName] - Optional.customName filter by customName
  * @returns {Promise<Object>} The API service adapter
  */
 export async function getProviderStatus(config, options = {}) {

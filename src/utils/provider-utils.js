@@ -239,8 +239,9 @@ export async function isValidOAuthCredentials(filePath) {
  * @param {string} options.credPathKey - 凭据路径键名
  * @param {string} options.credPath - 凭据文件路径
  * @param {string} options.defaultCheckModel - 默认检测模型
+ * @param {boolean} [options.defaultCheckHealth] - 默认健康检查开关
  * @param {boolean} options.needsProjectId - 是否需要 PROJECT_ID
- * @param {Array} options.urlKeys - 可选的 URL 配置项键名列表
+ * @param {Array} [options.urlKeys] - 可选的 URL 配置项键名列表
  * @returns {Object} 新的提供商配置对象
  */
 export function createProviderConfig(options) {

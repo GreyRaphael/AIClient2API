@@ -12,8 +12,7 @@ import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../
 export class ClaudeApiService {
     /**
      * Constructor
-     * @param {string} apiKey - Anthropic Claude API Key.
-     * @param {string} baseUrl - Anthropic Claude API Base URL.
+     * @param {Object} config - Claude provider configuration.
      */
     constructor(config) {
         if (!config.CLAUDE_API_KEY) {

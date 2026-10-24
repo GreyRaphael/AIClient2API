@@ -14,13 +14,15 @@ import logger from '../../utils/logger.js';
  * 3. x-goog-api-key: maki_xxx
  * 4. URL query: ?key=maki_xxx
  * 
- * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
  * @param {URL} requestUrl - 解析后的 URL 对象
  * @returns {string|null} 提取到的 API Key，如果不是 potluck key 则返回 null
  */
 export function extractPotluckKey(req, requestUrl) {
+    const headerValue = (value) => Array.isArray(value) ? value[0] : value;
+
     // 1. 检查 Authorization header
-    const authHeader = req.headers['authorization'];
+    const authHeader = headerValue(req.headers['authorization']);
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         if (token.startsWith(KEY_PREFIX)) {
@@ -29,13 +31,13 @@ export function extractPotluckKey(req, requestUrl) {
     }
 
     // 2. 检查 x-api-key header (Claude style)
-    const xApiKey = req.headers['x-api-key'];
+    const xApiKey = headerValue(req.headers['x-api-key']);
     if (xApiKey && xApiKey.startsWith(KEY_PREFIX)) {
         return xApiKey;
     }
 
     // 3. 检查 x-goog-api-key header (Gemini style)
-    const googApiKey = req.headers['x-goog-api-key'];
+    const googApiKey = headerValue(req.headers['x-goog-api-key']);
     if (googApiKey && googApiKey.startsWith(KEY_PREFIX)) {
         return googApiKey;
     }
@@ -51,7 +53,7 @@ export function extractPotluckKey(req, requestUrl) {
 
 /**
  * 检查请求是否使用 Potluck Key
- * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
  * @param {URL} requestUrl - 解析后的 URL 对象
  * @returns {boolean}
  */
@@ -61,7 +63,7 @@ export function isPotluckRequest(req, requestUrl) {
 
 /**
  * 创建 Potluck 错误响应
- * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {import('node:http').ServerResponse} res - HTTP 响应对象
  * @param {Object} error - 错误信息
  */
 export function sendPotluckError(res, error) {

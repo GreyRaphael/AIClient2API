@@ -44,7 +44,7 @@ export class OpenAIResponsesApiService {
                 data: body
             };
             this._applySidecar(axiosConfig);
-            const response = await this.axiosInstance.request(axiosConfig);
+            const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
             return response.data;
         } catch (error) {
             const status = error.response?.status;
@@ -97,7 +97,7 @@ export class OpenAIResponsesApiService {
                 responseType: 'stream'
             };
             this._applySidecar(axiosConfig);
-            const response = await this.axiosInstance.request(axiosConfig);
+            const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
 
             const stream = response.data;
             let buffer = '';
@@ -196,7 +196,7 @@ export class OpenAIResponsesApiService {
                 url: '/models'
             };
             this._applySidecar(axiosConfig);
-            const response = await this.axiosInstance.request(axiosConfig);
+            const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
             return response.data;
         } catch (error) {
             const status = error.response?.status;

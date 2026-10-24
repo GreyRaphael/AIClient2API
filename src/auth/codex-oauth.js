@@ -119,7 +119,7 @@ class CodexAuth {
 
     /**
      * 生成授权 URL（不启动完整流程）
-     * @returns {{authUrl: string, state: string, pkce: Object, server: Object}}
+     * @returns {Promise<{authUrl: string, state: string, pkce: Object, server: Object}>}
      */
     async generateAuthUrl() {
         const pkce = this.generatePKCECodes();
@@ -368,7 +368,7 @@ class CodexAuth {
 
     /**
      * 等待 OAuth 回调
-     * @param {http.Server} server
+     * @param {import('node:http').Server} server
      * @param {string} expectedState
      * @returns {Promise<{code: string, state: string}>}
      */

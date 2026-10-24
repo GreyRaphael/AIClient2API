@@ -431,7 +431,7 @@ function isTrustedProxyIp(ip, trustedProxyIps) {
  * x-forwarded-for is client-controlled unless the immediate peer is a trusted
  * reverse proxy. Keep TRUST_PROXY disabled by default for login rate limits.
  *
- * @param {http.IncomingMessage} req - The HTTP request object.
+ * @param {import('node:http').IncomingMessage} req - The HTTP request object.
  * @param {Object} [config] - Optional server configuration.
  * @returns {string} The client IP address.
  */
@@ -452,7 +452,7 @@ export function getClientIp(req, config = {}) {
 
 /**
  * Reads the entire request body from an HTTP request.
- * @param {http.IncomingMessage} req - The HTTP request object.
+ * @param {import('node:http').IncomingMessage} req - The HTTP request object.
  * @param {{ maxBytes?: number }} options - Optional body limits.
  * @returns {Promise<Object>} A promise that resolves with the parsed JSON request body.
  * @throws {Error} If the request body is not valid JSON.
@@ -526,7 +526,7 @@ export function getRequestBody(req, options = {}) {
 
 /**
  * Checks if the request is authorized based on API key.
- * @param {http.IncomingMessage} req - The HTTP request object.
+ * @param {import('node:http').IncomingMessage} req - The HTTP request object.
  * @param {URL} requestUrl - The parsed URL object.
  * @param {string} REQUIRED_API_KEY - The API key required for authorization.
  * @returns {boolean} True if authorized, false otherwise.

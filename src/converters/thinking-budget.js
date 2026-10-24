@@ -29,6 +29,7 @@ export function budgetTokensToEffort(budget) {
     const LOW_THRESHOLD = 2048;
     const HIGH_THRESHOLD = 8192;
 
+    /** @type {'low'|'medium'|'high'} */
     let effort;
     if (budget <= LOW_THRESHOLD) {
         effort = "low";

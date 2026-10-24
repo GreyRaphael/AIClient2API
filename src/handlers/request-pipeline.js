@@ -164,7 +164,7 @@ export async function logConversation(type, content, logMode, logFilename) {
 /**
  * Handles the common logic for sending API responses (unary and stream).
  * This includes writing response headers, logging conversation, and logging auth token expiry.
- * @param {http.ServerResponse} res - The HTTP response object.
+ * @param {import('node:http').ServerResponse} res - The HTTP response object.
  * @param {Object} responsePayload - The actual response payload (string for unary, object for stream chunks).
  * @param {boolean} isStream - Whether the response is a stream.
  */
@@ -1357,8 +1357,8 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
  * Handles requests for listing available models. It fetches models from the
  * service, transforms them to the format expected by the client (OpenAI, Claude, etc.),
  * and sends the JSON response.
- * @param {http.IncomingMessage} req The HTTP request object.
- * @param {http.ServerResponse} res The HTTP response object.
+ * @param {import('node:http').IncomingMessage} req The HTTP request object.
+ * @param {import('node:http').ServerResponse} res The HTTP response object.
  * @param {Object} service - The API service instance.
  * @param {string} endpointType The type of endpoint being called (e.g., OPENAI_MODEL_LIST).
  * @param {Object} CONFIG - The server configuration object.
@@ -1440,8 +1440,8 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
  * Handles requests for content generation (both unary and streaming). This function
  * orchestrates request body parsing, conversion to the internal Gemini format,
  * logging, and dispatching to the appropriate stream or unary handler.
- * @param {http.IncomingMessage} req The HTTP request object.
- * @param {http.ServerResponse} res The HTTP response object.
+ * @param {import('node:http').IncomingMessage} req The HTTP request object.
+ * @param {import('node:http').ServerResponse} res The HTTP response object.
  * @param {string} endpointType The type of endpoint being called (e.g., OPENAI_CHAT).
  * @param {Object} CONFIG - The server configuration object.
  * @param {string} PROMPT_LOG_FILENAME - The prompt log filename.
@@ -1624,7 +1624,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
 /**
  * Helper function to extract model and stream information from the request.
- * @param {http.IncomingMessage} req The HTTP request object.
+ * @param {import('node:http').IncomingMessage} req The HTTP request object.
  * @param {Object} requestBody The parsed request body.
  * @param {string} fromProvider The type of endpoint being called.
  * @returns {{model: string, isStream: boolean}} An object containing the model name and stream status.

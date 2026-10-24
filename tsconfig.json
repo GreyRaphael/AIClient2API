@@ -4,13 +4,16 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
     "noEmit": true,
     "strict": false,
     "skipLibCheck": true,
-    "maxNodeModuleJsDepth": 0
+    "maxNodeModuleJsDepth": 0,
+    "types": ["node"],
+    "lib": ["ES2022"]
   },
   "include": [
-    "types/**/*"
+    "src/**/*.js",
+    "types/**/*.d.ts"
   ]
 }

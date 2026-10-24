@@ -350,7 +350,7 @@ async function handleGoogleOAuth(providerKey, currentConfig, options = {}) {
     }
 
     const authClient = new OAuth2Client(oauth2Options);
-    authClient.redirectUri = redirectUri;
+    /** @type {any} */ (authClient).redirectUri = redirectUri;
     
     const authUrl = authClient.generateAuthUrl({
         access_type: 'offline',

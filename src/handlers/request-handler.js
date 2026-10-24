@@ -135,8 +135,8 @@ export function createRequestHandler(config, providerPoolManager) {
                         try {
                             const provider = requestUrl.searchParams.get('provider');
                             const customName = requestUrl.searchParams.get('customName');
-                            let unhealthRatioThreshold = requestUrl.searchParams.get('unhealthRatioThreshold');
-                            unhealthRatioThreshold = unhealthRatioThreshold === null ? 0.0001 : parseFloat(unhealthRatioThreshold);
+                            const rawThreshold = requestUrl.searchParams.get('unhealthRatioThreshold');
+                            const unhealthRatioThreshold = rawThreshold === null ? 0.0001 : parseFloat(rawThreshold);
                             let provideStatus = await getProviderStatus(currentConfig, { provider, customName });
                             let summaryHealth = true;
                             if (!isNaN(unhealthRatioThreshold)) {

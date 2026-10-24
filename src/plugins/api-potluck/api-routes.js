@@ -34,7 +34,7 @@ function sendJson(res, statusCode, data) {
 
 /**
  * 验证管理员 Token
- * @param {http.IncomingMessage} req
+ * @param {import('node:http').IncomingMessage} req
  * @returns {Promise<boolean>}
  */
 async function checkAdminAuth(req) {
@@ -80,8 +80,8 @@ async function checkAdminAuth(req) {
  * 处理 Potluck 管理 API 请求
  * @param {string} method - HTTP 方法
  * @param {string} path - 请求路径
- * @param {http.IncomingMessage} req - HTTP 请求对象
- * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
+ * @param {import('node:http').ServerResponse} res - HTTP 响应对象
  * @returns {Promise<boolean>} - 是否处理了请求
  */
 export async function handlePotluckApiRoutes(method, path, req, res) {
@@ -325,12 +325,14 @@ export async function handlePotluckApiRoutes(method, path, req, res) {
 
 /**
  * 从请求中提取 Potluck API Key
- * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
  * @returns {string|null}
  */
 function extractApiKeyFromRequest(req) {
+    const headerValue = (value) => Array.isArray(value) ? value[0] : value;
+
     // 1. 检查 Authorization header
-    const authHeader = req.headers['authorization'];
+    const authHeader = headerValue(req.headers['authorization']);
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         if (token.startsWith(KEY_PREFIX)) {
@@ -339,7 +341,7 @@ function extractApiKeyFromRequest(req) {
     }
 
     // 2. 检查 x-api-key header
-    const xApiKey = req.headers['x-api-key'];
+    const xApiKey = headerValue(req.headers['x-api-key']);
     if (xApiKey && xApiKey.startsWith(KEY_PREFIX)) {
         return xApiKey;
     }
@@ -351,8 +353,8 @@ function extractApiKeyFromRequest(req) {
  * 处理用户端 API 请求 - 用户通过自己的 API Key 查询使用量
  * @param {string} method - HTTP 方法
  * @param {string} path - 请求路径
- * @param {http.IncomingMessage} req - HTTP 请求对象
- * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
+ * @param {import('node:http').ServerResponse} res - HTTP 响应对象
  * @returns {Promise<boolean>} - 是否处理了请求
  */
 export async function handlePotluckUserApiRoutes(method, path, req, res) {

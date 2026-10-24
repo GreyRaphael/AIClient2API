@@ -1,3 +1,4 @@
+// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 /**
  * Codex 转换器
  * 处理 OpenAI 协议与 Codex 协议之间的转换

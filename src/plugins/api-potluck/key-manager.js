@@ -6,7 +6,7 @@
 import { atomicWriteFile, atomicWriteFileSync } from '../../utils/file-lock.js';
 import { promises as fs } from 'fs';
 import logger from '../../utils/logger.js';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { RateManager } from '../../utils/rate-tracker.js';

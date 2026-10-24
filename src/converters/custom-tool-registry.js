@@ -91,7 +91,7 @@ export function clearCustomTools(requestId) {
  * 将 custom tool 降级为 function 工具参数 Schema。
  * - apply_patch 保留现有 patch/input 双字段启发式；
  * - 其他 custom tool 使用单个 `input` 自由文本字段。
- * @param {{name: string, description?: string, format?: any}} tool
+ * @param {{name?: string, description?: string, format?: any}} [tool]
  * @returns {Object}
  */
 export function buildCustomToolParameters(tool = {}) {

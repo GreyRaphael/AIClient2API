@@ -162,11 +162,11 @@ function applyCapabilityConfig(target, config, model) {
         const entries = Object.entries(config.models);
         // 先应用通配规则，再应用精确匹配，保证精确 key 优先级最高。
         for (const [pattern, patch] of entries) {
-            if (!pattern.includes('*') && !(pattern instanceof RegExp)) continue;
+            if (!pattern.includes('*')) continue;
             if (matchesPattern(pattern, model)) applyCapabilityPatch(target, patch);
         }
         for (const [pattern, patch] of entries) {
-            if (pattern.includes('*') || pattern instanceof RegExp) continue;
+            if (pattern.includes('*')) continue;
             if (matchesPattern(pattern, model)) applyCapabilityPatch(target, patch);
         }
     }
@@ -226,7 +226,7 @@ function getBuiltinRuleKeys(providerType) {
  * @param {string} [options.model] - 上游模型名
  * @param {Object} [options.config] - 服务/节点配置（可含 capabilities、PROVIDER_CAPABILITIES）
  * @param {Object} [options.metadata] - 上游模型元数据
- * @returns {{supportsTemperature: boolean, supportsForcedToolChoice: boolean, supportsThinking: boolean, supportsNonStream: boolean, supportsMaxOutputTokens: boolean}}
+ * @returns {{supportsTemperature: boolean, supportsForcedToolChoice: boolean, supportsThinking: boolean, supportsNonStream: boolean, supportsMaxOutputTokens: boolean, supportsToolResultHistory: boolean, supportsStreamingThoughts: boolean}}
  */
 export function resolveProviderCapabilities({
     providerType = '',

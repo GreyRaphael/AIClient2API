@@ -1478,7 +1478,6 @@ export class ProviderPoolManager {
      * - 没有任何发现结果时返回 null，表示“不做节点级路由守卫”。
      * @param {string} providerType
      * @param {object} nodeConfig
-     * @param {object} [options]
      * @returns {string[]|null}
      */
     getNodeAvailableModels(providerType, nodeConfig) {

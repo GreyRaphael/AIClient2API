@@ -212,7 +212,7 @@ function normalizeConfiguredProviders(config) {
  * Initializes the server configuration from config.json and command-line arguments.
  * @param {string[]} args - Command-line arguments.
  * @param {string} [configFilePath='configs/config.json'] - Path to the configuration file.
- * @returns {Object} The initialized configuration object.
+ * @returns {Promise<Object>} The initialized configuration object.
  */
 export async function initializeConfig(args = process.argv.slice(2), configFilePath = 'configs/config.json') {
     const defaultConfig = {
@@ -258,6 +258,9 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
             startupRun: false
         },
         providerFallbackChain: {}, // 跨类型 Fallback 链配置
+        providerPools: {}, // 运行时加载的号池配置
+        customModels: [], // 运行时加载的自定义模型配置
+        SYSTEM_PROMPT_CONTENT: '', // 运行时加载的系统提示词内容
         LOG_ENABLED: true,
         LOG_OUTPUT_MODE: "all",
         LOG_LEVEL: "info",
@@ -367,11 +370,11 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     }
 
     // 合并定时健康检查的 CLI 配置
-    if (currentConfig.SCHEDULE_HEALTH_CHECK_ENABLED !== undefined) {
-        currentConfig.SCHEDULED_HEALTH_CHECK.enabled = currentConfig.SCHEDULE_HEALTH_CHECK_ENABLED;
+    if (currentConfig['SCHEDULE_HEALTH_CHECK_ENABLED'] !== undefined) {
+        currentConfig.SCHEDULED_HEALTH_CHECK.enabled = currentConfig['SCHEDULE_HEALTH_CHECK_ENABLED'];
     }
-    if (currentConfig.SCHEDULE_HEALTH_CHECK_INTERVAL !== undefined) {
-        currentConfig.SCHEDULED_HEALTH_CHECK.interval = currentConfig.SCHEDULE_HEALTH_CHECK_INTERVAL;
+    if (currentConfig['SCHEDULE_HEALTH_CHECK_INTERVAL'] !== undefined) {
+        currentConfig.SCHEDULED_HEALTH_CHECK.interval = currentConfig['SCHEDULE_HEALTH_CHECK_INTERVAL'];
     }
 
     normalizeRequestBodyMaxBytes(currentConfig);
@@ -385,7 +388,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {
         currentConfig.SYSTEM_PROMPT_FILE_PATH = INPUT_SYSTEM_PROMPT_FILE;
     }
-    currentConfig.SYSTEM_PROMPT_CONTENT = await getSystemPromptFileContent(currentConfig.SYSTEM_PROMPT_FILE_PATH);
+    currentConfig['SYSTEM_PROMPT_CONTENT'] = await getSystemPromptFileContent(currentConfig.SYSTEM_PROMPT_FILE_PATH);
 
     // 加载号池配置
     if (!currentConfig.PROVIDER_POOLS_FILE_PATH) {

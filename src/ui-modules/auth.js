@@ -75,7 +75,7 @@ export async function validateCredentials(password) {
 
 /**
  * 解析请求体JSON，带大小限制防止 DoS
- * @param {http.IncomingMessage} req
+ * @param {import('node:http').IncomingMessage} req
  * @param {number} maxBytes 最大允许字节数，默认 10KB（登录接口够用）
  */
 function parseRequestBody(req, maxBytes = 10 * 1024) {

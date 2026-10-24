@@ -64,7 +64,7 @@ export function extractSystemPromptFromRequestBody(requestBody, provider) {
             }
             if (typeof incomingSystemText === 'object' && incomingSystemText !== null) {
                 if (Array.isArray(incomingSystemText)) {
-                    incomingSystemText = incomingSystemText
+                    incomingSystemText = (incomingSystemText || [])
                         .map(item => (typeof item === 'string' ? item : item.text || JSON.stringify(item)))
                         .join('\n');
                 } else {

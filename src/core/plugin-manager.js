@@ -49,6 +49,10 @@ export const PLUGIN_TYPE = {
  * @property {string} [description] - 插件描述
  * @property {string} [type] - 插件类型：'auth'（认证插件）或 'middleware'（普通中间件，默认）
  * @property {boolean} [enabled] - 是否启用（默认 true）
+ * @property {boolean} [_enabled] - 运行时实际启用状态
+ * @property {boolean} [_placeholder] - 是否为未加载插件的占位对象
+ * @property {string|null} [_baseDir] - 插件所在目录
+ * @property {number} [_errorCount] - 运行时错误计数
  * @property {number} [_priority] - 优先级，数字越小越先执行（默认 100）
  * @property {boolean} [_builtin] - 是否为内置插件（内置插件最后执行）
  * @property {Function} [init] - 初始化钩子 (config) => Promise<void>
@@ -352,8 +356,8 @@ class PluginManager {
      * - { authorized: false } - 认证失败，已发送错误响应
      * - { authorized: null } - 此插件不处理该请求，继续下一个认证插件
      *
-     * @param {http.IncomingMessage} req - HTTP 请求
-     * @param {http.ServerResponse} res - HTTP 响应
+     * @param {import('node:http').IncomingMessage} req - HTTP 请求
+     * @param {import('node:http').ServerResponse} res - HTTP 响应
      * @param {URL} requestUrl - 解析后的 URL
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean, authorized: boolean}>}
@@ -404,8 +408,8 @@ class PluginManager {
      * - { handled: false, data: {...} } - 继续处理，可附带数据
      * - null/undefined - 继续执行下一个中间件
      *
-     * @param {http.IncomingMessage} req - HTTP 请求
-     * @param {http.ServerResponse} res - HTTP 响应
+     * @param {import('node:http').IncomingMessage} req - HTTP 请求
+     * @param {import('node:http').ServerResponse} res - HTTP 响应
      * @param {URL} requestUrl - 解析后的 URL
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean}>}
@@ -440,8 +444,8 @@ class PluginManager {
      * 执行所有插件的路由处理
      * @param {string} method - HTTP 方法
      * @param {string} path - 请求路径
-     * @param {http.IncomingMessage} req - HTTP 请求
-     * @param {http.ServerResponse} res - HTTP 响应
+     * @param {import('node:http').IncomingMessage} req - HTTP 请求
+     * @param {import('node:http').ServerResponse} res - HTTP 响应
      * @param {Object} [config] - 当前请求配置
      * @returns {Promise<boolean>} - 是否已处理
      */

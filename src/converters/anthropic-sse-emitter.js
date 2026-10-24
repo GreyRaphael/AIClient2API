@@ -27,6 +27,8 @@ export class AnthropicSseEmitter {
      * @param {string} [options.model] - 输出 message_start 时携带的模型名
      * @param {string} [options.messageId] - 消息 ID（默认自动生成 msg_ 前缀）
      * @param {'sequential'|'multi'} [options.blockMode] - 块管理语义
+     * @param {string|null} [options.sessionKey] - 流式会话键
+     * @param {boolean} [options.mintSignatures] - 是否生成虚拟思考签名
      */
     constructor({ model = 'unknown', messageId = null, blockMode = 'sequential', sessionKey = null, mintSignatures = false } = {}) {
         if (blockMode !== 'sequential' && blockMode !== 'multi') {

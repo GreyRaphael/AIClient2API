@@ -15,7 +15,7 @@ export type ConversionType = 'request' | 'response' | 'streamChunk' | 'modelList
 export interface IProtocolConverter {
     readonly protocolName: string;
     getProtocolName(): string;
-    convertRequest(data: CrossProtocolRequest, targetProtocol: string, requestId?: string): CrossProtocolRequest;
+    convertRequest(data: CrossProtocolRequest, targetProtocol: string, requestId?: string): CrossProtocolRequest | void;
     convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId?: string): CrossProtocolResponse;
     convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk;
     convertModelList(data: any, targetProtocol: string): any;

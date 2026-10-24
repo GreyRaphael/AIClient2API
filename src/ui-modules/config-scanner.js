@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { addToUsedPaths, isPathUsed, pathsEqual, detectProviderFromPath } from '../utils/provider-utils.js';
+import { getCredentialProviderDefinitions } from '../providers/provider-registry.js';
 
 /**
  * 扫描和分析配置文件

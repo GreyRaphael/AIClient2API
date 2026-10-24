@@ -89,7 +89,7 @@ class Logger {
             requestId = randomUUID().substring(0, 8);
         }
         // 直接存储对象，避免使用外部 Map 导致内存堆积
-        return this.asyncStorage.run({ requestId, _createdAt: Date.now() }, callback);
+        return this.asyncStorage.run({ requestId, _createdAt: Date.now() }, /** @type {() => any} */ (callback));
     }
 
     /**

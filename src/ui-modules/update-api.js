@@ -147,7 +147,7 @@ async function fetchWithProxy(url, options = {}) {
             ? response.data
             : Buffer.from(response.data || '');
 
-        return {
+        return /** @type {any} */ ({
             ok: response.status >= 200 && response.status < 300,
             status: response.status,
             statusText: response.statusText,
@@ -155,9 +155,9 @@ async function fetchWithProxy(url, options = {}) {
                 return JSON.parse(payloadBuffer.toString('utf8'));
             },
             async arrayBuffer() {
-                return payloadBuffer;
+                return new Uint8Array(payloadBuffer).buffer;
             }
-        };
+        });
     } catch (error) {
         throw error;
     }
@@ -427,7 +427,7 @@ export async function performUpdate(targetTag = null) {
     if (updateInfo.updateMethod === 'github_api') {
         // Docker/非 Git 环境，通过下载 tarball 更新
         logger.info(`[Update] Running in Docker/non-Git environment, will download and extract tarball for ${finalTag}`);
-        return await performTarballUpdate(updateInfo.localVersion, finalTag, targetRepo);
+        return await performTarballUpdate(updateInfo.localVersion, finalTag);
     }
     
     logger.info(`[Update] Starting update to ${finalTag}...`);

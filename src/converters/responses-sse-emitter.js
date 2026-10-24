@@ -537,7 +537,7 @@ export class ResponsesSseEmitter {
 
         const completedEvent = generateResponseCompleted(this.coreState, normalizedUsage);
         if (this.reasoningStarted) {
-            completedEvent.response.output.unshift({
+            /** @type {any[]} */ (completedEvent.response.output).unshift({
                 id: this.reasoningId,
                 type: "reasoning",
                 status: "completed",

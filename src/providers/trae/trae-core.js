@@ -729,7 +729,7 @@ export class TraeApiService {
         logger.debug(`[Trae] Streaming request to ${url} (channel: ${channel.mode}, model: ${payload.model_name || payload.model})`);
         let response;
         try {
-            response = await axios(axiosConfig);
+            response = await axios(/** @type {any} */ (axiosConfig));
         } catch (err) {
             const errData = err.response?.data;
             let errMsg = err.message;
@@ -951,6 +951,7 @@ export class TraeApiService {
             finishReason = 'tool_calls';
         }
 
+        /** @type {any} */
         const message = {
             role: 'assistant',
             content: fullContent || (aggregatedToolCalls.length > 0 ? null : ''),
@@ -1033,7 +1034,7 @@ export class TraeApiService {
                             timeout: 8000
                         };
                         configureAxiosProxy(axiosConfig, this.config, this.getTargetProvider());
-                        const res = await axios(axiosConfig);
+                        const res = await axios(/** @type {any} */ (axiosConfig));
                         for (const item of res.data?.config_info_list || []) {
                             if (item) allConfigs.push(item);
                         }
@@ -1062,7 +1063,7 @@ export class TraeApiService {
                             timeout: 8000
                         };
                         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
-                        const res = await axios(axiosConfig);
+                        const res = await axios(/** @type {any} */ (axiosConfig));
                         for (const fc of res.data?.function_configs || []) {
                             for (const item of fc.config_info_list || []) {
                                 if (item) allConfigs.push(item);

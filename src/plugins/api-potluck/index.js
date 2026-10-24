@@ -110,8 +110,8 @@ const apiPotluckPlugin = {
 
     /**
      * 认证方法 - 处理 Potluck Key 认证
-     * @param {http.IncomingMessage} req - HTTP 请求
-     * @param {http.ServerResponse} res - HTTP 响应
+     * @param {import('node:http').IncomingMessage} req - HTTP 请求
+     * @param {import('node:http').ServerResponse} res - HTTP 响应
      * @param {URL} requestUrl - 解析后的 URL
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean, authorized: boolean|null, error?: Object, data?: Object}>}

@@ -184,13 +184,13 @@ export const upload = multer({
 
 /**
  * 处理 OAuth 凭据文件上传
- * @param {http.IncomingMessage} req - HTTP 请求对象
- * @param {http.ServerResponse} res - HTTP 响应对象
- * @param {Object} options - 可选配置
- * @param {Object} options.providerMap - 提供商类型映射表
- * @param {string} options.logPrefix - 日志前缀
- * @param {string} options.userInfo - 用户信息（用于日志）
- * @param {Object} options.customUpload - 自定义 multer 实例
+ * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
+ * @param {import('node:http').ServerResponse} res - HTTP 响应对象
+ * @param {Object} [options] - 可选配置
+ * @param {Object} [options.providerMap] - 提供商类型映射表
+ * @param {string} [options.logPrefix] - 日志前缀
+ * @param {string} [options.userInfo] - 用户信息（用于日志）
+ * @param {Object} [options.customUpload] - 自定义 multer 实例
  * @returns {Promise<boolean>} 始终返回 true 表示请求已处理
  */
 export function handleUploadOAuthCredentials(req, res, options = {}) {

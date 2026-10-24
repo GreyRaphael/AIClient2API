@@ -13,7 +13,7 @@ import logger from '../../utils/logger.js';
 
 /**
  * 检查请求是否已授权
- * @param {http.IncomingMessage} req - HTTP 请求
+ * @param {import('node:http').IncomingMessage} req - HTTP 请求
  * @param {URL} requestUrl - 解析后的 URL
  * @param {string} requiredApiKey - 所需的 API Key
  * @returns {boolean}
@@ -67,8 +67,8 @@ const defaultAuthPlugin = {
 
     /**
      * 认证方法 - 默认 API Key 认证
-     * @param {http.IncomingMessage} req - HTTP 请求
-     * @param {http.ServerResponse} res - HTTP 响应
+     * @param {import('node:http').IncomingMessage} req - HTTP 请求
+     * @param {import('node:http').ServerResponse} res - HTTP 响应
      * @param {URL} requestUrl - 解析后的 URL
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean, authorized: boolean|null}>}

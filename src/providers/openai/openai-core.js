@@ -282,7 +282,7 @@ export class OpenAIApiService {
                 data: requestData
             };
             this._applySidecar(axiosConfig);
-            const response = await this.axiosInstance.request(axiosConfig);
+            const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
             const contentType = String(response.headers?.['content-type'] || '');
             let result = response.data;
             if (isSSEPayload(response.data) || contentType.includes('text/event-stream')) {
@@ -398,7 +398,7 @@ export class OpenAIApiService {
                 responseType: 'stream'
             };
             this._applySidecar(axiosConfig);
-            const response = await this.axiosInstance.request(axiosConfig);
+            const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
 
             const stream = response.data;
             let buffer = '';

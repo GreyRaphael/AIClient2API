@@ -472,7 +472,7 @@ export class CodexApiService {
             };
             this._applySidecar(axiosRequestConfig);
 
-            const response = await axios.request(axiosRequestConfig);
+            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
             return this.parseNonStreamResponse(response.data);
         } catch (error) {
@@ -556,7 +556,7 @@ export class CodexApiService {
             };
             this._applySidecar(axiosRequestConfig);
 
-            const response = await axios.request(axiosRequestConfig);
+            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
             yield* this.parseSSEStream(response.data);
         } catch (error) {
@@ -1264,7 +1264,7 @@ export class CodexApiService {
                 };
                 this._applySidecar(axiosRequestConfig);
 
-                const res = await axios.request(axiosRequestConfig);
+                const res = await axios.request(/** @type {any} */ (axiosRequestConfig));
                 if (res.data && Array.isArray(res.data.models)) {
                     const rawModels = res.data.models;
                     const modelIds = [];
@@ -1409,7 +1409,7 @@ export class CodexApiService {
             };
             this._applySidecar(axiosRequestConfig);
 
-            const response = await axios.request(axiosRequestConfig);
+            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
             return {
                 ...response.data,
                 account: this.email
@@ -1456,7 +1456,7 @@ export class CodexApiService {
             };
             this._applySidecar(axiosRequestConfig);
 
-            const response = await axios.request(axiosRequestConfig);
+            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
             const latestUsage = await this.getUsageLimits();
 
             return {

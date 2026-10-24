@@ -33,7 +33,7 @@ function sanitizeFilenamePart(value) {
  * 支持传入 Personal Access Token (trae-lt-...) 或已有的 RefreshToken
  * 
  * @param {Object} params
- * @param {string} params.host
+ * @param {string} [params.host]
  * @param {string} [params.personalAccessToken]
  * @param {string} [params.refreshToken]
  * @param {string} [params.clientId]
@@ -121,8 +121,8 @@ function decodeJwtPayload(token) {
  * 获取 Trae 用户信息及所属企业
  * 
  * @param {Object} params
- * @param {string} params.host
- * @param {string} params.accessToken
+ * @param {string} [params.host]
+ * @param {string} [params.accessToken]
  * @returns {Promise<{ userId: string, nickname: string, enterpriseId: string }>}
  */
 export async function getTraeUserInfo({
@@ -390,9 +390,10 @@ export function parseTraeCallback(rawUrl) {
  * 使用个人访问令牌 (PAT) 或 回调链接 一键登录并初始化节点
  * 
  * @param {Object} options
- * @param {string} options.token - Personal access token (trae-lt-...) 或完整回调 URL
+ * @param {string} [options.token] - Personal access token (trae-lt-...) 或完整回调 URL
  * @param {string} [options.host] - Trae API host
  * @param {string} [options.customName]
+ * @param {string} [options.providerType] - Trae provider type (trae / trae-solo_work_lite / trae-chat_v3)
  * @returns {Promise<Object>}
  */
 export async function handleTraePATLogin({

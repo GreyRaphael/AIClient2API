@@ -34,7 +34,7 @@ export class BaseConverter {
      * @param {CrossProtocolRequest} data - 请求数据
      * @param {string} targetProtocol - 目标协议
      * @param {string} [requestId] - 请求 ID
-     * @returns {CrossProtocolRequest} 转换后的请求
+     * @returns {CrossProtocolRequest|void} 转换后的请求；子类也可原地修改并返回 void
      */
     convertRequest(data, targetProtocol, requestId) {
         throw new Error('convertRequest方法必须被子类实现');

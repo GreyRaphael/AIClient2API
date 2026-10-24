@@ -1,3 +1,4 @@
+// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 
 import { atomicWriteFile } from '../../utils/file-lock.js';
 import { OAuth2Client } from 'google-auth-library';
@@ -1972,7 +1973,7 @@ export class AntigravityApiService {
      * 执行 Claude 非流式请求
      * Claude 模型实际上使用流式请求，然后将结果合并为非流式响应
      * @param {Object} payload - 请求体
-     * @returns {Object} 非流式响应
+     * @returns {Promise<Object>} 非流式响应
      */
     async executeClaudeNonStream(payload) {
         const chunks = [];

@@ -37,6 +37,7 @@
     "test:coverage": "jest --coverage",
     "test:verbose": "jest --verbose",
     "test:silent": "jest --silent",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "help": "node src/scripts/help.js",
     "example:api": "node src/scripts/example-api.js",
     "login:zed": "node src/scripts/login-zed.js",

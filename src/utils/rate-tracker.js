@@ -61,7 +61,7 @@ export class RateTracker {
 
     /**
      * 获取当前的速率统计
-     * @returns {{qps: number, tps: number}}
+     * @returns {{qps: number, tps: number, rpm: number, maxQps: number, maxTps: number, maxRpm: number}}
      */
     getStats() {
         const nowSeconds = Math.floor(Date.now() / 1000);

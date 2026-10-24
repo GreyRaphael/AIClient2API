@@ -75,7 +75,7 @@ export async function fetchZedOrganizationId({ userId, accessToken, systemId, co
 
     configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
 
-    const response = await axios.request(axiosConfig);
+    const response = await axios.request(/** @type {any} */ (axiosConfig));
     const data = response.data || {};
 
     if (data.default_organization_id) {
@@ -119,7 +119,7 @@ export async function exchangeZedToken({ userId, accessToken, systemId, organiza
 
     configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
 
-    const response = await axios.request(axiosConfig);
+    const response = await axios.request(/** @type {any} */ (axiosConfig));
     const token = response.data?.token;
 
     if (!token) {
@@ -1025,7 +1025,7 @@ export class ZedApiService {
 
         let response;
         try {
-            response = await axios.request(axiosConfig);
+            response = await axios.request(/** @type {any} */ (axiosConfig));
         } catch (err) {
             const errData = err.response?.data;
             let errMsg = err.message;
@@ -1539,7 +1539,7 @@ export class ZedApiService {
                 };
                 configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
 
-                const res = await axios.request(axiosConfig);
+                const res = await axios.request(/** @type {any} */ (axiosConfig));
                 if (res.data && Array.isArray(res.data.models)) {
                     const rawModels = res.data.models;
                     const modelIds = [];

@@ -169,7 +169,7 @@ export async function handleZedOAuth(currentConfig = CONFIG, options = {}) {
         });
     });
 
-    const port = server.address().port;
+    const port = /** @type {import('node:net').AddressInfo} */ (server.address()).port;
     const authUrl = `${ZED_OAUTH_CONFIG.authBaseUrl}?native_app_port=${port}&native_app_public_key=${encodeURIComponent(pubB64)}`;
 
     // 存储当前 session 信息，方便手动回调处理
