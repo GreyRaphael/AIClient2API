@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 /**
  * 请求处理管线（从 utils/common.js 迁出）
  *
@@ -30,7 +29,7 @@ import {
 } from '../providers/provider-models.ts';
 import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.ts';
 
-function getCustomModelEntriesForProvider(config, providerType = null, options = {}) {
+function getCustomModelEntriesForProvider(config, providerType = null, options: any = {}) {
     const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
     const entries = [];
 
@@ -118,7 +117,7 @@ function appendCustomModelsToModelList(clientModelList, customEntries, providerT
             }
 
             // 添加新模型
-            const modelResponse = {
+            const modelResponse: any = {
                 id: entry.id,
                 object: 'model',
                 created: Math.floor(Date.now() / 1000),
@@ -1386,7 +1385,7 @@ export async function handleModelListRequest(req, res, service, endpointType, CO
                     object: 'list',
                     data: models.map(modelId => {
                         const customConfig = getCustomModelConfig(modelId, providerType);
-                        const modelResponse = {
+                        const modelResponse: any = {
                             id: modelId,
                             object: 'model',
                             created: Math.floor(Date.now() / 1000),
@@ -1472,7 +1471,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
 
     // 2. Extract model and determine if the request is for streaming.
-    let { model, isStream } = _extractModelAndStreamInfo(req, originalRequestBody, fromProvider);
+    let { model, isStream } = _extractModelAndStreamInfo(req, originalRequestBody, fromProvider) as any;
 
     if (!model) {
         throw new Error("Could not determine the model from the request.");
@@ -1534,7 +1533,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     // 1. Convert request body from client format to backend format, if necessary.
     // 使用浅拷贝以避免直接变异 originalRequestBody，保持原始数据的纯净性以供后续钩子使用
-    let processedRequestBody = { ...originalRequestBody };
+    let processedRequestBody = { ...(originalRequestBody as any) };
 
     // 将 _monitorRequestId 注入到 requestBody 中，以便在 service 内部访问
     if (CONFIG._monitorRequestId) {

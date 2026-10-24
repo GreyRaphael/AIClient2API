@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -129,6 +128,9 @@ function decodeJwtPayload(token) {
 export async function getTraeUserInfo({
     host = TRAE_AUTH_CONFIG.defaultHost,
     accessToken
+}: {
+    host?: string;
+    accessToken?: string;
 } = {}) {
     if (!accessToken) {
         throw new Error('GetUserInfo requires accessToken');
@@ -199,7 +201,7 @@ export async function getTraeUserInfo({
  * @param {Object} options
  * @returns {Promise<{ credPath: string, accountName: string }>}
  */
-export async function saveTraeCredentials(credData, options = {}) {
+export async function saveTraeCredentials(credData, options: any = {}) {
     const baseDir = path.join(process.cwd(), 'configs', 'trae');
     if (!fs.existsSync(baseDir)) {
         fs.mkdirSync(baseDir, { recursive: true });
@@ -513,7 +515,7 @@ export async function handleTraePATLogin({
  * @param {Object} options
  * @returns {Promise<{ authUrl: string, authInfo: Object }>}
  */
-export async function handleTraeOAuth(currentConfig = CONFIG, options = {}) {
+export async function handleTraeOAuth(currentConfig = CONFIG, options: any = {}) {
     const host = options.host || TRAE_AUTH_CONFIG.defaultHost;
     const { loginUrl, machineId, deviceId, callbackUrl } = buildTraeWebLoginUrl({
         host,

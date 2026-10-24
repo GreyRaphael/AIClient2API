@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
@@ -58,8 +57,8 @@ export async function validateCredentials(password) {
         const parts = storedPassword.split(':');
         if (parts.length !== 3) return false;
         const [, salt, storedHash] = parts;
-        const inputHash = await new Promise((resolve, reject) =>
-            crypto.pbkdf2(password.trim(), salt, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err, key) =>
+        const inputHash = await new Promise<string>((resolve, reject) =>
+            crypto.pbkdf2(password.trim(), salt as string, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err, key) =>
                 err ? reject(err) : resolve(key.toString('hex'))
             )
         );
@@ -203,6 +202,8 @@ async function deleteToken(token) {
  * 管理登录尝试频率和锁定
  */
 class LoginAttemptManager {
+    attempts: Map<string, any>;
+
     constructor() {
         this.attempts = new Map(); // IP -> { count, lastAttempt, lockoutUntil }
     }
@@ -372,7 +373,7 @@ export async function handleLoginRequest(req, res) {
     }
 
     try {
-        const requestData = await parseRequestBody(req);
+        const requestData = await parseRequestBody(req) as any;
         const { password } = requestData;
         
         if (!password) {

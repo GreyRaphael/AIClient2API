@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 
 /**
  * 转换器公共工具函数模块
@@ -77,7 +76,7 @@ export function anthropicUsageFromInclusiveInput({
  * @param {Object} usage - Gemini usageMetadata
  * @returns {{prompt: number, cached: number, thoughts: number, output: number, total: number}}
  */
-function getGeminiUsageNumbers(usage = {}) {
+function getGeminiUsageNumbers(usage: any = {}) {
     const prompt = Math.max(0, Number(usage.promptTokenCount) || 0);
     const candidates = Math.max(0, Number(usage.candidatesTokenCount) || 0);
     const thoughts = Math.max(0, Number(usage.thoughtsTokenCount) || 0);

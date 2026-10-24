@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { OAuth2Client } from 'google-auth-library';
 import logger from '../utils/logger.ts';
 import http from 'http';
@@ -126,7 +125,7 @@ async function closeActiveServer(provider, port = null) {
         }
 
         try {
-            const closePromise = new Promise((resolve, reject) => {
+            const closePromise = new Promise<void>((resolve, reject) => {
                 existing.server.close((err) => {
                     if (err) reject(err);
                     else resolve();
@@ -165,7 +164,7 @@ async function closeActiveServer(provider, port = null) {
  * @param {string} provider - 提供商标识
  * @returns {Promise<http.Server>} HTTP 服务器实例
  */
-async function createOAuthCallbackServer(config, redirectUri, authClient, credPath, provider, options = {}) {
+async function createOAuthCallbackServer(config, redirectUri, authClient, credPath, provider, options: any = {}) {
     const port = parseInt(options.port) || config.port;
     // 先关闭该提供商之前可能运行的所有服务器，或该端口上的旧服务器
     await closeActiveServer(provider, port);
@@ -326,7 +325,7 @@ async function createOAuthCallbackServer(config, redirectUri, authClient, credPa
  * @param {Object} options - 额外选项
  * @returns {Promise<Object>} 返回授权URL和相关信息
  */
-async function handleGoogleOAuth(providerKey, currentConfig, options = {}) {
+async function handleGoogleOAuth(providerKey, currentConfig, options: any = {}) {
     const config = OAUTH_PROVIDERS[providerKey];
     if (!config) {
         throw new Error(`未知的提供商: ${providerKey}`);
@@ -340,7 +339,7 @@ async function handleGoogleOAuth(providerKey, currentConfig, options = {}) {
     const proxyConfig = getGoogleAuthProxyConfig(currentConfig, providerKey);
 
     // 构建 OAuth2Client 选项
-    const oauth2Options = {
+    const oauth2Options: any = {
         clientId: config.clientId,
         clientSecret: config.clientSecret,
     };
@@ -351,7 +350,7 @@ async function handleGoogleOAuth(providerKey, currentConfig, options = {}) {
     }
 
     const authClient = new OAuth2Client(oauth2Options);
-    /** @type {any} */ (authClient).redirectUri = redirectUri;
+    (authClient as any).redirectUri = redirectUri;
     
     const authUrl = authClient.generateAuthUrl({
         access_type: 'offline',

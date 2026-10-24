@@ -1,4 +1,3 @@
-// @ts-nocheck - Phase 5 type ratchet pending
 import { existsSync, readFileSync } from 'fs';
 import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
 import logger from '../utils/logger.ts';
@@ -116,7 +115,7 @@ function getUpdateProxyConfig() {
  * @param {Object} options - fetch 选项
  * @returns {Promise<Response>}
  */
-async function fetchWithProxy(url, options = {}) {
+async function fetchWithProxy(url: string, options: any = {}) {
     const proxyConfig = getUpdateProxyConfig();
 
     const method = options.method || 'GET';
@@ -126,7 +125,7 @@ async function fetchWithProxy(url, options = {}) {
     const maxRedirects = options.redirect === 'manual' ? 0 : 5;
 
     try {
-        const axiosOptions = {
+        const axiosOptions: any = {
             method,
             url,
             headers,
@@ -794,7 +793,7 @@ export async function handleCheckUpdate(req, res) {
  */
 export async function handlePerformUpdate(req, res) {
     try {
-        const body = await getRequestBody(req);
+        const body = await getRequestBody(req) as any;
         const version = body?.version || null;
         
         const updateResult = await performUpdate(version);

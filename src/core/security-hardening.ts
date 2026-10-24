@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -854,7 +853,7 @@ dgram.createSocket = function (...args) {
 if (globalThis.fetch) {
     const origFetch = globalThis.fetch;
     globalThis.fetch = function (...args) {
-        handleNetworkAttempt(args[0]?.url || args[0], 'global.fetch');
+        handleNetworkAttempt((args[0] as any)?.url || args[0], 'global.fetch');
         return origFetch.apply(this, args);
     };
 }
@@ -906,10 +905,10 @@ inspector.open = function (...args) {
 };
 
 const origProcessExit = process.exit;
-process.exit = function (code) {
+process.exit = (function (code?: string | number) {
     handleProcessControlAttempt(code, 'process.exit');
     return origProcessExit.call(this, code);
-};
+}) as typeof process.exit;
 
 const origProcessKill = process.kill;
 process.kill = function (pid, signal) {
@@ -956,12 +955,12 @@ process.prependOnceListener = function (eventName, ...args) {
 process.env = new Proxy(process.env, {
     set(target, property, value) {
         handleUserPluginProcessMutationAttempt(`process.env.${String(property)}`, 'process.env.set');
-        target[property] = value;
+        target[String(property)] = value;
         return true;
     },
     deleteProperty(target, property) {
         handleUserPluginProcessMutationAttempt(`process.env.${String(property)}`, 'process.env.delete');
-        return delete target[property];
+        return delete target[String(property)];
     },
     defineProperty(target, property, descriptor) {
         handleUserPluginProcessMutationAttempt(`process.env.${String(property)}`, 'process.env.defineProperty');

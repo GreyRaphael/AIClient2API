@@ -1,4 +1,3 @@
-// @ts-nocheck - 大型动态协议/上游实现，类型收敛中；补齐 JSDoc 后移除
 import '../core/security-hardening.ts';
 import logger from '../utils/logger.ts';
 import * as http from 'http';
@@ -116,7 +115,7 @@ function setupWorkerCommunication() {
     if (!IS_WORKER_PROCESS) return;
 
     // 监听来自主进程的消息
-    process.on('message', (message) => {
+    process.on('message', (message: any) => {
         if (!message || !message.type) return;
 
         logger.info('[Worker] Received message from master:', message.type);
@@ -267,7 +266,7 @@ async function startServer() {
     const services = await initApiService(CONFIG, true);
     
     // Initialize UI management features
-    initializeUIManagement(CONFIG);
+    initializeUIManagement();
     
     // Initialize API management and get heartbeat function
     const heartbeatAndRefreshToken = initializeAPIManagement(services);
