@@ -1,4 +1,38 @@
 import { v4 as uuidv4 } from 'uuid';
+import type {
+    OpenAIResponsesOutputItem,
+    OpenAIResponsesStreamEvent,
+    OpenAIResponsesUsage
+} from '../../../types/protocols/responses.js';
+
+export interface ResponsesToolCallState {
+    id?: string;
+    call_id?: string;
+    type?: string;
+    name?: string;
+    input?: string;
+    arguments?: string;
+    [key: string]: unknown;
+}
+
+export interface ResponsesStreamState {
+    id: string;
+    msgId: string;
+    fullText: string;
+    sequenceNumber: number;
+    model: string | null;
+    status: string;
+    startTime: number;
+    toolCalls: ResponsesToolCallState[];
+    currentToolCall: ResponsesToolCallState | null;
+}
+
+export interface ResponsesStreamStateOptions {
+    id?: string | null;
+    msgId?: string | null;
+    model?: string | null;
+    startTime?: number | null;
+}
 
 /**
  * OpenAI Responses API 流式事件生成器（纯函数集）
@@ -20,7 +54,7 @@ import { v4 as uuidv4 } from 'uuid';
  * @param {number} [options.startTime] - 创建时间戳（秒）
  * @returns {Object} Responses 流式会话状态
  */
-function createResponsesStreamState({ id = null, msgId = null, model = null, startTime = null }: any = {}) {
+function createResponsesStreamState({ id = null, msgId = null, model = null, startTime = null }: ResponsesStreamStateOptions = {}): ResponsesStreamState {
     return {
         id: id || `resp_${uuidv4().replace(/-/g, '')}`,
         msgId: msgId || `msg_${uuidv4().replace(/-/g, '')}`,
@@ -37,7 +71,7 @@ function createResponsesStreamState({ id = null, msgId = null, model = null, sta
 /**
  * Generates a response.created event
  */
-function generateResponseCreated(state: any, model: any) {
+function generateResponseCreated(state: ResponsesStreamState, model: string | null = null): OpenAIResponsesStreamEvent {
   if (model) {
     state.model = model;
   }
@@ -76,7 +110,7 @@ function generateResponseCreated(state: any, model: any) {
 /**
  * Generates a response.in_progress event
  */
-function generateResponseInProgress(state: any) {
+function generateResponseInProgress(state: ResponsesStreamState): OpenAIResponsesStreamEvent {
   return {
     type: 'response.in_progress',
     response: {
@@ -112,7 +146,7 @@ function generateResponseInProgress(state: any) {
 /**
  * Generates a response.output_item.added event
  */
-function generateOutputItemAdded(state: any, outputIndex: any = 0) {
+function generateOutputItemAdded(state: ResponsesStreamState, outputIndex = 0): OpenAIResponsesStreamEvent {
   return {
     type: 'response.output_item.added',
     output_index: outputIndex,
@@ -130,7 +164,7 @@ function generateOutputItemAdded(state: any, outputIndex: any = 0) {
 /**
  * Generates a response.content_part.added event
  */
-function generateContentPartAdded(state: any, outputIndex: any = 0) {
+function generateContentPartAdded(state: ResponsesStreamState, outputIndex = 0): OpenAIResponsesStreamEvent {
   return {
     type: 'response.content_part.added',
     item_id: state.msgId,
@@ -148,7 +182,7 @@ function generateContentPartAdded(state: any, outputIndex: any = 0) {
 /**
  * Generates a response.output_text.delta event
  */
-function generateOutputTextDelta(state: any, delta: any, outputIndex: any = 0) {
+function generateOutputTextDelta(state: ResponsesStreamState, delta: string, outputIndex = 0): OpenAIResponsesStreamEvent {
   state.fullText += delta;
 
   return {
@@ -165,7 +199,7 @@ function generateOutputTextDelta(state: any, delta: any, outputIndex: any = 0) {
 /**
  * Generates a response.output_text.done event
  */
-function generateOutputTextDone(state: any, outputIndex: any = 0) {
+function generateOutputTextDone(state: ResponsesStreamState, outputIndex = 0): OpenAIResponsesStreamEvent {
   return {
     type: 'response.output_text.done',
     item_id: state.msgId,
@@ -179,7 +213,7 @@ function generateOutputTextDone(state: any, outputIndex: any = 0) {
 /**
  * Generates a response.content_part.done event
  */
-function generateContentPartDone(state: any, outputIndex: any = 0) {
+function generateContentPartDone(state: ResponsesStreamState, outputIndex = 0): OpenAIResponsesStreamEvent {
   return {
     type: 'response.content_part.done',
     item_id: state.msgId,
@@ -197,7 +231,7 @@ function generateContentPartDone(state: any, outputIndex: any = 0) {
 /**
  * Generates a response.output_item.done event
  */
-function generateOutputItemDone(state: any, outputIndex: any = 0) {
+function generateOutputItemDone(state: ResponsesStreamState, outputIndex = 0): OpenAIResponsesStreamEvent {
   return {
     type: 'response.output_item.done',
     output_index: outputIndex,
@@ -222,7 +256,7 @@ function generateOutputItemDone(state: any, outputIndex: any = 0) {
 /**
  * Generates a response.completed event
  */
-function generateResponseCompleted(state: any, usage: any) {
+function generateResponseCompleted(state: ResponsesStreamState, usage: OpenAIResponsesUsage | null): OpenAIResponsesStreamEvent {
   return {
     type: 'response.completed',
     response: {
@@ -237,7 +271,7 @@ function generateResponseCompleted(state: any, usage: any) {
       model: state.model || 'claude-sonnet-4-6',
       object: 'response',
       output: (() => {
-        const items: any[] = [];
+        const items: OpenAIResponsesOutputItem[] = [];
         if (state.fullText) {
           items.push({
             id: state.msgId, summary: [], type: 'message', role: 'assistant', status: 'completed',
@@ -249,7 +283,7 @@ function generateResponseCompleted(state: any, usage: any) {
             const isCustom = tc.type === 'custom_tool_call';
             if (isCustom) {
               items.push({
-                id: tc.id,
+                id: tc.id || tc.call_id || '',
                 call_id: tc.call_id || tc.id,
                 type: 'custom_tool_call',
                 name: tc.name,
@@ -258,7 +292,7 @@ function generateResponseCompleted(state: any, usage: any) {
               });
             } else {
               items.push({
-                id: tc.id,
+                id: tc.id || tc.call_id || '',
                 call_id: tc.call_id || tc.id,
                 type: 'function_call',
                 name: tc.name,

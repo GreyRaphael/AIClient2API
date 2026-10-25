@@ -1,4 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
+import type {
+    OpenAIResponsesOutputItem,
+    OpenAIResponsesStreamEvent,
+    OpenAIResponsesUsage
+} from '../../types/protocols/responses.js';
+import type { ResponsesStreamState } from '../providers/openai/openai-responses-events.ts';
 import {
     createResponsesStreamState,
     generateResponseCreated,
@@ -24,7 +30,7 @@ interface ResponsesSseEmitterOptions {
     /** 创建时间戳（秒） */
     createdAt?: number | null;
     /** 并发隔离会话存储 */
-    store?: any;
+    store?: SessionStore | null;
 }
 
 interface ToolCallOptions {
@@ -46,9 +52,13 @@ interface ToolCallState {
     isCustom: boolean;
 }
 
+interface SessionStore {
+    delete(key: string): void;
+}
+
 interface CompleteOptions {
-    status?: string;
-    incompleteDetails?: any;
+    status?: 'completed' | 'incomplete' | 'failed';
+    incompleteDetails?: Record<string, unknown>;
 }
 
 /**
@@ -74,8 +84,8 @@ export class ResponsesSseEmitter {
     msgId: string;
     model: string;
     createdAt: number;
-    store: any;
-    coreState: any;
+    store: SessionStore | null;
+    coreState: ResponsesStreamState;
     sequenceNumber: number;
     nextOutputIndex: number;
     started: boolean;
@@ -138,7 +148,7 @@ export class ResponsesSseEmitter {
         return this.sequenceNumber++;
     }
 
-    _pushEvent(events: any[], event: any): void {
+    _pushEvent(events: OpenAIResponsesStreamEvent[], event: OpenAIResponsesStreamEvent): void {
         if (!event || typeof event !== 'object') return;
         if (event.sequence_number === undefined) {
             event.sequence_number = this._nextSeq();
@@ -172,10 +182,10 @@ export class ResponsesSseEmitter {
     /**
      * 发送 response.created 与 response.in_progress（幂等）
      */
-    start(): any[] {
+    start(): OpenAIResponsesStreamEvent[] {
         if (this.done || this.started) return [];
         this.started = true;
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         this._pushEvent(events, generateResponseCreated(this.coreState, this.model));
         this._pushEvent(events, generateResponseInProgress(this.coreState));
         return events;
@@ -184,16 +194,16 @@ export class ResponsesSseEmitter {
     /**
      * 确保流已启动
      */
-    ensureStarted(): any[] {
+    ensureStarted(): OpenAIResponsesStreamEvent[] {
         return this.start();
     }
 
     /**
      * 开启文本消息块
      */
-    textStart(): any[] {
+    textStart(): OpenAIResponsesStreamEvent[] {
         if (this.done) return [];
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -210,7 +220,7 @@ export class ResponsesSseEmitter {
      */
     textDelta(text: string): any[] {
         if (this.done || !text) return [];
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.textStarted) {
             events.push(...this.textStart());
         }
@@ -221,10 +231,10 @@ export class ResponsesSseEmitter {
     /**
      * 闭合文本消息块（幂等）
      */
-    textDone(): any[] {
+    textDone(): OpenAIResponsesStreamEvent[] {
         if (this.done || !this.textStarted || this.textDoneFlag) return [];
         this.textDoneFlag = true;
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         this._pushEvent(events, generateOutputTextDone(this.coreState, this.textOutputIndex));
         this._pushEvent(events, generateContentPartDone(this.coreState, this.textOutputIndex));
         this._pushEvent(events, generateOutputItemDone(this.coreState, this.textOutputIndex));
@@ -234,9 +244,9 @@ export class ResponsesSseEmitter {
     /**
      * 开启推理思考块
      */
-    reasoningStart(): any[] {
+    reasoningStart(): OpenAIResponsesStreamEvent[] {
         if (this.done) return [];
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -250,7 +260,7 @@ export class ResponsesSseEmitter {
             type: "response.output_item.added",
             output_index: this.reasoningOutputIndex,
             item: {
-                id: this.reasoningId,
+                id: this.reasoningId || '',
                 type: "reasoning",
                 status: "in_progress",
                 summary: []
@@ -274,7 +284,7 @@ export class ResponsesSseEmitter {
      */
     reasoningDelta(delta: string): any[] {
         if (this.done || !delta) return [];
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.reasoningStarted) {
             events.push(...this.reasoningStart());
         }
@@ -292,10 +302,10 @@ export class ResponsesSseEmitter {
     /**
      * 闭合推理思考块（幂等）
      */
-    reasoningDone(): any[] {
+    reasoningDone(): OpenAIResponsesStreamEvent[] {
         if (this.done || !this.reasoningStarted || this.reasoningDoneFlag) return [];
         this.reasoningDoneFlag = true;
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         this._pushEvent(events, {
             type: "response.reasoning_summary_text.done",
             item_id: this.reasoningId,
@@ -317,7 +327,7 @@ export class ResponsesSseEmitter {
             type: "response.output_item.done",
             output_index: this.reasoningOutputIndex,
             item: {
-                id: this.reasoningId,
+                id: this.reasoningId || '',
                 type: "reasoning",
                 status: "completed",
                 summary: [{
@@ -360,15 +370,15 @@ export class ResponsesSseEmitter {
      * 读取全部工具调用状态。
      */
     getAllToolStates(): Array<ToolCallState & { key: string }> {
-        return Array.from(this.toolCalls.entries()).map(([key, state]: any) => ({ key, ...state }));
+        return Array.from(this.toolCalls.entries()).map(([key, state]) => ({ ...state, key }));
     }
 
     /**
      * 开启工具调用
      */
-    toolCallStart(id: string | null, name: string | null, options: ToolCallOptions = {}): any[] {
+    toolCallStart(id: string | null, name: string | null, options: ToolCallOptions = {}): OpenAIResponsesStreamEvent[] {
         if (this.done) return [];
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -426,10 +436,10 @@ export class ResponsesSseEmitter {
     /**
      * 发送工具调用参数增量
      */
-    toolCallArgsDelta(idOrIndex: string | number, delta: string): any[] {
+    toolCallArgsDelta(idOrIndex: string | number, delta: string): OpenAIResponsesStreamEvent[] {
         if (this.done || !delta) return [];
         let key = this._findToolCallKey(idOrIndex);
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (key === null) {
             events.push(...this.toolCallStart(typeof idOrIndex === 'string' ? idOrIndex : null, null, {
                 index: typeof idOrIndex === 'number' ? idOrIndex : undefined
@@ -475,7 +485,7 @@ export class ResponsesSseEmitter {
      * 设置 custom tool 的完整自由文本 input，并发送一次 input.delta。
      * 适用于上游一次性返回完整参数、Converter 需要把 JSON 参数折叠为 custom input 的场景。
      */
-    toolCallCustomInput(idOrIndex: string | number, input: any): any[] {
+    toolCallCustomInput(idOrIndex: string | number, input: unknown): OpenAIResponsesStreamEvent[] {
         if (this.done || input === null || input === undefined) return [];
         const key = this._findToolCallKey(idOrIndex);
         if (key === null) return [];
@@ -483,7 +493,7 @@ export class ResponsesSseEmitter {
         if (!toolState || !toolState.isCustom || toolState.done) return [];
         const value = String(input);
         toolState.arguments = value;
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         this._pushEvent(events, {
             type: "response.custom_tool_call_input.delta",
             item_id: toolState.itemId,
@@ -496,13 +506,13 @@ export class ResponsesSseEmitter {
     /**
      * 闭合指定工具调用（幂等）
      */
-    toolCallDone(idOrIndex: string | number): any[] {
+    toolCallDone(idOrIndex: string | number): OpenAIResponsesStreamEvent[] {
         if (this.done) return [];
         const key = this._findToolCallKey(idOrIndex);
         if (key === null) return [];
         const toolState = this.toolCalls.get(key);
         if (!toolState || toolState.done) return [];
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (!toolState.added) {
             events.push(...this.toolCallStart(toolState.callId, toolState.name, { index: toolState.key }));
         }
@@ -541,9 +551,9 @@ export class ResponsesSseEmitter {
     /**
      * 终结整个流，闭合未决块并发送 response.completed（幂等）
      */
-    complete(usage: any = null, options: CompleteOptions = {}): any[] {
+    complete(usage: OpenAIResponsesUsage | null = null, options: CompleteOptions = {}): OpenAIResponsesStreamEvent[] {
         if (this.done) return [];
-        const events: any[] = [];
+        const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.started) {
             events.push(...this.start());
         }
@@ -583,10 +593,10 @@ export class ResponsesSseEmitter {
             total_tokens: 0
         };
 
-        const completedEvent: any = generateResponseCompleted(this.coreState, normalizedUsage);
+        const completedEvent = generateResponseCompleted(this.coreState, normalizedUsage);
         if (this.reasoningStarted) {
-            (completedEvent.response.output as any[]).unshift({
-                id: this.reasoningId,
+            (completedEvent.response?.output as OpenAIResponsesOutputItem[] | undefined)?.unshift({
+                id: this.reasoningId || '',
                 type: "reasoning",
                 status: "completed",
                 summary: [{
@@ -596,14 +606,17 @@ export class ResponsesSseEmitter {
             });
         }
 
-        if (options.status) {
-            completedEvent.response.status = options.status;
-        }
-        if (options.incompleteDetails) {
-            completedEvent.response.incomplete_details = options.incompleteDetails;
-        }
-        if (completedEvent.response.status === 'incomplete') {
-            completedEvent.type = 'response.incomplete';
+        const completedResponse = completedEvent.response;
+        if (completedResponse) {
+            if (options.status) {
+                completedResponse.status = options.status;
+            }
+            if (options.incompleteDetails) {
+                completedResponse.incomplete_details = options.incompleteDetails;
+            }
+            if (completedResponse.status === 'incomplete') {
+                completedEvent.type = 'response.incomplete';
+            }
         }
 
         this._pushEvent(events, completedEvent);

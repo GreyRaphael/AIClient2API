@@ -41,10 +41,10 @@ export interface OpenAIResponsesUsage {
     input_tokens: number;
     output_tokens: number;
     total_tokens: number;
-    input_token_details?: {
+    input_tokens_details?: {
         cached_tokens?: number;
     };
-    output_token_details?: {
+    output_tokens_details?: {
         reasoning_tokens?: number;
     };
 }
