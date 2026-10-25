@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.4] - 2026-10-25
+
+### Fixed
+
+- 修复插件方法 receiver 丢失：`init` / `destroy` / `authenticate` / `middleware` / `hooks` 改为通过 `.call(plugin, ...)` 调用，恢复 `this` 绑定，避免依赖实例状态的第三方插件静默失效。新增 5 个 receiver 回归测试。
+- 修复覆盖率门槛的 LCOV `FNDA` 解析 off-by-one：`FNDA:` 前缀长度为 5，旧实现从 `slice(6)` 开始会丢掉 hit count 第一位，导致函数覆盖率被系统性低估。修复后函数覆盖率由 11.39% 校正为 32.65%（293 → 840 covered）；这是统计口径修复，不是测试覆盖率突然提升。
+
+### Changed
+
+- `npm run verify` 现在执行 `test:coverage` 并通过 `check:coverage` 校验覆盖率门槛，本地验证与 CI 口径一致。
+- 新增覆盖率门槛回归测试，包含“覆盖率低于基线时必须失败”的失败路径断言。
+- 清理 `provider-config-linker` 行尾空白，无行为变化。
+
+### Verification
+
+- `npm run verify`：44 suites / 592 tests 全绿，strict 0 errors，any 棘轮通过，imports 136 文件通过，cycles 0，runtime smoke OK。
+- 覆盖率：行 29.84% / 分支 31.09% / 函数 32.65%。
+- 全量 E2E：20 个模型 × 11 项核心用例 + 6 项定向契约，26/26 通过。
+- 定向回归 E2E：openai-custom:glm-5.3，11 项核心 + 2 项定向通过。
+
 ## [v5.0.3] - 2026-10-25
 
 ### Fixed

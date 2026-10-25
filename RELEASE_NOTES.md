@@ -1,65 +1,66 @@
-# AIClient-2-API 发布说明 (v5.0.3)
+# AIClient-2-API 发布说明 (v5.0.4)
 
-> **v5.0.3** 是 v5.0.2 的修复版本，重点修复两个运行时回归，并完成类型债治理的收尾。
+> **v5.0.4** 是 v5.0.3 的修复版本，重点修复插件方法 receiver 丢失与覆盖率统计口径错误。
 >
-> - 非号池部署（`providerPools` 为空）下内容生成请求 500 的问题已修复；
-> - 5 个模块中自递归 `getErrorMessage` 导致的 `RangeError` 已修复；
-> - `any` / `DynamicPayload` 棘轮扩展，第三方依赖类型补齐。
+> - 插件 `init` / `destroy` / `authenticate` / `middleware` / `hooks` 恢复正确的 `this` 绑定；
+> - LCOV `FNDA` 解析 off-by-one 修复，函数覆盖率由 11.39% 校正为 32.65%；
+> - `npm run verify` 现在会执行覆盖率门槛，并新增失败路径回归测试。
 
 ---
 
 ## 🐛 修复
 
-### 1. 非号池部署请求 500（高优先级）
+### 1. 插件方法 receiver 丢失（兼容性修复）
 
-v5.0.2 的 `request-handler` 把延迟解析的 `apiService` 从 `undefined` 改成了 `{}`，导致非号池部署跳过 service 解析，最终返回：
+上一轮重构为了避免 TypeScript 的 “possibly undefined” 告警，把插件方法提取到局部变量后直接调用，导致方法内的 `this` 不再是插件对象。依赖实例状态的第三方插件可能出现静默失效。
 
-```text
-HTTP 500: service.generateContent is not a function
-```
-
-修复后恢复传入 `null`，并在解析后增加空 service 守卫。使用 `openai-custom` / `openaiResponses-custom` / `claude-custom` 的单 Key 部署可直接升级。
-
-### 2. 自递归 `getErrorMessage`（高优先级）
-
-`request-handler`、`api-manager`、`service-manager`、`plugin-installer`、`provider-api` 中的 5 个 helper 在收到 `Error` 时会无限递归，抛出：
+现已改为：
 
 ```text
-RangeError: Maximum call stack size exceeded
+init.call(plugin, config)
+destroy.call(plugin)
+authenticate.call(plugin, req, res, url, config)
+middleware.call(plugin, req, res, url, config)
+hook.call(hooks, ...args)
 ```
 
-影响插件市场离线 fallback、provider 健康检查、图片生成等错误路径。现已全部改为返回 `error.message`。
+并新增 5 个回归测试，覆盖初始化、销毁、启停、认证、中间件和 hooks。
+
+### 2. 覆盖率统计 off-by-one（度量修复）
+
+LCOV 的 `FNDA:` 前缀长度为 5，旧实现从 `slice(6)` 开始解析，会丢掉 hit count 的第一位：
+
+- `FNDA:1,...` 被解析成空值 / 0；
+- `FNDA:10,...` 被解析成 0；
+- 导致函数覆盖率被系统性低估。
+
+修复后函数覆盖率由 **11.39% 校正为 32.65%**（293 → 840 covered）。这是统计口径修复，不是测试覆盖率突然提升。
 
 ## 🧪 回归测试
 
-- 真实 standalone server + 空号池 + 本地假 OpenAI 上游，验证 `/v1/chat/completions` 返回 200（修复前为 500）。
-- 插件市场网络失败时正确回退本地缓存（修复前为 `RangeError`）。
-- 全源码扫描，禁止 `getErrorMessage` 自递归。
-
-## 🧹 类型债治理
-
-- **冻结 `DynamicPayload` 增量**：通过 TypeScript AST 统计定义数与引用数并纳入棘轮基线（当前 **51 definitions / 1567 references**），新增别名或引用会使 CI 失败。
-- **补齐第三方依赖类型**：`busboy` 使用 `@types/busboy`；`adm-zip` 0.5.x 与 `multer` 使用本地最小声明（`types/adm-zip.d.ts`、`types/multer.d.ts`），移除 `types/vendor-modules.d.ts` 的整模块 `any` 声明。
-- **按需收敛**：在触碰的 `event-broadcast` / `plugin-api` 中移除 `DynamicPayload`，改用 `multer.File`、`Record<string, unknown>` 与显式运行时守卫。
-- **指标现状**：`: any` / `as any` **234 / 6**；AST `AnyKeyword` **393**（src=331 / types=62），其中 `security-hardening.ts` 239。
+- 新增 `FNDA` 解析测试：覆盖 0、1、9、10、11、100 等 hit count。
+- 新增覆盖率门槛失败路径测试：基线高于实际覆盖率时，脚本必须以非零码退出。
+- 新增插件 receiver 测试：确保所有被提取的方法仍以插件对象作为 `this`。
 
 ## ✅ 验证结果
 
 | 项目 | 结果 |
 |---|---:|
+| `npm run verify` | **通过** |
 | TypeScript strict | **0 errors** |
-| `@ts-nocheck` | **0 文件 / 0 行** |
-| any / DynamicPayload 棘轮 | **OK（234/6/393；51/1567）** |
-| 单元测试 | **32 suites / 497 tests 全绿** |
-| 导入检查 | **128 文件通过** |
+| any / DynamicPayload 棘轮 | **OK（340 AST nodes；1 definition / 1539 refs）** |
+| 单元测试 | **44 suites / 592 tests 全绿** |
+| 导入检查 / 循环依赖 | **136 文件通过 / 0 cycles** |
 | 运行时 smoke | **OK** |
-| 全量 e2e | **20 个模型，26/26 通过** |
+| 覆盖率 | **行 29.84% / 分支 31.09% / 函数 32.65%** |
+| 全量 E2E | **20 个模型，26/26 通过** |
+| 定向回归 E2E | **openai-custom:glm-5.3，11 项核心 + 2 项定向通过** |
 
 ## 📦 兼容性
 
 - 无 API、配置或数据格式变更；
 - 无 provider 增删；
-- **运行要求：Node.js >= 22.18.0**（服务端直接运行 `.ts`，依赖原生类型擦除；Node 20 及更早版本无法启动）。
+- **运行要求：Node.js `^22.18.0 || >=23.6.0`**（服务端直接运行 `.ts`，依赖原生类型擦除）。
 
 ## 🚀 升级建议
 
@@ -67,7 +68,7 @@ RangeError: Maximum call stack size exceeded
 
   ```bash
   git fetch --tags
-  git checkout v5.0.3
+  git checkout v5.0.4
   npm install
   npm start
   ```
@@ -75,7 +76,7 @@ RangeError: Maximum call stack size exceeded
 - Docker：
 
   ```bash
-  docker pull justlikemaki/aiclient-2-api:5.0.3
+  docker pull justlikemaki/aiclient-2-api:5.0.4
   ```
 
-- 升级前请确认 `node -v` >= 22.18.0，其余无需迁移配置。
+- 升级前请确认 `node -v` 满足要求，其余无需迁移配置。
