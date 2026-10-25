@@ -18,42 +18,48 @@ import {
 import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { ENDPOINT_TYPE } from '../utils/common.ts';
+import type { ProviderConfig, ProviderPools, ProviderStatus, ProviderStatusMap, ProviderPoolOptions, ProviderPoolGlobalConfig, RefreshQueueState, RefreshBufferEntry } from './provider-types.ts';
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
 
 /**
  * Manages a pool of API service providers, handling their health and selection.
  */
 export class ProviderPoolManager {
-    providerPools: any;
-    globalConfig: any;
-    providerStatus: any;
-    roundRobinIndex: any;
-    maxErrorCount: any;
-    healthCheckInterval: any;
-    logLevel: any;
-    saveDebounceTime: any;
-    saveTimer: any;
-    pendingSaves: any;
-    fallbackChain: any;
-    modelFallbackMapping: any;
-    _selectionLocks: any;
-    _isSelecting: any;
-    refreshConcurrency: any;
-    activeProviderRefreshes: any;
-    globalRefreshWaiters: any;
-    warmupTarget: any;
-    refreshingUuids: any;
-    refreshQueues: any;
-    refreshBufferQueues: any;
-    refreshBufferTimers: any;
-    bufferDelay: any;
-    refreshTaskTimeoutMs: any;
-    _selectionSequence: any;
+    providerPools: ProviderPools;
+    globalConfig: ProviderPoolGlobalConfig;
+    providerStatus: ProviderStatusMap;
+    roundRobinIndex: Record<string, number>;
+    maxErrorCount: number;
+    healthCheckInterval: number;
+    logLevel: string;
+    saveDebounceTime: number;
+    saveTimer: NodeJS.Timeout | null;
+    pendingSaves: Set<string>;
+    fallbackChain: Record<string, string[]>;
+    modelFallbackMapping: Record<string, unknown>;
+    _selectionLocks: Record<string, Promise<void>>;
+    _isSelecting: Record<string, boolean>;
+    refreshConcurrency: { global: number; perProvider: number };
+    activeProviderRefreshes: number;
+    globalRefreshWaiters: Array<() => void>;
+    warmupTarget: number;
+    refreshingUuids: Set<string>;
+    refreshQueues: Record<string, RefreshQueueState>;
+    refreshBufferQueues: Record<string, Map<string, RefreshBufferEntry>>;
+    refreshBufferTimers: Record<string, NodeJS.Timeout>;
+    bufferDelay: number;
+    refreshTaskTimeoutMs: number;
+    _selectionSequence: number;
 
     // 默认健康检查模型配置
     // 键名必须与 MODEL_PROVIDER 常量值一致
     static DEFAULT_HEALTH_CHECK_MODELS = getDefaultHealthCheckModels();
 
-    constructor(providerPools: any, options: any = {}) {
+    constructor(providerPools: ProviderPools, options: ProviderPoolOptions = {}) {
         this.providerPools = providerPools;
         this.globalConfig = options.globalConfig || {}; // 存储全局配置
         this.providerStatus = {}; // Tracks health and usage for each provider instance
@@ -113,7 +119,7 @@ export class ProviderPoolManager {
      * @param {string} uuid
      * @param {boolean} force
      */
-    async refreshNode(providerType: any, uuid: any, force: any = true) {
+    async refreshNode(providerType: string, uuid: string, force: boolean = true) {
         const provider = this._findProvider(providerType, uuid);
         if (provider) {
             this._log('info', `Manually triggering refresh for node ${this._getDisplayName(provider.config)} (${providerType})`);
@@ -136,7 +142,9 @@ export class ProviderPoolManager {
 
                 // 根据 providerType 从注册表派生凭据路径字段名
                 const credentialPathKey = getProviderDefinition(providerType)?.credentialPathKey;
-                const configPath = credentialPathKey ? config[credentialPathKey] : null;
+                const configPath = credentialPathKey && typeof config[credentialPathKey] === 'string'
+                    ? config[credentialPathKey] as string
+                    : null;
 
                 // logger.info(`Checking node ${this._getDisplayName(config)} (${providerType}) expiry date... configPath: ${configPath}`);
                 // 排除禁用的节点（不健康节点也应允许尝试刷新以恢复健康）
@@ -147,7 +155,7 @@ export class ProviderPoolManager {
                         const fileContent = fs.readFileSync(configPath, 'utf-8');
                         const credData = JSON.parse(fileContent);
                         const rawExpiryTime = credData.expiry_date ?? credData.expiry ?? credData.expires_at ?? credData.expiresAt;
-                        let expiryTime: any = null;
+                        let expiryTime: number | null = null;
                         if (typeof rawExpiryTime === 'number') {
                             expiryTime = rawExpiryTime;
                         } else if (typeof rawExpiryTime === 'string') {
@@ -155,7 +163,7 @@ export class ProviderPoolManager {
                             expiryTime = Number.isNaN(parsedDate) ? Number(rawExpiryTime) : parsedDate;
                         }
                         const nearExpiryMs = (this.globalConfig?.CRON_NEAR_MINUTES || 10) * 60 * 1000;
-                        if (!Number.isFinite(expiryTime)) {
+                        if (expiryTime === null || !Number.isFinite(expiryTime)) {
                             // 凭据文件缺少 expiry 字段，无法判断是否快过期，作为安全措施强制刷新
                             this._log('warn', `Node ${this._getDisplayName(config)} (${providerType}) has no expiry field. Forcing refresh as safety measure...`);
                             this._enqueueRefresh(providerType, providerStatus);
@@ -163,8 +171,8 @@ export class ProviderPoolManager {
                             this._log('warn', `Node ${this._getDisplayName(config)} (${providerType}) is near expiration. Enqueuing refresh...`);
                             this._enqueueRefresh(providerType, providerStatus);
                         }
-                    } catch (err: any) {
-                        this._log('error', `Failed to check expiry for node ${this._getDisplayName(config)}: ${err.message}`);
+                    } catch (err) {
+                        this._log('error', `Failed to check expiry for node ${this._getDisplayName(config)}: ${getErrorMessage(err)}`);
                     }
                 } else {
                     this._log('debug', `Node ${this._getDisplayName(config)} (${providerType}) has no valid config file path or file does not exist.`);
@@ -181,15 +189,15 @@ export class ProviderPoolManager {
         if (this.warmupTarget <= 0) return;
         this._log('info', `Starting system warmup (Group Target: ${this.warmupTarget} nodes per provider)...`);
 
-        const nodesToWarmup: any[] = [];
+        const nodesToWarmup: Array<{ type: string; status: ProviderStatus }> = [];
 
         for (const type in this.providerStatus) {
             const pool = this.providerStatus[type];
 
             // 挑选当前提供商下需要预热的节点
             const candidates = pool
-                .filter((p: any) => p.config.isHealthy && !p.config.isDisabled && !this.refreshingUuids.has(p.uuid))
-                .sort((a: any, b: any) => {
+                .filter((p: ProviderStatus) => p.config.isHealthy && !p.config.isDisabled && !this.refreshingUuids.has(p.uuid))
+                .sort((a, b) => {
                     // 优先级 A: 明确标记需要刷新的
                     if (a.config.needsRefresh && !b.config.needsRefresh) return -1;
                     if (!a.config.needsRefresh && b.config.needsRefresh) return 1;
@@ -201,7 +209,7 @@ export class ProviderPoolManager {
                 })
                 .slice(0, this.warmupTarget);
 
-            candidates.forEach((p: any) => nodesToWarmup.push({ type, status: p }));
+            candidates.forEach((p: ProviderStatus) => nodesToWarmup.push({ type, status: p }));
         }
 
         this._log('info', `Warmup: Selected total ${nodesToWarmup.length} nodes across all providers to refresh.`);
@@ -220,7 +228,7 @@ export class ProviderPoolManager {
      * @param {boolean} force - 是否强制刷新（跳过缓冲队列）
      * @private
      */
-    _enqueueRefresh(providerType: any, providerStatus: any, force: any = false) {
+    _enqueueRefresh(providerType: string, providerStatus: ProviderStatus, force: boolean = false) {
         const uuid = providerStatus.uuid;
 
         // 如果节点被禁用，不进行刷新
@@ -286,7 +294,7 @@ export class ProviderPoolManager {
      * @param {string} providerType
      * @private
      */
-    _flushRefreshBuffer(providerType: any) {
+    _flushRefreshBuffer(providerType: string) {
         const bufferQueue = this.refreshBufferQueues[providerType];
         if (!bufferQueue || bufferQueue.size === 0) {
             return;
@@ -311,7 +319,7 @@ export class ProviderPoolManager {
      * @param {boolean} force
      * @private
      */
-    _enqueueRefreshImmediate(providerType: any, providerStatus: any, force: any = false) {
+    _enqueueRefreshImmediate(providerType: string, providerStatus: ProviderStatus, force: boolean = false) {
         const uuid = providerStatus.uuid;
 
         // 再次检查是否已经在刷新中（防止并发问题）
@@ -337,8 +345,8 @@ export class ProviderPoolManager {
         const runTask = async () => {
             try {
                 await this._refreshNodeToken(providerType, providerStatus, force);
-            } catch (err: any) {
-                this._log('error', `Failed to process refresh for node ${this._getDisplayName(providerStatus.config)}: ${err.message}`);
+            } catch (err) {
+                this._log('error', `Failed to process refresh for node ${this._getDisplayName(providerStatus.config)}: ${getErrorMessage(err)}`);
             } finally {
                 this.refreshingUuids.delete(uuid);
 
@@ -353,8 +361,8 @@ export class ProviderPoolManager {
                     const nextTask = currentQueue.waitingTasks.shift();
                     currentQueue.activeCount++;
                     // 使用 Promise.resolve().then 避免过深的递归
-                    Promise.resolve().then(nextTask).catch((err: any) => {
-                        this._log('error', `Failed to execute next task for ${providerType}: ${err.message}`);
+                    Promise.resolve().then(nextTask).catch((err) => {
+                        this._log('error', `Failed to execute next task for ${providerType}: ${getErrorMessage(err)}`);
                     });
                 } else if (currentQueue.activeCount === 0) {
                     const ownsGlobalSlot = currentQueue.ownsGlobalSlot;
@@ -374,8 +382,8 @@ export class ProviderPoolManager {
                     // 3. 尝试启动下一个等待中的提供商队列
                     if (this.globalRefreshWaiters.length > 0) {
                         const nextProviderStart = this.globalRefreshWaiters.shift();
-                        Promise.resolve().then(nextProviderStart).catch((err: any) => {
-                            this._log('error', `Failed to start next provider queue: ${err.message}`);
+                        Promise.resolve().then(nextProviderStart).catch((err) => {
+                            this._log('error', `Failed to start next provider queue: ${getErrorMessage(err)}`);
                         });
                     }
                 }
@@ -388,8 +396,8 @@ export class ProviderPoolManager {
 
             if (currentQueue.activeCount < this.refreshConcurrency.perProvider) {
                 currentQueue.activeCount++;
-                runTask().catch((err: any) => {
-                    this._log('error', `Critical error in runTask for ${providerType}: ${err.message}`);
+                runTask().catch((err) => {
+                    this._log('error', `Critical error in runTask for ${providerType}: ${getErrorMessage(err)}`);
                 });
             } else {
                 currentQueue.waitingTasks.push(runTask);
@@ -438,7 +446,7 @@ export class ProviderPoolManager {
      * 实际执行节点刷新逻辑
      * @private
      */
-    async _refreshNodeToken(providerType: any, providerStatus: any, force: any = false) {
+    async _refreshNodeToken(providerType: string, providerStatus: ProviderStatus, force: boolean = false) {
         const config = providerStatus.config;
 
         // 检查刷新次数是否已达上限（最大5次）
@@ -460,7 +468,7 @@ export class ProviderPoolManager {
             config.refreshCount = currentRefreshCount + 1;
 
             // 使用适配器进行刷新
-            const tempConfig = {
+            const tempConfig: Record<string, unknown> = {
                 ...this.globalConfig,
                 ...config,
                 MODEL_PROVIDER: providerType
@@ -471,7 +479,7 @@ export class ProviderPoolManager {
             // 调用适配器的 refreshToken 方法（内部封装了具体的刷新逻辑）
             if (typeof serviceAdapter.refreshToken === 'function') {
                 const startTime = Date.now();
-                let refreshOperation: any;
+                let refreshOperation: Promise<unknown>;
                 if (force) {
                     if (typeof serviceAdapter.forceRefreshToken === 'function') {
                         refreshOperation = serviceAdapter.forceRefreshToken();
@@ -505,20 +513,20 @@ export class ProviderPoolManager {
                 throw new Error(`refreshToken method not implemented for ${providerType}`);
             }
 
-        } catch (error: any) {
-            this._log('error', `Token refresh failed for node ${this._getDisplayName(config)}: ${error.message}`);
+        } catch (error) {
+            this._log('error', `Token refresh failed for node ${this._getDisplayName(config)}: ${getErrorMessage(error)}`);
 
             // 记录错误信息
             config.lastErrorTime = new Date().toISOString();
-            config.lastErrorMessage = `Refresh failed: ${error.message}`;
+            config.lastErrorMessage = `Refresh failed: ${getErrorMessage(error)}`;
 
             // 增加错误计数（用于普通的健康检查参考，虽然刷新错误主要参考 refreshCount）
             config.errorCount = (config.errorCount || 0) + 1;
 
             // 只有当刷新重试次数达到上限（5次）时，才标记为不健康
             // 注意：refreshCount 在进入本方法后的 try 块前已经自增（L466）
-            if (config.refreshCount >= 5) {
-                this.markProviderUnhealthyImmediately(providerType, config, `Refresh failed after maximum attempts (5): ${error.message}`);
+            if ((config.refreshCount || 0) >= 5) {
+                this.markProviderUnhealthyImmediately(providerType, config, `Refresh failed after maximum attempts (5): ${getErrorMessage(error)}`);
             } else {
                 // 关键修复：重置 needsRefresh 为 false，允许该节点回到池中
                 // 这样它才有机会被下一次请求选中，从而再次触发刷新重试
@@ -538,13 +546,13 @@ export class ProviderPoolManager {
      * 为刷新任务附加超时保护，避免单个适配器调用无限挂起。
      * @private
      */
-    async _awaitRefreshWithTimeout(refreshOperation: any, providerType: any, displayName: any) {
+    async _awaitRefreshWithTimeout(refreshOperation: Promise<unknown>, providerType: string, displayName: string) {
         if (this.refreshTaskTimeoutMs <= 0) {
             return await refreshOperation;
         }
 
-        let timeoutId: any = null;
-        const timeoutPromise = new Promise((_: any, reject: any) => {
+        let timeoutId: NodeJS.Timeout | null = null;
+        const timeoutPromise = new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => {
                 reject(new Error(`Refresh timeout after ${this.refreshTaskTimeoutMs}ms for node ${displayName} (${providerType})`));
             }, this.refreshTaskTimeoutMs);
@@ -564,7 +572,7 @@ export class ProviderPoolManager {
      * 分数越低，优先级越高
      * @private
      */
-    _calculateNodeScore(providerStatus: any, now: any = Date.now(), minSeqInPool: any = -1) {
+    _calculateNodeScore(providerStatus: ProviderStatus, now: number = Date.now(), minSeqInPool: number = -1) {
         const config = providerStatus.config;
         const state = providerStatus.state;
 
@@ -572,8 +580,8 @@ export class ProviderPoolManager {
         if (!config.isHealthy || config.isDisabled) return 1e18;
 
         // 检查并发限制
-        const concurrencyLimit = parseInt(config.concurrencyLimit || 0);
-        const queueLimit = parseInt(config.queueLimit || 0);
+        const concurrencyLimit = parseInt(String(config.concurrencyLimit || 0), 10);
+        const queueLimit = parseInt(String(config.queueLimit || 0), 10);
 
         if (concurrencyLimit > 0) {
             if (state.activeCount >= concurrencyLimit) {
@@ -603,7 +611,7 @@ export class ProviderPoolManager {
         const lastSelectionSeq = config._lastSelectionSeq || 0;
         if (minSeqInPool === -1) {
             const pool = this.providerStatus[providerStatus.type] || [];
-            minSeqInPool = pool.reduce((min: any, p: any) => Math.min(min, p.config._lastSelectionSeq || 0), Infinity);
+            minSeqInPool = pool.reduce((min: number, p) => Math.min(min, p.config._lastSelectionSeq || 0), Infinity);
         }
         const relativeSeq = Math.max(0, lastSelectionSeq - minSeqInPool);
         const cappedRelativeSeq = Math.min(relativeSeq, 100);
@@ -621,18 +629,18 @@ export class ProviderPoolManager {
     /**
      * 获取指定类型的健康节点数量
      */
-    getHealthyCount(providerType: any) {
-        return (this.providerStatus[providerType] || []).filter((p: any) => p.config.isHealthy && !p.config.isDisabled).length;
+    getHealthyCount(providerType: string) {
+        return (this.providerStatus[providerType] || []).filter((p: ProviderStatus) => p.config.isHealthy && !p.config.isDisabled).length;
     }
 
     /**
      * 日志输出方法，支持日志级别控制
      * @private
      */
-    _log(level: any, message: any) {
+    _log(level: string, message: string) {
         const levels = { debug: 0, info: 1, warn: 2, error: 3 };
-        if ((levels as any)[level] >= (levels as any)[this.logLevel]) {
-            (logger as any)[level](`[ProviderPoolManager] ${message}`);
+        if ((levels as Record<string, number>)[level] >= (levels as Record<string, number>)[this.logLevel]) {
+            (logger as unknown as Record<string, (message: string) => void>)[level](`[ProviderPoolManager] ${message}`);
         }
     }
 
@@ -642,7 +650,7 @@ export class ProviderPoolManager {
      * @returns {string} 显示名称
      * @private
      */
-    _getDisplayName(config: any) {
+    _getDisplayName(config: ProviderConfig) {
         if (!config) return 'unknown';
         return config.customName || (config.uuid ? config.uuid.substring(0, 8) : 'unknown');
     }
@@ -656,7 +664,7 @@ export class ProviderPoolManager {
      * @param {string} [errorMessage] - 错误信息（可选）
      * @private
      */
-    _logHealthStatusChange(providerType: any, providerConfig: any, fromStatus: any, toStatus: any, errorMessage: any = null) {
+    _logHealthStatusChange(providerType: string, providerConfig: ProviderConfig, fromStatus: string, toStatus: string, errorMessage: string | null = null) {
         const customName = providerConfig.customName || providerConfig.uuid;
         const timestamp = new Date().toISOString();
 
@@ -699,7 +707,7 @@ export class ProviderPoolManager {
      * @param {string} [errorMessage] - 错误信息
      * @private
      */
-    async _triggerHealthAlert(providerType: any, providerConfig: any, status: any, errorMessage: any = null) {
+    async _triggerHealthAlert(providerType: string, providerConfig: ProviderConfig, status: string, errorMessage: string | null = null) {
         const webhookUrl = this.globalConfig?.HEALTH_ALERT_WEBHOOK_URL;
         if (!webhookUrl) {
             return; // 未配置 Webhook，跳过
@@ -726,8 +734,8 @@ export class ProviderPoolManager {
                 headers: { 'Content-Type': 'application/json' }
             });
             this._log('info', `Health alert sent to webhook for ${customName}: ${status}`);
-        } catch (error: any) {
-            this._log('error', `Failed to send health alert to webhook: ${error.message}`);
+        } catch (error) {
+            this._log('error', `Failed to send health alert to webhook: ${getErrorMessage(error)}`);
         }
     }
 
@@ -735,13 +743,13 @@ export class ProviderPoolManager {
      * 查找指定的 provider
      * @private
      */
-    _findProvider(providerType: any, uuid: any) {
+    _findProvider(providerType: string, uuid: string) {
         if (!providerType || !uuid) {
             this._log('error', `Invalid parameters: providerType=${providerType}, uuid=${uuid}`);
             return null;
         }
         const pool = this.providerStatus[providerType];
-        return pool?.find((p: any) => p.uuid === uuid) || null;
+        return pool?.find((p: ProviderStatus) => p.uuid === uuid) || null;
     }
 
     /**
@@ -749,10 +757,10 @@ export class ProviderPoolManager {
      * @param {string} uuid - 提供商 UUID
      * @returns {object|null} 提供商配置对象或 null
      */
-    findProviderByUuid(uuid: any) {
+    findProviderByUuid(uuid: string) {
         if (!uuid) return null;
         for (const type in this.providerStatus) {
-            const provider = this.providerStatus[type].find((p: any) => p.uuid === uuid);
+            const provider = this.providerStatus[type].find((p: ProviderStatus) => p.uuid === uuid);
             if (provider) return provider.config;
         }
         return null;
@@ -763,7 +771,7 @@ export class ProviderPoolManager {
      * Initially, all providers are considered healthy and have zero usage.
      * @param {boolean} syncFromConfig - 是否强制从配置同步统计数据（不保留内存中的旧数据）
      */
-    initializeProviderStatus(syncFromConfig: any = false) {
+    initializeProviderStatus(syncFromConfig = false) {
         const oldFullStatus = this.providerStatus || {};
         const isColdStart = Object.keys(oldFullStatus).length === 0;
         this.providerStatus = {}; // Tracks health and usage for each provider instance
@@ -781,17 +789,17 @@ export class ProviderPoolManager {
             // 如果是同步配置，主动使该类型下所有已有的服务适配器失效，确保代理等设置能即时生效
             if (syncFromConfig) {
                 this._log('info', `Syncing config for type ${providerType}, invalidating existing service adapters to apply new proxy settings.`);
-                pool.forEach((config: any) => {
+                pool.forEach((config: ProviderConfig) => {
                     if (config.uuid) {
                         invalidateServiceAdapter(providerType, config.uuid);
                     }
                 });
             }
 
-            pool.forEach((providerConfig: any) => {
+            pool.forEach((providerConfig: ProviderConfig) => {
                 try {
                     // 尝试从旧状态中恢复活跃请求计数和队列，避免重载配置时重置并发限制
-                    const existing = oldStatus.find((p: any) => p.uuid === providerConfig.uuid);
+                    const existing = oldStatus.find((p: ProviderStatus) => p.uuid === providerConfig.uuid);
 
                     // Ensure initial health and usage stats are present in the config
                     providerConfig.isHealthy = providerConfig.isHealthy !== undefined ? providerConfig.isHealthy : true;
@@ -848,7 +856,7 @@ export class ProviderPoolManager {
 
                     this.providerStatus[providerType].push({
                         config: providerConfig,
-                        uuid: providerConfig.uuid, // Still keep uuid at the top level for easy access
+                        uuid: providerConfig.uuid || '', // Still keep uuid at the top level for easy access
                         type: providerType, // 保存 providerType 引用
                         state: existing ? existing.state : {
                             activeCount: 0,
@@ -856,8 +864,8 @@ export class ProviderPoolManager {
                             queue: []
                         }
                     });
-                } catch (nodeError: any) {
-                    logger.error(`[ProviderPoolManager] Error initializing node for ${providerType}: ${nodeError.message}`);
+                } catch (nodeError) {
+                    logger.error(`[ProviderPoolManager] Error initializing node for ${providerType}: ${getErrorMessage(nodeError)}`);
                 }
             });
 
@@ -873,7 +881,7 @@ export class ProviderPoolManager {
      * @param {string} requestedModel
      * @param {object} options
      */
-    async acquireSlot(providerType: any, requestedModel: any = null, options: any = {}) {
+    async acquireSlot(providerType: string, requestedModel: string | null = null, options: Record<string, unknown> = {}) {
         // 使用 selectProvider 进行初次选择（评分逻辑已经包含了并发考虑）
         const selectedConfig = await this.selectProvider(providerType, requestedModel, { ...options, skipUsageCount: true });
 
@@ -881,13 +889,13 @@ export class ProviderPoolManager {
             return null;
         }
 
-        const provider = this._findProvider(providerType, selectedConfig.uuid);
+        const provider = this._findProvider(providerType, selectedConfig.uuid || '');
         if (!provider) return selectedConfig;
 
         const config = provider.config;
         const state = provider.state;
-        const concurrencyLimit = parseInt(config.concurrencyLimit || 0);
-        const queueLimit = parseInt(config.queueLimit || 0);
+        const concurrencyLimit = parseInt(String(config.concurrencyLimit || 0), 10);
+        const queueLimit = parseInt(String(config.queueLimit || 0), 10);
 
         // 如果没有限制，直接增加活跃计数并返回
         if (concurrencyLimit <= 0) {
@@ -908,9 +916,9 @@ export class ProviderPoolManager {
             state.waitingCount++;
             try {
                 // 等待释放信号
-                await new Promise<void>((resolve: any, reject: any) => {
+                await new Promise<void>((resolve, reject) => {
                     // 设置较短的超时用于测试验证，或者由外部控制
-                    const timeoutMs = options.queueTimeout || 300000;
+                    const timeoutMs = typeof options.queueTimeout === 'number' ? options.queueTimeout : 300000;
                     const timeout = setTimeout(() => {
                         const idx = state.queue.indexOf(handler);
                         if (idx !== -1) {
@@ -945,7 +953,7 @@ export class ProviderPoolManager {
     /**
      * 释放提供商插槽
      */
-    releaseSlot(providerType: any, uuid: any) {
+    releaseSlot(providerType: string, uuid: string) {
         if (!providerType || !uuid) return;
 
         const provider = this._findProvider(providerType, uuid);
@@ -987,7 +995,7 @@ export class ProviderPoolManager {
         // 使用标志位 + 异步等待实现更强力的互斥锁
         // 这种方式能更好地处理同一微任务循环内的并发
         while (this._isSelecting[providerType]) {
-            await new Promise((resolve: any) => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
         }
 
         this._isSelecting[providerType] = true;
@@ -1005,14 +1013,14 @@ export class ProviderPoolManager {
      * 用于能力守卫兼容 actualModel 与上游发现 ID 不一致的场景。
      * @private
      */
-    _getCustomModelRoutingCandidates(providerType: any, requestedModel: any) {
+    _getCustomModelRoutingCandidates(providerType: string, requestedModel: string | null) {
         if (!requestedModel) return [];
         // globalConfig 在部分启动路径下可能不是 CONFIG 本体，合并两处自定义模型来源
         const configuredCustomModels = [
             ...(Array.isArray(this.globalConfig?.customModels) ? this.globalConfig.customModels : []),
             ...(Array.isArray(CONFIG.customModels) ? CONFIG.customModels : [])
         ];
-        const customModels: any[] = [];
+        const customModels: Array<Record<string, unknown>> = [];
         const seenIds = new Set();
         for (const model of configuredCustomModels) {
             const id = model?.id;
@@ -1029,7 +1037,7 @@ export class ProviderPoolManager {
 
             const names = [model.id, model.alias, model.actualModel, model.model].filter(Boolean);
             if (!names.includes(requestedModel)) continue;
-            names.forEach((name: any) => candidates.add(name));
+            names.forEach((name) => candidates.add(name));
         }
 
         return Array.from(candidates);
@@ -1040,7 +1048,7 @@ export class ProviderPoolManager {
      * 用于 fallback chain / model fallback mapping 的预检。
      * @private
      */
-    _providerTypeSupportsModel(providerType: any, requestedModel: any, options: any = {}) {
+    _providerTypeSupportsModel(providerType: string, requestedModel: string | null, options: Record<string, unknown> = {}) {
         const nodes = this.providerStatus[providerType] || [];
         if (nodes.length === 0) {
             return false;
@@ -1053,7 +1061,7 @@ export class ProviderPoolManager {
         }
 
         const capability = resolveProviderCapability(providerType, nodes);
-        const knownNodes = capability.nodes.filter((node: any) => node.known);
+        const knownNodes = capability.nodes.filter((node) => node.known);
         if (knownNodes.length === 0) {
             return true;
         }
@@ -1074,7 +1082,7 @@ export class ProviderPoolManager {
      * 实际执行 provider 选择的内部方法（同步执行，由锁保护）
      * @private
      */
-    _doSelectProvider(providerType: any, requestedModel: any, options: any) {
+    _doSelectProvider(providerType: string, requestedModel: string | null, options: Record<string, unknown>) {
         const availableProviders = this.providerStatus[providerType] || [];
 
         // 检查并恢复已到恢复时间的提供商
@@ -1084,9 +1092,9 @@ export class ProviderPoolManager {
         const now = Date.now();
 
         // 提前计算池中最小序列号，避免在排序算法中重复 O(N) 计算
-        const minSeq = Math.min(...availableProviders.map((p: any) => p.config._lastSelectionSeq || 0));
+        const minSeq = Math.min(...availableProviders.map((p: ProviderStatus) => p.config._lastSelectionSeq || 0));
 
-        let availableAndHealthyProviders = availableProviders.filter((p: any) =>
+        let availableAndHealthyProviders = availableProviders.filter((p: ProviderStatus) =>
             p.config.isHealthy && !p.config.isDisabled && !p.config.needsRefresh
         );
 
@@ -1100,7 +1108,7 @@ export class ProviderPoolManager {
             } else if (requestedModel.includes('/')) {
                 rawModelName = requestedModel.substring(requestedModel.indexOf('/') + 1);
             }
-            const modelFilteredProviders = availableAndHealthyProviders.filter((p: any) => {
+            const modelFilteredProviders = availableAndHealthyProviders.filter((p: ProviderStatus) => {
                 const cleanRequested = (requestedModel || '').replace(/^models\//, '');
                 const cleanRaw = (rawModelName || '').replace(/^models\//, '');
                 const customCandidates = this._getCustomModelRoutingCandidates(providerType, cleanRequested);
@@ -1125,7 +1133,7 @@ export class ProviderPoolManager {
                 const models = options.allowUnselectedModel
                     ? capability.candidateModels
                     : capability.selectedModels;
-                return modelCandidates.some((model: any) => nodeSupportsModel(capability, model, models));
+                return modelCandidates.some((model) => nodeSupportsModel(capability, model, models));
             });
 
             if (modelFilteredProviders.length === 0) {
@@ -1144,7 +1152,7 @@ export class ProviderPoolManager {
 
         // 改进：使用统一的评分策略进行选择
         // 传入当前时间戳 now 确保一致性
-        const selected = availableAndHealthyProviders.sort((a: any, b: any) => {
+        const selected = availableAndHealthyProviders.sort((a, b) => {
             const scoreA = this._calculateNodeScore(a, now, minSeq);
             const scoreB = this._calculateNodeScore(b, now, minSeq);
             if (scoreA !== scoreB) return scoreA - scoreB;
@@ -1164,7 +1172,7 @@ export class ProviderPoolManager {
         this._log('info', `[Concurrency Control] Atomic selection: ${this._getDisplayName(selected.config)} (Seq: ${this._selectionSequence})`);
 
         if (!options.skipUsageCount) {
-            selected.config.usageCount++;
+            selected.config.usageCount = (selected.config.usageCount || 0) + 1;
         }
         // 使用防抖保存（文件 I/O 是异步的，但内存已经更新）
         this._debouncedSave(providerType);
@@ -1220,8 +1228,8 @@ export class ProviderPoolManager {
                         isFallback: currentType !== providerType
                     };
                 }
-            } catch (err: any) {
-                if (err.status === 429) {
+            } catch (err) {
+                if ((err as { status?: number }).status === 429) {
                     // 如果是因为 429 (并发/队列满)，尝试下一个 Fallback
                     this._log('info', `Type ${currentType} busy (429), trying next fallback...`);
                     continue;
@@ -1232,9 +1240,9 @@ export class ProviderPoolManager {
 
         // Model Fallback Mapping
         if (requestedModel && this.modelFallbackMapping && this.modelFallbackMapping[requestedModel]) {
-            const mapping = this.modelFallbackMapping[requestedModel];
-            const targetProviderType = mapping.targetProviderType;
-            const targetModel = mapping.targetModel;
+            const mapping = this.modelFallbackMapping[requestedModel] as { targetProviderType?: string; targetModel?: string } | undefined;
+            const targetProviderType = mapping?.targetProviderType;
+            const targetModel = mapping?.targetModel;
 
             if (targetProviderType && targetModel) {
                 if (this.providerStatus[targetProviderType] && this.providerStatus[targetProviderType].length > 0) {
@@ -1248,7 +1256,7 @@ export class ProviderPoolManager {
                                 actualModel: targetModel
                             };
                         }
-                    } catch (err: any) {
+                    } catch (err) {
                         // 如果目标类型繁忙，尝试它的 fallback chain
                         const targetFallbackTypes = this.fallbackChain[targetProviderType] || [];
                         for (const fallbackType of targetFallbackTypes) {
@@ -1268,7 +1276,7 @@ export class ProviderPoolManager {
                                         actualModel: targetModel
                                     };
                                 }
-                             } catch (e: any) {
+                             } catch (e) {
                                  continue;
                              }
                         }
@@ -1372,9 +1380,9 @@ export class ProviderPoolManager {
         // ==========================
 
         if (requestedModel && this.modelFallbackMapping && this.modelFallbackMapping[requestedModel]) {
-            const mapping = this.modelFallbackMapping[requestedModel];
-            const targetProviderType = mapping.targetProviderType;
-            const targetModel = mapping.targetModel;
+            const mapping = this.modelFallbackMapping[requestedModel] as { targetProviderType?: string; targetModel?: string } | undefined;
+            const targetProviderType = mapping?.targetProviderType;
+            const targetModel = mapping?.targetModel;
 
             if (targetProviderType && targetModel) {
                 this._log('info', `Trying Model Fallback Mapping for ${requestedModel}: -> ${targetProviderType} (${targetModel})`);
@@ -1440,7 +1448,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - The provider type to get fallback chain for.
      * @returns {Array<string>} The fallback chain array, or empty array if not configured.
      */
-    getFallbackChain(providerType: any) {
+    getFallbackChain(providerType: string) {
         return this.fallbackChain[providerType] || [];
     }
 
@@ -1449,7 +1457,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - The provider type to set fallback chain for.
      * @param {Array<string>} fallbackTypes - Array of fallback provider types.
      */
-    setFallbackChain(providerType: any, fallbackTypes: any) {
+    setFallbackChain(providerType: string, fallbackTypes: string[]) {
         if (!Array.isArray(fallbackTypes)) {
             this._log('error', `Invalid fallbackTypes: must be an array`);
             return;
@@ -1463,12 +1471,12 @@ export class ProviderPoolManager {
      * @param {string} providerType - The provider type to check.
      * @returns {boolean} True if all providers are unhealthy or disabled.
      */
-    isAllProvidersUnhealthy(providerType: any) {
+    isAllProvidersUnhealthy(providerType: string) {
         const providers = this.providerStatus[providerType] || [];
         if (providers.length === 0) {
             return true;
         }
-        return providers.every((p: any) => !p.config.isHealthy || p.config.isDisabled);
+        return providers.every((p: ProviderStatus) => !p.config.isHealthy || p.config.isDisabled);
     }
 
     /**
@@ -1476,7 +1484,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - The provider type to get stats for.
      * @returns {Object} Statistics object with total, healthy, unhealthy, and disabled counts.
      */
-    getProviderStats(providerType: any) {
+    getProviderStats(providerType: string) {
         const providers = this.providerStatus[providerType] || [];
         const stats = {
             total: providers.length,
@@ -1506,7 +1514,7 @@ export class ProviderPoolManager {
      * @param {object} nodeConfig
      * @returns {string[]|null}
      */
-    getNodeAvailableModels(providerType: any, nodeConfig: any) {
+    getNodeAvailableModels(providerType: string, nodeConfig: ProviderConfig) {
         if (!nodeConfig) return null;
         const capability = resolveNodeCapability(providerType, nodeConfig);
         return capability.known ? capability.selectedModels : null;
@@ -1520,7 +1528,7 @@ export class ProviderPoolManager {
      * @param {object} [options]
      * @returns {string[]}
      */
-    getActiveProviderModels(providerType: any, rawNodesOverride: any = null, options: any = {}) {
+    getActiveProviderModels(providerType: string, rawNodesOverride: ProviderConfig[] | null = null, options: Record<string, unknown> = {}) {
         const rawProviders = rawNodesOverride || this.providerStatus[providerType] || this.providerPools?.[providerType] || [];
         if (!Array.isArray(rawProviders) || rawProviders.length === 0) {
             return [];
@@ -1534,8 +1542,8 @@ export class ProviderPoolManager {
      * @param {string} [endpointType] - Optional endpoint type for format conversion (OPENAI_MODEL_LIST).
      * @returns {Promise<Object|Array>} Formatted model list or raw array of model objects.
      */
-    async getAllAvailableModels(endpointType: any = null) {
-        const allModels: any[] = [];
+    async getAllAvailableModels(endpointType: string | null = null) {
+        const allModels: Array<Record<string, unknown>> = [];
 
         // 获取所有已注册的提供商和号池中的提供商
         const registeredProviders = getRegisteredProviders();
@@ -1543,7 +1551,7 @@ export class ProviderPoolManager {
 
         for (const providerType of allProviderTypes) {
             if (this.providerStatus[providerType]) {
-                const activeNodes = this.providerStatus[providerType].filter((p: any) => !p.config?.isDisabled);
+                const activeNodes = this.providerStatus[providerType].filter((p: ProviderStatus) => !p.config?.isDisabled);
 
                 // 如果号池中该提供商没有启用任何有效节点（例如节点全部被禁用或号池为空），则不应暴露该提供商的模型
                 if (activeNodes.length === 0) {
@@ -1573,7 +1581,7 @@ export class ProviderPoolManager {
             // OpenAI 格式聚合
             return {
                 object: "list",
-                data: allModels.map((m: any) => ({
+                data: allModels.map((m) => ({
                     id: m.id,
                     object: "model",
                     created: Math.floor(Date.now() / 1000),
@@ -1591,7 +1599,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - 提供商类型
      * @param {object} providerConfig - 提供商配置（包含 uuid）
      */
-    markProviderNeedRefresh(providerType: any, providerConfig: any) {
+    markProviderNeedRefresh(providerType: string, providerConfig: ProviderConfig) {
 
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in markProviderNeedRefresh');
@@ -1622,9 +1630,9 @@ export class ProviderPoolManager {
 
             this._debouncedSave(providerType);
         } else {
-            let matchedType: any = null;
+            let matchedType: string | null = null;
             for (const [type, providers] of Object.entries(this.providerStatus || {}) as [string, any[]][]) {
-                if (providers.some((p: any) => p.uuid === providerConfig.uuid)) {
+                if (providers.some((p: ProviderStatus) => p.uuid === providerConfig.uuid)) {
                     matchedType = type;
                     break;
                 }
@@ -1641,7 +1649,7 @@ export class ProviderPoolManager {
      * @param {object} providerConfig - The configuration of the provider to mark.
      * @param {string} [errorMessage] - Optional error message to store.
      */
-    markProviderUnhealthy(providerType: any, providerConfig: any, errorMessage: any = null) {
+    markProviderUnhealthy(providerType: string, providerConfig: ProviderConfig, errorMessage: string | null = null) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in markProviderUnhealthy');
             return;
@@ -1658,7 +1666,7 @@ export class ProviderPoolManager {
             if (now - lastErrorTime > errorWindowMs) {
                 provider.config.errorCount = 1;
             } else {
-                provider.config.errorCount++;
+                provider.config.errorCount = (provider.config.errorCount || 0) + 1;
             }
 
             provider.config.lastErrorTime = new Date().toISOString();
@@ -1696,7 +1704,7 @@ export class ProviderPoolManager {
      * @param {object} providerConfig - The configuration of the provider to mark.
      * @param {string} [errorMessage] - Optional error message to store.
      */
-    markProviderUnhealthyImmediately(providerType: any, providerConfig: any, errorMessage: any = null) {
+    markProviderUnhealthyImmediately(providerType: string, providerConfig: ProviderConfig, errorMessage: string | null = null) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in markProviderUnhealthyImmediately');
             return;
@@ -1735,7 +1743,7 @@ export class ProviderPoolManager {
      * @param {string} [errorMessage] - Optional error message to store.
      * @param {Date|string} [recoveryTime] - Optional recovery time when the provider should be marked healthy again.
      */
-    markProviderUnhealthyWithRecoveryTime(providerType: any, providerConfig: any, errorMessage: any = null, recoveryTime: any = null) {
+    markProviderUnhealthyWithRecoveryTime(providerType: string, providerConfig: ProviderConfig, errorMessage: string | null = null, recoveryTime: Date | string | number | null = null) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in markProviderUnhealthyWithRecoveryTime');
             return;
@@ -1774,7 +1782,7 @@ export class ProviderPoolManager {
      * @param {boolean} resetUsageCount - Whether to reset usage count (optional, default: false).
      * @param {string} [healthCheckModel] - Optional model name used for health check.
      */
-    markProviderHealthy(providerType: any, providerConfig: any, resetUsageCount: any = false, healthCheckModel: any = null) {
+    markProviderHealthy(providerType: string, providerConfig: ProviderConfig, resetUsageCount = false, healthCheckModel: string | null = null) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in markProviderHealthy');
             return;
@@ -1802,7 +1810,7 @@ export class ProviderPoolManager {
             if (resetUsageCount) {
                 provider.config.usageCount = 0;
             }else{
-                provider.config.usageCount++;
+                provider.config.usageCount = (provider.config.usageCount || 0) + 1;
                 provider.config.lastUsed = new Date().toISOString();
             }
 
@@ -1823,7 +1831,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - 提供商类型
      * @param {string} uuid - 提供商 UUID
      */
-    resetProviderRefreshStatus(providerType: any, uuid: any) {
+    resetProviderRefreshStatus(providerType: string, uuid: string) {
         if (!providerType || !uuid) {
             this._log('error', 'Invalid parameters in resetProviderRefreshStatus');
             return;
@@ -1848,7 +1856,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - The type of the provider.
      * @param {object} providerConfig - The configuration of the provider to mark.
      */
-    resetProviderCounters(providerType: any, providerConfig: any) {
+    resetProviderCounters(providerType: string, providerConfig: ProviderConfig) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in resetProviderCounters');
             return;
@@ -1872,11 +1880,11 @@ export class ProviderPoolManager {
      * 重置特定类型的所有提供商健康状态
      * @param {string} providerType - 提供商类型
      */
-    resetAllHealthInType(providerType: any) {
+    resetAllHealthInType(providerType: string) {
         const pool = this.providerStatus[providerType];
         if (!pool) return;
 
-        pool.forEach((provider: any) => {
+        pool.forEach((provider: ProviderStatus) => {
             provider.config.isHealthy = true;
             provider.config.errorCount = 0;
             provider.config.lastErrorTime = null;
@@ -1894,7 +1902,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - 提供商类型
      * @param {object} providerConfig - 提供商配置
      */
-    disableProvider(providerType: any, providerConfig: any) {
+    disableProvider(providerType: string, providerConfig: ProviderConfig) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in disableProvider');
             return;
@@ -1913,7 +1921,7 @@ export class ProviderPoolManager {
      * @param {string} providerType - 提供商类型
      * @param {object} providerConfig - 提供商配置
      */
-    enableProvider(providerType: any, providerConfig: any) {
+    enableProvider(providerType: string, providerConfig: ProviderConfig) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in enableProvider');
             return;
@@ -1934,7 +1942,7 @@ export class ProviderPoolManager {
      * @param {object} providerConfig - 提供商配置（包含当前 uuid）
      * @returns {string|null} 新的 UUID，如果失败则返回 null
      */
-    refreshProviderUuid(providerType: any, providerConfig: any) {
+    refreshProviderUuid(providerType: string, providerConfig: ProviderConfig) {
         if (!providerConfig?.uuid) {
             this._log('error', 'Invalid providerConfig in refreshProviderUuid');
             return null;
@@ -1944,7 +1952,7 @@ export class ProviderPoolManager {
         if (provider) {
             const oldUuid = provider.config.uuid;
             // 生成新的 UUID
-            const newUuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c: any) {
+            const newUuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c: string) {
                 const r = Math.random() * 16 | 0;
                 const v = c === 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
@@ -1959,7 +1967,7 @@ export class ProviderPoolManager {
             // 同时更新 providerPools 中的原始数据
             const poolArray = this.providerPools[providerType];
             if (poolArray) {
-                const originalProvider = poolArray.find((p: any) => p.uuid === oldUuid);
+                const originalProvider = poolArray.find((p) => p.uuid === oldUuid);
                 if (originalProvider) {
                     originalProvider.uuid = newUuid;
                 }
@@ -1980,7 +1988,7 @@ export class ProviderPoolManager {
      * @param {string} [providerType] - 可选，指定要检查的提供商类型。如果不提供，检查所有类型
      * @private
      */
-    _checkAndRecoverScheduledProviders(providerType: any = null) {
+    _checkAndRecoverScheduledProviders(providerType: string | null = null) {
         const now = new Date();
         const typesToCheck = providerType ? [providerType] : Object.keys(this.providerStatus);
 
@@ -2094,10 +2102,10 @@ export class ProviderPoolManager {
                         }
                     }
 
-                } catch (error: any) {
-                    this._log('error', `Health check for ${this._getDisplayName(providerConfig)} (${providerType}) failed: ${error.message}`);
+                } catch (error) {
+                    this._log('error', `Health check for ${this._getDisplayName(providerConfig)} (${providerType}) failed: ${getErrorMessage(error)}`);
                     // If a health check fails, mark it unhealthy, which will update error count and lastErrorTime
-                    this.markProviderUnhealthy(providerType, providerConfig, error.message);
+                    this.markProviderUnhealthy(providerType, providerConfig, getErrorMessage(error));
                 }
             }
         }
@@ -2129,7 +2137,7 @@ export class ProviderPoolManager {
 
         // Count providers to be checked
         let totalProviders = 0;
-        let providersToCheck: any[] = [];
+        let providersToCheck: Array<{ providerType: string; provider: ProviderStatus; uuid: string; customName: string | null }> = [];
 
         for (const providerType in this.providerStatus) {
             // Only check selected provider types
@@ -2146,7 +2154,12 @@ export class ProviderPoolManager {
                 }
 
                 totalProviders++;
-                providersToCheck.push({ providerType, provider, uuid: provider.config.uuid, customName: provider.config.customName });
+                providersToCheck.push({
+                    providerType,
+                    provider,
+                    uuid: provider.config.uuid || '',
+                    customName: provider.config.customName || null
+                });
             }
         }
 
@@ -2180,11 +2193,11 @@ export class ProviderPoolManager {
                     this._log('info', `[ScheduledHealthCheck] ${displayName} (${providerType}) PASSED: model=${result.modelName || checkModelName} (${checkDuration}ms)`);
                     this.markProviderHealthy(providerType, provider.config, false, result.modelName);
                 }
-            } catch (error: any) {
+            } catch (error) {
                 const checkDuration = Date.now() - providerCheckStart;
                 failCount++;
-                this._log('error', `[ScheduledHealthCheck] ${displayName} (${providerType}) EXCEPTION: ${error.message} (${checkDuration}ms)`);
-                this.markProviderUnhealthyImmediately(providerType, provider.config, error.message);
+                this._log('error', `[ScheduledHealthCheck] ${displayName} (${providerType}) EXCEPTION: ${getErrorMessage(error)} (${checkDuration}ms)`);
+                this.markProviderUnhealthyImmediately(providerType, provider.config, getErrorMessage(error));
             }
         }
 
@@ -2197,9 +2210,9 @@ export class ProviderPoolManager {
      * @private
      * @returns {Array} 请求格式数组，按优先级排序
      */
-    _buildHealthCheckRequests(providerType: any, modelName: any) {
+    _buildHealthCheckRequests(providerType: string, modelName: string) {
         const baseMessage = { role: 'user', content: 'Hi' };
-        const requests: any[] = [];
+        const requests: Array<Record<string, unknown>> = [];
 
         // Gemini 使用 contents 格式
         if (providerType.startsWith('gemini')) {
@@ -2263,7 +2276,7 @@ export class ProviderPoolManager {
      * 例如：openai-custom-1 -> openai-custom
      * @private
      */
-    _getBaseProviderType(providerType: any) {
+    _getBaseProviderType(providerType: string) {
         if (ProviderPoolManager.DEFAULT_HEALTH_CHECK_MODELS[providerType]) {
             return providerType;
         }
@@ -2290,7 +2303,7 @@ export class ProviderPoolManager {
      * @param {object} providerConfig - The configuration of the provider to check.
      * @returns {Promise<{success: boolean, modelName: string, errorMessage: string}>} - Health check result object.
      */
-    async _checkProviderHealth(providerType: any, providerConfig: any) {
+    async _checkProviderHealth(providerType: string, providerConfig: ProviderConfig) {
         // 确定健康检查使用的模型名称
         const baseProviderType = this._getBaseProviderType(providerType);
         const modelName = providerConfig.checkModelName ||
@@ -2307,7 +2320,7 @@ export class ProviderPoolManager {
         }
 
         // ========== 实际 API 健康检查（带超时保护）==========
-        const tempConfig = {
+        const tempConfig: Record<string, unknown> = {
             ...this.globalConfig,
             ...providerConfig,
             MODEL_PROVIDER: providerType
@@ -2320,7 +2333,7 @@ export class ProviderPoolManager {
 
         // 健康检查超时时间（15秒，避免长时间阻塞）
         const healthCheckTimeout = 15000;
-        let lastError: any = null;
+        let lastError: unknown = null;
 
         // 重试机制：尝试不同的请求格式
         for (let i = 0; i < healthCheckRequests.length; i++) {
@@ -2341,15 +2354,15 @@ export class ProviderPoolManager {
                 // 注意：使用量计数由调用方处理（performHealthChecks/performInitialHealthChecks）
                 // 这里只返回成功结果，让调用方统一处理状态更新和计数
                 return { success: true, modelName, errorMessage: null };
-            } catch (error: any) {
+            } catch (error) {
                 clearTimeout(timeoutId);
                 lastError = error;
             }
         }
 
         // 所有尝试都失败
-        this._log('warn', `[HealthCheck] ${providerType} failed after ${healthCheckRequests.length} attempts: ${lastError?.message}`);
-        return { success: false, modelName, errorMessage: lastError?.message || 'All health check attempts failed' };
+        this._log('warn', `[HealthCheck] ${providerType} failed after ${healthCheckRequests.length} attempts: ${getErrorMessage(lastError)}`);
+        return { success: false, modelName, errorMessage: getErrorMessage(lastError) || 'All health check attempts failed' };
     }
 
     /**
@@ -2357,7 +2370,7 @@ export class ProviderPoolManager {
      * 延迟保存操作，避免频繁的文件 I/O
      * @private
      */
-    _debouncedSave(providerType: any) {
+    _debouncedSave(providerType: string) {
         // 将待保存的 providerType 添加到集合中
         this.pendingSaves.add(providerType);
 
@@ -2391,21 +2404,21 @@ export class ProviderPoolManager {
         const filePath = this.globalConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
 
         // 使用文件锁确保并发安全
-        await withFileLock(filePath, async (checkValidity: any) => {
+        await withFileLock(filePath, async (checkValidity: () => void) => {
             // 原子化提取待保存任务并清空，防止在异步循环期间丢失新更新
             const typesToSave = Array.from(this.pendingSaves) as string[];
             if (typesToSave.length === 0) return;
             this.pendingSaves.clear();
 
             try {
-                let currentPools = {};
+                let currentPools: ProviderPools = {};
 
                 // 采用“读取-合并-写入”策略，保留可能存在的未知字段
                 try {
                     const fileContent = await fs.promises.readFile(filePath, 'utf8');
-                    currentPools = JSON.parse(fileContent);
-                } catch (readError: any) {
-                    if (readError.code === 'ENOENT') {
+                    currentPools = JSON.parse(fileContent) as ProviderPools;
+                } catch (readError) {
+                    if ((readError as NodeJS.ErrnoException).code === 'ENOENT') {
                         this._log('info', 'configs/provider_pools.json does not exist, creating new file.');
                     } else {
                         throw readError;
@@ -2418,8 +2431,8 @@ export class ProviderPoolManager {
                 // 更新所有待保存的 providerType
                 for (const providerType of typesToSave) {
                     if (this.providerStatus[providerType]) {
-                        (currentPools as any)[providerType] = this.providerStatus[providerType].map((p: any) => {
-                            const config = { ...p.config };
+                        currentPools[providerType] = this.providerStatus[providerType].map((p) => {
+                            const config: ProviderConfig = { ...p.config };
                             if (config.lastUsed instanceof Date) {
                                 config.lastUsed = config.lastUsed.toISOString();
                             }
@@ -2440,8 +2453,8 @@ export class ProviderPoolManager {
                 await atomicWriteFile(filePath, JSON.stringify(currentPools, null, 2), { encoding: 'utf8', mode: 0o600 });
 
                 this._log('info', `configs/provider_pools.json updated successfully for types: ${typesToSave.join(', ')}`);
-            } catch (error: any) {
-                this._log('error', `Failed to write provider_pools.json: ${error.message}`);
+            } catch (error) {
+                this._log('error', `Failed to write provider_pools.json: ${getErrorMessage(error)}`);
             }
         });
     }

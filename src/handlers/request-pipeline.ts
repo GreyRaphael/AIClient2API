@@ -1044,7 +1044,7 @@ export async function handleStreamRequest(
                         PROMPT_LOG_MODE,
                         PROMPT_LOG_FILENAME,
                         providerPoolManager,
-                        result.uuid,
+                        result.uuid ?? null,
                         result.serviceConfig?.customName || customName,
                         newRetryContext
                     );
@@ -1376,7 +1376,7 @@ export async function handleUnaryRequest(
                         PROMPT_LOG_MODE,
                         PROMPT_LOG_FILENAME,
                         providerPoolManager,
-                        result.uuid,
+                        result.uuid ?? null,
                         result.serviceConfig?.customName || customName,
                         newRetryContext
                     );

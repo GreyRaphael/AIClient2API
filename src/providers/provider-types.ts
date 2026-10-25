@@ -12,25 +12,30 @@ export interface ProviderConfig {
     isDisabled?: boolean;
     needsRefresh?: boolean;
     refreshCount?: number;
-    lastUsed?: number | null;
+    lastUsed?: string | number | Date | null;
     usageCount?: number;
     errorCount?: number;
     lastErrorTime?: string | number | Date | null;
     lastErrorMessage?: string | null;
-    lastHealthCheckTime?: string | number | null;
+    lastHealthCheckTime?: string | number | Date | null;
     lastHealthCheckModel?: string | null;
     checkModelName?: string;
     checkHealth?: boolean;
     MODEL_PROVIDER?: string;
     models?: string[];
     modelsSource?: string;
+    concurrencyLimit?: number | string;
+    queueLimit?: number | string;
+    lastRefreshTime?: number;
+    scheduledRecoveryTime?: string | number | Date | null;
+    _lastSelectionSeq?: number;
     [key: string]: unknown;
 }
 
 export interface ProviderStatusState {
     activeCount: number;
     waitingCount: number;
-    queue: unknown[];
+    queue: Array<() => void>;
     [key: string]: unknown;
 }
 
@@ -45,8 +50,41 @@ export interface ProviderStatus {
 export type ProviderPools = Record<string, ProviderConfig[]>;
 export type ProviderStatusMap = Record<string, ProviderStatus[]>;
 
+export interface ProviderPoolGlobalConfig {
+    providerFallbackChain?: Record<string, string[]>;
+    modelFallbackMapping?: Record<string, unknown>;
+    REFRESH_CONCURRENCY_GLOBAL?: number;
+    REFRESH_CONCURRENCY_PER_PROVIDER?: number;
+    WARMUP_TARGET?: number;
+    REFRESH_BUFFER_DELAY?: number;
+    REFRESH_TASK_TIMEOUT_MS?: number;
+    CRON_NEAR_MINUTES?: number;
+    PROVIDER_POOLS_FILE_PATH?: string;
+    HEALTH_ALERT_WEBHOOK_URL?: string;
+    SCHEDULED_HEALTH_CHECK?: {
+        enabled?: boolean;
+        providerTypes?: string[];
+        interval?: number;
+        startupRun?: boolean;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
+}
+
+export interface RefreshQueueState {
+    activeCount: number;
+    waitingTasks: Array<() => Promise<void>>;
+    ownsGlobalSlot: boolean;
+    waitingForGlobalSlot: boolean;
+}
+
+export interface RefreshBufferEntry {
+    providerStatus: ProviderStatus;
+    force: boolean;
+}
+
 export interface ProviderPoolOptions {
-    globalConfig?: Record<string, unknown>;
+    globalConfig?: ProviderPoolGlobalConfig;
     maxErrorCount?: number;
     healthCheckInterval?: number;
     logLevel?: string;

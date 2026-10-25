@@ -118,7 +118,9 @@ export function initializeAPIManagement(services: Record<string, any>) {
                 if (serviceAdapter.config?.uuid && providerPoolManager) {
                     providerPoolManager._enqueueRefresh(serviceAdapter.config.MODEL_PROVIDER, {
                         config: serviceAdapter.config,
-                        uuid: serviceAdapter.config.uuid
+                        uuid: serviceAdapter.config.uuid,
+                        type: serviceAdapter.config.MODEL_PROVIDER,
+                        state: { activeCount: 0, waitingCount: 0, queue: [] }
                     });
                 } else {
                     await serviceAdapter.refreshToken();
