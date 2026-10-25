@@ -22,6 +22,12 @@ import {
     isCustomTool,
     extractCustomToolInput
 } from '../custom-tool-registry.ts';
+import type {
+    CrossProtocolResponse,
+    CrossProtocolStreamChunk
+} from '../../../types/protocols/common.js';
+
+type DynamicPayload = Record<string, any>;
 
 /**
  * Claude Code 专用工具参数启发式开关。
@@ -37,7 +43,7 @@ function isClaudeCodeToolHeuristicsEnabled() {
  * @param {any} part
  * @returns {string}
  */
-function inlineDataToMarkdown(part: any) {
+function inlineDataToMarkdown(part: DynamicPayload): string {
     const mimeType = part?.inlineData?.mimeType || 'image/png';
     const data = part?.inlineData?.data || '';
     if (!data) return '';
@@ -48,7 +54,7 @@ function inlineDataToMarkdown(part: any) {
  * 修复 Gemini 返回的工具参数名称问题
  * Gemini 有时会使用不同的参数名称，需要映射到 Claude Code 期望的格式
  */
-function remapFunctionCallArgs(toolName: any, args: any) {
+function remapFunctionCallArgs(toolName: string, args: DynamicPayload): DynamicPayload {
     if (!isClaudeCodeToolHeuristicsEnabled()) return args;
     if (!args || typeof args !== 'object') return args;
 
@@ -164,7 +170,7 @@ function remapFunctionCallArgs(toolName: any, args: any) {
  * [FIX] 规范化工具名称
  * Gemini 有时会返回 "search" 而不是 "Grep"
  */
-function normalizeToolName(name: any) {
+function normalizeToolName(name: string | null | undefined): string | null | undefined {
     if (!name) return name;
     if (!isClaudeCodeToolHeuristicsEnabled()) return name;
 
@@ -178,9 +184,9 @@ function normalizeToolName(name: any) {
  * 实现Gemini协议到其他协议的转换
  */
 export class GeminiConverter extends BaseConverter {
-    openAIResponsesStreamStates: any;
-    claudeStreamStates: any;
-    openaiStreamStates: any;
+    openAIResponsesStreamStates: StreamSessionStore;
+    claudeStreamStates: StreamSessionStore;
+    openaiStreamStates: StreamSessionStore;
 
     constructor() {
         super('gemini');
@@ -194,7 +200,7 @@ export class GeminiConverter extends BaseConverter {
      * 清理该请求在 Gemini 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: any) {
+    resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.openAIResponsesStreamStates.delete(requestId);
         this.claudeStreamStates.delete(requestId);
@@ -212,7 +218,7 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data: any, targetProtocol: any, model: any, requestId: any = null) {
+    convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId?: string | null): CrossProtocolResponse {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
@@ -228,14 +234,14 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: any, targetProtocol: any, model: any, requestId: any) {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model, requestId);
+                return this.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId);
+                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
+                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -244,9 +250,9 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换模型列表
      */
-    convertModelList(data: any, targetProtocol: any) {
+    convertModelList(data: unknown, targetProtocol: string): unknown {
         return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
-            ? this.toOpenAIModelList(data)
+            ? this.toOpenAIModelList(data as DynamicPayload)
             : data;
     }
 
@@ -258,11 +264,11 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini响应 -> OpenAI响应
      */
-    toOpenAIResponse(geminiResponse: any, model: any) {
+    toOpenAIResponse(geminiResponse: DynamicPayload, model?: string): DynamicPayload {
         const { content, reasoning_content } = this.processGeminiResponseContent(geminiResponse);
 
         // 提取 tool_calls
-        const toolCalls: any[] = [];
+        const toolCalls: DynamicPayload[] = [];
 
         if (geminiResponse && geminiResponse.candidates) {
             for (const candidate of geminiResponse.candidates) {
@@ -290,7 +296,7 @@ export class GeminiConverter extends BaseConverter {
             ? "tool_calls"
             : mapFinishReason(geminiResponse?.candidates?.[0]?.finishReason, 'gemini', 'openai');
 
-        const message: any = {
+        const message: DynamicPayload = {
             role: "assistant",
             content: content
         };
@@ -332,14 +338,14 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
      */
-    _getOpenAIStreamIdentity(requestId: any) {
-        return getOpenAIStreamIdentity(this.openaiStreamStates, requestId);
+    _getOpenAIStreamIdentity(requestId: string | null | undefined): DynamicPayload {
+        return getOpenAIStreamIdentity(this.openaiStreamStates, requestId ?? null);
     }
 
     /**
      * Gemini流式响应 -> OpenAI流式响应
      */
-    toOpenAIStreamChunk(geminiChunk: any, model: any, requestId: any = null) {
+    toOpenAIStreamChunk(geminiChunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload | null {
         if (!geminiChunk) return null;
 
         const candidate = geminiChunk.candidates?.[0];
@@ -351,7 +357,7 @@ export class GeminiConverter extends BaseConverter {
 
         let content = '';
         let reasoning_content = '';
-        const toolCalls: any[] = [];
+        const toolCalls: DynamicPayload[] = [];
         // 本 chunk 是否携带了可识别的 part（含仅有 thoughtSignature 的 part）。
         // Gemini 3 系列会先回传只带 thoughtSignature、不带 text 的 part，若把这种 chunk 整体丢弃，
         // 当整个流只由这类 part 组成时下游会收到 0 个 chunk（LangChain 报 "No generations found in stream."）。
@@ -402,13 +408,13 @@ export class GeminiConverter extends BaseConverter {
         // 只有上游明确给出 finishReason 时才写终止原因；工具 chunk 本身不是流终点。
         // 若在工具 chunk 上提前写 tool_calls，Agent 客户端会把该 chunk 当作流结束，
         // 从而丢掉后续正文/工具参数。最终 STOP 帧由 pipeline 的 hasToolCall 逻辑覆盖。
-        let finishReason: any = null;
+        let finishReason: string | null = null;
         if (candidate.finishReason) {
             finishReason = mapFinishReason(candidate.finishReason, 'gemini', 'openai');
         }
 
         // 构建delta对象
-        const delta: any = {};
+        const delta: DynamicPayload = {};
         if (content) delta.content = content;
         if (reasoning_content) delta.reasoning_content = reasoning_content;
         if (toolCalls.length > 0) delta.tool_calls = toolCalls;
@@ -420,7 +426,7 @@ export class GeminiConverter extends BaseConverter {
             return null;
         }
 
-        const chunk: any = {
+        const chunk: DynamicPayload = {
             id: identity.id,
             object: "chat.completion.chunk",
             created: identity.created,
@@ -447,10 +453,10 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini模型列表 -> OpenAI模型列表
      */
-    toOpenAIModelList(geminiModels: any) {
+    toOpenAIModelList(geminiModels: DynamicPayload): DynamicPayload {
         return {
             object: "list",
-            data: geminiModels.models.map((m: any) => {
+            data: geminiModels.models.map((m: DynamicPayload) => {
                 const modelId = m.name.startsWith('models/') ? m.name.substring(7) : m.name;
                 return {
                     id: modelId,
@@ -463,15 +469,15 @@ export class GeminiConverter extends BaseConverter {
         };
     }
 
-    processGeminiResponseContent(geminiResponse: any) {
+    processGeminiResponseContent(geminiResponse: DynamicPayload): DynamicPayload {
         if (!geminiResponse || !geminiResponse.candidates) return { content: '', reasoning_content: '' };
 
-        const contents: any[] = [];
-        const reasoningContents: any[] = [];
+        const contents: DynamicPayload[] = [];
+        const reasoningContents: DynamicPayload[] = [];
 
-        geminiResponse.candidates.forEach((candidate: any) => {
+        geminiResponse.candidates.forEach((candidate: DynamicPayload) => {
             if (candidate.content && candidate.content.parts) {
-                candidate.content.parts.forEach((part: any) => {
+                candidate.content.parts.forEach((part: DynamicPayload) => {
                     if (part.text) {
                         if (part.thought === true) {
                             reasoningContents.push(part.text);
@@ -497,7 +503,7 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini响应 -> Claude响应
      */
-    toClaudeResponse(geminiResponse: any, model: any) {
+    toClaudeResponse(geminiResponse: DynamicPayload, model?: string): DynamicPayload {
         if (!geminiResponse || !geminiResponse.candidates || geminiResponse.candidates.length === 0) {
             return {
                 id: `msg_${uuidv4()}`,
@@ -539,7 +545,7 @@ export class GeminiConverter extends BaseConverter {
      * 获取或创建 Claude 流式转换会话（按 requestId 隔离并发流）
      * 事件序列骨架由 AnthropicSseEmitter 统一维护（sequential 单活动块语义）
      */
-    _getClaudeStreamState(model: any, requestId: any) {
+    _getClaudeStreamState(model: string | null | undefined, requestId: string | null | undefined): DynamicPayload {
         const stateKey = requestId || 'default';
         if (!this.claudeStreamStates.has(stateKey)) {
             this.claudeStreamStates.set(stateKey, {
@@ -564,7 +570,7 @@ export class GeminiConverter extends BaseConverter {
      * 严格遵循 Anthropic Messages API SSE 事件规范：
      * message_start -> content_block_start -> content_block_delta* -> content_block_stop -> message_delta -> message_stop
      */
-    toClaudeStreamChunk(geminiChunk: any, model: any, requestId: any = null) {
+    toClaudeStreamChunk(geminiChunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload | DynamicPayload[] | null {
         if (!geminiChunk) return null;
 
         // 向后兼容：处理字符串格式（视为一个文本增量）
@@ -578,7 +584,7 @@ export class GeminiConverter extends BaseConverter {
 
         const { stateKey, entry } = this._getClaudeStreamState(model, requestId);
         const { emitter } = entry;
-        const events: any[] = [];
+        const events: DynamicPayload[] = [];
 
         // 记录 usage（filterSSEUsageMetadata 保证仅终帧保留 usageMetadata）
         if (geminiChunk.usageMetadata) {
@@ -644,7 +650,7 @@ export class GeminiConverter extends BaseConverter {
                     // 工具调用（Gemini 一次性返回完整参数：start -> input_json_delta -> stop）
                     if (part.functionCall) {
                         ensureMessageStart();
-                        const toolName = normalizeToolName(part.functionCall.name);
+                        const toolName = normalizeToolName(part.functionCall.name) || '';
                         const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
                         const toolId = part.functionCall.id || `${toolName}-${uuidv4().split('-')[0]}`;
 
@@ -688,12 +694,12 @@ export class GeminiConverter extends BaseConverter {
     }
 
 
-    processGeminiResponseToClaudeContent(geminiResponse: any) {
+    processGeminiResponseToClaudeContent(geminiResponse: DynamicPayload): DynamicPayload {
         if (!geminiResponse || !geminiResponse.candidates || geminiResponse.candidates.length === 0) {
             return { content: [], hasToolUse: false };
         }
 
-        const content: any[] = [];
+        const content: DynamicPayload[] = [];
         let hasToolUse = false;
 
         for (const candidate of geminiResponse.candidates) {
@@ -705,7 +711,7 @@ export class GeminiConverter extends BaseConverter {
                     if (part.text) {
                         if (part.thought === true) {
                             // 这是一个 thinking 块
-                            const thinkingBlock: any = {
+                            const thinkingBlock: DynamicPayload = {
                                 type: 'thinking',
                                 thinking: part.text
                             };
@@ -738,7 +744,7 @@ export class GeminiConverter extends BaseConverter {
                     } else if (part.functionCall) {
                         hasToolUse = true;
                         // [FIX] 规范化工具名称和参数映射
-                        const toolName = normalizeToolName(part.functionCall.name);
+                        const toolName = normalizeToolName(part.functionCall.name) || '';
                         const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
 
                         // [FIX] 使用 Gemini 提供的 id
@@ -769,19 +775,19 @@ export class GeminiConverter extends BaseConverter {
     // =========================================================================
 
 
-    _buildResponsesMessageItemId(responseId: any, index: any = 0) {
+    _buildResponsesMessageItemId(responseId: string | null | undefined, index = 0): string {
         return `msg_${responseId}_${index}`;
     }
 
-    _buildResponsesFunctionItemId(callId: any) {
+    _buildResponsesFunctionItemId(callId: string | null | undefined): string {
         return callId ? `fc_${callId}` : `fc_${uuidv4().replace(/-/g, '')}`;
     }
 
-    _stringifyGeminiFunctionArgs(args: any) {
+    _stringifyGeminiFunctionArgs(args: unknown): string {
         return typeof args === 'string' ? args : JSON.stringify(args || {});
     }
 
-    _getOpenAIResponsesStreamEmitter(model: any, requestId: any) {
+    _getOpenAIResponsesStreamEmitter(model: string | null | undefined, requestId: string | null | undefined): DynamicPayload {
         const stateKey = requestId || 'default';
         if (!this.openAIResponsesStreamStates.has(stateKey)) {
             const responseId = `resp_${uuidv4().replace(/-/g, '')}`;
@@ -802,13 +808,13 @@ export class GeminiConverter extends BaseConverter {
         return { stateKey, emitter };
     }
 
-    toOpenAIResponsesResponse(geminiResponse: any, model: any, requestId: any = null) {
+    toOpenAIResponsesResponse(geminiResponse: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload {
         const { content, reasoning_content } = this.processGeminiResponseContent(geminiResponse);
         const textContent = typeof content === 'string' ? content : JSON.stringify(content);
 
-        let output: any[] = [];
+        let output: DynamicPayload[] = [];
         const responseId = `resp_${uuidv4().replace(/-/g, '')}`;
-        const toolCalls: any[] = [];
+        const toolCalls: DynamicPayload[] = [];
 
         if (geminiResponse?.candidates) {
             for (const candidate of geminiResponse.candidates) {
@@ -872,7 +878,7 @@ export class GeminiConverter extends BaseConverter {
 
         const finishReason = geminiResponse?.candidates?.[0]?.finishReason;
         let status = 'completed';
-        let incompleteDetails: any = null;
+        let incompleteDetails: DynamicPayload | null = null;
         if (finishReason === 'MAX_TOKENS') {
             status = 'incomplete';
             incompleteDetails = { reason: 'max_output_tokens' };
@@ -923,11 +929,11 @@ export class GeminiConverter extends BaseConverter {
     /**
      * Gemini流式响应 -> OpenAI Responses流式响应
      */
-    toOpenAIResponsesStreamChunk(geminiChunk: any, model: any, requestId: any = null) {
+    toOpenAIResponsesStreamChunk(geminiChunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload[] {
         if (!geminiChunk) return [];
 
         const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
-        const events: any[] = [];
+        const events: DynamicPayload[] = [];
 
         // 处理完整的Gemini chunk对象
         if (typeof geminiChunk === 'object' && !Array.isArray(geminiChunk)) {
@@ -943,7 +949,7 @@ export class GeminiConverter extends BaseConverter {
 
                 // 第一个chunk - 检测是否是开始（有role）
                 if (candidate.content?.role === 'model' && parts && parts.length > 0) {
-                    const hasContent = parts.some((part: any) => part && typeof part.text === 'string' && part.text.length > 0 && part.thought !== true);
+                    const hasContent = parts.some((part: DynamicPayload) => part && typeof part.text === 'string' && part.text.length > 0 && part.thought !== true);
                     if (hasContent) {
                         events.push(...emitter.start());
                     }
@@ -952,19 +958,19 @@ export class GeminiConverter extends BaseConverter {
                 // 提取内容
                 if (parts && Array.isArray(parts)) {
                     // 1. 提取推理内容（Gemini 3.7 Flash thinking）
-                    const thoughtParts = parts.filter((part: any) => part && typeof part.text === 'string' && part.thought === true);
+                    const thoughtParts = parts.filter((part: DynamicPayload) => part && typeof part.text === 'string' && part.thought === true);
                     if (thoughtParts.length > 0) {
-                        const thoughtText = thoughtParts.map((part: any) => part.text).join('');
+                        const thoughtText = thoughtParts.map((part: DynamicPayload) => part.text).join('');
                         if (thoughtText.length > 0) {
                             events.push(...emitter.reasoningDelta(thoughtText));
                         }
                     }
 
                     // 2. 提取普通文本内容
-                    const textParts = parts.filter((part: any) => part && typeof part.text === 'string' && part.thought !== true);
-                    const functionPartsInChunk = parts.filter((part: any) => part && part.functionCall);
+                    const textParts = parts.filter((part: DynamicPayload) => part && typeof part.text === 'string' && part.thought !== true);
+                    const functionPartsInChunk = parts.filter((part: DynamicPayload) => part && part.functionCall);
                     if (textParts.length > 0) {
-                        const text = textParts.map((part: any) => part.text).join('');
+                        const text = textParts.map((part: DynamicPayload) => part.text).join('');
                         // 过滤掉纯空文本与伴随工具调用产生的孤立点号/空白占位符
                         const isMeaninglessPlaceholder = (text === '.' || text === '..' || text.trim().length === 0) && functionPartsInChunk.length > 0;
 
@@ -980,7 +986,7 @@ export class GeminiConverter extends BaseConverter {
 
                     // 3. 图片 / inlineData：Responses 没有通用的流式 inline image 事件，
                     // 以 Markdown data URL 形式写入文本输出，至少不静默丢弃。
-                    const inlineParts = parts.filter((part: any) => part && part.inlineData);
+                    const inlineParts = parts.filter((part: DynamicPayload) => part && part.inlineData);
                     if (inlineParts.length > 0) {
                         if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
                             events.push(...emitter.reasoningDone());
@@ -992,7 +998,7 @@ export class GeminiConverter extends BaseConverter {
                     }
 
                     // 4. 提取工具调用
-                    const functionParts = parts.filter((part: any) => part && part.functionCall);
+                    const functionParts = parts.filter((part: DynamicPayload) => part && part.functionCall);
                     if (functionParts.length > 0) {
                         // 先闭合可能处于打开状态的 reasoning 块
                         if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
@@ -1004,7 +1010,7 @@ export class GeminiConverter extends BaseConverter {
                             events.push(...emitter.textDone());
                         }
 
-                        functionParts.forEach((part: any) => {
+                        functionParts.forEach((part: DynamicPayload) => {
                             const callId = part.functionCall.id || `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
                             const name = part.functionCall.name;
                             // 只有请求侧登记为 custom 的工具才还原 custom 语义；
@@ -1040,7 +1046,7 @@ export class GeminiConverter extends BaseConverter {
                 const usage = emitter.savedUsage || geminiUsageToResponses(geminiChunk.usageMetadata || {});
 
                 let status = 'completed';
-                let incompleteDetails: any = null;
+                let incompleteDetails: DynamicPayload | null = null;
                 if (candidate?.finishReason === 'MAX_TOKENS') {
                     status = 'incomplete';
                     incompleteDetails = { reason: 'max_output_tokens' };

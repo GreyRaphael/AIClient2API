@@ -1647,7 +1647,7 @@ export async function handleContentGenerationRequest(
     if (getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider)) {
         logger.info(`[Request Convert] Converting request from ${fromProvider} to ${toProvider}`);
         const preConvertBody = processedRequestBody;
-        processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId);
+        processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId) as DynamicPayload;
 
         // 保持以 _ 开头的内部属性（如 _monitorRequestId, _requestBaseUrl）
         Object.keys(preConvertBody).forEach(key => {

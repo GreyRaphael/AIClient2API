@@ -7,7 +7,7 @@ import { MODEL_PROTOCOL_PREFIX } from '../utils/constants.ts';
 import logger from '../utils/logger.ts';
 import type { BaseConverter } from './BaseConverter.ts';
 
-type ConverterConstructor = new (...args: any[]) => BaseConverter;
+type ConverterConstructor = new () => BaseConverter;
 
 /**
  * 转换器工厂（单例模式 + 工厂模式）

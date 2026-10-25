@@ -2256,13 +2256,13 @@ export class ProviderPoolManager {
                 messages: [baseMessage]
             };
             requests.push(convertData(
-                openAICompatibleRequest,
+                openAICompatibleRequest as Record<string, unknown>,
                 'request',
                 MODEL_PROVIDER.OPENAI_CUSTOM,
                 MODEL_PROVIDER.CODEX_API,
                 undefined,
                 undefined
-            ));
+            ) as Record<string, unknown>);
             return requests;
         }
 

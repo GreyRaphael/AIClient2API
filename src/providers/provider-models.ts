@@ -137,13 +137,13 @@ export function extractModelIdsFromNativeList(modelList: DynamicPayload | null |
     // 只有在提供商类型与目标类型协议不同时才尝试转换
     if (providerType !== MODEL_PROVIDER.OPENAI_CUSTOM && !providerType.startsWith(MODEL_PROVIDER.OPENAI_CUSTOM + '-')) {
         try {
-            convertedModelList = convertData(modelList, 'modelList', providerType, MODEL_PROVIDER.OPENAI_CUSTOM, undefined, undefined);
+            convertedModelList = convertData(modelList || {}, 'modelList', providerType, MODEL_PROVIDER.OPENAI_CUSTOM, undefined, undefined) as DynamicPayload;
         } catch {
             convertedModelList = modelList;
         }
     }
 
-    const convertedIds = normalizeModelIds(extractModelIdsFromListShape(convertedModelList));
+    const convertedIds = normalizeModelIds(extractModelIdsFromListShape(convertedModelList as DynamicPayload));
     if (convertedIds.length > 0) {
         return convertedIds;
     }

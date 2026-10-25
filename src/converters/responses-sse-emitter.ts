@@ -218,7 +218,7 @@ export class ResponsesSseEmitter {
     /**
      * 发送文本增量
      */
-    textDelta(text: string): any[] {
+    textDelta(text: string): OpenAIResponsesStreamEvent[] {
         if (this.done || !text) return [];
         const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.textStarted) {
@@ -282,7 +282,7 @@ export class ResponsesSseEmitter {
     /**
      * 发送推理思考增量
      */
-    reasoningDelta(delta: string): any[] {
+    reasoningDelta(delta: string): OpenAIResponsesStreamEvent[] {
         if (this.done || !delta) return [];
         const events: OpenAIResponsesStreamEvent[] = [];
         if (!this.reasoningStarted) {

@@ -1,3 +1,5 @@
+type DynamicPayload = Record<string, any>;
+
 /**
  * 签名金库 (Signature Vault)
  *
@@ -107,12 +109,14 @@ export function verifyVirtualSignature(sig: unknown): boolean {
  * 凡 isVirtualSignature 的 thinking 块整块移除；真签名块原样保留。
  * 若 assistant 消息仅包含虚拟 thinking 块而被全部剥离且无 tool_calls，则剔除该消息以避免上游报 400。
  */
-export function stripVirtualSignatures(messages: any): { messages: any; stripped: number } {
+export function stripVirtualSignatures(
+    messages: DynamicPayload[] | null | undefined
+): { messages: DynamicPayload[] | null | undefined; stripped: number } {
     if (!Array.isArray(messages)) {
         return { messages, stripped: 0 };
     }
     let stripped = 0;
-    const newMessages: any[] = [];
+    const newMessages: DynamicPayload[] = [];
 
     for (const msg of messages) {
         if (!msg || typeof msg !== 'object') {
@@ -121,7 +125,7 @@ export function stripVirtualSignatures(messages: any): { messages: any; stripped
         }
 
         if (Array.isArray(msg.content)) {
-            const filteredContent: any[] = [];
+            const filteredContent: DynamicPayload[] = [];
             for (const block of msg.content) {
                 if (block && typeof block === 'object' && (block.type === 'thinking' || block.type === 'redacted_thinking')) {
                     const sig = block.signature || block.data;

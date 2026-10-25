@@ -12,16 +12,18 @@
 
 import { StreamSessionStore } from './stream-session.ts';
 
+type DynamicPayload = Record<string, any>;
+
 export interface CustomToolRecord {
     name: string;
     description: string;
-    format: any;
+    format: DynamicPayload;
 }
 
 export interface CustomToolInput {
     name?: string;
     description?: string;
-    format?: any;
+    format?: DynamicPayload;
 }
 
 const registry = new StreamSessionStore({ label: 'custom-tool-registry' });
@@ -29,7 +31,7 @@ const registry = new StreamSessionStore({ label: 'custom-tool-registry' });
 /**
  * 从工具对象中读取名称。兼容 Responses / Chat / Claude 三种形状。
  */
-function toolName(tool: any): string {
+function toolName(tool: DynamicPayload | null | undefined): string {
     if (!tool || typeof tool !== 'object') return '';
     return String(tool.name || tool.function?.name || '');
 }
@@ -37,7 +39,7 @@ function toolName(tool: any): string {
 /**
  * 登记本次请求中声明为 custom 的工具。
  */
-export function registerCustomTools(requestId: string | null | undefined, tools: any[] = []): void {
+export function registerCustomTools(requestId: string | null | undefined, tools: DynamicPayload[] = []): void {
     // 没有 requestId 时不做登记：'default' 共享桶会让并发请求互相污染。
     if (!requestId) return;
     const key = requestId;
@@ -119,7 +121,7 @@ export function buildCustomToolParameters(tool: CustomToolInput = {}): Record<st
 /**
  * 将 custom tool 转换为 function 工具声明（不含 type 包装）。
  */
-export function customToolToFunction(tool: any): { name: string; description: string; parameters: Record<string, any> } | null {
+export function customToolToFunction(tool: DynamicPayload): { name: string; description: string; parameters: Record<string, any> } | null {
     const name = toolName(tool);
     if (!name) return null;
     return {
@@ -136,14 +138,15 @@ export function customToolToFunction(tool: any): { name: string; description: st
 /**
  * 从 function_call / tool_use 的参数中还原 custom tool 的自由文本 input。
  */
-export function extractCustomToolInput(value: any): string {
+export function extractCustomToolInput(value: unknown): string {
     if (value === null || value === undefined) return '';
     if (typeof value === 'string') return value;
     if (typeof value === 'object') {
-        if (typeof value.input === 'string') return value.input;
-        if (typeof value.patch === 'string') return value.patch;
-        if (typeof value.content === 'string') return value.content;
-        if (typeof value.text === 'string') return value.text;
+        const record = value as DynamicPayload;
+        if (typeof record.input === 'string') return record.input;
+        if (typeof record.patch === 'string') return record.patch;
+        if (typeof record.content === 'string') return record.content;
+        if (typeof record.text === 'string') return record.text;
         try {
             return JSON.stringify(value) ?? String(value);
         } catch {
@@ -156,6 +159,6 @@ export function extractCustomToolInput(value: any): string {
 /**
  * Responses 的 custom_tool_call -> Chat function 参数。
  */
-export function customInputToFunctionArguments(input: any): string {
+export function customInputToFunctionArguments(input: unknown): string {
     return JSON.stringify({ input: extractCustomToolInput(input) }) ?? '{}';
 }

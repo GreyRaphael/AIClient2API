@@ -3,6 +3,14 @@
  * 基于 ConverterFactory 的转换器架构，提供通用数据转换入口
  */
 
+import type {
+    CrossProtocolRequest,
+    CrossProtocolResponse,
+    CrossProtocolStreamChunk
+} from '../../types/protocols/common.js';
+
+type DynamicPayload = Record<string, any>;
+
 import logger from '../utils/logger.ts';
 import { getProtocolPrefix } from '../utils/protocol.ts';
 import { ConverterFactory } from '../converters/ConverterFactory.ts';
@@ -71,7 +79,14 @@ import { ConverterFactory } from '../converters/ConverterFactory.ts';
  * @returns {any} 转换后的数据
  * @throws {Error} 如果找不到合适的转换函数
  */
-export function convertData(data: any, type: any, fromProvider: any, toProvider: any, model: any, requestId: any) {
+export function convertData(
+    data: DynamicPayload,
+    type: string,
+    fromProvider: string,
+    toProvider: string,
+    model?: string,
+    requestId?: string | null
+): DynamicPayload | DynamicPayload[] | null {
     try {
         // 获取协议前缀
         const fromProtocol = getProtocolPrefix(fromProvider);
@@ -87,21 +102,21 @@ export function convertData(data: any, type: any, fromProvider: any, toProvider:
         // 根据类型调用相应的转换方法
         switch (type) {
             case 'request':
-                return converter.convertRequest(data, toProtocol, requestId);
+                return converter.convertRequest(data as CrossProtocolRequest, toProtocol, requestId ?? undefined) as DynamicPayload;
 
             case 'response':
-                return converter.convertResponse(data, toProtocol, model, requestId);
+                return converter.convertResponse(data as CrossProtocolResponse, toProtocol, model, requestId ?? undefined) as DynamicPayload;
 
             case 'streamChunk':
-                return converter.convertStreamChunk(data, toProtocol, model, requestId);
+                return converter.convertStreamChunk(data as CrossProtocolStreamChunk, toProtocol, model, requestId ?? undefined) as DynamicPayload | DynamicPayload[] | null;
 
             case 'modelList':
-                return converter.convertModelList(data, toProtocol);
+                return converter.convertModelList(data, toProtocol) as DynamicPayload;
 
             default:
                 throw new Error(`Unsupported conversion type: ${type}`);
         }
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error(`Conversion error: ${error.message}`);
         throw error;
     }

@@ -19,6 +19,8 @@
 
 import { mintVirtualSignature, isSignatureVaultEnabled } from './signature-vault.ts';
 
+type DynamicPayload = Record<string, any>;
+
 let emitterSeq = 0;
 
 export type AnthropicBlockType = 'thinking' | 'text' | 'tool_use';
@@ -41,7 +43,7 @@ export interface AnthropicFinishOptions {
     /** 终态原因（调用方负责映射与覆盖规则） */
     stopReason?: string;
     /** message_delta.usage 完整对象（字段构成由调用方决定） */
-    usage?: any;
+    usage?: DynamicPayload | null;
 }
 
 interface ThinkingBlockState {
@@ -107,7 +109,7 @@ export class AnthropicSseEmitter {
      * @param usage - message_start.message.usage，默认全零
      * @returns 产生的事件数组（空数组表示已发过或已终结）
      */
-    ensureStarted(usage: any = null): any[] {
+    ensureStarted(usage: DynamicPayload | null = null): DynamicPayload[] {
         if (this.done || this.msgStarted) return [];
         this.msgStarted = true;
         return [{
@@ -133,9 +135,9 @@ export class AnthropicSseEmitter {
      * @param contentBlock - content_block_start 携带的块体（如 {type:'text',text:''}）
      * @returns 事件数组与新块 index（同类型空操作时返回当前 index）
      */
-    openBlock(type: AnthropicBlockType, contentBlock: any): { events: any[]; index: number } {
+    openBlock(type: AnthropicBlockType, contentBlock: DynamicPayload): { events: DynamicPayload[]; index: number } {
         if (this.done) return { events: [], index: -1 };
-        const events: any[] = [];
+        const events: DynamicPayload[] = [];
         if (type === 'tool_use') this.sawToolUse = true;
 
         if (this.blockMode === 'sequential') {
@@ -175,7 +177,7 @@ export class AnthropicSseEmitter {
      * @returns 事件对象
      * @throws multi 模式下或无活动块时抛出（误用会产生 index:-1 的非法事件）
      */
-    delta(deltaObj: any): any {
+    delta(deltaObj: DynamicPayload): DynamicPayload {
         if (this.blockMode !== 'sequential') {
             throw new Error("AnthropicSseEmitter: delta() 仅适用于 sequential 模式，multi 模式请使用 deltaAt(index, ...)");
         }
@@ -202,7 +204,7 @@ export class AnthropicSseEmitter {
      * @param deltaObj - delta 体
      * @returns 事件对象
      */
-    deltaAt(index: number, deltaObj: any): any {
+    deltaAt(index: number, deltaObj: DynamicPayload): DynamicPayload {
         if (deltaObj?.type === 'thinking_delta') {
             const tb = this.thinkingBlocks.get(index);
             if (tb) tb.text += (deltaObj.thinking || '');
@@ -221,9 +223,9 @@ export class AnthropicSseEmitter {
      * 关闭当前活动块（sequential 语义；无活动块时为空操作）
      * @returns 事件数组
      */
-    closeActiveBlock(): any[] {
+    closeActiveBlock(): DynamicPayload[] {
         if (this.blockMode === 'sequential' && this.activeType !== null) {
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
             const index = this.activeIndex;
             if (this.activeType === 'thinking') {
                 events.push(...this._maybeMintSignature(index));
@@ -241,10 +243,10 @@ export class AnthropicSseEmitter {
      * @param index - 块 index
      * @returns 事件数组
      */
-    closeBlockAt(index: number): any[] {
+    closeBlockAt(index: number): DynamicPayload[] {
         const type = this.openBlocks.get(index);
         if (this.openBlocks.delete(index)) {
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
             if (type === 'thinking') {
                 events.push(...this._maybeMintSignature(index));
             }
@@ -258,11 +260,11 @@ export class AnthropicSseEmitter {
      * 关闭所有仍打开的块（sequential 关闭活动块；multi 清空并存集合）
      * @returns 事件数组
      */
-    closeAllBlocks(): any[] {
+    closeAllBlocks(): DynamicPayload[] {
         if (this.blockMode === 'sequential') {
             return this.closeActiveBlock();
         }
-        const events: any[] = [];
+        const events: DynamicPayload[] = [];
         for (const [index, type] of this.openBlocks.entries()) {
             if (type === 'thinking') {
                 events.push(...this._maybeMintSignature(index));
@@ -273,7 +275,7 @@ export class AnthropicSseEmitter {
         return events;
     }
 
-    _maybeMintSignature(index: number): any[] {
+    _maybeMintSignature(index: number): DynamicPayload[] {
         if (!this.mintSignatures) return [];
         const tb = this.thinkingBlocks.get(index);
         this.thinkingBlocks.delete(index);
@@ -297,9 +299,9 @@ export class AnthropicSseEmitter {
     /**
      * 终结消息：确保 message_start -> 兜底空内容块（若全流未开启过块）-> 关闭所有块 -> message_delta -> message_stop（幂等，done 后为空操作）
      */
-    finish({ stopReason = 'end_turn', usage = null }: AnthropicFinishOptions = {}): any[] {
+    finish({ stopReason = 'end_turn', usage = null }: AnthropicFinishOptions = {}): DynamicPayload[] {
         if (this.done) return [];
-        const events: any[] = [];
+        const events: DynamicPayload[] = [];
         if (!this.msgStarted) {
             events.push(...this.ensureStarted());
         }
