@@ -111,38 +111,61 @@ const CHAT_V3_MODEL_ALIASES = {
     'kimi-k2.8-preview': 'kimi-k2.8-preview'
 };
 
+type DynamicPayload = Record<string, any>;
+
+interface TraeChannelConfig {
+    mode: string;
+    url: string;
+    modelsUrl: string;
+    function: string;
+    appId: string;
+    ideVersion: string;
+    ideVersionCode: string | number;
+    deviceType: string;
+    osVersion: string;
+    deviceBrand: string;
+    ideVersionType: string | number;
+}
+
+interface TraeAccountCache {
+    models: DynamicPayload[] | null;
+    expiresAt: number;
+    metadataMap: Map<string, DynamicPayload>;
+    functionMap: Map<string, string>;
+}
+
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
 
 // 多租户/多账号隔离的缓存容器: Map<accountKey, { models: Array, expiresAt: number, metadataMap: Map, functionMap: Map }>
-const traeAccountCacheMap = new Map();
+const traeAccountCacheMap = new Map<string, TraeAccountCache>();
 
 /**
  * Trae API Service
  * 封装与 Trae / SOLO 上游端点 (api.enterprise.trae.cn / api.trae.cn) 的交互与 SSE 转换
  */
 export class TraeApiService {
-    config: any;
-    uuid: any;
-    credsFilePath: any;
-    authHost: any;
-    agentHost: any;
-    host: any;
-    channelMode: any;
-    _aliasKind: any;
-    userId: any;
-    enterpriseId: any;
-    nickname: any;
-    accessToken: any;
-    refreshToken: any;
-    personalAccessToken: any;
-    machineId: any;
-    deviceId: any;
-    expiresAt: any;
-    isInitialized: any;
-    _tokenRefreshPromise: any;
-    _fetchModelsPromise: any;
+    config: DynamicPayload;
+    uuid: string | null;
+    credsFilePath: string | undefined;
+    authHost: string;
+    agentHost: string;
+    host: string;
+    channelMode: string;
+    _aliasKind: string;
+    userId: string | null;
+    enterpriseId: string | null;
+    nickname: string | null;
+    accessToken: string | null;
+    refreshToken: string | null;
+    personalAccessToken: string | null;
+    machineId: string | null;
+    deviceId: string | null;
+    expiresAt: number;
+    isInitialized: boolean;
+    _tokenRefreshPromise: Promise<string | null> | null;
+    _fetchModelsPromise: Promise<DynamicPayload[]> | null;
 
-    constructor(config: any = {}) {
+    constructor(config: DynamicPayload = {}) {
         this.config = config || {};
         this.uuid = this.config.uuid;
         this.credsFilePath = this.config.TRAE_OAUTH_CREDS_FILE_PATH || process.env.TRAE_OAUTH_CREDS_FILE_PATH;
@@ -179,7 +202,7 @@ export class TraeApiService {
     /**
      * 获取目标 Provider 标识符
      */
-    getTargetProvider() {
+    getTargetProvider(): string {
         if (this.config.MODEL_PROVIDER) return this.config.MODEL_PROVIDER;
         if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) return MODEL_PROVIDER.TRAE_CHAT_V3;
         if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) return MODEL_PROVIDER.TRAE_SOLO_WORK_LITE;
@@ -189,7 +212,7 @@ export class TraeApiService {
     /**
      * 获取指定提供商的基础模型列表
      */
-    getBaseModels(provider: any) {
+    getBaseModels(provider: string): string[] {
         if (provider === MODEL_PROVIDER.TRAE_CHAT_V3) {
             return BASE_TRAE_CHAT_V3_MODELS;
         }
@@ -203,7 +226,7 @@ export class TraeApiService {
      * 获取当前通道的完整配置信息 (端点 URL、函数名、应用 ID 与版本标识)
      * @returns {Object}
      */
-    getChannelConfig() {
+    getChannelConfig(): TraeChannelConfig {
         if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
             const preset = TRAE_CHANNEL_PRESETS[this.channelMode];
             const baseUrl = (this.config.TRAE_BASE_URL || this.agentHost || preset.defaultHost).replace(/\/+$/, '');
@@ -272,7 +295,7 @@ export class TraeApiService {
     /**
      * 获取当前 Trae 账户的隔离缓存标识键
      */
-    getAccountKey() {
+    getAccountKey(): string {
         const accountId = this.userId || this.nickname || this.enterpriseId || this.uuid || 'default';
         return `${this.authHost}#${accountId}#${this.channelMode}`;
     }
@@ -280,7 +303,7 @@ export class TraeApiService {
     /**
      * 获取当前 Trae 账户专属的缓存与元数据映射，彻底隔离多账号并发状态
      */
-    getAccountCache() {
+    getAccountCache(): TraeAccountCache {
         const key = this.getAccountKey();
         let cache = traeAccountCacheMap.get(key);
         if (!cache) {
@@ -308,7 +331,7 @@ export class TraeApiService {
      * @param {string} rawModel 原始请求模型名称
      * @returns {string} 对应的 Trae 底层规范模型 ID
      */
-    normalizeModelName(rawModel: any) {
+    normalizeModelName(rawModel: unknown): string {
         const trimmed = String(rawModel || DEFAULT_MODEL).trim();
         const lower = trimmed.toLowerCase();
 
@@ -328,11 +351,11 @@ export class TraeApiService {
         }
 
         // 3. 针对不同通道查阅对应的别名表（aliasKind 构造时已解析缓存）
-        const aliasTable = this._aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
+        const aliasTable: Record<string, string> = this._aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
             : this._aliasKind === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES
             : CANONICAL_MODEL_ALIASES;
-        if ((aliasTable as any)[lower]) {
-            return (aliasTable as any)[lower];
+        if (aliasTable[lower]) {
+            return aliasTable[lower];
         }
 
         return trimmed;
@@ -341,7 +364,7 @@ export class TraeApiService {
     /**
      * 读取本地凭据文件
      */
-    loadCredentials() {
+    loadCredentials(): void {
         if (!this.credsFilePath) {
             logger.warn('[Trae] No TRAE_OAUTH_CREDS_FILE_PATH specified');
             return;
@@ -375,7 +398,7 @@ export class TraeApiService {
 
             this.isInitialized = Boolean(this.accessToken || this.refreshToken || this.personalAccessToken);
             logger.info(`[Trae] Loaded credentials for user: ${this.nickname} (auth: ${this.authHost}, agent: ${this.agentHost}, enterprise: ${this.enterpriseId || 'none'})`);
-        } catch (err: any) {
+        } catch (caught) { const err = caught as DynamicPayload;
             logger.error(`[Trae] Failed to load credentials from ${this.credsFilePath}: ${err.message}`);
         }
     }
@@ -383,7 +406,7 @@ export class TraeApiService {
     /**
      * 持久化回写更新后的凭据
      */
-    async saveCredentials() {
+    async saveCredentials(): Promise<void> {
         if (!this.credsFilePath) return;
 
         try {
@@ -412,7 +435,7 @@ export class TraeApiService {
                 atomicWriteFileSync(resolvedPath, JSON.stringify(data, null, 2), 'utf-8');
             });
             logger.debug(`[Trae] Atomic write back to ${resolvedPath} successful`);
-        } catch (err: any) {
+        } catch (caught) { const err = caught as DynamicPayload;
             logger.error(`[Trae] Failed to save credentials to ${this.credsFilePath}: ${err.message}`);
         }
     }
@@ -420,7 +443,7 @@ export class TraeApiService {
     /**
      * 判断 Token 是否临期 (提前 24 小时预刷新)
      */
-    isExpiryDateNear() {
+    isExpiryDateNear(): boolean {
         if (!this.expiresAt) return true;
         return (this.expiresAt - Date.now()) < 24 * 3600 * 1000;
     }
@@ -428,7 +451,7 @@ export class TraeApiService {
     /**
      * 获取有效的访问 Token，单飞并发保护
      */
-    async getToken(force: any = false) {
+    async getToken(force = false): Promise<string | null> {
         if (!force && this.accessToken && !this.isExpiryDateNear()) {
             return this.accessToken;
         }
@@ -442,9 +465,9 @@ export class TraeApiService {
                 logger.info(`[Trae] Refreshing token via ExchangeToken on host: ${this.authHost}...`);
                 const res = await exchangeTraeToken({
                     host: this.authHost,
-                    personalAccessToken: this.personalAccessToken,
-                    refreshToken: this.refreshToken,
-                    userId: this.userId
+                    personalAccessToken: this.personalAccessToken || '',
+                    refreshToken: this.refreshToken || '',
+                    userId: this.userId || ''
                 });
 
                 this.accessToken = res.accessToken;
@@ -454,7 +477,7 @@ export class TraeApiService {
 
                 logger.info(`[Trae] Token refreshed successfully, valid until ${new Date(this.expiresAt).toISOString()}`);
                 return this.accessToken;
-            } catch (err: any) {
+            } catch (caught) { const err = caught as DynamicPayload;
                 logger.error(`[Trae] Token refresh failed: ${err.message}`);
                 // 若刷新失败但仍有旧 Token 且未绝对过期，降级使用旧 Token
                 if (this.accessToken && Date.now() < this.expiresAt) {
@@ -473,12 +496,12 @@ export class TraeApiService {
     /**
      * 构造上游请求头 (按通道模式适配)
      */
-    async buildHeaders(stream: any = false) {
+    async buildHeaders(stream = false): Promise<DynamicPayload> {
         const token = await this.getToken();
         const channel = this.getChannelConfig();
         const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');
 
-        const headers = {
+        const headers: DynamicPayload = {
             'Content-Type': 'application/json',
             'Accept': stream ? 'text/event-stream' : 'application/json',
             'User-Agent': `Trae/${channel.ideVersion}`,
@@ -501,10 +524,10 @@ export class TraeApiService {
         };
 
         if (isToB) {
-            (headers as any)['x-ide-function'] = channel.function;
+            headers['x-ide-function'] = channel.function;
             const traceId = randomBytes(16).toString('hex');
             const spanId = randomBytes(8).toString('hex');
-            (headers as any)['x-flow-traceparent'] = `00-${traceId}-${spanId}-01`;
+            headers['x-flow-traceparent'] = `00-${traceId}-${spanId}-01`;
         }
 
         return headers;
@@ -513,7 +536,7 @@ export class TraeApiService {
     /**
      * 改写 OpenAI 请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 solo_work_lite / chat_v3)
      */
-    prepareRequestBody(model: any, requestBody: any) {
+    prepareRequestBody(model: unknown, requestBody: DynamicPayload): DynamicPayload {
         const payload = JSON.parse(JSON.stringify(requestBody || {}));
         const targetModel = this.normalizeModelName(model || payload.model || DEFAULT_MODEL);
         const channel = this.getChannelConfig();
@@ -568,14 +591,14 @@ export class TraeApiService {
         }
 
         if (Array.isArray(payload.messages)) {
-            const mergedMessages: any[] = [];
+            const mergedMessages: DynamicPayload[] = [];
             for (const rawMsg of payload.messages) {
                 if (!rawMsg) continue;
                 const msg = { ...rawMsg };
 
                 // 处理 assistant tool_calls
                 if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
-                    const validToolCalls: any[] = [];
+                    const validToolCalls: DynamicPayload[] = [];
                     for (const tc of msg.tool_calls) {
                         const callObj = { ...tc };
                         if (callObj.function && !callObj.function_call) {
@@ -601,11 +624,11 @@ export class TraeApiService {
                 } else if (typeof msg.content === 'object' && msg.content !== null && !Array.isArray(msg.content)) {
                     try {
                         msg.content = [{ type: 'text', text: JSON.stringify(msg.content) }];
-                    } catch (_: any) {
+                    } catch (caught) { const _ = caught as DynamicPayload;
                         msg.content = [{ type: 'text', text: String(msg.content) }];
                     }
                 } else if (Array.isArray(msg.content)) {
-                    msg.content = msg.content.map((part: any) => {
+                    msg.content = msg.content.map((part: DynamicPayload | string) => {
                         if (typeof part === 'string') return { type: 'text', text: part };
                         if (part && typeof part === 'object') {
                             if (part.type === 'text' && typeof part.text !== 'string') {
@@ -642,9 +665,9 @@ export class TraeApiService {
             payload.messages = mergedMessages;
 
             if (isToB && !payload.user_input) {
-                const lastUser = [...mergedMessages].reverse().find((m: any) => m.role === 'user');
+                const lastUser = [...mergedMessages].reverse().find((m: DynamicPayload) => m.role === 'user');
                 if (lastUser && Array.isArray(lastUser.content)) {
-                    const textItem = lastUser.content.find((c: any) => c.type === 'text');
+                    const textItem = lastUser.content.find((c: DynamicPayload) => c.type === 'text');
                     payload.user_input = textItem?.text || '';
                 } else {
                     payload.user_input = '';
@@ -671,7 +694,7 @@ export class TraeApiService {
 
         // 归一化 tools: 上游 Go 结构体 FunctionDefinition.parameters 要求必须为 JSON 字符串
         if (Array.isArray(payload.tools) && payload.tools.length > 0) {
-            const validTools: any[] = [];
+            const validTools: DynamicPayload[] = [];
             for (const item of payload.tools) {
                 if (!item || typeof item !== 'object') continue;
                 const toolObj = { ...item };
@@ -680,7 +703,7 @@ export class TraeApiService {
                     if (fn.parameters && typeof fn.parameters === 'object') {
                         try {
                             fn.parameters = JSON.stringify(fn.parameters);
-                        } catch (_: any) {}
+                        } catch (caught) { const _ = caught as DynamicPayload; }
                     }
                     toolObj.function = fn;
                     validTools.push(toolObj);
@@ -704,7 +727,7 @@ export class TraeApiService {
      * @param {Object} data - 上游 token_usage 数据
      * @returns {Object|null}
      */
-    _formatTokenUsage(data: any) {
+    _formatTokenUsage(data: DynamicPayload | null | undefined): DynamicPayload | null {
         if (!data || typeof data !== 'object') return null;
 
         const promptTokens = Number(data.prompt_tokens ?? data.input_tokens) || 0;
@@ -731,13 +754,13 @@ export class TraeApiService {
      * 流式生成内容
      * 解析 Trae 的专有 SSE 事件并实时转码为 OpenAI 兼容的 chunk
      */
-    async *generateContentStream(model: any, requestBody: any) {
+    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         const channel = this.getChannelConfig();
         const payload = this.prepareRequestBody(model, requestBody);
         const headers = await this.buildHeaders(true);
         const url = channel.url;
 
-        const axiosConfig: any = {
+        const axiosConfig: DynamicPayload = {
             method: 'POST',
             url,
             data: payload,
@@ -748,10 +771,10 @@ export class TraeApiService {
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
 
         logger.debug(`[Trae] Streaming request to ${url} (channel: ${channel.mode}, model: ${payload.model_name || payload.model})`);
-        let response: any;
+        let response: DynamicPayload;
         try {
             response = await axios(/** @type {any} */ (axiosConfig));
-        } catch (err: any) {
+        } catch (caught) { const err = caught as DynamicPayload;
             const errData = err.response?.data;
             let errMsg = err.message;
             if (errData) {
@@ -759,16 +782,16 @@ export class TraeApiService {
                     errMsg = errData;
                 } else if (errData && typeof errData.on === 'function') {
                     try {
-                        const chunks: any[] = [];
+                        const chunks: Buffer[] = [];
                         for await (const chunk of errData) chunks.push(chunk);
                         errMsg = Buffer.concat(chunks).toString('utf-8');
-                    } catch (_: any) {
+                    } catch (caught) { const _ = caught as DynamicPayload;
                         errMsg = err.message;
                     }
                 } else {
                     try {
                         errMsg = JSON.stringify(errData);
-                    } catch (_: any) {
+                    } catch (caught) { const _ = caught as DynamicPayload;
                         errMsg = err.message;
                     }
                 }
@@ -783,7 +806,7 @@ export class TraeApiService {
         let currentEvent = 'output';
         let isFirst = true;
         let hasSeenToolCalls = false;
-        let tokenUsage: any = null;
+        let tokenUsage: DynamicPayload | null = null;
         let hasYieldedDone = false;
 
         for await (const chunk of response.data) {
@@ -807,7 +830,7 @@ export class TraeApiService {
                     const dataStr = trimmed.substring(5).trim();
                     if (!dataStr) continue;
 
-                    let dataObj: any = null;
+                    let dataObj: DynamicPayload;
                     try {
                         dataObj = JSON.parse(dataStr);
                     } catch {
@@ -824,9 +847,9 @@ export class TraeApiService {
                     if (currentEvent === 'output') {
                         const contentDelta = dataObj.response || '';
                         const reasoningDelta = dataObj.reasoning_content || '';
-                        let toolCalls: any = null;
+                        let toolCalls: DynamicPayload[] | null = null;
                         if (Array.isArray(dataObj.tool_calls) && dataObj.tool_calls.length > 0) {
-                            toolCalls = dataObj.tool_calls.map((tc: any, idx: any) => {
+                            toolCalls = dataObj.tool_calls.map((tc: DynamicPayload, idx: number) => {
                                 const item = { ...tc };
                                 if (item.index === undefined) item.index = idx;
                                 if (!item.type) item.type = 'function';
@@ -840,7 +863,7 @@ export class TraeApiService {
                         }
 
                         if (contentDelta || reasoningDelta || toolCalls) {
-                            const delta: any = {};
+                            const delta: DynamicPayload = {};
                             if (isFirst) {
                                 delta.role = 'assistant';
                                 isFirst = false;
@@ -879,7 +902,7 @@ export class TraeApiService {
                         if (hasSeenToolCalls && (!finalFinishReason || finalFinishReason === 'stop')) {
                             finalFinishReason = 'tool_calls';
                         }
-                        const doneChunk: any = {
+                        const doneChunk: DynamicPayload = {
                             id: `chatcmpl-${chatId}`,
                             object: 'chat.completion.chunk',
                             created,
@@ -921,12 +944,12 @@ export class TraeApiService {
      * 非流式生成内容
      * 内部聚合流式增量生成标准 OpenAI 回复对象
      */
-    async generateContent(model: any, requestBody: any) {
+    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         let fullContent = '';
         let fullReasoning = '';
         let finishReason = 'stop';
-        let latestUsage: any = null;
-        const toolCallsMap = new Map();
+        let latestUsage: DynamicPayload | null = null;
+        const toolCallsMap = new Map<number, DynamicPayload>();
         const stream = this.generateContentStream(model, requestBody);
 
         for await (const chunk of stream) {
@@ -956,6 +979,7 @@ export class TraeApiService {
                         });
                     } else {
                         const existing = toolCallsMap.get(idx);
+                        if (!existing) continue;
                         if (tc.id) existing.id = tc.id;
                         if (tc.function?.name) existing.function.name += tc.function.name;
                         if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
@@ -972,8 +996,7 @@ export class TraeApiService {
             finishReason = 'tool_calls';
         }
 
-        /** @type {any} */
-        const message: any = {
+        const message: DynamicPayload = {
             role: 'assistant',
             content: fullContent || (aggregatedToolCalls.length > 0 ? null : ''),
             ...(fullReasoning ? { reasoning_content: fullReasoning } : {})
@@ -1005,7 +1028,7 @@ export class TraeApiService {
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
-    async fetchRemoteModels(force: any = false) {
+    async fetchRemoteModels(force = false): Promise<DynamicPayload[]> {
         const now = Date.now();
         const accountCache = this.getAccountCache();
 
@@ -1025,13 +1048,13 @@ export class TraeApiService {
                     return accountCache.models || this._getFallbackModels();
                 }
 
-                const newMetadataMap = new Map();
-                const newFunctionMap = new Map();
-                const mergedMap = new Map();
+                const newMetadataMap = new Map<string, DynamicPayload>();
+                const newFunctionMap = new Map<string, string>();
+                const mergedMap = new Map<string, DynamicPayload>();
 
                 const channel = this.getChannelConfig();
                 const headers = await this.buildHeaders(false);
-                const allConfigs: any[] = [];
+                const allConfigs: DynamicPayload[] = [];
 
                 const isSoloOrChat = isSoloFamilyChannel(this.channelMode, channel.function);
                 if (isSoloOrChat) {
@@ -1047,7 +1070,7 @@ export class TraeApiService {
                         agent_type: null
                     };
                     try {
-                        const axiosConfig: any = {
+                        const axiosConfig: DynamicPayload = {
                             method: 'POST',
                             url: targetUrl,
                             data: agentBody,
@@ -1059,7 +1082,7 @@ export class TraeApiService {
                         for (const item of res.data?.config_info_list || []) {
                             if (item) allConfigs.push(item);
                         }
-                    } catch (agentErr: any) {
+                    } catch (caught) { const agentErr = caught as DynamicPayload;
                         logger.debug(`[Trae] get_detail_param failed on ${targetUrl}: ${agentErr.message}`);
                     }
                 } else {
@@ -1076,7 +1099,7 @@ export class TraeApiService {
                         show_custom_model: false
                     };
                     try {
-                        const axiosConfig: any = {
+                        const axiosConfig: DynamicPayload = {
                             method: 'POST',
                             url: targetUrl,
                             data: batchBody,
@@ -1090,7 +1113,7 @@ export class TraeApiService {
                                 if (item) allConfigs.push(item);
                             }
                         }
-                    } catch (batchErr: any) {
+                    } catch (caught) { const batchErr = caught as DynamicPayload;
                         logger.debug(`[Trae] batch_get_detail_param failed on ${targetUrl}: ${batchErr.message}`);
                     }
                 }
@@ -1110,7 +1133,7 @@ export class TraeApiService {
                 ]);
 
                 // 映射并规范化推理深度级别
-                const mapReasoningLevel = (lvl: any) => {
+                const mapReasoningLevel = (lvl: unknown): string => {
                     const l = String(lvl || '').toLowerCase();
                     if (l === 'light' || l === 'low') return 'low';
                     if (l === 'extra_high' || l === 'xhigh' || l === 'max') return 'xhigh';
@@ -1152,14 +1175,14 @@ export class TraeApiService {
                     // context_window: 默认使用上游 Max 档位 (context_window_tokens.max)；若未显式提供则取可用最大档位 (如 dev / 详情最大容量)
                     const maxCtx = item.context_window_tokens?.max;
                     const devCtx = item.context_window_tokens?.dev;
-                    const detailMaxCtx = Math.max(...(item.model_detail_list || []).map((d: any) => {
+                    const detailMaxCtx = Math.max(...(item.model_detail_list || []).map((d: DynamicPayload) => {
                         if (d.context_window_tokens) return d.context_window_tokens;
                         return (d.prompt_max_tokens || 0) + (d.max_tokens || 0);
                     }), 0);
                     const ctx = maxCtx || Math.max(devCtx || 0, detailMaxCtx) || 0;
 
                     // max_tokens: 默认使用上游最大档位 (从 model_detail_list 所有档位中提取最大值)
-                    const detailMaxTokens = (item.model_detail_list || []).map((d: any) => d.max_tokens || 0);
+                    const detailMaxTokens = (item.model_detail_list || []).map((d: DynamicPayload) => d.max_tokens || 0);
                     const maxTok = detailMaxTokens.length > 0 ? Math.max(...detailMaxTokens) : (item.max_tokens || 0);
 
                     // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
@@ -1168,7 +1191,7 @@ export class TraeApiService {
                         (Array.isArray(effortConfig?.options) && effortConfig.options.length > 0) ||
                         (Array.isArray(effortConfig?.reasoning_effort_level_options) && effortConfig.reasoning_effort_level_options.length > 0);
                     const isExplicitlyDisabled = effortConfig?.support_thinking === false;
-                    const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some((re: any) => re.test(id)));
+                    const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some((re: RegExp) => re.test(id)));
 
                     const rawOptions = effortConfig?.options || effortConfig?.reasoning_effort_level_options;
                     const effortLevels = rawOptions?.length
@@ -1184,8 +1207,8 @@ export class TraeApiService {
                     const detailsList = Array.isArray(item.model_detail_list) && item.model_detail_list.length > 0
                         ? item.model_detail_list
                         : (Array.isArray(item.models) ? item.models : []);
-                    const standardVariant = detailsList.find((m: any) => m.model_name?.endsWith('__dev'))?.model_name;
-                    const maxVariant = detailsList.find((m: any) => m.model_name?.endsWith('__max'))?.model_name;
+                    const standardVariant = detailsList.find((m: DynamicPayload) => m.model_name?.endsWith('__dev'))?.model_name;
+                    const maxVariant = detailsList.find((m: DynamicPayload) => m.model_name?.endsWith('__max'))?.model_name;
                     const isFlashOff = id === 'DeepSeek-V4-Flash-Official';
                     const fallbackDev = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${id}__dev`;
                     const fallbackMax = isFlashOff ? 'deepseek_v4_flash_official__max' : `${id}__max`;
@@ -1193,7 +1216,7 @@ export class TraeApiService {
                     const maxKey = maxVariant || (item.context_window_tokens?.max ? fallbackMax : null);
 
                     if (mergedMap.has(id)) {
-                        const prev = mergedMap.get(id);
+                        const prev = mergedMap.get(id)!;
                         if (ctx > prev.context_window) prev.context_window = ctx;
                         if (maxTok > prev.max_tokens) prev.max_tokens = maxTok;
                         if (supportsThinking) prev.supports_thinking = true;
@@ -1233,7 +1256,7 @@ export class TraeApiService {
                     logger.info(`[Trae] (${targetProvider}/${this.channelMode}) Successfully fetched dynamic model list from upstream (${modelIds.length} models): ${modelIds.join(', ')}`);
                     return modelObjects;
                 }
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 logger.warn(`[Trae] Failed to fetch remote models (${this.channelMode}): ${error.message}`);
             } finally {
                 this._fetchModelsPromise = null;
@@ -1248,12 +1271,12 @@ export class TraeApiService {
     /**
      * 回退静态模型列表，并预热账户元数据与通道映射
      */
-    _getFallbackModels() {
+    _getFallbackModels(): DynamicPayload[] {
         const targetProvider = this.getTargetProvider();
-        const modelIds = PROVIDER_MODELS[targetProvider] || this.getBaseModels(targetProvider);
+        const modelIds: string[] = PROVIDER_MODELS[targetProvider] || this.getBaseModels(targetProvider);
         const accountCache = this.getAccountCache();
         const channel = this.getChannelConfig();
-        const fallbackList = modelIds.map((id: any) => {
+        const fallbackList = modelIds.map((id: string) => {
             const canonical = this.normalizeModelName(id);
             const isFlashOff = canonical === 'DeepSeek-V4-Flash-Official';
             const standardKey = isFlashOff ? 'deepseek_v4_flash_official__dev' : `${canonical}__dev`;
@@ -1286,11 +1309,11 @@ export class TraeApiService {
     /**
      * 获取可用模型列表 (动态拉取或回退到缓存)
      */
-    async listModels() {
+    async listModels(): Promise<DynamicPayload> {
         const models = await this.fetchRemoteModels();
         return {
             object: 'list',
-            data: models.map((m: any) => ({
+            data: models.map((m: DynamicPayload) => ({
                 id: m.id,
                 object: 'model',
                 created: 1753600000,
