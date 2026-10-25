@@ -1,26 +1,28 @@
 import { existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
-import multer from 'multer';
+import multer, { type File as MulterFile, type Instance as MulterInstance } from 'multer';
 import logger from '../utils/logger.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
-
-interface MulterFileLike {
-    originalname: string;
-    path?: string;
-    [key: string]: unknown;
-}
-
 type UploadRequest = IncomingMessage & {
-    file?: MulterFileLike;
-    body?: DynamicPayload;
+    file?: MulterFile;
+    body?: Record<string, unknown>;
 };
+
+interface LogEntry {
+    timestamp: string;
+    level: 'info' | 'error';
+    message: string;
+}
 
 interface EventBroadcastGlobals {
     eventClients: ServerResponse[];
-    logBuffer: DynamicPayload[];
+    logBuffer: LogEntry[];
+}
+
+function toError(error: unknown): Error {
+    return error instanceof Error ? error : new Error(String(error));
 }
 
 function broadcastGlobals(): EventBroadcastGlobals {
@@ -64,7 +66,7 @@ export async function handleEvents(req: IncomingMessage, res: ServerResponse): P
 
     try {
         res.write('\n');
-    } catch (caught) { const err = caught as DynamicPayload;
+    } catch (caught) { const err = toError(caught);
         logger.error('[Event Broadcast] Failed to write initial data:', err.message);
         return true;
     }
@@ -80,7 +82,7 @@ export async function handleEvents(req: IncomingMessage, res: ServerResponse): P
         if (!res.writableEnded && !res.destroyed) {
             try {
                 res.write(':\n\n');
-            } catch (caught) { const err = caught as DynamicPayload;
+            } catch (caught) { const err = toError(caught);
                 logger.error('[Event Broadcast] Failed to write keepalive:', err.message);
                 clearInterval(keepAlive);
                 broadcastGlobals().eventClients = broadcastGlobals().eventClients.filter((r: ServerResponse) => r !== res);
@@ -120,7 +122,7 @@ export function initializeUIManagement() {
             if (typeof arg === 'string') return arg;
             try {
                 return JSON.stringify(arg);
-            } catch (caught) { const e = caught as DynamicPayload;
+            } catch {
                 return String(arg);
             }
         }).join(' ');
@@ -128,7 +130,7 @@ export function initializeUIManagement() {
         // Strip server-side timestamp if present [YYYY-MM-DD HH:MM:SS.mmm]
         message = message.replace(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\]\s*/, '');
 
-        const logEntry = {
+        const logEntry: LogEntry = {
             timestamp: new Date().toISOString(),
             level: 'info',
             message: message
@@ -149,7 +151,7 @@ export function initializeUIManagement() {
             if (typeof arg === 'string') return arg;
             try {
                 return JSON.stringify(arg);
-            } catch (caught) { const e = caught as DynamicPayload;
+            } catch {
                 return String(arg);
             }
         }).join(' ');
@@ -157,7 +159,7 @@ export function initializeUIManagement() {
         // Strip server-side timestamp if present
         message = message.replace(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\]\s*/, '');
 
-        const logEntry = {
+        const logEntry: LogEntry = {
             timestamp: new Date().toISOString(),
             level: 'error',
             message: message
@@ -172,25 +174,25 @@ export function initializeUIManagement() {
 
 // 配置multer中间件
 const storage = multer.diskStorage({
-    destination: async (_req: unknown, _file: MulterFileLike, cb: (error: unknown, destination?: string) => void): Promise<void> => {
+    destination: async (_req: IncomingMessage, _file: MulterFile, cb: (error: Error | null, destination?: string) => void): Promise<void> => {
         try {
             // multer在destination回调时req.body还未解析，先使用默认路径
             // 实际的provider会在文件上传完成后从req.body中获取
             const uploadPath = path.join(process.cwd(), 'configs', 'temp');
             await fs.mkdir(uploadPath, { recursive: true });
             cb(null, uploadPath);
-        } catch (caught) { const error = caught as DynamicPayload;
-            cb(error);
+        } catch (caught) {
+            cb(toError(caught));
         }
     },
-    filename: (_req: unknown, file: MulterFileLike, cb: (error: unknown, filename?: string) => void): void => {
+    filename: (_req: IncomingMessage, file: MulterFile, cb: (error: Error | null, filename?: string) => void): void => {
         const timestamp = Date.now();
         const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
         cb(null, `${timestamp}_${sanitizedName}`);
     }
 });
 
-const fileFilter = (_req: unknown, file: MulterFileLike, cb: (error: unknown, acceptFile?: boolean) => void): void => {
+const fileFilter = (_req: IncomingMessage, file: MulterFile, cb: (error: Error | null, acceptFile?: boolean) => void): void => {
     const allowedTypes = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(ext)) {
@@ -223,10 +225,10 @@ export function handleUploadOAuthCredentials(
     req: UploadRequest,
     res: ServerResponse,
     options: {
-        providerMap?: Record<string, DynamicPayload>;
+        providerMap?: Record<string, string>;
         logPrefix?: string;
         userInfo?: string;
-        customUpload?: DynamicPayload | null;
+        customUpload?: MulterInstance | null;
     } = {}
 ): Promise<boolean> {
     const {
@@ -240,7 +242,7 @@ export function handleUploadOAuthCredentials(
 
     return new Promise<boolean>((resolve) => {
         uploadMiddleware(req, res, async (err: unknown) => {
-            const uploadError = err as DynamicPayload;
+            const uploadError = toError(err);
             if (err) {
                 logger.error(`${logPrefix} File upload error:`, uploadError.message);
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -266,14 +268,23 @@ export function handleUploadOAuthCredentials(
                 }
 
                 // multer执行完成后，表单字段已解析到req.body中
-                const providerType = req.body.provider || 'common';
+                const rawProvider = req.body?.provider;
+                const providerType = rawProvider === undefined || rawProvider === null || rawProvider === ''
+                    ? 'common'
+                    : rawProvider;
                 // 应用提供商映射（如果有）
-                const provider = providerMap[providerType] || providerType;
+                const provider = typeof providerType === 'string'
+                    ? (providerMap[providerType] || providerType)
+                    : providerType;
                 const tempFilePath = req.file.path;
+                const storedFilename = req.file.filename;
 
                 // 校验 provider 名称安全，只允许字母、数字、下划线和连字符，防止目录遍历与特殊字符注入
                 if (typeof provider !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(provider)) {
                     throw new Error('Invalid provider format');
+                }
+                if (!tempFilePath || !storedFilename) {
+                    throw new Error('Uploaded file metadata is incomplete');
                 }
 
                 // 根据实际的provider移动文件到正确的目录
@@ -288,7 +299,7 @@ export function handleUploadOAuthCredentials(
                     targetDir = path.join(targetDir, subFolder);
                 }
 
-                const targetFilePath = path.join(targetDir, req.file.filename);
+                const targetFilePath = path.join(targetDir, storedFilename);
 
                 // 安全边界防御：计算绝对路径以防止路径穿越，确保目标文件严格存在于 configs 目录内
                 const allowedBaseDir = path.resolve(process.cwd(), 'configs');
@@ -327,7 +338,7 @@ export function handleUploadOAuthCredentials(
                 }));
                 resolve(true);
 
-            } catch (caught) { const error = caught as DynamicPayload;
+            } catch (caught) { const error = toError(caught);
                 logger.error(`${logPrefix} File upload processing error:`, error);
                 // 发生错误时确保清理上传至 configs/temp 目录的临时文件，避免堆积
                 if (req.file && req.file.path && existsSync(req.file.path)) {
