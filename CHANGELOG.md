@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.5] - 2026-10-25
+
 ### Fixed
 
 - 覆盖率基线排除 gitignored 的 `src/plugins-user` 目录，避免本地存在用户插件时覆盖率高于 clean checkout，导致 CI 覆盖率门槛误判。`check-coverage` 同步跳过该目录，并补充回归测试。
+- 覆盖率基线改为在 clean checkout 生成，并分别在 Node.js 22 与 24 下验证。
+
+### Changed
+
+- v5.0.5 仅包含 CI / 覆盖率工具链修复，**无运行时、API、配置或数据格式变更**。
+
+### Verification
+
+- GitHub Actions CI（Node 22.x / 24.x）：通过。
+- `npm run verify`：44 suites / 593 tests 全绿，strict 0 errors，any 棘轮通过，imports / cycles / runtime smoke 通过。
+- clean checkout 覆盖率：行 30.01% / 分支 31.21% / 函数 33.07%。
 
 ## [v5.0.4] - 2026-10-25
 
