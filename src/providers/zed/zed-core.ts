@@ -14,6 +14,34 @@ import { mapFinishReason, sanitizeToolId } from '../../utils/protocol-utils.ts';
 import { budgetTokensToEffort, effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
+import type { AxiosRequestConfig, AxiosResponse } from 'axios';
+import type { ProviderConfig } from '../provider-types.ts';
+
+type DynamicPayload = Record<string, any>;
+type ZedProvider = 'anthropic' | 'open_ai' | 'google';
+
+interface ZedServiceConfig extends ProviderConfig {
+    ZED_OAUTH_CREDS_FILE_PATH?: string;
+    ZED_SYSTEM_ID?: string;
+    [key: string]: unknown;
+}
+
+interface ZedAuthParams {
+    userId?: string | null;
+    accessToken?: string | null;
+    systemId?: string | null;
+    organizationId?: string | null;
+    config?: ZedServiceConfig;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
 
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
@@ -28,7 +56,7 @@ export const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
  * @param {string} token
  * @returns {number}
  */
-export function parseJwtExpiresAt(token: any) {
+export function parseJwtExpiresAt(token: unknown): number {
     let expiresAt = Date.now() + 3600 * 1000;
     try {
         const parts = String(token || '').split('.');
@@ -39,11 +67,11 @@ export function parseJwtExpiresAt(token: any) {
                 expiresAt = claims.exp * 1000;
             }
         }
-    } catch (_: any) {}
+    } catch {}
     return expiresAt;
 }
 
-function buildZedAuthHeaders({ userId, accessToken, systemId }: any) {
+function buildZedAuthHeaders({ userId, accessToken, systemId }: ZedAuthParams): Record<string, string> {
     return {
         'Authorization': `${userId} ${accessToken}`,
         'Content-Type': 'application/json',
@@ -61,19 +89,19 @@ function buildZedAuthHeaders({ userId, accessToken, systemId }: any) {
  * @param {Object} [params.config]
  * @returns {Promise<string>}
  */
-export async function fetchZedOrganizationId({ userId, accessToken, systemId, config }: any) {
+export async function fetchZedOrganizationId({ userId, accessToken, systemId, config }: ZedAuthParams): Promise<string> {
     if (!userId || !accessToken) {
         throw new Error('Zed user_id and access_token are required to resolve organization id');
     }
 
-    const axiosConfig: any = {
+    const axiosConfig: AxiosRequestConfig = {
         method: 'get',
         url: ZED_USERS_ME_URL,
         headers: buildZedAuthHeaders({ userId, accessToken, systemId }),
         timeout: 15000
     };
 
-    configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
+    configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, config, MODEL_PROVIDER.ZED);
 
     const response = await axios.request(/** @type {any} */ (axiosConfig));
     const data = response.data || {};
@@ -82,9 +110,9 @@ export async function fetchZedOrganizationId({ userId, accessToken, systemId, co
         return data.default_organization_id;
     }
 
-    const organizations = Array.isArray(data.organizations) ? data.organizations : [];
-    const organization = organizations.find((org: any) => org?.is_personal) || organizations[0];
-    if (organization?.id) {
+    const organizations: unknown[] = Array.isArray(data.organizations) ? data.organizations : [];
+    const organization = organizations.find((org) => isRecord(org) && org.is_personal === true) || organizations[0];
+    if (isRecord(organization) && typeof organization.id === 'string') {
         return organization.id;
     }
 
@@ -102,11 +130,11 @@ export async function fetchZedOrganizationId({ userId, accessToken, systemId, co
  * @returns {Promise<{ token: string, expiresAt: number, organizationId: string }>}
  */
 export async function exchangeZedToken({ userId, accessToken, systemId, organizationId, config }: {
-    userId?: string;
-    accessToken?: string;
-    systemId?: string;
-    organizationId?: string;
-    config?: any;
+    userId?: string | null;
+    accessToken?: string | null;
+    systemId?: string | null;
+    organizationId?: string | null;
+    config?: ZedServiceConfig;
 } = {}) {
     if (!userId || !accessToken) {
         throw new Error('Zed user_id and access_token are required for token exchange');
@@ -115,7 +143,7 @@ export async function exchangeZedToken({ userId, accessToken, systemId, organiza
     const resolvedOrganizationId = organizationId
         || await fetchZedOrganizationId({ userId, accessToken, systemId, config });
 
-    const axiosConfig: any = {
+    const axiosConfig: AxiosRequestConfig = {
         method: 'post',
         url: ZED_TOKEN_URL,
         headers: buildZedAuthHeaders({ userId, accessToken, systemId }),
@@ -123,7 +151,7 @@ export async function exchangeZedToken({ userId, accessToken, systemId, organiza
         timeout: 15000
     };
 
-    configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
+    configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, config, MODEL_PROVIDER.ZED);
 
     const response = await axios.request(/** @type {any} */ (axiosConfig));
     const token = response.data?.token;
@@ -149,10 +177,10 @@ export function getZedVersionFromSystem() {
  * @param {Map} [metadataMap] 可选模型元数据映射
  * @returns {'anthropic' | 'open_ai' | 'google'}
  */
-export function getZedProviderForModel(model: any, metadataMap: any = null) {
+export function getZedProviderForModel(model: string, metadataMap: Map<string, Record<string, unknown>> | null = null): ZedProvider {
     if (metadataMap && metadataMap.has(model)) {
         const meta = metadataMap.get(model);
-        if (meta?.provider) return meta.provider;
+        if (meta && typeof meta.provider === 'string') return meta.provider as ZedProvider;
     }
     const m = (model || '').toLowerCase();
     if (m.startsWith('claude')) {
@@ -177,7 +205,7 @@ export function getZedProviderForModel(model: any, metadataMap: any = null) {
  * @param {number|string} budget
  * @returns {'low'|'medium'|'high'|'max'}
  */
-function budgetToClaudeEffort(budget: any) {
+function budgetToClaudeEffort(budget: unknown): 'low' | 'medium' | 'high' | 'max' {
     const b = Number(budget);
     if (!Number.isFinite(b) || b <= 0) return 'high';
     if (b <= 2048) return 'low';
@@ -191,27 +219,27 @@ function budgetToClaudeEffort(budget: any) {
  * 封装与 Zed 官方云端接口 (cloud.zed.dev) 的通信逻辑
  */
 export class ZedApiService {
-    config: any;
-    uuid: any;
-    credsFilePath: any;
-    userId: any;
-    accessToken: any;
-    systemId: any;
-    version: any;
-    jwtToken: any;
-    jwtExpiresAt: any;
-    isInitialized: any;
-    _tokenRefreshPromise: any;
-    _modelsFetchPromise: any;
-    modelsCache: any;
-    modelsExpiresAt: any;
-    modelMetadataMap: any;
-    organizationId: any;
+    config: ZedServiceConfig;
+    uuid: string | null;
+    credsFilePath: string | null;
+    userId: string | null;
+    accessToken: string | null;
+    systemId: string | null;
+    version: string;
+    jwtToken: string | null;
+    jwtExpiresAt: number;
+    isInitialized: boolean;
+    _tokenRefreshPromise: Promise<string> | null;
+    _modelsFetchPromise: Promise<DynamicPayload[]> | null;
+    modelsCache: DynamicPayload[] | null;
+    modelsExpiresAt: number;
+    modelMetadataMap: Map<string, Record<string, unknown>>;
+    organizationId: string | null = null;
 
-    constructor(config: any) {
+    constructor(config: ZedServiceConfig) {
         this.config = config || {};
-        this.uuid = config.uuid;
-        this.credsFilePath = config.ZED_OAUTH_CREDS_FILE_PATH;
+        this.uuid = config.uuid || null;
+        this.credsFilePath = config.ZED_OAUTH_CREDS_FILE_PATH || null;
         this.userId = null;
         this.accessToken = null;
         this.systemId = config.ZED_SYSTEM_ID || null;
@@ -254,8 +282,8 @@ export class ZedApiService {
             }
             this.isInitialized = Boolean(this.userId && this.accessToken);
             return this.isInitialized;
-        } catch (error: any) {
-            logger.error(`[Zed] Error reading credentials file: ${error.message}`);
+        } catch (error) {
+            logger.error(`[Zed] Error reading credentials file: ${getErrorMessage(error)}`);
             return false;
         }
     }
@@ -264,15 +292,16 @@ export class ZedApiService {
      * 将更新后的凭据持久化写入文件 (读写置于文件锁临界区以保证原子性)
      */
     async saveCredentials() {
-        if (!this.credsFilePath) return;
+        const credsFilePath = this.credsFilePath;
+        if (!credsFilePath) return;
 
         try {
-            await withFileLock(this.credsFilePath, async () => {
-                let existingData = {};
-                if (fs.existsSync(this.credsFilePath)) {
+            await withFileLock(credsFilePath, async () => {
+                let existingData: Record<string, unknown> = {};
+                if (fs.existsSync(credsFilePath)) {
                     try {
-                        existingData = JSON.parse(fs.readFileSync(this.credsFilePath, 'utf8'));
-                    } catch (_: any) {}
+                        existingData = JSON.parse(fs.readFileSync(credsFilePath, 'utf8')) as Record<string, unknown>;
+                    } catch {}
                 }
 
                 const updatedData = {
@@ -287,11 +316,11 @@ export class ZedApiService {
                     updated_at: Date.now()
                 };
 
-                await atomicWriteFile(this.credsFilePath, JSON.stringify(updatedData, null, 2), 'utf8');
+                await atomicWriteFile(credsFilePath, JSON.stringify(updatedData, null, 2), 'utf8');
             });
-            logger.info(`[Zed] Saved updated credentials to ${this.credsFilePath}`);
-        } catch (error: any) {
-            logger.error(`[Zed] Failed to save credentials: ${error.message}`);
+            logger.info(`[Zed] Saved updated credentials to ${credsFilePath}`);
+        } catch (error) {
+            logger.error(`[Zed] Failed to save credentials: ${getErrorMessage(error)}`);
         }
     }
 
@@ -308,7 +337,7 @@ export class ZedApiService {
      * 换取短效 JWT Token
      * @param {boolean} force 是否强制刷新
      */
-    async getToken(force: any = false) {
+    async getToken(force = false): Promise<string> {
         const now = Date.now();
         if (!force && this.jwtToken && (this.jwtExpiresAt - now > 60 * 1000)) {
             return this.jwtToken;
@@ -348,7 +377,7 @@ export class ZedApiService {
                     this.fetchRemoteModels().catch(() => {});
                 }
 
-                return this.jwtToken;
+                return this.jwtToken || '';
             } finally {
                 this._tokenRefreshPromise = null;
             }
@@ -361,7 +390,7 @@ export class ZedApiService {
      * 根据当前实例元数据或模型名称获取上游提供商
      * @param {string} model
      */
-    getProviderForModel(model: any) {
+    getProviderForModel(model: string): ZedProvider {
         return getZedProviderForModel(model, this.modelMetadataMap);
     }
 
@@ -370,7 +399,7 @@ export class ZedApiService {
      * 优先级：节点配置 > 全局 PROVIDER_CAPABILITIES > 上游元数据 > 内置规则。
      * @param {string} model
      */
-    resolveModelCapabilities(model: any) {
+    resolveModelCapabilities(model: string): DynamicPayload {
         return resolveProviderCapabilities({
             providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ZED,
             model,
@@ -384,20 +413,20 @@ export class ZedApiService {
      * @param {string} model
      * @param {object} requestBody Claude 规范的请求体
      */
-    buildPayload(model: any, requestBody: any) {
+    buildPayload(model: string, requestBody: DynamicPayload): DynamicPayload {
         const provider = this.getProviderForModel(model);
         const capabilities = this.resolveModelCapabilities(model);
 
         // 1. OpenAI 规范请求 (cloud.zed.dev 对 open_ai 使用 Responses API 格式)
         if (provider === 'open_ai') {
-            const input: any[] = [];
+            const input: DynamicPayload[] = [];
 
             // 处理系统提示词
             if (requestBody.system) {
                 const sysText = typeof requestBody.system === 'string'
                     ? requestBody.system
                     : Array.isArray(requestBody.system)
-                        ? requestBody.system.map((s: any) => s.text || '').join('\n\n')
+                        ? requestBody.system.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : '').join('\n\n')
                         : String(requestBody.system);
                 if (sysText && sysText.trim()) {
                     input.push({
@@ -424,7 +453,7 @@ export class ZedApiService {
                 }
 
                 if (m.role === 'user') {
-                    const userContent: any[] = [];
+                    const userContent: DynamicPayload[] = [];
                     if (typeof m.content === 'string') {
                         if (m.content) userContent.push({ type: 'input_text', text: m.content });
                     } else if (Array.isArray(m.content)) {
@@ -517,7 +546,7 @@ export class ZedApiService {
                 }
             }
 
-            const provReq: any = {
+            const provReq: DynamicPayload = {
                 model: model,
                 input: input,
                 stream: true
@@ -540,7 +569,7 @@ export class ZedApiService {
             }
 
             if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-                provReq.tools = requestBody.tools.map((t: any) => ({
+                provReq.tools = requestBody.tools.map((t) => ({
                     type: 'function',
                     name: t.name,
                     description: t.description,
@@ -560,16 +589,16 @@ export class ZedApiService {
 
         // 2. Google AI 规范请求 (cloud.zed.dev 对 google 系列模型如 gemini-3.5-flash)
         if (provider === 'google') {
-            const contents: any[] = [];
+            const contents: DynamicPayload[] = [];
             const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
 
             // Zed Google 通道不支持多轮回传 functionCall/functionResponse 历史。
             // 直接在网关侧给出明确错误，避免上游返回 500 空 body 并触发无意义的凭证切换/重试。
-            const hasToolResultHistory = rawMessages.some((m: any) => {
+            const hasToolResultHistory = rawMessages.some((m) => {
                 if (!m) return false;
                 if (m.role === 'tool' || m.tool_call_id) return true;
                 return Array.isArray(m.content) && m.content.some(
-                    (part: any) => part && (part.type === 'tool_result' || part.type === 'functionResponse')
+                    (part: DynamicPayload) => isRecord(part) && (part.type === 'tool_result' || part.type === 'functionResponse')
                 );
             });
             // Zed Google 通道不支持多轮 functionCall/functionResponse 历史。
@@ -580,23 +609,23 @@ export class ZedApiService {
                 logger.warn(`[Zed] Google channel does not support multi-turn tool history for model ${model}; falling back to text representation.`);
             }
 
-            let systemInstruction: any = null;
+            let systemInstruction: DynamicPayload | null = null;
 
             // 预扫描构建 tool_use_id -> 函数名映射（供 tool_result/functionResponse 还原名称）
-            const toolIdToName = {};
+            const toolIdToName: Record<string, string> = {};
             for (const m of rawMessages) {
                 if (m.role !== 'assistant') continue;
                 if (Array.isArray(m.content)) {
                     for (const p of m.content) {
                         if (p && p.type === 'tool_use' && p.id && p.name) {
-                            (toolIdToName as any)[sanitizeToolId(p.id)] = p.name;
+                            toolIdToName[sanitizeToolId(String(p.id))] = String(p.name);
                         }
                     }
                 }
                 if (Array.isArray(m.tool_calls)) {
                     for (const tc of m.tool_calls) {
                         if (tc && tc.id && tc.function?.name) {
-                            (toolIdToName as any)[sanitizeToolId(tc.id)] = tc.function.name;
+                            toolIdToName[sanitizeToolId(String(tc.id))] = String(tc.function?.name || '');
                         }
                     }
                 }
@@ -606,7 +635,7 @@ export class ZedApiService {
                 const sysText = typeof requestBody.system === 'string'
                     ? requestBody.system
                     : Array.isArray(requestBody.system)
-                        ? requestBody.system.map((s: any) => s.text || '').join('\n\n')
+                        ? requestBody.system.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : '').join('\n\n')
                         : String(requestBody.system);
                 systemInstruction = { parts: [{ text: sysText }] };
             }
@@ -623,7 +652,7 @@ export class ZedApiService {
                 }
 
                 let role = m.role === 'assistant' ? 'model' : 'user';
-                const parts: any[] = [];
+                const parts: DynamicPayload[] = [];
                 if (m.role === 'tool' || m.tool_call_id) {
                     // OpenAI 风格 tool 结果消息 -> functionResponse
                     role = 'user';
@@ -631,8 +660,8 @@ export class ZedApiService {
                     if (fallbackToolHistoryToText) {
                         parts.push({ text: `[Tool result${m.tool_call_id ? ` for ${m.tool_call_id}` : ''}]: ${resultText}` });
                     } else {
-                        const functionResponse: any = {
-                            name: (toolIdToName as any)[sanitizeToolId(m.tool_call_id)] || m.name || 'function',
+                        const functionResponse: DynamicPayload = {
+                            name: toolIdToName[sanitizeToolId(String(m.tool_call_id))] || m.name || 'function',
                             response: {
                                 result: resultText
                             }
@@ -657,14 +686,14 @@ export class ZedApiService {
                             // Claude 风格 assistant 工具调用 -> functionCall
                             let args = {};
                             if (typeof p.input === 'string') {
-                                try { args = JSON.parse(p.input); } catch (_: any) { args = {}; }
+                                try { args = JSON.parse(String(p.input)) as DynamicPayload; } catch { args = {}; }
                             } else if (p.input && typeof p.input === 'object') {
                                 args = p.input;
                             }
                             if (fallbackToolHistoryToText) {
                                 parts.push({ text: `[Tool call: ${p.name}(${JSON.stringify(args)})]` });
                             } else {
-                                const functionCall: any = {
+                                const functionCall: DynamicPayload = {
                                     name: p.name,
                                     args
                                 };
@@ -677,8 +706,8 @@ export class ZedApiService {
                             if (fallbackToolHistoryToText) {
                                 parts.push({ text: `[Tool result${p.tool_use_id ? ` for ${p.tool_use_id}` : ''}]: ${resultText}` });
                             } else {
-                                const functionResponse: any = {
-                                    name: (toolIdToName as any)[sanitizeToolId(p.tool_use_id)] || p.name || 'function',
+                                const functionResponse: DynamicPayload = {
+                                    name: toolIdToName[sanitizeToolId(String(p.tool_use_id))] || p.name || 'function',
                                     response: {
                                         result: resultText
                                     }
@@ -700,11 +729,11 @@ export class ZedApiService {
                             args = typeof tc.function?.arguments === 'string'
                                 ? JSON.parse(tc.function.arguments)
                                 : (tc.function?.arguments || {});
-                        } catch (_: any) { /* 保持空对象 */ }
+                        } catch { /* 保持空对象 */ }
                         if (fallbackToolHistoryToText) {
                             parts.push({ text: `[Tool call: ${tc.function?.name || 'function'}(${JSON.stringify(args)})]` });
                         } else {
-                            const functionCall: any = {
+                            const functionCall: DynamicPayload = {
                                 name: tc.function?.name || 'function',
                                 args
                             };
@@ -724,7 +753,7 @@ export class ZedApiService {
                 }
             }
 
-            const provReq: any = {
+            const provReq: DynamicPayload = {
                 model: model,
                 contents: contents
             };
@@ -737,8 +766,8 @@ export class ZedApiService {
             if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
                 provReq.tools = [{
                     functionDeclarations: requestBody.tools
-                        .filter((t: any) => t && t.name)
-                        .map((t: any) => ({
+                        .filter((t) => isRecord(t) && t.name)
+                        .map((t) => ({
                             name: t.name,
                             description: t.description,
                             // Zed Google 通道同样受 Gemini Protobuf Schema 限制；
@@ -751,8 +780,8 @@ export class ZedApiService {
 
                 const tc = requestBody.tool_choice;
                 if (tc) {
-                    let mode: any = null;
-                    let allowedNames: any = null;
+                    let mode: string | null = null;
+                    let allowedNames: string[] | null = null;
                     // Zed 的 Google AI 代理端点对 mode 使用小写枚举 (auto / any / none)
                     if (typeof tc === 'string') {
                         if (tc === 'auto') mode = 'auto';
@@ -779,7 +808,7 @@ export class ZedApiService {
             }
 
             // 超参数与 Gemini 3.1+ 思考配置
-            const generationConfig: any = {};
+            const generationConfig: DynamicPayload = {};
             if (requestBody.temperature !== undefined && capabilities.supportsTemperature) {
                 generationConfig.temperature = requestBody.temperature;
             }
@@ -816,7 +845,7 @@ export class ZedApiService {
 
         // 3. Anthropic 规范请求
         let maxTokens = Math.min(requestBody.max_tokens || 8192, 64000);
-        const provReq: any = {
+        const provReq: DynamicPayload = {
             model: model,
             max_tokens: maxTokens,
             temperature: capabilities.supportsTemperature ? requestBody.temperature : undefined,
@@ -828,7 +857,7 @@ export class ZedApiService {
             provReq.system = typeof requestBody.system === 'string'
                 ? requestBody.system
                 : Array.isArray(requestBody.system)
-                    ? requestBody.system.map((s: any) => s.text || '').join('\n\n')
+                    ? requestBody.system.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : '').join('\n\n')
                     : String(requestBody.system);
         }
 
@@ -850,7 +879,7 @@ export class ZedApiService {
                 model.includes('opus-4-6');
 
             if (isAdaptive) {
-                let effort: any = null;
+                let effort: string | null = null;
                 if (reasoningEffort && reasoningEffort !== 'none') {
                     effort = String(reasoningEffort).toLowerCase().trim();
                 } else if (thinkingObj?.effort) {
@@ -860,7 +889,7 @@ export class ZedApiService {
                 }
 
                 const validEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
-                if (!validEfforts.includes(effort)) {
+                if (!effort || !validEfforts.includes(effort)) {
                     effort = 'high';
                 }
 
@@ -890,7 +919,7 @@ export class ZedApiService {
         }
 
         if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-            provReq.tools = requestBody.tools.map((t: any) => ({
+            provReq.tools = requestBody.tools.map((t) => ({
                 name: t.name,
                 description: t.description,
                 input_schema: t.input_schema || t.parameters
@@ -915,7 +944,7 @@ export class ZedApiService {
         }
 
         // 处理并合并连续同角色消息
-        const messages: any[] = [];
+        const messages: DynamicPayload[] = [];
         let rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
         // 虚拟签名剥离由 request-pipeline 对 Claude 协议前缀上游统一执行，此处无需重复
 
@@ -927,7 +956,7 @@ export class ZedApiService {
             }
 
             let role = m.role === 'assistant' ? 'assistant' : 'user';
-            let content: any[] = [];
+            let content: DynamicPayload[] = [];
 
             if (typeof m.content === 'string') {
                 content.push({ type: 'text', text: m.content });
@@ -935,7 +964,7 @@ export class ZedApiService {
                 // Zed 的 Anthropic 反序列化器要求 tool_result 必须带 is_error；
                 // 原生 Anthropic 允许省略该字段，跨协议转换器通常也不会生成它。
                 // 在 provider 边界统一补齐，覆盖所有 converter 来源。
-                content = m.content.map((block: any) => {
+                content = m.content.map((block: DynamicPayload) => {
                     if (block && block.type === 'tool_result' && block.is_error === undefined) {
                         return { ...block, is_error: false };
                     }
@@ -953,7 +982,7 @@ export class ZedApiService {
                         input = typeof tc.function?.arguments === 'string'
                             ? JSON.parse(tc.function.arguments)
                             : (tc.function?.arguments || {});
-                    } catch (_: any) {}
+                    } catch {}
 
                     content.push({
                         type: 'tool_use',
@@ -1004,16 +1033,16 @@ export class ZedApiService {
      * @param {Object} rawUsage - 上游原始 usage 对象
      * @returns {Object}
      */
-    _formatClaudeUsage(rawUsage: any = {}) {
+    _formatClaudeUsage(rawUsage: unknown = {}): DynamicPayload {
         const normalized = normalizeUsageCandidate(rawUsage);
 
-        const res: any = {
+        const res: DynamicPayload = {
             input_tokens: normalized?.promptTokens ?? 0,
             output_tokens: normalized?.completionTokens ?? 0,
             cache_read_input_tokens: normalized?.cachedTokens ?? 0
         };
 
-        if (rawUsage && typeof rawUsage === 'object' && rawUsage.cache_creation_input_tokens !== undefined) {
+        if (isRecord(rawUsage) && rawUsage.cache_creation_input_tokens !== undefined) {
             res.cache_creation_input_tokens = Number(rawUsage.cache_creation_input_tokens) || 0;
         }
 
@@ -1026,11 +1055,11 @@ export class ZedApiService {
      * @param {object} requestBody
      * @returns {AsyncIterable<object>}
      */
-    async *generateContentStream(model: any, requestBody: any) {
+    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<unknown> {
         const jwt = await this.getToken();
         const payload = this.buildPayload(model, requestBody);
 
-        const axiosConfig: any = {
+        const axiosConfig: AxiosRequestConfig = {
             method: 'post',
             url: ZED_COMPLETIONS_URL,
             headers: {
@@ -1044,43 +1073,44 @@ export class ZedApiService {
             timeout: 120000
         };
 
-        configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
+        configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, this.config, MODEL_PROVIDER.ZED);
 
-        let response: any;
+        let response: AxiosResponse;
         try {
             response = await axios.request(/** @type {any} */ (axiosConfig));
-        } catch (err: any) {
-            const errData = err.response?.data;
-            let errMsg = err.message;
+        } catch (err) {
+            const error = isRecord(err) ? err as { response?: { status?: number; data?: unknown } } : {};
+            const errData = error.response?.data;
+            let errMsg = getErrorMessage(err);
             if (errData) {
                 if (typeof errData === 'string') {
                     errMsg = errData;
-                } else if (typeof errData.on === 'function') {
+                } else if (isRecord(errData) && typeof errData.on === 'function') {
                     try {
-                        const chunks: any[] = [];
-                        for await (const chunk of errData) chunks.push(chunk);
+                        const chunks: Buffer[] = [];
+                        for await (const chunk of errData as unknown as AsyncIterable<Buffer | string>) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
                         errMsg = Buffer.concat(chunks).toString('utf-8');
-                    } catch (_: any) {
-                        errMsg = err.message;
+                    } catch {
+                        errMsg = getErrorMessage(err);
                     }
                 } else {
                     try {
                         errMsg = JSON.stringify(errData);
-                    } catch (_: any) {
+                    } catch {
                         errMsg = String(errData);
                     }
                 }
             }
-            logger.error(`[Zed] Streaming request failed (${err.response?.status || 'network'}): ${errMsg}`);
-            throw new Error(`Zed API error (${err.response?.status || 500}): ${errMsg}`);
+            logger.error(`[Zed] Streaming request failed (${error.response?.status || 'network'}): ${errMsg}`);
+            throw new Error(`Zed API error (${error.response?.status || 500}): ${errMsg}`);
         }
-        const stream = response.data;
+        const stream = response.data as AsyncIterable<Buffer | string>;
 
         let buffer = '';
         let messageStarted = false;
         let messageStopped = false;
         let activeBlockIndex = -1;
-        let activeBlockType: any = null; // 'thinking' | 'text' | 'tool_use'
+        let activeBlockType: 'thinking' | 'text' | 'tool_use' | null = null;
         let sawToolUse = false; // 流中是否出现过工具调用（closeActiveBlock 会清空 activeBlockType，需独立标志）
 
         const ensureMessageStart = function* () {
@@ -1156,10 +1186,10 @@ export class ZedApiService {
                     continue;
                 }
 
-                let obj: any;
+                let obj: DynamicPayload;
                 try {
                     obj = JSON.parse(dataStr);
-                } catch (_: any) {
+                } catch {
                     continue;
                 }
 
@@ -1429,17 +1459,17 @@ export class ZedApiService {
      * @param {string} model
      * @param {object} requestBody
      */
-    async generateContent(model: any, requestBody: any) {
+    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         let fullText = '';
         let fullThinking = '';
         const toolCalls = new Map();
         let stopReason = 'end_turn';
-        const usage: any = {
+        const usage: DynamicPayload = {
             input_tokens: 0,
             output_tokens: 0
         };
 
-        for await (const chunk of this.generateContentStream(model, requestBody)) {
+        for await (const chunk of this.generateContentStream(model, requestBody) as AsyncIterable<DynamicPayload>) {
             if (chunk.type === 'content_block_start') {
                 const cb = chunk.content_block;
                 if (cb && cb.type === 'tool_use') {
@@ -1488,7 +1518,7 @@ export class ZedApiService {
             }
         }
 
-        const content: any[] = [];
+        const content: DynamicPayload[] = [];
         if (fullThinking) {
             content.push({
                 type: 'thinking',
@@ -1506,7 +1536,7 @@ export class ZedApiService {
             let input = {};
             try {
                 input = JSON.parse(tc.arguments);
-            } catch (_: any) {}
+            } catch {}
             content.push({
                 type: 'tool_use',
                 id: tc.id,
@@ -1532,7 +1562,7 @@ export class ZedApiService {
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
-    async fetchRemoteModels(force: any = false) {
+    async fetchRemoteModels(force = false): Promise<DynamicPayload[]> {
         const now = Date.now();
         if (!force && this.modelsCache && (this.modelsExpiresAt > now)) {
             return this.modelsCache;
@@ -1550,7 +1580,7 @@ export class ZedApiService {
                     return this.modelsCache || this._getFallbackModels();
                 }
 
-                const axiosConfig: any = {
+                const axiosConfig: AxiosRequestConfig = {
                     method: 'get',
                     url: ZED_MODELS_URL,
                     headers: {
@@ -1560,12 +1590,12 @@ export class ZedApiService {
                     },
                     timeout: 15000
                 };
-                configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
+                configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, this.config, MODEL_PROVIDER.ZED);
 
                 const res = await axios.request(/** @type {any} */ (axiosConfig));
                 if (res.data && Array.isArray(res.data.models)) {
                     const rawModels = res.data.models;
-                    const modelIds: any[] = [];
+                    const modelIds: string[] = [];
                     this.modelMetadataMap.clear();
 
                     for (const m of rawModels) {
@@ -1582,8 +1612,8 @@ export class ZedApiService {
                         return rawModels;
                     }
                 }
-            } catch (error: any) {
-                logger.warn(`[Zed] Failed to fetch remote models from ${ZED_MODELS_URL}: ${error.message}`);
+            } catch (error) {
+                logger.warn(`[Zed] Failed to fetch remote models from ${ZED_MODELS_URL}: ${getErrorMessage(error)}`);
             } finally {
                 this._modelsFetchPromise = null;
             }
@@ -1599,7 +1629,7 @@ export class ZedApiService {
      */
     _getFallbackModels() {
         const modelIds = PROVIDER_MODELS['zed'] || [];
-        return modelIds.map((id: any) => ({
+        return modelIds.map((id: string) => ({
             id,
             display_name: id,
             provider: this.getProviderForModel(id),
@@ -1613,7 +1643,7 @@ export class ZedApiService {
      */
     async listModels() {
         const rawModels = await this.fetchRemoteModels();
-        const modelObjects = rawModels.map((m: any) => ({
+        const modelObjects = rawModels.map((m) => ({
             id: m.id,
             name: m.display_name || m.id,
             object: 'model',
