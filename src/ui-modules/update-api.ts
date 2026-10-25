@@ -1,3 +1,7 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+
 import { existsSync, readFileSync } from 'fs';
 import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
 import logger from '../utils/logger.ts';
@@ -34,13 +38,13 @@ export async function resolveTargetRepo() {
         if (match) {
             return `${match[1]}/${match[2]}`;
         }
-    } catch (e: any) {
+    } catch (caught) { const e = caught as DynamicPayload;
         // 非 Git 环境或获取失败，继续走兜底逻辑
     }
     return DEFAULT_GITHUB_REPO;
 }
 
-function buildGitHubApiCandidates(repo: any) {
+function buildGitHubApiCandidates(repo: string): Array<{ name: string; url: string }> {
     const apiPath = `repos/${repo}/tags`;
     return [
         {
@@ -66,7 +70,7 @@ function buildGitHubApiCandidates(repo: any) {
     ];
 }
 
-function buildTarballCandidates(repo: any, tag: any) {
+function buildTarballCandidates(repo: string, tag: string): Array<{ name: string; url: string }> {
     const safeTag = encodeURIComponent(tag);
     const githubTarballPath = `${repo}/archive/refs/tags/${safeTag}.tar.gz`;
     return [
@@ -115,7 +119,15 @@ function getUpdateProxyConfig() {
  * @param {Object} options - fetch 选项
  * @returns {Promise<Response>}
  */
-async function fetchWithProxy(url: string, options: any = {}) {
+interface UpdateFetchResponse {
+    ok: boolean;
+    status: number;
+    statusText: string;
+    json(): Promise<unknown>;
+    arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+async function fetchWithProxy(url: string, options: DynamicPayload = {}): Promise<UpdateFetchResponse> {
     const proxyConfig = getUpdateProxyConfig();
 
     const method = options.method || 'GET';
@@ -125,7 +137,7 @@ async function fetchWithProxy(url: string, options: any = {}) {
     const maxRedirects = options.redirect === 'manual' ? 0 : 5;
 
     try {
-        const axiosOptions: any = {
+        const axiosOptions: DynamicPayload = {
             method,
             url,
             headers,
@@ -148,7 +160,7 @@ async function fetchWithProxy(url: string, options: any = {}) {
             ? response.data
             : Buffer.from(response.data || '');
 
-        return /** @type {any} */ ({
+        return ({
             ok: response.status >= 200 && response.status < 300,
             status: response.status,
             statusText: response.statusText,
@@ -159,7 +171,7 @@ async function fetchWithProxy(url: string, options: any = {}) {
                 return new Uint8Array(payloadBuffer).buffer;
             }
         });
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         throw error;
     }
 }
@@ -170,7 +182,7 @@ async function fetchWithProxy(url: string, options: any = {}) {
  * @param {string} v2 - 版本号2
  * @returns {number} 1 if v1 > v2, -1 if v1 < v2, 0 if equal
  */
-function compareVersions(v1: any, v2: any) {
+function compareVersions(v1: string, v2: string): number {
     // 移除 'v' 前缀（如果有）
     const clean1 = v1.replace(/^v/, '');
     const clean2 = v2.replace(/^v/, '');
@@ -197,7 +209,7 @@ function compareVersions(v1: any, v2: any) {
  * @param {string} [repo] - GitHub 仓库
  * @returns {Promise<string[]>} 版本列表
  */
-async function getVersionsFromGitHub(limit: any = 10, repo: any = null) {
+async function getVersionsFromGitHub(limit = 10, repo: string | null = null): Promise<string[]> {
     const targetRepo = repo || await resolveTargetRepo();
     const candidates = buildGitHubApiCandidates(targetRepo);
 
@@ -225,7 +237,7 @@ async function getVersionsFromGitHub(limit: any = 10, repo: any = null) {
 
             // 提取版本号并排序
             const versions = tags
-                .map((tag: any) => tag.name)
+                .map((tag: DynamicPayload) => tag.name)
                 .filter(isValidVersionTag);
 
             if (versions.length === 0) {
@@ -233,9 +245,9 @@ async function getVersionsFromGitHub(limit: any = 10, repo: any = null) {
                 continue;
             }
 
-            versions.sort((a: any, b: any) => compareVersions(b, a));
+            versions.sort((a: string, b: string) => compareVersions(b, a));
             return versions.slice(0, limit);
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.warn(`[Update] Failed to fetch versions via ${candidate.name}: ${error.message}`);
         }
     }
@@ -249,7 +261,7 @@ async function getVersionsFromGitHub(limit: any = 10, repo: any = null) {
  * @param {string} [repo] - GitHub 仓库
  * @returns {Promise<string|null>} 最新版本号或 null
  */
-async function getLatestVersionFromGitHub(repo: any = null) {
+async function getLatestVersionFromGitHub(repo: string | null = null): Promise<string | null> {
     const versions = await getVersionsFromGitHub(1, repo);
     return versions.length > 0 ? versions[0] : null;
 }
@@ -261,7 +273,7 @@ async function getLatestVersionFromGitHub(repo: any = null) {
  * 2. Docker/非 Git 模式：通过 GitHub API 获取最新版本
  * @returns {Promise<Object>} 更新信息
  */
-export async function checkForUpdates() {
+export async function checkForUpdates(): Promise<DynamicPayload> {
     const versionFilePath = path.join(process.cwd(), 'VERSION');
 
     // 读取本地版本
@@ -270,7 +282,7 @@ export async function checkForUpdates() {
         if (existsSync(versionFilePath)) {
             localVersion = readFileSync(versionFilePath, 'utf-8').trim();
         }
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn('[Update] Failed to read local VERSION file:', error.message);
     }
 
@@ -279,13 +291,13 @@ export async function checkForUpdates() {
     try {
         await execAsync('git rev-parse --git-dir');
         isGitRepo = true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         isGitRepo = false;
         logger.info('[Update] Not in a Git repository, will use GitHub API to check for updates');
     }
 
-    let latestTag: any = null;
-    let availableVersions: any[] = [];
+    let latestTag: string | null = null;
+    let availableVersions: string[] = [];
     let updateMethod = 'unknown';
     const targetRepo = await resolveTargetRepo();
 
@@ -299,16 +311,16 @@ export async function checkForUpdates() {
             const { stdout: lsRemoteOutput } = await execAsync('git ls-remote --tags origin');
             const originTags = Array.from(new Set(
                 lsRemoteOutput.split('\n')
-                    .map((line: any) => {
+                    .map((line: string) => {
                         const match = line.match(/refs\/tags\/([^^{}\s]+)/);
                         return match ? match[1] : null;
                     })
-                    .filter(Boolean)
+                    .filter((tag): tag is string => tag !== null)
                     .filter(isValidVersionTag)
             ));
 
             if (originTags.length > 0) {
-                originTags.sort((a: any, b: any) => compareVersions(b, a));
+                originTags.sort((a: string, b: string) => compareVersions(b, a));
                 availableVersions = originTags.slice(0, 10);
                 latestTag = availableVersions[0];
             }
@@ -316,10 +328,10 @@ export async function checkForUpdates() {
             // 同步尝试拉取 origin 上的 tags（加 --force 避免 tag 冲突报错）
             try {
                 await execAsync('git fetch origin --tags --force');
-            } catch (fetchErr: any) {
+            } catch (caught) { const fetchErr = caught as DynamicPayload;
                 logger.warn('[Update] Failed to fetch tags from origin:', fetchErr.message);
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.warn('[Update] Failed to query tags via git origin, falling back to local tags or GitHub API:', error.message);
         }
 
@@ -332,7 +344,7 @@ export async function checkForUpdates() {
                     availableVersions = tags.slice(0, 10);
                     latestTag = availableVersions[0];
                 }
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 logger.warn('[Update] Failed to get tags via git local, falling back to GitHub API:', error.message);
             }
         }
@@ -382,7 +394,7 @@ export async function checkForUpdates() {
  * @param {string} targetTag - 目标版本 tag，如果未提供则更新到最新版本
  * @returns {Promise<Object>} 更新结果
  */
-export async function performUpdate(targetTag: any = null) {
+export async function performUpdate(targetTag: string | null = null): Promise<DynamicPayload> {
     // Prevent updating to a release that requires native TypeScript support
     // when the current runtime cannot execute it. This must run before any
     // checkout/install work so an update cannot brick the service.
@@ -446,7 +458,7 @@ export async function performUpdate(targetTag: any = null) {
             logger.info('[Update] Stashing local changes...');
             await execAsync('git stash');
         }
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn('[Update] Failed to check git status:', error.message);
     }
 
@@ -455,12 +467,12 @@ export async function performUpdate(targetTag: any = null) {
         logger.info(`[Update] Fetching tag ${finalTag} from origin...`);
         try {
             await execAsync(`git fetch origin tag ${finalTag} --force`);
-        } catch (fetchErr: any) {
+        } catch (caught) { const fetchErr = caught as DynamicPayload;
             logger.warn(`[Update] Failed to fetch tag ${finalTag} from origin: ${fetchErr.message}`);
         }
         logger.info(`[Update] Checking out to ${finalTag}...`);
         await execFileAsync('git', ['checkout', finalTag]);
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Update] Failed to checkout:', error.message);
         throw new Error(`Failed to switch to version ${finalTag}: ` + error.message);
     }
@@ -473,7 +485,7 @@ export async function performUpdate(targetTag: any = null) {
             await atomicWriteFile(versionFilePath, newVersion, 'utf-8');
         });
         logger.info(`[Update] VERSION file updated to ${newVersion}`);
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn('[Update] Failed to update VERSION file:', error.message);
     }
 
@@ -492,7 +504,7 @@ export async function performUpdate(targetTag: any = null) {
         } else {
             logger.warn('[Update] Skipping package change check due to invalid version tag');
         }
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn('[Update] Failed to check package changes:', error.message);
     }
 
@@ -518,7 +530,7 @@ export async function performUpdate(targetTag: any = null) {
  * @param {string} [repo] - GitHub 仓库
  * @returns {Promise<Object>} 更新结果
  */
-async function performTarballUpdate(localVersion: any, latestTag: any, repo: any = null) {
+async function performTarballUpdate(localVersion: string, latestTag: string, repo: string | null = null): Promise<DynamicPayload> {
     const targetRepo = repo || await resolveTargetRepo();
     const tarballCandidates = buildTarballCandidates(targetRepo, latestTag);
     const appDir = process.cwd();
@@ -540,7 +552,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
         // 2. 循环下载 tarball，成功后跳过后续代理
         logger.info('[Update] Downloading tarball via proxy candidates...');
         let downloadSucceeded = false;
-        let lastDownloadError: any = null;
+        let lastDownloadError: DynamicPayload | null = null;
 
         for (const candidate of tarballCandidates) {
             try {
@@ -563,7 +575,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
                 logger.info(`[Update] Downloaded tarball via ${candidate.name} (${buffer.length} bytes)`);
                 downloadSucceeded = true;
                 break;
-            } catch (downloadError: any) {
+            } catch (caught) { const downloadError = caught as DynamicPayload;
                 lastDownloadError = downloadError;
                 logger.warn(`[Update] Tarball download failed via ${candidate.name}: ${downloadError.message}`);
             }
@@ -579,7 +591,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
 
         // 4. 找到解压后的目录（查找包含 package.json 的解压子目录）
         const extractedItems = await fs.readdir(tempDir);
-        let extractedDir: any = null;
+        let extractedDir: string | null = null;
         for (const item of extractedItems) {
             const itemPath = path.join(tempDir, item);
             try {
@@ -588,13 +600,13 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
                     extractedDir = item;
                     break;
                 }
-            } catch (e: any) {}
+            } catch (caught) { const e = caught as DynamicPayload;}
         }
 
         if (!extractedDir) {
-            extractedDir = extractedItems.find((item: any) =>
+            extractedDir = extractedItems.find((item: string) =>
                 item.startsWith('AIClient-2-API-') || item.startsWith('AIClient2API-')
-            );
+            ) || null;
         }
 
         if (!extractedDir) {
@@ -691,7 +703,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
                 try {
                     await execAsync('npm install', { cwd: appDir });
                     logger.info('[Update] npm install completed');
-                } catch (npmError: any) {
+                } catch (caught) { const npmError = caught as DynamicPayload;
                     logger.error('[Update] npm install failed:', npmError.message);
                     // 不抛出错误，继续更新流程
                 }
@@ -716,7 +728,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
             restartMessage: 'Code updated, please restart the service to apply changes'
         };
 
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         // 灾难恢复：如果备份了 plugins-user 且升级失败，尝试将其移回原位
         try {
             if (hasPluginsUserBackup && existsSync(pluginsUserBackupPath)) {
@@ -730,7 +742,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
                 await fs.rename(pluginsUserBackupPath, targetPluginsUserPath);
                 logger.info(`[Update] Disaster recovery: plugins-user restored successfully`);
             }
-        } catch (restoreError: any) {
+        } catch (caught) { const restoreError = caught as DynamicPayload;
             logger.error('[Update] Disaster recovery failed to restore plugins-user:', restoreError.message);
         }
 
@@ -739,7 +751,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
             if (existsSync(tempDir)) {
                 await fs.rm(tempDir, { recursive: true, force: true });
             }
-        } catch (cleanupError: any) {
+        } catch (caught) { const cleanupError = caught as DynamicPayload;
             logger.warn('[Update] Failed to cleanup temp directory:', cleanupError.message);
         }
 
@@ -753,7 +765,7 @@ async function performTarballUpdate(localVersion: any, latestTag: any, repo: any
  * @param {string} src - 源路径
  * @param {string} dest - 目标路径
  */
-async function copyRecursive(src: any, dest: any) {
+async function copyRecursive(src: string, dest: string): Promise<void> {
     const stat = await fs.stat(src);
 
     if (stat.isDirectory()) {
@@ -770,13 +782,13 @@ async function copyRecursive(src: any, dest: any) {
 /**
  * 检查更新
  */
-export async function handleCheckUpdate(req: any, res: any) {
+export async function handleCheckUpdate(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
         const updateInfo = await checkForUpdates();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(updateInfo));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to check for updates:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -791,16 +803,16 @@ export async function handleCheckUpdate(req: any, res: any) {
 /**
  * 执行更新
  */
-export async function handlePerformUpdate(req: any, res: any) {
+export async function handlePerformUpdate(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const version = body?.version || null;
 
         const updateResult = await performUpdate(version);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(updateResult));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to perform update:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
