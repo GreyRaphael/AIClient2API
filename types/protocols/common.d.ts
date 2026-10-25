@@ -27,14 +27,15 @@ import type {
 } from './responses.js';
 
 /**
- * 跨协议请求联合类型
+ * 跨协议请求联合类型。
+ * 自定义上游扩展字段使用 unknown，避免 any catch-all 绕过已知 DTO 的检查。
  */
 export type CrossProtocolRequest =
     | OpenAIChatCompletionRequest
     | ClaudeMessagesRequest
     | GeminiGenerateContentRequest
     | OpenAIResponsesRequest
-    | Record<string, any>;
+    | Record<string, unknown>;
 
 /**
  * 跨协议响应联合类型
@@ -43,8 +44,7 @@ export type CrossProtocolResponse =
     | OpenAIChatCompletionResponse
     | ClaudeMessagesResponse
     | GeminiGenerateContentResponse
-    | OpenAIResponsesResponse
-    | Record<string, any>;
+    | OpenAIResponsesResponse;
 
 /**
  * 跨协议流式块联合类型
@@ -53,8 +53,7 @@ export type CrossProtocolStreamChunk =
     | OpenAIStreamChunk
     | ClaudeStreamEvent
     | GeminiStreamChunk
-    | OpenAIResponsesStreamEvent
-    | Record<string, any>;
+    | OpenAIResponsesStreamEvent;
 
 /**
  * 跨协议通用载荷

@@ -35,6 +35,11 @@ import type {
     CrossProtocolStreamChunk
 } from '../../../types/protocols/common.js';
 import type { OpenAIUsage } from '../../../types/protocols/openai.js';
+import type { ClaudeUsage } from '../../../types/protocols/claude.js';
+
+type OpenAIUsageWithCache = OpenAIUsage & {
+    prompt_tokens_details: { cached_tokens: number };
+};
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 
@@ -151,7 +156,7 @@ export class ClaudeConverter extends BaseConverter {
      * 而 OpenAI 的 prompt_tokens 是输入总量，必须把缓存侧 token 加回去。
      * @private
      */
-    _claudeUsageToOpenAI(usage: DynamicPayload = {}): DynamicPayload {
+    _claudeUsageToOpenAI(usage: Partial<ClaudeUsage> = {}): OpenAIUsageWithCache {
         const cacheRead = usage?.cache_read_input_tokens || 0;
         const cacheCreation = usage?.cache_creation_input_tokens || 0;
         const promptTokens = (usage?.input_tokens || 0) + cacheRead + cacheCreation;
@@ -647,7 +652,7 @@ export class ClaudeConverter extends BaseConverter {
                 finish_reason: finishReason,
             }],
             usage: applyEstimatedReasoningTokens(
-                this._claudeUsageToOpenAI(claudeResponse?.usage) as OpenAIUsage,
+                this._claudeUsageToOpenAI(claudeResponse?.usage),
                 reasoningContent,
                 'openai'
             ),

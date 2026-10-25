@@ -215,5 +215,5 @@ export type ClaudeStreamEvent =
     | ClaudeStreamErrorEvent
     | {
         type: string;
-        [key: string]: any;
+        [key: string]: unknown;
     };
