@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import path from 'path';
 import { isUIApiPath } from '../utils/ui-utils.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
@@ -78,7 +79,7 @@ export async function handleUIApiRequests(
     req: IncomingMessage,
     res: ServerResponse,
     currentConfig: Record<string, unknown>,
-    providerPoolManager: unknown
+    providerPoolManager: ProviderPoolManager | null
 ): Promise<boolean> {
     // 处理登录接口
     if (method === 'POST' && pathParam === '/api/login') {
