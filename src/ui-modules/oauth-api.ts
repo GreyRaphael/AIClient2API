@@ -1,4 +1,7 @@
 import { getRequestBody } from '../utils/common.ts';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
 import logger from '../utils/logger.ts';
 import {
     handleGeminiAntigravityOAuth,
@@ -22,18 +25,18 @@ const CODEX_EXTERNAL_IMPORT_MAX_ITEMS = 1000;
 /**
  * 生成 OAuth 授权 URL
  */
-export async function handleGenerateAuthUrl(req: any, res: any, currentConfig: any, providerType: any) {
+export async function handleGenerateAuthUrl(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, providerType: string): Promise<boolean> {
     logger.info(`[UI API] Received request to generate auth URL for ${providerType}`);
     try {
         let authUrl = '';
         let authInfo = {};
 
         // 解析 options
-        let options: any = {};
+        let options: DynamicPayload = {};
         try {
-            options = await getRequestBody(req) as any;
+            options = await getRequestBody(req) as DynamicPayload;
             logger.debug(`[UI API] Parsed options for ${providerType}:`, JSON.stringify(options));
-        } catch (e: any) {
+        } catch (caught) { const e = caught as DynamicPayload;
             logger.warn(`[UI API] Failed to parse request body for ${providerType}, using empty options`);
         }
 
@@ -110,7 +113,7 @@ export async function handleGenerateAuthUrl(req: any, res: any, currentConfig: a
         }));
         return true;
 
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error(`[UI API] Failed to generate auth URL for ${providerType}:`, error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -125,9 +128,9 @@ export async function handleGenerateAuthUrl(req: any, res: any, currentConfig: a
 /**
  * 处理手动 OAuth 回调
  */
-export async function handleManualOAuthCallback(req: any, res: any) {
+export async function handleManualOAuthCallback(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { provider, callbackUrl, authMethod } = body;
 
         if (!provider || !callbackUrl) {
@@ -217,7 +220,7 @@ export async function handleManualOAuthCallback(req: any, res: any) {
                     error: `Callback processing failed: ${response.status}`
                 }));
             }
-        } catch (fetchError: any) {
+        } catch (caught) { const fetchError = caught as DynamicPayload;
             logger.error(`[OAuth Manual Callback] Failed to process callback:`, fetchError);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -227,7 +230,7 @@ export async function handleManualOAuthCallback(req: any, res: any) {
         }
 
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[OAuth Manual Callback] Error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -241,9 +244,9 @@ export async function handleManualOAuthCallback(req: any, res: any) {
 /**
  * 批量导入 Kiro refreshToken（带实时进度 SSE）
  */
-export async function handleBatchImportKiroTokens(req: any, res: any) {
+export async function handleBatchImportKiroTokens(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { refreshTokens, region, skipDuplicateCheck } = body;
 
         if (!refreshTokens || !Array.isArray(refreshTokens) || refreshTokens.length === 0) {
@@ -266,12 +269,12 @@ export async function handleBatchImportKiroTokens(req: any, res: any) {
         });
 
         // 发送 SSE 事件的辅助函数（带错误处理）
-        const sendSSE = (event: any, data: any) => {
+        const sendSSE = (event: string, data: unknown): boolean => {
             if (!res.writableEnded && !res.destroyed) {
                 try {
                     res.write(`event: ${event}\n`);
                     res.write(`data: ${JSON.stringify(data)}\n\n`);
-                } catch (err: any) {
+                } catch (caught) { const err = caught as DynamicPayload;
                     logger.error('[Kiro Batch Import] Failed to write SSE:', err.message);
                     return false;
                 }
@@ -286,7 +289,7 @@ export async function handleBatchImportKiroTokens(req: any, res: any) {
         const result = await batchImportKiroRefreshTokensStream(
             refreshTokens,
             region || 'us-east-1',
-            (progress: any) => {
+            (progress: DynamicPayload) => {
                 // 每处理完一个 token 发送进度更新
                 sendSSE('progress', progress);
             },
@@ -307,7 +310,7 @@ export async function handleBatchImportKiroTokens(req: any, res: any) {
         res.end();
         return true;
 
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Kiro Batch Import] Error:', error);
         // 如果已经开始发送 SSE，则发送错误事件
         if (res.headersSent && !res.writableEnded && !res.destroyed) {
@@ -315,7 +318,7 @@ export async function handleBatchImportKiroTokens(req: any, res: any) {
                 res.write(`event: error\n`);
                 res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
                 res.end();
-            } catch (writeErr: any) {
+            } catch (caught) { const writeErr = caught as DynamicPayload;
                 logger.error('[Kiro Batch Import] Failed to write error:', writeErr.message);
             }
         } else if (!res.headersSent) {
@@ -332,9 +335,9 @@ export async function handleBatchImportKiroTokens(req: any, res: any) {
 /**
  * 批量导入 Gemini Token（带实时进度 SSE）
  */
-export async function handleBatchImportGeminiTokens(req: any, res: any) {
+export async function handleBatchImportGeminiTokens(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { providerType, tokens, skipDuplicateCheck } = body;
 
         if (!providerType || !tokens || !Array.isArray(tokens) || tokens.length === 0) {
@@ -357,7 +360,7 @@ export async function handleBatchImportGeminiTokens(req: any, res: any) {
         });
 
         // 发送 SSE 事件的辅助函数
-        const sendSSE = (event: any, data: any) => {
+        const sendSSE = (event: string, data: unknown): void => {
             res.write(`event: ${event}\n`);
             res.write(`data: ${JSON.stringify(data)}\n\n`);
         };
@@ -369,7 +372,7 @@ export async function handleBatchImportGeminiTokens(req: any, res: any) {
         const result = await batchImportGeminiTokensStream(
             providerType,
             tokens,
-            (progress: any) => {
+            (progress: DynamicPayload) => {
                 sendSSE('progress', progress);
             },
             !!skipDuplicateCheck // 默认为 false (执行去重)
@@ -389,7 +392,7 @@ export async function handleBatchImportGeminiTokens(req: any, res: any) {
         res.end();
         return true;
 
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Gemini Batch Import] Error:', error);
         if (res.headersSent) {
             res.write(`event: error\n`);
@@ -409,9 +412,9 @@ export async function handleBatchImportGeminiTokens(req: any, res: any) {
 /**
  * 批量导入 Codex Token（带实时进度 SSE）
  */
-export async function handleBatchImportCodexTokens(req: any, res: any) {
+export async function handleBatchImportCodexTokens(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { tokens, skipDuplicateCheck } = body;
 
         if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
@@ -434,7 +437,7 @@ export async function handleBatchImportCodexTokens(req: any, res: any) {
         });
 
         // 发送 SSE 事件的辅助函数
-        const sendSSE = (event: any, data: any) => {
+        const sendSSE = (event: string, data: unknown): void => {
             res.write(`event: ${event}\n`);
             res.write(`data: ${JSON.stringify(data)}\n\n`);
         };
@@ -445,7 +448,7 @@ export async function handleBatchImportCodexTokens(req: any, res: any) {
         // 执行流式批量导入
         const result = await batchImportCodexTokensStream(
             tokens,
-            (progress: any) => {
+            (progress: DynamicPayload) => {
                 sendSSE('progress', progress);
             },
             !!skipDuplicateCheck // 默认为 false (执行去重)
@@ -465,7 +468,7 @@ export async function handleBatchImportCodexTokens(req: any, res: any) {
         res.end();
         return true;
 
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Codex Batch Import] Error:', error);
         if (res.headersSent) {
             res.write(`event: error\n`);
@@ -485,9 +488,9 @@ export async function handleBatchImportCodexTokens(req: any, res: any) {
 /**
  * 导入 Codex 外部凭据格式（CPA / sub2api，带实时进度 SSE）
  */
-export async function handleImportCodexExternalCredentials(req: any, res: any) {
+export async function handleImportCodexExternalCredentials(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req, { maxBytes: CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES }) as any;
+        const body = await getRequestBody(req, { maxBytes: CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES }) as DynamicPayload;
         const { source, payload, skipDuplicateCheck } = body;
 
         if (!['cpa', 'sub2api'].includes(source) || payload === undefined) {
@@ -527,7 +530,7 @@ export async function handleImportCodexExternalCredentials(req: any, res: any) {
             'X-Accel-Buffering': 'no'
         });
 
-        const sendSSE = (event: any, data: any) => {
+        const sendSSE = (event: string, data: unknown): void => {
             res.write(`event: ${event}\n`);
             res.write(`data: ${JSON.stringify(data)}\n\n`);
         };
@@ -535,12 +538,12 @@ export async function handleImportCodexExternalCredentials(req: any, res: any) {
         sendSSE('start', {
             source,
             total: tokens.length,
-            accessTokenOnlyCount: tokens.filter((token: any) => token.access_token_only).length
+            accessTokenOnlyCount: tokens.filter((token: DynamicPayload) => token.access_token_only).length
         });
 
         const result = await batchImportCodexTokensStream(
             tokens,
-            (progress: any) => {
+            (progress: DynamicPayload) => {
                 sendSSE('progress', {
                     ...progress,
                     source
@@ -557,13 +560,13 @@ export async function handleImportCodexExternalCredentials(req: any, res: any) {
             total: result.total,
             successCount: result.success,
             failedCount: result.failed,
-            accessTokenOnlyCount: tokens.filter((token: any) => token.access_token_only).length,
+            accessTokenOnlyCount: tokens.filter((token: DynamicPayload) => token.access_token_only).length,
             details: result.details
         });
 
         res.end();
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Codex External Import] Error:', error);
         if (res.headersSent) {
             res.write(`event: error\n`);
@@ -583,9 +586,9 @@ export async function handleImportCodexExternalCredentials(req: any, res: any) {
 /**
  * 导入 AWS SSO 凭据用于 Kiro（支持单个或批量导入）
  */
-export async function handleImportAwsCredentials(req: any, res: any) {
+export async function handleImportAwsCredentials(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { credentials, skipDuplicateCheck } = body;
 
         if (!credentials) {
@@ -610,10 +613,10 @@ export async function handleImportAwsCredentials(req: any, res: any) {
             }
 
             // 验证每个凭据对象的必需字段
-            const validationErrors: any[] = [];
+            const validationErrors: DynamicPayload[] = [];
             for (let i = 0; i < credentials.length; i++) {
                 const cred = credentials[i];
-                const missingFields: any[] = [];
+                const missingFields: string[] = [];
                 if (!cred.clientId) missingFields.push('clientId');
                 if (!cred.clientSecret) missingFields.push('clientSecret');
                 if (!cred.accessToken) missingFields.push('accessToken');
@@ -649,7 +652,7 @@ export async function handleImportAwsCredentials(req: any, res: any) {
             });
 
             // 发送 SSE 事件的辅助函数
-            const sendSSE = (event: any, data: any) => {
+            const sendSSE = (event: string, data: unknown): void => {
                 res.write(`event: ${event}\n`);
                 res.write(`data: ${JSON.stringify(data)}\n\n`);
             };
@@ -660,11 +663,11 @@ export async function handleImportAwsCredentials(req: any, res: any) {
             // 批量导入
             let successCount = 0;
             let failedCount = 0;
-            const details: any[] = [];
+            const details: DynamicPayload[] = [];
 
             for (let i = 0; i < credentials.length; i++) {
                 const cred = credentials[i];
-                const progressData: any = {
+                const progressData: DynamicPayload = {
                     index: i + 1,
                     total: credentials.length,
                     current: null
@@ -689,7 +692,7 @@ export async function handleImportAwsCredentials(req: any, res: any) {
                         };
                         failedCount++;
                     }
-                } catch (error: any) {
+                } catch (caught) { const error = caught as DynamicPayload;
                     progressData.current = {
                         index: i + 1,
                         success: false,
@@ -725,7 +728,7 @@ export async function handleImportAwsCredentials(req: any, res: any) {
         } else if (typeof credentials === 'object') {
             // 单个导入模式
             // 验证必需字段 - 需要四个字段都存在
-            const missingFields: any[] = [];
+            const missingFields: string[] = [];
             if (!credentials.clientId) missingFields.push('clientId');
             if (!credentials.clientSecret) missingFields.push('clientSecret');
             if (!credentials.accessToken) missingFields.push('accessToken');
@@ -772,7 +775,7 @@ export async function handleImportAwsCredentials(req: any, res: any) {
             return true;
         }
 
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Kiro AWS Import] Error:', error);
         // 如果已经开始发送 SSE，则发送错误事件
         if (res.headersSent) {
