@@ -3,6 +3,32 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import multer from 'multer';
 import logger from '../utils/logger.ts';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+
+interface MulterFileLike {
+    originalname: string;
+    path?: string;
+    [key: string]: unknown;
+}
+
+type UploadRequest = IncomingMessage & {
+    file?: MulterFileLike;
+    body?: DynamicPayload;
+};
+
+interface EventBroadcastGlobals {
+    eventClients: ServerResponse[];
+    logBuffer: DynamicPayload[];
+}
+
+function broadcastGlobals(): EventBroadcastGlobals {
+    const globals = global as unknown as Partial<EventBroadcastGlobals>;
+    if (!globals.eventClients) globals.eventClients = [];
+    if (!globals.logBuffer) globals.logBuffer = [];
+    return globals as EventBroadcastGlobals;
+}
 
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = path.join(process.cwd(), 'configs', 'token-store.json');
@@ -15,10 +41,10 @@ const USAGE_CACHE_FILE = path.join(process.cwd(), 'configs', 'usage-cache.json')
  * @param {string} eventType - The type of event
  * @param {any} data - The data to broadcast
  */
-export function broadcastEvent(eventType: any, data: any) {
-    if ((global as any).eventClients && (global as any).eventClients.length > 0) {
+export function broadcastEvent(eventType: string, data: unknown): void {
+    if (broadcastGlobals().eventClients && broadcastGlobals().eventClients.length > 0) {
         const payload = typeof data === 'string' ? data : JSON.stringify(data);
-        (global as any).eventClients.forEach((client: any) => {
+        broadcastGlobals().eventClients.forEach((client: ServerResponse) => {
             client.write(`event: ${eventType}\n`);
             client.write(`data: ${payload}\n\n`);
         });
@@ -28,7 +54,7 @@ export function broadcastEvent(eventType: any, data: any) {
 /**
  * Server-Sent Events for real-time updates
  */
-export async function handleEvents(req: any, res: any) {
+export async function handleEvents(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -38,36 +64,36 @@ export async function handleEvents(req: any, res: any) {
 
     try {
         res.write('\n');
-    } catch (err: any) {
+    } catch (caught) { const err = caught as DynamicPayload;
         logger.error('[Event Broadcast] Failed to write initial data:', err.message);
         return true;
     }
 
     // Store the response object for broadcasting
-    if (!(global as any).eventClients) {
-        (global as any).eventClients = [];
+    if (!broadcastGlobals().eventClients) {
+        broadcastGlobals().eventClients = [];
     }
-    (global as any).eventClients.push(res);
+    broadcastGlobals().eventClients.push(res);
 
     // Keep connection alive
     const keepAlive = setInterval(() => {
         if (!res.writableEnded && !res.destroyed) {
             try {
                 res.write(':\n\n');
-            } catch (err: any) {
+            } catch (caught) { const err = caught as DynamicPayload;
                 logger.error('[Event Broadcast] Failed to write keepalive:', err.message);
                 clearInterval(keepAlive);
-                (global as any).eventClients = (global as any).eventClients.filter((r: any) => r !== res);
+                broadcastGlobals().eventClients = broadcastGlobals().eventClients.filter((r: ServerResponse) => r !== res);
             }
         } else {
             clearInterval(keepAlive);
-            (global as any).eventClients = (global as any).eventClients.filter((r: any) => r !== res);
+            broadcastGlobals().eventClients = broadcastGlobals().eventClients.filter((r: ServerResponse) => r !== res);
         }
     }, 30000);
 
     req.on('close', () => {
         clearInterval(keepAlive);
-        (global as any).eventClients = (global as any).eventClients.filter((r: any) => r !== res);
+        broadcastGlobals().eventClients = broadcastGlobals().eventClients.filter((r: ServerResponse) => r !== res);
     });
 
     return true;
@@ -78,23 +104,23 @@ export async function handleEvents(req: any, res: any) {
  */
 export function initializeUIManagement() {
     // Initialize log broadcasting for UI
-    if (!(global as any).eventClients) {
-        (global as any).eventClients = [];
+    if (!broadcastGlobals().eventClients) {
+        broadcastGlobals().eventClients = [];
     }
-    if (!(global as any).logBuffer) {
-        (global as any).logBuffer = [];
+    if (!broadcastGlobals().logBuffer) {
+        broadcastGlobals().logBuffer = [];
     }
 
     // Override console.log to broadcast logs
     const originalLog = console.log;
-    console.log = function(...args: any[]) {
+    console.log = function(...args: unknown[]): void {
         originalLog.apply(console, args);
 
-        let message = args.map((arg: any) => {
+        let message = args.map((arg: unknown) => {
             if (typeof arg === 'string') return arg;
             try {
                 return JSON.stringify(arg);
-            } catch (e: any) {
+            } catch (caught) { const e = caught as DynamicPayload;
                 return String(arg);
             }
         }).join(' ');
@@ -107,23 +133,23 @@ export function initializeUIManagement() {
             level: 'info',
             message: message
         };
-        (global as any).logBuffer.push(logEntry);
-        if ((global as any).logBuffer.length > 100) {
-            (global as any).logBuffer.shift();
+        broadcastGlobals().logBuffer.push(logEntry);
+        if (broadcastGlobals().logBuffer.length > 100) {
+            broadcastGlobals().logBuffer.shift();
         }
         broadcastEvent('log', logEntry);
     };
 
     // Override console.error to broadcast errors
     const originalError = console.error;
-    console.error = function(...args: any[]) {
+    console.error = function(...args: unknown[]): void {
         originalError.apply(console, args);
 
-        let message = args.map((arg: any) => {
+        let message = args.map((arg: unknown) => {
             if (typeof arg === 'string') return arg;
             try {
                 return JSON.stringify(arg);
-            } catch (e: any) {
+            } catch (caught) { const e = caught as DynamicPayload;
                 return String(arg);
             }
         }).join(' ');
@@ -136,9 +162,9 @@ export function initializeUIManagement() {
             level: 'error',
             message: message
         };
-        (global as any).logBuffer.push(logEntry);
-        if ((global as any).logBuffer.length > 100) {
-            (global as any).logBuffer.shift();
+        broadcastGlobals().logBuffer.push(logEntry);
+        if (broadcastGlobals().logBuffer.length > 100) {
+            broadcastGlobals().logBuffer.shift();
         }
         broadcastEvent('log', logEntry);
     };
@@ -146,25 +172,25 @@ export function initializeUIManagement() {
 
 // 配置multer中间件
 const storage = multer.diskStorage({
-    destination: async (req: any, file: any, cb: any) => {
+    destination: async (_req: unknown, _file: MulterFileLike, cb: (error: unknown, destination?: string) => void): Promise<void> => {
         try {
             // multer在destination回调时req.body还未解析，先使用默认路径
             // 实际的provider会在文件上传完成后从req.body中获取
             const uploadPath = path.join(process.cwd(), 'configs', 'temp');
             await fs.mkdir(uploadPath, { recursive: true });
             cb(null, uploadPath);
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             cb(error);
         }
     },
-    filename: (req: any, file: any, cb: any) => {
+    filename: (_req: unknown, file: MulterFileLike, cb: (error: unknown, filename?: string) => void): void => {
         const timestamp = Date.now();
         const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
         cb(null, `${timestamp}_${sanitizedName}`);
     }
 });
 
-const fileFilter = (req: any, file: any, cb: any) => {
+const fileFilter = (_req: unknown, file: MulterFileLike, cb: (error: unknown, acceptFile?: boolean) => void): void => {
     const allowedTypes = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(ext)) {
@@ -194,15 +220,15 @@ export const upload = multer({
  * @returns {Promise<boolean>} 始终返回 true 表示请求已处理
  */
 export function handleUploadOAuthCredentials(
-    req: any,
-    res: any,
+    req: UploadRequest,
+    res: ServerResponse,
     options: {
-        providerMap?: Record<string, any>;
+        providerMap?: Record<string, DynamicPayload>;
         logPrefix?: string;
         userInfo?: string;
-        customUpload?: any;
+        customUpload?: DynamicPayload | null;
     } = {}
-) {
+): Promise<boolean> {
     const {
         providerMap = {},
         logPrefix = '[UI API]',
@@ -212,14 +238,15 @@ export function handleUploadOAuthCredentials(
 
     const uploadMiddleware = customUpload ? customUpload.single('file') : upload.single('file');
 
-    return new Promise((resolve: any) => {
-        uploadMiddleware(req, res, async (err: any) => {
+    return new Promise<boolean>((resolve) => {
+        uploadMiddleware(req, res, async (err: unknown) => {
+            const uploadError = err as DynamicPayload;
             if (err) {
-                logger.error(`${logPrefix} File upload error:`, err.message);
+                logger.error(`${logPrefix} File upload error:`, uploadError.message);
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
                     error: {
-                        message: err.message || 'File upload failed'
+                        message: uploadError.message || 'File upload failed'
                     }
                 }));
                 resolve(true);
@@ -300,7 +327,7 @@ export function handleUploadOAuthCredentials(
                 }));
                 resolve(true);
 
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 logger.error(`${logPrefix} File upload processing error:`, error);
                 // 发生错误时确保清理上传至 configs/temp 目录的临时文件，避免堆积
                 if (req.file && req.file.path && existsSync(req.file.path)) {

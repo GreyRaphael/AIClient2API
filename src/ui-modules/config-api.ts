@@ -1,3 +1,8 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
+
+type DynamicPayload = Record<string, any>;
+
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
@@ -12,7 +17,7 @@ import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { validateCredentials } from './auth.ts';
 
-function parseBooleanConfig(value: any) {
+function parseBooleanConfig(value: unknown): boolean {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') return value.toLowerCase() === 'true';
     return Boolean(value);
@@ -21,7 +26,7 @@ function parseBooleanConfig(value: any) {
 /**
  * 重载配置文件
  */
-export async function reloadConfig(providerPoolManager: any) {
+export async function reloadConfig(providerPoolManager: ProviderPoolManager | null): Promise<DynamicPayload> {
     try {
         const configPath = 'configs/config.json';
         // 使用文件锁进行重载，防止在写入期间读取
@@ -42,14 +47,14 @@ export async function reloadConfig(providerPoolManager: any) {
             logger.info('[UI API] Configuration reloaded:');
 
             // Update initApiService - 清空并重新初始化服务实例
-            Object.keys(serviceInstances).forEach((key: any) => delete (serviceInstances as any)[key]);
+            Object.keys(serviceInstances).forEach((key: string) => delete serviceInstances[key]);
             initApiService(CONFIG);
 
             logger.info('[UI API] Configuration reloaded successfully');
 
             return newConfig;
         });
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to reload configuration:', error);
         throw error;
     }
@@ -58,13 +63,13 @@ export async function reloadConfig(providerPoolManager: any) {
 /**
  * 获取配置
  */
-export async function handleGetConfig(req: any, res: any, currentConfig: any) {
+export async function handleGetConfig(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
     let systemPrompt = '';
 
     if (currentConfig.SYSTEM_PROMPT_FILE_PATH && existsSync(currentConfig.SYSTEM_PROMPT_FILE_PATH)) {
         try {
             systemPrompt = readFileSync(currentConfig.SYSTEM_PROMPT_FILE_PATH, 'utf-8');
-        } catch (e: any) {
+        } catch (caught) { const e = caught as DynamicPayload;
             logger.warn('[UI API] Failed to read system prompt file:', e.message);
         }
     }
@@ -129,18 +134,18 @@ export async function handleGetConfig(req: any, res: any, currentConfig: any) {
 /**
  * 更新配置
  */
-export async function handleUpdateConfig(req: any, res: any, currentConfig: any) {
+export async function handleUpdateConfig(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
     try {
         const body = await getRequestBody(req);
         const configPath = 'configs/config.json';
         return await withFileLock(configPath, () => _handleUpdateConfig(req, res, currentConfig, body));
-    } catch (err: any) {
+    } catch (caught) { const err = caught as DynamicPayload;
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleUpdateConfig(req: any, res: any, currentConfig: any, body: any) {
+async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, body: DynamicPayload): Promise<boolean> {
     try {
         const newConfig = body;
 
@@ -226,12 +231,12 @@ async function _handleUpdateConfig(req: any, res: any, currentConfig: any, body:
         if (newConfig.TRUSTED_PROXY_IPS !== undefined) {
             if (Array.isArray(newConfig.TRUSTED_PROXY_IPS)) {
                 currentConfig.TRUSTED_PROXY_IPS = newConfig.TRUSTED_PROXY_IPS
-                    .map((item: any) => String(item).trim())
+                    .map((item: unknown) => String(item).trim())
                     .filter(Boolean);
             } else if (typeof newConfig.TRUSTED_PROXY_IPS === 'string') {
                 currentConfig.TRUSTED_PROXY_IPS = newConfig.TRUSTED_PROXY_IPS
                     .split(',')
-                    .map((item: any) => item.trim())
+                    .map((item: string) => item.trim())
                     .filter(Boolean);
             }
         }
@@ -342,7 +347,7 @@ async function _handleUpdateConfig(req: any, res: any, currentConfig: any, body:
                 });
 
                 logger.info('[UI API] System prompt updated');
-            } catch (e: any) {
+            } catch (caught) { const e = caught as DynamicPayload;
                 logger.warn('[UI API] Failed to write system prompt:', e.message);
             }
         }
@@ -409,7 +414,7 @@ async function _handleUpdateConfig(req: any, res: any, currentConfig: any, body:
                 type: 'main_config',
                 timestamp: new Date().toISOString()
             });
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error('[UI API] Failed to save configuration to file:', error.message);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -431,7 +436,7 @@ async function _handleUpdateConfig(req: any, res: any, currentConfig: any, body:
             details: 'Configuration has been updated in both memory and config.json file'
         }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message } }));
         return true;
@@ -441,7 +446,7 @@ async function _handleUpdateConfig(req: any, res: any, currentConfig: any, body:
 /**
  * 重载配置文件
  */
-export async function handleReloadConfig(req: any, res: any, providerPoolManager: any) {
+export async function handleReloadConfig(req: IncomingMessage, res: ServerResponse, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
     try {
         // 调用重载配置函数
         const newConfig = await reloadConfig(providerPoolManager);
@@ -465,7 +470,7 @@ export async function handleReloadConfig(req: any, res: any, providerPoolManager
             }
         }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to reload config files:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -480,9 +485,9 @@ export async function handleReloadConfig(req: any, res: any, providerPoolManager
 /**
  * 更新管理员密码
  */
-export async function handleUpdateAdminPassword(req: any, res: any) {
+export async function handleUpdateAdminPassword(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { password } = body;
 
         if (!password || password.trim() === '') {
@@ -509,8 +514,8 @@ export async function handleUpdateAdminPassword(req: any, res: any) {
 
         // 使用 PBKDF2 哈希存储密码，避免明文写入文件
         const salt = crypto.randomBytes(16).toString('hex');
-        const hash = await new Promise((resolve: any, reject: any) =>
-            crypto.pbkdf2(password.trim(), salt, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err: any, key: any) =>
+        const hash = await new Promise<string>((resolve, reject) =>
+            crypto.pbkdf2(password.trim(), salt, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err: Error | null, key: Buffer) =>
                 err ? reject(err) : resolve(key.toString('hex'))
             )
         );
@@ -531,7 +536,7 @@ export async function handleUpdateAdminPassword(req: any, res: any) {
             message: 'Admin password updated successfully'
         }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to update admin password:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

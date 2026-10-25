@@ -1,3 +1,7 @@
+import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
+
+type DynamicPayload = Record<string, any>;
+
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
@@ -11,8 +15,11 @@ import { getCredentialProviderDefinitions } from '../providers/provider-registry
  * @param {Object} providerPoolManager - Provider pool manager instance
  * @returns {Promise<Array>} Array of configuration file objects
  */
-export async function scanConfigFiles(currentConfig: any, providerPoolManager: any) {
-    const configFiles: any[] = [];
+export async function scanConfigFiles(
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): Promise<DynamicPayload[]> {
+    const configFiles: DynamicPayload[] = [];
 
     // 只扫描configs目录
     const configsPath = path.join(process.cwd(), 'configs');
@@ -40,7 +47,7 @@ export async function scanConfigFiles(currentConfig: any, providerPoolManager: a
 
     // 检查提供商池文件中的所有 OAuth 凭据路径 - 标准化路径格式
     if (providerPools) {
-        for (const providers of Object.values(providerPools) as any[]) {
+        for (const providers of Object.values(providerPools) as DynamicPayload[][]) {
             for (const provider of providers) {
                 for (const definition of credentialDefinitions) {
                     const configKey = definition.credentialPathKey;
@@ -55,7 +62,7 @@ export async function scanConfigFiles(currentConfig: any, providerPoolManager: a
         // 扫描configs目录下的所有子目录和文件
         const configsFiles = await scanOAuthDirectory(configsPath, usedPaths, currentConfig, providerPools);
         configFiles.push(...configsFiles);
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn(`[Config Scanner] Failed to scan configs directory:`, error.message);
     }
 
@@ -68,7 +75,12 @@ export async function scanConfigFiles(currentConfig: any, providerPoolManager: a
  * @param {Set} usedPaths - Set of paths currently in use
  * @returns {Promise<Object|null>} OAuth file information object
  */
-export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentConfig: any, providerPools: any) {
+export async function analyzeOAuthFile(
+    filePath: string,
+    usedPaths: Set<string>,
+    currentConfig: DynamicPayload,
+    providerPools: DynamicPayload | null
+): Promise<DynamicPayload | null> {
     try {
         const stats = await fs.stat(filePath);
         const ext = path.extname(filePath).toLowerCase();
@@ -81,8 +93,8 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
         let isValid = true;
         let errorMessage = '';
         let oauthProvider = 'unknown';
-        let expiresAt: any = null;
-        let expiresAtTS: any = null;
+        let expiresAt: string | null = null;
+        let expiresAtTS: number | null = null;
         let usageInfo = getFileUsageInfo(relativePath, filename, usedPaths, currentConfig, providerPools);
 
         // 从路径检测提供商
@@ -153,7 +165,7 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
                         }
 
                         // 提取过期信息
-                        const getTimestamp = (val: any) => {
+                        const getTimestamp = (val: unknown): number | null => {
                             if (val === null || val === undefined || val === '') return null;
                             if (typeof val === 'number') return val;
                             if (typeof val === 'string') {
@@ -164,7 +176,7 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
                             return null;
                         };
 
-                        const timestamps: any[] = [];
+                        const timestamps: number[] = [];
 
                         // 收集所有可能的过期时间点
                         const possibleSources = [jsonData];
@@ -172,10 +184,10 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
                         if (jsonData.credentials) possibleSources.push(jsonData.credentials);
                         if (jsonData.auth) possibleSources.push(jsonData.auth);
 
-                        possibleSources.forEach((src: any) => {
+                        possibleSources.forEach((src: DynamicPayload) => {
                             if (!src || typeof src !== 'object') return;
 
-                            ['expiry_date', 'expiresAt', 'expires_at', 'expiry', 'expired'].forEach((key: any) => {
+                            ['expiry_date', 'expiresAt', 'expires_at', 'expiry', 'expired'].forEach((key: string) => {
                                 const ts = getTimestamp(src[key]);
                                 if (ts) {
                                     // 启发式转换秒到毫秒
@@ -209,7 +221,7 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
                             }
                         }
                     }
-                } catch (jsonErr: any) {
+                } catch (caught) { const jsonErr = caught as DynamicPayload;
                     isValid = false;
                     errorMessage = `JSON Parse Error: ${jsonErr.message}`;
                 }
@@ -228,7 +240,7 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
                     if (oauthProvider === 'unknown') oauthProvider = 'oauth_credentials';
                 }
             }
-        } catch (readError: any) {
+        } catch (caught) { const readError = caught as DynamicPayload;
             isValid = false;
             errorMessage = `Unable to read file: ${readError.message}`;
         }
@@ -249,7 +261,7 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
             usageInfo: usageInfo,
             preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
         };
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn(`[OAuth Analyzer] Failed to analyze file ${filePath}:`, error.message);
         return null;
     }
@@ -263,8 +275,14 @@ export async function analyzeOAuthFile(filePath: any, usedPaths: any, currentCon
  * @param {Object} currentConfig - Current configuration
  * @returns {Object} Usage information object
  */
-function getFileUsageInfo(relativePath: any, fileName: any, usedPaths: any, currentConfig: any, providerPools: any) {
-    const usageInfo: any = {
+function getFileUsageInfo(
+    relativePath: string,
+    fileName: string,
+    usedPaths: Set<string>,
+    currentConfig: DynamicPayload,
+    providerPools: DynamicPayload | null
+): DynamicPayload {
+    const usageInfo: DynamicPayload = {
         isUsed: false,
         usageType: null,
         usageDetails: []
@@ -301,13 +319,13 @@ function getFileUsageInfo(relativePath: any, fileName: any, usedPaths: any, curr
     const poolsToUse = providerPools || currentConfig.providerPools;
     if (poolsToUse) {
         // 使用 flatMap 将双重循环优化为单层循环 O(n)
-        const allProviders = Object.entries(poolsToUse as Record<string, any[]>).flatMap(
-            ([providerType, providers]: any) =>
-                providers.map((provider: any, index: any) => ({ provider, providerType, index }))
+        const allProviders = Object.entries(poolsToUse as Record<string, DynamicPayload[]>).flatMap(
+            ([providerType, providers]) =>
+                providers.map((provider: DynamicPayload, index: number) => ({ provider, providerType, index }))
         );
 
         for (const { provider, providerType, index } of allProviders) {
-            const providerUsages: any[] = [];
+            const providerUsages: DynamicPayload[] = [];
 
             for (const definition of getCredentialProviderDefinitions()) {
                 const configKey = definition.credentialPathKey;
@@ -354,8 +372,13 @@ function getFileUsageInfo(relativePath: any, fileName: any, usedPaths: any, curr
  * @param {Object} currentConfig - Current configuration
  * @returns {Promise<Array>} Array of OAuth configuration file objects
  */
-async function scanOAuthDirectory(dirPath: any, usedPaths: any, currentConfig: any, providerPools: any) {
-    const oauthFiles: any[] = [];
+async function scanOAuthDirectory(
+    dirPath: string,
+    usedPaths: Set<string>,
+    currentConfig: DynamicPayload,
+    providerPools: DynamicPayload | null
+): Promise<DynamicPayload[]> {
+    const oauthFiles: DynamicPayload[] = [];
 
     try {
         const files = await fs.readdir(dirPath, { withFileTypes: true });
@@ -382,7 +405,7 @@ async function scanOAuthDirectory(dirPath: any, usedPaths: any, currentConfig: a
                 }
             }
         }
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn(`[OAuth Scanner] Failed to scan directory ${dirPath}:`, error.message);
     }
 
