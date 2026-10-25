@@ -277,7 +277,7 @@ class PluginManager {
             try {
                 const init = plugin.init;
                 if (typeof init === 'function') {
-                    await this.executePluginOperation(plugin, 'init', () => init(config));
+                    await this.executePluginOperation(plugin, 'init', () => init.call(plugin, config));
                     logger.info(`[PluginManager] Initialized plugin: ${name}`);
                 }
                 plugin._enabled = true;
@@ -300,7 +300,7 @@ class PluginManager {
             try {
                 const destroy = plugin.destroy;
                 if (typeof destroy === 'function') {
-                    await this.executePluginOperation(plugin, 'destroy', () => destroy());
+                    await this.executePluginOperation(plugin, 'destroy', () => destroy.call(plugin));
                     logger.info(`[PluginManager] Destroyed plugin: ${name}`);
                 }
             } catch (caught) { const error = caught as DynamicPayload;
@@ -389,7 +389,7 @@ class PluginManager {
             try {
                 const authenticate = plugin.authenticate;
                 if (!authenticate) continue;
-                const result = await this.executePluginOperation(plugin, 'authenticate', () => authenticate(req, res, requestUrl, config));
+                const result = await this.executePluginOperation(plugin, 'authenticate', () => authenticate.call(plugin, req, res, requestUrl, config));
 
                 if (!result) continue;
 
@@ -448,7 +448,7 @@ class PluginManager {
             try {
                 const middleware = plugin.middleware;
                 if (!middleware) continue;
-                const result = await this.executePluginOperation(plugin, 'middleware', () => middleware(req, res, requestUrl, config));
+                const result = await this.executePluginOperation(plugin, 'middleware', () => middleware.call(plugin, req, res, requestUrl, config));
 
                 if (!result) continue;
 
@@ -590,12 +590,13 @@ class PluginManager {
      */
     async executeHook(hookName: string, ...args: unknown[]): Promise<void> {
         for (const plugin of this.getEnabledPlugins()) {
-            if (!plugin.hooks || typeof plugin.hooks[hookName] !== 'function') continue;
+            const hooks = plugin.hooks;
+            if (!hooks || typeof hooks[hookName] !== 'function') continue;
 
             try {
-                const hook = plugin.hooks[hookName] as ((...hookArgs: unknown[]) => unknown) | undefined;
+                const hook = hooks[hookName] as ((...hookArgs: unknown[]) => unknown) | undefined;
                 if (hook) {
-                    await this.executePluginOperation(plugin, `hook:${hookName}`, () => hook(...args));
+                    await this.executePluginOperation(plugin, `hook:${hookName}`, () => hook.call(hooks, ...args));
                 }
             } catch (caught) { const error = caught as DynamicPayload;
                 this.recordPluginError(plugin, `hook:${hookName}`, error);
@@ -696,14 +697,14 @@ class PluginManager {
             }
             const init = plugin.init;
             if (!plugin._enabled && typeof init === 'function') {
-                await this.executePluginOperation(plugin, 'init', () => init(this.config ?? {}));
+                await this.executePluginOperation(plugin, 'init', () => init.call(plugin, this.config ?? {}));
             }
             plugin._enabled = true;
             plugin._errorCount = 0;
         } else {
             const destroy = plugin.destroy;
             if (plugin._enabled && typeof destroy === 'function') {
-                await this.executePluginOperation(plugin, 'destroy', () => destroy());
+                await this.executePluginOperation(plugin, 'destroy', () => destroy.call(plugin));
             }
             plugin._enabled = false;
         }
@@ -732,7 +733,7 @@ class PluginManager {
             const destroy = plugin.destroy;
             if (plugin._enabled && typeof destroy === 'function') {
                 try {
-                    await this.executePluginOperation(plugin, 'destroy', () => destroy());
+                    await this.executePluginOperation(plugin, 'destroy', () => destroy.call(plugin));
                 } catch (caught) { const error = caught as DynamicPayload;
                     logger.error(`[PluginManager] Failed to destroy plugin ${name} during uninstall:`, error.message);
                 }
