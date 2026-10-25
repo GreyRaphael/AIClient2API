@@ -23,6 +23,8 @@ import { getDynamicProviderTypes, getProviderCapabilityTtlMs } from './provider-
  * 该模块是模型列表的唯一读取入口，端点、路由、健康检查都不应再自行推导模型集合。
  */
 
+type DynamicPayload = Record<string, any>;
+
 export const CAPABILITY_SOURCE = {
     LIVE: 'live',
     PERSISTED: 'persisted',
@@ -39,7 +41,7 @@ const BASE_BACKOFF_MS = 60 * 1000;
 const PROVIDER_TTL_MS = getProviderCapabilityTtlMs();
 const DYNAMIC_PROVIDERS = getDynamicProviderTypes();
 
-const SOURCE_PRIORITY = {
+const SOURCE_PRIORITY: Record<string, number> = {
     [CAPABILITY_SOURCE.LIVE]: 4,
     [CAPABILITY_SOURCE.PERSISTED]: 3,
     [CAPABILITY_SOURCE.STATIC]: 2,
@@ -50,7 +52,7 @@ function isTestEnv() {
     return process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
 }
 
-function getBaseProviderType(providerType: any) {
+function getBaseProviderType(providerType: string | null | undefined): string {
     if (!providerType) return '';
     for (const known of DYNAMIC_PROVIDERS) {
         if (providerType === known || providerType.startsWith(known + '-')) {
@@ -60,11 +62,11 @@ function getBaseProviderType(providerType: any) {
     return providerType;
 }
 
-export function isDynamicProvider(providerType: any) {
+export function isDynamicProvider(providerType: string | null | undefined): boolean {
     return DYNAMIC_PROVIDERS.has(getBaseProviderType(providerType));
 }
 
-export function capabilityKey(providerType: any, nodeConfig: any = {}) {
+export function capabilityKey(providerType: string, nodeConfig: DynamicPayload = {}): string {
     return `${providerType}:${nodeConfig?.uuid || 'default'}`;
 }
 
@@ -72,7 +74,7 @@ function getCacheFilePath() {
     return CONFIG.MODEL_CAPABILITY_CACHE_PATH || DEFAULT_CACHE_PATH;
 }
 
-function getTtlMs(providerType: any) {
+function getTtlMs(providerType: string): number {
     const configured = Number(CONFIG.MODEL_CACHE_TTL_MS);
     if (Number.isFinite(configured) && configured > 0) {
         return configured;
@@ -88,11 +90,11 @@ function getColdStartTimeoutMs() {
     return DEFAULT_COLD_START_TIMEOUT_MS;
 }
 
-function getBaselineModels(providerType: any) {
+function getBaselineModels(providerType: string): string[] {
     return normalizeModelIds(getProviderModels(providerType));
 }
 
-function pickSource(sources: any) {
+function pickSource(sources: string[]): string {
     let best = CAPABILITY_SOURCE.BASELINE;
     for (const source of sources) {
         if ((SOURCE_PRIORITY[source] || 0) > (SOURCE_PRIORITY[best] || 0)) {
@@ -106,9 +108,9 @@ function pickSource(sources: any) {
  * 内存缓存实现（测试与降级使用）
  */
 export class MemoryCapabilityStore {
-    entries: Map<string, any>;
+    entries: Map<string, DynamicPayload>;
 
-    constructor(initial: any = null) {
+    constructor(initial: DynamicPayload | null = null) {
         this.entries = new Map();
         if (initial && typeof initial === 'object') {
             const nodes = initial.nodes && typeof initial.nodes === 'object' ? initial.nodes : initial;
@@ -120,35 +122,36 @@ export class MemoryCapabilityStore {
         }
     }
 
-    getEntry(key: any) {
+    getEntry(key: string): DynamicPayload | null {
         return this.entries.get(key) || null;
     }
 
-    setEntry(key: any, entry: any) {
+    setEntry(key: string, entry: DynamicPayload): void {
         this.entries.set(key, entry);
     }
 
-    deleteEntry(key: any) {
+    deleteEntry(key: string): void {
         this.entries.delete(key);
     }
 
-    allEntries() {
+    allEntries(): DynamicPayload[] {
         return Array.from(this.entries.values());
     }
 
     toJSON() {
-        const nodes = {};
+        const nodes: Record<string, DynamicPayload> = {};
         for (const [key, entry] of this.entries.entries()) {
             // 只持久化“成功发现”的结果；失败元数据仅保留在内存中。
             if (entry?.source === CAPABILITY_SOURCE.LIVE && !entry.lastError) {
-                (nodes as any)[key] = entry;
+                nodes[key] = entry;
             }
         }
         return { version: 1, nodes };
     }
 
-    async flush() {
+    flush(): Promise<unknown> {
         // 内存实现无需落盘
+        return Promise.resolve();
     }
 }
 
@@ -157,9 +160,9 @@ export class MemoryCapabilityStore {
  */
 export class FileCapabilityStore extends MemoryCapabilityStore {
     filePath: string;
-    _writeChain: Promise<any>;
+    _writeChain: Promise<unknown>;
 
-    constructor(filePath: any) {
+    constructor(filePath: string) {
         super();
         this.filePath = filePath;
         this._writeChain = Promise.resolve();
@@ -169,15 +172,15 @@ export class FileCapabilityStore extends MemoryCapabilityStore {
     _load() {
         try {
             if (!existsSync(this.filePath)) return;
-            const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-            const nodes: any = parsed?.nodes && typeof parsed.nodes === 'object' ? parsed.nodes : null;
+            const parsed: DynamicPayload = JSON.parse(readFileSync(this.filePath, 'utf-8'));
+            const nodes: Record<string, DynamicPayload> | null = parsed?.nodes && typeof parsed.nodes === 'object' ? parsed.nodes : null;
             if (!nodes) return;
             for (const [key, entry] of Object.entries(nodes)) {
-                if (entry && typeof entry === 'object' && Array.isArray((entry as any).models)) {
+                if (entry && typeof entry === 'object' && Array.isArray(entry.models)) {
                     this.entries.set(key, entry);
                 }
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.warn(`[ModelCapability] Failed to load cache ${this.filePath}: ${error.message}`);
         }
     }
@@ -189,16 +192,17 @@ export class FileCapabilityStore extends MemoryCapabilityStore {
                 JSON.stringify(this.toJSON(), null, 2),
                 { encoding: 'utf8', mode: 0o600 }
             )))
-            .catch((error: any) => {
-                logger.warn(`[ModelCapability] Failed to persist cache ${this.filePath}: ${error.message}`);
+            .catch((error: unknown) => {
+                const err = error as DynamicPayload;
+                logger.warn(`[ModelCapability] Failed to persist cache ${this.filePath}: ${err.message}`);
             });
         return this._writeChain;
     }
 }
 
-let capabilityStore: any = null;
+let capabilityStore: MemoryCapabilityStore | null = null;
 
-export function setCapabilityStore(store: any) {
+export function setCapabilityStore(store: MemoryCapabilityStore | null): void {
     capabilityStore = store;
 }
 
@@ -206,7 +210,7 @@ export function resetCapabilityStore() {
     capabilityStore = null;
 }
 
-export function getCapabilityStore() {
+export function getCapabilityStore(): MemoryCapabilityStore {
     if (capabilityStore) return capabilityStore;
 
     if (isTestEnv() || process.env.MODEL_CAPABILITY_CACHE_DISABLED === '1') {
@@ -224,7 +228,11 @@ export function getCapabilityStore() {
  * - supportedModels 为数组：保留显式选择，并自动吸收相对上次候选快照的新模型；
  * - 结果始终与当前候选集取交集，确保节点候选只与上游 model_list 一致。
  */
-function resolveSelectedModels(providerType: any, nodeConfig: any, candidateModels: any) {
+function resolveSelectedModels(
+    providerType: string,
+    nodeConfig: DynamicPayload,
+    candidateModels: string[]
+): { selectedModels: string[]; selectionMode: 'all' | 'explicit' } {
     if (!Array.isArray(nodeConfig?.supportedModels)) {
         return {
             selectedModels: candidateModels,
@@ -237,10 +245,10 @@ function resolveSelectedModels(providerType: any, nodeConfig: any, candidateMode
         ? normalizeModelIds(nodeConfig.supportedModelsBaseline)
         : candidateModels;
     const baselineSet = new Set(baselineModels);
-    const newModels = candidateModels.filter((model: any) => !baselineSet.has(model));
+    const newModels = candidateModels.filter((model: string) => !baselineSet.has(model));
     const candidateSet = new Set(candidateModels);
     const selectedModels = normalizeModelIds([...supportedModels, ...newModels])
-        .filter((model: any) => candidateSet.has(model));
+        .filter((model: string) => candidateSet.has(model));
 
     return {
         selectedModels,
@@ -251,24 +259,23 @@ function resolveSelectedModels(providerType: any, nodeConfig: any, candidateMode
 /**
  * 解析单个节点的模型能力（同步，不发起网络请求）。
  */
-export function resolveNodeCapability(providerType: any, nodeConfig: any = {}) {
+export function resolveNodeCapability(providerType: string, nodeConfig: DynamicPayload = {}): DynamicPayload {
     const key = capabilityKey(providerType, nodeConfig);
     const entry = getCapabilityStore().getEntry(key);
     const dynamic = isDynamicProvider(providerType);
 
-    let candidateModels: any[] = [];
+    let candidateModels: string[] = [];
     let source = CAPABILITY_SOURCE.BASELINE;
     let fetchedAt = 0;
     let known = false;
 
     // 冷启动刷新失败时，缓存里可能只有失败元数据（fetchedAt=0 且 models 为空）。
     // 这种情况不能把“空结果”当成可靠发现，否则会遮蔽静态基线。
-    const hasUsableDiscovery = Boolean(entry) && (
-        (entry.fetchedAt || 0) > 0 ||
-        (Array.isArray((entry as any).models) && entry.models.length > 0)
-    );
+    const hasUsableDiscovery = entry
+        ? ((entry.fetchedAt || 0) > 0 || (Array.isArray(entry.models) && entry.models.length > 0))
+        : false;
 
-    if (hasUsableDiscovery) {
+    if (hasUsableDiscovery && entry) {
         candidateModels = normalizeModelIds(entry.models || []);
         source = entry.source || CAPABILITY_SOURCE.LIVE;
         fetchedAt = entry.fetchedAt || 0;
@@ -308,20 +315,20 @@ export function resolveNodeCapability(providerType: any, nodeConfig: any = {}) {
  * 分组最终集 = 活跃节点选择集的并集 ∪ 该分组的自定义模型。
  * 已知能力的节点优先，避免“无能力节点”的静态基线污染实时列表。
  */
-export function resolveProviderCapability(providerType: any, nodes: any[] = [], options: any = {}) {
+export function resolveProviderCapability(providerType: string, nodes: unknown[] = [], options: DynamicPayload = {}): DynamicPayload {
     const { includeUnhealthy = false } = options;
-    const configs = (Array.isArray(nodes) ? nodes : [])
-        .map((node: any) => node?.config || node)
+    const configs = (Array.isArray(nodes) ? (nodes as DynamicPayload[]) : [])
+        .map((node: DynamicPayload) => node?.config || node)
         .filter(Boolean)
-        .filter((config: any) => !config.isDisabled)
-        .filter((config: any) => includeUnhealthy || config.isHealthy !== false);
+        .filter((config: DynamicPayload) => !config.isDisabled)
+        .filter((config: DynamicPayload) => includeUnhealthy || config.isHealthy !== false);
 
-    const nodeCapabilities = configs.map((config: any) => ({
+    const nodeCapabilities = configs.map((config: DynamicPayload): DynamicPayload => ({
         ...resolveNodeCapability(providerType, config),
         config
     }));
 
-    const knownCapabilities = nodeCapabilities.filter((capability: any) => capability.known);
+    const knownCapabilities = nodeCapabilities.filter((capability: DynamicPayload) => capability.known);
     const contributors = knownCapabilities.length > 0 ? knownCapabilities : nodeCapabilities;
 
     const modelSet = new Set<string>();
@@ -339,18 +346,18 @@ export function resolveProviderCapability(providerType: any, nodes: any[] = [], 
         modelSet.add(model);
     }
 
-    const models = Array.from(modelSet).sort((a: any, b: any) => a.localeCompare(b));
-    const fetchedAt = contributors.reduce((max: any, capability: any) => Math.max(max, capability.fetchedAt || 0), 0);
-    const stale = contributors.length > 0 ? contributors.every((capability: any) => capability.stale) : true;
+    const models = Array.from(modelSet).sort((a: string, b: string) => a.localeCompare(b));
+    const fetchedAt = contributors.reduce((max: number, capability: DynamicPayload) => Math.max(max, capability.fetchedAt || 0), 0);
+    const stale = contributors.length > 0 ? contributors.every((capability: DynamicPayload) => capability.stale) : true;
 
     return {
         models,
         nodes: nodeCapabilities,
         customModels,
-        selectionMode: contributors.length > 0 && contributors.every((capability: any) => capability.selectionMode === 'explicit')
+        selectionMode: contributors.length > 0 && contributors.every((capability: DynamicPayload) => capability.selectionMode === 'explicit')
             ? 'explicit'
             : 'all',
-        source: pickSource(contributors.map((capability: any) => capability.source)),
+        source: pickSource(contributors.map((capability: DynamicPayload) => String(capability.source))),
         fetchedAt,
         stale,
         known: knownCapabilities.length > 0
@@ -362,7 +369,7 @@ export function resolveProviderCapability(providerType: any, nodes: any[] = [], 
  * - 节点没有可靠发现结果时不做守卫（保持既有行为，避免阻断新模型）；
  * - 有发现结果时，支持 -high / -thinking 后缀兼容。
  */
-export function nodeSupportsModel(capability: any, model: any, models: any = null) {
+export function nodeSupportsModel(capability: DynamicPayload | null | undefined, model: unknown, models: string[] | null = null): boolean {
     if (!capability || !capability.known) return true;
     const requested = String(model || '').replace(/^models\//, '');
     if (!requested) return true;
@@ -372,8 +379,8 @@ export function nodeSupportsModel(capability: any, model: any, models: any = nul
         `${requested}-high`,
         `${requested}-thinking`
     ]);
-    const modelList = Array.isArray(models) ? models : capability.models;
-    return modelList.some((item: any) => candidates.has(item));
+    const modelList: string[] = Array.isArray(models) ? models : capability.models;
+    return modelList.some((item: string) => candidates.has(item));
 }
 
 function isBackgroundRefreshEnabled() {
@@ -381,11 +388,11 @@ function isBackgroundRefreshEnabled() {
     return !isTestEnv();
 }
 
-const inFlightRefreshes = new Map();
+const inFlightRefreshes = new Map<string, Promise<DynamicPayload | null>>();
 
-async function resolveAdapterForNode(providerType: any, nodeConfig: any, globalConfig: any) {
+async function resolveAdapterForNode(providerType: string, nodeConfig: DynamicPayload, globalConfig: DynamicPayload | null): Promise<DynamicPayload> {
     const { getServiceAdapter } = await import('./adapter.ts');
-    const config = {
+    const config: DynamicPayload = {
         ...(globalConfig || CONFIG),
         ...(nodeConfig || {}),
         MODEL_PROVIDER: providerType
@@ -405,7 +412,11 @@ async function resolveAdapterForNode(providerType: any, nodeConfig: any, globalC
  * @param {object} [options.globalConfig] 全局配置（默认 CONFIG）
  * @param {object} [options.adapter] 可注入 adapter，便于测试
  */
-export async function refreshNodeCapability(providerType: any, nodeConfig: any, options: any = {}) {
+export async function refreshNodeCapability(
+    providerType: string,
+    nodeConfig: DynamicPayload,
+    options: DynamicPayload = {}
+): Promise<DynamicPayload | null> {
     const {
         force = false,
         reason = 'manual',
@@ -429,7 +440,7 @@ export async function refreshNodeCapability(providerType: any, nodeConfig: any, 
         return existing;
     }
     if (inFlightRefreshes.has(key)) {
-        return inFlightRefreshes.get(key);
+        return inFlightRefreshes.get(key) ?? null;
     }
 
     const refreshPromise = (async () => {
@@ -444,7 +455,7 @@ export async function refreshNodeCapability(providerType: any, nodeConfig: any, 
                 return existing;
             }
 
-            const entry = {
+            const entry: DynamicPayload = {
                 providerType,
                 uuid: nodeConfig.uuid || null,
                 models: normalizeModelIds(result),
@@ -458,7 +469,7 @@ export async function refreshNodeCapability(providerType: any, nodeConfig: any, 
             await store.flush();
             logger.info(`[ModelCapability] ${key} refreshed: ${entry.models.length} models (${reason})`);
             return entry;
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             const consecutiveFailures = (existing?.consecutiveFailures || 0) + 1;
             const backoffMs = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * Math.pow(2, consecutiveFailures - 1));
             const failureEntry = {
@@ -488,34 +499,39 @@ export async function refreshNodeCapability(providerType: any, nodeConfig: any, 
 /**
  * 刷新一个 providerType 下所有启用节点。
  */
-export async function refreshProviderCapabilities(providerType: any, nodes: any[] = [], options: any = {}) {
+export async function refreshProviderCapabilities(
+    providerType: string,
+    nodes: unknown[] = [],
+    options: DynamicPayload = {}
+): Promise<Array<DynamicPayload | null>> {
     if (!isBackgroundRefreshEnabled() && !options.adapter) {
         return [];
     }
-    const configs = (Array.isArray(nodes) ? nodes : [])
-        .map((node: any) => node?.config || node)
+    const configs = (Array.isArray(nodes) ? (nodes as DynamicPayload[]) : [])
+        .map((node: DynamicPayload) => node?.config || node)
         .filter(Boolean)
-        .filter((config: any) => !config.isDisabled);
+        .filter((config: DynamicPayload) => !config.isDisabled);
 
     const results = await Promise.allSettled(
-        configs.map((config: any) => refreshNodeCapability(providerType, config, options))
+        configs.map((config: DynamicPayload) => refreshNodeCapability(providerType, config, options))
     );
-    return results.map((result: any) => result.status === 'fulfilled' ? result.value : null);
+    return results.map((result) => result.status === 'fulfilled' ? result.value : null);
 }
 
 /**
  * 读取能力，并在 stale / 冷启动时触发后台刷新。
  * 读路径本身不阻塞。
  */
-export function resolveProviderCapabilityWithRefresh(providerType: any, nodes: any[] = [], options: any = {}) {
+export function resolveProviderCapabilityWithRefresh(providerType: string, nodes: unknown[] = [], options: DynamicPayload = {}): DynamicPayload {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (isBackgroundRefreshEnabled() && (!capability.known || capability.stale)) {
         refreshProviderCapabilities(providerType, nodes, {
             ...options,
             force: true,
             reason: options.reason || 'read-through'
-        }).catch((error: any) => {
-            logger.debug(`[ModelCapability] Background refresh for ${providerType} failed: ${error.message}`);
+        }).catch((error: unknown) => {
+            const err = error as DynamicPayload;
+            logger.debug(`[ModelCapability] Background refresh for ${providerType} failed: ${err.message}`);
         });
     }
     return capability;
@@ -525,7 +541,7 @@ export function resolveProviderCapabilityWithRefresh(providerType: any, nodes: a
  * 冷启动场景：在有限时间内等待一次刷新，然后返回能力。
  * 仅建议在启动预热或显式刷新接口中使用，普通读路径使用 resolveProviderCapabilityWithRefresh。
  */
-export async function ensureProviderCapability(providerType: any, nodes: any[] = [], options: any = {}) {
+export async function ensureProviderCapability(providerType: string, nodes: unknown[] = [], options: DynamicPayload = {}): Promise<DynamicPayload> {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (capability.known) {
         if (capability.stale) {
@@ -540,10 +556,10 @@ export async function ensureProviderCapability(providerType: any, nodes: any[] =
         : getColdStartTimeoutMs();
 
     if (timeoutMs > 0) {
-        let timer: any = null;
+        let timer: ReturnType<typeof setTimeout> | null = null;
         await Promise.race([
             refreshProviderCapabilities(providerType, nodes, { ...options, force: false, reason: options.reason || 'cold-start' }),
-            new Promise((resolve: any) => {
+            new Promise<void>((resolve) => {
                 timer = setTimeout(resolve, timeoutMs);
                 if (timer.unref) timer.unref();
             })
@@ -554,29 +570,29 @@ export async function ensureProviderCapability(providerType: any, nodes: any[] =
     return resolveProviderCapability(providerType, nodes, options);
 }
 
-function getProviderNodeEntries(providerPoolManager: any): Array<[string, any[]]> {
-    return (Object.entries(providerPoolManager?.providerStatus || {}) as Array<[string, any[]]>)
-        .filter(([, nodes]: any) => Array.isArray(nodes) && nodes.length > 0);
+function getProviderNodeEntries(providerPoolManager: DynamicPayload | null | undefined): Array<[string, DynamicPayload[]]> {
+    return (Object.entries(providerPoolManager?.providerStatus || {}) as Array<[string, DynamicPayload[]]>)
+        .filter(([, nodes]) => Array.isArray(nodes) && nodes.length > 0);
 }
 
 /**
  * 刷新号池中所有 providerType 的启用节点（启动预热与定时任务共用）。
  */
-export async function warmProviderCapabilities(providerPoolManager: any, options: any = {}) {
+export async function warmProviderCapabilities(providerPoolManager: DynamicPayload | null | undefined, options: DynamicPayload = {}): Promise<void> {
     const { force = false, reason = 'startup' } = options;
     const entries = getProviderNodeEntries(providerPoolManager);
-    await Promise.allSettled(entries.map(([providerType, nodes]: any) =>
+    await Promise.allSettled(entries.map(([providerType, nodes]) =>
         refreshProviderCapabilities(providerType, nodes, { ...options, force, reason })
     ));
 }
 
-let capabilityRefreshTimer: any = null;
+let capabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * 启动周期性模型能力刷新。
  * 与健康检查解耦，默认 15 分钟；测试环境自动禁用。
  */
-export function startCapabilityRefreshLoop(providerPoolManager: any, options: any = {}) {
+export function startCapabilityRefreshLoop(providerPoolManager: DynamicPayload | null | undefined, options: DynamicPayload = {}): ReturnType<typeof setInterval> | null {
     stopCapabilityRefreshLoop();
     if (!isBackgroundRefreshEnabled()) return null;
 
@@ -587,7 +603,7 @@ export function startCapabilityRefreshLoop(providerPoolManager: any, options: an
 
     capabilityRefreshTimer = setInterval(() => {
         warmProviderCapabilities(providerPoolManager, { force: true, reason: 'scheduled' })
-            .catch((error: any) => logger.debug(`[ModelCapability] Scheduled refresh failed: ${error.message}`));
+            .catch((error: unknown) => logger.debug(`[ModelCapability] Scheduled refresh failed: ${(error as DynamicPayload).message}`));
     }, intervalMs);
     if (capabilityRefreshTimer.unref) capabilityRefreshTimer.unref();
     return capabilityRefreshTimer;

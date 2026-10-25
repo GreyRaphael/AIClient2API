@@ -525,8 +525,8 @@ export async function handleRefreshProviderModels(req: IncomingMessage, res: Ser
                 reason: 'manual'
             });
             results[type] = entries
-                .filter(Boolean)
-                .map((entry: Record<string, unknown>) => ({
+                .filter((entry): entry is Record<string, unknown> => entry !== null)
+                .map((entry) => ({
                     uuid: entry.uuid || null,
                     modelCount: Array.isArray(entry.models) ? entry.models.length : 0,
                     source: entry.source,

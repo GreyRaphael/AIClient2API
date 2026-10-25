@@ -1061,7 +1061,11 @@ export class ProviderPoolManager {
         }
 
         const capability = resolveProviderCapability(providerType, nodes);
-        const knownNodes = capability.nodes.filter((node) => node.known);
+        const knownNodes = (capability.nodes as Array<{
+            known?: boolean;
+            candidateModels?: string[];
+            selectedModels?: string[];
+        }>).filter((node) => node.known);
         if (knownNodes.length === 0) {
             return true;
         }
@@ -1071,7 +1075,7 @@ export class ProviderPoolManager {
             const list = options.allowUnselectedModel
                 ? node.candidateModels
                 : node.selectedModels;
-            for (const model of list) {
+            for (const model of list || []) {
                 models.add(model);
             }
         }
