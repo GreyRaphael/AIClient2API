@@ -14,20 +14,23 @@ import logger from '../utils/logger.ts';
 import busboy from 'busboy';
 import { convertData } from '../convert/convert.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
+
+type DynamicPayload = Record<string, any>;
 
 interface ImageRetryContext {
     maxRetries?: number;
     currentRetry?: number;
-    CONFIG?: Record<string, any>;
+    CONFIG?: DynamicPayload;
     parsedBody?: {
-        model?: any;
-        prompt?: any;
-        n?: any;
-        response_format?: any;
-        size?: any;
-        aspect_ratio?: any;
-        image_size?: any;
-        virtualOpenAIRequest?: any;
+        model: string;
+        prompt: string;
+        n: number;
+        response_format: string;
+        size: string | undefined;
+        aspect_ratio: string | undefined;
+        image_size: string | undefined;
+        virtualOpenAIRequest: DynamicPayload;
     };
 }
 
@@ -56,9 +59,9 @@ export async function handleAPIRequests(
     path: string,
     req: IncomingMessage,
     res: ServerResponse,
-    currentConfig: Record<string, any>,
-    apiService: any,
-    providerPoolManager: any,
+    currentConfig: DynamicPayload,
+    apiService: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null,
     promptLogFilename: string
 ): Promise<boolean> {
 
@@ -66,7 +69,7 @@ export async function handleAPIRequests(
     // Route model list requests
     if (method === 'GET') {
         if (path === '/v1/models') {
-            await handleModelListRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_MODEL_LIST, currentConfig, providerPoolManager, currentConfig.uuid);
+            await handleModelListRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_MODEL_LIST, currentConfig, providerPoolManager as DynamicPayload, currentConfig.uuid);
             return true;
         }
     }
@@ -84,15 +87,15 @@ export async function handleAPIRequests(
     // Route content generation requests
     if (method === 'POST') {
         if (path === '/v1/chat/completions') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_CHAT, currentConfig, promptLogFilename, providerPoolManager, currentConfig.uuid, path);
+            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_CHAT, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, currentConfig.uuid, path);
             return true;
         }
         if (path === '/v1/responses') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_RESPONSES, currentConfig, promptLogFilename, providerPoolManager, currentConfig.uuid, path);
+            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_RESPONSES, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, currentConfig.uuid, path);
             return true;
         }
         if (path === '/v1/messages') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, providerPoolManager, currentConfig.uuid, path);
+            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, currentConfig.uuid, path);
             return true;
         }
     }
@@ -143,24 +146,32 @@ export function initializeAPIManagement(services: Record<string, any>) {
 async function handleImageGenerationRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    currentConfig: Record<string, any>,
-    providerPoolManager: any,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null,
     retryContext: ImageRetryContext | null = null
-) {
+): Promise<void> {
     const maxRetries = retryContext?.maxRetries ?? 3;
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG ?? currentConfig;
     let slotProviderType = null;
     let slotUuid = null;
-    let model: any, prompt: any, n: any, response_format: any, size: any, aspect_ratio: any, image_size: any;
-    let codexRequestBody: any, virtualOpenAIRequest: any;
+    let model = '';
+    let prompt = '';
+    let n = 1;
+    let response_format = 'b64_json';
+    let size: string | undefined;
+    let aspect_ratio: string | undefined;
+    let image_size: string | undefined;
+    let codexRequestBody: DynamicPayload = {};
+    let virtualOpenAIRequest: DynamicPayload = {};
 
     try {
-        if (retryContext?.parsedBody) {
-            ({model, prompt, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest} = retryContext.parsedBody);
+        const parsedRetryBody = retryContext?.parsedBody;
+        if (parsedRetryBody) {
+            ({model, prompt, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest} = parsedRetryBody);
             codexRequestBody = virtualOpenAIRequest;
         } else {
-            const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES }) as Record<string, any>;
+            const body = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES }) as DynamicPayload;
             model = body.model;
             response_format = body.response_format || 'b64_json';
             size = body.size;
@@ -238,7 +249,7 @@ async function handleImageGenerationRequest(
         const fromProtocol = MODEL_PROTOCOL_PREFIX.OPENAI;
         if (fromProtocol !== finalProviderProtocol) {
             logger.info(`[Image Generation] Converting request from ${fromProtocol} to ${finalProviderProtocol}`);
-            codexRequestBody = convertData(codexRequestBody, 'request', fromProvider, toProvider, model, currentConfig._monitorRequestId);
+            codexRequestBody = convertData(codexRequestBody, 'request', fromProvider, toProvider, model, currentConfig._monitorRequestId) as DynamicPayload;
             
             // 保持以 _ 开头的内部属性
             Object.keys(virtualOpenAIRequest).forEach(key => {
@@ -251,8 +262,8 @@ async function handleImageGenerationRequest(
         logger.info(`[Image Generation] model=${model}, protocol=${finalProviderProtocol}, n=${n}, response_format=${response_format}${size ? `, size=${size}` : ''}`);
 
         // 串行发起 n 张图请求，每张独立占用一次上游调用，与号池 slot 计数对应
-        const data: any[] = [];
-        const responses: any[] = [];
+        const data: DynamicPayload[] = [];
+        const responses: DynamicPayload[] = [];
         for (let i = 0; i < n; i++) {
             const response = await service.generateContent(model, {...codexRequestBody});
             responses.push(response);
@@ -344,7 +355,7 @@ async function handleImageGenerationRequest(
                     CONFIG,
                     currentRetry: currentRetry + 1,
                     maxRetries,
-                    parsedBody: {model, n, response_format, size, virtualOpenAIRequest}
+                    parsedBody: {model, prompt, n, response_format, size, aspect_ratio, image_size, virtualOpenAIRequest}
                 });
             } catch (retryError) {
                 logger.error('[Image Generation Retry] Failed to get alternative service:', getErrorMessage(retryError));
@@ -367,14 +378,14 @@ async function handleImageGenerationRequest(
  * Extract assistant rejection text from different provider responses.
  * Returns the text if a policy/safety rejection message is found, otherwise null.
  */
-function extractRejectionMessage(responses: any[], providerProtocol: string): string | null {
+function extractRejectionMessage(responses: DynamicPayload[], providerProtocol: string): string | null {
     for (const response of responses) {
         // Codex/OpenAI Responses style
         if (providerProtocol === MODEL_PROTOCOL_PREFIX.CODEX || providerProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
             const output = response?.response?.output || response?.output || [];
             for (const item of output) {
                 if (item.type === 'message' && item.role === 'assistant') {
-                    const textPart = (item.content || []).find((c: any) => c.type === 'output_text' && c.text);
+                    const textPart = (item.content || []).find((c: DynamicPayload) => c.type === 'output_text' && c.text);
                     if (textPart?.text) return textPart.text;
                 }
             }
@@ -407,29 +418,29 @@ function parseMultipartForm(req: IncomingMessage): Promise<any> {
         }
 
         const bb = busboy({ headers: req.headers, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB cap
-        const fields: Record<string, any> = {};
-        const files: Record<string, any> = {};
-        const fileEntries: any[] = [];
+        const fields: DynamicPayload = {};
+        const files: DynamicPayload = {};
+        const fileEntries: DynamicPayload[] = [];
 
         let settled = false;
-        const rejectOnce = (err: any) => {
+        const rejectOnce = (err: unknown): void => {
             if (!settled) {
                 settled = true;
                 reject(err);
             }
         };
-        const resolveOnce = (val: any) => {
+        const resolveOnce = (val: unknown): void => {
             if (!settled) {
                 settled = true;
                 resolve(val);
             }
         };
 
-        bb.on('field', (name: string, value: any) => { fields[name] = value; });
+        bb.on('field', (name: string, value: string) => { fields[name] = value; });
 
         bb.on('file', (name: string, stream: NodeJS.ReadableStream, info: { mimeType: string }) => {
             const chunks: Buffer[] = [];
-            const fileEntry: { name: string; file: any } = { name, file: null };
+            const fileEntry: { name: string; file: DynamicPayload | null } = { name, file: null };
             fileEntries.push(fileEntry);
             stream.on('data', (chunk: Buffer) => chunks.push(chunk));
             stream.on('end', () => {
@@ -461,16 +472,16 @@ function parseMultipartForm(req: IncomingMessage): Promise<any> {
     });
 }
 
-function getMultipartFiles(form: any, fieldNames: string[]): any[] {
+function getMultipartFiles(form: DynamicPayload, fieldNames: string[]): DynamicPayload[] {
     const acceptedNames = new Set<string>(fieldNames);
 
     if (Array.isArray(form.fileEntries)) {
         return form.fileEntries
-            .filter((entry: any) => acceptedNames.has(entry.name) && entry.file)
-            .map((entry: any) => entry.file);
+            .filter((entry: DynamicPayload) => acceptedNames.has(entry.name) && entry.file)
+            .map((entry: DynamicPayload) => entry.file);
     }
 
-    const collected: any[] = [];
+    const collected: DynamicPayload[] = [];
     for (const name of fieldNames) {
         const value = form.files?.[name];
         if (Array.isArray(value)) {
@@ -490,14 +501,14 @@ function getMultipartFiles(form: any, fieldNames: string[]): any[] {
 async function handleImageEditsRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    currentConfig: Record<string, any>,
-    providerPoolManager: any
-) {
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): Promise<void> {
     let slotProviderType = null;
     let slotUuid = null;
 
     try {
-        const form = await parseMultipartForm(req) as any;
+        const form = await parseMultipartForm(req) as DynamicPayload;
         const { fields, files } = form;
 
         const model = fields.model;
@@ -539,16 +550,16 @@ async function handleImageEditsRequest(
             return;
         }
 
-        const imageParts = imageFiles.map(({ buffer, mimetype }: { buffer: Buffer; mimetype?: string }) => ({
+        const imageParts = imageFiles.map((file: DynamicPayload) => ({
             type: 'image_url',
             image_url: {
-                url: `data:${mimetype || 'image/png'};base64,${buffer.toString('base64')}`
+                url: `data:${file.mimetype || 'image/png'};base64,${file.buffer.toString('base64')}`
             }
         }));
-        const totalImageBytes = imageFiles.reduce((total: number, file: any) => total + file.buffer.length, 0);
+        const totalImageBytes = imageFiles.reduce((total: number, file: DynamicPayload) => total + file.buffer.length, 0);
 
         // 构造虚拟 OpenAI 对话请求，参考对话接口实现自动转换
-        const virtualOpenAIRequest: any = {
+        const virtualOpenAIRequest: DynamicPayload = {
             model,
             messages: [{
                 role: 'user',
@@ -584,11 +595,11 @@ async function handleImageEditsRequest(
         const toProvider = slotProviderType || currentConfig.MODEL_PROVIDER;
 
         // 执行自动转换：OpenAI -> 目标协议
-        let codexRequestBody: any = virtualOpenAIRequest;
+        let codexRequestBody: DynamicPayload = virtualOpenAIRequest;
         const fromProtocol = MODEL_PROTOCOL_PREFIX.OPENAI;
         if (fromProtocol !== finalProviderProtocol) {
             logger.info(`[Image Edits] Converting request from ${fromProtocol} to ${finalProviderProtocol}`);
-            codexRequestBody = convertData(codexRequestBody, 'request', fromProtocol, toProvider, model, currentConfig._monitorRequestId) as any;
+            codexRequestBody = convertData(codexRequestBody, 'request', fromProtocol, toProvider, model, currentConfig._monitorRequestId) as DynamicPayload;
             
             // 保持以 _ 开头的内部属性
             Object.keys(virtualOpenAIRequest).forEach(key => {
@@ -604,7 +615,7 @@ async function handleImageEditsRequest(
             service.generateContent(model, { ...codexRequestBody })
         );
         const responses = await Promise.all(imageRequests);
-        const data: any[] = [];
+        const data: DynamicPayload[] = [];
 
         for (let i = 0; i < responses.length; i++) {
             const extracted = extractImagesFromServiceResponse(responses[i], finalProviderProtocol, response_format);
@@ -675,14 +686,18 @@ async function handleImageEditsRequest(
  * Extract image data from a service's generateContent response.
  * Handles different provider output formats.
  */
-function extractImagesFromServiceResponse(response: any, providerProtocol: string, responseFormat: string): any[] {
-    const data: any[] = [];
+function extractImagesFromServiceResponse(
+    response: DynamicPayload,
+    providerProtocol: string,
+    responseFormat: string
+): DynamicPayload[] {
+    const data: DynamicPayload[] = [];
     
     if (providerProtocol === MODEL_PROTOCOL_PREFIX.CODEX || providerProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
         const output = response?.response?.output || response?.output || [];
         for (const item of output) {
             if (item.type === 'image_generation_call' && item.result) {
-                const dataItem: any = responseFormat === 'url'
+                const dataItem: DynamicPayload = responseFormat === 'url'
                     ? { url: `data:image/${item.output_format || 'png'};base64,${item.result}` }
                     : { b64_json: item.result };
                 if (item.revised_prompt) dataItem.revised_prompt = item.revised_prompt;

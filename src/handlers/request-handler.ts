@@ -259,7 +259,7 @@ export function createRequestHandler(
                     }
 
                     // 获取或选择 API Service 实例（延迟到 handleAPIRequests 内按需解析）
-                    let apiService;
+                    const apiService: DynamicPayload = {};
 
                     try {
                         // Handle API requests

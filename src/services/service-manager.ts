@@ -19,6 +19,8 @@ import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.ts';
 import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../providers/model-capability.ts';
 import { getStatusIdentifyFieldMap } from '../providers/provider-registry.ts';
 
+type DynamicPayload = Record<string, any>;
+
 // 存储 ProviderPoolManager 实例
 let providerPoolManager: ProviderPoolManager | null = null;
 
@@ -93,7 +95,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
             }
             
             // 递归扫描目录
-            const newProviders: any[] = [];
+            const newProviders: DynamicPayload[] = [];
             await scanProviderDirectory(configsPath, linkedPaths, newProviders, {
                 credPathKey,
                 defaultCheckModel,
@@ -237,7 +239,7 @@ async function linkSingleCredential(
         }
         
         // 创建新的提供商配置
-        const newProvider: any = createProviderConfig({
+        const newProvider: DynamicPayload = createProviderConfig({
             credPathKey,
             credPath: formatSystemPath(relativePath),
             defaultCheckModel,
@@ -279,7 +281,7 @@ async function linkSingleCredential(
 async function scanProviderDirectory(
     dirPath: string,
     linkedPaths: Set<string>,
-    newProviders: any[],
+    newProviders: DynamicPayload[],
     options: { credPathKey: string; defaultCheckModel: string; needsProjectId: boolean }
 ) {
     const { credPathKey, defaultCheckModel, needsProjectId } = options;
@@ -411,7 +413,7 @@ export async function initApiService(config: Record<string, any>, isReady = fals
                 
                 try {
                     // 合并全局配置和节点配置
-                    const nodeConfig: any = deepmerge(config, {
+                    const nodeConfig: DynamicPayload = deepmerge(config, {
                         ...providerConfig,
                         MODEL_PROVIDER: providerType
                     });
@@ -457,7 +459,7 @@ async function _resolveEffectiveRouting(
         if (!prefix) return { effectiveProvider, actualModelName };
         const modelSuffix = modelParts.join(sep);
         // 检查前缀是否是有效的提供商标识
-        if (providerPoolManager && ((providerPoolManager as any).providerStatus?.[prefix] || config.providerPools?.[prefix])) {
+        if (providerPoolManager && (providerPoolManager.providerStatus?.[prefix] || config.providerPools?.[prefix])) {
             effectiveProvider = prefix;
             actualModelName = modelSuffix;
             logger.info(`[Routing] Prefix resolved: ${prefix}${sep}${modelSuffix}`);
@@ -666,7 +668,7 @@ export async function getProviderStatus(
         'claude-custom': 'CLAUDE_BASE_URL',
         ...getStatusIdentifyFieldMap()
     };
-    let providerPoolsSlim: any[] = [];
+    let providerPoolsSlim: DynamicPayload[] = [];
     let unhealthyProvideIdentifyList: string[] = [];
     let count = 0;
     let unhealthyCount = 0;
@@ -695,7 +697,7 @@ export async function getProviderStatus(
                 return true;
             })
             .map(item => {
-                const slim: any = {};
+                const slim: DynamicPayload = {};
                 for (const f of slimFields) {
                     let val = item.hasOwnProperty(f) ? item[f] : null;
                     if (f === 'uuid' && typeof val === 'string' && val.length > 8) {

@@ -71,7 +71,9 @@ function sanitizeFilenamePart(value: unknown): string {
  * @param {Object} options 
  * @returns {Promise<{ authUrl: string, authInfo: Object, waitForCallback: Function }>}
  */
-export async function handleZedOAuth(currentConfig = CONFIG, options: any = {}) {
+type DynamicPayload = Record<string, any>;
+
+export async function handleZedOAuth(currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
     const email = options.email || null;
     const sessionId = randomUUID();
     const systemId = options.systemId || randomUUID();
@@ -339,7 +341,7 @@ async function saveZedCredentials({
     jwtToken,
     expiresAt,
     currentConfig
-}: any) {
+}: DynamicPayload): Promise<string> {
     const zedConfigsDir = path.join(process.cwd(), 'configs', 'zed');
     if (!fs.existsSync(zedConfigsDir)) {
         fs.mkdirSync(zedConfigsDir, { recursive: true });

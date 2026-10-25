@@ -1223,7 +1223,7 @@ export async function importAwsCredentials(credentials: Record<string, unknown>,
         logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Importing AWS credentials...`);
         
         // 准备凭据数据 - 四个字段都是必需的
-        const credentialsData: any = {
+        const credentialsData: Record<string, unknown> = {
             clientId: credentials.clientId,
             clientSecret: credentials.clientSecret,
             accessToken: credentials.accessToken,

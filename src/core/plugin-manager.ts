@@ -8,6 +8,10 @@
  * 4. 插件配置管理
  */
 
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { promises as fs } from 'fs';
 import logger from '../utils/logger.ts';
@@ -71,10 +75,10 @@ export const PLUGIN_TYPE = {
  * 插件管理器类
  */
 class PluginManager {
-    plugins: Map<string, any>;
-    pluginsConfig: any;
+    plugins: Map<string, DynamicPayload>;
+    pluginsConfig: DynamicPayload;
     initialized: boolean;
-    config: any;
+    config: DynamicPayload | null;
 
     constructor() {
         /** @type {Map<string, Plugin>} */
@@ -94,7 +98,7 @@ class PluginManager {
     async loadConfig() {
         try {
             // 1. 永远生成默认配置
-            const defaultConfig: any = await this.generateDefaultConfig();
+            const defaultConfig: DynamicPayload = await this.generateDefaultConfig();
 
             // 2. 如果本地文件存在，读取并合并
             if (existsSync(PLUGINS_CONFIG_FILE)) {
@@ -102,7 +106,7 @@ class PluginManager {
                 const localConfig = JSON.parse(content);
 
                 // 3. 合并配置：遍历默认配置中的所有插件
-                for (const [pluginName, defaultPluginConfig] of Object.entries(defaultConfig.plugins) as [string, any][]) {
+                for (const [pluginName, defaultPluginConfig] of Object.entries(defaultConfig.plugins) as [string, DynamicPayload][]) {
                     const localPluginConfig = localConfig.plugins?.[pluginName];
 
                     if (localPluginConfig) {
@@ -119,7 +123,7 @@ class PluginManager {
 
             this.pluginsConfig = defaultConfig;
             await this.saveConfig();
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error('[PluginManager] Failed to load config:', error.message);
             this.pluginsConfig = { plugins: {} };
         }
@@ -129,8 +133,8 @@ class PluginManager {
      * 扫描插件目录生成默认配置
      * @returns {Promise<Object>} 默认插件配置
      */
-    async generateDefaultConfig() {
-        const defaultConfig = { plugins: {} };
+    async generateDefaultConfig(): Promise<DynamicPayload> {
+        const defaultConfig: DynamicPayload = { plugins: {} };
         const dirs = [BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR];
 
         for (const pluginsDir of dirs) {
@@ -145,7 +149,7 @@ class PluginManager {
                     if (!entry.isDirectory()) continue;
                     try {
                         validatePluginId(entry.name, 'plugin directory name');
-                    } catch (error: any) {
+                    } catch (caught) { const error = caught as DynamicPayload;
                         logger.warn(`[PluginManager] Skipping plugin directory "${entry.name}": ${error.message}`);
                         continue;
                     }
@@ -156,7 +160,7 @@ class PluginManager {
                     try {
                         if (pluginsDir === USER_PLUGINS_DIR) {
                             const enabled = !DEFAULT_DISABLED_PLUGINS.includes(entry.name);
-                            (defaultConfig.plugins as any)[entry.name] = {
+                            defaultConfig.plugins[entry.name] = {
                                 enabled: enabled,
                                 description: ''
                             };
@@ -171,24 +175,24 @@ class PluginManager {
                         if (plugin && plugin.name) {
                             // 检查是否在默认禁用列表中
                             const enabled = !DEFAULT_DISABLED_PLUGINS.includes(plugin.name);
-                            (defaultConfig.plugins as any)[plugin.name] = {
+                            defaultConfig.plugins[plugin.name] = {
                                 enabled: enabled,
                                 description: plugin.description || ''
                             };
                             logger.info(`[PluginManager] Found plugin for default config: ${plugin.name} in ${pluginsDir}`);
                         }
-                    } catch (importError: any) {
+                    } catch (caught) { const importError = caught as DynamicPayload;
                         // 如果导入失败，使用目录名作为插件名
                         // 检查是否在默认禁用列表中
                         const enabled = !DEFAULT_DISABLED_PLUGINS.includes(entry.name);
-                        (defaultConfig.plugins as any)[entry.name] = {
+                        defaultConfig.plugins[entry.name] = {
                             enabled: enabled,
                             description: ''
                         };
                         logger.warn(`[PluginManager] Could not import plugin ${entry.name}, using directory name:`, importError.message);
                     }
                 }
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 logger.error(`[PluginManager] Failed to scan plugins directory ${pluginsDir}:`, error.message);
             }
         }
@@ -206,7 +210,7 @@ class PluginManager {
                 await fs.mkdir(dir, { recursive: true });
             }
             await atomicWriteFile(PLUGINS_CONFIG_FILE, JSON.stringify(this.pluginsConfig, null, 2), { encoding: 'utf8', mode: 0o600 });
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error('[PluginManager] Failed to save config:', error.message);
         }
     }
@@ -215,7 +219,7 @@ class PluginManager {
      * 注册插件
      * @param {Plugin} plugin - 插件对象
      */
-    register(plugin: any) {
+    register(plugin: DynamicPayload): void {
         if (!plugin.name) {
             throw new Error('Plugin must have a name');
         }
@@ -235,7 +239,7 @@ class PluginManager {
         logger.info(`[PluginManager] Registered plugin: ${plugin.name} v${plugin.version || '1.0.0'}`);
     }
 
-    registerPlaceholder(name: string, description: any = '', baseDir: string | null = null) {
+    registerPlaceholder(name: string, description: string = '', baseDir: string | null = null): void {
         validatePluginId(name);
         if (this.plugins.has(name)) return;
         this.plugins.set(name, {
@@ -253,7 +257,7 @@ class PluginManager {
      * 初始化所有已启用的插件
      * @param {Object} config - 服务器配置
      */
-    async initAll(config: any) {
+    async initAll(config: DynamicPayload): Promise<void> {
         this.config = config;
         await this.loadConfig();
 
@@ -272,7 +276,7 @@ class PluginManager {
                     logger.info(`[PluginManager] Initialized plugin: ${name}`);
                 }
                 plugin._enabled = true;
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 this.recordPluginError(plugin, 'init', error);
                 plugin._enabled = false;
             }
@@ -293,7 +297,7 @@ class PluginManager {
                     await this.executePluginOperation(plugin, 'destroy', () => plugin.destroy());
                     logger.info(`[PluginManager] Destroyed plugin: ${name}`);
                 }
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 this.recordPluginError(plugin, 'destroy', error);
             }
         }
@@ -305,9 +309,9 @@ class PluginManager {
      * @param {string} name - 插件名称
      * @returns {boolean}
      */
-    isEnabled(name: any) {
+    isEnabled(name: string): boolean {
         const plugin = this.plugins.get(name);
-        return plugin && plugin._enabled === true;
+        return Boolean(plugin && plugin._enabled === true);
     }
 
     /**
@@ -315,10 +319,10 @@ class PluginManager {
      * 优先级数字越小越先执行，内置插件（_builtin: true）最后执行
      * @returns {Plugin[]}
      */
-    getEnabledPlugins() {
+    getEnabledPlugins(): DynamicPayload[] {
         return Array.from(this.plugins.values())
-            .filter((p: any) => p._enabled)
-            .sort((a: any, b: any) => {
+            .filter((p: DynamicPayload) => p._enabled)
+            .sort((a: DynamicPayload, b: DynamicPayload) => {
                 // 内置插件排在最后
                 const aBuiltin = a._builtin ? 1 : 0;
                 const bBuiltin = b._builtin ? 1 : 0;
@@ -335,8 +339,8 @@ class PluginManager {
      * 获取所有认证插件（按优先级排序）
      * @returns {Plugin[]}
      */
-    getAuthPlugins() {
-        return this.getEnabledPlugins().filter((p: any) =>
+    getAuthPlugins(): DynamicPayload[] {
+        return this.getEnabledPlugins().filter((p: DynamicPayload) =>
             p.type === PLUGIN_TYPE.AUTH && typeof p.authenticate === 'function'
         );
     }
@@ -345,8 +349,8 @@ class PluginManager {
      * 获取所有普通中间件插件（按优先级排序）
      * @returns {Plugin[]}
      */
-    getMiddlewarePlugins() {
-        return this.getEnabledPlugins().filter((p: any) =>
+    getMiddlewarePlugins(): DynamicPayload[] {
+        return this.getEnabledPlugins().filter((p: DynamicPayload) =>
             p.type !== PLUGIN_TYPE.AUTH && typeof p.middleware === 'function'
         );
     }
@@ -367,7 +371,12 @@ class PluginManager {
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean, authorized: boolean}>}
      */
-    async executeAuth(req: any, res: any, requestUrl: any, config: any) {
+    async executeAuth(
+        req: IncomingMessage,
+        res: ServerResponse,
+        requestUrl: URL,
+        config: DynamicPayload
+    ): Promise<{ handled: boolean; authorized: boolean }> {
         const authPlugins = this.getAuthPlugins();
 
         for (const plugin of authPlugins) {
@@ -395,7 +404,7 @@ class PluginManager {
                 }
 
                 // authorized === null 表示此插件不处理，继续下一个
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 this.recordPluginError(plugin, 'authenticate', error);
             }
         }
@@ -419,7 +428,12 @@ class PluginManager {
      * @param {Object} config - 服务器配置
      * @returns {Promise<{handled: boolean}>}
      */
-    async executeMiddleware(req: any, res: any, requestUrl: any, config: any) {
+    async executeMiddleware(
+        req: IncomingMessage,
+        res: ServerResponse,
+        requestUrl: URL,
+        config: DynamicPayload
+    ): Promise<{ handled: boolean }> {
         const middlewarePlugins = this.getMiddlewarePlugins();
 
         for (const plugin of middlewarePlugins) {
@@ -437,7 +451,7 @@ class PluginManager {
                 if (result.data) {
                     Object.assign(config, result.data);
                 }
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 this.recordPluginError(plugin, 'middleware', error);
             }
         }
@@ -454,7 +468,13 @@ class PluginManager {
      * @param {Object} [config] - 当前请求配置
      * @returns {Promise<boolean>} - 是否已处理
      */
-    async executeRoutes(method: any, path: any, req: any, res: any, config: any) {
+    async executeRoutes(
+        method: string,
+        path: string,
+        req: IncomingMessage,
+        res: ServerResponse,
+        config: DynamicPayload
+    ): Promise<boolean> {
         for (const plugin of this.getEnabledPlugins()) {
             if (!Array.isArray(plugin.routes)) continue;
 
@@ -473,7 +493,7 @@ class PluginManager {
                     try {
                         const handled = await this.executePluginOperation(plugin, `route:${route.path}`, () => route.handler(method, path, req, res, config));
                         if (handled) return true;
-                    } catch (error: any) {
+                    } catch (caught) { const error = caught as DynamicPayload;
                         this.recordPluginError(plugin, `route:${route.path}`, error);
                     }
                 }
@@ -516,7 +536,7 @@ class PluginManager {
      * @returns {string[]}
      */
     getStaticPaths() {
-        const paths: any[] = [];
+        const paths: string[] = [];
         for (const plugin of this.plugins.values()) {
             if (Array.isArray(plugin.staticPaths)) {
                 paths.push(...plugin.staticPaths);
@@ -530,9 +550,9 @@ class PluginManager {
      * @param {string} path - 请求路径
      * @returns {boolean}
      */
-    isPluginStaticPath(path: any) {
+    isPluginStaticPath(path: string): boolean {
         const staticPaths = this.getStaticPaths();
-        return staticPaths.some((sp: any) => path === sp || path === '/' + sp);
+        return staticPaths.some((sp: string) => path === sp || path === '/' + sp);
     }
 
     /**
@@ -540,11 +560,11 @@ class PluginManager {
      * @param {string} path - 请求路径
      * @returns {Plugin|null}
      */
-    getPluginByStaticPath(path: any) {
+    getPluginByStaticPath(path: string): DynamicPayload | null {
         for (const plugin of this.plugins.values()) {
             if (!Array.isArray(plugin.staticPaths)) continue;
 
-            const matched = plugin.staticPaths.some((sp: any) => path === sp || path === '/' + sp);
+            const matched = plugin.staticPaths.some((sp: string) => path === sp || path === '/' + sp);
             if (matched) {
                 return plugin;
             }
@@ -558,21 +578,21 @@ class PluginManager {
      * @param {string} hookName - 钩子名称
      * @param  {...any} args - 钩子参数
      */
-    async executeHook(hookName: any, ...args: any[]) {
+    async executeHook(hookName: string, ...args: unknown[]): Promise<void> {
         for (const plugin of this.getEnabledPlugins()) {
             if (!plugin.hooks || typeof plugin.hooks[hookName] !== 'function') continue;
 
             try {
                 await this.executePluginOperation(plugin, `hook:${hookName}`, () => plugin.hooks[hookName](...args));
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 this.recordPluginError(plugin, `hook:${hookName}`, error);
             }
         }
     }
 
-    executePluginOperation(plugin: any, operationName: string, fn: () => any): Promise<any> {
-        let timeoutId: any;
-        const timeoutPromise = new Promise((_: any, reject: any) => {
+    executePluginOperation(plugin: DynamicPayload, operationName: string, fn: () => unknown): Promise<DynamicPayload> {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => {
                 reject(new Error(`Plugin operation timed out after ${PLUGIN_OPERATION_TIMEOUT_MS}ms`));
             }, PLUGIN_OPERATION_TIMEOUT_MS);
@@ -582,13 +602,13 @@ class PluginManager {
         return Promise.race([
             Promise.resolve().then(fn),
             timeoutPromise
-        ]).then((result: any) => {
+        ]).then((result) => {
             plugin._errorCount = 0;
-            return result;
+            return result as DynamicPayload;
         }).finally(() => clearTimeout(timeoutId));
     }
 
-    recordPluginError(plugin: any, operationName: any, error: any) {
+    recordPluginError(plugin: DynamicPayload, operationName: string, error: DynamicPayload): void {
         plugin._errorCount = (plugin._errorCount || 0) + 1;
         logger.error(`[PluginManager] ${operationName} error in plugin "${plugin.name}":`, error.message);
         auditSecurityEvent({
@@ -616,7 +636,7 @@ class PluginManager {
      * @returns {Object[]}
      */
     getPluginList() {
-        const list: any[] = [];
+        const list: DynamicPayload[] = [];
         for (const [name, plugin] of this.plugins) {
             const pluginConfig = this.pluginsConfig.plugins[name] || {};
             const isUserPlugin = !!(plugin._baseDir && isInsidePath(USER_PLUGINS_DIR, plugin._baseDir));
@@ -639,7 +659,7 @@ class PluginManager {
      * @param {string} name - 插件名称
      * @param {boolean} enabled - 是否启用
      */
-    async setPluginEnabled(name: any, enabled: any) {
+    async setPluginEnabled(name: string, enabled: boolean): Promise<void> {
         validatePluginId(name);
         if (!this.pluginsConfig.plugins[name]) {
             this.pluginsConfig.plugins[name] = {};
@@ -677,7 +697,7 @@ class PluginManager {
      * 卸载插件
      * @param {string} name - 插件名称
      */
-    async uninstallPlugin(name: any) {
+    async uninstallPlugin(name: string): Promise<void> {
         validatePluginId(name);
 
         // 只能卸载用户插件
@@ -696,7 +716,7 @@ class PluginManager {
             if (plugin._enabled && typeof plugin.destroy === 'function') {
                 try {
                     await this.executePluginOperation(plugin, 'destroy', () => plugin.destroy());
-                } catch (error: any) {
+                } catch (caught) { const error = caught as DynamicPayload;
                     logger.error(`[PluginManager] Failed to destroy plugin ${name} during uninstall:`, error.message);
                 }
             }
@@ -718,7 +738,7 @@ class PluginManager {
      * 加载并初始化单个插件（用于热插拔）
      * @param {string} name - 插件目录名
      */
-    async loadAndInitPlugin(name: any) {
+    async loadAndInitPlugin(name: string): Promise<DynamicPayload | undefined> {
         validatePluginId(name);
         let pluginPath = path.join(USER_PLUGINS_DIR, name, 'index.js');
         let isUserPlugin = true;
@@ -761,7 +781,7 @@ class PluginManager {
 
                 return plugin;
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error(`[PluginManager] Failed to load and init plugin ${name}:`, error.message);
             throw error;
         }
@@ -798,7 +818,7 @@ export async function discoverPlugins() {
                 if (!existsSync(pluginPath)) continue;
                 try {
                     validatePluginId(entry.name, 'plugin directory name');
-                } catch (error: any) {
+                } catch (caught) { const error = caught as DynamicPayload;
                     logger.warn(`[PluginManager] Skipping plugin directory "${entry.name}": ${error.message}`);
                     continue;
                 }
@@ -823,11 +843,11 @@ export async function discoverPlugins() {
                         validatePluginExport(plugin, entry.name, pluginsDir === USER_PLUGINS_DIR);
                         pluginManager.register(plugin);
                     }
-                } catch (error: any) {
+                } catch (caught) { const error = caught as DynamicPayload;
                     logger.error(`[PluginManager] Failed to load plugin from ${entry.name} in ${pluginsDir}:`, error.message);
                 }
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error(`[PluginManager] Failed to discover plugins in ${pluginsDir}:`, error.message);
         }
     }

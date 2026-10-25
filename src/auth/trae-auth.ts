@@ -581,7 +581,9 @@ export async function handleTraePATLogin({
  * @param {Object} options
  * @returns {Promise<{ authUrl: string, authInfo: Object }>}
  */
-export async function handleTraeOAuth(currentConfig = CONFIG, options: any = {}) {
+type DynamicPayload = Record<string, any>;
+
+export async function handleTraeOAuth(currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
     const host = options.host || TRAE_AUTH_CONFIG.defaultHost;
     const { loginUrl, machineId, deviceId, callbackUrl } = buildTraeWebLoginUrl({
         host,

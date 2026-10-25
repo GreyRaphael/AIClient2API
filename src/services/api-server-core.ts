@@ -129,7 +129,7 @@ function setupWorkerCommunication() {
     if (!IS_WORKER_PROCESS) return;
 
     // 监听来自主进程的消息
-    process.on('message', (message: any) => {
+    process.on('message', (message: { type?: string } | null) => {
         if (!message || !message.type) return;
 
         logger.info('[Worker] Received message from master:', message.type);

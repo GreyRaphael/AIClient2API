@@ -58,7 +58,7 @@ async function main() {
 
         // 监听自动回调
         waitForCallback()
-            .then((result: any) => {
+            .then((result: { userId?: string; credPath?: string; email?: string }) => {
                 if (finished) return;
                 console.log('\n\x1b[32m[SUCCESS] Zed 授权成功！\x1b[0m');
                 console.log(`User ID: ${result.userId}`);
@@ -66,7 +66,7 @@ async function main() {
                 console.log(`节点已自动挂载至 provider_pools.json (Zed - ${result.email || result.userId})\n`);
                 cleanupAndExit(0);
             })
-            .catch(err => {
+            .catch((err: unknown) => {
                 if (finished) return;
                 console.error(`\n\x1b[31m[ERROR] 回调等待出错: ${getErrorMessage(err)}\x1b[0m\n`);
                 cleanupAndExit(1);

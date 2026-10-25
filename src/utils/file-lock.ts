@@ -96,9 +96,12 @@ async function retryRename(src: string, dest: string, retries = 5, delay = 100):
  * @param filePath - 锁的标识（文件路径）
  * @param fn - 回调函数，接收一个 isLocked 有效性检查函数
  */
-export function withFileLock(filePath: any, fn?: any): Promise<any> {
+export function withFileLock<T>(
+    filePath: string | ((check: () => void) => T | Promise<T>),
+    fn?: (check: () => void) => T | Promise<T>
+): Promise<T> {
     const lockKey = typeof filePath === 'string' ? filePath : 'global_lock';
-    const callback = typeof filePath === 'function' ? filePath : fn;
+    const callback = (typeof filePath === 'function' ? filePath : fn) as (check: () => void) => T | Promise<T>;
 
     const currentLock = lockManager.getLock(lockKey);
     const next = currentLock
@@ -110,7 +113,7 @@ export function withFileLock(filePath: any, fn?: any): Promise<any> {
                     throw new Error(`Lock on ${lockKey} has been revoked due to timeout or preemption.`);
                 }
             };
-            return await withTimeout(callback(checkValidity), 30000);
+            return await withTimeout(Promise.resolve(callback(checkValidity)), 30000);
         })
         .catch(err => {
             logger.error(`[FileLock][${lockKey}] Operation failed:`, err?.message || err);
@@ -159,7 +162,7 @@ export async function atomicWriteFile(filePath: string, data: string | Buffer, o
     const encoding: BufferEncoding = typeof options === 'string' ? options as BufferEncoding : (options?.encoding || 'utf-8');
     const mode = typeof options === 'object' ? options.mode : undefined;
     const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).substring(2, 7)}.tmp`;
-    let handle: any = null;
+    let handle: Awaited<ReturnType<typeof pfs.open>> | null = null;
     try {
         handle = await pfs.open(tempPath, 'w', mode);
         await handle.writeFile(data, encoding);
