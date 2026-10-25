@@ -61,7 +61,7 @@ for (const record of fs.readFileSync(LCOV_PATH, 'utf8').split('end_of_record')) 
                 if (parts[3] !== '-' && Number(parts[3]) > 0) metrics[target].covered += 1;
             }
         } else if (line.startsWith('FNDA:')) {
-            const [count] = line.slice(6).split(',');
+            const [count] = line.slice(5).split(',');
             target = 'functions';
             for (const metrics of targets) {
                 metrics[target].total += 1;

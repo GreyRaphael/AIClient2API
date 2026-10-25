@@ -55,7 +55,7 @@
     "metrics:types": "node scripts/type-metrics.mjs",
     "metrics:strict": "node scripts/strict-metrics.mjs",
     "check:strict": "node scripts/strict-metrics.mjs --check",
-    "verify": "npm run typecheck && npm run typecheck:plugins && npm run check:strict && npm run check:any && npm run check:imports && npm run check:cycles && npm test -- --runInBand && npm run test:runtime",
+    "verify": "npm run typecheck && npm run typecheck:plugins && npm run check:strict && npm run check:any && npm run check:imports && npm run check:cycles && npm run test:coverage -- --runInBand && npm run check:coverage && npm run test:runtime",
     "help": "node src/scripts/help.ts",
     "example:api": "node src/scripts/example-api.ts",
     "login:zed": "node src/scripts/login-zed.ts",
