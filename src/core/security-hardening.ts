@@ -32,7 +32,17 @@ const origRealpathSync = fs.realpathSync;
 const origExistsSync = fs.existsSync;
 const origStatSync = fs.statSync;
 
-function normalizeFsPath(targetPath: any) {
+interface PluginSecurityContext {
+    pluginDirType: string;
+    pluginId: string;
+    isUserPlugin: boolean;
+    baseDir: string;
+}
+
+// NOTE: 本文件 monkey-patch Node 内置模块，底层 wrapper 的 (...args: any[]) 是
+// 有意的受控例外；这里只收窄可安全表达的辅助函数边界。
+
+function normalizeFsPath(targetPath: unknown): string {
     if (targetPath instanceof URL) {
         return fileURLToPath(targetPath);
     }
@@ -58,7 +68,7 @@ function getPluginStack() {
     return null;
 }
 
-function getPluginContext(stack: any) {
+function getPluginContext(stack: string | null | undefined): PluginSecurityContext | null {
     if (!stack) return null;
     const lines = stack.split('\n');
     for (const line of lines) {
@@ -78,12 +88,12 @@ function getPluginContext(stack: any) {
     return null;
 }
 
-function isInsidePath(basePath: any, targetPath: any) {
+function isInsidePath(basePath: string, targetPath: string): boolean {
     const relativePath = path.relative(basePath, targetPath);
     return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-function getNearestExistingPath(targetPath: any) {
+function getNearestExistingPath(targetPath: string): string {
     let current = path.resolve(normalizeFsPath(targetPath));
     while (!origExistsSync(current)) {
         const parent = path.dirname(current);
@@ -93,7 +103,7 @@ function getNearestExistingPath(targetPath: any) {
     return current;
 }
 
-function resolvePhysicalParent(targetPath: any) {
+function resolvePhysicalParent(targetPath: string): string {
     const resolvedTarget = path.resolve(normalizeFsPath(targetPath));
     const parentPath = path.dirname(resolvedTarget);
     const existingParent = getNearestExistingPath(parentPath);
@@ -104,13 +114,13 @@ function resolvePhysicalParent(targetPath: any) {
     }
 }
 
-function isSensitiveReadPath(targetPath: any) {
+function isSensitiveReadPath(targetPath: string): boolean {
     const normalized = path.resolve(normalizeFsPath(targetPath));
-    return SENSITIVE_READ_PATTERNS.some((pattern: any) => pattern.test(normalized));
+    return SENSITIVE_READ_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 // Helper to verify if path is allowed (configs/, logs/ or plugin's own folder)
-function isPathAllowed(targetPath: any, stack: any) {
+function isPathAllowed(targetPath: string, stack: string | null): boolean {
     const resolvedTarget = path.resolve(normalizeFsPath(targetPath));
     const physicalParent = resolvePhysicalParent(resolvedTarget);
 
@@ -142,7 +152,7 @@ function isPathAllowed(targetPath: any, stack: any) {
 }
 
 // Helper to check if fs.open flags are for writing
-function isWriteFlag(flags: any) {
+function isWriteFlag(flags: unknown): boolean {
     if (typeof flags === 'number') {
         // In Node.js, O_RDONLY is 0. Any other flags usually mean writing/appending/etc.
         return flags !== 0;
@@ -154,7 +164,7 @@ function isWriteFlag(flags: any) {
     return false;
 }
 
-function isReadFlag(flags: any) {
+function isReadFlag(flags: unknown): boolean {
     if (typeof flags === 'number') {
         return true;
     }
@@ -165,7 +175,7 @@ function isReadFlag(flags: any) {
     return true;
 }
 
-function auditDeniedAttempt(stack: any, operationName: any, target: any, reason: any) {
+function auditDeniedAttempt(stack: string | null, operationName: string, target: unknown, reason: string): void {
     const pluginContext = getPluginContext(stack);
     auditSecurityEvent({
         type: 'plugin_security_denied',
@@ -178,7 +188,7 @@ function auditDeniedAttempt(stack: any, operationName: any, target: any, reason:
 }
 
 // Intercept write attempts
-function handleWriteAttempt(targetPath: any, operationName: any) {
+function handleWriteAttempt(targetPath: string, operationName: string): void {
     const stack = getPluginStack();
     if (stack) {
         if (!isPathAllowed(targetPath, stack)) {
@@ -188,7 +198,7 @@ function handleWriteAttempt(targetPath: any, operationName: any) {
     }
 }
 
-function handleReadAttempt(targetPath: any, operationName: any) {
+function handleReadAttempt(targetPath: string, operationName: string): void {
     const stack = getPluginStack();
     if (!stack) return;
 
@@ -205,7 +215,7 @@ function handleReadAttempt(targetPath: any, operationName: any) {
 }
 
 // Intercept execution attempts
-function handleExecutionAttempt(command: any, operationName: any) {
+function handleExecutionAttempt(command: unknown, operationName: string): void {
     const stack = getPluginStack();
     if (stack) {
         auditDeniedAttempt(stack, operationName, command, 'process_execution');
@@ -213,7 +223,7 @@ function handleExecutionAttempt(command: any, operationName: any) {
     }
 }
 
-function handleForbiddenAttempt(target: any, operationName: any) {
+function handleForbiddenAttempt(target: unknown, operationName: string): void {
     const stack = getPluginStack();
     if (stack) {
         auditDeniedAttempt(stack, operationName, target, 'forbidden_api');
@@ -221,7 +231,7 @@ function handleForbiddenAttempt(target: any, operationName: any) {
     }
 }
 
-function handleNetworkAttempt(target: any, operationName: any) {
+function handleNetworkAttempt(target: unknown, operationName: string): void {
     const stack = getPluginStack();
     if (stack) {
         auditDeniedAttempt(stack, operationName, target, 'network');
@@ -229,7 +239,7 @@ function handleNetworkAttempt(target: any, operationName: any) {
     }
 }
 
-function handleProcessControlAttempt(target: any, operationName: any) {
+function handleProcessControlAttempt(target: unknown, operationName: string): void {
     const stack = getPluginStack();
     if (stack) {
         auditDeniedAttempt(stack, operationName, target, 'process_control');
@@ -237,7 +247,7 @@ function handleProcessControlAttempt(target: any, operationName: any) {
     }
 }
 
-function handleUserPluginProcessMutationAttempt(target: any, operationName: any) {
+function handleUserPluginProcessMutationAttempt(target: unknown, operationName: string): void {
     const stack = getPluginStack();
     const pluginContext = getPluginContext(stack);
     if (pluginContext?.isUserPlugin) {
