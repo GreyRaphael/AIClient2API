@@ -7,8 +7,12 @@ import { PROVIDER_MAPPINGS } from '../utils/provider-utils.ts';
 import { MODEL_PROVIDER } from '../utils/common.ts';
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
-function sendJson(res: any, statusCode: any, payload: any) {
+type DynamicPayload = Record<string, any>;
+
+function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
     res.writeHead(statusCode, {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -31,18 +35,21 @@ const supportedProviders = [
  * @param {Object} providerPoolManager - 提供商池管理器
  * @returns {Promise<Object>} 所有提供商的用量信息
  */
-async function getAllProvidersUsage(currentConfig: any, providerPoolManager: any) {
-    const results = {
+async function getAllProvidersUsage(
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): Promise<DynamicPayload> {
+    const results: DynamicPayload = {
         timestamp: new Date().toISOString(),
         providers: {}
     };
 
     // 并发获取所有提供商的用量数据
-    const usagePromises = supportedProviders.map(async (providerType: any) => {
+    const usagePromises = supportedProviders.map(async (providerType: string) => {
         try {
             const providerUsage = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
             return { providerType, data: providerUsage, success: true };
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             return {
                 providerType,
                 data: {
@@ -59,7 +66,7 @@ async function getAllProvidersUsage(currentConfig: any, providerPoolManager: any
 
     // 将结果整合到 results.providers 中
     for (const result of usageResults) {
-        (results.providers as any)[result.providerType] = result.data;
+        results.providers[result.providerType] = result.data;
     }
 
     return results;
@@ -72,7 +79,11 @@ async function getAllProvidersUsage(currentConfig: any, providerPoolManager: any
  * @param {Object} providerPoolManager - 提供商池管理器
  * @returns {Array} 提供商列表
  */
-function loadProviderList(providerType: any, currentConfig: any, providerPoolManager: any) {
+function loadProviderList(
+    providerType: string,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): DynamicPayload[] {
     // 优先从内存获取
     if (providerPoolManager && providerPoolManager.providerPools && providerPoolManager.providerPools[providerType]) {
         return providerPoolManager.providerPools[providerType];
@@ -90,13 +101,13 @@ function loadProviderList(providerType: any, currentConfig: any, providerPoolMan
                 return poolsData[providerType];
             }
         }
-    } catch (fileError: any) {
+    } catch (caught) { const fileError = caught as DynamicPayload;
         logger.warn(`[Usage API] Failed to load provider pools from file: ${fileError.message}`);
     }
 
     // 补充兜底：如果号池中没有配置，但当前活跃的单提供商或服务适配器匹配此类型
-    const activeProviders = (currentConfig.MODEL_PROVIDER || '').split(',').map((p: any) => p.trim());
-    if (activeProviders.includes(providerType) || (serviceInstances as any)[providerType]) {
+    const activeProviders = (currentConfig.MODEL_PROVIDER || '').split(',').map((p: string) => p.trim());
+    if (activeProviders.includes(providerType) || serviceInstances[providerType]) {
         return [{
             uuid: 'default',
             customName: `${providerType} (Default)`,
@@ -115,10 +126,14 @@ function loadProviderList(providerType: any, currentConfig: any, providerPoolMan
  * @param {Object} providerPoolManager - 提供商池管理器
  * @returns {Promise<Object>} 提供商用量信息
  */
-async function getProviderTypeUsage(providerType: any, currentConfig: any, providerPoolManager: any) {
-    const result = {
+async function getProviderTypeUsage(
+    providerType: string,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): Promise<DynamicPayload> {
+    const result: DynamicPayload = {
         providerType,
-        instances: [] as any[],
+        instances: [] as DynamicPayload[],
         totalCount: 0,
         successCount: 0,
         errorCount: 0
@@ -130,11 +145,11 @@ async function getProviderTypeUsage(providerType: any, currentConfig: any, provi
     result.totalCount = providers.length;
 
     // 并发获取该提供商下所有实例的用量，避免串行阻塞与单个实例超时拖垮全局刷新
-    const instancePromises = providers.map(async (provider: any) => {
+    const instancePromises = providers.map(async (provider: DynamicPayload) => {
         const providerKey = (provider.uuid && provider.uuid !== 'default') ? providerType + provider.uuid : providerType;
-        let adapter = (serviceInstances as any)[providerKey];
+        let adapter = serviceInstances[providerKey];
 
-        const instanceResult: any = {
+        const instanceResult: DynamicPayload = {
             uuid: provider.uuid || 'unknown',
             name: getProviderDisplayName(provider, providerType),
             configFilePath: getProviderConfigFilePath(provider, providerType),
@@ -150,14 +165,14 @@ async function getProviderTypeUsage(providerType: any, currentConfig: any, provi
             try {
                 logger.info(`[Usage API] Auto-initializing service adapter for ${providerType}: ${provider.uuid}`);
                 // Build configuration object
-                const serviceConfig = {
+                const serviceConfig: DynamicPayload = {
                     ...CONFIG,
                     ...provider,
                     MODEL_PROVIDER: providerType
                 };
                 delete serviceConfig.providerPools;
                 adapter = getServiceAdapter(serviceConfig);
-            } catch (initError: any) {
+            } catch (caught) { const initError = caught as DynamicPayload;
                 logger.error(`[Usage API] Failed to initialize adapter for ${providerType}: ${provider.uuid}:`, initError.message);
                 instanceResult.error = `Service instance initialization failed: ${initError.message}`;
                 return instanceResult;
@@ -171,7 +186,7 @@ async function getProviderTypeUsage(providerType: any, currentConfig: any, provi
                 const usage = await usageService.getFormattedUsage(providerType, queryUuid);
                 instanceResult.success = true;
                 instanceResult.usage = usage;
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 logger.warn(`[Usage API] Failed to fetch usage for ${providerType}:${provider.uuid}: ${error.message}`);
                 instanceResult.error = error.message;
             }
@@ -182,8 +197,8 @@ async function getProviderTypeUsage(providerType: any, currentConfig: any, provi
 
     const instances = await Promise.all(instancePromises);
     result.instances = instances;
-    result.successCount = instances.filter((i: any) => i.success).length;
-    result.errorCount = instances.filter((i: any) => !i.success).length;
+    result.successCount = instances.filter((i: DynamicPayload) => i.success).length;
+    result.errorCount = instances.filter((i: DynamicPayload) => !i.success).length;
 
     return result;
 }
@@ -195,14 +210,14 @@ async function getProviderTypeUsage(providerType: any, currentConfig: any, provi
  * @param {string} providerType - 提供商类型
  * @returns {string} 显示名称
  */
-function getProviderDisplayName(provider: any, providerType: any) {
+function getProviderDisplayName(provider: DynamicPayload, providerType: string): string {
     // 1. 优先使用自定义名称
     if (provider.customName) {
         return provider.customName;
     }
 
     // 2. 尝试从凭据文件路径提取名称（自动从文件名识别账号）
-    const mapping = PROVIDER_MAPPINGS.find((m: any) => m.providerType === providerType);
+    const mapping = PROVIDER_MAPPINGS.find((m: DynamicPayload) => m.providerType === providerType);
     const credPathKey = mapping ? mapping.credPathKey : null;
 
     // 只有当键名包含 'PATH' 或 'FILE' 时，才将其视为文件路径进行解析
@@ -227,8 +242,8 @@ function getProviderDisplayName(provider: any, providerType: any) {
  * @param {string} providerType - 提供商类型
  * @returns {string|null} 配置文件路径
  */
-function getProviderConfigFilePath(provider: any, providerType: any) {
-    const mapping = PROVIDER_MAPPINGS.find((m: any) => m.providerType === providerType);
+function getProviderConfigFilePath(provider: DynamicPayload, providerType: string): string | null {
+    const mapping = PROVIDER_MAPPINGS.find((m: DynamicPayload) => m.providerType === providerType);
     const credPathKey = mapping ? mapping.credPathKey : null;
 
     // 只有当键名包含 'PATH' 或 'FILE' 时，才返回路径
@@ -243,7 +258,7 @@ function getProviderConfigFilePath(provider: any, providerType: any) {
  * 确保即使格式化逻辑改变，缓存数据也能以最新格式返回
  * @param {Object} results - 用量结果对象
  */
-function reformatUsageResults(results: any) {
+function reformatUsageResults(results: DynamicPayload | null | undefined): void {
     if (!results || !results.providers) return;
 
     for (const [providerType, providerData] of Object.entries(results.providers as Record<string, any>)) {
@@ -253,7 +268,7 @@ function reformatUsageResults(results: any) {
                 if (instance.success && instance.usage && instance.usage.raw) {
                     try {
                         instance.usage = usageService.formatUsage(providerType, instance.usage.raw);
-                    } catch (err: any) {
+                    } catch (caught) { const err = caught as DynamicPayload;
                         logger.error(`[Usage API] Failed to re-format cached data for ${providerType}:`, err.message);
                     }
                 }
@@ -262,9 +277,14 @@ function reformatUsageResults(results: any) {
     }
 }
 
-async function resolveProviderInstance(currentConfig: any, providerPoolManager: any, providerType: any, uuid: any) {
+async function resolveProviderInstance(
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null,
+    providerType: string,
+    uuid: string | null
+): Promise<DynamicPayload> {
     const providers = loadProviderList(providerType, currentConfig, providerPoolManager);
-    let provider = providers.find((p: any) => p.uuid === uuid);
+    let provider = providers.find((p: DynamicPayload) => p.uuid === uuid);
 
     if (!provider && (uuid === 'default' || !uuid)) {
         provider = {
@@ -280,7 +300,7 @@ async function resolveProviderInstance(currentConfig: any, providerPoolManager: 
     }
 
     const providerKey = (provider.uuid && provider.uuid !== 'default') ? providerType + provider.uuid : providerType;
-    let adapter = (serviceInstances as any)[providerKey];
+    let adapter = serviceInstances[providerKey];
 
     const instanceResult = {
         uuid: provider.uuid || 'unknown',
@@ -294,7 +314,7 @@ async function resolveProviderInstance(currentConfig: any, providerPoolManager: 
     };
 
     if (!adapter) {
-        const serviceConfig = {
+        const serviceConfig: DynamicPayload = {
             ...CONFIG,
             ...provider,
             MODEL_PROVIDER: providerType
@@ -306,7 +326,11 @@ async function resolveProviderInstance(currentConfig: any, providerPoolManager: 
     return { provider, adapter, instanceResult };
 }
 
-async function updateSingleInstanceInCache(providerType: any, uuid: any, instanceResult: any) {
+async function updateSingleInstanceInCache(
+    providerType: string,
+    uuid: string | null,
+    instanceResult: DynamicPayload
+): Promise<void> {
     try {
         let cache = await readUsageCache();
         if (!cache) {
@@ -332,7 +356,7 @@ async function updateSingleInstanceInCache(providerType: any, uuid: any, instanc
         }
 
         const providerCache = cache.providers[providerType];
-        const idx = providerCache.instances.findIndex((inst: any) => inst.uuid === uuid);
+        const idx = providerCache.instances.findIndex((inst: DynamicPayload) => inst.uuid === uuid);
         if (idx !== -1) {
             providerCache.instances[idx] = instanceResult;
         } else {
@@ -341,7 +365,7 @@ async function updateSingleInstanceInCache(providerType: any, uuid: any, instanc
 
         let successCount = 0;
         let errorCount = 0;
-        providerCache.instances.forEach((inst: any) => {
+        providerCache.instances.forEach((inst: DynamicPayload) => {
             if (inst.success) {
                 successCount++;
             } else {
@@ -355,7 +379,7 @@ async function updateSingleInstanceInCache(providerType: any, uuid: any, instanc
         cache.timestamp = new Date().toISOString();
         await writeUsageCache(cache);
         logger.info(`[Usage API] Updated global usage cache for single instance ${providerType}:${uuid}`);
-    } catch (cacheError: any) {
+    } catch (caught) { const cacheError = caught as DynamicPayload;
         logger.warn('[Usage API] Failed to update global usage cache for single instance:', cacheError.message);
     }
 }
@@ -363,12 +387,12 @@ async function updateSingleInstanceInCache(providerType: any, uuid: any, instanc
 /**
  * 获取支持用量查询的提供商列表
  */
-export async function handleGetSupportedProviders(req: any, res: any) {
+export async function handleGetSupportedProviders(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(supportedProviders));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Usage API] Failed to get supported providers:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -383,13 +407,18 @@ export async function handleGetSupportedProviders(req: any, res: any) {
 /**
  * 获取所有提供商的用量限制
  */
-export async function handleGetUsage(req: any, res: any, currentConfig: any, providerPoolManager: any) {
+export async function handleGetUsage(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): Promise<boolean> {
     try {
         // 解析查询参数，检查是否需要强制刷新
-        const url = new URL(req.url, `http://${req.headers.host}`);
+        const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         const refresh = url.searchParams.get('refresh') === 'true';
 
-        let usageResults: any;
+        let usageResults: DynamicPayload | undefined;
 
         if (!refresh) {
             // 优先读取缓存
@@ -408,8 +437,10 @@ export async function handleGetUsage(req: any, res: any, currentConfig: any, pro
                             cacheValid = false;
                             break;
                         }
-                        const cachedUuidMap = new Map((cachedList as any[]).map((inst: any) => [inst.uuid, inst]));
-                        for (const p of currentList as any[]) {
+                        const cachedUuidMap = new Map(
+                            (cachedList as DynamicPayload[]).map((inst: DynamicPayload) => [inst.uuid, inst])
+                        );
+                        for (const p of currentList as DynamicPayload[]) {
                             const pUuid = p.uuid || 'default';
                             const cachedInst = cachedUuidMap.get(pUuid);
                             if (!cachedInst || cachedInst.isDisabled !== (p.isDisabled === true)) {
@@ -454,7 +485,7 @@ export async function handleGetUsage(req: any, res: any, currentConfig: any, pro
         });
         res.end(JSON.stringify(finalResults));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to get usage:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -469,9 +500,16 @@ export async function handleGetUsage(req: any, res: any, currentConfig: any, pro
 /**
  * 获取特定提供商实例的用量限制
  */
-export async function handleGetSingleInstanceUsage(req: any, res: any, currentConfig: any, providerPoolManager: any, providerType: any, uuid: any) {
+export async function handleGetSingleInstanceUsage(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null,
+    providerType: string,
+    uuid: string | null
+): Promise<boolean> {
     try {
-        let instanceResult: any = null;
+        let instanceResult: DynamicPayload;
 
         // 重新查询
         logger.info(`[Usage API] Fetching fresh usage data for ${providerType}:${uuid}`);
@@ -485,13 +523,13 @@ export async function handleGetSingleInstanceUsage(req: any, res: any, currentCo
 
         instanceResult = baseInstanceResult;
 
-        if (adapter && !instanceResult.error) {
+        if (adapter && instanceResult && !instanceResult.error) {
             try {
                 const queryUuid = (provider.uuid === 'default' || !provider.uuid) ? null : provider.uuid;
                 const usage = await usageService.getFormattedUsage(providerType, queryUuid);
                 instanceResult.success = true;
                 instanceResult.usage = usage;
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 instanceResult.error = error.message;
             }
         }
@@ -505,7 +543,7 @@ export async function handleGetSingleInstanceUsage(req: any, res: any, currentCo
 
         sendJson(res, 200, finalResults);
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error(`[UI API] Failed to get usage for ${providerType}:${uuid}:`, error);
         sendJson(res, 500, {
             error: {
@@ -516,7 +554,14 @@ export async function handleGetSingleInstanceUsage(req: any, res: any, currentCo
     }
 }
 
-export async function handleResetSingleInstanceUsage(req: any, res: any, currentConfig: any, providerPoolManager: any, providerType: any, uuid: any) {
+export async function handleResetSingleInstanceUsage(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null,
+    providerType: string,
+    uuid: string | null
+): Promise<boolean> {
     try {
         if (providerType !== MODEL_PROVIDER.CODEX_API) {
             throw new Error(`当前仅支持 ${MODEL_PROVIDER.CODEX_API} 的额度重置`);
@@ -558,7 +603,7 @@ export async function handleResetSingleInstanceUsage(req: any, res: any, current
             serverTime: new Date().toISOString()
         });
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error(`[UI API] Failed to reset usage for ${providerType}:${uuid}:`, error);
         sendJson(res, 500, {
             error: {
@@ -572,13 +617,19 @@ export async function handleResetSingleInstanceUsage(req: any, res: any, current
 /**
  * 获取特定提供商类型的用量限制
  */
-export async function handleGetProviderUsage(req: any, res: any, currentConfig: any, providerPoolManager: any, providerType: any) {
+export async function handleGetProviderUsage(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null,
+    providerType: string
+): Promise<boolean> {
     try {
         // 解析查询参数，检查是否需要强制刷新
-        const url = new URL(req.url, `http://${req.headers.host}`);
+        const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         const refresh = url.searchParams.get('refresh') === 'true';
 
-        let usageResults: any;
+        let usageResults: DynamicPayload | undefined;
 
         if (!refresh) {
             // Prefer reading from cache
@@ -616,7 +667,7 @@ export async function handleGetProviderUsage(req: any, res: any, currentConfig: 
         });
         res.end(JSON.stringify(finalResults));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error(`[UI API] Failed to get usage for ${providerType}:`, error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
