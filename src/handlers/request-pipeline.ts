@@ -28,34 +28,50 @@ import {
     getCustomModelListProvider
 } from '../providers/provider-models.ts';
 import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.ts';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+export type PipelineError = DynamicPayload & {
+    statusCode?: number;
+    status?: number;
+    code?: string | number;
+    response?: DynamicPayload;
+    isEmptyUpstreamResponse?: boolean;
+    skipErrorCount?: boolean;
+    shouldSwitchCredential?: boolean;
+    credentialMarkedUnhealthy?: boolean;
+};
 
 interface PipelineRetryContext {
     anyDataSent?: boolean;
     maxRetries?: number;
     currentRetry?: number;
-    CONFIG?: any;
+    CONFIG?: DynamicPayload;
     emptyResponseRetry?: number;
     emptyResponseStartedAt?: number;
     clientDisconnected?: { value: boolean };
-    streamState?: Record<string, any>;
+    streamState?: DynamicPayload;
     requestId?: string;
-    [key: string]: any;
 }
 
 type EmptyRetryOutcome =
     | { retry: false; budgetExhausted?: boolean }
-    | { retry: true; result: any; emptyResponseRetry: number };
+    | { retry: true; result: DynamicPayload | null; emptyResponseRetry: number };
 
 function getErrorMessage(error: unknown): string {
     if (error instanceof Error) return error.message;
     return String(error);
 }
 
-function getCustomModelEntriesForProvider(config: any, providerType: string | null = null, options: any = {}): any[] {
-    const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
-    const entries: any[] = [];
+function getCustomModelEntriesForProvider(
+    config: DynamicPayload | null | undefined,
+    providerType: string | null = null,
+    options: DynamicPayload = {}
+): DynamicPayload[] {
+    const customModels: DynamicPayload[] = Array.isArray(config?.customModels) ? config.customModels : [];
+    const entries: DynamicPayload[] = [];
 
-    customModels.forEach((modelConfig: any) => {
+    customModels.forEach((modelConfig: DynamicPayload) => {
         if (!modelConfig?.id || modelConfig.enabled === false) {
             return;
         }
@@ -91,7 +107,11 @@ function getCustomModelEntriesForProvider(config: any, providerType: string | nu
     return entries;
 }
 
-export function resolveCustomModelRouting(model: any, currentProvider: any, customModelConfig: any = getCustomModelConfig(model, currentProvider)): any {
+export function resolveCustomModelRouting(
+    model: string,
+    currentProvider: string | null,
+    customModelConfig: DynamicPayload | null = getCustomModelConfig(model, currentProvider)
+): DynamicPayload {
     if (!customModelConfig) {
         return {
             isCustomModel: false,
@@ -116,9 +136,14 @@ export function resolveCustomModelRouting(model: any, currentProvider: any, cust
     };
 }
 
-function appendCustomModelsToModelList(clientModelList: any, customEntries: any[], providerType: string, listEndpointType: string): any {
+function appendCustomModelsToModelList(
+    clientModelList: DynamicPayload,
+    customEntries: DynamicPayload[],
+    providerType: string,
+    listEndpointType: string
+): DynamicPayload {
     const entries = Array.isArray(customEntries) ? customEntries : [];
-    const hasMetadataValue = (value: any): boolean => value !== undefined && value !== null;
+    const hasConfiguredMetadata = (value: unknown): boolean => value !== undefined && value !== null;
 
     if (!entries.length) {
         return clientModelList;
@@ -127,19 +152,19 @@ function appendCustomModelsToModelList(clientModelList: any, customEntries: any[
     if (listEndpointType === ENDPOINT_TYPE.OPENAI_MODEL_LIST) {
         const models = Array.isArray(clientModelList?.data) ? clientModelList.data : [];
 
-        entries.forEach((entry: any) => {
-            const existingModel = models.find((model: any) => model?.id === entry.id);
+        entries.forEach((entry: DynamicPayload) => {
+            const existingModel = models.find((model: DynamicPayload) => model?.id === entry.id);
             if (existingModel) {
                 // 更新现有模型的元数据
                 if (entry.config.name) existingModel.display_name = entry.config.name;
                 if (entry.config.description) existingModel.description = entry.config.description;
-                if (hasMetadataValue(entry.config.contextLength)) existingModel.context_length = entry.config.contextLength;
-                if (hasMetadataValue(entry.config.maxTokens)) existingModel.max_tokens = entry.config.maxTokens;
+                if (hasConfiguredMetadata(entry.config.contextLength)) existingModel.context_length = entry.config.contextLength;
+                if (hasConfiguredMetadata(entry.config.maxTokens)) existingModel.max_tokens = entry.config.maxTokens;
                 return;
             }
 
             // 添加新模型
-            const modelResponse: any = {
+            const modelResponse: DynamicPayload = {
                 id: entry.id,
                 object: 'model',
                 created: Math.floor(Date.now() / 1000),
@@ -148,8 +173,8 @@ function appendCustomModelsToModelList(clientModelList: any, customEntries: any[
             };
 
             if (entry.config.description) modelResponse.description = entry.config.description;
-            if (hasMetadataValue(entry.config.contextLength)) modelResponse.context_length = entry.config.contextLength;
-            if (hasMetadataValue(entry.config.maxTokens)) modelResponse.max_tokens = entry.config.maxTokens;
+            if (hasConfiguredMetadata(entry.config.contextLength)) modelResponse.context_length = entry.config.contextLength;
+            if (hasConfiguredMetadata(entry.config.maxTokens)) modelResponse.max_tokens = entry.config.maxTokens;
 
             models.push(modelResponse);
         });
@@ -164,7 +189,7 @@ function appendCustomModelsToModelList(clientModelList: any, customEntries: any[
     return clientModelList;
 }
 
-export async function logConversation(type: string, content: any, logMode: any, logFilename: string): Promise<void> {
+export async function logConversation(type: string, content: unknown, logMode: string, logFilename: string): Promise<void> {
     if (logMode === 'none') return;
     if (!content) return;
 
@@ -190,7 +215,7 @@ export async function logConversation(type: string, content: any, logMode: any, 
  * @param {Object} responsePayload - The actual response payload (string for unary, object for stream chunks).
  * @param {boolean} isStream - Whether the response is a stream.
  */
-export async function handleUnifiedResponse(res: any, responsePayload: any, isStream: boolean, statusCode = 200) {
+export async function handleUnifiedResponse(res: ServerResponse, responsePayload: unknown, isStream: boolean, statusCode = 200): Promise<void> {
     const validatedStatusCode = ensureValidStatusCode(statusCode);
     if (isStream) {
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "Transfer-Encoding": "chunked" });
@@ -205,12 +230,12 @@ export async function handleUnifiedResponse(res: any, responsePayload: any, isSt
     }
 }
 
-function getPluginHookRequestId(config: any): string | null {
+function getPluginHookRequestId(config: DynamicPayload | null | undefined): string | null {
     return config?._monitorRequestId || null;
 }
 
 /**
- * 针对上游「空响应」（(error as any).isEmptyUpstreamResponse）计算是否应该重试，并在应该重试时尝试获取一个
+ * 针对上游「空响应」（(error as PipelineError).isEmptyUpstreamResponse）计算是否应该重试，并在应该重试时尝试获取一个
  * 备用的服务实例。重试预算由 CONFIG.EMPTY_RESPONSE_MAX_RETRIES 控制，与凭证切换预算
  * （CREDENTIAL_SWITCH_MAX_RETRIES）完全独立计数，避免一次空回把凭证切换预算耗光。
  * 该机制不绑定具体 provider：任何 provider 抛出带 isEmptyUpstreamResponse 标记的错误都会走到这里。
@@ -219,7 +244,7 @@ function getPluginHookRequestId(config: any): string | null {
  * @returns {Promise<{retry: boolean, result?: object, emptyResponseRetry?: number, budgetExhausted?: boolean}>}
  */
 export async function resolveEmptyUpstreamResponseRetry(
-    CONFIG: any,
+    CONFIG: DynamicPayload,
     model: string,
     attemptsMade: number,
     logPrefix: string,
@@ -307,7 +332,7 @@ export const TERMINAL_EMPTY_FINISH_REASONS = new Set([
  * @param {Object} payload
  * @returns {boolean}
  */
-export function isInStreamErrorPayload(payload: any): boolean {
+export function isInStreamErrorPayload(payload: DynamicPayload | null | undefined): boolean {
     if (!payload || typeof payload !== 'object') return false;
     if (
         payload.type === 'response.failed' ||
@@ -335,7 +360,7 @@ export function isInStreamErrorPayload(payload: any): boolean {
  * @param {Object} payload
  * @returns {string}
  */
-export function extractInStreamErrorMessage(payload: any): string | null {
+export function extractInStreamErrorMessage(payload: DynamicPayload | null | undefined): string | null {
     return String(
         payload?.error?.message
         || payload?.response?.error?.message
@@ -364,7 +389,7 @@ export const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
  * @param {string} provider - 上游 provider 类型
  * @returns {string} 结束原因；无法判定时返回空串
  */
-export function extractTerminalFinishReason(payload: any, provider: string): string | null {
+export function extractTerminalFinishReason(payload: DynamicPayload | null | undefined, provider: string): string | null {
     if (!payload || typeof payload !== 'object') return '';
     if (payload.type === 'response.failed' || payload.response?.status === 'failed' || payload.status === 'failed') {
         return 'failed';
@@ -403,8 +428,8 @@ export function extractTerminalFinishReason(payload: any, provider: string): str
  * @param {string} reason
  * @returns {boolean}
  */
-export function isTerminalEmptyFinishReason(reason: any): boolean {
-    return Boolean(reason) && TERMINAL_EMPTY_FINISH_REASONS.has(reason);
+export function isTerminalEmptyFinishReason(reason: unknown): boolean {
+    return Boolean(reason) && TERMINAL_EMPTY_FINISH_REASONS.has(String(reason));
 }
 
 /**
@@ -446,7 +471,7 @@ function resetConverterStreamState(provider: string, requestId: string | null): 
  * @param {string} toProvider - 上游 provider 类型
  * @returns {boolean} 是否含有有效内容
  */
-export function nativePayloadHasMeaningfulContent(payload: any, toProvider: string): boolean {
+export function nativePayloadHasMeaningfulContent(payload: DynamicPayload | null | undefined, toProvider: string): boolean {
     if (!payload || typeof payload !== 'object') return false;
     switch (getProtocolPrefix(toProvider)) {
         case MODEL_PROTOCOL_PREFIX.GEMINI: {
@@ -464,7 +489,7 @@ export function nativePayloadHasMeaningfulContent(payload: any, toProvider: stri
         case MODEL_PROTOCOL_PREFIX.CLAUDE: {
             // 完整消息（非流式）
             if (payload.type === 'message' && Array.isArray(payload.content)) {
-                return payload.content.some((block: any) =>
+                return payload.content.some((block: DynamicPayload) =>
                     (block?.type === 'text' && typeof block.text === 'string' && block.text.length > 0) ||
                     block?.type === 'tool_use' || block?.type === 'server_tool_use'
                 );
@@ -489,7 +514,7 @@ export function nativePayloadHasMeaningfulContent(payload: any, toProvider: stri
             // 避免深度推理模型（如 Trae GLM-5.3、DeepSeek-R1）长时间思考时思考帧全被滞留在缓冲中导致下游看门狗超时断开
             if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.length > 0) return true;
             if (typeof msg.reasoning === 'string' && msg.reasoning.length > 0) return true;
-            if (Array.isArray(msg.content) && msg.content.some((c: any) => (c?.type === 'text' && c.text) || c?.type === 'image_url')) return true;
+            if (Array.isArray(msg.content) && msg.content.some((c: DynamicPayload) => (c?.type === 'text' && c.text) || c?.type === 'image_url')) return true;
             if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) return true;
             return false;
         }
@@ -503,10 +528,10 @@ export function nativePayloadHasMeaningfulContent(payload: any, toProvider: stri
             const completedOutput = Array.isArray(payload.output) ? payload.output
                 : (Array.isArray(payload.response?.output) ? payload.response.output : null);
             if (completedOutput) {
-                return completedOutput.some((item: any) =>
+                return completedOutput.some((item: DynamicPayload) =>
                     item?.type === 'function_call' || item?.type === 'custom_tool_call' || item?.type === 'local_shell_call' ||
                     (item?.type === 'message' && Array.isArray(item.content) &&
-                        item.content.some((c: any) => (c?.type === 'output_text' || c?.type === 'text') && typeof c.text === 'string' && c.text.length > 0))
+                        item.content.some((c: DynamicPayload) => (c?.type === 'output_text' || c?.type === 'text') && typeof c.text === 'string' && c.text.length > 0))
                 );
             }
             // 流式事件
@@ -523,15 +548,15 @@ export function nativePayloadHasMeaningfulContent(payload: any, toProvider: stri
 }
 
 export async function handleStreamRequest(
-    res: any,
-    service: any,
+    res: ServerResponse,
+    service: DynamicPayload,
     model: string,
-    requestBody: any,
+    requestBody: DynamicPayload,
     fromProvider: string,
     toProvider: string,
-    PROMPT_LOG_MODE: any,
+    PROMPT_LOG_MODE: string,
     PROMPT_LOG_FILENAME: string,
-    providerPoolManager: any,
+    providerPoolManager: DynamicPayload,
     pooluuid: string | null,
     customName: string | null,
     retryContext: PipelineRetryContext | null = null
@@ -546,7 +571,7 @@ export async function handleStreamRequest(
     // maxRetries: 凭证切换最大次数（跨凭证），默认 5 次
     const maxRetries = retryContext?.maxRetries ?? 5;
     const currentRetry = retryContext?.currentRetry ?? 0;
-    const CONFIG = retryContext?.CONFIG;
+    const CONFIG = retryContext?.CONFIG || {};
     // isRetry 用于判断当前调用是否是某次重试的递归帧：既包括凭证切换重试（currentRetry），
     // 也包括上游空响应重试（emptyResponseRetry，参见 resolveEmptyUpstreamResponseRetry）。只有最外层（非重试）的调用帧才负责
     // 绑定/解绑客户端事件监听器、发送响应头、以及在 finally 中写入流结束标记 / res.end()。
@@ -767,7 +792,7 @@ export async function handleStreamRequest(
                     sawMeaningfulContent = true;
                     streamState.hasMessageStop = true;
                 } else if (
-                    chunk?.choices?.some((choice: any) => choice?.finish_reason) ||
+                    chunk?.choices?.some((choice: DynamicPayload) => choice?.finish_reason) ||
                     chunk?.type === 'message_stop' ||
                     chunk?.type === 'done' ||
                     chunk?.type === 'response.completed' ||
@@ -872,7 +897,7 @@ export async function handleStreamRequest(
         }
 
     }  catch (error) {
-        logger.error('\n[Server] Error during stream processing:', (error as any).stack);
+        logger.error('\n[Server] Error during stream processing:', (error as PipelineError).stack);
         
         // 如果客户端已断开，不需要发送错误响应
         if (clientDisconnected.value) {
@@ -885,7 +910,7 @@ export async function handleStreamRequest(
         if (anyDataSent) {
             logger.info(`[Stream Retry] Cannot retry: data already sent to client`);
             // 直接发送错误并结束
-            const errorPayload = createStreamErrorResponse(error, fromProvider);
+            const errorPayload = createStreamErrorResponse(error as PipelineError, fromProvider);
             if (!res.writableEnded) {
                 try {
                     res.write(errorPayload);
@@ -902,12 +927,12 @@ export async function handleStreamRequest(
         // 不占用凭证切换预算（CREDENTIAL_SWITCH_MAX_RETRIES），重试沿用同一份 requestBody，
         // 不会让历史/token 变大。预算耗尽后直接返回明确错误，不再静默放行空的 end_turn。
         // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支（目前 Kiro 在用）。
-        if ((error as any).isEmptyUpstreamResponse) {
+        if ((error as PipelineError).isEmptyUpstreamResponse) {
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
             const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
             const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Stream Retry]', toProvider, emptyResponseStartedAt);
 
-            if (outcome.retry) {
+            if (outcome.retry && outcome.result) {
                 const { result, emptyResponseRetry } = outcome;
                 const newRetryContext = {
                     ...(retryContext || {}),
@@ -961,12 +986,12 @@ export async function handleStreamRequest(
         const status = getErrorStatusCode(error);
         
         // 检查是否应该跳过错误计数（用于 429/5xx 等需要直接切换凭证的情况）
-        const skipErrorCount = (error as any).skipErrorCount === true;
+        const skipErrorCount = (error as PipelineError).skipErrorCount === true;
         // 检查是否应该切换凭证（用于 429/5xx/402/403 等情况）
-        const shouldSwitchCredential = (error as any).shouldSwitchCredential === true;
+        const shouldSwitchCredential = (error as PipelineError).shouldSwitchCredential === true;
         
         // 检查凭证是否已在底层被标记为不健康（避免重复标记）
-        let credentialMarkedUnhealthy = (error as any).credentialMarkedUnhealthy === true;
+        let credentialMarkedUnhealthy = (error as PipelineError).credentialMarkedUnhealthy === true;
 
         const rateLimitRecoveryTime = getRateLimitCooldownRecoveryTime(error, CONFIG);
         if (rateLimitRecoveryTime && providerPoolManager && pooluuid) {
@@ -980,7 +1005,7 @@ export async function handleStreamRequest(
         // 如果底层未标记，且不跳过错误计数，则在此处标记
         if (!credentialMarkedUnhealthy && !skipErrorCount && providerPoolManager && pooluuid) {
             // 400 报错码通常是请求参数问题，不记录为提供商错误
-            if ((error as any).response?.status === 400) {
+            if ((error as PipelineError).response?.status === 400) {
                 logger.info(`[Provider Pool] Skipping unhealthy marking for ${toProvider} (${pooluuid}) due to status 400 (client error)`);
             } else {
                 logger.info(`[Provider Pool] Marking ${toProvider} as unhealthy due to stream error (status: ${status || 'unknown'})`);
@@ -1065,7 +1090,7 @@ export async function handleStreamRequest(
         }
 
         // 使用新方法创建符合 fromProvider 格式的流式错误响应
-        const errorPayload = createStreamErrorResponse(error, fromProvider);
+        const errorPayload = createStreamErrorResponse(error as PipelineError, fromProvider);
         if (!clientDisconnected.value && !res.writableEnded) {
             try {
                 res.write(errorPayload);
@@ -1154,15 +1179,15 @@ export async function handleStreamRequest(
 }
 
 export async function handleUnaryRequest(
-    res: any,
-    service: any,
+    res: ServerResponse,
+    service: DynamicPayload,
     model: string,
-    requestBody: any,
+    requestBody: DynamicPayload,
     fromProvider: string,
     toProvider: string,
-    PROMPT_LOG_MODE: any,
+    PROMPT_LOG_MODE: string,
     PROMPT_LOG_FILENAME: string,
-    providerPoolManager: any,
+    providerPoolManager: DynamicPayload,
     pooluuid: string | null,
     customName: string | null,
     retryContext: PipelineRetryContext | null = null
@@ -1171,7 +1196,7 @@ export async function handleUnaryRequest(
     // maxRetries: 凭证切换最大次数（跨凭证），默认 5 次
     const maxRetries = retryContext?.maxRetries ?? 5;
     const currentRetry = retryContext?.currentRetry ?? 0;
-    const CONFIG = retryContext?.CONFIG;
+    const CONFIG = retryContext?.CONFIG || {};
     const responseRequestId = retryContext?.requestId || null;
 
     try{
@@ -1252,18 +1277,18 @@ export async function handleUnaryRequest(
             });
         }
     } catch (error) {
-        logger.error('\n[Server] Error during unary processing:', (error as any).stack);
+        logger.error('\n[Server] Error during unary processing:', (error as PipelineError).stack);
 
         // 上游空响应（无文本/工具调用/思考内容）：使用独立的小额重试预算，
         // 不占用凭证切换预算（CREDENTIAL_SWITCH_MAX_RETRIES），重试沿用同一份 requestBody，
         // 不会让历史/token 变大。预算耗尽后直接返回明确错误，不再静默放行空响应。
         // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支（目前 Kiro 在用）。
-        if ((error as any).isEmptyUpstreamResponse) {
+        if ((error as PipelineError).isEmptyUpstreamResponse) {
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
             const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
             const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Unary Retry]', toProvider, emptyResponseStartedAt);
 
-            if (outcome.retry) {
+            if (outcome.retry && outcome.result) {
                 const { result, emptyResponseRetry } = outcome;
                 const newRetryContext = {
                     ...(retryContext || {}),
@@ -1301,12 +1326,12 @@ export async function handleUnaryRequest(
         const status = getErrorStatusCode(error);
         
         // 检查是否应该跳过错误计数（用于 429/5xx 等需要直接切换凭证的情况）
-        const skipErrorCount = (error as any).skipErrorCount === true;
+        const skipErrorCount = (error as PipelineError).skipErrorCount === true;
         // 检查是否应该切换凭证（用于 429/5xx/402/403 等情况）
-        const shouldSwitchCredential = (error as any).shouldSwitchCredential === true;
+        const shouldSwitchCredential = (error as PipelineError).shouldSwitchCredential === true;
         
         // 检查凭证是否已在底层被标记为不健康（避免重复标记）
-        let credentialMarkedUnhealthy = (error as any).credentialMarkedUnhealthy === true;
+        let credentialMarkedUnhealthy = (error as PipelineError).credentialMarkedUnhealthy === true;
 
         const rateLimitRecoveryTime = getRateLimitCooldownRecoveryTime(error, CONFIG);
         if (rateLimitRecoveryTime && providerPoolManager && pooluuid) {
@@ -1320,7 +1345,7 @@ export async function handleUnaryRequest(
         // 如果底层未标记，且不跳过错误计数，则在此处标记
         if (!credentialMarkedUnhealthy && !skipErrorCount && providerPoolManager && pooluuid) {
             // 400 报错码通常是请求参数问题，不记录为提供商错误
-            if ((error as any).response?.status === 400) {
+            if ((error as PipelineError).response?.status === 400) {
                 logger.info(`[Provider Pool] Skipping unhealthy marking for ${toProvider} (${pooluuid}) due to status 400 (client error)`);
             } else {
                 logger.info(`[Provider Pool] Marking ${toProvider} as unhealthy due to unary error (status: ${status || 'unknown'})`);
@@ -1396,8 +1421,8 @@ export async function handleUnaryRequest(
         }
 
         // 使用新方法创建符合 fromProvider 格式的错误响应
-        const errorResponse = createErrorResponse(error, fromProvider);
-        const rawStatusCode = (error as any).status || (error as any).code || ((error as any).response && (error as any).response.status) || 500;
+        const errorResponse = createErrorResponse(error as PipelineError, fromProvider);
+        const rawStatusCode = (error as PipelineError).status || (error as PipelineError).code || (error as PipelineError).response?.status || 500;
         const statusCode = ensureValidStatusCode(rawStatusCode);
         await handleUnifiedResponse(res, JSON.stringify(errorResponse), false, statusCode);
     } finally {
@@ -1420,7 +1445,15 @@ export async function handleUnaryRequest(
  * @param {Object} providerPoolManager - The provider pool manager instance.
  * @param {string} pooluuid - The selected provider UUID.
  */
-export async function handleModelListRequest(req: any, res: any, service: any, endpointType: string, CONFIG: any, providerPoolManager: any, pooluuid: string | null) {
+export async function handleModelListRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    service: DynamicPayload,
+    endpointType: string,
+    CONFIG: DynamicPayload,
+    providerPoolManager: DynamicPayload,
+    pooluuid: string | null
+): Promise<void> {
     const clientProviderMap = {
         [ENDPOINT_TYPE.OPENAI_MODEL_LIST]: MODEL_PROTOCOL_PREFIX.OPENAI,
     };
@@ -1440,7 +1473,7 @@ export async function handleModelListRequest(req: any, res: any, service: any, e
                     object: 'list',
                     data: models.map((modelId: string) => {
                         const customConfig = getCustomModelConfig(modelId, providerType);
-                        const modelResponse: any = {
+                        const modelResponse: DynamicPayload = {
                             id: modelId,
                             object: 'model',
                             created: Math.floor(Date.now() / 1000),
@@ -1486,8 +1519,8 @@ export async function handleModelListRequest(req: any, res: any, service: any, e
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clientModelList));
     } catch (error) {
-        logger.error('\n[Server] Error during model list processing:', (error as any).stack);
-        handleError(res, error, CONFIG.MODEL_PROVIDER, fromProvider);
+        logger.error('\n[Server] Error during model list processing:', (error as PipelineError).stack);
+        handleError(res, error as PipelineError, CONFIG.MODEL_PROVIDER, fromProvider);
     }
 }
 
@@ -1502,13 +1535,13 @@ export async function handleModelListRequest(req: any, res: any, service: any, e
  * @param {string} PROMPT_LOG_FILENAME - The prompt log filename.
  */
 export async function handleContentGenerationRequest(
-    req: any,
-    res: any,
-    service: any,
+    req: IncomingMessage,
+    res: ServerResponse,
+    service: DynamicPayload,
     endpointType: string,
-    CONFIG: any,
+    CONFIG: DynamicPayload,
     PROMPT_LOG_FILENAME: string,
-    providerPoolManager: any,
+    providerPoolManager: DynamicPayload,
     pooluuid: string | null,
     requestPath: string | null = null
 ) {
@@ -1536,7 +1569,7 @@ export async function handleContentGenerationRequest(
     }
 
     // 2. Extract model and determine if the request is for streaming.
-    let { model, isStream } = _extractModelAndStreamInfo(req, originalRequestBody, fromProvider) as any;
+    let { model, isStream } = _extractModelAndStreamInfo(req, originalRequestBody, fromProvider);
 
     if (!model) {
         throw new Error("Could not determine the model from the request.");
@@ -1578,7 +1611,7 @@ export async function handleContentGenerationRequest(
             customModelConfig: customModelConfig || null
         });
 
-        service = result.service;
+        service = result.service as DynamicPayload;
         toProvider = result.actualProviderType;
         actualUuid = result.uuid || pooluuid;
         actualCustomName = result.serviceConfig?.customName || CONFIG.customName;
@@ -1598,7 +1631,7 @@ export async function handleContentGenerationRequest(
 
     // 1. Convert request body from client format to backend format, if necessary.
     // 使用浅拷贝以避免直接变异 originalRequestBody，保持原始数据的纯净性以供后续钩子使用
-    let processedRequestBody = { ...(originalRequestBody as any) };
+    let processedRequestBody: DynamicPayload = { ...originalRequestBody };
 
     // 将 _monitorRequestId 注入到 requestBody 中，以便在 service 内部访问
     if (CONFIG._monitorRequestId) {
@@ -1694,28 +1727,28 @@ export async function handleContentGenerationRequest(
  * @param {string} fromProvider The type of endpoint being called.
  * @returns {{model: string, isStream: boolean}} An object containing the model name and stream status.
  */
-function _extractModelAndStreamInfo(req: any, requestBody: any, fromProvider: string): any {
+function _extractModelAndStreamInfo(req: IncomingMessage, requestBody: DynamicPayload, fromProvider: string): { model: string; isStream: boolean } {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(fromProvider));
     return strategy.extractModelAndStreamInfo(req, requestBody);
 }
 
-async function _applySystemPromptFromFile(config: any, requestBody: any, toProvider: string): Promise<any> {
+async function _applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload, toProvider: string): Promise<DynamicPayload> {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(toProvider));
     return strategy.applySystemPromptFromFile(config, requestBody);
 }
 
-async function _manageSystemPrompt(requestBody: any, provider: string): Promise<void> {
+async function _manageSystemPrompt(requestBody: DynamicPayload, provider: string): Promise<void> {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
     await strategy.manageSystemPrompt(requestBody);
 }
 
 // Helper functions for content extraction and conversion (from convert.js, but needed here)
-export function extractResponseText(response: any, provider: string): string {
+export function extractResponseText(response: DynamicPayload, provider: string): string {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
     return strategy.extractResponseText(response);
 }
 
-export function extractPromptText(requestBody: any, provider: string): string {
+export function extractPromptText(requestBody: DynamicPayload, provider: string): string {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
     return strategy.extractPromptText(requestBody);
 }
@@ -1726,9 +1759,10 @@ export function extractPromptText(requestBody: any, provider: string): string {
  * @param {Object} customConfig - 自定义模型配置
  * @param {string} provider - 目标提供商
  */
-function _applyCustomModelParameters(requestBody: any, customConfig: any, provider: string): void {
+function _applyCustomModelParameters(requestBody: DynamicPayload, customConfig: DynamicPayload | null, provider: string): void {
+    if (!customConfig) return;
     const protocol = getProtocolPrefix(provider);
-    const hasConfiguredValue = (value: any): boolean => value !== undefined && value !== null;
+    const hasConfiguredValue = (value: unknown): boolean => value !== undefined && value !== null;
 
     // 参数映射表
     const mappings: Record<string, Record<string, string>> = {
@@ -1753,7 +1787,7 @@ function _applyCustomModelParameters(requestBody: any, customConfig: any, provid
     };
 
     // 处理嵌套路径 (例如 generationConfig.temperature)
-    const setNestedProperty = (obj: any, path: string, value: any): void => {
+    const setNestedProperty = (obj: DynamicPayload, path: string, value: unknown): void => {
         const parts = path.split('.');
         let curr = obj;
         for (let i = 0; i < parts.length - 1; i++) {
@@ -1780,8 +1814,14 @@ function _applyCustomModelParameters(requestBody: any, customConfig: any, provid
     });
 }
 
-export function handleError(res: any, error: any, provider: string | null = null, fromProvider: string | null = null, req: any = null) {
-    const rawStatusCode = (error as any).response?.status || error.statusCode || (error as any).status || (error as any).code || 500;
+export function handleError(
+    res: ServerResponse,
+    error: PipelineError,
+    provider: string | null = null,
+    fromProvider: string | null = null,
+    req: IncomingMessage | null = null
+): void {
+    const rawStatusCode = (error as PipelineError).response?.status || error.statusCode || (error as PipelineError).status || (error as PipelineError).code || 500;
     const statusCode = ensureValidStatusCode(rawStatusCode);
     
     // 如果没有提供 fromProvider 但提供了 req，尝试从路径推断
@@ -1792,7 +1832,7 @@ export function handleError(res: any, error: any, provider: string | null = null
 
     // 如果指定了客户端协议，则使用 createErrorResponse 创建符合该协议的错误响应
     if (fromProvider) {
-        const errorResponse = createErrorResponse(error, fromProvider);
+        const errorResponse = createErrorResponse(error as PipelineError, fromProvider);
         if (!res.headersSent) {
             res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         }
@@ -1846,7 +1886,7 @@ export function handleError(res: any, error: any, provider: string | null = null
             logger.error(`  ${index + 1}. ${suggestion}`);
         });
     }
-    logger.error('[Server] Full error details:', (error as any).stack);
+    logger.error('[Server] Full error details:', (error as PipelineError).stack);
 
     // 检查响应流是否已关闭或结束
     if (res.writableEnded || res.destroyed) {
@@ -1880,7 +1920,7 @@ export function handleError(res: any, error: any, provider: string | null = null
  * @param {string|null} provider - 提供商类型
  * @returns {Object} 包含各类错误建议的对象
  */
-function _getProviderSpecificSuggestions(statusCode: any, provider: string | null): Record<string, string[]> {
+function _getProviderSpecificSuggestions(statusCode: number, provider: string | null): Record<string, string[]> {
     const protocolPrefix = provider ? getProtocolPrefix(provider) : null;
     
     // 默认/通用建议
@@ -2012,7 +2052,7 @@ function _getProviderSpecificSuggestions(statusCode: any, provider: string | nul
  * @param {Error} error
  * @returns {string}
  */
-function extractUpstreamErrorDetail(error: any): any {
+function extractUpstreamErrorDetail(error: PipelineError): string {
     const data = error?.response?.data;
     if (!data) return '';
     let raw = '';
@@ -2034,7 +2074,7 @@ function extractUpstreamErrorDetail(error: any): any {
  * @param {string} fallback
  * @returns {string}
  */
-function buildErrorMessageWithUpstream(error: any, statusCode: any, fallback: string): string {
+function buildErrorMessageWithUpstream(error: PipelineError, statusCode: number, fallback: string): string {
     const base = error?.message || fallback;
     if (statusCode < 400 || statusCode >= 500) return base;
     const detail = extractUpstreamErrorDetail(error);
@@ -2048,14 +2088,14 @@ function buildErrorMessageWithUpstream(error: any, statusCode: any, fallback: st
  * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {Object} 格式化的错误响应对象
  */
-export function createErrorResponse(error: any, fromProvider: string | null): any {
+export function createErrorResponse(error: PipelineError, fromProvider: string | null): DynamicPayload {
     const protocolPrefix = getProtocolPrefix(fromProvider || '');
-    const rawStatusCode = (error as any).status || (error as any).code || 500;
+    const rawStatusCode = (error as PipelineError).status || (error as PipelineError).code || 500;
     const statusCode = ensureValidStatusCode(rawStatusCode);
     const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during processing.");
     
     // 根据 HTTP 状态码映射错误类型
-    const getErrorType = (code: any): string => {
+    const getErrorType = (code: number): string => {
         if (code === 401) return 'authentication_error';
         if (code === 403) return 'permission_error';
         if (code === 429) return 'rate_limit_error';
@@ -2112,14 +2152,14 @@ export function createErrorResponse(error: any, fromProvider: string | null): an
  * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {string} 格式化的流式错误响应字符串
  */
-function createStreamErrorResponse(error: any, fromProvider: string | null): any {
+function createStreamErrorResponse(error: PipelineError, fromProvider: string | null): string {
     const protocolPrefix = getProtocolPrefix(fromProvider || '');
-    const rawStatusCode = (error as any).status || (error as any).code || 500;
+    const rawStatusCode = (error as PipelineError).status || (error as PipelineError).code || 500;
     const statusCode = ensureValidStatusCode(rawStatusCode);
     const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during streaming.");
     
     // 根据 HTTP 状态码映射错误类型
-    const getErrorType = (code: any): string => {
+    const getErrorType = (code: number): string => {
         if (code === 401) return 'authentication_error';
         if (code === 403) return 'permission_error';
         if (code === 429) return 'rate_limit_error';

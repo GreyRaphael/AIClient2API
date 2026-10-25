@@ -3,6 +3,9 @@ import logger from '../utils/logger.ts';
 import requestContext from '../utils/context.ts';
 import { getClientIp, getRequestBody } from '../utils/common.ts';
 import { handleError } from './request-pipeline.ts';
+import type { PipelineError } from './request-pipeline.ts';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import { handleUIApiRequests, serveStaticFiles } from '../services/ui-manager.ts';
 import { isUIPath, isUIApiPath } from '../utils/ui-utils.ts';
 import { handleAPIRequests } from '../services/api-manager.ts';
@@ -34,8 +37,13 @@ function generateRequestId() {
  * @param {Object} providerPoolManager - The provider pool manager instance
  * @returns {Function} - The request handler function
  */
-export function createRequestHandler(config: any, providerPoolManager: any) {
-    return async function requestHandler(req: any, res: any) {
+type DynamicPayload = Record<string, any>;
+
+export function createRequestHandler(
+    config: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): (req: IncomingMessage, res: ServerResponse) => Promise<unknown> {
+    return async function requestHandler(req: IncomingMessage, res: ServerResponse): Promise<unknown> {
         // Generate unique request ID and set it in logger context
         const clientIp = getClientIp(req, config);
         const requestId = `${clientIp}:${generateRequestId()}`;
@@ -43,22 +51,22 @@ export function createRequestHandler(config: any, providerPoolManager: any) {
         return requestContext.run({ requestId }, async () => {
             return logger.runWithContext(requestId, async () => {
                 // Deep copy the config for each request to allow dynamic modification
-                const currentConfig: any = deepmerge({}, config);
+                const currentConfig: DynamicPayload = deepmerge({}, config);
                 currentConfig._monitorRequestId = requestId;
                 
                 // 计算当前请求的基础 URL
-                const protocol = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+                const protocol = (req.socket as { encrypted?: boolean }).encrypted || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
                 const host = req.headers.host;
                 currentConfig.requestBaseUrl = `${protocol}://${host}`;
                 
-                const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+                const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
                 let path = requestUrl.pathname;
                 // 规范化路径：移除末尾斜杠（除非是根路径）
                 if (path.length > 1 && path.endsWith('/')) {
                     path = path.slice(0, -1);
                     requestUrl.pathname = path;
                 }
-                const method = req.method;
+                const method = req.method || 'GET';
 
                 try {
                     // Set CORS headers for all requests
@@ -168,7 +176,9 @@ export function createRequestHandler(config: any, providerPoolManager: any) {
 
                     // Handle API requests
                     // Allow overriding MODEL_PROVIDER via request header
-                    const modelProviderHeader = req.headers['model-provider'];
+                    const modelProviderHeader = typeof req.headers['model-provider'] === 'string'
+                        ? req.headers['model-provider']
+                        : null;
                     if (modelProviderHeader) {
                         if (isRegisteredProvider(modelProviderHeader)) {
                             currentConfig.MODEL_PROVIDER = modelProviderHeader;
@@ -226,7 +236,7 @@ export function createRequestHandler(config: any, providerPoolManager: any) {
                     // Handle count_tokens requests (Anthropic API compatible)
                     if (path.includes('/count_tokens') && method === 'POST') {
                         try {
-                            const body = await getRequestBody(req, { maxBytes: 1024 * 1024 * 2 }) as any; // Limit to 1MB
+                            const body = await getRequestBody(req, { maxBytes: 1024 * 1024 * 2 }) as DynamicPayload; // Limit to 1MB
                             logger.info(`[Server] Handling count_tokens request for model: ${body.model}`);
 
                             // Use common utility method directly
@@ -259,7 +269,7 @@ export function createRequestHandler(config: any, providerPoolManager: any) {
                         // Fallback for unmatched routes
                         handleError(res, { status: 404, message: 'Not Found' }, currentConfig.MODEL_PROVIDER, null, req);
                     } catch (error) {
-                        handleError(res, error, currentConfig.MODEL_PROVIDER, null, req);
+                        handleError(res, error as PipelineError, currentConfig.MODEL_PROVIDER, null, req);
                     }
                 } finally {
                     // AsyncLocalStorage 自动管理生命周期，不再需要手动清理
