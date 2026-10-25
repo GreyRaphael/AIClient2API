@@ -44,6 +44,9 @@ jobs:
       - name: 运行时导入完整性检查
         run: npm run check:imports
 
+      - name: 运行时循环依赖检查
+        run: npm run check:cycles
+
       - name: 类型债务指标
         run: npm run metrics:types
 

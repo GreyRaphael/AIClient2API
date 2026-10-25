@@ -20,7 +20,7 @@ import {
 } from '../../utils/token-utils.ts';
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, formatExpiryLog, getNormalizedErrorResponseText, buildHttpErrorReason, normalizeProviderErrorMessage, createEmptyUpstreamResponseError } from '../../utils/common.ts';
-import { getProviderPoolManager } from '../../services/service-manager.ts';
+import { getProviderPoolManager } from '../pool-context.ts';
 
 type DynamicPayload = Record<string, any>;
 
