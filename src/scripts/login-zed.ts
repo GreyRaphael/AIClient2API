@@ -2,12 +2,7 @@ import readline from 'readline';
 import { handleZedOAuth, handleZedOAuthCallback } from '../auth/zed-oauth.ts';
 import { CONFIG, initializeConfig } from '../core/config-manager.ts';
 import logger from '../utils/logger.ts';
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
+import { getErrorMessage } from '../utils/error.ts';
 async function main() {
     await initializeConfig();
     const args = process.argv.slice(2);

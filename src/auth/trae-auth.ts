@@ -9,6 +9,7 @@ import { CONFIG } from '../core/config-manager.ts';
 import { configureAxiosProxy } from '../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFileSync } from '../utils/file-lock.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 export const TRAE_AUTH_CONFIG = {
     defaultHost: 'https://api.enterprise.trae.cn',
@@ -53,12 +54,6 @@ interface TraeCallbackData {
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 function getStringField(record: Record<string, unknown>, key: string): string {
     const value = record[key];
     return typeof value === 'string' ? value : '';

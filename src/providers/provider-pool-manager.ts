@@ -19,12 +19,7 @@ import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-r
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { ENDPOINT_TYPE } from '../utils/common.ts';
 import type { ProviderConfig, ProviderPools, ProviderStatus, ProviderStatusMap, ProviderPoolOptions, ProviderPoolGlobalConfig, RefreshQueueState, RefreshBufferEntry } from './provider-types.ts';
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
+import { getErrorMessage } from '../utils/error.ts';
 /**
  * Manages a pool of API service providers, handling their health and selection.
  */

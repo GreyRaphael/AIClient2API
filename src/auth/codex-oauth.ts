@@ -10,6 +10,7 @@ import { broadcastEvent } from '../services/ui-manager.ts';
 import { autoLinkProviderConfigs } from '../services/service-manager.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 interface CodexAuthConfig {
     CODEX_OAUTH_CREDS_FILE_PATH?: string;
@@ -98,13 +99,6 @@ declare global {
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    if (isRecord(error) && typeof error.message === 'string') return error.message;
-    return String(error);
-}
-
 function getErrorCode(error: unknown): unknown {
     return isRecord(error) ? error.code : undefined;
 }

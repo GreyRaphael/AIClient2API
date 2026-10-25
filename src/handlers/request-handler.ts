@@ -17,12 +17,7 @@ import { countTokensAnthropic } from '../utils/token-utils.ts';
 import { PROMPT_LOG_FILENAME } from '../core/config-manager.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
 import { randomUUID } from 'crypto';
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
+import { getErrorMessage } from '../utils/error.ts';
 /**
  * Generate a short unique request ID (8 characters)
  */

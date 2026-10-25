@@ -4,19 +4,13 @@ export { getProtocolPrefix, ENDPOINT_TYPE, DEFAULT_REQUEST_BODY_MAX_BYTES, FETCH
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import logger from './logger.ts';
 import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from './constants.ts';
+import { getErrorMessage } from './error.ts';
 
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    if (isRecord(error) && typeof error.message === 'string') return error.message;
-    return String(error);
-}
-
 // ==================== 时间与时区 ====================
 
 /**

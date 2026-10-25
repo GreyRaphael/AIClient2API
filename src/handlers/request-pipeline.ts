@@ -29,6 +29,7 @@ import {
 } from '../providers/provider-models.ts';
 import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { getErrorMessage } from '../utils/error.ts';
 
 type DynamicPayload = Record<string, any>;
 export type PipelineError = DynamicPayload & {
@@ -57,12 +58,6 @@ interface PipelineRetryContext {
 type EmptyRetryOutcome =
     | { retry: false; budgetExhausted?: boolean }
     | { retry: true; result: DynamicPayload | null; emptyResponseRetry: number };
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 function getCustomModelEntriesForProvider(
     config: DynamicPayload | null | undefined,
     providerType: string | null = null,

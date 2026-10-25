@@ -19,6 +19,7 @@
 
 import http from 'http';
 import https from 'https';
+import { getErrorMessage } from '../utils/error.ts';
 
 interface TestConfig {
     url: string;
@@ -48,15 +49,6 @@ interface TestFailure {
     responseTime: number;
     error: string;
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    if (error && typeof error === 'object' && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
-        return (error as { message: string }).message;
-    }
-    return String(error);
-}
-
 // 解析命令行参数
 function parseArgs(): TestConfig {
     const args = process.argv.slice(2);

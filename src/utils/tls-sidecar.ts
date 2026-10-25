@@ -14,18 +14,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import logger from './logger.ts';
 import http from 'http';
+import { getErrorMessage } from './error.ts';
 
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 let __dirname = process.cwd();
 try {
     __dirname = path.dirname(fileURLToPath(import.meta.url));

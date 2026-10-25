@@ -8,6 +8,7 @@ import { broadcastEvent } from '../services/ui-manager.ts';
 import { autoLinkProviderConfigs } from '../services/service-manager.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getGoogleAuthProxyConfig } from '../utils/proxy-utils.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 /**
  * OAuth 提供商配置
@@ -68,12 +69,6 @@ interface ImportProgressData {
     successCount: number;
     failedCount: number;
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 /**
  * 活动的服务器实例管理
  */

@@ -1,17 +1,12 @@
 import { countTokens } from '@anthropic-ai/tokenizer';
 import logger from './logger.ts';
+import { getErrorMessage } from './error.ts';
 
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 function getPartText(part: unknown): string {
     if (typeof part === 'string') return part;
     if (isRecord(part)) {

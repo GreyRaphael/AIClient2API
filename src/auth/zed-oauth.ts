@@ -12,6 +12,7 @@ import { configureAxiosProxy, getProxyConfigForProvider } from '../utils/proxy-u
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { getZedVersionFromSystem, exchangeZedToken } from '../providers/zed/zed-core.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 const ZED_OAUTH_CONFIG = {
     authBaseUrl: 'https://zed.dev/native_app_signin',
@@ -39,12 +40,6 @@ interface ZedSession {
     callbackReject: ((reason?: unknown) => void) | null;
     timeoutTimer: NodeJS.Timeout;
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 // 存储当前正在进行的会话信息
 const activeSessions = new Map<string, ZedSession>();
 

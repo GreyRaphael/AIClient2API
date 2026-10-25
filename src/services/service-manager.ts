@@ -18,17 +18,12 @@ import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.ts';
 import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../providers/model-capability.ts';
 import { getStatusIdentifyFieldMap } from '../providers/provider-registry.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 type DynamicPayload = Record<string, any>;
 
 // 存储 ProviderPoolManager 实例
 let providerPoolManager: ProviderPoolManager | null = null;
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 /**
  * 扫描 configs 目录并自动关联未关联的配置文件到对应的提供商
  * @param {Object} config - 服务器配置对象

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { getErrorMessage } from './error.ts';
 
 /**
  * 统一日志工具类
@@ -24,12 +25,6 @@ interface LoggerContext {
     _createdAt?: number;
     [key: string]: unknown;
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 class Logger {
     config: LoggerConfig;
     currentLogFile: string | null;

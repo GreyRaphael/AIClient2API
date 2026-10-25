@@ -2,12 +2,7 @@ import readline from 'readline';
 import { handleTraePATLogin, TRAE_AUTH_CONFIG } from '../auth/trae-auth.ts';
 import { initializeConfig } from '../core/config-manager.ts';
 import logger from '../utils/logger.ts';
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
+import { getErrorMessage } from '../utils/error.ts';
 async function performLoginAndDisplay({ token, host, customName }: { token: string; host: string; customName: string }) {
     try {
         console.log('正在向 Trae 端点执行 ExchangeToken 握手与身份验证...');

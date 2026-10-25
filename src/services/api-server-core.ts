@@ -91,6 +91,7 @@ import 'dotenv/config'; // Import dotenv and configure it
 import '../converters/register-converters.ts'; // 注册所有转换器
 import { getProviderPoolManager } from './service-manager.ts';
 import { isRetryableNetworkError } from '../utils/common.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 // 检测是否作为子进程运行
 const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
@@ -103,12 +104,6 @@ declare global {
     // eslint-disable-next-line no-var
     var _activeHealthCheckInterval: number | undefined;
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 // 存储服务器实例，用于优雅关闭
 let serverInstance: import('node:http').Server | null = null;
 

@@ -8,6 +8,7 @@ import { broadcastEvent } from '../services/ui-manager.ts';
 import { autoLinkProviderConfigs } from '../services/service-manager.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 /**
  * Kiro OAuth 配置（支持多种认证方式）
@@ -114,13 +115,6 @@ interface KiroProgressData {
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    if (isRecord(error) && typeof error.message === 'string') return error.message;
-    return String(error);
-}
-
 function getErrorCode(error: unknown): unknown {
     return isRecord(error) ? error.code : undefined;
 }

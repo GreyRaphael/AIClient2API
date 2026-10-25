@@ -15,6 +15,7 @@ import {normalizeCodexInstructions} from './codex-request-utils.ts';
 import {resolveProviderCapabilities} from '../provider-capabilities.ts';
 
 import type { ProviderConfig } from '../provider-types.ts';
+import { getErrorMessage } from '../../utils/error.ts';
 
 interface CodexServiceConfig extends ProviderConfig {
     CODEX_BASE_URL?: string;
@@ -43,12 +44,6 @@ interface CodexTerminalError extends Error {
     skipErrorCount?: boolean;
     retryAfterMs?: number;
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }

@@ -7,12 +7,7 @@ import * as path from 'path';
 import logger from './logger.ts';
 import { promises as fs } from 'fs';
 import { getProviderMappings } from '../providers/provider-registry.ts';
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
+import { getErrorMessage } from './error.ts';
 /**
  * 提供商目录映射配置（从 provider registry 派生）
  */

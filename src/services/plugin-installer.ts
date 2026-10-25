@@ -14,18 +14,13 @@ import {
     validatePluginId,
     validatePluginTextContent
 } from '../core/plugin-security.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 const DEFAULT_MARKET_URL = 'https://source.hex2077.dev/files/market.json';
 const LOCAL_MARKET_FILE = path.join(process.cwd(), 'configs', 'market.json');
 const PLUGINS_DIR = path.join(process.cwd(), 'src', 'plugins-user');
 const MAX_PLUGIN_ZIP_BYTES = 10 * 1024 * 1024;
 const MAX_DOWNLOAD_REDIRECTS = 5;
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 function isPrivateIPv4(ip: string): boolean {
     const parts = ip.split('.').map(Number);
     if (parts.length !== 4 || parts.some(part => Number.isNaN(part))) return true;

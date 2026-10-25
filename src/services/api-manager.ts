@@ -15,6 +15,7 @@ import busboy from 'busboy';
 import { convertData } from '../convert/convert.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
+import { getErrorMessage } from '../utils/error.ts';
 
 type DynamicPayload = Record<string, any>;
 
@@ -33,12 +34,6 @@ interface ImageRetryContext {
         virtualOpenAIRequest: DynamicPayload;
     };
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 const IMAGE_GEN_MAX_N = 4;
 const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);
 

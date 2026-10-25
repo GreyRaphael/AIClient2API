@@ -9,12 +9,7 @@ import { getProviderPoolManager } from './service-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
 import { MODEL_PROVIDER } from '../utils/common.ts';
 import { getProviderModels } from '../providers/provider-models.ts';
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
+import { getErrorMessage } from '../utils/error.ts';
 /**
  * 用量查询服务类
  */

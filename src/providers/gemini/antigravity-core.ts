@@ -25,6 +25,7 @@ import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
+import { getErrorMessage } from '../../utils/error.ts';
 
 type DynamicPayload = Record<string, any>;
 
@@ -55,12 +56,6 @@ interface AntigravityErrorLike {
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 function asAntigravityError(error: unknown): AntigravityErrorLike {
     return isRecord(error) ? error as AntigravityErrorLike : {};
 }

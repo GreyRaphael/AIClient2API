@@ -16,6 +16,7 @@ import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfil
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { ProviderConfig } from '../provider-types.ts';
+import { getErrorMessage } from '../../utils/error.ts';
 
 type DynamicPayload = Record<string, any>;
 type ZedProvider = 'anthropic' | 'open_ai' | 'google';
@@ -37,12 +38,6 @@ interface ZedAuthParams {
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
 export const ZED_MODELS_URL = 'https://cloud.zed.dev/models';

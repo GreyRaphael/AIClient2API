@@ -25,12 +25,7 @@ import type {
     ProviderStatusMap,
     GlobalConfigLike
 } from '../providers/provider-types.ts';
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
+import { getErrorMessage } from '../utils/error.ts';
 function isProviderConfig(value: unknown): value is ProviderConfig {
     return value !== null && typeof value === 'object';
 }

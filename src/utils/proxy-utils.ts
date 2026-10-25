@@ -11,6 +11,7 @@ import { HttpProxyAgent } from 'http-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { getTLSSidecar } from './tls-sidecar.ts';
 import { NETWORK } from './constants.ts';
+import { getErrorMessage } from './error.ts';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -35,12 +36,6 @@ function getNodeProxyBinding(value: unknown): NodeProxyBinding | null {
     if (!isRecord(value) || typeof value.getProxyUrl !== 'function') return null;
     return value as unknown as NodeProxyBinding;
 }
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return String(error);
-}
-
 function getString(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
 }
