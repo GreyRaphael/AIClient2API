@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import os from 'os';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
+import { generateOAuthResponsePage } from './oauth-shared.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
 import { getErrorMessage } from '../utils/error.ts';
@@ -131,6 +132,10 @@ const activeKiroServers = new Map<string, KiroServerInfo>();
  */
 const activeKiroPollingTasks = new Map<string, KiroPollingTask>();
 
+function generateResponsePage(isSuccess: boolean, message: string): string {
+    return generateOAuthResponsePage(isSuccess, message, { showDebugHint: true, logMessage: true });
+}
+
 /**
  * 创建带代理支持的 fetch 请求
  * 使用 axios 替代原生 fetch，以正确支持代理配置
@@ -193,70 +198,6 @@ async function fetchWithProxy(url: string, options: FetchOptions = {}, providerT
         // 网络错误或其他错误
         throw error;
     }
-}
-
-/**
- * 生成 HTML 响应页面
- * @param {boolean} isSuccess - 是否成功
- * @param {string} message - 显示消息
- * @returns {string} HTML 内容
- */
-function generateResponsePage(isSuccess: boolean, message: string): string {
-    const title = isSuccess ? '授权成功！' : '授权失败';
-    const countdownHtml = isSuccess ? `
-        <p>此窗口将在 <span id="countdown" style="font-weight: bold; color: #2196f3;">10</span> 秒后自动关闭。</p>
-        <p style="font-size: 12px; color: #999;">提示：您可以按 F12 查看详细日志。</p>
-        <script>
-            console.log("Kiro OAuth Result:", ${JSON.stringify(message)});
-            let countdown = 10;
-            const timer = setInterval(() => {
-                countdown--;
-                const el = document.getElementById('countdown');
-                if (el) el.textContent = countdown;
-                if (countdown <= 0) {
-                    clearInterval(timer);
-                    window.close();
-                }
-            }, 1000);
-        </script>` : '';
-    
-    return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f5f5f5;
-        }
-        .container {
-            text-align: center;
-            padding: 2rem;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            max-width: 400px;
-            width: 90%;
-        }
-        h1 { color: ${isSuccess ? '#4caf50' : '#f44336'}; margin-top: 0; }
-        p { color: #666; line-height: 1.6; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>${isSuccess ? '✅' : '❌'} ${title}</h1>
-        <p>${message}</p>
-        ${countdownHtml}
-    </div>
-</body>
-</html>`;
 }
 
 /**

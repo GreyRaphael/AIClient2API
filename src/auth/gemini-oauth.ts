@@ -6,6 +6,8 @@ import path from 'path';
 import os from 'os';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
+import { generateOAuthResponsePage, closeActiveServer as closeSharedActiveServer } from './oauth-shared.ts';
+import type { ActiveServerInfo } from './oauth-shared.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getGoogleAuthProxyConfig } from '../utils/proxy-utils.ts';
 import { getErrorMessage } from '../utils/error.ts';
@@ -33,12 +35,6 @@ interface OAuthProviderConfig {
     credentialsFile: string;
     scope: string[];
     logPrefix: string;
-}
-
-interface ActiveServerInfo {
-    server: http.Server;
-    port: number;
-    pollTimer: NodeJS.Timeout | null;
 }
 
 interface OAuthOptions {
@@ -74,130 +70,12 @@ interface ImportProgressData {
  */
 const activeServers = new Map<string, ActiveServerInfo>();
 
-/**
- * 生成 HTML 响应页面
- * @param {boolean} isSuccess - 是否成功
- * @param {string} message - 显示消息
- * @param {string|null} provider - 提供商标识
- * @returns {string} HTML 内容
- */
 function generateResponsePage(isSuccess: boolean, message: string, provider: string | null = null): string {
-    const title = isSuccess ? '授权成功！' : '授权失败';
-    const countdownHtml = isSuccess ? `
-        <p>此窗口将在 <span id="countdown" style="font-weight: bold; color: #2196f3;">10</span> 秒后自动关闭。</p>
-        <script>
-            const notifyOpener = () => {
-                try {
-                    if (window.opener && !window.opener.closed) {
-                        window.opener.postMessage({
-                            type: 'oauth-popup-complete',
-                            provider: ${JSON.stringify(provider)},
-                            success: true
-                        }, window.location.origin);
-                    }
-                } catch (e) {}
-            };
-            notifyOpener();
-            setTimeout(() => {
-                try {
-                    window.close();
-                } catch (e) {}
-            }, 300);
-            let countdown = 10;
-            const timer = setInterval(() => {
-                countdown--;
-                const el = document.getElementById('countdown');
-                if (el) el.textContent = countdown;
-                if (countdown <= 0) {
-                    clearInterval(timer);
-                    window.close();
-                }
-            }, 1000);
-        </script>` : '';
-    
-    return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f5f5f5;
-        }
-        .container {
-            text-align: center;
-            padding: 2rem;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            max-width: 400px;
-            width: 90%;
-        }
-        h1 { color: ${isSuccess ? '#4caf50' : '#f44336'}; margin-top: 0; }
-        p { color: #666; line-height: 1.6; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>${isSuccess ? '✅' : '❌'} ${title}</h1>
-        <p>${message}</p>
-        ${countdownHtml}
-    </div>
-</body>
-</html>`;
+    return generateOAuthResponsePage(isSuccess, message, { provider, notifyOpener: true });
 }
 
-/**
- * 关闭指定端口的活动服务器
- * @param {number} port - 端口号
- * @returns {Promise<void>}
- */
-async function closeActiveServer(provider: string, port: number | null = null): Promise<void> {
-    // 1. 关闭该提供商之前的所有服务器
-    const existing = activeServers.get(provider);
-    if (existing) {
-        // 清理轮询定时器
-        if (existing.pollTimer) {
-            clearInterval(existing.pollTimer);
-            existing.pollTimer = null;
-        }
-
-        try {
-            const closePromise = new Promise<void>((resolve, reject) => {
-                existing.server.close((err?: Error) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
-
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Server close timeout after 2s')), 2000);
-            });
-
-            await Promise.race([closePromise, timeoutPromise]);
-            logger.info(`[OAuth] 已关闭提供商 ${provider} 在端口 ${existing.port} 上的旧服务器`);
-        } catch (error) {
-            logger.warn(`[OAuth] 关闭提供商 ${provider} 服务器失败或超时: ${getErrorMessage(error)}`);
-        } finally {
-            activeServers.delete(provider);
-        }
-    }
-
-    // 2. 如果指定了端口，检查是否有其他提供商占用了该端口
-    if (port) {
-        for (const [p, info] of activeServers.entries()) {
-            if (info.port === port) {
-                await closeActiveServer(p);
-            }
-        }
-    }
+function closeActiveServer(provider: string, port: number | null = null): Promise<void> {
+    return closeSharedActiveServer(provider, port, activeServers, '[OAuth]');
 }
 
 /**

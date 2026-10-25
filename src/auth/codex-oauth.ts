@@ -8,6 +8,8 @@ import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
+import { closeActiveServer as closeSharedActiveServer, escapeHtml } from './oauth-shared.ts';
+import type { ActiveServerInfo } from './oauth-shared.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
 import { getErrorMessage } from '../utils/error.ts';
@@ -144,13 +146,11 @@ const CODEX_OAUTH_CONFIG = {
 /**
  * 活动的服务器实例管理（与 gemini-oauth 一致）
  */
-interface ActiveServerInfo {
-    server: http.Server;
-    port: number;
-    pollTimer?: NodeJS.Timeout | null;
-}
-
 const activeServers = new Map<string, ActiveServerInfo>();
+
+function closeActiveServer(provider: string, port: number | null = null): Promise<void> {
+    return closeSharedActiveServer(provider, port, activeServers, '[Codex Auth]');
+}
 
 function sanitizeCodexCredentialFilenamePart(value: unknown): string {
     const sanitized = String(value || 'default')
@@ -160,47 +160,6 @@ function sanitizeCodexCredentialFilenamePart(value: unknown): string {
         .slice(0, 120);
 
     return sanitized || 'default';
-}
-
-/**
- * 关闭指定端口的活动服务器
- */
-async function closeActiveServer(provider: string, port: number | null = null): Promise<void> {
-    const existing = activeServers.get(provider);
-    
-    if (existing) {
-        try {
-            // 1. 使用 Promise.race() 添加 2 秒超时
-            const closePromise = new Promise<void>((resolve, reject) => {
-                existing.server.close((err?: Error) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
-
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Server close timeout after 2s')), 2000);
-            });
-
-            await Promise.race([closePromise, timeoutPromise]);
-            logger.info(`[Codex Auth] ${provider} server closed successfully`);
-        } catch (error) {
-            // 2. try-catch 捕获错误
-            logger.warn(`[Codex Auth] Server close failed or timed out: ${getErrorMessage(error)}`);
-        } finally {
-            // 3. finally 块强制清理，防止阻塞
-            activeServers.delete(provider);
-        }
-    }
-
-    if (port) {
-        for (const [p, info] of activeServers.entries()) {
-            if (info.port === port) {
-                // 递归调用处理端口冲突的情况
-                await closeActiveServer(p);
-            }
-        }
-    }
 }
 
 /**
@@ -433,7 +392,7 @@ class CodexAuth {
                             </head>
                             <body>
                                 <h1>❌ Authentication Failed</h1>
-                                <p>${errorDescription || error}</p>
+                                <p>${escapeHtml(String(errorDescription || error))}</p>
                                 <p>You can close this window and try again.</p>
                             </body>
                             </html>
