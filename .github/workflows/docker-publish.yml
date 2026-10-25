@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'VERSION'
+      - 'RELEASE_NOTES.md'
       - '.github/workflows/docker-publish.yml'
   workflow_dispatch:
 

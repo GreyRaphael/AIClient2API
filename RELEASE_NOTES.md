@@ -30,7 +30,7 @@
 | imports / cycles / any 棘轮 / 覆盖率门槛 | **全部通过** |
 | 真实 Node 启动与 `/health` smoke | **通过** |
 | clean checkout 覆盖率 | **行 32.88% / 分支 33.41% / 函数 36.20%** |
-| GitHub Actions（Node 22.x / 24.x） | 随发布推送执行，结果见 Actions |
+| GitHub Actions（Node 22.x / 24.x） | **通过** |
 
 ### 真实上游 E2E
 
@@ -67,8 +67,4 @@
   npm start
   ```
 
-- Docker：
-
-  ```bash
-  docker pull justlikemaki/aiclient-2-api:5.0.6
-  ```
+- Docker：本次发布工作流未检测到 Docker Hub 凭据，镜像构建与推送已按现有流程跳过。需要 Docker 部署时，请先在仓库 secrets 中配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`，再手动运行“发布版本与构建 Docker 镜像”工作流。
