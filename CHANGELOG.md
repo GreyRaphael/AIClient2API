@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.6] - 2026-10-26
+
+### Changed
+
+- 完成 P0–P2 后续重构：拆分 Zed 通道请求构建器、Kiro 请求与流状态、Provider Pool 选点/刷新调度及 Pipeline 流生命周期，保持现有 API、配置和插件调用约定。
+- 修复 strict 门槛假阴性，主源码与内置插件启用 `noUnusedLocals`，并清理无用 import、变量、catch 绑定和死代码。
+- 公共响应/流联合移除 `any` catch-all，请求扩展载荷改为 `unknown`；Claude → OpenAI usage 使用真实 DTO。`DynamicPayload` 引用从 1539 降至 1499。
+
+### Added
+
+- 新增 Kiro、Pool、Pipeline 核心表征测试，以及 Access API、Pool 重初始化、BaseConverter 和流生命周期回归测试。
+- 新增 strict 编译器失败故障注入测试，避免非 `src/` 严格错误或失败的 baseline 更新被误报为成功。
+
+### Verification
+
+- `npm run verify`：49 suites / 618 tests 全绿；strict、noUnusedLocals、imports、cycles、any 棘轮、覆盖率门槛和真实 Node smoke 全部通过。
+- 真实上游 E2E：18 个模型 × 11 项核心用例（198 项）全部通过，6 项通用定向契约与 4 项 provider 方言 canary 全部通过。
+- 性能基准：非流式与流式各 20 请求、并发 3，成功率均为 100%；非流式 2.13 req/s、流式 1.65 req/s。
+- clean checkout 覆盖率基线：行 32.88% / 分支 33.41% / 函数 36.20%。
+
 ## [v5.0.5] - 2026-10-25
 
 ### Fixed
