@@ -41,10 +41,10 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
         ...diskPools,
         ...(config.providerPools || {})
     };
-    
+
     let totalNewProviders = 0;
     const allNewProviders: Record<string, any[]> = {};
-    
+
     // 如果只关联当前凭证
     if (options.onlyCurrentCred && options.credPath) {
         const result = await linkSingleCredential(config, options.credPath, options);
@@ -65,12 +65,12 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
             if (!config.providerPools[providerType]) {
                 config.providerPools[providerType] = [];
             }
-            
+
             // 检查目录是否存在
             if (!fs.existsSync(configsPath)) {
                 continue;
             }
-            
+
             // 获取已关联的配置文件路径集合
             const linkedPaths = new Set<string>();
             for (const provider of config.providerPools[providerType]) {
@@ -79,7 +79,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
                     addToUsedPaths(linkedPaths, provider[credPathKey]);
                 }
             }
-            
+
             // 递归扫描目录
             const newProviders: Record<string, unknown>[] = [];
             await scanProviderDirectory(configsPath, linkedPaths, newProviders, {
@@ -87,7 +87,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
                 defaultCheckModel,
                 needsProjectId
             });
-            
+
             // 如果有新的配置文件需要关联
             if (newProviders.length > 0) {
                 config.providerPools[providerType].push(...newProviders);
@@ -96,7 +96,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
             }
         }
     }
-    
+
     // 如果有新的配置文件需要关联，保存更新后的 provider_pools.json
     if (totalNewProviders > 0) {
         const filePath = config.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
@@ -136,7 +136,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
     } else {
         logger.info('[Auto-Link] No new configs to link');
     }
-    
+
     // Update provider pool manager if available
     const manager = getProviderPoolManager();
     if (manager) {
@@ -162,20 +162,20 @@ async function linkSingleCredential(
         // 规范化路径
         const absolutePath = path.isAbsolute(credPath) ? credPath : path.join(process.cwd(), credPath);
         const relativePath = path.relative(process.cwd(), absolutePath);
-        
+
         // 检查文件是否存在
         if (!fs.existsSync(absolutePath)) {
             logger.warn(`[Auto-Link] Credential file not found: ${relativePath}`);
             return null;
         }
-        
+
         // 检查文件扩展名
         const ext = path.extname(absolutePath).toLowerCase();
         if (ext !== '.json') {
             logger.warn(`[Auto-Link] Only JSON files are supported: ${relativePath}`);
             return null;
         }
-        
+
         // 根据文件路径确定提供商类型
         let matchedMapping = null;
         for (const mapping of PROVIDER_MAPPINGS) {
@@ -186,12 +186,12 @@ async function linkSingleCredential(
                 break;
             }
         }
-        
+
         if (!matchedMapping) {
             logger.warn(`[Auto-Link] Could not determine provider type for: ${relativePath}`);
             return null;
         }
-        
+
         const { providerType: defaultType, credPathKey, defaultCheckModel, displayName, needsProjectId } = matchedMapping;
         if (!credPathKey || !defaultCheckModel) {
             logger.warn(`[Auto-Link] Missing provider mapping fields for: ${relativePath}`);
@@ -203,12 +203,12 @@ async function linkSingleCredential(
         if (traeDefaults?.displayName) {
             targetDisplayName = traeDefaults.displayName;
         }
-        
+
         // 确保提供商类型数组存在
         if (!config.providerPools[providerType]) {
             config.providerPools[providerType] = [];
         }
-        
+
         // 检查是否已关联
         const linkedPaths = new Set<string>();
         for (const provider of config.providerPools[providerType]) {
@@ -216,15 +216,15 @@ async function linkSingleCredential(
                 addToUsedPaths(linkedPaths, provider[credPathKey]);
             }
         }
-        
+
         const fileName = getFileName(absolutePath);
         const isLinked = isPathUsed(relativePath, fileName, linkedPaths);
-        
+
         if (isLinked) {
             logger.info(`[Auto-Link] Credential already linked: ${relativePath}`);
             return null;
         }
-        
+
         // 创建新的提供商配置
         const newProvider: Record<string, unknown> = createProviderConfig({
             credPathKey,
@@ -238,12 +238,12 @@ async function linkSingleCredential(
             newProvider.TRAE_BASE_URL = options.host || options.baseUrl || traeDefaults.baseUrl;
             newProvider.customName = options.customName || traeDefaults.customName;
         }
-        
+
         // 添加到配置
         config.providerPools[providerType].push(newProvider);
-        
+
         logger.info(`[Auto-Link] Successfully linked credential: ${relativePath} to ${targetDisplayName}`);
-        
+
         return {
             provider: newProvider,
             displayName: targetDisplayName,
@@ -272,23 +272,23 @@ async function scanProviderDirectory(
     options: { credPathKey: string; defaultCheckModel: string; needsProjectId: boolean }
 ) {
     const { credPathKey, defaultCheckModel, needsProjectId } = options;
-    
+
     try {
         const files = await pfs.readdir(dirPath, { withFileTypes: true });
-        
+
         for (const file of files) {
             const fullPath = path.join(dirPath, file.name);
-            
+
             if (file.isFile()) {
                 const ext = path.extname(file.name).toLowerCase();
                 // 只处理 JSON 文件
                 if (ext === '.json') {
                     const relativePath = path.relative(process.cwd(), fullPath);
                     const fileName = getFileName(fullPath);
-                    
+
                     // 使用与 ui-manager.js 相同的 isPathUsed 函数检查是否已关联
                     const isLinked = isPathUsed(relativePath, fileName, linkedPaths);
-                    
+
                     if (!isLinked) {
                         // 使用公共方法创建新的提供商配置
                         const newProvider = createProviderConfig({
@@ -297,7 +297,7 @@ async function scanProviderDirectory(
                             defaultCheckModel,
                             needsProjectId
                         });
-                        
+
                         newProviders.push(newProvider);
                     }
                 }
