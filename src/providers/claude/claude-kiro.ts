@@ -1,5 +1,7 @@
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
+import type { AxiosInstance } from 'axios';
+import type { Readable } from 'node:stream';
 import logger from '../../utils/logger.ts';
 import { v4 as uuidv4 } from 'uuid';
 import { promises as fs } from 'fs';
@@ -19,6 +21,8 @@ import {
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, formatExpiryLog, getNormalizedErrorResponseText, buildHttpErrorReason, normalizeProviderErrorMessage, createEmptyUpstreamResponseError } from '../../utils/common.ts';
 import { getProviderPoolManager } from '../../services/service-manager.ts';
+
+type DynamicPayload = Record<string, any>;
 
 const KIRO_THINKING = {
     MIN_BUDGET_TOKENS: 1024,
@@ -56,7 +60,7 @@ const KIRO_MAX_TOOL_NAME_LENGTH = 64;
 let kiroThrottleQueue = Promise.resolve();
 let kiroLastRequestStartedAt = 0;
 
-function shortenKiroToolName(name: any) {
+function shortenKiroToolName(name: unknown): string {
     const rawName = String(name || '');
     if (rawName.length <= KIRO_MAX_TOOL_NAME_LENGTH) {
         return rawName;
@@ -76,7 +80,7 @@ const KIRO_PLACEHOLDER_TOOL_NAME = 'no_tool_available';
 // 判断一个 Anthropic 消息是否"实质为空"：没有非空文本，也没有工具调用/工具结果/图片/思考内容。
 // 这类空轮次通常是客户端的占位或流式残留，塞进 Kiro 历史里既会撑大请求体、又可能触发 400，
 // 之前的做法是填充 "Continue"，反而污染了上下文。
-function isMeaningfulContentPart(part: any) {
+function isMeaningfulContentPart(part: DynamicPayload | null | undefined): boolean {
     if (!part || typeof part !== 'object') return false;
     if (part.type === 'text') {
         return typeof part.text === 'string' && part.text.trim() !== '';
@@ -85,7 +89,7 @@ function isMeaningfulContentPart(part: any) {
     return true;
 }
 
-function isEmptyAnthropicMessage(message: any) {
+function isEmptyAnthropicMessage(message: DynamicPayload | null | undefined): boolean {
     if (!message) return true;
     const content = message.content;
     if (content == null) return true;
@@ -111,9 +115,9 @@ function buildKiroPlaceholderTool() {
     };
 }
 
-function buildKiroToolNameMaps(tools: any) {
-    const aliasToOriginal = new Map();
-    const originalToAlias = new Map();
+function buildKiroToolNameMaps(tools: DynamicPayload[] | null | undefined) {
+    const aliasToOriginal = new Map<string, string>();
+    const originalToAlias = new Map<string, string>();
 
     if (Array.isArray(tools)) {
         for (const tool of tools) {
@@ -129,17 +133,17 @@ function buildKiroToolNameMaps(tools: any) {
 
     return {
         aliasToOriginal,
-        toKiroName: (name: any) => originalToAlias.get(name) || shortenKiroToolName(name),
-        fromKiroName: (name: any) => aliasToOriginal.get(name) || name
+        toKiroName: (name: string) => originalToAlias.get(name) || shortenKiroToolName(name),
+        fromKiroName: (name: string) => aliasToOriginal.get(name) || name
     };
 }
 
-function restoreKiroToolCallNames(toolCalls: any, toolNameMaps: any) {
+function restoreKiroToolCallNames(toolCalls: DynamicPayload[] | null | undefined, toolNameMaps: DynamicPayload | null | undefined): DynamicPayload[] | null | undefined {
     if (!toolCalls || !toolNameMaps?.fromKiroName) {
         return toolCalls;
     }
 
-    return toolCalls.map((toolCall: any) => ({
+    return toolCalls.map((toolCall: DynamicPayload) => ({
         ...toolCall,
         function: {
             ...toolCall.function,
@@ -148,20 +152,20 @@ function restoreKiroToolCallNames(toolCalls: any, toolNameMaps: any) {
     }));
 }
 
-function getKiroRequestMinIntervalMs(config: any) {
+function getKiroRequestMinIntervalMs(config: DynamicPayload | null | undefined): number {
     const value = Number(config?.KIRO_REQUEST_MIN_INTERVAL_MS);
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
-async function acquireKiroRequestSlot(config: any) {
+async function acquireKiroRequestSlot(config: DynamicPayload | null | undefined): Promise<() => void> {
     const minIntervalMs = getKiroRequestMinIntervalMs(config);
     if (minIntervalMs <= 0) {
         return () => {};
     }
 
-    let releaseCurrent: any;
+    let releaseCurrent: () => void = () => {};
     const previous = kiroThrottleQueue.catch(() => {});
-    kiroThrottleQueue = previous.then(() => new Promise((resolve: any) => {
+    kiroThrottleQueue = previous.then(() => new Promise<void>((resolve) => {
         releaseCurrent = resolve;
     }));
 
@@ -170,7 +174,7 @@ async function acquireKiroRequestSlot(config: any) {
     const elapsedMs = Date.now() - kiroLastRequestStartedAt;
     const waitMs = Math.max(0, minIntervalMs - elapsedMs);
     if (waitMs > 0) {
-        await new Promise((resolve: any) => setTimeout(resolve, waitMs));
+        await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
     }
     kiroLastRequestStartedAt = Date.now();
 
@@ -182,7 +186,7 @@ async function acquireKiroRequestSlot(config: any) {
     };
 }
 
-function normalizeKiroToolInput(input: any) {
+function normalizeKiroToolInput(input: unknown): string {
     if (input === undefined || input === null) {
         return '';
     }
@@ -192,7 +196,7 @@ function normalizeKiroToolInput(input: any) {
     if (typeof input === 'object') {
         try {
             return JSON.stringify(input);
-        } catch (e: any) {
+        } catch (caught) { const e = caught as DynamicPayload;
             return String(input);
         }
     }
@@ -200,7 +204,7 @@ function normalizeKiroToolInput(input: any) {
 }
 
 // Per-model context window sizes for accurate token estimation
-const MODEL_CONTEXT_TOKENS = {
+const MODEL_CONTEXT_TOKENS: Record<string, number> = {
     "gpt-5.6-sol": 1000000,
     "gpt-5.6-terra": 1000000,
     "gpt-5.6-luna": 1000000,
@@ -218,7 +222,7 @@ const MODEL_CONTEXT_TOKENS = {
     "claude-haiku-4-5-20251001": 200000,
 };
 
-function normalizeContextLength(value: any) {
+function normalizeContextLength(value: unknown): number | null {
     if (value === undefined || value === null || value === '') {
         return null;
     }
@@ -227,7 +231,7 @@ function normalizeContextLength(value: any) {
     return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
 }
 
-function findCustomModelConfigForModel(model: any, config: any = {}) {
+function findCustomModelConfigForModel(model: unknown, config: DynamicPayload = {}): DynamicPayload | null {
     const targetModel = typeof model === 'string'
         ? model.replace(/^[^:]+:/, '')
         : '';
@@ -236,12 +240,12 @@ function findCustomModelConfigForModel(model: any, config: any = {}) {
     }
 
     const customModels = Array.isArray(config?.customModels) ? config.customModels : [];
-    return customModels.find(({ id, alias, actualModel, enabled }: any = {}) =>
-        enabled !== false && (id === targetModel || alias === targetModel || actualModel === targetModel)
+    return customModels.find((customModel: DynamicPayload = {}) =>
+        customModel.enabled !== false && (customModel.id === targetModel || customModel.alias === targetModel || customModel.actualModel === targetModel)
     ) || null;
 }
 
-function getContextTokensForModel(model: any, config: any = {}, fallbackModel: any = null) {
+function getContextTokensForModel(model: string | null | undefined, config: DynamicPayload = {}, fallbackModel: string | null | undefined = null): number {
     const customModelConfig = findCustomModelConfigForModel(model, config) ||
         findCustomModelConfigForModel(fallbackModel, config);
     const configuredModelContextLength = normalizeContextLength(customModelConfig?.contextLength);
@@ -249,7 +253,7 @@ function getContextTokensForModel(model: any, config: any = {}, fallbackModel: a
         return configuredModelContextLength;
     }
 
-    return (MODEL_CONTEXT_TOKENS as any)[model] || (MODEL_CONTEXT_TOKENS as any)[fallbackModel] || KIRO_CONSTANTS.TOTAL_CONTEXT_TOKENS;
+    return (model ? MODEL_CONTEXT_TOKENS[model] : undefined) || (fallbackModel ? MODEL_CONTEXT_TOKENS[fallbackModel] : undefined) || KIRO_CONSTANTS.TOTAL_CONTEXT_TOKENS;
 }
 // 从 provider-models.js 获取支持的模型列表
 const KIRO_MODELS = getProviderModels(MODEL_PROVIDER.KIRO_API);
@@ -274,11 +278,11 @@ const FULL_MODEL_MAPPING = {
 };
 
 // 只保留 KIRO_MODELS 中存在的模型映射
-const MODEL_MAPPING = Object.fromEntries(
-    Object.entries(FULL_MODEL_MAPPING).filter(([key]: any) => KIRO_MODELS.includes(key))
+const MODEL_MAPPING: Record<string, string> = Object.fromEntries(
+    Object.entries(FULL_MODEL_MAPPING).filter(([key]) => KIRO_MODELS.includes(key))
 );
 
-function resolveKiroModel(model: any, config: any = {}) {
+function resolveKiroModel(model: string, config: DynamicPayload = {}): string {
     if (MODEL_MAPPING[model]) {
         return MODEL_MAPPING[model];
     }
@@ -307,7 +311,7 @@ const KIRO_AUTH_TOKEN_FILE = "kiro-auth-token.json";
  * @param {Object} credentials - 当前凭证信息
  * @returns {string} SHA256 格式的机器码
  */
-function generateMachineIdFromConfig(credentials: any) {
+function generateMachineIdFromConfig(credentials: DynamicPayload): string {
     // 优先级：节点UUID > profileArn > clientId > fallback
     const uniqueKey = credentials.uuid || credentials.profileArn || credentials.clientId || "KIRO_DEFAULT_MACHINE";
     return crypto.createHash('sha256').update(uniqueKey).digest('hex');
@@ -335,13 +339,13 @@ function getSystemRuntimeInfo() {
 
 // Helper functions for tool calls and JSON parsing
 
-function isQuoteCharAt(text: any, index: any) {
+function isQuoteCharAt(text: string, index: number): boolean {
     if (index < 0 || index >= text.length) return false;
     const ch = text[index];
     return ch === '"' || ch === "'" || ch === '`';
 }
 
-function findRealTag(text: any, tag: any, startIndex: any = 0) {
+function findRealTag(text: string, tag: string, startIndex = 0): number {
     let searchStart = Math.max(0, startIndex);
     while (true) {
         const pos = text.indexOf(tag, searchStart);
@@ -357,7 +361,7 @@ function findRealTag(text: any, tag: any, startIndex: any = 0) {
     }
 }
 
-function isWhitespaceOnly(text: any) {
+function isWhitespaceOnly(text: unknown): boolean {
     if (text === null || text === undefined) return true;
     return String(text).trim().length === 0;
 }
@@ -367,7 +371,7 @@ function isWhitespaceOnly(text: any) {
  * This avoids prematurely closing a thinking block when the model mentions `</thinking>`
  * inside the thinking content.
  */
-function findRealThinkingEndTag(buffer: any, startIndex: any = 0) {
+function findRealThinkingEndTag(buffer: string, startIndex = 0): number {
     let searchStart = Math.max(0, startIndex);
     while (true) {
         const pos = findRealTag(buffer, KIRO_THINKING.END_TAG, searchStart);
@@ -382,7 +386,7 @@ function findRealThinkingEndTag(buffer: any, startIndex: any = 0) {
  * Find a "real" thinking end tag only when it is at the buffer end (after it is whitespace only).
  * This is used for boundary-event scenarios (tool_use starts immediately after thinking, or stream end).
  */
-function findRealThinkingEndTagAtBufferEnd(buffer: any, startIndex: any = 0) {
+function findRealThinkingEndTagAtBufferEnd(buffer: string, startIndex = 0): number {
     let searchStart = Math.max(0, startIndex);
     while (true) {
         const pos = findRealTag(buffer, KIRO_THINKING.END_TAG, searchStart);
@@ -401,7 +405,7 @@ function findRealThinkingEndTagAtBufferEnd(buffer: any, startIndex: any = 0) {
  * @param {string} closeChar - 闭括号字符 (默认 ']')
  * @returns {number} 匹配的闭括号位置，未找到返回 -1
  */
-function findMatchingBracket(text: any, startPos: any, openChar: any = '[', closeChar: any = ']') {
+function findMatchingBracket(text: string, startPos: number, openChar = '[', closeChar = ']'): number {
     if (!text || startPos >= text.length || text[startPos] !== openChar) {
         return -1;
     }
@@ -448,7 +452,7 @@ function findMatchingBracket(text: any, startPos: any, openChar: any = '[', clos
  * @param {string} jsonStr - 可能有问题的 JSON 字符串
  * @returns {string} 修复后的 JSON 字符串
  */
-function repairJson(jsonStr: any) {
+function repairJson(jsonStr: string): string {
     let repaired = jsonStr;
     // 移除尾部逗号
     repaired = repaired.replace(/,\s*([}\]])/g, '$1');
@@ -465,8 +469,8 @@ function repairJson(jsonStr: any) {
  * @param {string} content - 文件内容
  * @returns {Object|null} 提取的凭证对象或 null
  */
-function extractCredentialsFromCorruptedJson(content: any) {
-    const extracted: any = {};
+function extractCredentialsFromCorruptedJson(content: string): DynamicPayload | null {
+    const extracted: DynamicPayload = {};
 
     // 定义需要提取的关键字段及其正则模式
     const fieldPatterns = {
@@ -502,7 +506,7 @@ function extractCredentialsFromCorruptedJson(content: any) {
  * @param {string} toolCallText - 工具调用文本
  * @returns {Object|null} 解析后的工具调用对象或 null
  */
-function parseSingleToolCall(toolCallText: any) {
+function parseSingleToolCall(toolCallText: string): DynamicPayload | null {
     const namePattern = /\[Called\s+(\w+)\s+with\s+args:/i;
     const nameMatch = toolCallText.match(namePattern);
 
@@ -544,19 +548,19 @@ function parseSingleToolCall(toolCallText: any) {
                 arguments: JSON.stringify(argumentsObj)
             }
         };
-    } catch (e: any) {
+    } catch (caught) { const e = caught as DynamicPayload;
         logger.error(`Failed to parse tool call arguments: ${e.message}`, jsonCandidate);
         return null;
     }
 }
 
-function parseBracketToolCalls(responseText: any) {
+function parseBracketToolCalls(responseText: string | null | undefined): DynamicPayload[] | null {
     if (!responseText || !responseText.includes("[Called")) {
         return null;
     }
 
-    const toolCalls: any[] = [];
-    const callPositions: any[] = [];
+    const toolCalls: DynamicPayload[] = [];
+    const callPositions: number[] = [];
     let start = 0;
     while (true) {
         const pos = responseText.indexOf("[Called", start);
@@ -569,7 +573,7 @@ function parseBracketToolCalls(responseText: any) {
 
     for (let i = 0; i < callPositions.length; i++) {
         const startPos = callPositions[i];
-        let endSearchLimit: any;
+        let endSearchLimit: number;
         if (i + 1 < callPositions.length) {
             endSearchLimit = callPositions[i + 1];
         } else {
@@ -579,7 +583,7 @@ function parseBracketToolCalls(responseText: any) {
         const segment = responseText.substring(startPos, endSearchLimit);
         const bracketEnd = findMatchingBracket(segment, 0);
 
-        let toolCallText: any;
+        let toolCallText: string;
         if (bracketEnd !== -1) {
             toolCallText = segment.substring(0, bracketEnd + 1);
         } else {
@@ -600,9 +604,9 @@ function parseBracketToolCalls(responseText: any) {
     return toolCalls.length > 0 ? toolCalls : null;
 }
 
-function deduplicateToolCalls(toolCalls: any) {
-    const seen = new Set();
-    const uniqueToolCalls: any[] = [];
+function deduplicateToolCalls(toolCalls: DynamicPayload[]): DynamicPayload[] {
+    const seen = new Set<string>();
+    const uniqueToolCalls: DynamicPayload[] = [];
 
     for (const tc of toolCalls) {
         const key = `${tc.function.name}-${tc.function.arguments}`;
@@ -626,11 +630,11 @@ function createKiroEmptyResponseError() {
     return createEmptyUpstreamResponseError('Kiro');
 }
 
-async function getKiroErrorResponsePreview(error: any, maxLength: any = 500) {
+async function getKiroErrorResponsePreview(error: unknown, maxLength = 500): Promise<string> {
     try {
         const responseText = await getNormalizedErrorResponseText(error);
         return String(responseText || '').substring(0, maxLength);
-    } catch (previewError: any) {
+    } catch (caught) { const previewError = caught as DynamicPayload;
         // 错误日志绝不能覆盖真正的请求异常；无法格式化时只记录摘要失败。
         logger.warn(`[Kiro] Failed to format error response body: ${previewError?.message || 'unknown error'}`);
         return '';
@@ -638,34 +642,34 @@ async function getKiroErrorResponsePreview(error: any, maxLength: any = 500) {
 }
 
 export class KiroApiService {
-    _tokenRefreshPromise: any;
-    accessToken: any;
-    amazonQUrl: any;
-    apiKey: any;
-    authMethod: any;
-    axiosInstance: any;
-    axiosSocialRefreshInstance: any;
-    base64Creds: any;
-    baseUrl: any;
-    clientId: any;
-    clientSecret: any;
-    config: any;
-    credPath: any;
-    credsBase64: any;
-    credsFilePath: any;
-    expiresAt: any;
-    idcRegion: any;
-    isInitialized: any;
-    modelName: any;
-    profileArn: any;
-    refreshIDCUrl: any;
-    refreshToken: any;
-    refreshUrl: any;
-    region: any;
-    useSystemProxy: any;
-    uuid: any;
+    _tokenRefreshPromise: Promise<void> | null = null;
+    accessToken: string | null = null;
+    amazonQUrl: string | null = null;
+    apiKey: string | null | undefined = null;
+    authMethod: string | null = null;
+    axiosInstance!: AxiosInstance;
+    axiosSocialRefreshInstance!: AxiosInstance;
+    base64Creds: DynamicPayload | null = null;
+    baseUrl: string = '';
+    clientId: string | null = null;
+    clientSecret: string | null = null;
+    config: DynamicPayload;
+    credPath: string;
+    credsBase64: string | null | undefined = null;
+    credsFilePath: string | null | undefined = null;
+    expiresAt: string | null = null;
+    idcRegion: string | null = null;
+    isInitialized: boolean = false;
+    modelName: string = '';
+    profileArn: string | null = null;
+    refreshIDCUrl: string = '';
+    refreshToken: string | null = null;
+    refreshUrl: string = '';
+    region: string = '';
+    useSystemProxy: boolean = false;
+    uuid: string | null = null;
 
-    constructor(config: any = {}) {
+    constructor(config: DynamicPayload = {}) {
         this.isInitialized = false;
         this.config = config;
         this.credPath = config.KIRO_OAUTH_CREDS_DIR_PATH || path.join(os.homedir(), ".aws", "sso", "cache");
@@ -691,7 +695,7 @@ export class KiroApiService {
                 // Store parsedCreds to be merged in initializeAuth
                 this.base64Creds = parsedCreds;
                 logger.info('[Kiro] Successfully decoded Base64 credentials in constructor.');
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 logger.error(`[Kiro] Failed to parse Base64 credentials in constructor: ${error.message}`);
             }
         } else if (config.KIRO_OAUTH_CREDS_FILE_PATH) {
@@ -699,8 +703,7 @@ export class KiroApiService {
         }
 
         this.modelName = KIRO_CONSTANTS.DEFAULT_MODEL_NAME;
-        this.axiosInstance = null; // Initialize later in async method
-        this.axiosSocialRefreshInstance = null;
+        // axiosInstance / axiosSocialRefreshInstance are created in initialize()
         this._tokenRefreshPromise = null;
     }
 
@@ -720,7 +723,7 @@ export class KiroApiService {
         const kiroVersion = KIRO_CONSTANTS.KIRO_VERSION;
         const { osName, nodeVersion } = getSystemRuntimeInfo();
 
-        const axiosConfig: any = {
+        const axiosConfig: DynamicPayload = {
             timeout: KIRO_CONSTANTS.AXIOS_TIMEOUT,
             headers: {
                 'Content-Type': KIRO_CONSTANTS.CONTENT_TYPE_JSON,
@@ -742,7 +745,7 @@ export class KiroApiService {
         this.isInitialized = true;
     }
 
-    _applySidecar(axiosConfig: any) {
+    _applySidecar(axiosConfig: DynamicPayload) {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.KIRO_API);
     }
 
@@ -754,19 +757,19 @@ async loadCredentials() {
     const tokenFilePath = this.credsFilePath || path.join(this.credPath, KIRO_AUTH_TOKEN_FILE);
 
     // Helper to load credentials from a file
-    const loadCredentialsFromFile = async (filePath: any) => {
+    const loadCredentialsFromFile = async (filePath: string): Promise<DynamicPayload | null> => {
         try {
             const fileContent = await fs.readFile(filePath, 'utf8');
             try {
                 return JSON.parse(fileContent);
-            } catch (parseError: any) {
+            } catch (caught) { const parseError = caught as DynamicPayload;
                 logger.warn('[Kiro Auth] JSON parse failed, attempting repair...');
                 try {
                     const repaired = repairJson(fileContent);
                     const result = JSON.parse(repaired);
                     logger.info('[Kiro Auth] JSON repair successful');
                     return result;
-                } catch (repairError: any) {
+                } catch (caught) { const repairError = caught as DynamicPayload;
                     logger.warn('[Kiro Auth] JSON repair failed, attempting field extraction...');
                     // 尝试从损坏的 JSON 中提取关键字段
                     const extracted = extractCredentialsFromCorruptedJson(fileContent);
@@ -778,7 +781,7 @@ async loadCredentials() {
                     return null;
                 }
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             if (error.code === 'ENOENT') {
                 logger.debug(`[Kiro Auth] Credential file not found: ${filePath}`);
             } else {
@@ -789,7 +792,7 @@ async loadCredentials() {
     };
 
     try {
-        let mergedCredentials: any = {};
+        let mergedCredentials: DynamicPayload = {};
 
         // Priority 1: Load from Base64 credentials if available
         if (this.base64Creds) {
@@ -816,7 +819,7 @@ async loadCredentials() {
             for (const file of files) {
                 if (file.endsWith('.json') && file !== targetFileName) {
                     const filePath = path.join(dirPath, file);
-                    const credentials: any = await loadCredentialsFromFile(filePath);
+                    const credentials: DynamicPayload | null = await loadCredentialsFromFile(filePath);
                     if (credentials) {
                         credentials.expiresAt = mergedCredentials.expiresAt;
                         Object.assign(mergedCredentials, credentials);
@@ -824,14 +827,14 @@ async loadCredentials() {
                     }
                 }
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.warn(`[Kiro Auth] Error loading credentials from directory ${dirPath}: ${error.message}`);
         }
 
         // Apply loaded credentials. Force-refresh paths must not keep stale in-memory tokens.
-        const applyCredential = (field: any) => {
+        const applyCredential = (field: string) => {
             if (mergedCredentials[field] !== undefined && mergedCredentials[field] !== null) {
-                (this as any)[field] = mergedCredentials[field];
+                (this as unknown as DynamicPayload)[field] = mergedCredentials[field];
             }
         };
         applyCredential('accessToken');
@@ -844,7 +847,7 @@ async loadCredentials() {
         applyCredential('region');
         applyCredential('idcRegion');
         if (this.apiKey || (typeof process !== 'undefined' && process.env.KIRO_API_KEY)) {
-            this.accessToken = this.apiKey || process.env.KIRO_API_KEY;
+            this.accessToken = this.apiKey || process.env.KIRO_API_KEY || null;
         }
 
         if (!this.region) {
@@ -872,7 +875,7 @@ async loadCredentials() {
 
         // profileArn 与上面的 region / baseUrl 同属凭证装载期的派生，下游不再判断登录方式。
         await this._ensureProfileArn(isSocialAuth);
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn(`[Kiro Auth] Error during credential loading: ${error.message}`);
     }
 }
@@ -885,7 +888,7 @@ async loadCredentials() {
  * @param {boolean} isSocialAuth
  * @private
  */
-async _ensureProfileArn(isSocialAuth: any) {
+async _ensureProfileArn(isSocialAuth: boolean): Promise<void> {
     if (typeof this.profileArn === 'string' && this.profileArn.trim() !== '') {
         return;
     }
@@ -926,7 +929,7 @@ async _discoverProfileArn() {
     const { osName, nodeVersion } = getSystemRuntimeInfo();
     const kiroVersion = KIRO_CONSTANTS.KIRO_VERSION;
 
-    const axiosConfig: any = {
+    const axiosConfig: DynamicPayload = {
         method: 'post',
         url,
         data: { maxResults: 10 },
@@ -953,19 +956,19 @@ async _discoverProfileArn() {
         }
 
         // 优先取与当前 region 匹配的，否则回退到第一个
-        const matched = profiles.find((p: any) => p?.arn && typeof p.arn === 'string' && p.arn.includes(`:${this.region}:`));
-        const picked = matched || profiles.find((p: any) => p?.arn);
+        const matched = profiles.find((p: DynamicPayload) => p?.arn && typeof p.arn === 'string' && p.arn.includes(`:${this.region}:`));
+        const picked = matched || profiles.find((p: DynamicPayload) => p?.arn);
         if (!picked?.arn) {
             logger.warn('[Kiro Auth] ListAvailableProfiles returned profiles without arn.');
             return null;
         }
 
         if (profiles.length > 1) {
-            const all = profiles.map((p: any) => p?.arn).filter(Boolean).join(', ');
+            const all = profiles.map((p: DynamicPayload) => p?.arn).filter(Boolean).join(', ');
             logger.info(`[Kiro Auth] ${profiles.length} profiles available [${all}], selected ${picked.profileName || picked.arn}.`);
         }
         return picked.arn;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         // 静默降级，由上层的 403 处理接手。
         const status = error.response?.status;
         const detail = error.response?.data?.message || error.message;
@@ -974,7 +977,7 @@ async _discoverProfileArn() {
     }
 }
 
-async initializeAuth(forceRefresh: any = false) {
+async initializeAuth(forceRefresh = false) {
     if (this.accessToken && !forceRefresh) {
         logger.debug('[Kiro Auth] Access token already available and not forced refresh.');
         return;
@@ -1021,19 +1024,19 @@ async initializeAuth(forceRefresh: any = false) {
 /**
  * Helper to save credentials
  */
-async saveCredentialsToFile(filePath: any, newData: any) {
+async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
     let existingData = {};
     try {
         const fileContent = await fs.readFile(filePath, 'utf8');
         try {
             existingData = JSON.parse(fileContent);
-        } catch (parseError: any) {
+        } catch (caught) { const parseError = caught as DynamicPayload;
             logger.warn('[Kiro Auth] JSON parse failed, attempting repair...');
             try {
                 const repaired = repairJson(fileContent);
                 existingData = JSON.parse(repaired);
                 logger.info('[Kiro Auth] JSON repair successful');
-            } catch (repairError: any) {
+            } catch (caught) { const repairError = caught as DynamicPayload;
                 logger.warn('[Kiro Auth] JSON repair failed, attempting field extraction...');
                 const extracted = extractCredentialsFromCorruptedJson(fileContent);
                 if (extracted) {
@@ -1045,7 +1048,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 }
             }
         }
-    } catch (readError: any) {
+    } catch (caught) { const readError = caught as DynamicPayload;
         if (readError.code === 'ENOENT') {
             logger.debug(`[Kiro Auth] Token file not found, creating new one: ${filePath}`);
         } else {
@@ -1062,9 +1065,9 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * @param {Function} saveCredentialsToFile - 保存凭证的函数
      * @param {string} tokenFilePath - 凭证文件路径
      */
-    async _doTokenRefresh(saveCredentialsToFile: any, tokenFilePath: any) {
+    async _doTokenRefresh(saveCredentialsToFile: (filePath: string, data: DynamicPayload) => Promise<void>, tokenFilePath: string) {
         try {
-            const requestBody: any = {
+            const requestBody: DynamicPayload = {
                 refreshToken: this.refreshToken,
             };
 
@@ -1087,11 +1090,11 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 requestBody.grantType = 'refresh_token';
             }
 
-            let response: any = null;
+            let response: DynamicPayload;
             // 使用更短的超时时间进行 token 刷新，避免阻塞其他请求
             const refreshConfig = { timeout: KIRO_CONSTANTS.TOKEN_REFRESH_TIMEOUT };
 
-            const axiosConfig: any = {
+            const axiosConfig: DynamicPayload = {
                 method: 'post',
                 url: refreshUrl,
                 data: requestBody,
@@ -1121,7 +1124,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 // request and before persisting the refreshed credentials.
                 await this._ensureProfileArn(isSocialAuth);
 
-                const updatedTokenData: any = {
+                const updatedTokenData: DynamicPayload = {
                     accessToken: this.accessToken,
                     refreshToken: this.refreshToken,
                     expiresAt: expiresAt,
@@ -1139,7 +1142,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             } else {
                 throw new Error('Invalid refresh response: Missing accessToken');
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error('[Kiro Auth] Token refresh failed:', error.message);
             throw new Error(`Token refresh failed: ${error.message}`);
         }
@@ -1150,7 +1153,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * Count tokens for a given text using Claude's official tokenizer
      * Static version for use without instance
      */
-    static countTextTokens(text: any) {
+    static countTextTokens(text: string) {
         return countTextTokensUtil(text);
     }
 
@@ -1158,7 +1161,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * Count tokens for a message request (compatible with Anthropic API)
      * Static version for use without instance
      */
-    static countTokens(requestBody: any) {
+    static countTokens(requestBody: DynamicPayload) {
         return countTokensUtil(requestBody);
     }
 
@@ -1166,19 +1169,22 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * Calculate input tokens from request body
      * Static version for use without instance
      */
-    static estimateInputTokens(requestBody: any) {
+    static estimateInputTokens(requestBody: DynamicPayload) {
         return estimateInputTokensUtil(requestBody);
     }
 
     /**
      * Extract text content from OpenAI message format
      */
-    getContentText(message: any) {
+    getContentText(message: unknown) {
         return getContentTextUtil(message);
     }
 
-    _extractTextAndImagesFromContent(content: any, totalMessages: any = null) {
-        const result: any = { text: '', images: [], imageCount: 0 };
+    _extractTextAndImagesFromContent(
+        content: unknown,
+        totalMessages: number | null = null
+    ): { text: string; images: DynamicPayload[]; imageCount: number } {
+        const result: { text: string; images: DynamicPayload[]; imageCount: number } = { text: '', images: [], imageCount: 0 };
         const shouldKeepImages = totalMessages === null ? true : (totalMessages - 1) <= 5;
         if (Array.isArray(content)) {
             for (const part of content) {
@@ -1213,17 +1219,17 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * 清洗 tool_use 的 input 对象，移除空字符串 key 等不合法字段
      * Kiro API 不接受空字符串 key 的 JSON 对象（如 {"": "value"}）
      */
-    _sanitizeToolInput(input: any) {
+    _sanitizeToolInput(input: unknown): unknown {
         if (!input || typeof input !== 'object' || Array.isArray(input)) {
             return input;
         }
-        const sanitized = {};
+        const sanitized: DynamicPayload = {};
         for (const [key, value] of Object.entries(input)) {
             if (key === '') {
                 logger.info(`[Kiro] Removed empty-string key from tool input, value: ${String(value).substring(0, 100)}`);
                 continue;
             }
-            (sanitized as any)[key] = value;
+            sanitized[key] = value;
         }
         return sanitized;
     }
@@ -1233,11 +1239,11 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * @param {any} content - 内容对象或数组
      * @returns {string} 处理后的文本
      */
-    processContent(content: any) {
+    processContent(content: unknown) {
         return processContentUtil(content);
     }
 
-    _normalizeThinkingBudgetTokens(budgetTokens: any) {
+    _normalizeThinkingBudgetTokens(budgetTokens: unknown): number {
         let value = Number(budgetTokens);
         if (!Number.isFinite(value) || value <= 0) {
             value = KIRO_THINKING.DEFAULT_BUDGET_TOKENS;
@@ -1247,7 +1253,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         return Math.min(value, KIRO_THINKING.MAX_BUDGET_TOKENS);
     }
 
-    _generateThinkingPrefix(thinking: any) {
+    _generateThinkingPrefix(thinking: DynamicPayload | null | undefined): string | null {
         if (!thinking || typeof thinking !== 'object') return null;
         const type = String(thinking.type || '').toLowerCase().trim();
 
@@ -1266,12 +1272,12 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         return null;
     }
 
-    _hasThinkingPrefix(text: any) {
+    _hasThinkingPrefix(text: string | null | undefined): boolean {
         if (!text) return false;
         return text.includes(KIRO_THINKING.MODE_TAG) || text.includes(KIRO_THINKING.MAX_LEN_TAG) || text.includes(KIRO_THINKING.EFFORT_TAG);
     }
 
-    _toClaudeContentBlocksFromKiroText(content: any) {
+    _toClaudeContentBlocksFromKiroText(content: string | null | undefined): DynamicPayload[] {
         const raw = content ?? '';
         if (!raw) return [];
 
@@ -1302,7 +1308,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         if (after.startsWith('\n\n')) after = after.slice(2);
         if (isWhitespaceOnly(after)) after = '';
 
-        const blocks: any[] = [];
+        const blocks: DynamicPayload[] = [];
         if (before && !isWhitespaceOnly(before)) blocks.push({ type: "text", text: before });
         blocks.push({ type: "thinking", thinking });
         if (after && !isWhitespaceOnly(after)) blocks.push({ type: "text", text: after });
@@ -1313,13 +1319,13 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * Build CodeWhisperer request from OpenAI messages
      */
 
-    _isReasoningModel(model: any) {
+    _isReasoningModel(model: string | null | undefined): boolean {
         if (!model) return false;
         const m = model.toLowerCase();
         return m.includes('gpt-5.6') || m.includes('gpt-5_6');
     }
 
-    _resolveEffort(model: any, thinking: any, outputConfig: any = null, reasoningEffort: any = null) {
+    _resolveEffort(model: string | null | undefined, thinking: DynamicPayload | null, outputConfig: DynamicPayload | null = null, reasoningEffort: string | null = null): string {
         const explicitEffort = reasoningEffort || outputConfig?.effort;
         const isReasoning = this._isReasoningModel(model);
 
@@ -1344,7 +1350,15 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         return '';
     }
 
-    async buildCodewhispererRequest(messages: any, model: any, tools: any = null, inSystemPrompt: any = null, thinking: any = null, outputConfig: any = null, reasoningEffort: any = null) {
+    async buildCodewhispererRequest(
+        messages: DynamicPayload[],
+        model: string,
+        tools: DynamicPayload[] | null = null,
+        inSystemPrompt: unknown = null,
+        thinking: DynamicPayload | null = null,
+        outputConfig: DynamicPayload | null = null,
+        reasoningEffort: string | null = null
+    ): Promise<DynamicPayload> {
         const conversationId = uuidv4();
 
         // 内置的 systemPrompt 前缀
@@ -1368,7 +1382,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             systemPrompt = `${builtInPrefix}`;
         }
 
-        const processedMessages = messages.map((message: any) => ({
+        const processedMessages = messages.map((message: DynamicPayload): DynamicPayload => ({
             ...message,
             content: Array.isArray(message.content) ? [...message.content] : message.content
         }));
@@ -1399,7 +1413,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         // "Continue" 污染上下文并撑大请求体。在合并前移除后，相邻同 role 消息会被下面的合并步骤归并，
         // 因此不会破坏 Kiro 要求的 user/assistant 交替。若过滤后为空则保留原数组，交由后续兜底逻辑处理。
         if (processedMessages.length > 1) {
-            const nonEmptyMessages = processedMessages.filter((m: any) => !isEmptyAnthropicMessage(m));
+            const nonEmptyMessages = processedMessages.filter((m: DynamicPayload) => !isEmptyAnthropicMessage(m));
             if (nonEmptyMessages.length > 0 && nonEmptyMessages.length < processedMessages.length) {
                 logger.info(`[Kiro] Removed ${processedMessages.length - nonEmptyMessages.length} empty message turn(s) before building history`);
                 processedMessages.length = 0;
@@ -1408,7 +1422,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         }
 
         // 合并相邻相同 role 的消息
-        const mergedMessages: any[] = [];
+        const mergedMessages: DynamicPayload[] = [];
         for (let i = 0; i < processedMessages.length; i++) {
             const currentMsg = processedMessages[i];
 
@@ -1448,10 +1462,10 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         const toolNameMaps = buildKiroToolNameMaps(tools);
 
         // 动态压缩 tools（保留全部工具，但过滤掉 web_search/websearch）
-        let toolsContext: any = {};
+        let toolsContext: DynamicPayload = {};
         if (tools && Array.isArray(tools) && tools.length > 0) {
             // 过滤掉 web_search 或 websearch 工具（忽略大小写）
-            const filteredTools = tools.filter((tool: any) => {
+            const filteredTools = tools.filter((tool: DynamicPayload) => {
                 const name = (tool.name || '').toLowerCase();
                 const shouldIgnore = name === 'web_search' || name === 'websearch';
                 if (shouldIgnore) {
@@ -1469,7 +1483,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
 
                 let truncatedCount = 0;
                 const kiroTools = filteredTools
-                    .filter((tool: any) => {
+                    .filter((tool: DynamicPayload) => {
                         // 过滤掉描述为空的工具
                         if (!tool.description || tool.description.trim() === '') {
                             logger.info(`[Kiro] Ignoring tool with empty description: ${tool.name}`);
@@ -1477,7 +1491,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                         }
                         return true;
                     })
-                    .map((tool: any) => {
+                    .map((tool: DynamicPayload) => {
                         let desc = tool.description || "";
                         const originalLength = desc.length;
 
@@ -1519,7 +1533,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             toolsContext = { tools: [buildKiroPlaceholderTool()] };
         }
 
-        const history: any[] = [];
+        const history: DynamicPayload[] = [];
         let startIndex = 0;
 
         let prependSystemToCurrentMessage = false;
@@ -1535,7 +1549,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 const firstImagePlaceholder = firstUserPayload.imageCount > 0 && firstUserPayload.images.length === 0
                     ? `[此消息包含 ${firstUserPayload.imageCount} 张图片，已在历史记录中省略]`
                     : '';
-                const firstHistoryMsg: any = {
+                const firstHistoryMsg: DynamicPayload = {
                     userInputMessage: {
                         content: firstUserPayload.text
                             ? `${systemPrompt}\n\n${firstUserPayload.text}${firstImagePlaceholder ? `\n${firstImagePlaceholder}` : ''}`
@@ -1572,14 +1586,14 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             const shouldKeepImages = distanceFromEnd <= keepImageThreshold;
 
             if (message.role === 'user') {
-                let userInputMessage: any = {
+                const userInputMessage: DynamicPayload = {
                     content: '',
                     modelId: codewhispererModel,
                     origin: KIRO_CONSTANTS.ORIGIN_AI_EDITOR
                 };
                 let imageCount = 0;
-                let toolResults: any[] = [];
-                let images: any[] = [];
+                const toolResults: DynamicPayload[] = [];
+                const images: DynamicPayload[] = [];
 
                 if (Array.isArray(message.content)) {
                     for (const part of message.content) {
@@ -1627,8 +1641,8 @@ async saveCredentialsToFile(filePath: any, newData: any) {
 
                 if (toolResults.length > 0) {
                     // 去重 toolResults - Kiro API 不接受重复的 toolUseId
-                    const uniqueToolResults: any[] = [];
-                    const seenIds = new Set();
+                    const uniqueToolResults: DynamicPayload[] = [];
+                    const seenIds = new Set<string>();
                     for (const tr of toolResults) {
                         if (!seenIds.has(tr.toolUseId)) {
                             seenIds.add(tr.toolUseId);
@@ -1652,10 +1666,10 @@ async saveCredentialsToFile(filePath: any, newData: any) {
 
                 history.push({ userInputMessage });
             } else if (message.role === 'assistant') {
-                let assistantResponseMessage: any = {
+                const assistantResponseMessage: DynamicPayload = {
                     content: ''
                 };
-                let toolUses: any[] = [];
+                const toolUses: DynamicPayload[] = [];
                 let thinkingText = '';
 
                 if (Array.isArray(message.content)) {
@@ -1700,9 +1714,9 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         // Build current message
         let currentMessage = processedMessages[processedMessages.length - 1];
         let currentContent = '';
-        let currentToolResults: any[] = [];
-        let currentToolUses: any[] = [];
-        let currentImages: any[] = [];
+        const currentToolResults: DynamicPayload[] = [];
+        const currentToolUses: DynamicPayload[] = [];
+        const currentImages: DynamicPayload[] = [];
 
         // 如果最后一条消息是 assistant，需要将其加入 history，然后创建一个 user 类型的 currentMessage
         // 因为 CodeWhisperer API 的 currentMessage 必须是 userInputMessage 类型
@@ -1710,7 +1724,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             logger.info('[Kiro] Last message is assistant, moving it to history and creating user currentMessage');
 
             // 构建 assistant 消息并加入 history
-            let assistantResponseMessage: any = {
+            const assistantResponseMessage: DynamicPayload = {
                 content: '',
                 toolUses: []
             };
@@ -1802,7 +1816,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             }
         }
 
-        const request: any = {
+        const request: DynamicPayload = {
             conversationState: {
                 agentTaskType: "vibe",
                 chatTriggerType: KIRO_CONSTANTS.CHAT_TRIGGER_TYPE_MANUAL,
@@ -1818,7 +1832,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
 
         // currentMessage 始终是 userInputMessage 类型
         // 注意：API 不接受 null 值，空字段应该完全不包含
-        const userInputMessage: any = {
+        const userInputMessage: DynamicPayload = {
             content: currentContent,
             modelId: codewhispererModel,
             origin: KIRO_CONSTANTS.ORIGIN_AI_EDITOR
@@ -1830,11 +1844,11 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         }
 
         // 构建 userInputMessageContext，只包含非空字段
-        const userInputMessageContext: any = {};
+        const userInputMessageContext: DynamicPayload = {};
         if (currentToolResults.length > 0) {
             // 去重 toolResults - Kiro API 不接受重复的 toolUseId
-            const uniqueToolResults: any[] = [];
-            const seenToolUseIds = new Set();
+            const uniqueToolResults: DynamicPayload[] = [];
+            const seenToolUseIds = new Set<string>();
             for (const tr of currentToolResults) {
                 if (!seenToolUseIds.has(tr.toolUseId)) {
                     seenToolUseIds.add(tr.toolUseId);
@@ -1890,7 +1904,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                         converterName: 'buildCodewhispererRequest'
                     });
                 }
-            } catch (e: any) {
+            } catch (caught) { const e = caught as DynamicPayload;
                 logger.error('[Kiro] Error calling onInternalRequestConverted hook:', e.message);
             }
         }
@@ -1899,13 +1913,13 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         return request;
     }
 
-    parseEventStreamChunk(rawData: any, toolNameMaps: any = null) {
+    parseEventStreamChunk(rawData: unknown, toolNameMaps: DynamicPayload | null = null): { content: string; toolCalls: DynamicPayload[] } {
         const rawStr = Buffer.isBuffer(rawData) ? rawData.toString('utf8') : String(rawData);
         let fullContent = '';
-        const toolCalls: any[] = [];
-        let currentToolCallDict: any = null;
+        const toolCalls: DynamicPayload[] = [];
+        let currentToolCallDict: DynamicPayload | null = null;
         // 记录被忽略的占位工具调用 id（详见 KIRO_PLACEHOLDER_TOOL_NAME 说明）
-        const ignoredToolUseIds = new Set();
+        const ignoredToolUseIds = new Set<string>();
         // logger.info(`rawStr=${rawStr}`);
 
         // 改进的 SSE 事件解析：匹配 :message-typeevent 后面的 JSON 数据
@@ -1960,7 +1974,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                                 try {
                                     const args = JSON.parse(currentToolCallDict.function.arguments);
                                     currentToolCallDict.function.arguments = JSON.stringify(args);
-                                } catch (e: any) {
+                                } catch (caught) { const e = caught as DynamicPayload;
                                     logger.warn(`[Kiro] Tool call arguments not valid JSON: ${currentToolCallDict.function.arguments}`);
                                 }
                                 toolCalls.push(currentToolCallDict);
@@ -1972,7 +1986,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                         fullContent += eventData.content;
                     }
                     break;
-                } catch (e: any) {
+                } catch (caught) { const e = caught as DynamicPayload;
                     // JSON 解析失败，继续寻找下一个可能的结束位置
                     continue;
                 }
@@ -1999,14 +2013,14 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         }
 
         const uniqueToolCalls = restoreKiroToolCallNames(deduplicateToolCalls(toolCalls), toolNameMaps);
-        return { content: fullContent || '', toolCalls: uniqueToolCalls };
+        return { content: fullContent || '', toolCalls: uniqueToolCalls || [] };
     }
 
 
     /**
      * 调用 API 并处理错误重试
      */
-    async callApi(method: any, model: any, body: any, isRetry: any = false, retryCount: any = 0): Promise<any> {
+    async callApi(method: string, model: string, body: DynamicPayload, isRetry = false, retryCount = 0): Promise<DynamicPayload> {
         if (!this.isInitialized) await this.initialize();
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
@@ -2015,9 +2029,9 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         let messages = body.messages;
         if (!messages && body.contents) {
             // 将 Gemini 格式的 contents 转换为 messages 格式
-            messages = body.contents.map((content: any) => ({
+            messages = body.contents.map((content: DynamicPayload) => ({
                 role: content.role || 'user',
-                content: content.parts?.map((part: any) => part.text).join('') || ''
+                content: content.parts?.map((part: DynamicPayload) => part.text).join('') || ''
             }));
         }
 
@@ -2029,7 +2043,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
 
         try {
             const token = this.accessToken; // Use the already initialized token
-            const headers = {
+            const headers: DynamicPayload = {
                 'Authorization': `Bearer ${token}`,
                 'amz-sdk-invocation-id': `${uuidv4()}`,
                 'x-amz-target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
@@ -2037,12 +2051,12 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 'user-agent': 'aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererstreaming/0.1.17593 os/linux lang/rust/1.92.0 md/appVersion-2.10.0 app/AmazonQ-For-CLI'
             };
             if (token && (token.startsWith('ksk_') || (this.apiKey && token === this.apiKey))) {
-                (headers as any)['TokenType'] = 'API_KEY';
+                headers['TokenType'] = 'API_KEY';
             }
 
             // 当 model 以 kiro-amazonq 开头时，使用 amazonQUrl，否则使用 baseUrl
             const requestUrl = model.startsWith('amazonq') ? this.amazonQUrl : this.baseUrl;
-            const axiosConfig: any = {
+            const axiosConfig: DynamicPayload = {
                 method: 'post',
                 url: requestUrl,
                 data: requestData,
@@ -2050,7 +2064,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             };
             this._applySidecar(axiosConfig);
             const releaseThrottle = await acquireKiroRequestSlot(this.config);
-            let response: any;
+            let response: DynamicPayload;
             try {
                 response = await this.axiosInstance.request(axiosConfig);
             } finally {
@@ -2058,7 +2072,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             }
             response._kiroToolNameMaps = requestData._kiroToolNameMaps;
             return response;
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
@@ -2109,7 +2123,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             if (status === 429) {
                 logger.info(`[Kiro] Received 429 (Too Many Requests). Waiting ${baseDelay}ms before switching credential...`);
                 await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
-                await new Promise((resolve: any) => setTimeout(resolve, baseDelay));
+                await new Promise<void>((resolve) => setTimeout(resolve, baseDelay));
                 // Mark error for credential switch without recording error count
                 error.shouldSwitchCredential = true;
                 error.skipErrorCount = true;
@@ -2120,7 +2134,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             if (status >= 500 && status < 600) {
                 logger.info(`[Kiro] Received ${status} server error. Waiting ${baseDelay}ms before switching credential...`);
                 await normalizeProviderErrorMessage(error, { status, context: 'callApi' });
-                await new Promise((resolve: any) => setTimeout(resolve, baseDelay));
+                await new Promise<void>((resolve) => setTimeout(resolve, baseDelay));
                 // Mark error for credential switch without recording error count
                 error.shouldSwitchCredential = true;
                 error.skipErrorCount = true;
@@ -2132,7 +2146,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[Kiro] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 return this.callApi(method, model, body, isRetry, retryCount + 1);
             }
 
@@ -2147,7 +2161,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         }
     }
 
-    async _isRefreshableForbidden(error: any) {
+    async _isRefreshableForbidden(error: unknown): Promise<boolean> {
         const text = (await getNormalizedErrorResponseText(error)).toLowerCase();
         if (!text) return false;
 
@@ -2164,7 +2178,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             'not authorized to access',
             'not allowed'
         ];
-        if (nonRefreshablePatterns.some((pattern: any) => text.includes(pattern))) {
+        if (nonRefreshablePatterns.some((pattern: string) => text.includes(pattern))) {
             return false;
         }
 
@@ -2179,18 +2193,18 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         return tokenRelated && refreshableAuthState;
     }
 
-    async _handleForbiddenCredentialError(error: any, context: any) {
+    async _handleForbiddenCredentialError(error: DynamicPayload, context: string): Promise<void> {
         const responseText = await getNormalizedErrorResponseText(error);
         await this._applyForbiddenCredentialState(error, context, responseText);
     }
 
-    _buildForbiddenReason(context: any, responseText: any, tokenRelated: any = false) {
+    _buildForbiddenReason(context: string, responseText: string, tokenRelated = false): string {
         return buildHttpErrorReason(403, context, responseText, {
             suffix: tokenRelated ? 'token-related' : ''
         });
     }
 
-    _buildNormalizedForbiddenError(error: any, responseText: any) {
+    _buildNormalizedForbiddenError(error: DynamicPayload, responseText: string): DynamicPayload {
         const responseSnippet = responseText ? responseText.substring(0, 500) : '';
 
         if (responseSnippet) {
@@ -2206,7 +2220,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         } : error;
     }
 
-    async _applyForbiddenCredentialState(error: any, context: any, responseText: any) {
+    async _applyForbiddenCredentialState(error: DynamicPayload, context: string, responseText: string): Promise<void> {
         const responseSnippet = responseText ? responseText.substring(0, 500) : '';
         if (responseSnippet) {
             logger.warn(`[Kiro] 403 response body (${context}): ${responseSnippet}`);
@@ -2253,7 +2267,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * @returns {boolean} - Whether the credential was successfully marked as unhealthy
      * @private
      */
-    _markCredentialNeedRefresh(reason: any, error: any = null) {
+    _markCredentialNeedRefresh(reason: string, error: DynamicPayload | null = null): boolean {
         const poolManager = getProviderPoolManager();
         if (poolManager && this.uuid) {
             logger.info(`[Kiro] Marking credential ${this.uuid} as needs refresh. Reason: ${reason}`);
@@ -2279,7 +2293,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * @returns {boolean} - Whether the credential was successfully marked as unhealthy
      * @private
      */
-    _markCredentialUnhealthy(reason: any, error: any = null) {
+    _markCredentialUnhealthy(reason: string, error: DynamicPayload | null = null): boolean {
         const poolManager = getProviderPoolManager();
         if (poolManager && this.uuid) {
             logger.info(`[Kiro] Marking credential ${this.uuid} as unhealthy. Reason: ${reason}`);
@@ -2306,7 +2320,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * @returns {boolean} - Whether the credential was successfully marked as unhealthy
      * @private
      */
-    _markCredentialUnhealthyWithRecovery(reason: any, error: any = null, recoveryTime: any = null) {
+    _markCredentialUnhealthyWithRecovery(reason: string, error: DynamicPayload | null = null, recoveryTime: Date | null = null): boolean {
         const poolManager = getProviderPoolManager();
         if (poolManager && this.uuid) {
             logger.info(`[Kiro] Marking credential ${this.uuid} as unhealthy with recovery time. Reason: ${reason}, Recovery: ${recoveryTime?.toISOString()}`);
@@ -2342,7 +2356,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * @throws {Error} 抛出带有切换凭证标记的错误
      * @private
      */
-    async _handle402Error(error: any, context: any = 'unknown') {
+    async _handle402Error(error: DynamicPayload, context = 'unknown'): Promise<never> {
         logger.info(`[Kiro] Received 402 (Quota Exceeded) in ${context}. Verifying usage limits...`);
         const { reason: verifiedReason } = await normalizeProviderErrorMessage(error, {
             status: 402,
@@ -2358,7 +2372,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             // Calculate recovery time: 1st day of next month at 00:00:00 UTC
             const nextMonth = this._getNextMonthFirstDay();
             this._markCredentialUnhealthyWithRecovery(verifiedReason, error, nextMonth);
-        } catch (usageError: any) {
+        } catch (caught) { const usageError = caught as DynamicPayload;
             logger.warn('[Kiro] Failed to verify usage limits:', usageError.message);
             // If we can't verify, still mark as unhealthy with recovery time
             const nextMonth = this._getNextMonthFirstDay();
@@ -2375,7 +2389,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         throw error;
     }
 
-    _processApiResponse(response: any) {
+    _processApiResponse(response: DynamicPayload): { responseText: string; toolCalls: DynamicPayload[] } {
         const toolNameMaps = response?._kiroToolNameMaps;
         const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
         //logger.info(`[Kiro] Raw response length: ${rawResponseText.length}`);
@@ -2393,14 +2407,14 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         const rawBracketToolCalls = parseBracketToolCalls(rawResponseText);
         if (rawBracketToolCalls) {
             //logger.info(`[Kiro] Found ${rawBracketToolCalls.length} bracket tool calls in raw response.`);
-            allToolCalls.push(...restoreKiroToolCallNames(rawBracketToolCalls, toolNameMaps));
+            allToolCalls.push(...(restoreKiroToolCallNames(rawBracketToolCalls, toolNameMaps) || []));
         }
 
         // 2.5. 兜底过滤：占位工具 no_tool_available 理论上只会走结构化事件分支（已在
         // parseEventStreamChunk 中忽略），这里再兜底一次，防止它以 bracket 文本格式
         // ("[Called no_tool_available with args: {}]") 漏网被当作真实工具调用转发出去。
         const beforePlaceholderFilter = allToolCalls.length;
-        allToolCalls = allToolCalls.filter((tc: any) => tc?.function?.name !== KIRO_PLACEHOLDER_TOOL_NAME);
+        allToolCalls = allToolCalls.filter((tc: DynamicPayload) => tc?.function?.name !== KIRO_PLACEHOLDER_TOOL_NAME);
         if (allToolCalls.length !== beforePlaceholderFilter) {
             logger.warn(`[Kiro] Dropped placeholder tool '${KIRO_PLACEHOLDER_TOOL_NAME}' call(s) from non-stream response (no real tools were available for this request).`);
         }
@@ -2430,7 +2444,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         return { responseText: fullResponseText, toolCalls: uniqueToolCalls };
     }
 
-    async generateContent(model: any, requestBody: any) {
+    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload | DynamicPayload[]> {
         if (!this.isInitialized) await this.initialize();
 
         // 临时存储 monitorRequestId
@@ -2467,7 +2481,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 ? this._toClaudeContentBlocksFromKiroText(responseText)
                 : responseText;
             return this.buildClaudeResponse(contentForClaude, false, 'assistant', model, toolCalls, inputTokens);
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error('[Kiro] Error in generateContent:', error);
             throw error;
         }
@@ -2480,8 +2494,8 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * 不会被帧头二进制里的 { 字节误导，彻底解决分片边界导致的卡死。
      * 输入 buffer 为 Buffer；返回 { events, remaining:Buffer }，events 格式与旧解析器一致。
      */
-    parseAwsEventStreamBuffer(buffer: any) {
-        const events: any[] = [];
+    parseAwsEventStreamBuffer(buffer: Buffer): { events: DynamicPayload[]; remaining: Buffer } {
+        const events: DynamicPayload[] = [];
         let offset = 0;
 
         while (true) {
@@ -2511,10 +2525,10 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             const payloadStr = buffer.slice(payloadStart, payloadEnd).toString('utf8');
             offset += totalLen; // 消费这一帧
 
-            let parsed: any;
+            let parsed: DynamicPayload;
             try {
                 parsed = JSON.parse(payloadStr);
-            } catch (e: any) {
+            } catch (caught) { const e = caught as DynamicPayload;
                 // payload 非法 JSON（理论上不应发生），跳过该帧
                 logger.warn('[Kiro] Frame payload not valid JSON, skipped: ' + payloadStr.slice(0, 120));
                 continue;
@@ -2585,7 +2599,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * header 格式: [1B nameLen][name][1B valueType][...]，string 类型(7) 为 [2B valueLen][value]。
      * 解析失败或无此头时返回 null（调用方会回退到 payload 字段判断）。
      */
-    _readEventTypeHeader(buffer: any, start: any, headersLen: any) {
+    _readEventTypeHeader(buffer: Buffer, start: number, headersLen: number): string | null {
         try {
             let p = start;
             const end = start + headersLen;
@@ -2603,7 +2617,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                     break;
                 }
             }
-        } catch (e: any) { /* 解析失败回退 */ }
+        } catch (caught) { const e = caught as DynamicPayload; /* 解析失败回退 */ }
         return null;
     }
 
@@ -2611,7 +2625,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
     /**
      * 真正的流式 API 调用 - 使用 responseType: 'stream'
      */
-    async * streamApiReal(method: any, model: any, body: any, isRetry: any = false, retryCount: any = 0): AsyncGenerator<any> {
+    async * streamApiReal(method: string, model: string, body: DynamicPayload, isRetry = false, retryCount = 0): AsyncGenerator<DynamicPayload> {
         if (!this.isInitialized) await this.initialize();
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
@@ -2620,9 +2634,9 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         let messages = body.messages;
         if (!messages && body.contents) {
             // 将 Gemini 格式的 contents 转换为 messages 格式
-            messages = body.contents.map((content: any) => ({
+            messages = body.contents.map((content: DynamicPayload) => ({
                 role: content.role || 'user',
-                content: content.parts?.map((part: any) => part.text).join('') || ''
+                content: content.parts?.map((part: DynamicPayload) => part.text).join('') || ''
             }));
         }
 
@@ -2634,7 +2648,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         const toolNameMaps = requestData._kiroToolNameMaps;
 
         const token = this.accessToken;
-        const headers = {
+        const headers: DynamicPayload = {
             'Authorization': `Bearer ${token}`,
             'amz-sdk-invocation-id': `${uuidv4()}`,
             'x-amz-target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
@@ -2642,18 +2656,18 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             'user-agent': 'aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererstreaming/0.1.17593 os/linux lang/rust/1.92.0 md/appVersion-2.10.0 app/AmazonQ-For-CLI'
         };
         if (token && (token.startsWith('ksk_') || (this.apiKey && token === this.apiKey))) {
-            (headers as any)['TokenType'] = 'API_KEY';
+            headers['TokenType'] = 'API_KEY';
         }
 
         const requestUrl = model.startsWith('amazonq') ? this.amazonQUrl : this.baseUrl;
 
-        let stream: any = null;
+        let stream: Readable | null = null;
         let releaseThrottle = () => {};
         // catch 需要根据该状态判断能否安全地从头重试，因此必须与 try/catch 同级。
         // 一旦产出过内容，流中途断线就不能重发（会导致内容重复/错位）。
         let hasYieldedContent = false;
         try {
-            const axiosConfig: any = {
+            const axiosConfig: DynamicPayload = {
                 method: 'post',
                 url: requestUrl,
                 data: requestData,
@@ -2664,11 +2678,12 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             releaseThrottle = await acquireKiroRequestSlot(this.config);
             const response = await this.axiosInstance.request(axiosConfig);
 
-            stream = response.data;
-            let buffer = Buffer.alloc(0);
-            let lastContentEvent: any = null;  // 用于检测连续重复的 content 事件
+            const responseStream: Readable = response.data;
+            stream = responseStream;
+            let buffer: Buffer = Buffer.alloc(0);
+            let lastContentEvent: string | null = null;  // 用于检测连续重复的 content 事件
 
-            for await (const chunk of stream) {
+            for await (const chunk of responseStream) {
                 const chunkBuf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
                 buffer = buffer.length === 0 ? chunkBuf : Buffer.concat([buffer, chunkBuf]);
 
@@ -2707,7 +2722,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                     }
                 }
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             // 确保出错时关闭流
             if (stream && typeof stream.destroy === 'function') {
                 stream.destroy();
@@ -2762,7 +2777,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             if (status === 429) {
                 logger.info(`[Kiro] Received 429 (Too Many Requests) in stream. Waiting ${baseDelay}ms before switching credential...`);
                 await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
-                await new Promise((resolve: any) => setTimeout(resolve, baseDelay));
+                await new Promise<void>((resolve) => setTimeout(resolve, baseDelay));
                 // Mark error for credential switch without recording error count
                 error.shouldSwitchCredential = true;
                 error.skipErrorCount = true;
@@ -2773,7 +2788,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             if (status >= 500 && status < 600) {
                 logger.info(`[Kiro] Received ${status} server error in stream. Waiting ${baseDelay}ms before switching credential...`);
                 await normalizeProviderErrorMessage(error, { status, context: 'stream' });
-                await new Promise((resolve: any) => setTimeout(resolve, baseDelay));
+                await new Promise<void>((resolve) => setTimeout(resolve, baseDelay));
                 // Mark error for credential switch without recording error count
                 error.shouldSwitchCredential = true;
                 error.skipErrorCount = true;
@@ -2787,7 +2802,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[Kiro] Network error (${errorIdentifier}) in stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 yield* this.streamApiReal(method, model, body, isRetry, retryCount + 1);
                 return;
             }
@@ -2813,10 +2828,10 @@ async saveCredentialsToFile(filePath: any, newData: any) {
     }
 
     // 保留旧的非流式方法用于 generateContent
-    async streamApi(method: any, model: any, body: any, isRetry: any = false, retryCount: any = 0) {
+    async streamApi(method: string, model: string, body: DynamicPayload, isRetry = false, retryCount = 0): Promise<DynamicPayload> {
         try {
             return await this.callApi(method, model, body, isRetry, retryCount);
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error('[Kiro] Error calling API:', error);
             throw error;
         }
@@ -2828,7 +2843,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
     // 它会缓存这里第一次产出的 message_start，直到确认收到过至少一个有意义的事件
     // （文本/工具调用/思考）才真正转发给调用方。这样即使这里在流结束前检测到
     // 完全空的响应并抛错，调用方也从未收到过任何数据，可以安全地整体重试。
-    async * _generateContentStreamRaw(model: any, requestBody: any) {
+    async * _generateContentStreamRaw(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload> {
         if (!this.isInitialized) await this.initialize();
 
         // 临时存储 monitorRequestId
@@ -2846,14 +2861,14 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         logger.info(`[Kiro] Calling generateContentStream with model: ${finalModel} (real streaming)`);
 
         let inputTokens = 0;
-        let contextUsagePercentage: any = null;
+        let contextUsagePercentage: number | null = null;
         const messageId = `${uuidv4()}`;
 
         const thinkingType = requestBody?.thinking?.type;
         const thinkingRequested = typeof thinkingType === 'string' &&
             (thinkingType.toLowerCase() === 'enabled' || thinkingType.toLowerCase() === 'adaptive');
 
-        const streamState: any = {
+        const streamState: DynamicPayload = {
             thinkingRequested,
             buffer: '',
             pendingTextBeforeThinking: '',
@@ -2869,7 +2884,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             hasThinkingContent: false,
         };
 
-        const ensureBlockStart = (blockType: any) => {
+        const ensureBlockStart = (blockType: string): DynamicPayload[] => {
             if (blockType === 'thinking') {
                 if (streamState.thinkingBlockIndex != null &&
                     !streamState.stoppedBlocks.has(streamState.thinkingBlockIndex)) return [];
@@ -2895,19 +2910,19 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             return [];
         };
 
-        const stopBlock = (index: any) => {
+        const stopBlock = (index: number | null): DynamicPayload[] => {
             if (index == null) return [];
             if (streamState.stoppedBlocks.has(index)) return [];
             streamState.stoppedBlocks.add(index);
             return [{ type: "content_block_stop", index }];
         };
 
-        const createTextDeltaEvents = (text: any) => {
+        const createTextDeltaEvents = (text: string): DynamicPayload[] => {
             if (!text) return [];
             if (!isWhitespaceOnly(text)) {
                 streamState.hasVisibleText = true;
             }
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
             // Anthropic 内容块不能重叠；正文开始前先关闭仍处于打开状态的思考块。
             events.push(...stopBlock(streamState.thinkingBlockIndex));
             events.push(...ensureBlockStart('text'));
@@ -2921,11 +2936,11 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             return events;
         };
 
-        const createThinkingDeltaEvents = (thinking: any) => {
+        const createThinkingDeltaEvents = (thinking: string): DynamicPayload[] => {
             if (thinking) {
                 streamState.hasThinkingContent = true;
             }
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
             // 兼容内联 <thinking> 出现在正文后的情况，保证任一时刻只有一个内容块打开。
             events.push(...stopBlock(streamState.textBlockIndex));
             events.push(...ensureBlockStart('thinking'));
@@ -2939,7 +2954,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             return events;
         };
 
-        function* pushEvents(events: any) {
+        function* pushEvents(events: DynamicPayload[]) {
             for (const ev of events) {
                 yield ev;
             }
@@ -2948,11 +2963,11 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         try {
             let totalContent = '';
             let outputTokens = 0;
-            const toolCalls: any[] = [];
-            let currentToolCall: any = null; // 用于累积结构化工具调用
-            const toolUseBlockIndexes = new Map(); // toolUseId -> content block index
+            const toolCalls: DynamicPayload[] = [];
+            let currentToolCall: DynamicPayload | null = null; // 用于累积结构化工具调用
+            const toolUseBlockIndexes = new Map<string, number>(); // toolUseId -> content block index
             // 记录被忽略的占位工具调用 id（详见 KIRO_PLACEHOLDER_TOOL_NAME 说明）
-            const ignoredToolUseIds = new Set();
+            const ignoredToolUseIds = new Set<string>();
 
             const estimatedInputTokens = this.estimateInputTokens(requestBody);
 
@@ -3000,7 +3015,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                     }
 
                     streamState.buffer += event.content;
-                    const events: any[] = [];
+                    const events: DynamicPayload[] = [];
 
                     while (streamState.buffer.length > 0) {
                         if (!streamState.inThinking && !streamState.thinkingExtracted) {
@@ -3112,7 +3127,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                         continue;
                     }
 
-                    const toolEvents: any[] = [];
+                    const toolEvents: DynamicPayload[] = [];
 
                     // 统计工具调用的内容到 totalContent（用于 token 计算）
                     if (tc.name) totalContent += tc.name;
@@ -3134,7 +3149,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                                 let parsedInput = currentToolCall.input;
                                 try {
                                     parsedInput = JSON.parse(currentToolCall.input);
-                                } catch (e: any) {
+                                } catch (caught) { const e = caught as DynamicPayload;
                                     // input 不是有效 JSON，保持原样
                                 }
                                 toolCalls.push({
@@ -3189,7 +3204,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                             let parsedInput = currentToolCall.input;
                             try {
                                 parsedInput = JSON.parse(currentToolCall.input);
-                            } catch (e: any) {
+                            } catch (caught) { const e = caught as DynamicPayload;
                                 // input 不是有效 JSON，保持原样
                             }
                             toolCalls.push({
@@ -3237,7 +3252,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                         let parsedInput = currentToolCall.input;
                         try {
                             parsedInput = JSON.parse(currentToolCall.input);
-                        } catch (e: any) {
+                        } catch (caught) { const e = caught as DynamicPayload;
                             // input 不是有效 JSON，保持原样
                         }
                         toolCalls.push({
@@ -3261,7 +3276,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 let parsedInput = currentToolCall.input;
                 try {
                     parsedInput = JSON.parse(currentToolCall.input);
-                } catch (e: any) {}
+                } catch (caught) { const e = caught as DynamicPayload;}
                 toolCalls.push({
                     toolUseId: currentToolCall.toolUseId,
                     name: currentToolCall.name,
@@ -3351,7 +3366,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 ? this._toClaudeContentBlocksFromKiroText(totalContent)
                 : [{ type: "text", text: totalContent }];
             const plainForCount = contentBlocksForCount
-                .map((b: any) => (b.type === 'thinking' ? (b.thinking ?? '') : (b.text ?? '')))
+                .map((b: DynamicPayload) => (b.type === 'thinking' ? (b.thinking ?? '') : (b.text ?? '')))
                 .join('');
             outputTokens = this.countTextTokens(plainForCount);
 
@@ -3388,7 +3403,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             // 5. 发送 message_stop 事件
             yield { type: "message_stop" };
 
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             if (!error.isEmptyUpstreamResponse) {
                 logger.error('[Kiro] Error in streaming generation:', error?.stack || error?.message || String(error));
             }
@@ -3406,7 +3421,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
     //   isEmptyUpstreamResponse 错误而不产出第二个事件；此时 message_start 从未被
     //   转发给调用方，调用方（handleStreamRequest）尚未向客户端写入任何数据，
     //   可以安全地整体重试（不会出现同一个 SSE 响应里出现两个 message_start）。
-    async * generateContentStream(model: any, requestBody: any) {
+    async * generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload> {
         const rawGenerator = this._generateContentStreamRaw(model, requestBody);
 
         const first = await rawGenerator.next();
@@ -3433,27 +3448,34 @@ async saveCredentialsToFile(filePath: any, newData: any) {
     /**
      * Count tokens for a given text using Claude's official tokenizer
      */
-    countTextTokens(text: any) {
+    countTextTokens(text: string) {
         return KiroApiService.countTextTokens(text);
     }
 
     /**
      * Calculate input tokens from request body using Claude's official tokenizer
      */
-    estimateInputTokens(requestBody: any) {
+    estimateInputTokens(requestBody: DynamicPayload) {
         return KiroApiService.estimateInputTokens(requestBody);
     }
 
     /**
      * Build Claude compatible response object
      */
-    buildClaudeResponse(content: any, isStream: any = false, role: any = 'assistant', model: any, toolCalls: any = null, inputTokens: any = 0) {
+    buildClaudeResponse(
+        content: DynamicPayload | string | null | undefined,
+        isStream = false,
+        role = 'assistant',
+        model?: string,
+        toolCalls: DynamicPayload[] | null = null,
+        inputTokens = 0
+    ): DynamicPayload | DynamicPayload[] {
         const messageId = `${uuidv4()}`;
 
         if (isStream) {
             // Kiro API is "pseudo-streaming", so we'll send a few events to simulate
             // a full Claude stream, but the content/tool_calls will be sent in one go.
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
 
             // 1. message_start event
             events.push({
@@ -3501,7 +3523,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                     type: "content_block_stop",
                     index: contentBlockIndex
                 });
-                totalOutputTokens += this.countTextTokens(content);
+                totalOutputTokens += this.countTextTokens(content as string);
                 // If there are tool calls, the stop reason remains "tool_use".
                 // If only content, it's "end_turn".
                 if (!toolCalls || toolCalls.length === 0) {
@@ -3510,13 +3532,13 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             }
 
             if (toolCalls && toolCalls.length > 0) {
-                toolCalls.forEach((tc: any, index: any) => {
-                    let inputObject: any;
+                toolCalls.forEach((tc: DynamicPayload, index: number) => {
+                    let inputObject: unknown;
                     try {
                         // Arguments should be a stringified JSON object, need to parse it
                         const args = tc.function.arguments;
                         inputObject = typeof args === 'string' ? JSON.parse(args) : args;
-                    } catch (e: any) {
+                    } catch (caught) { const e = caught as DynamicPayload;
                         logger.warn(`[Kiro] Invalid JSON for tool call arguments. Wrapping in raw_arguments. Error: ${e.message}`, tc.function.arguments);
                         // If parsing fails, wrap the raw string in an object as a fallback,
                         // since Claude's `input` field expects an object.
@@ -3573,7 +3595,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             return events; // Return an array of events for streaming
         } else {
             // Non-streaming response (full message object)
-            const contentArray: any[] = [];
+            const contentArray: DynamicPayload[] = [];
             let outputTokens = 0;
 
             // 1) Content blocks (text/thinking) first.
@@ -3599,7 +3621,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
                 }
             } else if (content) {
                 contentArray.push({ type: "text", text: content });
-                outputTokens += this.countTextTokens(content);
+                outputTokens += this.countTextTokens(content as string);
                 if (!isWhitespaceOnly(content)) hasTextContent = true;
             }
 
@@ -3607,12 +3629,12 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             let stopReason = "end_turn";
             if (toolCalls && toolCalls.length > 0) {
                 for (const tc of toolCalls) {
-                    let inputObject: any;
+                    let inputObject: unknown;
                     try {
                         // Arguments should be a stringified JSON object, need to parse it
                         const args = tc.function.arguments;
                         inputObject = typeof args === 'string' ? JSON.parse(args) : args;
-                    } catch (e: any) {
+                    } catch (caught) { const e = caught as DynamicPayload;
                         logger.warn(`[Kiro] Invalid JSON for tool call arguments. Wrapping in raw_arguments. Error: ${e.message}`, tc.function.arguments);
                         // If parsing fails, wrap the raw string in an object as a fallback,
                         // since Claude's `input` field expects an object.
@@ -3655,7 +3677,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * List available models
      */
     async listModels() {
-        const models = KIRO_MODELS.map((id: any) => ({
+        const models = KIRO_MODELS.map((id: string) => ({
             name: id
         }));
 
@@ -3676,13 +3698,13 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             // 给 30 秒缓冲，避免请求过程中过期
             const bufferMs = 30 * 1000;
             return expirationMs <= (currentTime.getTime() + bufferMs);
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error(`[Kiro] Error checking token expiry: ${error.message}`);
             return true; // Treat as expired if parsing fails
         }
     }
 
-    async _prepareAccessTokenForRequest(context: any) {
+    async _prepareAccessTokenForRequest(context: string): Promise<void> {
         if (this.isTokenExpired()) {
             logger.info(`[Kiro] Token expired before ${context}, refreshing synchronously...`);
             await this.initializeAuth(true);
@@ -3701,12 +3723,13 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      */
     isExpiryDateNear() {
         try {
+            if (!this.expiresAt) return false;
             const expirationTime = new Date(this.expiresAt);
             const nearMinutes = 30;
             const { message, isNearExpiry } = formatExpiryLog('Kiro', expirationTime.getTime(), nearMinutes);
             logger.info(message);
             return isNearExpiry;
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             logger.error(`[Kiro] Error checking expiry date: ${this.expiresAt}, Error: ${error.message}`);
             return false; // Treat as expired if parsing fails
         }
@@ -3719,8 +3742,9 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         logger.info('[Kiro] Background token refresh started...');
         this.initializeAuth(true).then(() => {
             logger.info('[Kiro] Background token refresh completed successfully');
-        }).catch((error: any) => {
-            logger.error('[Kiro] Background token refresh failed:', error.message);
+        }).catch((error: unknown) => {
+            const err = error as DynamicPayload;
+            logger.error('[Kiro] Background token refresh failed:', err.message);
             // 后台刷新失败不抛出错误，下次请求会重试
         });
     }
@@ -3731,7 +3755,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
      * @param {Object} requestBody - The request body containing model, messages, system, tools, etc.
      * @returns {Object} { input_tokens: number }
      */
-    countTokens(requestBody: any) {
+    countTokens(requestBody: DynamicPayload) {
         return KiroApiService.countTokens(requestBody);
     }
 
@@ -3778,7 +3802,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
         const kiroVersion = KIRO_CONSTANTS.KIRO_VERSION;
         const { osName, nodeVersion } = getSystemRuntimeInfo();
 
-        const headers = {
+        const headers: DynamicPayload = {
             'Authorization': `Bearer ${this.accessToken}`,
             'x-amz-user-agent': `aws-sdk-js/1.0.34 KiroIDE-${kiroVersion}-${machineId}`,
             'user-agent': `aws-sdk-js/1.0.34 ua/2.1 os/${osName} lang/js md/nodejs#${nodeVersion} api/codewhispererstreaming#1.0.34 m/E KiroIDE-${kiroVersion}-${machineId}`,
@@ -3787,10 +3811,10 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             'Connection': 'close'
         };
         if (this.accessToken && (this.accessToken.startsWith('ksk_') || (this.apiKey && this.accessToken === this.apiKey))) {
-            (headers as any)['TokenType'] = 'API_KEY';
+            headers['TokenType'] = 'API_KEY';
         }
 
-        const axiosConfig: any = {
+        const axiosConfig: DynamicPayload = {
             method: 'get',
             url: fullUrl,
             headers
@@ -3801,7 +3825,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
             const response = await this.axiosInstance.request(axiosConfig);
             logger.info('[Kiro] Usage limits fetched successfully');
             return response.data;
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
 
             // 从响应体中提取错误信息
@@ -3832,7 +3856,7 @@ async saveCredentialsToFile(filePath: any, newData: any) {
 
             if (status === 403) {
                 this._handleForbiddenCredentialError(error, 'usage query');
-                formattedError.credentialMarkedUnhealthy = true;
+                (formattedError as DynamicPayload).credentialMarkedUnhealthy = true;
                 throw formattedError;
             }
 
