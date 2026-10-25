@@ -198,7 +198,7 @@ export class OpenAIConverter extends BaseConverter {
                     content: toolContent
                 });
                 claudeMessages.push({ role: 'user', content: content });
-            } else if (message.role === 'assistant' && (message.tool_calls?.length || message.function_calls?.length)) {
+            } else if (message.role === 'assistant' && ((Array.isArray(message.tool_calls) && message.tool_calls.length > 0) || (Array.isArray(message.function_calls) && message.function_calls.length > 0))) {
                 // 助手工具调用消息 - 支持tool_calls和function_calls，并保留伴随的文本说明
                 const assistantBlocks: any[] = [];
                 if (typeof message.content === 'string' && message.content.trim()) {
@@ -211,7 +211,7 @@ export class OpenAIConverter extends BaseConverter {
                     });
                 }
 
-                const calls = message.tool_calls || message.function_calls || [];
+                const calls = Array.isArray(message.tool_calls) ? message.tool_calls : Array.isArray(message.function_calls) ? message.function_calls : [];
                 const toolUseBlocks = calls.map((tc: any) => ({
                     type: 'tool_use',
                     id: toClaudeToolId(tc.id),
@@ -1534,7 +1534,7 @@ export class OpenAIConverter extends BaseConverter {
                     call_id: msg.tool_call_id,
                     output: msg.content
                 });
-            } else if (msg.role === 'assistant' && (msg.tool_calls?.length || msg.function_calls?.length)) {
+            } else if (msg.role === 'assistant' && ((Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) || (Array.isArray(msg.function_calls) && msg.function_calls.length > 0))) {
                 // 如果 assistant 消息同时携带了文本 content，先提取并生成 message 块保留说明与思考文本
                 const textParts: any[] = [];
                 if (typeof msg.content === 'string' && msg.content.trim()) {
@@ -1557,7 +1557,7 @@ export class OpenAIConverter extends BaseConverter {
                     });
                 }
 
-                const calls = msg.tool_calls || msg.function_calls || [];
+                const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : Array.isArray(msg.function_calls) ? msg.function_calls : [];
                 for (const tc of calls) {
                     responsesRequest.input.push({
                         type: 'function_call',

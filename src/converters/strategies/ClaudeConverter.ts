@@ -677,14 +677,15 @@ export class ClaudeConverter extends BaseConverter {
         const timestamp = identity.created;
         // Anthropic content block index 包含 thinking/text/tool 块；OpenAI Chat
         // 的 tool_calls.index 必须在单个 choice 内从 0 递增，不能直接复用 block index。
-        if (!(identity.toolIndexByBlock instanceof Map)) identity.toolIndexByBlock = new Map();
+        const toolIndexByBlock = identity.toolIndexByBlock instanceof Map ? identity.toolIndexByBlock : new Map<unknown, number>();
+        identity.toolIndexByBlock = toolIndexByBlock;
         if (!Number.isInteger(identity.nextToolIndex)) identity.nextToolIndex = 0;
         const toOpenAIToolIndex = (blockIndex: any) => {
             const key = blockIndex ?? 0;
-            if (!identity.toolIndexByBlock.has(key)) {
-                identity.toolIndexByBlock.set(key, identity.nextToolIndex++);
+            if (!toolIndexByBlock.has(key)) {
+                toolIndexByBlock.set(key, identity.nextToolIndex++);
             }
-            return identity.toolIndexByBlock.get(key);
+            return toolIndexByBlock.get(key);
         };
 
         // message_start 事件

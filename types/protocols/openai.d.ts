@@ -149,6 +149,8 @@ export interface OpenAIUsage {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    /** 部分兼容上游会在顶层返回 cached_tokens；标准字段仍以 prompt_tokens_details 为准。 */
+    cached_tokens?: number;
     prompt_tokens_details?: {
         cached_tokens?: number;
         audio_tokens?: number;

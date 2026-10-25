@@ -129,6 +129,7 @@ export interface GeminiUsageMetadata {
     candidatesTokenCount?: number;
     totalTokenCount?: number;
     cachedContentTokenCount?: number;
+    thoughtsTokenCount?: number;
 }
 
 export interface GeminiGenerateContentResponse {

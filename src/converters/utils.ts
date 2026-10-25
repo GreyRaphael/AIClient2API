@@ -8,6 +8,50 @@ import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.ts';
 import { getConfigToggle } from '../core/config-manager.ts';
 import { countTextTokens } from '../utils/token-utils.ts';
+import type { GeminiUsageMetadata } from '../../types/protocols/gemini.js';
+import type { OpenAIUsage } from '../../types/protocols/openai.js';
+import type { ClaudeUsage } from '../../types/protocols/claude.js';
+import type { OpenAIResponsesUsage } from '../../types/protocols/responses.js';
+
+interface AnthropicUsageOptions {
+    inputTokens?: number;
+    cachedTokens?: number;
+    cacheCreationTokens?: number;
+    outputTokens?: number;
+}
+
+interface PromptReplacement {
+    old: string | RegExp;
+    new: string;
+}
+
+interface SchemaCleanOptions {
+    allowedKeys?: string[];
+    excludedKeys?: string[];
+    typeHandler: (target: Record<string, unknown>, typeValue: unknown) => void;
+    sanitizeEnum?: boolean;
+}
+
+interface OpenAIStreamIdentity {
+    id: string;
+    created: number;
+    nextToolIndex: number;
+    cachedTokens?: number;
+    promptTokens?: number;
+    cacheCreationTokens?: number;
+    toolIndexByBlock?: Map<unknown, number>;
+    [key: string]: unknown;
+}
+
+interface OpenAIStreamIdentityStore {
+    has(key: string): boolean;
+    get(key: string): unknown;
+    set(key: string, value: unknown): unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.ts';
@@ -49,7 +93,7 @@ export function anthropicUsageFromInclusiveInput({
     cachedTokens = 0,
     cacheCreationTokens = 0,
     outputTokens = 0
-}: any = {}) {
+}: AnthropicUsageOptions = {}) {
     const input = Number.isFinite(Number(inputTokens)) ? Number(inputTokens) : 0;
     const cached = Number.isFinite(Number(cachedTokens)) ? Number(cachedTokens) : 0;
     const creation = Number.isFinite(Number(cacheCreationTokens)) ? Number(cacheCreationTokens) : 0;
@@ -76,7 +120,7 @@ export function anthropicUsageFromInclusiveInput({
  * @param {Object} usage - Gemini usageMetadata
  * @returns {{prompt: number, cached: number, thoughts: number, output: number, total: number}}
  */
-function getGeminiUsageNumbers(usage: any = {}) {
+function getGeminiUsageNumbers(usage: GeminiUsageMetadata = {}) {
     const prompt = Math.max(0, Number(usage.promptTokenCount) || 0);
     const candidates = Math.max(0, Number(usage.candidatesTokenCount) || 0);
     const thoughts = Math.max(0, Number(usage.thoughtsTokenCount) || 0);
@@ -98,7 +142,7 @@ function getGeminiUsageNumbers(usage: any = {}) {
  * @param {Object} usage - Gemini usageMetadata
  * @returns {Object}
  */
-export function geminiUsageToOpenAI(usage: any = {}) {
+export function geminiUsageToOpenAI(usage: GeminiUsageMetadata = {}): OpenAIUsage {
     const { prompt, cached, thoughts, output, total } = getGeminiUsageNumbers(usage);
     return {
         prompt_tokens: prompt,
@@ -119,7 +163,7 @@ export function geminiUsageToOpenAI(usage: any = {}) {
  * @param {Object} usage - Gemini usageMetadata
  * @returns {Object}
  */
-export function geminiUsageToResponses(usage: any = {}) {
+export function geminiUsageToResponses(usage: GeminiUsageMetadata = {}): OpenAIResponsesUsage {
     const { prompt, cached, thoughts, output, total } = getGeminiUsageNumbers(usage);
     return {
         input_tokens: prompt,
@@ -139,7 +183,7 @@ export function geminiUsageToResponses(usage: any = {}) {
  * @param {Object} usage - Gemini usageMetadata
  * @returns {{input_tokens: number, cache_creation_input_tokens: number, cache_read_input_tokens: number, output_tokens: number}}
  */
-export function geminiUsageToAnthropic(usage: any = {}) {
+export function geminiUsageToAnthropic(usage: GeminiUsageMetadata = {}): ClaudeUsage {
     const { prompt, cached, output } = getGeminiUsageNumbers(usage);
     return anthropicUsageFromInclusiveInput({
         inputTokens: prompt,
@@ -162,14 +206,20 @@ export function geminiUsageToAnthropic(usage: any = {}) {
  * @param {'openai'|'responses'} [shape='openai']
  * @returns {Object}
  */
-export function applyEstimatedReasoningTokens(usage: any, reasoningText: any, shape: any = 'openai') {
+export function applyEstimatedReasoningTokens(
+    usage: OpenAIUsage | OpenAIResponsesUsage | null,
+    reasoningText: unknown,
+    shape: 'openai' | 'responses' = 'openai'
+): OpenAIUsage | OpenAIResponsesUsage | null {
     if (!usage) return usage;
+    const record = usage as unknown as Record<string, unknown>;
     const detailsKey = shape === 'responses' ? 'output_tokens_details' : 'completion_tokens_details';
     const outputKey = shape === 'responses' ? 'output_tokens' : 'completion_tokens';
-    const outputTokens = Number(usage[outputKey]);
+    const outputTokens = Number(record[outputKey]);
     if (!Number.isFinite(outputTokens) || outputTokens <= 0) return usage;
 
-    const existing = Number(usage[detailsKey]?.reasoning_tokens ?? 0);
+    const existingDetails = isRecord(record[detailsKey]) ? record[detailsKey] : {};
+    const existing = Number(existingDetails.reasoning_tokens ?? 0);
     const estimated = existing > 0
         ? existing
         : countTextTokens(String(reasoningText || ''));
@@ -180,7 +230,7 @@ export function applyEstimatedReasoningTokens(usage: any, reasoningText: any, sh
     return {
         ...usage,
         [detailsKey]: {
-            ...(usage[detailsKey] || {}),
+            ...existingDetails,
             reasoning_tokens: reasoningTokens,
             ...(existing > 0 ? {} : { reasoning_tokens_estimated: true })
         }
@@ -194,7 +244,7 @@ export function applyEstimatedReasoningTokens(usage: any, reasoningText: any, sh
  * @param {number} [fallback]
  * @returns {number}
  */
-export function clampClaudeMaxTokens(value: any, fallback: any = CLAUDE_DEFAULT_MAX_TOKENS) {
+export function clampClaudeMaxTokens(value: unknown, fallback: number = CLAUDE_DEFAULT_MAX_TOKENS): number {
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) {
         return fallback;
@@ -255,10 +305,10 @@ export const FILE_EXTENSION_MIME_TYPES = {
  * @param {string} filename
  * @returns {string|null}
  */
-export function mimeTypeFromFilename(filename: any) {
+export function mimeTypeFromFilename(filename: unknown): string | null {
     if (!filename || typeof filename !== 'string') return null;
     const ext = filename.includes('.') ? (filename.split('.').pop() || '').toLowerCase() : '';
-    return (FILE_EXTENSION_MIME_TYPES as any)[ext] || null;
+    return (FILE_EXTENSION_MIME_TYPES as Record<string, string>)[ext] || null;
 }
 
 /**
@@ -266,7 +316,7 @@ export function mimeTypeFromFilename(filename: any) {
  * @param {string} url
  * @returns {string}
  */
-export function guessImageMimeTypeFromUrl(url: any) {
+export function guessImageMimeTypeFromUrl(url: unknown): string {
     if (!url || typeof url !== 'string') return 'image/jpeg';
     const pathPart = url.split('?')[0].split('#')[0];
     const mime = mimeTypeFromFilename(pathPart);
@@ -278,7 +328,7 @@ export function guessImageMimeTypeFromUrl(url: any) {
  * @param {string} value
  * @returns {{ mimeType: string, data: string }|null}
  */
-export function parseBase64DataUrl(value: any) {
+export function parseBase64DataUrl(value: unknown): { mimeType: string; data: string } | null {
     if (typeof value !== 'string' || !value.startsWith('data:')) {
         return null;
     }
@@ -295,7 +345,7 @@ export function parseBase64DataUrl(value: any) {
  * @param {*} defaultValue - 默认值
  * @returns {*} 处理后的值
  */
-export function checkAndAssignOrDefault(value: any, defaultValue: any) {
+export function checkAndAssignOrDefault<T>(value: T | null | undefined, defaultValue: T): T {
     if (value !== undefined && value !== null && value !== 0) {
         return value;
     }
@@ -307,8 +357,8 @@ export function checkAndAssignOrDefault(value: any, defaultValue: any) {
  * @param {string} str - JSON字符串
  * @returns {*} 解析后的对象或原始字符串
  */
-export function safeParseJSON(str: any) {
-    if (!str) {
+export function safeParseJSON(str: unknown): unknown {
+    if (typeof str !== 'string' || !str) {
         return str;
     }
     let cleanedStr = str;
@@ -323,7 +373,7 @@ export function safeParseJSON(str: any) {
 
     try {
         return JSON.parse(cleanedStr || '{}');
-    } catch (e: any) {
+    } catch {
         return str;
     }
 }
@@ -333,14 +383,14 @@ export function safeParseJSON(str: any) {
  * @param {string|Array} content - 消息内容
  * @returns {string} 提取的文本
  */
-export function extractTextFromMessageContent(content: any) {
+export function extractTextFromMessageContent(content: unknown): string {
     if (typeof content === 'string') {
         return content;
     }
     if (Array.isArray(content)) {
         return content
-            .filter((part: any) => part.type === 'text' && part.text)
-            .map((part: any) => part.text)
+            .filter((part): part is { text: string } => isRecord(part) && part.type === 'text' && typeof part.text === 'string')
+            .map((part) => part.text)
             .join('\n');
     }
     return '';
@@ -352,7 +402,7 @@ export function extractTextFromMessageContent(content: any) {
  * @param {Array} replacements - 替换规则数组
  * @returns {string} 替换后的内容
  */
-export function applySystemPromptReplacements(content: any, replacements: any = []) {
+export function applySystemPromptReplacements(content: string, replacements: PromptReplacement[] = []): string {
     if (!content || !replacements || !Array.isArray(replacements) || replacements.length === 0) {
         return content;
     }
@@ -377,9 +427,12 @@ export function applySystemPromptReplacements(content: any, replacements: any = 
  * @param {Array} replacements - 替换规则数组，可选
  * @returns {{systemInstruction: Object|null, nonSystemMessages: Array}}
  */
-export function extractAndProcessSystemMessages(messages: any, replacements: any = []) {
-    const systemContents: any[] = [];
-    const nonSystemMessages: any[] = [];
+export function extractAndProcessSystemMessages(
+    messages: Array<Record<string, unknown>>,
+    replacements: PromptReplacement[] = []
+): { systemInstruction: { parts: Array<{ text: string }> } | null; nonSystemMessages: Array<Record<string, unknown>> } {
+    const systemContents: string[] = [];
+    const nonSystemMessages: Array<Record<string, unknown>> = [];
 
     for (const message of messages) {
         if (message.role === 'system' || message.role === 'developer') {
@@ -394,7 +447,7 @@ export function extractAndProcessSystemMessages(messages: any, replacements: any
         }
     }
 
-    let systemInstruction: any = null;
+    let systemInstruction: { parts: Array<{ text: string }> } | null = null;
     if (systemContents.length > 0) {
         systemInstruction = {
             parts: [{
@@ -424,9 +477,9 @@ const OPENAI_EXCLUDED_KEYS = ['$schema'];
  * @param {Function} caseTransform - 大小写转换函数 (toUpperCase 或 toLowerCase)
  * @returns {string|undefined} 规范化后的 type 值
  */
-function normalizeTypeField(typeValue: any, caseTransform: any) {
+function normalizeTypeField(typeValue: unknown, caseTransform: (value: string) => string): string | undefined {
     if (Array.isArray(typeValue)) {
-        const actualType = typeValue.find((t: any) => t !== 'null');
+        const actualType = typeValue.find((t): t is string => t !== 'null');
         return actualType ? caseTransform(actualType) : undefined;
     }
 
@@ -443,10 +496,10 @@ function normalizeTypeField(typeValue: any, caseTransform: any) {
  * @param {Function} cleanFn - 清理函数
  * @returns {Object} 清理后的 properties
  */
-function cleanPropertiesRecursively(properties: any, cleanFn: any) {
-    const cleaned = {};
+function cleanPropertiesRecursively(properties: Record<string, unknown>, cleanFn: (schema: unknown) => unknown): Record<string, unknown> {
+    const cleaned: Record<string, unknown> = {};
     for (const [propName, propSchema] of Object.entries(properties)) {
-        (cleaned as any)[propName] = cleanFn(propSchema);
+        cleaned[propName] = cleanFn(propSchema);
     }
     return cleaned;
 }
@@ -456,12 +509,12 @@ function cleanPropertiesRecursively(properties: any, cleanFn: any) {
  * @param {Object} sanitized - 目标对象
  * @param {string|Array} typeValue - type 字段值
  */
-function handleGeminiTypeField(sanitized: any, typeValue: any) {
+function handleGeminiTypeField(sanitized: Record<string, unknown>, typeValue: unknown): void {
     if (Array.isArray(typeValue) && typeValue.includes('null')) {
         sanitized.nullable = true;
     }
 
-    const normalizedType = normalizeTypeField(typeValue, (t: any) => t.toUpperCase());
+    const normalizedType = normalizeTypeField(typeValue, (t: string) => t.toUpperCase());
     if (normalizedType) {
         sanitized.type = normalizedType;
     }
@@ -472,9 +525,9 @@ function handleGeminiTypeField(sanitized: any, typeValue: any) {
  * @param {Object} sanitized - 目标对象
  * @param {string|Array} typeValue - type 字段值
  */
-function handleOpenAITypeField(sanitized: any, typeValue: any) {
+function handleOpenAITypeField(sanitized: Record<string, unknown>, typeValue: unknown): void {
     if (Array.isArray(typeValue)) {
-        sanitized.type = typeValue.map((t: any) => t.toLowerCase());
+        sanitized.type = typeValue.map((t: string) => t.toLowerCase());
     } else if (typeof typeValue === 'string') {
         sanitized.type = typeValue.toLowerCase();
     }
@@ -491,17 +544,21 @@ function handleOpenAITypeField(sanitized: any, typeValue: any) {
  * @param {Function} recursiveFn - 递归调用的函数
  * @returns {Object} 清理后的 JSON Schema
  */
-function cleanJsonSchemaGeneric(schema: any, options: any, recursiveFn: any) {
+function cleanJsonSchemaGeneric(
+    schema: unknown,
+    options: SchemaCleanOptions,
+    recursiveFn: (schema: unknown) => unknown
+): unknown {
     if (!schema || typeof schema !== 'object') {
         return schema;
     }
 
     if (Array.isArray(schema)) {
-        return schema.map((item: any) => recursiveFn(item));
+        return schema.map((item) => recursiveFn(item));
     }
 
     const { allowedKeys, excludedKeys, typeHandler } = options;
-    const sanitized = {};
+    const sanitized: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(schema)) {
         // 应用黑名单过滤
@@ -517,9 +574,9 @@ function cleanJsonSchemaGeneric(schema: any, options: any, recursiveFn: any) {
         // 处理 enum：Gemini 要求枚举元素为非空且非纯空白字符串（仅 sanitizeEnum 模式）
         if (key === 'enum' && options.sanitizeEnum) {
             if (Array.isArray(value)) {
-                const strEnum = value.filter((v: any) => typeof v === 'string' && v.trim().length > 0);
+                const strEnum = value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
                 if (strEnum.length > 0) {
-                    (sanitized as any)[key] = strEnum;
+                    sanitized[key] = strEnum;
                 }
             }
             continue;
@@ -527,13 +584,13 @@ function cleanJsonSchemaGeneric(schema: any, options: any, recursiveFn: any) {
 
         // 处理 properties
         if (key === 'properties' && typeof value === 'object' && value !== null) {
-            (sanitized as any)[key] = cleanPropertiesRecursively(value, recursiveFn);
+            sanitized[key] = cleanPropertiesRecursively(value, recursiveFn);
             continue;
         }
 
         // 处理 items
         if (key === 'items') {
-            (sanitized as any)[key] = recursiveFn(value);
+            sanitized[key] = recursiveFn(value);
             continue;
         }
 
@@ -544,7 +601,7 @@ function cleanJsonSchemaGeneric(schema: any, options: any, recursiveFn: any) {
         }
 
         // 其他属性直接复制
-        (sanitized as any)[key] = value;
+        sanitized[key] = value;
     }
 
     return sanitized;
@@ -561,7 +618,7 @@ function cleanJsonSchemaGeneric(schema: any, options: any, recursiveFn: any) {
  * @param {Object} schema - JSON Schema
  * @returns {Object} 清理后的JSON Schema
  */
-export function cleanJsonSchemaProperties(schema: any) {
+export function cleanJsonSchemaProperties(schema: unknown): unknown {
     return cleanJsonSchemaGeneric(
         schema,
         {
@@ -580,7 +637,7 @@ export function cleanJsonSchemaProperties(schema: any) {
  * @param {Object} schema - JSON Schema
  * @returns {Object} 清理后的JSON Schema
  */
-export function cleanJsonSchemaForOpenAI(schema: any) {
+export function cleanJsonSchemaForOpenAI(schema: unknown): unknown {
     return cleanJsonSchemaGeneric(
         schema,
         {
@@ -601,7 +658,10 @@ const _identityWarnedStores = new WeakSet();
  * @param {string|null} requestId - 请求 ID；缺失时并发流会共享 'default' 键互相污染（每个 store 告警一次）
  * @returns {{stateKey: string, identity: {id: string, created: number}}}
  */
-export function getOpenAIStreamIdentity(store: any, requestId: any) {
+export function getOpenAIStreamIdentity(
+    store: OpenAIStreamIdentityStore,
+    requestId: string | null
+): { stateKey: string; identity: OpenAIStreamIdentity } {
     const stateKey = requestId || 'default';
     if (!requestId && !_identityWarnedStores.has(store)) {
         _identityWarnedStores.add(store);
@@ -616,7 +676,7 @@ export function getOpenAIStreamIdentity(store: any, requestId: any) {
             nextToolIndex: 0
         });
     }
-    return { stateKey, identity: store.get(stateKey) };
+    return { stateKey, identity: store.get(stateKey) as OpenAIStreamIdentity };
 }
 
 /**
@@ -631,8 +691,8 @@ export function getOpenAIStreamIdentity(store: any, requestId: any) {
  * @param {number|null} budgetTokens - Anthropic thinking的budget_tokens值
  * @returns {string} OpenAI reasoning_effort等级
  */
-export function determineReasoningEffortFromBudget(budgetTokens: any) {
-    return budgetTokensToEffort(budgetTokens);
+export function determineReasoningEffortFromBudget(budgetTokens: unknown): string {
+    return budgetTokensToEffort(budgetTokens as number | null);
 }
 
 /**
@@ -640,11 +700,11 @@ export function determineReasoningEffortFromBudget(budgetTokens: any) {
  * @param {string} text - 文本内容
  * @returns {string|Array} 提取后的内容
  */
-export function extractThinkingFromOpenAIText(text: any) {
+export function extractThinkingFromOpenAIText(text: string): string | Array<{ type: 'text'; text: string } | { type: 'thinking'; thinking: string; signature?: string }> {
     const thinkingPattern = /<thinking>\s*(.*?)\s*<\/thinking>/gs;
     const matches = [...text.matchAll(thinkingPattern)];
 
-    const contentBlocks: any[] = [];
+    const contentBlocks: Array<{ type: 'text'; text: string } | { type: 'thinking'; thinking: string; signature?: string }> = [];
     let lastEnd = 0;
 
     for (const match of matches) {
@@ -656,7 +716,7 @@ export function extractThinkingFromOpenAIText(text: any) {
             });
         }
 
-        const thinkingText = match[1].trim();
+        const thinkingText = (match[1] || '').trim();
         if (thinkingText) {
             contentBlocks.push({
                 type: "thinking",
@@ -693,16 +753,20 @@ export function extractThinkingFromOpenAIText(text: any) {
  * @param {Object} [rolePair] - 可选的角色归一化映射（例如 { assistant: 'model', model: 'model', user: 'user' }）
  * @returns {Array<Object>} 合并后的 contents 数组
  */
-export function mergeConsecutiveSameRoleContents(contents: any, rolePair: any = null) {
+export function mergeConsecutiveSameRoleContents(
+    contents: Array<Record<string, unknown>>,
+    rolePair: Record<string, string> | null = null
+): Array<{ role: string; parts: unknown[] }> {
     if (!Array.isArray(contents) || contents.length === 0) {
         return [];
     }
 
-    const validItems = contents.filter((item: any) => item && Array.isArray(item.parts) && item.parts.length > 0);
-    const merged: any[] = [];
+    const validItems = contents.filter((item): item is Record<string, unknown> & { parts: unknown[] } => isRecord(item) && Array.isArray(item.parts) && item.parts.length > 0);
+    const merged: Array<{ role: string; parts: unknown[] }> = [];
 
     for (const item of validItems) {
-        const targetRole = rolePair && rolePair[item.role] ? rolePair[item.role] : item.role;
+        const itemRole = String(item.role ?? '');
+        const targetRole = rolePair && rolePair[itemRole] ? rolePair[itemRole] : itemRole;
         const last = merged[merged.length - 1];
         if (last && last.role === targetRole) {
             last.parts.push(...item.parts);
@@ -723,7 +787,7 @@ export function mergeConsecutiveSameRoleContents(contents: any, rolePair: any = 
  * @param {string|null|undefined} model
  * @returns {boolean}
  */
-export function isOpenAIReasoningModel(model: any) {
+export function isOpenAIReasoningModel(model: unknown): boolean {
     if (!model) return false;
     const m = String(model).trim().toLowerCase();
     return /(^|[-_/])gpt-5(?:[.-]|$)/.test(m) || /(^|[-_/])o[1-9](?:[-_.]|$)/.test(m);
@@ -746,14 +810,22 @@ export function isSortToolsEnabled() {
  * @param {Array<T>} tools
  * @returns {Array<T>}
  */
-export function sortToolsByName(tools: any) {
+interface ToolLike {
+    name?: string;
+    function?: { name?: string };
+    function_declarations?: Array<{ name?: string }>;
+    functionDeclarations?: Array<{ name?: string }>;
+    [key: string]: unknown;
+}
+
+export function sortToolsByName<T extends ToolLike>(tools: T[]): T[] {
     if (!Array.isArray(tools) || tools.length <= 1) {
         return tools || [];
     }
     if (!isSortToolsEnabled()) {
         return tools;
     }
-    return [...tools].sort((a: any, b: any) => {
+    return [...tools].sort((a, b) => {
         const nameA = a?.name || a?.function?.name || a?.function_declarations?.[0]?.name || a?.functionDeclarations?.[0]?.name || '';
         const nameB = b?.name || b?.function?.name || b?.function_declarations?.[0]?.name || b?.functionDeclarations?.[0]?.name || '';
         return String(nameA).localeCompare(String(nameB));
@@ -767,8 +839,8 @@ export function sortToolsByName(tools: any) {
  */
 const cacheControlWarnedLocations = new Set();
 
-export function logOmittedCacheControl(location: any, itemWithCacheControl: any) {
-    if (itemWithCacheControl && itemWithCacheControl.cache_control) {
+export function logOmittedCacheControl(location: string, itemWithCacheControl: unknown): void {
+    if (isRecord(itemWithCacheControl) && itemWithCacheControl.cache_control) {
         logger.debug(`[CacheControl] cache_control omitted during conversion at ${location} (${JSON.stringify(itemWithCacheControl.cache_control)})`);
         if (!cacheControlWarnedLocations.has(location)) {
             cacheControlWarnedLocations.add(location);
