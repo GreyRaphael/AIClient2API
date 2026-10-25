@@ -29,15 +29,23 @@ import {
     isCustomTool,
     extractCustomToolInput
 } from '../custom-tool-registry.ts';
+import type {
+    CrossProtocolRequest,
+    CrossProtocolResponse,
+    CrossProtocolStreamChunk
+} from '../../../types/protocols/common.js';
+import type { OpenAIUsage } from '../../../types/protocols/openai.js';
+
+type DynamicPayload = Record<string, any>;
 
 /**
  * Claude转换器类
  * 实现Claude协议到其他协议的转换
  */
 export class ClaudeConverter extends BaseConverter {
-    codexConverter: any;
-    openaiStreamStates: any;
-    openAIResponsesStreamStates: any;
+    codexConverter: CodexConverter;
+    openaiStreamStates: StreamSessionStore;
+    openAIResponsesStreamStates: StreamSessionStore;
 
     constructor() {
         super('claude');
@@ -52,7 +60,7 @@ export class ClaudeConverter extends BaseConverter {
      * 清理该请求在 Claude 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: any) {
+    resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.openaiStreamStates.delete(requestId);
         this.openAIResponsesStreamStates.delete(requestId);
@@ -61,7 +69,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换请求
      */
-    convertRequest(data: any, targetProtocol: any, requestId: any) {
+    convertRequest(data: CrossProtocolRequest, targetProtocol: string, requestId?: string): CrossProtocolRequest | void {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIRequest(data);
@@ -79,7 +87,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换响应
      */
-    convertResponse(data: any, targetProtocol: any, model: any, requestId: any = null) {
+    convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId: string | null = null): CrossProtocolResponse {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
@@ -93,7 +101,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: any, targetProtocol: any, model: any, requestId: any) {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
@@ -107,7 +115,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换模型列表
      */
-    convertModelList(data: any, targetProtocol: any) {
+    convertModelList(data: unknown, targetProtocol: string): unknown {
         return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
             ? this.toOpenAIModelList(data)
             : data;
@@ -141,7 +149,7 @@ export class ClaudeConverter extends BaseConverter {
      * 而 OpenAI 的 prompt_tokens 是输入总量，必须把缓存侧 token 加回去。
      * @private
      */
-    _claudeUsageToOpenAI(usage: any = {}) {
+    _claudeUsageToOpenAI(usage: DynamicPayload = {}): DynamicPayload {
         const cacheRead = usage?.cache_read_input_tokens || 0;
         const cacheCreation = usage?.cache_creation_input_tokens || 0;
         const promptTokens = (usage?.input_tokens || 0) + cacheRead + cacheCreation;
@@ -474,7 +482,7 @@ export class ClaudeConverter extends BaseConverter {
      * @param {Object|string|undefined} toolChoice
      * @returns {Object|string|undefined}
      */
-    _buildOpenAIToolChoice(toolChoice: any) {
+    _buildOpenAIToolChoice(toolChoice: DynamicPayload): DynamicPayload | string | undefined {
         if (!toolChoice) {
             return undefined;
         }
@@ -510,7 +518,7 @@ export class ClaudeConverter extends BaseConverter {
      * @param {Object|string|undefined} toolChoice
      * @returns {Object|string|undefined}
      */
-    _buildCodexToolChoice(toolChoice: any) {
+    _buildCodexToolChoice(toolChoice: DynamicPayload): DynamicPayload | string | undefined {
         if (!toolChoice) {
             return undefined;
         }
@@ -637,7 +645,7 @@ export class ClaudeConverter extends BaseConverter {
                 finish_reason: finishReason,
             }],
             usage: applyEstimatedReasoningTokens(
-                this._claudeUsageToOpenAI(claudeResponse?.usage),
+                this._claudeUsageToOpenAI(claudeResponse?.usage) as OpenAIUsage,
                 reasoningContent,
                 'openai'
             ),
@@ -647,7 +655,7 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 获取或创建 OpenAI 流式输出的稳定标识（同一 requestId 的流共享 id/created）
      */
-    _getOpenAIStreamIdentity(requestId: any) {
+    _getOpenAIStreamIdentity(requestId: string | null): DynamicPayload {
         return getOpenAIStreamIdentity(this.openaiStreamStates, requestId);
     }
 
