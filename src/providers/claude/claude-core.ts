@@ -1,32 +1,68 @@
 import axios from 'axios';
+import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import logger from '../../utils/logger.ts';
 import * as http from 'http';
 import * as https from 'https';
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 
+interface ClaudeApiServiceConfig {
+    CLAUDE_API_KEY: string;
+    CLAUDE_BASE_URL?: string;
+    USE_SYSTEM_PROXY_CLAUDE?: boolean;
+    MODEL_PROVIDER?: string;
+    REQUEST_MAX_RETRIES?: number;
+    REQUEST_BASE_DELAY?: number;
+    _monitorRequestId?: unknown;
+    [key: string]: unknown;
+}
+
+interface ErrorResponseDetails {
+    status: number | undefined;
+    data: unknown;
+    code: string | undefined;
+    message: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorResponseDetails(error: unknown): ErrorResponseDetails {
+    if (isRecord(error)) {
+        const response = isRecord(error.response) ? error.response : null;
+        return {
+            status: typeof response?.status === 'number' ? response.status : undefined,
+            data: response?.data,
+            code: typeof error.code === 'string' ? error.code : undefined,
+            message: typeof error.message === 'string' ? error.message : String(error)
+        };
+    }
+    return { status: undefined, data: undefined, code: undefined, message: String(error) };
+}
+
 /**
  * Claude API Core Service Class.
  * Encapsulates the interaction logic with the Anthropic Claude API.
  */
 export class ClaudeApiService {
-    config: any;
-    apiKey: any;
-    baseUrl: any;
-    useSystemProxy: any;
-    client: any;
+    config: ClaudeApiServiceConfig;
+    apiKey: string;
+    baseUrl: string;
+    useSystemProxy: boolean;
+    client: AxiosInstance;
 
     /**
      * Constructor
      * @param {Object} config - Claude provider configuration.
      */
-    constructor(config: any) {
+    constructor(config: ClaudeApiServiceConfig) {
         if (!config.CLAUDE_API_KEY) {
             throw new Error("Claude API Key is required for ClaudeApiService.");
         }
         this.config = config;
         this.apiKey = config.CLAUDE_API_KEY;
-        this.baseUrl = config.CLAUDE_BASE_URL;
+        this.baseUrl = config.CLAUDE_BASE_URL || 'https://api.anthropic.com';
         this.useSystemProxy = config?.USE_SYSTEM_PROXY_CLAUDE ?? false;
         logger.info(`[Claude] System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
         this.client = this.createClient();
@@ -36,7 +72,7 @@ export class ClaudeApiService {
      * Creates an Axios instance for communication with the Claude API.
      * @returns {object} Axios instance.
      */
-    createClient() {
+    createClient(): AxiosInstance {
         const axiosConfig = {
             baseURL: this.baseUrl,
             headers: {
@@ -49,7 +85,7 @@ export class ClaudeApiService {
         return axios.create(axiosConfig);
     }
 
-    _applySidecar(axiosConfig: any) {
+    _applySidecar(axiosConfig: Record<string, unknown>) {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CLAUDE_CUSTOM, this.baseUrl);
     }
 
@@ -61,23 +97,21 @@ export class ClaudeApiService {
      * @param {number} retryCount - Current retry count.
      * @returns {Promise<object>} API response data.
      */
-    async callApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): Promise<any> {
+    async callApi<T = unknown>(endpoint: string, body: Record<string, unknown>, isRetry = false, retryCount = 0): Promise<T> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
         try {
-            const axiosConfig = {
+            const axiosConfig: Record<string, unknown> = {
                 method: 'post',
                 url: endpoint,
                 data: body
             };
             this._applySidecar(axiosConfig);
-            const response = await this.client.request(axiosConfig);
-            return response.data;
-        } catch (error: any) {
-            const status = error.response?.status;
-            const errorCode = error.code;
-            const errorMessage = error.message || '';
+            const response = await this.client.request(axiosConfig as AxiosRequestConfig);
+            return response.data as T;
+        } catch (error) {
+            const { status, code, message } = getErrorResponseDetails(error);
 
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
@@ -98,29 +132,29 @@ export class ClaudeApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[Claude API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     return this.callApi(endpoint, body, isRetry, retryCount + 1);
                 }
             }
 
             // 处理其他可重试错误 (5xx 服务器错误)
-            if (status >= 500 && status < 600 && retryCount < maxRetries) {
+            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Claude API] Received ${status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1);
             }
 
             // Handle network errors (ECONNRESET, ETIMEDOUT, etc.) with exponential backoff
             if (isNetworkError && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
-                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+                const errorIdentifier = code || message.substring(0, 50);
                 logger.info(`[Claude API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1);
             }
 
-            logger.error(`[Claude API] Error calling API (Status: ${status}, Code: ${errorCode}):`, error.message);
+            logger.error(`[Claude API] Error calling API (Status: ${status}, Code: ${code}):`, message);
             throw error;
         }
     }
@@ -133,25 +167,25 @@ export class ClaudeApiService {
      * @param {number} retryCount - Current retry count.
      * @returns {AsyncIterable<object>} API response stream.
      */
-    async *streamApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): AsyncGenerator<any> {
+    async *streamApi(endpoint: string, body: Record<string, unknown>, isRetry = false, retryCount = 0): AsyncGenerator<unknown> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
         try {
-            const axiosConfig = {
+            const axiosConfig: Record<string, unknown> = {
                 method: 'post',
                 url: endpoint,
                 data: { ...body, stream: true },
                 responseType: 'stream'
             };
             this._applySidecar(axiosConfig);
-            const response = await this.client.request(axiosConfig);
-            const reader = response.data;
+            const response = await this.client.request(axiosConfig as AxiosRequestConfig);
+            const reader = response.data as AsyncIterable<Buffer | string>;
             let buffer = '';
 
             for await (const chunk of reader) {
-                buffer += chunk.toString('utf-8');
-                let boundary: any;
+                buffer += chunk.toString();
+                let boundary: number;
                 while ((boundary = buffer.indexOf('\n\n')) !== -1) {
                     const eventBlock = buffer.substring(0, boundary);
                     buffer = buffer.substring(boundary + 2);
@@ -166,21 +200,19 @@ export class ClaudeApiService {
 
                     if (data) {
                         try {
-                            const parsedChunk = JSON.parse(data);
+                            const parsedChunk: unknown = JSON.parse(data);
                             yield parsedChunk;
-                            if (parsedChunk.type === 'message_stop') {
+                            if (isRecord(parsedChunk) && parsedChunk.type === 'message_stop') {
                                 return;
                             }
-                        } catch (e: any) {
-                            logger.warn("[ClaudeApiService] Failed to parse stream chunk JSON:", e.message, "Data:", data);
+                        } catch (e) {
+                            logger.warn("[ClaudeApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", data);
                         }
                     }
                 }
             }
-        } catch (error: any) {
-            const status = error.response?.status;
-            const errorCode = error.code;
-            const errorMessage = error.message || '';
+        } catch (error) {
+            const { status, code, message, data } = getErrorResponseDetails(error);
 
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
@@ -201,17 +233,17 @@ export class ClaudeApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[Claude API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                     return;
                 }
             }
 
             // 处理其他可重试错误 (5xx 服务器错误)
-            if (status >= 500 && status < 600 && retryCount < maxRetries) {
+            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Claude API] Received ${status} server error during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -219,14 +251,14 @@ export class ClaudeApiService {
             // Handle network errors (ECONNRESET, ETIMEDOUT, etc.) with exponential backoff
             if (isNetworkError && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
-                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+                const errorIdentifier = code || message.substring(0, 50);
                 logger.info(`[Claude API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
 
-            logger.error(`[Claude API] Error generating content stream (Status: ${status}, Code: ${errorCode}):`, error.response ? error.response.data : error.message);
+            logger.error(`[Claude API] Error generating content stream (Status: ${status}, Code: ${code}):`, data || message);
             throw error;
         }
     }
@@ -237,7 +269,7 @@ export class ClaudeApiService {
      * @param {object} requestBody - Request body (Claude format).
      * @returns {Promise<object>} Claude API response (Claude compatible format).
      */
-    async generateContent(model: any, requestBody: any) {
+    async generateContent<T = unknown>(model: string, requestBody: Record<string, unknown>): Promise<T> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -247,7 +279,7 @@ export class ClaudeApiService {
             delete requestBody._requestBaseUrl;
         }
 
-        const response = await this.callApi('/messages', requestBody);
+        const response = await this.callApi<T>('/messages', requestBody);
         return response;
     }
 
@@ -257,7 +289,7 @@ export class ClaudeApiService {
      * @param {object} requestBody - Request body (Claude format).
      * @returns {AsyncIterable<object>} Claude API response stream (Claude compatible format).
      */
-    async *generateContentStream(model: any, requestBody: any) {
+    async *generateContentStream(model: string, requestBody: Record<string, unknown>): AsyncGenerator<unknown> {
         const stream = this.streamApi('/messages', requestBody);
         for await (const chunk of stream) {
             yield chunk;
@@ -268,23 +300,22 @@ export class ClaudeApiService {
      * Lists available models.
      * @returns {Promise<object>} List of models.
      */
-    async listModels() {
+    async listModels<T = unknown>(): Promise<T | { models: unknown[] }> {
         logger.info('[ClaudeApiService] Listing available models.');
         try {
-            const axiosConfig = {
+            const axiosConfig: Record<string, unknown> = {
                 method: 'get',
                 url: '/models'
             };
             this._applySidecar(axiosConfig);
-            const response = await this.client.request(axiosConfig);
-            if (Array.isArray(response.data?.data)) {
+            const response = await this.client.request(axiosConfig as AxiosRequestConfig);
+            if (isRecord(response.data) && Array.isArray(response.data.data)) {
                 return { models: response.data.data };
             }
-            return response.data;
-        } catch (error: any) {
-            const status = error.response?.status;
-            const data = error.response?.data;
-            logger.warn(`[ClaudeApiService] Failed to fetch models from upstream (Status: ${status || 'N/A'}), using fallback list:`, data || error.message);
+            return response.data as T;
+        } catch (error) {
+            const { status, data, message } = getErrorResponseDetails(error);
+            logger.warn(`[ClaudeApiService] Failed to fetch models from upstream (Status: ${status || 'N/A'}), using fallback list:`, data || message);
         }
 
         const models = [
@@ -293,7 +324,6 @@ export class ClaudeApiService {
             { id: "claude-opus-4-20250514", name: "claude-opus-4-20250514" },
         ];
 
-        return { models: models.map((m: any) => ({ name: m.name })) };
+        return { models: models.map((m) => ({ name: m.name })) };
     }
 }
-
