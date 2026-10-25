@@ -23,10 +23,7 @@ function createManager(nodes, options = {}) {
 }
 
 function stopSaveTimer(manager) {
-    if (manager.saveTimer) {
-        clearTimeout(manager.saveTimer);
-        manager.saveTimer = null;
-    }
+    manager?.persistence?.dispose();
 }
 
 describe('ProviderPoolManager selection characterization', () => {

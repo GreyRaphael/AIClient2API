@@ -19,6 +19,8 @@ import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-r
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { ENDPOINT_TYPE } from '../utils/common.ts';
 import type { ProviderConfig, ProviderPools, ProviderStatus, ProviderStatusMap, ProviderPoolOptions, ProviderPoolGlobalConfig, RefreshQueueState, RefreshBufferEntry } from './provider-types.ts';
+import { calculateNodeScore } from './provider-pool-scoring.ts';
+import { ProviderPoolPersistence } from './provider-pool-persistence.ts';
 import { getErrorMessage } from '../utils/error.ts';
 /**
  * Manages a pool of API service providers, handling their health and selection.
@@ -32,8 +34,7 @@ export class ProviderPoolManager {
     healthCheckInterval: number;
     logLevel: string;
     saveDebounceTime: number;
-    saveTimer: NodeJS.Timeout | null;
-    pendingSaves: Set<string>;
+    persistence: ProviderPoolPersistence;
     fallbackChain: Record<string, string[]>;
     modelFallbackMapping: Record<string, unknown>;
     _selectionLocks: Record<string, Promise<void>>;
@@ -67,9 +68,12 @@ export class ProviderPoolManager {
         this.logLevel = options.logLevel || 'info'; // 'debug', 'info', 'warn', 'error'
 
         // 添加防抖机制，避免频繁的文件 I/O 操作
-        this.saveDebounceTime = options.saveDebounceTime || 1000; // 默认1秒防抖
-        this.saveTimer = null;
-        this.pendingSaves = new Set(); // 记录待保存的 providerType
+        this.saveDebounceTime = options.saveDebounceTime ?? 1000; // 默认1秒防抖
+        this.persistence = new ProviderPoolPersistence({
+            getProviderStatus: () => this.providerStatus,
+            getFilePath: () => this.globalConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json',
+            log: (level, message) => this._log(level, message)
+        }, this.saveDebounceTime);
 
         // Fallback 链配置
         this.fallbackChain = options.globalConfig?.providerFallbackChain || {};
@@ -568,57 +572,8 @@ export class ProviderPoolManager {
      * @private
      */
     _calculateNodeScore(providerStatus: ProviderStatus, now: number = Date.now(), minSeqInPool: number = -1) {
-        const config = providerStatus.config;
-        const state = providerStatus.state;
-
-        // 1. 基础健康分：不健康的排最后
-        if (!config.isHealthy || config.isDisabled) return 1e18;
-
-        // 检查并发限制
-        const concurrencyLimit = parseInt(String(config.concurrencyLimit || 0), 10);
-        const queueLimit = parseInt(String(config.queueLimit || 0), 10);
-
-        if (concurrencyLimit > 0) {
-            if (state.activeCount >= concurrencyLimit) {
-                // 如果队列也满了，排在最后（但优于不健康节点）
-                if (queueLimit > 0 && state.waitingCount >= queueLimit) {
-                    return 1e17;
-                }
-                // 没满，但需要排队。排队数量越多，权重越大
-                return 1e15 + (state.waitingCount || 0) * 1e10;
-            }
-        }
-
-        // 2. 预热/新鲜度判断
-        const lastHealthCheckTime = config.lastHealthCheckTime ? new Date(config.lastHealthCheckTime).getTime() : 0;
-        const isFresh = lastHealthCheckTime && (now - lastHealthCheckTime < 60000);
-
-        // 3. 计算统一评分
-        // 基础分：新鲜节点使用固定负偏移 (-1e14)，普通节点使用上次使用时间 (约 1.7e12)
-        const lastUsedTime = config.lastUsed ? new Date(config.lastUsed).getTime() : (now - 86400000);
-        const baseScore = isFresh ? -1e14 : lastUsedTime;
-
-        // 惩罚项 A: 使用次数 (每多用一次增加 10 秒权重)
-        const usageCount = config.usageCount || 0;
-        const usageScore = usageCount * 10000;
-
-        // 惩罚项 B: 相对序列号 (用于打破平局，确保轮询)
-        const lastSelectionSeq = config._lastSelectionSeq || 0;
-        if (minSeqInPool === -1) {
-            const pool = this.providerStatus[providerStatus.type] || [];
-            minSeqInPool = pool.reduce((min: number, p) => Math.min(min, p.config._lastSelectionSeq || 0), Infinity);
-        }
-        const relativeSeq = Math.max(0, lastSelectionSeq - minSeqInPool);
-        const cappedRelativeSeq = Math.min(relativeSeq, 100);
-        const sequenceScore = cappedRelativeSeq * 1000;
-
-        // 惩罚项 C: 负载 (每个活跃请求增加 5 秒权重)
-        const loadScore = (state.activeCount || 0) * 5000;
-
-        // 新鲜节点的微调：配合 usageScore 和 sequenceScore 在多个新鲜节点间轮询
-        const freshBonus = isFresh ? (now - lastHealthCheckTime) : 0;
-
-        return baseScore + usageScore + sequenceScore + loadScore + freshBonus;
+        const pool = minSeqInPool === -1 ? (this.providerStatus[providerStatus.type] || []) : [];
+        return calculateNodeScore(providerStatus, now, minSeqInPool, pool);
     }
 
     /**
@@ -2364,98 +2319,16 @@ export class ProviderPoolManager {
         return { success: false, modelName, errorMessage: getErrorMessage(lastError) || 'All health check attempts failed' };
     }
 
-    /**
-     * 优化1: 添加防抖保存方法
-     * 延迟保存操作，避免频繁的文件 I/O
-     * @private
-     */
-    _debouncedSave(providerType: string) {
-        // 将待保存的 providerType 添加到集合中
-        this.pendingSaves.add(providerType);
-
-        // 清除之前的定时器
-        if (this.saveTimer) {
-            clearTimeout(this.saveTimer);
-        }
-
-        // 设置新的定时器
-        this.saveTimer = setTimeout(() => {
-            this._flushPendingSaves();
-        }, this.saveDebounceTime);
+    get saveTimer(): NodeJS.Timeout | null {
+        return this.persistence.saveTimer;
     }
 
-    /**
-     * 批量保存所有待保存的 providerType（优化为单次文件写入）
-     * @private
-     */
-    async _flushPendingSaves() {
-        // 立即置空定时器，防止重叠调用
-        if (this.saveTimer) {
-            clearTimeout(this.saveTimer);
-            this.saveTimer = null;
-        }
+    _debouncedSave(providerType: string) {
+        this.persistence.schedule(providerType);
+    }
 
-        if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined) {
-            this.pendingSaves.clear();
-            return;
-        }
-
-        const filePath = this.globalConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
-
-        // 使用文件锁确保并发安全
-        await withFileLock(filePath, async (checkValidity: () => void) => {
-            // 原子化提取待保存任务并清空，防止在异步循环期间丢失新更新
-            const typesToSave = Array.from(this.pendingSaves) as string[];
-            if (typesToSave.length === 0) return;
-            this.pendingSaves.clear();
-
-            try {
-                let currentPools: ProviderPools = {};
-
-                // 采用“读取-合并-写入”策略，保留可能存在的未知字段
-                try {
-                    const fileContent = await fs.promises.readFile(filePath, 'utf8');
-                    currentPools = JSON.parse(fileContent) as ProviderPools;
-                } catch (readError) {
-                    if ((readError as NodeJS.ErrnoException).code === 'ENOENT') {
-                        this._log('info', 'configs/provider_pools.json does not exist, creating new file.');
-                    } else {
-                        throw readError;
-                    }
-                }
-
-                // 检查锁是否依然有效
-                checkValidity();
-
-                // 更新所有待保存的 providerType
-                for (const providerType of typesToSave) {
-                    if (this.providerStatus[providerType]) {
-                        currentPools[providerType] = this.providerStatus[providerType].map((p) => {
-                            const config: ProviderConfig = { ...p.config };
-                            if (config.lastUsed instanceof Date) {
-                                config.lastUsed = config.lastUsed.toISOString();
-                            }
-                            if (config.lastErrorTime instanceof Date) {
-                                config.lastErrorTime = config.lastErrorTime.toISOString();
-                            }
-                            if (config.lastHealthCheckTime instanceof Date) {
-                                config.lastHealthCheckTime = config.lastHealthCheckTime.toISOString();
-                            }
-                            return config;
-                        });
-                    } else {
-                        this._log('warn', `Attempted to save unknown providerType: ${providerType}`);
-                    }
-                }
-
-                // 一次性写入文件（使用原子化写入）
-                await atomicWriteFile(filePath, JSON.stringify(currentPools, null, 2), { encoding: 'utf8', mode: 0o600 });
-
-                this._log('info', `configs/provider_pools.json updated successfully for types: ${typesToSave.join(', ')}`);
-            } catch (error) {
-                this._log('error', `Failed to write provider_pools.json: ${getErrorMessage(error)}`);
-            }
-        });
+    async _flushPendingSaves(): Promise<void> {
+        await this.persistence.flush();
     }
 
 }
