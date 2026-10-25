@@ -35,6 +35,7 @@ import {
     deduplicateToolCalls
 } from './kiro-stream-parser.ts';
 import { KIRO_PLACEHOLDER_TOOL_NAME, normalizeKiroMessages, buildKiroToolsContext } from './kiro-request-builder.ts';
+import { createKiroClaudeStreamState } from './kiro-claude-stream-state.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 
@@ -2409,91 +2410,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
         const thinkingRequested = typeof thinkingType === 'string' &&
             (thinkingType.toLowerCase() === 'enabled' || thinkingType.toLowerCase() === 'adaptive');
 
-        const streamState: DynamicPayload = {
-            thinkingRequested,
-            buffer: '',
-            pendingTextBeforeThinking: '',
-            inThinking: false,
-            thinkingExtracted: false,
-            thinkingBlockIndex: null,
-            textBlockIndex: null,
-            nextBlockIndex: 0,
-            stoppedBlocks: new Set(),
-            stripThinkingLeadingNewline: false,
-            stripTextLeadingNewlinesAfterThinking: false,
-            hasVisibleText: false,
-            hasThinkingContent: false,
-        };
-
-        const ensureBlockStart = (blockType: string): DynamicPayload[] => {
-            if (blockType === 'thinking') {
-                if (streamState.thinkingBlockIndex != null &&
-                    !streamState.stoppedBlocks.has(streamState.thinkingBlockIndex)) return [];
-                const idx = streamState.nextBlockIndex++;
-                streamState.thinkingBlockIndex = idx;
-                return [{
-                    type: "content_block_start",
-                    index: idx,
-                    content_block: { type: "thinking", thinking: "" }
-                }];
-            }
-            if (blockType === 'text') {
-                if (streamState.textBlockIndex != null &&
-                    !streamState.stoppedBlocks.has(streamState.textBlockIndex)) return [];
-                const idx = streamState.nextBlockIndex++;
-                streamState.textBlockIndex = idx;
-                return [{
-                    type: "content_block_start",
-                    index: idx,
-                    content_block: { type: "text", text: "" }
-                }];
-            }
-            return [];
-        };
-
-        const stopBlock = (index: number | null): DynamicPayload[] => {
-            if (index == null) return [];
-            if (streamState.stoppedBlocks.has(index)) return [];
-            streamState.stoppedBlocks.add(index);
-            return [{ type: "content_block_stop", index }];
-        };
-
-        const createTextDeltaEvents = (text: string): DynamicPayload[] => {
-            if (!text) return [];
-            if (!isWhitespaceOnly(text)) {
-                streamState.hasVisibleText = true;
-            }
-            const events: DynamicPayload[] = [];
-            // Anthropic 内容块不能重叠；正文开始前先关闭仍处于打开状态的思考块。
-            events.push(...stopBlock(streamState.thinkingBlockIndex));
-            events.push(...ensureBlockStart('text'));
-            // 将转义的换行符转换为真实换行符，确保流式输出显示正常
-            const decodedText = text.replace(/(?<!\\)\\n/g, '\n');
-            events.push({
-                type: "content_block_delta",
-                index: streamState.textBlockIndex,
-                delta: { type: "text_delta", text: decodedText }
-            });
-            return events;
-        };
-
-        const createThinkingDeltaEvents = (thinking: string): DynamicPayload[] => {
-            if (thinking) {
-                streamState.hasThinkingContent = true;
-            }
-            const events: DynamicPayload[] = [];
-            // 兼容内联 <thinking> 出现在正文后的情况，保证任一时刻只有一个内容块打开。
-            events.push(...stopBlock(streamState.textBlockIndex));
-            events.push(...ensureBlockStart('thinking'));
-            // 将转义的换行符转换为真实换行符
-            const decodedThinking = thinking.replace(/(?<!\\)\\n/g, '\n');
-            events.push({
-                type: "content_block_delta",
-                index: streamState.thinkingBlockIndex,
-                delta: { type: "thinking_delta", thinking: decodedThinking }
-            });
-            return events;
-        };
+        const streamState = createKiroClaudeStreamState(thinkingRequested);
 
         function* pushEvents(events: DynamicPayload[]) {
             for (const ev of events) {
@@ -2539,7 +2456,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                     // 原生 reasoning 流（reasoningContentEvent）：直接走 thinking 输出通道，
                     // 不经过 <thinking> 标签扫描（新模型的思考不再内联在 content 标签里）。
                     totalContent += event.reasoning;
-                    yield* pushEvents(createThinkingDeltaEvents(event.reasoning));
+                    yield* pushEvents(streamState.createThinkingDeltaEvents(event.reasoning));
                     continue;
                 } else if (event.type === 'content' && event.content) {
                     totalContent += event.content;
@@ -2550,7 +2467,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                         if (streamState.buffer.endsWith('\\')) {
                             continue;
                         }
-                        yield* pushEvents(createTextDeltaEvents(streamState.buffer));
+                        yield* pushEvents(streamState.createTextDeltaEvents(streamState.buffer));
                         streamState.buffer = '';
                         continue;
                     }
@@ -2566,7 +2483,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                                 const beforeCombined = `${streamState.pendingTextBeforeThinking}${before}`;
                                 // Avoid creating meaningless text blocks before thinking.
                                 if (beforeCombined && !isWhitespaceOnly(beforeCombined)) {
-                                    events.push(...createTextDeltaEvents(beforeCombined));
+                                    events.push(...streamState.createTextDeltaEvents(beforeCombined));
                                 }
                                 streamState.pendingTextBeforeThinking = '';
 
@@ -2591,7 +2508,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                                     } else {
                                         const combined = `${streamState.pendingTextBeforeThinking}${safeText}`;
                                         streamState.pendingTextBeforeThinking = '';
-                                        events.push(...createTextDeltaEvents(combined));
+                                        events.push(...streamState.createTextDeltaEvents(combined));
                                     }
                                 }
                                 streamState.buffer = streamState.buffer.slice(safeLen);
@@ -2617,15 +2534,15 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                             if (endPos === -1) endPos = findRealThinkingEndTagAtBufferEnd(streamState.buffer);
                             if (endPos !== -1) {
                                 const thinkingPart = streamState.buffer.slice(0, endPos);
-                                if (thinkingPart) events.push(...createThinkingDeltaEvents(thinkingPart));
+                                if (thinkingPart) events.push(...streamState.createThinkingDeltaEvents(thinkingPart));
 
                                 streamState.buffer = streamState.buffer.slice(endPos + KIRO_THINKING.END_TAG.length);
                                 streamState.inThinking = false;
                                 streamState.thinkingExtracted = true;
                                 streamState.stripThinkingLeadingNewline = false;
 
-                                events.push(...createThinkingDeltaEvents(""));
-                                events.push(...stopBlock(streamState.thinkingBlockIndex));
+                                events.push(...streamState.createThinkingDeltaEvents(""));
+                                events.push(...streamState.stopBlock(streamState.thinkingBlockIndex));
 
                                 // Strip '\n\n' after the end tag once we switch back to text (may arrive in next chunk).
                                 streamState.stripTextLeadingNewlinesAfterThinking = true;
@@ -2635,7 +2552,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                             const safeLen = Math.max(0, streamState.buffer.length - KIRO_THINKING.END_TAG.length);
                             if (safeLen > 0) {
                                 const safeThinking = streamState.buffer.slice(0, safeLen);
-                                if (safeThinking) events.push(...createThinkingDeltaEvents(safeThinking));
+                                if (safeThinking) events.push(...streamState.createThinkingDeltaEvents(safeThinking));
                                 streamState.buffer = streamState.buffer.slice(safeLen);
                             }
                             break;
@@ -2649,7 +2566,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                                 else if (rest.startsWith('\n\n')) rest = rest.slice(2);
                                 streamState.stripTextLeadingNewlinesAfterThinking = false;
                             }
-                            if (rest) events.push(...createTextDeltaEvents(rest));
+                            if (rest) events.push(...streamState.createTextDeltaEvents(rest));
                             break;
                         }
                     }
@@ -2677,8 +2594,8 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                     // 工具调用事件（包含 name 和 toolUseId）
                     if (tc.name && tc.toolUseId) {
                         // 工具块开始前关闭当前文本/思考块，避免 Anthropic 内容块重叠。
-                        toolEvents.push(...stopBlock(streamState.textBlockIndex));
-                        toolEvents.push(...stopBlock(streamState.thinkingBlockIndex));
+                        toolEvents.push(...streamState.stopBlock(streamState.textBlockIndex));
+                        toolEvents.push(...streamState.stopBlock(streamState.thinkingBlockIndex));
 
                         // 同一工具调用续传
                         if (currentToolCall && currentToolCall.toolUseId === tc.toolUseId) {
@@ -2840,14 +2757,14 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                         else if (streamState.buffer.startsWith('\n')) streamState.buffer = streamState.buffer.slice(1);
                         streamState.stripThinkingLeadingNewline = false;
                     }
-                    yield* pushEvents(createThinkingDeltaEvents(streamState.buffer));
+                    yield* pushEvents(streamState.createThinkingDeltaEvents(streamState.buffer));
                     streamState.buffer = '';
-                    yield* pushEvents(createThinkingDeltaEvents(""));
-                    yield* pushEvents(stopBlock(streamState.thinkingBlockIndex));
+                    yield* pushEvents(streamState.createThinkingDeltaEvents(""));
+                    yield* pushEvents(streamState.stopBlock(streamState.thinkingBlockIndex));
                 } else if (!streamState.thinkingExtracted) {
                     const remaining = `${streamState.pendingTextBeforeThinking}${streamState.buffer}`;
                     streamState.pendingTextBeforeThinking = '';
-                    if (remaining) yield* pushEvents(createTextDeltaEvents(remaining));
+                    if (remaining) yield* pushEvents(streamState.createTextDeltaEvents(remaining));
                     streamState.buffer = '';
                 } else {
                     let remaining = streamState.buffer;
@@ -2857,18 +2774,18 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                         else if (remaining.startsWith('\n\n')) remaining = remaining.slice(2);
                         streamState.stripTextLeadingNewlinesAfterThinking = false;
                     }
-                    if (remaining) yield* pushEvents(createTextDeltaEvents(remaining));
+                    if (remaining) yield* pushEvents(streamState.createTextDeltaEvents(remaining));
                     streamState.buffer = '';
                 }
             } else if (!thinkingRequested && streamState.buffer) {
                 // 处理非思考模式下剩余的缓冲区数据
-                yield* pushEvents(createTextDeltaEvents(streamState.buffer));
+                yield* pushEvents(streamState.createTextDeltaEvents(streamState.buffer));
                 streamState.buffer = '';
             }
 
             // 原生 reasoningContentEvent 没有 </thinking> 标签；流尾必须显式关闭其 thinking 块。
             // 若接下来需要为纯思考响应补最小文本块，也要先完成这个 stop。
-            yield* pushEvents(stopBlock(streamState.thinkingBlockIndex));
+            yield* pushEvents(streamState.stopBlock(streamState.thinkingBlockIndex));
 
             const emittedOnlyThinking = thinkingRequested &&
                 streamState.hasThinkingContent &&
@@ -2876,7 +2793,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                 toolCalls.length === 0;
             if (emittedOnlyThinking) {
                 logger.warn('[Kiro Stream] Thinking-only response received; emitting minimal text block and max_tokens stop_reason');
-                yield* pushEvents(createTextDeltaEvents(' '));
+                yield* pushEvents(streamState.createTextDeltaEvents(' '));
             }
 
             // 真正的空响应：没有文本、没有工具调用、也没有思考内容——Kiro 上游静默地什么都没生成。
@@ -2886,7 +2803,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                 throw createKiroEmptyResponseError();
             }
 
-            yield* pushEvents(stopBlock(streamState.textBlockIndex));
+            yield* pushEvents(streamState.stopBlock(streamState.textBlockIndex));
 
             // 检查文本内容中的 bracket 格式工具调用
             const bracketToolCalls = parseBracketToolCalls(totalContent);
