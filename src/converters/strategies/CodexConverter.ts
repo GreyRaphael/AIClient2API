@@ -21,13 +21,14 @@ import type {
     CrossProtocolStreamChunk
 } from '../../../types/protocols/common.js';
 
+type DynamicPayload = Record<string, any>;
 
 /**
  * 提取并规范化 reasoning effort：
  * - 同时兼容 reasoning_effort 与 reasoning.effort；
  * - null 视为“未提供”，避免向上游发送 effort: null。
  */
-function resolveReasoningEffort(source: any) {
+function resolveReasoningEffort(source: DynamicPayload | null | undefined): unknown {
     const effort = source?.reasoning_effort ?? source?.reasoning?.effort;
     return effort === null ? undefined : effort;
 }
@@ -57,7 +58,7 @@ export class CodexConverter extends BaseConverter {
         this.streamSessions.delete(requestId);
     }
 
-    _getReqState(requestId: any) {
+    _getReqState(requestId: string | null | undefined): DynamicPayload {
         const id = requestId || 'default';
         if (!this.requestStates.has(id)) {
             this.requestStates.set(id, {
@@ -74,7 +75,7 @@ export class CodexConverter extends BaseConverter {
      * @param {string|null} requestId
      * @param {Object<string,string>} shortMap - originalName -> shortName
      */
-    registerToolNameMap(requestId: any, shortMap: any) {
+    registerToolNameMap(requestId: string | null | undefined, shortMap: Record<string, string> | null | undefined): void {
         const state = this._getReqState(requestId);
         state.toolNameMap.clear();
         state.reverseToolNameMap.clear();
@@ -91,7 +92,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 提取 Codex 图片生成输出，供不同客户端协议复用。
      */
-    codexImageGenerationToImageData(item: any) {
+    codexImageGenerationToImageData(item: DynamicPayload): DynamicPayload | null {
         if (!item || item.type !== 'image_generation_call') {
             return null;
         }
@@ -118,7 +119,7 @@ export class CodexConverter extends BaseConverter {
         };
     }
 
-    codexImageGenerationToMarkdown(item: any, index: any = 0) {
+    codexImageGenerationToMarkdown(item: DynamicPayload, index = 0): string {
         const imageData = this.codexImageGenerationToImageData(item);
         if (!imageData) {
             return '';
@@ -129,7 +130,7 @@ export class CodexConverter extends BaseConverter {
         return `![${alt}](${imageData.dataUrl})`;
     }
 
-    normalizeCodexBuiltinTool(tool: any) {
+    normalizeCodexBuiltinTool(tool: DynamicPayload | null | undefined): DynamicPayload | null {
         if (!tool || tool.type !== 'image_generation') {
             return null;
         }
@@ -144,15 +145,15 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换请求
      */
-    convertRequest(data: any, targetProtocol: any) {
+    convertRequest(data: CrossProtocolRequest, targetProtocol: string): never {
         throw new Error(`Unsupported target protocol: ${targetProtocol}`);
     }
 
     /**
      * 转换响应
      */
-    convertResponse(data: any, targetProtocol: any, model: any, requestId: any) {
-        const id = requestId || data?.response?.id || 'default';
+    convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId?: string | null): CrossProtocolResponse {
+        const id = requestId || (data as DynamicPayload)?.response?.id || 'default';
         const result = (() => {
             switch (targetProtocol) {
                 case MODEL_PROTOCOL_PREFIX.OPENAI:
@@ -168,7 +169,7 @@ export class CodexConverter extends BaseConverter {
 
         // 非流式清理状态
         this.requestStates.delete(id);
-        return result;
+        return result as CrossProtocolResponse;
     }
 
     /**
@@ -177,11 +178,11 @@ export class CodexConverter extends BaseConverter {
     convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model, requestId);
+                return this.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
+                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId);
+                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
@@ -194,7 +195,7 @@ export class CodexConverter extends BaseConverter {
         return data;
     }
 
-    getCachedInputTokens(usage: any = {}) {
+    getCachedInputTokens(usage: DynamicPayload = {}): number {
         return usage.input_tokens_details?.cached_tokens ??
             usage.prompt_tokens_details?.cached_tokens ??
             usage.cache_read_input_tokens ??
@@ -203,12 +204,12 @@ export class CodexConverter extends BaseConverter {
             0;
     }
 
-    safeParseToolArguments(argumentsValue: any) {
+    safeParseToolArguments(argumentsValue: unknown): DynamicPayload {
         if (argumentsValue === null || argumentsValue === undefined || argumentsValue === '') {
             return {};
         }
         if (typeof argumentsValue !== 'string') {
-            return argumentsValue;
+            return argumentsValue as DynamicPayload;
         }
         try {
             return JSON.parse(argumentsValue);
@@ -220,8 +221,8 @@ export class CodexConverter extends BaseConverter {
     /**
      * OpenAI Responses → Codex 请求转换
      */
-    toOpenAIResponsesToCodexRequest(responsesRequest: any, requestId: any) {
-        let codexRequest = { ...responsesRequest };
+    toOpenAIResponsesToCodexRequest(responsesRequest: DynamicPayload, requestId: string | null | undefined = null): DynamicPayload {
+        const codexRequest: DynamicPayload = { ...responsesRequest };
 
         // 构建工具名称映射
         this.buildToolNameMap(responsesRequest.tools || [], requestId);
@@ -273,7 +274,7 @@ export class CodexConverter extends BaseConverter {
 
         // 确保 input 数组中的每个项都有 type: "message"，并将系统角色转换为开发者角色
         if (codexRequest.input && Array.isArray(codexRequest.input)) {
-            codexRequest.input = codexRequest.input.filter((item: any) => {
+            codexRequest.input = codexRequest.input.filter((item: DynamicPayload) => {
                 // 如果 instructions 已存在，仅过滤普通 system/developer 消息以避免重复。
                 // additional_tools 等特殊输入项即使使用 developer 角色也必须保留。
                 const isMessage = !item?.type || item.type === 'message';
@@ -281,7 +282,7 @@ export class CodexConverter extends BaseConverter {
                     return false;
                 }
                 return true;
-            }).map((item: any) => {
+            }).map((item: DynamicPayload) => {
                 // 如果没有 type 或者 type 不是 message，则添加 type: "message"
                 if (!item.type || item.type !== 'message') {
                     item = { type: "message", ...item };
@@ -318,15 +319,15 @@ export class CodexConverter extends BaseConverter {
     /**
      * OpenAI → Codex 请求转换
      */
-    toOpenAIRequestToCodexRequest(data: any, requestId: any) {
+    toOpenAIRequestToCodexRequest(data: DynamicPayload, requestId: string | null | undefined = null): DynamicPayload {
         // 构建工具名称映射
         this.buildToolNameMap(data.tools || [], requestId);
 
         const userEffort = resolveReasoningEffort(data);
-        const codexRequest: any = {
+        const codexRequest: DynamicPayload = {
             model: data.model,
             instructions: this.buildInstructions(data),
-            input: this.convertMessages((data.messages || []).filter((m: any) => m.role !== 'system' && m.role !== 'developer'), requestId),
+            input: this.convertMessages((data.messages || []).filter((m: DynamicPayload) => m.role !== 'system' && m.role !== 'developer'), requestId),
             stream: true,
             store: false,
             metadata: data.metadata || {},
@@ -376,7 +377,7 @@ export class CodexConverter extends BaseConverter {
                         codexRequest.input.push({
                             type: 'message',
                             role: item.role === 'system' ? 'developer' : item.role,
-                            content: Array.isArray(item.content) ? item.content.map((c: any) => ({
+                            content: Array.isArray(item.content) ? item.content.map((c: DynamicPayload) => ({
                                 type: item.role === 'assistant' ? 'output_text' : 'input_text',
                                 text: c.text
                             })) : [{
@@ -398,7 +399,7 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (data.response_format || data.text?.verbosity) {
-            const textObj: any = {};
+            const textObj: DynamicPayload = {};
             if (data.response_format) {
                 const converted = this.convertResponseFormat(data.response_format);
                 if (converted) {
@@ -438,17 +439,17 @@ export class CodexConverter extends BaseConverter {
     /**
      * 构建指令
      */
-    buildInstructions(data: any) {
+    buildInstructions(data: DynamicPayload): string {
         // 首先检查显式的 instructions 字段 (OpenAI Responses)
         if (data.instructions) return data.instructions;
 
-        const systemMessages = (data.messages || []).filter((m: any) => m.role === 'system' || m.role === 'developer');
+        const systemMessages = (data.messages || []).filter((m: DynamicPayload) => m.role === 'system' || m.role === 'developer');
         if (systemMessages.length > 0) {
-            return systemMessages.map((m: any) => {
+            return systemMessages.map((m: DynamicPayload) => {
                 if (typeof m.content === 'string') {
                     return m.content;
                 } else if (Array.isArray(m.content)) {
-                    const textPart = m.content.find((part: any) => part.type === 'text');
+                    const textPart = m.content.find((part: DynamicPayload) => part.type === 'text');
                     return textPart ? textPart.text : '';
                 }
                 return '';
@@ -460,8 +461,8 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换消息
      */
-    convertMessages(messages: any, requestId: any) {
-        const input: any[] = [];
+    convertMessages(messages: DynamicPayload[], requestId: string | null | undefined): DynamicPayload[] {
+        const input: DynamicPayload[] = [];
         const state = this._getReqState(requestId);
 
         for (const msg of messages) {
@@ -524,7 +525,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换消息内容
      */
-    convertMessageContent(content: any, role: any) {
+    convertMessageContent(content: unknown, role: string): DynamicPayload[] {
         if (!content) return [];
 
         const isAssistant = role === 'assistant' || role === 'model';
@@ -537,7 +538,7 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (Array.isArray(content)) {
-            return content.map((part: any) => {
+            return content.map((part: DynamicPayload | string): DynamicPayload | null => {
                 if (typeof part === 'string') {
                     return {
                         type: isAssistant ? 'output_text' : 'input_text',
@@ -562,7 +563,7 @@ export class CodexConverter extends BaseConverter {
                     } : null;
                 }
                 return null;
-            }).filter(Boolean);
+            }).filter((part: DynamicPayload | null): part is DynamicPayload => part !== null);
         }
 
         return [];
@@ -571,12 +572,12 @@ export class CodexConverter extends BaseConverter {
     /**
      * 构建工具名称映射
      */
-    buildToolNameMap(tools: any, requestId: any) {
+    buildToolNameMap(tools: DynamicPayload[], requestId: string | null | undefined): void {
         const state = this._getReqState(requestId);
         state.toolNameMap.clear();
         state.reverseToolNameMap.clear();
 
-        const names: any[] = [];
+        const names: string[] = [];
         for (const t of tools) {
             if (this.normalizeCodexBuiltinTool(t)) {
                 continue;
@@ -591,9 +592,9 @@ export class CodexConverter extends BaseConverter {
         if (names.length === 0) return;
 
         const limit = 64;
-        const used = new Set();
+        const used = new Set<string>();
 
-        const baseCandidate = (n: any) => {
+        const baseCandidate = (n: string): string => {
             if (n.length <= limit) return n;
             if (n.startsWith('mcp__')) {
                 const idx = n.lastIndexOf('__');
@@ -629,9 +630,9 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换工具
      */
-    convertTools(tools: any, requestId: any) {
+    convertTools(tools: DynamicPayload[], requestId: string | null | undefined): DynamicPayload[] {
         const state = this._getReqState(requestId);
-        const converted = tools.map((tool: any) => {
+        const converted = tools.map((tool: DynamicPayload) => {
             const builtinTool = this.normalizeCodexBuiltinTool(tool);
             if (builtinTool) {
                 return builtinTool;
@@ -685,7 +686,10 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换 tool_choice
      */
-    convertToolChoice(toolChoice: any, requestId: any) {
+    convertToolChoice(toolChoice: DynamicPayload | string | null | undefined, requestId: string | null | undefined): DynamicPayload | string | null | undefined {
+        if (!toolChoice) {
+            return toolChoice;
+        }
         if (typeof toolChoice === 'string') {
             return toolChoice;
         }
@@ -706,7 +710,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 缩短工具名称
      */
-    shortenToolName(name: any) {
+    shortenToolName(name: string): string {
         const limit = 64;
         if (name.length <= limit) return name;
         if (name.startsWith('mcp__')) {
@@ -723,7 +727,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 获取原始工具名称
      */
-    getOriginalToolName(shortName: any, requestId: any) {
+    getOriginalToolName(shortName: string, requestId: string | null | undefined): string {
         const state = this._getReqState(requestId);
         return state.reverseToolNameMap.get(shortName) || shortName;
     }
@@ -731,7 +735,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换响应格式
      */
-    convertResponseFormat(responseFormat: any) {
+    convertResponseFormat(responseFormat: DynamicPayload | string | null | undefined): DynamicPayload | null {
         if (!responseFormat) return null;
 
         // 如果是字符串（可能是图像接口透传过来的 'url' 或 'b64_json'），忽略它
@@ -755,7 +759,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI 响应转换（非流式）
      */
-    toOpenAIResponse(rawJSON: any, model: any, requestId: any = null) {
+    toOpenAIResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
         if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
             return null;
@@ -764,7 +768,7 @@ export class CodexConverter extends BaseConverter {
         const response = root.response;
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
-        const openaiResponse: any = {
+        const openaiResponse: DynamicPayload = {
             id: response.id || `chatcmpl-${Date.now()}`,
             object: 'chat.completion',
             created: unixTimestamp,
@@ -799,28 +803,28 @@ export class CodexConverter extends BaseConverter {
         const output = response.output || [];
         let contentText = '';
         let reasoningText = '';
-        const toolCalls: any[] = [];
-        const imageMarkdownParts: any[] = [];
+        const toolCalls: DynamicPayload[] = [];
+        const imageMarkdownParts: string[] = [];
 
         for (const item of output) {
             switch (item.type) {
                 case 'reasoning':
                     if (Array.isArray(item.summary)) {
                         reasoningText = item.summary
-                            .map((s: any) => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
+                            .map((s: DynamicPayload | string) => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
                     if (!reasoningText && Array.isArray(item.content)) {
                         reasoningText = item.content
-                            .map((c: any) => typeof c === 'string' ? c : (c?.text || ''))
+                            .map((c: DynamicPayload | string) => typeof c === 'string' ? c : (c?.text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
                     break;
                 case 'message':
                     if (Array.isArray(item.content)) {
-                        const contentItem = item.content.find((c: any) => c.type === 'output_text');
+                        const contentItem = item.content.find((c: DynamicPayload) => c.type === 'output_text');
                         if (contentItem?.text) contentText = contentItem.text;
                     }
                     break;
@@ -878,7 +882,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI Responses 响应转换
      */
-    toOpenAIResponsesResponse(rawJSON: any, model: any, requestId: any = null) {
+    toOpenAIResponsesResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
         if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
             return null;
@@ -887,7 +891,7 @@ export class CodexConverter extends BaseConverter {
         const response = root.response;
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
-        const output: any[] = [];
+        const output: DynamicPayload[] = [];
         let reasoningText = '';
 
         if (response.output && Array.isArray(response.output)) {
@@ -896,13 +900,13 @@ export class CodexConverter extends BaseConverter {
                     reasoningText = '';
                     if (Array.isArray(item.summary)) {
                         reasoningText = item.summary
-                            .map((s: any) => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
+                            .map((s: DynamicPayload | string) => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
                     if (!reasoningText && Array.isArray(item.content)) {
                         reasoningText = item.content
-                            .map((c: any) => typeof c === 'string' ? c : (c?.text || ''))
+                            .map((c: DynamicPayload | string) => typeof c === 'string' ? c : (c?.text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
@@ -917,7 +921,7 @@ export class CodexConverter extends BaseConverter {
                 } else if (item.type === 'message') {
                     let contentText = '';
                     if (Array.isArray(item.content)) {
-                        const contentItem = item.content.find((c: any) => c.type === 'output_text');
+                        const contentItem = item.content.find((c: DynamicPayload) => c.type === 'output_text');
                         if (contentItem) contentText = contentItem.text;
                     }
                     if (contentText) {
@@ -1004,14 +1008,14 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → Claude 响应转换
      */
-    toClaudeResponse(rawJSON: any, model: any, requestId: any = null) {
+    toClaudeResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
         const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
         if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
             return null;
         }
 
         const response = root.response;
-        const content: any[] = [];
+        const content: DynamicPayload[] = [];
         let stopReason = "end_turn";
 
         if (response.output && Array.isArray(response.output)) {
@@ -1020,18 +1024,18 @@ export class CodexConverter extends BaseConverter {
                     let reasoningText = '';
                     if (Array.isArray(item.summary)) {
                         reasoningText = item.summary
-                            .map((s: any) => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
+                            .map((s: DynamicPayload | string) => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
                     if (!reasoningText && Array.isArray(item.content)) {
                         reasoningText = item.content
-                            .map((c: any) => typeof c === 'string' ? c : (c?.text || ''))
+                            .map((c: DynamicPayload | string) => typeof c === 'string' ? c : (c?.text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
                     if (reasoningText) {
-                        const block: any = { type: "thinking", thinking: reasoningText };
+                        const block: DynamicPayload = { type: "thinking", thinking: reasoningText };
                         if (isSignatureVaultEnabled()) {
                             block.signature = mintVirtualSignature({
                                 sessionKey: response.id || 'codex',
@@ -1044,7 +1048,7 @@ export class CodexConverter extends BaseConverter {
                 } else if (item.type === 'message') {
                     let contentText = '';
                     if (Array.isArray(item.content)) {
-                        const contentItem = item.content.find((c: any) => c.type === 'output_text');
+                        const contentItem = item.content.find((c: DynamicPayload) => c.type === 'output_text');
                         if (contentItem) contentText = contentItem.text;
                     }
                     if (contentText) {
@@ -1097,7 +1101,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI 流式响应块转换
      */
-    toOpenAIStreamChunk(chunk: any, model: any, requestId: any) {
+    toOpenAIStreamChunk(chunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload | DynamicPayload[] | null {
         const type = chunk.type;
         if (type === 'response.failed' || type === 'error') {
             const message = chunk.response?.error?.message || chunk.error?.message || chunk.message || 'Codex upstream stream failed';
@@ -1121,7 +1125,7 @@ export class CodexConverter extends BaseConverter {
         const state = this.streamSessions.get(stateKey);
 
         // 构建模板时使用当前状态中的值
-        const buildTemplate = (): any => ({
+        const buildTemplate = (): DynamicPayload => ({
             id: state.responseID,
             object: 'chat.completion.chunk',
             created: state.createdAt,
@@ -1153,7 +1157,7 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (type === 'response.reasoning_summary_text.delta') {
-            const results: any[] = [];
+            const results: DynamicPayload[] = [];
             // 如果是第一个内容 chunk，先发送带 role 的 chunk
             if (state.isFirstChunk) {
                 const firstTemplate = buildTemplate();
@@ -1179,7 +1183,7 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (type === 'response.output_text.delta') {
-            const results: any[] = [];
+            const results: DynamicPayload[] = [];
             // 如果是第一个内容 chunk，先发送带 role 的 chunk
             if (state.isFirstChunk) {
                 const firstTemplate = buildTemplate();
@@ -1262,7 +1266,7 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (type === 'response.completed' || type === 'response.incomplete') {
-            const results: any[] = [];
+            const results: DynamicPayload[] = [];
             const completedOutput = Array.isArray(chunk.response?.output) ? chunk.response.output : [];
             for (const item of completedOutput) {
                 if (item.type !== 'image_generation_call' || (item.id && state.emittedImageGenerationItems.has(item.id))) {
@@ -1329,7 +1333,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI Responses 流式响应转换
      */
-    toOpenAIResponsesStreamChunk(chunk: any, model: any, requestId: any) {
+    toOpenAIResponsesStreamChunk(chunk: DynamicPayload | null | undefined, model?: string, requestId?: string | null): DynamicPayload | null | undefined {
         if (!chunk) {
             return chunk;
         }
@@ -1337,7 +1341,7 @@ export class CodexConverter extends BaseConverter {
         // Codex 本身使用 Responses 兼容事件，无需重建整个事件流；
         // 只需要把请求侧缩短过的工具名还原，并清理请求级状态。
         const id = requestId || chunk.response?.id || 'default';
-        const restoreToolName = (item: any) => {
+        const restoreToolName = (item: DynamicPayload | null | undefined): void => {
             if (!item || (item.type !== 'function_call' && item.type !== 'custom_tool_call')) {
                 return;
             }
@@ -1362,7 +1366,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → Claude 流式响应转换
      */
-    toClaudeStreamChunk(chunk: any, model: any, requestId: any) {
+    toClaudeStreamChunk(chunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload | DynamicPayload[] | null {
         const type = chunk.type;
 
         if (type === 'response.failed' || type === 'error') {

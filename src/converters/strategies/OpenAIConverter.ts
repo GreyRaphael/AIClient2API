@@ -143,7 +143,7 @@ export class OpenAIConverter extends BaseConverter {
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.codexConverter.toOpenAIStreamChunk(chunk, model, requestId);
+                return this.codexConverter.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
