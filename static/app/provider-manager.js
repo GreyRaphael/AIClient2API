@@ -12,6 +12,7 @@ import { updateUsageProviderConfigs } from './usage-manager.js';
 import { updateConfigProviderConfigs } from './config-manager.js';
 import { loadConfigList, updateProviderFilterOptions } from './upload-config-manager.js';
 import { setServiceMode } from './event-handlers.js';
+import { compareVersions, getCodexExternalImportMeta, getCodexExternalImportStats } from './provider-manager-utils.js';
 
 // 保存初始服务器时间和运行时间
 let initialServerTime = null;
@@ -1559,77 +1560,13 @@ function showCodexBatchImportModal(providerType) {
     };
 }
 
-function getCodexExternalImportMeta(source) {
-    const examples = {
-        cpa: `{
-  "type": "codex",
-  "account_id": "account-id",
-  "email": "user@example.com",
-  "id_token": "",
-  "access_token": "access-token",
-  "refresh_token": "",
-  "expired": "2026-05-31T11:40:33.000Z"
-}`,
-        sub2api: `{
-  "exported_at": "2026-05-26T00:29:02Z",
-  "accounts": [
-    {
-      "name": "user@example.com",
-      "platform": "openai",
-      "credentials": {
-        "access_token": "access-token",
-        "chatgpt_account_id": "account-id",
-        "expires_at": 1780576407,
-        "refresh_token": ""
-      }
-    }
-  ]
-}`
-    };
-
-    return {
-        title: source === 'cpa' ? t('oauth.codex.cpaImport') : t('oauth.codex.sub2apiImport'),
-        instructions: source === 'cpa' ? t('oauth.codex.cpaImportInstructions') : t('oauth.codex.sub2apiImportInstructions'),
-        placeholder: source === 'cpa' ? t('oauth.codex.cpaImportPlaceholder') : t('oauth.codex.sub2apiImportPlaceholder'),
-        example: examples[source]
-    };
-}
-
-function getCodexExternalImportStats(source, data) {
-    if (source === 'sub2api') {
-        let accounts = [];
-        if (Array.isArray(data)) {
-            accounts = data;
-        } else if (Array.isArray(data?.accounts)) {
-            accounts = data.accounts;
-        } else if (data?.credentials && typeof data.credentials === 'object') {
-            accounts = [data];
-        }
-        const openaiAccounts = accounts.filter(account => !account.platform || account.platform === 'openai');
-        const validAccounts = openaiAccounts.filter(account => account?.credentials?.access_token);
-        return {
-            total: accounts.length,
-            valid: validAccounts.length,
-            skipped: accounts.length - validAccounts.length
-        };
-    }
-
-    const items = Array.isArray(data) ? data : [data];
-    const validItems = items.filter(item => item?.access_token);
-    return {
-        total: items.length,
-        valid: validItems.length,
-        skipped: items.length - validItems.length
-    };
-}
-
 /**
  * 显示 Codex CPA/sub2api 外部格式批量导入模态框
  * @param {string} providerType - 提供商类型
  * @param {'cpa'|'sub2api'} source - 外部来源
  */
 function showCodexExternalImportModal(providerType, source) {
-    const meta = getCodexExternalImportMeta(source);
+    const meta = getCodexExternalImportMeta(source, t);
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.style.display = 'flex';
@@ -4065,19 +4002,6 @@ function showRestartRequiredModal(version) {
  * @param {string} v2 - 版本号2
  * @returns {number} 1: v1 > v2, -1: v1 < v2, 0: v1 == v2
  */
-function compareVersions(v1, v2) {
-    if (!v1 || !v2) return 0;
-    const s1 = v1.replace(/^v/, '').split('.');
-    const s2 = v2.replace(/^v/, '').split('.');
-    for (let i = 0; i < Math.max(s1.length, s2.length); i++) {
-        const n1 = parseInt(s1[i] || 0, 10);
-        const n2 = parseInt(s2[i] || 0, 10);
-        if (n1 > n2) return 1;
-        if (n1 < n2) return -1;
-    }
-    return 0;
-}
-
 /**
  * 根据所选版本更新更新按钮文字
  * @param {string} selectedVersion - 所选版本
