@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 新增回归测试：真实 standalone server + 空号池 + 本地假上游；插件市场离线缓存 fallback；全源码 `getErrorMessage` 自递归扫描。
 - `any` 棘轮扩展为同时校验正则口径与 TypeScript AST `AnyKeyword` 节点（`src` + `types/`），并修正发布说明中的口径与 Node.js 版本要求。
 
+### Verification
+
+- `npm run verify`：32 suites / 497 tests 全绿，strict 0 errors，imports 128 文件通过，runtime smoke OK。
+- 全量 e2e：20 个模型，26/26 通过（20 × 11 项核心用例 + 6 项定向契约）。
+
 ## [v5.0.2] - 2026-10-25
 
 ### Changed
