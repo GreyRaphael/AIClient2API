@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.3] - 2026-10-25
+
 ### Fixed
 
 - 修复非号池部署（`providerPools` 为空且使用 `openai-custom` / `openaiResponses-custom` / `claude-custom`）时所有内容生成请求返回 500 `service.generateContent is not a function` 的回归。`request-handler` 恢复传入 `null`，由 `handleContentGenerationRequest` 延迟解析 service。
