@@ -1,10 +1,10 @@
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
-type DynamicPayload = Record<string, any>;
 import logger from '../../utils/logger.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
 import { applySystemPromptReplacements } from '../../converters/utils.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
  * Claude provider strategy implementation.

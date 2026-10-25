@@ -3,8 +3,8 @@ import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
 import logger from '../../utils/logger.ts';
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
-type DynamicPayload = Record<string, any>;
 import { applySystemPromptReplacements } from '../../converters/utils.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
  * Gemini provider strategy implementation.

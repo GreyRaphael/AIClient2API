@@ -11,8 +11,8 @@ import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../provide
 import { getProviderPoolManager, setProviderPoolManager } from '../providers/pool-context.ts';
 import { getStatusIdentifyFieldMap } from '../providers/provider-registry.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 // 兼容旧的导入路径；实际实例由 pool-context 持有，避免 provider core 反向依赖本模块。
 export { getProviderPoolManager } from '../providers/pool-context.ts';

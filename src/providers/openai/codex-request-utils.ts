@@ -1,4 +1,4 @@
-type DynamicPayload = Record<string, any>;
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 export function normalizeCodexInstructions(requestBody: DynamicPayload): DynamicPayload {
     if (!Array.isArray(requestBody.input)) {

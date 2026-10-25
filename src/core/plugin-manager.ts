@@ -12,7 +12,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin, PluginAuthResult, PluginMiddlewareResult } from '../../types/plugin.js';
 import { getErrorMessage } from '../utils/error.ts';
 
-type DynamicPayload = Record<string, any>;
 
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { promises as fs } from 'fs';
@@ -26,6 +25,7 @@ import {
     validatePluginExport,
     validatePluginId
 } from './plugin-security.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 // 插件配置文件路径
 const PLUGINS_CONFIG_FILE = path.join(process.cwd(), 'configs', 'plugins.json');
@@ -225,7 +225,8 @@ class PluginManager {
         if (!plugin.name) {
             throw new Error('Plugin must have a name');
         }
-        const isUserPlugin = plugin._baseDir && isInsidePath(USER_PLUGINS_DIR, plugin._baseDir);
+        const baseDir = plugin._baseDir;
+        const isUserPlugin = baseDir ? isInsidePath(USER_PLUGINS_DIR, baseDir) : false;
         validatePluginExport(plugin, plugin.name, isUserPlugin);
         const existing = this.plugins.get(plugin.name);
         if (existing && existing._placeholder) {
@@ -274,8 +275,9 @@ class PluginManager {
             }
 
             try {
-                if (typeof plugin.init === 'function') {
-                    await this.executePluginOperation(plugin, 'init', () => plugin.init(config));
+                const init = plugin.init;
+                if (typeof init === 'function') {
+                    await this.executePluginOperation(plugin, 'init', () => init(config));
                     logger.info(`[PluginManager] Initialized plugin: ${name}`);
                 }
                 plugin._enabled = true;
@@ -296,8 +298,9 @@ class PluginManager {
             if (!plugin._enabled) continue;
 
             try {
-                if (typeof plugin.destroy === 'function') {
-                    await this.executePluginOperation(plugin, 'destroy', () => plugin.destroy());
+                const destroy = plugin.destroy;
+                if (typeof destroy === 'function') {
+                    await this.executePluginOperation(plugin, 'destroy', () => destroy());
                     logger.info(`[PluginManager] Destroyed plugin: ${name}`);
                 }
             } catch (caught) { const error = caught as DynamicPayload;
@@ -384,7 +387,9 @@ class PluginManager {
 
         for (const plugin of authPlugins) {
             try {
-                const result = await this.executePluginOperation(plugin, 'authenticate', () => plugin.authenticate(req, res, requestUrl, config));
+                const authenticate = plugin.authenticate;
+                if (!authenticate) continue;
+                const result = await this.executePluginOperation(plugin, 'authenticate', () => authenticate(req, res, requestUrl, config));
 
                 if (!result) continue;
 
@@ -441,7 +446,9 @@ class PluginManager {
 
         for (const plugin of middlewarePlugins) {
             try {
-                const result = await this.executePluginOperation(plugin, 'middleware', () => plugin.middleware(req, res, requestUrl, config));
+                const middleware = plugin.middleware;
+                if (!middleware) continue;
+                const result = await this.executePluginOperation(plugin, 'middleware', () => middleware(req, res, requestUrl, config));
 
                 if (!result) continue;
 
@@ -687,14 +694,16 @@ class PluginManager {
                 await this.loadAndInitPlugin(name);
                 return;
             }
-            if (!plugin._enabled && typeof plugin.init === 'function') {
-                await this.executePluginOperation(plugin, 'init', () => plugin.init(this.config));
+            const init = plugin.init;
+            if (!plugin._enabled && typeof init === 'function') {
+                await this.executePluginOperation(plugin, 'init', () => init(this.config ?? {}));
             }
             plugin._enabled = true;
             plugin._errorCount = 0;
         } else {
-            if (plugin._enabled && typeof plugin.destroy === 'function') {
-                await this.executePluginOperation(plugin, 'destroy', () => plugin.destroy());
+            const destroy = plugin.destroy;
+            if (plugin._enabled && typeof destroy === 'function') {
+                await this.executePluginOperation(plugin, 'destroy', () => destroy());
             }
             plugin._enabled = false;
         }
@@ -720,9 +729,10 @@ class PluginManager {
 
         const plugin = this.plugins.get(name);
         if (plugin) {
-            if (plugin._enabled && typeof plugin.destroy === 'function') {
+            const destroy = plugin.destroy;
+            if (plugin._enabled && typeof destroy === 'function') {
                 try {
-                    await this.executePluginOperation(plugin, 'destroy', () => plugin.destroy());
+                    await this.executePluginOperation(plugin, 'destroy', () => destroy());
                 } catch (caught) { const error = caught as DynamicPayload;
                     logger.error(`[PluginManager] Failed to destroy plugin ${name} during uninstall:`, error.message);
                 }

@@ -11,8 +11,8 @@
  */
 
 import { StreamSessionStore } from './stream-session.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 export interface CustomToolRecord {
     name: string;

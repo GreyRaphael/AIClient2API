@@ -17,8 +17,8 @@ import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { ProviderConfig } from '../provider-types.ts';
 import { getErrorMessage } from '../../utils/error.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 type ZedProvider = 'anthropic' | 'open_ai' | 'google';
 
 interface ZedServiceConfig extends ProviderConfig {

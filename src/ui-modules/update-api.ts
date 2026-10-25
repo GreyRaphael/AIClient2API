@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
 
 import { existsSync, readFileSync } from 'fs';
 import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
@@ -15,6 +14,7 @@ import { parseProxyUrl } from '../utils/proxy-utils.ts';
 import { getRequestBody } from '../utils/common.ts';
 import { isValidVersionTag } from '../utils/version-tag.ts';
 import { assertNativeTypeScriptSupport } from '../bootstrap/runtime.js';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);

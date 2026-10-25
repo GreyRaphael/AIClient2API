@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
 
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { existsSync } from 'fs';
@@ -11,6 +10,7 @@ import crypto from 'crypto';
 import { CONFIG } from '../core/config-manager.ts';
 import { getClientIp } from '../utils/common.ts';
 import { PASSWORD } from '../utils/constants.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = path.join(process.cwd(), 'configs', 'token-store.json');

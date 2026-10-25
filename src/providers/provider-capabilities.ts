@@ -1,6 +1,6 @@
 import { getBuiltinProviderCapabilityRules } from './provider-registry.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 type ProviderCapabilities = Record<string, boolean>;
 /**
  * 统一 Provider 能力声明

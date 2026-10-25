@@ -50,8 +50,8 @@ import type {
     CrossProtocolStreamChunk
 } from '../../../types/protocols/common.js';
 import type { OpenAIUsage } from '../../../types/protocols/openai.js';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 /**
  * 将任意来源的 tool id 收敛为 Anthropic 合法的 `[a-zA-Z0-9_-]+`。

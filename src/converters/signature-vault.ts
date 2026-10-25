@@ -1,4 +1,3 @@
-type DynamicPayload = Record<string, any>;
 
 /**
  * 签名金库 (Signature Vault)
@@ -18,6 +17,7 @@ type DynamicPayload = Record<string, any>;
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import logger from '../utils/logger.ts';
 import { getConfigToggle } from '../core/config-manager.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 let processVaultSecret: string | null = null;
 

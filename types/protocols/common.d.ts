@@ -62,8 +62,7 @@ export type CrossProtocolStreamChunk =
 export type CrossProtocolPayload =
     | CrossProtocolRequest
     | CrossProtocolResponse
-    | CrossProtocolStreamChunk
-    | any;
+    | CrossProtocolStreamChunk;
 
 /**
  * 支持的协议前缀标识

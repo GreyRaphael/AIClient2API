@@ -32,8 +32,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PreContentBuffer } from './pre-content-buffer.ts';
 import { startPreContentHeartbeat } from './pre-content-heartbeat.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 export type PipelineError = DynamicPayload & {
     statusCode?: number;
     status?: number;

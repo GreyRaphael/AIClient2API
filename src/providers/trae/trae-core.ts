@@ -15,6 +15,7 @@ import {
     isSoloFamilyChannel,
     resolveAliasTableKind
 } from './trae-channel.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 // 通道模式枚举与预设已迁移至 trae-channel.js（single source of truth），此处再导出以保持兼容
 export { TRAE_CHANNEL_MODES, TRAE_CHANNEL_PRESETS };
@@ -111,7 +112,6 @@ const CHAT_V3_MODEL_ALIASES = {
     'kimi-k2.8-preview': 'kimi-k2.8-preview'
 };
 
-type DynamicPayload = Record<string, any>;
 
 interface TraeChannelConfig {
     mode: string;

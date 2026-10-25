@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
 
 import os from 'os';
 import { execSync } from 'child_process';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 // CPU 使用率计算相关变量
 let previousCpuInfo: { idle: number; total: number } | null = null;

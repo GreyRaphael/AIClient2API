@@ -6,8 +6,8 @@ import * as https from 'https';
 import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 /**
  * 判断非流式响应体是否实际上是 SSE 文本。

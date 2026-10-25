@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
-type DynamicPayload = Record<string, any>;
 
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
@@ -16,6 +15,7 @@ import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { validateCredentials } from './auth.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 function parseBooleanConfig(value: unknown): boolean {
     if (typeof value === 'boolean') return value;

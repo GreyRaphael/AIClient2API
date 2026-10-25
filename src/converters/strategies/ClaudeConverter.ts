@@ -35,8 +35,8 @@ import type {
     CrossProtocolStreamChunk
 } from '../../../types/protocols/common.js';
 import type { OpenAIUsage } from '../../../types/protocols/openai.js';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 /**
  * Claude转换器类

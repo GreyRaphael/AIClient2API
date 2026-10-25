@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
 
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
@@ -8,6 +7,7 @@ import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from './event-broadcast.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 function syncRuntimeCustomModels(currentConfig: DynamicPayload, customModels: DynamicPayload[]): void {
     const normalizedCustomModels = Array.isArray(customModels) ? customModels : [];

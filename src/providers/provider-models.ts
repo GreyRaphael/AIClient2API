@@ -2,8 +2,8 @@ import { convertData } from '../convert/convert.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProviderStaticModels } from './provider-registry.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 /**
  * 获取模型配置元数据

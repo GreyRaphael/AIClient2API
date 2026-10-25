@@ -1,10 +1,10 @@
-type DynamicPayload = Record<string, any>;
 
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 // 用量缓存文件路径
 const USAGE_CACHE_FILE = path.join(process.cwd(), 'configs', 'usage-cache.json');

@@ -1,4 +1,3 @@
-type DynamicPayload = Record<string, any>;
 
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
@@ -7,6 +6,7 @@ import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { migrateLegacyTraeProviderPools, normalizeLegacyTraeProviderType } from '../providers/trae/trae-channel.ts';
 import logger from '../utils/logger.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 export let CONFIG: Record<string, any> = {}; // Make CONFIG exportable
 export let PROMPT_LOG_FILENAME: string = ''; // Make PROMPT_LOG_FILENAME exportable

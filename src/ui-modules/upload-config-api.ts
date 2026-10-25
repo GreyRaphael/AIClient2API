@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
-type DynamicPayload = Record<string, any>;
 
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
@@ -10,6 +9,7 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import { broadcastEvent } from './event-broadcast.ts';
 import { scanConfigFiles } from './config-scanner.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
  * 获取上传配置文件列表

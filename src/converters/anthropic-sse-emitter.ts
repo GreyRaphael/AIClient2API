@@ -18,8 +18,8 @@
  */
 
 import { mintVirtualSignature, isSignatureVaultEnabled } from './signature-vault.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 let emitterSeq = 0;
 

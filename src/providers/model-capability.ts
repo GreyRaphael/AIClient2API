@@ -10,6 +10,7 @@ import {
     usesManagedModelList
 } from './provider-models.ts';
 import { getDynamicProviderTypes, getProviderCapabilityTtlMs } from './provider-registry.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
  * 模型能力层（Model Capability）
@@ -23,7 +24,6 @@ import { getDynamicProviderTypes, getProviderCapabilityTtlMs } from './provider-
  * 该模块是模型列表的唯一读取入口，端点、路由、健康检查都不应再自行推导模型集合。
  */
 
-type DynamicPayload = Record<string, any>;
 
 export const CAPABILITY_SOURCE = {
     LIVE: 'live',

@@ -16,8 +16,8 @@ import { convertData } from '../convert/convert.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 interface ImageRetryContext {
     maxRetries?: number;

@@ -26,8 +26,8 @@ import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import { getErrorMessage } from '../../utils/error.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 interface AntigravityServiceConfig extends Record<string, any> {
     HOST?: string;

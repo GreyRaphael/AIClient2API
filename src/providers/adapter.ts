@@ -8,8 +8,8 @@ import { ZedApiService } from './zed/zed-core.ts';
 import { TraeApiService } from './trae/trae-core.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import logger from '../utils/logger.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 type AdapterConstructor = new (config: DynamicPayload) => ApiServiceAdapter;
 
 // 适配器注册表

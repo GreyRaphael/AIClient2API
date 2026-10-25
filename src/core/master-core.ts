@@ -14,7 +14,6 @@
 import type { ChildProcess } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
 
 import './security-hardening.ts';
 import { fork } from 'child_process';
@@ -23,6 +22,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { isRetryableNetworkError } from '../utils/common.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
 
 import { existsSync, readFileSync, createReadStream } from 'fs';
 import logger from '../utils/logger.ts';
 import path from 'path';
 import { getCpuUsagePercent } from './system-monitor.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
  * 获取系统信息

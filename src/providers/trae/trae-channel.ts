@@ -12,8 +12,8 @@
  */
 
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 /**
  * Trae 通道模式枚举

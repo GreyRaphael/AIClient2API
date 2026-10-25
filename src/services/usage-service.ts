@@ -3,13 +3,13 @@
  * 用于处理各个提供商的授权文件用量查询
  */
 
-type DynamicPayload = Record<string, any>;
 
 import { getProviderPoolManager } from './service-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
 import { MODEL_PROVIDER } from '../utils/common.ts';
 import { getProviderModels } from '../providers/provider-models.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 /**
  * 用量查询服务类
  */

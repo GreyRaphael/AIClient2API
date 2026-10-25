@@ -26,8 +26,8 @@ import type {
     CrossProtocolResponse,
     CrossProtocolStreamChunk
 } from '../../../types/protocols/common.js';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 /**
  * Claude Code 专用工具参数启发式开关。

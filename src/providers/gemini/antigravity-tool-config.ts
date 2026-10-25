@@ -1,4 +1,4 @@
-type DynamicPayload = Record<string, any>;
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 const ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS = [
     'googleSearch',

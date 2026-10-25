@@ -1,6 +1,5 @@
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
-type DynamicPayload = Record<string, any>;
 
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
@@ -8,6 +7,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { addToUsedPaths, isPathUsed, pathsEqual, detectProviderFromPath } from '../utils/provider-utils.ts';
 import { getCredentialProviderDefinitions } from '../providers/provider-registry.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
  * 扫描和分析配置文件

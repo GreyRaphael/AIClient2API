@@ -41,8 +41,8 @@ import type {
     CrossProtocolResponse,
     CrossProtocolStreamChunk
 } from '../../../types/protocols/common.js';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 /**
  * 提取 Responses reasoning item 的文本。

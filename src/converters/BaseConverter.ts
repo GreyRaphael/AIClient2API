@@ -1,4 +1,3 @@
-type DynamicPayload = Record<string, any>;
 
 import type { IProtocolConverter } from '../../types/converters.js';
 import type {
@@ -6,6 +5,7 @@ import type {
     CrossProtocolResponse,
     CrossProtocolStreamChunk
 } from '../../types/protocols/common.js';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
  * 抽象转换器基类
@@ -62,7 +62,7 @@ export class BaseConverter implements IProtocolConverter {
      * @param targetProtocol - 目标协议
      * @returns 转换后的模型列表
      */
-    convertModelList(data: DynamicPayload, targetProtocol: string): unknown {
+    convertModelList(data: unknown, targetProtocol: string): unknown {
         throw new Error('convertModelList方法必须被子类实现');
     }
 

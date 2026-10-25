@@ -10,8 +10,8 @@
  */
 
 import { MODEL_PROVIDER, MODEL_PROTOCOL_PREFIX } from '../utils/constants.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 interface ProviderCapabilityRule {
     match: ((model: unknown) => boolean) | string;

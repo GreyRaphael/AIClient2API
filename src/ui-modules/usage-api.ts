@@ -9,8 +9,8 @@ import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
     res.writeHead(statusCode, {

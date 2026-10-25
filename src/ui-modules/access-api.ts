@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
-type DynamicPayload = Record<string, any>;
 
 import { existsSync, readFileSync } from 'fs';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 function getProviderPoolsFilePath(currentConfig: DynamicPayload): string {
     return currentConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';

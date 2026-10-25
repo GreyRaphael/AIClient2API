@@ -10,6 +10,7 @@ import { configureAxiosProxy } from '../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFileSync } from '../utils/file-lock.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 export const TRAE_AUTH_CONFIG = {
     defaultHost: 'https://api.enterprise.trae.cn',
@@ -576,7 +577,6 @@ export async function handleTraePATLogin({
  * @param {Object} options
  * @returns {Promise<{ authUrl: string, authInfo: Object }>}
  */
-type DynamicPayload = Record<string, any>;
 
 export async function handleTraeOAuth(currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
     const host = options.host || TRAE_AUTH_CONFIG.defaultHost;

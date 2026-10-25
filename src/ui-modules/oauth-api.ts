@@ -1,7 +1,6 @@
 import { getRequestBody } from '../utils/common.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-type DynamicPayload = Record<string, any>;
 import logger from '../utils/logger.ts';
 import {
     handleGeminiAntigravityOAuth,
@@ -26,6 +25,7 @@ import {
     buildTraeWebLoginUrl
 } from '../auth/trae-auth.ts';
 import { normalizeCodexExternalCredentials } from '../auth/codex-import-normalizer.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 const CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES = 5 * 1024 * 1024;
 const CODEX_EXTERNAL_IMPORT_MAX_ITEMS = 1000;

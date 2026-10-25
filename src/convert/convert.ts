@@ -9,11 +9,11 @@ import type {
     CrossProtocolStreamChunk
 } from '../../types/protocols/common.js';
 
-type DynamicPayload = Record<string, any>;
 
 import logger from '../utils/logger.ts';
 import { getProtocolPrefix } from '../utils/protocol.ts';
 import { ConverterFactory } from '../converters/ConverterFactory.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
  * @typedef {import('../../types/protocols/common.js').CrossProtocolRequest} CrossProtocolRequest

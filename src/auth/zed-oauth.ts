@@ -14,6 +14,7 @@ import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { getZedVersionFromSystem, exchangeZedToken } from '../providers/zed/zed-core.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 const ZED_OAUTH_CONFIG = {
     authBaseUrl: 'https://zed.dev/native_app_signin',
@@ -67,7 +68,6 @@ function sanitizeFilenamePart(value: unknown): string {
  * @param {Object} options 
  * @returns {Promise<{ authUrl: string, authInfo: Object, waitForCallback: Function }>}
  */
-type DynamicPayload = Record<string, any>;
 
 export async function handleZedOAuth(currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
     const email = options.email || null;

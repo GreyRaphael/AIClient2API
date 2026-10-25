@@ -18,6 +18,7 @@ import { PROMPT_LOG_FILENAME } from '../core/config-manager.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
 import { randomUUID } from 'crypto';
 import { getErrorMessage } from '../utils/error.ts';
+import type { DynamicPayload } from '../../types/dynamic-payload.js';
 /**
  * Generate a short unique request ID (8 characters)
  */
@@ -32,7 +33,6 @@ function generateRequestId() {
  * @param {Object} providerPoolManager - The provider pool manager instance
  * @returns {Function} - The request handler function
  */
-type DynamicPayload = Record<string, any>;
 
 export function createRequestHandler(
     config: DynamicPayload,

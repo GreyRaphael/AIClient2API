@@ -34,8 +34,8 @@ import {
     parseBracketToolCalls,
     deduplicateToolCalls
 } from './kiro-stream-parser.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
-type DynamicPayload = Record<string, any>;
 
 const KIRO_CONSTANTS = {
     REFRESH_URL: 'https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken',

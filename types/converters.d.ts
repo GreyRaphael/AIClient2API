@@ -18,7 +18,7 @@ export interface IProtocolConverter {
     convertRequest(data: CrossProtocolRequest, targetProtocol: string, requestId?: string): CrossProtocolRequest | void;
     convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId?: string): CrossProtocolResponse;
     convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk;
-    convertModelList(data: any, targetProtocol: string): any;
+    convertModelList(data: unknown, targetProtocol: string): unknown;
 }
 
 export interface IConverterFactory {
