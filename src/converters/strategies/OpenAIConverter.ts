@@ -44,6 +44,12 @@ import {
     customToolToFunction,
     extractCustomToolInput
 } from '../custom-tool-registry.ts';
+import type {
+    CrossProtocolRequest,
+    CrossProtocolResponse,
+    CrossProtocolStreamChunk
+} from '../../../types/protocols/common.js';
+
 
 /**
  * 将任意来源的 tool id 收敛为 Anthropic 合法的 `[a-zA-Z0-9_-]+`。
@@ -60,9 +66,9 @@ function toClaudeToolId(id: any) {
  * 实现OpenAI协议到其他协议的转换
  */
 export class OpenAIConverter extends BaseConverter {
-    codexConverter: any;
-    openAIResponsesStreamStates: any;
-    claudeStreamStates: any;
+    codexConverter: CodexConverter;
+    openAIResponsesStreamStates: StreamSessionStore;
+    claudeStreamStates: StreamSessionStore;
 
     constructor() {
         super('openai');
@@ -77,7 +83,7 @@ export class OpenAIConverter extends BaseConverter {
      * 注意：不清理 CodexConverter 的 requestStates（工具名映射需跨重试复用）。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: any) {
+    resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.openAIResponsesStreamStates.delete(requestId);
         this.claudeStreamStates.delete(requestId);
@@ -86,7 +92,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 转换请求
      */
-    convertRequest(data: any, targetProtocol: any, requestId: any) {
+    convertRequest(data: CrossProtocolRequest, targetProtocol: string, requestId?: string): CrossProtocolRequest | void {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
                 return this.toClaudeRequest(data, requestId);
@@ -127,10 +133,10 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: any, targetProtocol: any, model: any, requestId: any) {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId);
+                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
@@ -143,7 +149,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 转换模型列表
      */
-    convertModelList(data: any, targetProtocol: any) {
+    convertModelList(data: unknown, targetProtocol: string): unknown {
         return this.ensureDisplayName(data);
     }
 

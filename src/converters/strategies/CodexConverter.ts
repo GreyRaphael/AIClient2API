@@ -15,6 +15,12 @@ import {
     customInputToFunctionArguments,
     extractCustomToolInput
 } from '../custom-tool-registry.ts';
+import type {
+    CrossProtocolRequest,
+    CrossProtocolResponse,
+    CrossProtocolStreamChunk
+} from '../../../types/protocols/common.js';
+
 
 /**
  * 提取并规范化 reasoning effort：
@@ -32,8 +38,8 @@ function resolveReasoningEffort(source: any) {
 const sharedRequestStates = new StreamSessionStore({ label: 'codex-converter-request' });
 
 export class CodexConverter extends BaseConverter {
-    streamSessions: any;
-    requestStates: any;
+    streamSessions: StreamSessionStore;
+    requestStates: StreamSessionStore;
 
     constructor() {
         super('codex');
@@ -46,7 +52,7 @@ export class CodexConverter extends BaseConverter {
      * 注意：requestStates 保存工具名正反查映射，重试后仍需复用，不能清理。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: any) {
+    resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.streamSessions.delete(requestId);
     }
@@ -168,7 +174,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: any, targetProtocol: any, model: any, requestId: any) {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
@@ -184,7 +190,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换模型列表
      */
-    convertModelList(data: any, targetProtocol: any) {
+    convertModelList(data: unknown, targetProtocol: string): unknown {
         return data;
     }
 

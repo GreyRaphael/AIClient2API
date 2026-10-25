@@ -36,6 +36,12 @@ import {
     extractCustomToolInput,
     customInputToFunctionArguments
 } from '../custom-tool-registry.ts';
+import type {
+    CrossProtocolRequest,
+    CrossProtocolResponse,
+    CrossProtocolStreamChunk
+} from '../../../types/protocols/common.js';
+
 
 /**
  * 提取 Responses reasoning item 的文本。
@@ -71,10 +77,10 @@ function extractResponsesReasoningText(item: any) {
  * 支持 OpenAI Responses 格式与 OpenAI、Claude、Gemini 之间的转换
  */
 export class OpenAIResponsesConverter extends BaseConverter {
-    codexConverter: any;
-    claudeStreamStates: any;
-    codexResponsesStreamStates: any;
-    openaiChatStreamStates: any;
+    codexConverter: CodexConverter;
+    claudeStreamStates: StreamSessionStore;
+    codexResponsesStreamStates: StreamSessionStore;
+    openaiChatStreamStates: StreamSessionStore;
 
     constructor() {
         super(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
@@ -88,7 +94,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * 清理该请求在 Responses 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: any) {
+    resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.claudeStreamStates.delete(requestId);
         this.codexResponsesStreamStates.delete(requestId);
@@ -102,7 +108,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换请求到目标协议
      */
-    convertRequest(data: any, toProtocol: any, requestId: any) {
+    convertRequest(data: CrossProtocolRequest, toProtocol: string, requestId?: string): CrossProtocolRequest | void {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIRequest(data, requestId);
@@ -120,7 +126,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换响应到目标协议
      */
-    convertResponse(data: any, toProtocol: any, model: any, requestId: any = null) {
+    convertResponse(data: CrossProtocolResponse, toProtocol: string, model?: string, requestId: string | null = null): CrossProtocolResponse {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
@@ -134,7 +140,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换流式响应块到目标协议
      */
-    convertStreamChunk(chunk: any, toProtocol: any, model: any, requestId: any) {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, toProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIStreamChunk(chunk, model, requestId);
@@ -148,7 +154,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换模型列表到目标协议
      */
-    convertModelList(data: any, targetProtocol: any) {
+    convertModelList(data: unknown, targetProtocol: string): unknown {
         return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
             ? this.toOpenAIModelList(data)
             : data;
