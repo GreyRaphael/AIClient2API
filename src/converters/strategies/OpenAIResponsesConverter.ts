@@ -42,6 +42,7 @@ import type {
     CrossProtocolStreamChunk
 } from '../../../types/protocols/common.js';
 
+type DynamicPayload = Record<string, any>;
 
 /**
  * 提取 Responses reasoning item 的文本。
@@ -52,14 +53,14 @@ import type {
  * @param {any} item
  * @returns {string}
  */
-function extractResponsesReasoningText(item: any) {
+function extractResponsesReasoningText(item: DynamicPayload): string {
     if (!item || typeof item !== 'object') return '';
 
-    const collect = (value: any) => {
+    const collect = (value: unknown): string => {
         if (typeof value === 'string') return value;
         if (!Array.isArray(value)) return '';
         return value
-            .map((part: any) => {
+            .map((part: DynamicPayload | string) => {
                 if (typeof part === 'string') return part;
                 return part?.text ?? part?.summary_text ?? '';
             })
@@ -143,9 +144,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
     convertStreamChunk(chunk: CrossProtocolStreamChunk, toProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model, requestId);
+                return this.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId);
+                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
             default:
                 throw new Error(`Unsupported target protocol: ${toProtocol}`);
         }
@@ -156,7 +157,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      */
     convertModelList(data: unknown, targetProtocol: string): unknown {
         return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
-            ? this.toOpenAIModelList(data)
+            ? this.toOpenAIModelList(data as DynamicPayload)
             : data;
     }
 
@@ -167,9 +168,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 请求转换为标准 OpenAI 请求
      */
-    toOpenAIRequest(responsesRequest: any, requestId: any = null) {
+    toOpenAIRequest(responsesRequest: DynamicPayload, requestId: string | null = null): DynamicPayload {
         registerCustomTools(requestId, responsesRequest.tools);
-        const openaiRequest: any = {
+        const openaiRequest: DynamicPayload = {
             model: responsesRequest.model,
             messages: [],
             stream: responsesRequest.stream || false
@@ -255,7 +256,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
 
         if (input && Array.isArray(input)) {
-            input.forEach((item: any) => {
+            input.forEach((item: DynamicPayload) => {
                 const itemType = item.type || (item.role ? 'message' : '');
 
                 switch (itemType) {
@@ -268,14 +269,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
                             summaryText = item.summary;
                         } else if (Array.isArray(item.summary)) {
                             summaryText = item.summary
-                                .map((s: any) => (typeof s === 'string' ? s : (s?.text || '')))
+                                .map((s: DynamicPayload | string) => (typeof s === 'string' ? s : (s?.text || '')))
                                 .filter(Boolean)
                                 .join('\n');
                         } else if (typeof item.content === 'string') {
                             summaryText = item.content;
                         } else if (Array.isArray(item.content)) {
                             summaryText = item.content
-                                .map((c: any) => (typeof c === 'string' ? c : (c?.text || '')))
+                                .map((c: DynamicPayload | string) => (typeof c === 'string' ? c : (c?.text || '')))
                                 .filter(Boolean)
                                 .join('\n');
                         }
@@ -305,7 +306,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                     pendingReasoning = '';
                                 }
                             } else {
-                                const newMsg: any = {
+                                const newMsg: DynamicPayload = {
                                     role: role,
                                     content: content
                                 };
@@ -331,7 +332,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     case 'custom_tool_call':
                     case 'function_call': {
                         flushPendingReasoning();
-                        const toolCallObj: any = {
+                        const toolCallObj: DynamicPayload = {
                             id: item.call_id || item.id,
                             type: 'function',
                             function: {
@@ -377,7 +378,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         // 如果有标准的 messages 字段，也支持
         if (responsesRequest.messages && Array.isArray(responsesRequest.messages)) {
-            responsesRequest.messages.forEach((msg: any) => {
+            responsesRequest.messages.forEach((msg: DynamicPayload) => {
                 openaiRequest.messages.push({
                     role: msg.role === 'developer' ? 'system' : msg.role,
                     content: msg.content
@@ -388,7 +389,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         // 处理工具
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
             const mappedTools = responsesRequest.tools
-                .map((tool: any) => {
+                .map((tool: DynamicPayload): DynamicPayload | null => {
                     if (tool.type === 'custom') {
                         const fn = customToolToFunction(tool);
                         return fn ? {
@@ -426,7 +427,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         }
                     };
                 })
-                .filter((tool: any) => tool !== null);
+                .filter((tool): tool is DynamicPayload => tool !== null);
             openaiRequest.tools = sortToolsByName(mappedTools);
         }
 
@@ -448,9 +449,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 响应转换为标准 OpenAI 响应
      */
-    toOpenAIResponse(responsesResponse: any, model: any) {
-        const contentParts: any[] = [];
-        const toolCalls: any[] = [];
+    toOpenAIResponse(responsesResponse: DynamicPayload, model?: string): DynamicPayload {
+        const contentParts: string[] = [];
+        const toolCalls: DynamicPayload[] = [];
         let usage = {
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -462,11 +463,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
         let reasoningContent = '';
 
         if (responsesResponse.output && Array.isArray(responsesResponse.output)) {
-            responsesResponse.output.forEach((item: any) => {
+            responsesResponse.output.forEach((item: DynamicPayload) => {
                 if (item.type === 'message') {
                     const content = item.content
-                        ?.filter((c: any) => c.type === 'output_text')
-                        .map((c: any) => c.text)
+                        ?.filter((c: DynamicPayload) => c.type === 'output_text')
+                        .map((c: DynamicPayload) => c.text)
                         .join('') || '';
                     if (content) {
                         contentParts.push(content);
@@ -514,7 +515,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             };
         }
 
-        const message: any = {
+        const message: DynamicPayload = {
             role: 'assistant',
             content: contentParts.length > 0 ? contentParts.join('') : (toolCalls.length > 0 ? null : '')
         };
@@ -525,7 +526,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             message.reasoning_content = reasoningContent;
         }
 
-        let finishReason: any = null;
+        let finishReason: string | null = null;
         if (toolCalls.length > 0) {
             finishReason = 'tool_calls';
         } else if (!responsesResponse.status || responsesResponse.status === 'completed') {
@@ -555,7 +556,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * Responses 的 delta 事件不带 response.id，因此必须优先使用 requestId，
      * 否则每个事件都会生成新的 chatcmpl id 并在 Store 中留下独立条目。
      */
-    _getOpenAIStreamState(responsesChunk: any, requestId: any) {
+    _getOpenAIStreamState(responsesChunk: DynamicPayload, requestId: string | null | undefined): DynamicPayload {
         const stateKey = requestId
             || responsesChunk.response?.id
             || responsesChunk.id
@@ -589,7 +590,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * Chat 要求 tool_calls.index 在单条消息内唯一且从 0 递增，
      * 不能直接复用 output_index（它可能因 reasoning/message item 而出现空洞）。
      */
-    _allocateOpenAIToolIndex(state: any, outputIndex: any) {
+    _allocateOpenAIToolIndex(state: DynamicPayload, outputIndex: unknown): number {
         const key = String(outputIndex ?? 0);
         if (!state.toolIndexByOutput.has(key)) {
             state.toolIndexByOutput.set(key, state.nextToolIndex++);
@@ -606,7 +607,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * @param {'text'|'reasoning'} kind
      * @returns {string}
      */
-    _responsesPartKey(chunk: any, kind: any) {
+    _responsesPartKey(chunk: DynamicPayload, kind: 'text' | 'reasoning'): string {
         const outputIndex = String(chunk?.output_index ?? 0);
         const partIndex = kind === 'reasoning'
             ? String(chunk?.summary_index ?? chunk?.content_index ?? 0)
@@ -614,7 +615,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return `${outputIndex}:${partIndex}`;
     }
 
-    _appendCustomToolArguments(state: any, outputIndex: any, rawInput: any, delta: any) {
+    _appendCustomToolArguments(state: DynamicPayload, outputIndex: unknown, rawInput: unknown, delta: DynamicPayload): void {
         const key = String(outputIndex ?? 0);
         if (state.customArgsSent.has(key)) {
             return;
@@ -637,7 +638,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 流式块转换为标准 OpenAI 流式块
      */
-    toOpenAIStreamChunk(responsesChunk: any, model: any, requestId: any = null) {
+    toOpenAIStreamChunk(responsesChunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload | null {
         if (!responsesChunk) return null;
 
         if (responsesChunk.type === 'response.failed' || responsesChunk.type === 'error') {
@@ -651,8 +652,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         const { stateKey, state } = this._getOpenAIStreamState(responsesChunk, requestId);
-        const delta: any = {};
-        let finish_reason: any = null;
+        const delta: DynamicPayload = {};
+        let finish_reason: string | null = null;
 
         if (responsesChunk.type === 'response.output_text.delta') {
             const text = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
@@ -761,7 +762,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 this._appendCustomToolArguments(state, key, input, delta);
             }
             const hasTool = state.hasToolCalls ||
-                responsesChunk.response?.output?.some((item: any) => item.type === 'function_call' || item.type === 'custom_tool_call');
+                responsesChunk.response?.output?.some((item: DynamicPayload) => item.type === 'function_call' || item.type === 'custom_tool_call');
             const incompleteReason = responsesChunk.response?.incomplete_details?.reason;
             if (responsesChunk.type === 'response.incomplete' || responsesChunk.response?.status === 'incomplete' || incompleteReason) {
                 finish_reason = incompleteReason === 'content_filter' ? 'content_filter' : 'length';
@@ -776,7 +777,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return null;
         }
 
-        const chunkObj: any = {
+        const chunkObj: DynamicPayload = {
             id: state.id,
             object: 'chat.completion.chunk',
             created: state.created,
@@ -812,7 +813,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * Responses tool_choice -> OpenAI Chat Completions tool_choice
      */
-    _mapResponsesToolChoiceToOpenAI(toolChoice: any) {
+    _mapResponsesToolChoiceToOpenAI(toolChoice: DynamicPayload | string | null | undefined): DynamicPayload | string | undefined {
         if (!toolChoice) {
             return undefined;
         }
@@ -832,7 +833,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * @param {string|Array|Object} content
      * @returns {string|Array}
      */
-    _responsesMessageContentToOpenAI(content: any) {
+    _responsesMessageContentToOpenAI(content: unknown): string | DynamicPayload[] {
         if (content === null || content === undefined) {
             return '';
         }
@@ -843,7 +844,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return this._stringifyContentValue(content);
         }
 
-        const parts: any[] = [];
+        const parts: DynamicPayload[] = [];
         let hasNonText = false;
         for (const part of content) {
             if (!part) continue;
@@ -896,8 +897,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (parts.length === 0) {
             return '';
         }
-        if (!hasNonText && parts.every((p: any) => p.type === 'text')) {
-            return parts.map((p: any) => p.text).join('\n');
+        if (!hasNonText && parts.every((p: DynamicPayload) => p.type === 'text')) {
+            return parts.map((p: DynamicPayload) => p.text).join('\n');
         }
         return parts;
     }
@@ -905,7 +906,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 合并相邻 assistant 文本/多模态内容，保留数组语义。
      */
-    _mergeOpenAIContent(existing: any, incoming: any) {
+    _mergeOpenAIContent(existing: unknown, incoming: unknown): unknown {
         if (incoming === '' || incoming === null || incoming === undefined) {
             return existing;
         }
@@ -915,7 +916,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (typeof existing === 'string' && typeof incoming === 'string') {
             return `${existing}\n${incoming}`;
         }
-        const toParts = (value: any) => Array.isArray(value)
+        const toParts = (value: unknown) => Array.isArray(value)
             ? value
             : [{ type: 'text', text: String(value) }];
         return [...toParts(existing), ...toParts(incoming)];
@@ -925,7 +926,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     // 转换到 Claude 格式
     // =============================================================================
 
-    _stringifyContentValue(value: any) {
+    _stringifyContentValue(value: unknown): string {
         if (value === null || value === undefined) {
             return '';
         }
@@ -935,7 +936,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return JSON.stringify(value);
     }
 
-    _normalizeInstructions(instructions: any) {
+    _normalizeInstructions(instructions: unknown): string {
         if (instructions === null || instructions === undefined) {
             return '';
         }
@@ -943,12 +944,12 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return instructions;
         }
         if (Array.isArray(instructions)) {
-            return instructions.map((item: any) => this._stringifyContentValue(item?.text ?? item)).filter(Boolean).join('\n');
+            return instructions.map((item: DynamicPayload | string) => this._stringifyContentValue(typeof item === 'string' ? item : (item?.text ?? item))).filter(Boolean).join('\n');
         }
         return this._stringifyContentValue(instructions);
     }
 
-    _extractResponsesImageUrl(part: any) {
+    _extractResponsesImageUrl(part: DynamicPayload | null | undefined): string {
         if (!part) {
             return '';
         }
@@ -959,7 +960,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return image?.url || '';
     }
 
-    _dataUrlToClaudeImage(url: any) {
+    _dataUrlToClaudeImage(url: unknown): DynamicPayload | null {
         if (!url || typeof url !== 'string' || !url.startsWith('data:')) {
             return null;
         }
@@ -981,7 +982,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * 将 Responses 的 input_file.file_data 转为 Claude 内容块。
      * 图片走 image，其他文件走 document；无法解析时返回 null。
      */
-    _claudeFileBlockFromDataUrl(dataUrl: any, filename: any = 'file') {
+    _claudeFileBlockFromDataUrl(dataUrl: unknown, filename = 'file'): DynamicPayload | null {
         const parsed = parseBase64DataUrl(dataUrl);
         if (!parsed) {
             return null;
@@ -1007,7 +1008,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
     }
 
-    _responsesContentToClaudeBlocks(content: any, role: any = 'user') {
+    _responsesContentToClaudeBlocks(content: unknown, role = 'user'): DynamicPayload[] {
         if (content === null || content === undefined) {
             return [];
         }
@@ -1021,7 +1022,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             return text ? [{ type: 'text', text }] : [];
         }
 
-        const blocks: any[] = [];
+        const blocks: DynamicPayload[] = [];
         for (const part of content) {
             if (!part) continue;
             const partType = part.type;
@@ -1079,18 +1080,18 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return blocks;
     }
 
-    _normalizeToolInput(argumentsValue: any) {
+    _normalizeToolInput(argumentsValue: unknown): DynamicPayload {
         if (argumentsValue === null || argumentsValue === undefined || argumentsValue === '') {
             return {};
         }
         const parsed = typeof argumentsValue === 'string' ? safeParseJSON(argumentsValue) : argumentsValue;
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            return parsed;
+            return parsed as DynamicPayload;
         }
         return { _raw_arguments: parsed };
     }
 
-    _normalizeToolOutput(output: any) {
+    _normalizeToolOutput(output: unknown): string {
         if (output === null || output === undefined) {
             return '';
         }
@@ -1100,7 +1101,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return JSON.stringify(output);
     }
 
-    _pushClaudeMessage(messages: any, role: any, blocks: any) {
+    _pushClaudeMessage(messages: DynamicPayload[], role: string, blocks: DynamicPayload[]): void {
         if (!blocks || blocks.length === 0) {
             return;
         }
@@ -1116,7 +1117,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         });
     }
 
-    _mapResponsesToolToClaude(tool: any) {
+    _mapResponsesToolToClaude(tool: DynamicPayload): DynamicPayload | null {
         if (!tool || typeof tool !== 'object') {
             return null;
         }
@@ -1155,7 +1156,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
     }
 
-    _mapResponsesToolChoiceToClaude(toolChoice: any) {
+    _mapResponsesToolChoiceToClaude(toolChoice: DynamicPayload | string | null | undefined): DynamicPayload | undefined {
         if (!toolChoice) {
             return undefined;
         }
@@ -1172,7 +1173,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return undefined;
     }
 
-    _mapReasoningToClaudeThinking(reasoning: any) {
+    _mapReasoningToClaudeThinking(reasoning: DynamicPayload | null | undefined): DynamicPayload | undefined {
         const effort = String(reasoning?.effort || '').toLowerCase().trim();
         if (!effort) {
             return undefined;
@@ -1189,9 +1190,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 请求转换为 Claude 请求
      */
-    toClaudeRequest(responsesRequest: any, requestId: any = null) {
+    toClaudeRequest(responsesRequest: DynamicPayload, requestId: string | null = null): DynamicPayload {
         registerCustomTools(requestId, responsesRequest.tools);
-        const claudeRequest: any = {
+        const claudeRequest: DynamicPayload = {
             model: responsesRequest.model,
             messages: [],
             max_tokens: clampClaudeMaxTokens(responsesRequest.max_output_tokens ?? responsesRequest.max_tokens),
@@ -1208,7 +1209,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             claudeRequest.metadata = { user_id: String(metadataUserId) };
         }
 
-        const systemParts: any[] = [];
+        const systemParts: string[] = [];
         const normalizedInstructions = this._normalizeInstructions(responsesRequest.instructions);
         if (normalizedInstructions) {
             systemParts.push(normalizedInstructions);
@@ -1229,8 +1230,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
             }];
         }
 
-        const appendResponsesItems = (items: any) => {
-            items.forEach((item: any) => {
+        const appendResponsesItems = (items: DynamicPayload[]) => {
+            items.forEach((item: DynamicPayload) => {
                 if (!item) return;
                 const itemType = item.type || (item.role ? 'message' : '');
 
@@ -1238,8 +1239,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     case 'message':
                         if (item.role === 'system' || item.role === 'developer') {
                             const systemText = this._responsesContentToClaudeBlocks(item.content)
-                                .filter((block: any) => block.type === 'text')
-                                .map((block: any) => block.text)
+                                .filter((block: DynamicPayload) => block.type === 'text')
+                                .map((block: DynamicPayload) => block.text)
                                 .join('\n');
                             if (systemText) systemParts.push(systemText);
                             break;
@@ -1276,7 +1277,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         {
                             const summary = Array.isArray(item.summary) ? item.summary : [];
                             const thinkingText = summary
-                                .map((part: any) => part?.text ?? part?.summary_text ?? '')
+                                .map((part: DynamicPayload) => part?.text ?? part?.summary_text ?? '')
                                 .filter(Boolean)
                                 .join('\n');
                             if (thinkingText) {
@@ -1296,7 +1297,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesRequest.messages && Array.isArray(responsesRequest.messages)) {
-            appendResponsesItems(responsesRequest.messages.map((message: any) => ({
+            appendResponsesItems(responsesRequest.messages.map((message: DynamicPayload) => ({
                 type: 'message',
                 role: message.role,
                 content: message.content
@@ -1309,7 +1310,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
         // 处理工具
         if (responsesRequest.tools && Array.isArray(responsesRequest.tools)) {
-            const tools = responsesRequest.tools.map((tool: any) => this._mapResponsesToolToClaude(tool)).filter(Boolean);
+            const tools = responsesRequest.tools
+                .map((tool: DynamicPayload) => this._mapResponsesToolToClaude(tool))
+                .filter((tool): tool is DynamicPayload => tool !== null);
             if (tools.length > 0) {
                 claudeRequest.tools = sortToolsByName(tools);
             }
@@ -1332,13 +1335,13 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 响应转换为 Claude 响应
      */
-    toClaudeResponse(responsesResponse: any, model: any) {
-        const content: any[] = [];
+    toClaudeResponse(responsesResponse: DynamicPayload, model?: string): DynamicPayload {
+        const content: DynamicPayload[] = [];
         let stop_reason = 'end_turn';
-        let messageId: any = null;
+        let messageId: string | null = null;
 
         if (responsesResponse.output && Array.isArray(responsesResponse.output)) {
-            responsesResponse.output.forEach((item: any) => {
+            responsesResponse.output.forEach((item: DynamicPayload) => {
                 if (item.type === 'message') {
                     if (!messageId && item.id) {
                         messageId = item.id;
@@ -1367,7 +1370,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 } else if (item.type === 'reasoning') {
                     const thinking = extractResponsesReasoningText(item);
                     if (thinking) {
-                        const block: any = { type: 'thinking', thinking };
+                        const block: DynamicPayload = { type: 'thinking', thinking };
                         if (isSignatureVaultEnabled()) {
                             block.signature = mintVirtualSignature({
                                 sessionKey: responsesResponse.id || 'responses',
@@ -1398,7 +1401,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
     }
 
-    _getClaudeStreamState(requestId: any) {
+    _getClaudeStreamState(requestId: string | null | undefined): DynamicPayload {
         const key = requestId || 'default';
         if (!this.claudeStreamStates.has(key)) {
             this.claudeStreamStates.set(key, {
@@ -1425,7 +1428,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         return this.claudeStreamStates.get(key);
     }
 
-    _mapResponsesUsageToClaude(usage: any = {}) {
+    _mapResponsesUsageToClaude(usage: DynamicPayload = {}): DynamicPayload {
         return anthropicUsageFromInclusiveInput({
             inputTokens: usage.input_tokens || 0,
             cachedTokens: usage.input_tokens_details?.cached_tokens || 0,
@@ -1433,12 +1436,12 @@ export class OpenAIResponsesConverter extends BaseConverter {
         });
     }
 
-    _normalizeClaudeStreamIndex(chunk: any, state: any = null, kind: any = null) {
+    _normalizeClaudeStreamIndex(chunk: DynamicPayload, state: DynamicPayload | null = null, kind: 'text' | 'reasoning' | null = null): number {
         const outputIndex = chunk.output_index ?? chunk.content_index ?? 0;
         if (!state) return outputIndex;
         if (!(state.claudeIndexByOutput instanceof Map)) state.claudeIndexByOutput = new Map();
         if (!Number.isInteger(state.nextClaudeIndex)) state.nextClaudeIndex = 0;
-        let key: any;
+        let key: string;
         if (kind === 'text' || kind === 'reasoning') {
             key = `${kind}:${this._responsesPartKey(chunk, kind)}`;
         } else if (chunk.summary_index !== undefined) {
@@ -1458,10 +1461,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * 闭合 custom_tool_call 对应的 Claude tool_use 块。
      * custom tool 的 input 是自由文本，Claude 侧折叠为 {"input": "..."}。
      */
-    _completeCustomToolBlock(state: any, outputIndex: any, item: any, rawInput: any) {
+    _completeCustomToolBlock(state: DynamicPayload, outputIndex: unknown, item: DynamicPayload | null, rawInput: unknown): DynamicPayload[] {
         const key = String(outputIndex ?? 0);
         const index = this._normalizeClaudeStreamIndex({ output_index: outputIndex ?? 0 }, state);
-        const events: any[] = [];
+        const events: DynamicPayload[] = [];
         state.stopReason = 'tool_use';
         const toolItem = { ...(state.toolItemsByOutput.get(key) || {}), ...(item || {}) };
 
@@ -1504,7 +1507,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 流式块转换为 Claude 流式块
      */
-    toClaudeStreamChunk(responsesChunk: any, model: any, requestId: any = null) {
+    toClaudeStreamChunk(responsesChunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload | DynamicPayload[] | null {
         if (!responsesChunk) {
             return null;
         }
@@ -1540,7 +1543,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
             if (responsesChunk.part?.type === 'output_text' && !state.textBlocks.has(index)) {
                 state.textBlocks.add(index);
-                const events: any[] = [{
+                const events: DynamicPayload[] = [{
                     type: 'content_block_start',
                     index,
                     content_block: {
@@ -1564,7 +1567,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (responsesChunk.type === 'response.output_text.delta') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
             const text = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
             if (!state.textBlocks.has(index)) {
                 state.textBlocks.add(index);
                 events.push({
@@ -1593,7 +1596,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (responsesChunk.type === 'response.output_text.done' || responsesChunk.type === 'response.content_part.done') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
             if (!state.stoppedBlocks.has(`text:${index}`)) {
-                const events: any[] = [];
+                const events: DynamicPayload[] = [];
                 // 若上游只发送 done（含 text）而未发送非空 delta，先补齐 delta 再 stop。
                 // 注意：content_part.added 可能已经打开了 block，不能只看 textBlocks。
                 const fallbackText = responsesChunk.delta || responsesChunk.text || responsesChunk.part?.text || '';
@@ -1633,7 +1636,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             responsesChunk.type === 'response.reasoning_summary.delta') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'reasoning');
             const thinking = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
             if (!state.reasoningBlocks.has(index)) {
                 state.reasoningBlocks.add(index);
                 events.push({
@@ -1664,7 +1667,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             responsesChunk.type === 'response.reasoning.done') {
             const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'reasoning');
             if (!state.stoppedBlocks.has(`reasoning:${index}`)) {
-                const events: any[] = [];
+                const events: DynamicPayload[] = [];
                 const fallbackThinking = responsesChunk.delta || responsesChunk.text || '';
                 const partKey = this._responsesPartKey(responsesChunk, 'reasoning');
                 if (!state.reasoningBlocks.has(index)) {
@@ -1838,7 +1841,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (isTerminalResponsesEvent && Array.isArray(responsesChunk.response?.output)) {
-            if (responsesChunk.response.output.some((item: any) =>
+            if (responsesChunk.response.output.some((item: DynamicPayload) =>
                 item.type === 'function_call' || item.type === 'custom_tool_call'
             )) {
                 state.stopReason = 'tool_use';
@@ -1857,7 +1860,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             // 终止兜底：不能假设上游一定发送 output_text.done / reasoning_summary_text.done。
             // 若仍有未关闭块，必须在 message_delta 前补齐 content_block_stop，否则
             // Anthropic 客户端会收到结构非法的流。
-            const events: any[] = [];
+            const events: DynamicPayload[] = [];
             // custom tool 只收到 delta、没收到 done 时，先补齐自由文本 input。
             for (const [key, input] of state.customToolBuffers.entries()) {
                 if (state.customArgsSent.has(key)) continue;
@@ -1873,7 +1876,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     }
                 });
             }
-            const openBlocks: any[] = [];
+            const openBlocks: DynamicPayload[] = [];
             for (const index of state.reasoningBlocks) {
                 if (!state.stoppedBlocks.has(`reasoning:${index}`)) openBlocks.push({ index, type: 'reasoning' });
             }
@@ -1883,7 +1886,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
             for (const index of state.toolBlocks) {
                 if (!state.stoppedBlocks.has(`tool:${index}`)) openBlocks.push({ index, type: 'tool' });
             }
-            openBlocks.sort((a: any, b: any) => a.index - b.index);
+            openBlocks.sort((a: DynamicPayload, b: DynamicPayload) => a.index - b.index);
             for (const block of openBlocks) {
                 if (block.type === 'reasoning' && isSignatureVaultEnabled()) {
                     events.push({
@@ -1934,14 +1937,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 将 OpenAI Responses 请求转换为 Gemini 请求
      */
-    toGeminiRequest(responsesRequest: any, requestId: any = null) {
+    toGeminiRequest(responsesRequest: DynamicPayload, requestId: string | null = null): DynamicPayload {
         registerCustomTools(requestId, responsesRequest.tools);
-        const geminiRequest: any = {
+        const geminiRequest: DynamicPayload = {
             contents: [],
             generationConfig: {}
         };
 
-        const systemParts: any[] = [];
+        const systemParts: DynamicPayload[] = [];
         // 处理 instructions 作为系统指令
         const normalizedInstructions = this._normalizeInstructions(responsesRequest.instructions);
         if (normalizedInstructions) {
@@ -1953,7 +1956,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         // 处理 input 数组中的消息（支持从 messages 回退）
         let input = responsesRequest.input;
         if (!input && responsesRequest.messages && Array.isArray(responsesRequest.messages)) {
-            input = responsesRequest.messages.map((m: any) => ({
+            input = responsesRequest.messages.map((m: DynamicPayload) => ({
                 type: 'message',
                 role: m.role,
                 content: m.content
@@ -1973,14 +1976,14 @@ export class OpenAIResponsesConverter extends BaseConverter {
         if (input && Array.isArray(input)) {
             // 先扫描建立 call_id -> functionName 映射表
             const callIdToName = new Map();
-            input.forEach((item: any) => {
+            input.forEach((item: DynamicPayload) => {
                 const callId = item.call_id || item.id;
                 if ((item.type === 'function_call' || item.type === 'custom_tool_call') && item.name && callId) {
                     callIdToName.set(callId, item.name);
                 }
             });
 
-            input.forEach((item: any) => {
+            input.forEach((item: DynamicPayload) => {
                 const itemType = item.type || (item.role ? 'message' : '');
 
                 switch (itemType) {
@@ -1998,9 +2001,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     }
 
                     case 'message':
-                        const parts: any[] = [];
+                        const parts: DynamicPayload[] = [];
                         if (Array.isArray(item.content)) {
-                            item.content.forEach((c: any) => {
+                            item.content.forEach((c: DynamicPayload) => {
                                 if (c.type === 'input_text' || c.type === 'output_text' || c.type === 'text') {
                                     if (typeof c.text === 'string' && c.text.length > 0) {
                                         parts.push({ text: c.text });
@@ -2069,7 +2072,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         }
 
                         if (item.role === 'system' || item.role === 'developer') {
-                            const sysTextParts = parts.filter((p: any) => typeof p.text === 'string' && p.text.length > 0);
+                            const sysTextParts = parts.filter((p: DynamicPayload) => typeof p.text === 'string' && p.text.length > 0);
                             if (sysTextParts.length > 0) {
                                 systemParts.push(...sysTextParts);
                             }
@@ -2110,7 +2113,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         // Responses 的稳定配对键是 call_id；item.id（fc_*）只是 output item 标识。
                         const callId = item.call_id || item.id;
                         const callName = item.name || (callId && callIdToName.get(callId)) || 'function_call';
-                        const fc: any = {
+                        const fc: DynamicPayload = {
                             name: callName,
                             args: parsedArgs
                         };
@@ -2130,10 +2133,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         const callId = item.call_id || item.id;
                         const callName = item.name || (callId && callIdToName.get(callId)) || (callId ? `call_${callId}` : 'function_call');
                         let responseObj = { content: item.output };
-                        const extraMediaParts: any[] = [];
+                        const extraMediaParts: DynamicPayload[] = [];
                         if (Array.isArray(item.output)) {
-                            const textSegments: any[] = [];
-                            item.output.forEach((part: any) => {
+                            const textSegments: string[] = [];
+                            item.output.forEach((part: DynamicPayload) => {
                                 if (!part) return;
                                 if (typeof part === 'string') {
                                     textSegments.push(part);
@@ -2196,7 +2199,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                                 responseObj = { content: item.output };
                             }
                         }
-                        const fr: any = {
+                        const fr: DynamicPayload = {
                             name: callName,
                             response: responseObj
                         };
@@ -2268,8 +2271,8 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 }
             }
             const decls = responsesRequest.tools
-                .filter((tool: any) => !tool.type || tool.type === 'function' || tool.type === 'custom')
-                .map((tool: any) => {
+                .filter((tool: DynamicPayload) => !tool.type || tool.type === 'function' || tool.type === 'custom')
+                .map((tool: DynamicPayload): DynamicPayload => {
                     const name = tool.name || tool.function?.name;
                     const description = tool.description || tool.function?.description;
                     let parameters = tool.parameters || tool.function?.parameters || tool.parametersJsonSchema;
@@ -2296,7 +2299,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         parameters
                     };
                 })
-                .filter((fn: any) => Boolean(fn.name));
+                .filter((fn): fn is DynamicPayload => Boolean(fn.name));
             geminiRequest.tools = [{
                 functionDeclarations: sortToolsByName(decls)
             }];
@@ -2348,7 +2351,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * OpenAI Responses → Codex 请求转换
      */
-    toCodexRequest(responsesRequest: any, requestId: any = null) {
+    toCodexRequest(responsesRequest: DynamicPayload, requestId: string | null = null): DynamicPayload {
         return this.codexConverter.toOpenAIResponsesToCodexRequest(responsesRequest, requestId);
     }
 
@@ -2356,7 +2359,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     // 辅助方法
     // =============================================================================
 
-    toOpenAIModelList(responsesModels: any) {
+    toOpenAIModelList(responsesModels: DynamicPayload) {
         // OpenAI Responses 格式的模型列表已经是标准 OpenAI 格式
         // 如果输入已经是标准格式,直接返回
         if (responsesModels.object === 'list' && responsesModels.data) {
@@ -2366,7 +2369,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         // 如果是其他格式,转换为标准格式
         return {
             object: "list",
-            data: (responsesModels.models || responsesModels.data || []).map((m: any) => ({
+            data: (responsesModels.models || responsesModels.data || []).map((m: DynamicPayload) => ({
                 id: m.id || m.name,
                 object: "model",
                 created: m.created || Math.floor(Date.now() / 1000),
