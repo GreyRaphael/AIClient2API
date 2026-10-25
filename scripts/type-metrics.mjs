@@ -2,16 +2,25 @@
 /**
  * Type-debt metrics for the TypeScript migration (Phase 5 ratchet).
  *
- * This script never fails: it prints the current `@ts-nocheck` backlog so the
- * number can be tracked across commits.
+ * Without arguments it only prints the current backlog. With `--check` it
+ * fails when any metric exceeds `scripts/any-baseline.json`; with `--update`
+ * it rewrites the baseline.
+ *
+ * The `any` metric is reported in two ways:
+ * - legacy regex counts (`: any`, `as any`) for continuity;
+ * - AST `AnyKeyword` node count across the src and types trees, which also
+ *   covers generic positions such as `Record<string, any>` and
+ *   `Promise<any>` that the regex intentionally misses.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'src');
+const TYPES = path.join(ROOT, 'types');
 
 function walk(dir, out = []) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -54,6 +63,29 @@ const anyAssertions = countMatches(/\bas\s+any\b/g);
 const unknownAnnotations = countMatches(/:\s*unknown\b/g);
 const unknownAssertions = countMatches(/\bas\s+unknown\b/g);
 
+const typeFiles = walk(TYPES).filter((file) => file.endsWith('.ts'));
+
+function countAnyNodes(file) {
+    const sourceFile = ts.createSourceFile(
+        file,
+        fs.readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    let count = 0;
+    const visit = (node) => {
+        if (node.kind === ts.SyntaxKind.AnyKeyword) count += 1;
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return count;
+}
+
+const srcAnyNodes = tsFiles.reduce((total, file) => total + countAnyNodes(file), 0);
+const typeAnyNodes = typeFiles.reduce((total, file) => total + countAnyNodes(file), 0);
+const anyNodes = srcAnyNodes + typeAnyNodes;
+
 const ANY_BASELINE_PATH = path.join(ROOT, 'scripts', 'any-baseline.json');
 const args = new Set(process.argv.slice(2));
 const shouldCheckAny = args.has('--check');
@@ -62,9 +94,15 @@ const shouldUpdateAny = args.has('--update');
 function writeAnyBaseline() {
     fs.writeFileSync(ANY_BASELINE_PATH, `${JSON.stringify({
         annotations: anyAnnotations,
-        assertions: anyAssertions
+        assertions: anyAssertions,
+        anyNodes,
+        srcAnyNodes,
+        typeAnyNodes
     }, null, 2)}\n`);
-    console.log(`[type-metrics] any baseline updated: ${anyAnnotations} annotations / ${anyAssertions} assertions`);
+    console.log(
+        `[type-metrics] any baseline updated: ${anyAnnotations} annotations / ${anyAssertions} assertions / ` +
+        `${anyNodes} AST nodes (src=${srcAnyNodes}, types=${typeAnyNodes})`
+    );
 }
 
 if (shouldUpdateAny) {
@@ -75,20 +113,29 @@ if (shouldUpdateAny) {
         process.exit(1);
     }
     const baseline = JSON.parse(fs.readFileSync(ANY_BASELINE_PATH, 'utf8'));
-    if (anyAnnotations > baseline.annotations || anyAssertions > baseline.assertions) {
+    if (typeof baseline.anyNodes !== 'number') {
+        console.error('[type-metrics] Baseline is missing the AST any-node metric; run npm run metrics:types -- --update');
+        process.exit(1);
+    }
+    if (
+        anyAnnotations > baseline.annotations
+        || anyAssertions > baseline.assertions
+        || anyNodes > baseline.anyNodes
+    ) {
         console.error(
-            `[type-metrics] any ratchet failed: current ${anyAnnotations}/${anyAssertions}, ` +
-            `baseline ${baseline.annotations}/${baseline.assertions}`
+            `[type-metrics] any ratchet failed: current ${anyAnnotations}/${anyAssertions}/${anyNodes}, ` +
+            `baseline ${baseline.annotations}/${baseline.assertions}/${baseline.anyNodes}`
         );
         process.exit(1);
     }
-    console.log('[type-metrics] any ratchet OK (annotations/assertions did not increase)');
+    console.log('[type-metrics] any ratchet OK (annotations/assertions/AST nodes did not increase)');
 }
 
 console.log('[type-metrics] TypeScript files:', tsFiles.length);
 console.log('[type-metrics] JavaScript files:', jsFiles.length);
 console.log(`[type-metrics] @ts-nocheck: ${nocheckFiles.length} files / ${lineCount(nocheckFiles)} lines`);
 console.log(`[type-metrics] any: ${anyAnnotations} annotations / ${anyAssertions} assertions`);
+console.log(`[type-metrics] any AST nodes: ${anyNodes} (src=${srcAnyNodes}, types=${typeAnyNodes})`);
 console.log(`[type-metrics] unknown: ${unknownAnnotations} annotations / ${unknownAssertions} assertions`);
 console.log('[type-metrics] per directory:');
 for (const [directory, entry] of [...perDirectory.entries()].sort(([a], [b]) => a.localeCompare(b))) {

@@ -1,4 +1,7 @@
 {
   "annotations": 234,
-  "assertions": 6
+  "assertions": 6,
+  "anyNodes": 395,
+  "srcAnyNodes": 333,
+  "typeAnyNodes": 62
 }

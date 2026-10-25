@@ -103,7 +103,7 @@ npm run test:e2e:providers
 
 ## 注意
 
-- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 19 个模型时约 209 次核心请求，另有 6 项通用定向契约。4 项 provider 方言 canary 仅在 `test:e2e:providers` 中运行。
+- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 20 个模型时约 220 次核心请求，另有 6 项通用定向契约。4 项 provider 方言 canary 仅在 `test:e2e:providers` 中运行。
 - 建议使用独立实例端口，避免影响主实例。
 - 默认串行执行（`--runInBand`），避免并发触发上游限流。
 - 发布前建议至少跑一次默认全量矩阵；仅本地快速回归时可传 `AICLIENT_E2E_MODELS=...` 子集。
