@@ -1,10 +1,15 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
+
+type DynamicPayload = Record<string, any>;
+
 import { existsSync, readFileSync } from 'fs';
 
-function getProviderPoolsFilePath(currentConfig: any) {
+function getProviderPoolsFilePath(currentConfig: DynamicPayload): string {
     return currentConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
 }
 
-function getDefaultProviders(currentConfig: any) {
+function getDefaultProviders(currentConfig: DynamicPayload): string[] {
     if (Array.isArray(currentConfig.DEFAULT_MODEL_PROVIDERS) && currentConfig.DEFAULT_MODEL_PROVIDERS.length > 0) {
         return currentConfig.DEFAULT_MODEL_PROVIDERS.filter(Boolean);
     }
@@ -12,19 +17,22 @@ function getDefaultProviders(currentConfig: any) {
     if (typeof currentConfig.MODEL_PROVIDER === 'string' && currentConfig.MODEL_PROVIDER.trim()) {
         return currentConfig.MODEL_PROVIDER
             .split(',')
-            .map((item: any) => item.trim())
+            .map((item: string) => item.trim())
             .filter(Boolean);
     }
 
     return [];
 }
 
-function collectProviderStatus(currentConfig: any, providerPoolManager: any) {
-    const providerStatus = {};
+function collectProviderStatus(
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): Record<string, DynamicPayload[]> {
+    const providerStatus: Record<string, DynamicPayload[]> = {};
 
     if (providerPoolManager?.providerStatus) {
-        for (const [type, providers] of Object.entries(providerPoolManager.providerStatus as Record<string, any>)) {
-            (providerStatus as any)[type] = providers.map((provider: any) => ({
+        for (const [type, providers] of Object.entries(providerPoolManager.providerStatus as Record<string, DynamicPayload[]>)) {
+            providerStatus[type] = providers.map((provider: DynamicPayload) => ({
                 ...provider.config,
                 activeRequests: provider.state?.activeCount || 0,
                 waitingRequests: provider.state?.waitingCount || 0
@@ -37,11 +45,11 @@ function collectProviderStatus(currentConfig: any, providerPoolManager: any) {
         try {
             const poolsData = JSON.parse(readFileSync(filePath, 'utf-8'));
             for (const [type, providers] of Object.entries(poolsData)) {
-                if (!(providerStatus as any)[type] || (providerStatus as any)[type].length === 0) {
-                    (providerStatus as any)[type] = Array.isArray(providers) ? providers : [];
+                if (!providerStatus[type] || providerStatus[type].length === 0) {
+                    providerStatus[type] = Array.isArray(providers) ? providers as DynamicPayload[] : [];
                 }
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             console.warn('[Access API] Failed to read provider pools file:', error.message);
         }
     }
@@ -49,18 +57,22 @@ function collectProviderStatus(currentConfig: any, providerPoolManager: any) {
     return providerStatus;
 }
 
-function buildProviderSummaries(providerStatus: any, defaultProviders: any, registeredProviders: any = []) {
+function buildProviderSummaries(
+    providerStatus: Record<string, DynamicPayload[]>,
+    defaultProviders: string[],
+    registeredProviders: string[] = []
+) {
     const supportedProviders = [...new Set([
         ...registeredProviders,
         ...Object.keys(providerStatus)
     ])];
 
-    const providerSummaries = supportedProviders.map((id: any) => {
+    const providerSummaries = supportedProviders.map((id: string) => {
         const providers = Array.isArray(providerStatus[id]) ? providerStatus[id] : [];
         const totalNodes = providers.length;
-        const healthyNodes = providers.filter((provider: any) => provider.isHealthy).length;
-        const disabledNodes = providers.filter((provider: any) => provider.isDisabled).length;
-        const usableNodes = providers.filter((provider: any) => provider.isHealthy && !provider.isDisabled).length;
+        const healthyNodes = providers.filter((provider: DynamicPayload) => provider.isHealthy).length;
+        const disabledNodes = providers.filter((provider: DynamicPayload) => provider.isDisabled).length;
+        const usableNodes = providers.filter((provider: DynamicPayload) => provider.isHealthy && !provider.isDisabled).length;
 
         return {
             id,
@@ -73,7 +85,7 @@ function buildProviderSummaries(providerStatus: any, defaultProviders: any, regi
         };
     });
 
-    providerSummaries.sort((left: any, right: any) => {
+    providerSummaries.sort((left, right) => {
         if (left.isDefault !== right.isDefault) {
             return left.isDefault ? -1 : 1;
         }
@@ -89,7 +101,11 @@ function buildProviderSummaries(providerStatus: any, defaultProviders: any, regi
     };
 }
 
-export function buildAccessInfoPayload(currentConfig: any, providerPoolManager: any, registeredProviders: any = []) {
+export function buildAccessInfoPayload(
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null,
+    registeredProviders: string[] = []
+): DynamicPayload {
     const defaultProviders = getDefaultProviders(currentConfig);
     const providerStatus = collectProviderStatus(currentConfig, providerPoolManager);
     const { supportedProviders, providerSummaries } = buildProviderSummaries(providerStatus, defaultProviders, registeredProviders);
@@ -104,7 +120,12 @@ export function buildAccessInfoPayload(currentConfig: any, providerPoolManager: 
     };
 }
 
-export async function handleGetAccessInfo(req: any, res: any, currentConfig: any, providerPoolManager: any) {
+export async function handleGetAccessInfo(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: DynamicPayload,
+    providerPoolManager: ProviderPoolManager | null
+): Promise<boolean> {
     const { getRegisteredProviders } = await import('../providers/adapter.ts');
     const payload = buildAccessInfoPayload(currentConfig, providerPoolManager, getRegisteredProviders());
     res.writeHead(200, { 'Content-Type': 'application/json' });

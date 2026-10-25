@@ -5,13 +5,24 @@ import { broadcastEvent } from './event-broadcast.ts';
 import { fetchMarketPlugins, installPlugin, installPluginFromBuffer } from '../services/plugin-installer.ts';
 import multer from 'multer';
 import path from 'path';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+
+interface MulterFileLike {
+    originalname: string;
+    buffer: Buffer;
+    [key: string]: unknown;
+}
+
+type UploadRequest = IncomingMessage & { file?: MulterFileLike };
 
 // 配置插件上传
 const storage = multer.memoryStorage();
 const pluginUpload = multer({
     storage,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB 限制
-    fileFilter: (req: any, file: any, cb: any) => {
+    fileFilter: (_req: unknown, file: MulterFileLike, cb: (error: unknown, acceptFile?: boolean) => void): void => {
         if (path.extname(file.originalname).toLowerCase() === '.zip') {
             cb(null, true);
         } else {
@@ -23,14 +34,14 @@ const pluginUpload = multer({
 /**
  * 获取插件列表
  */
-export async function handleGetPlugins(req: any, res: any) {
+export async function handleGetPlugins(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
         const pluginManager = getPluginManager();
         const plugins = pluginManager.getPluginList();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ plugins }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to get plugins:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -45,9 +56,9 @@ export async function handleGetPlugins(req: any, res: any) {
 /**
  * 上传并安装插件
  */
-export async function handleUploadPlugin(req: any, res: any) {
-    return new Promise((resolve: any) => {
-        pluginUpload.single('file')(req, res, async (err: any) => {
+export async function handleUploadPlugin(req: UploadRequest, res: ServerResponse): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+        pluginUpload.single('file')(req, res, async (err: unknown) => {
             if (err) {
                 logger.error('[UI API] Plugin upload validation failed:', err);
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -75,7 +86,7 @@ export async function handleUploadPlugin(req: any, res: any) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: true, message: '插件上传并安装成功' }));
                 resolve(true);
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 logger.error('[UI API] Failed to upload plugin:', error);
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: { message: '插件安装失败' } }));
@@ -89,16 +100,16 @@ export async function handleUploadPlugin(req: any, res: any) {
 /**
  * 获取插件市场列表
  */
-export async function handleGetMarketPlugins(req: any, res: any) {
+export async function handleGetMarketPlugins(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const urlObj = new URL(req.url, `http://${req.headers.host}`);
+        const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         const updateUrl = urlObj.searchParams.get('url');
 
         const marketPlugins = await fetchMarketPlugins(updateUrl);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ plugins: marketPlugins }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to fetch market plugins:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -113,9 +124,9 @@ export async function handleGetMarketPlugins(req: any, res: any) {
 /**
  * 安装插件
  */
-export async function handleInstallPlugin(req: any, res: any) {
+export async function handleInstallPlugin(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { plugin } = body;
 
         if (!plugin || !plugin.id || !plugin.downloadUrl) {
@@ -136,7 +147,7 @@ export async function handleInstallPlugin(req: any, res: any) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, message: `插件 ${plugin.id} 安装成功` }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to install plugin:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -151,9 +162,9 @@ export async function handleInstallPlugin(req: any, res: any) {
 /**
  * 切换插件状态
  */
-export async function handleTogglePlugin(req: any, res: any, pluginName: any) {
+export async function handleTogglePlugin(req: IncomingMessage, res: ServerResponse, pluginName: string): Promise<boolean> {
     try {
-        const body = await getRequestBody(req) as any;
+        const body = await getRequestBody(req) as DynamicPayload;
         const { enabled } = body;
 
         if (typeof enabled !== 'boolean') {
@@ -187,7 +198,7 @@ export async function handleTogglePlugin(req: any, res: any, pluginName: any) {
             }
         }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to toggle plugin:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -202,7 +213,7 @@ export async function handleTogglePlugin(req: any, res: any, pluginName: any) {
 /**
  * 卸载插件
  */
-export async function handleUninstallPlugin(req: any, res: any, pluginName: any) {
+export async function handleUninstallPlugin(req: IncomingMessage, res: ServerResponse, pluginName: string): Promise<boolean> {
     try {
         const pluginManager = getPluginManager();
         await pluginManager.uninstallPlugin(pluginName);
@@ -220,7 +231,7 @@ export async function handleUninstallPlugin(req: any, res: any, pluginName: any)
             message: `Plugin ${pluginName} uninstalled successfully`
         }));
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to uninstall plugin:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

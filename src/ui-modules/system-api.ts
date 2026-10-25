@@ -1,3 +1,7 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+
 import { existsSync, readFileSync, createReadStream } from 'fs';
 import logger from '../utils/logger.ts';
 import path from 'path';
@@ -6,7 +10,7 @@ import { getCpuUsagePercent } from './system-monitor.ts';
 /**
  * 获取系统信息
  */
-export async function handleGetSystem(req: any, res: any) {
+export async function handleGetSystem(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const memUsage = process.memoryUsage();
 
     // 读取版本号
@@ -16,7 +20,7 @@ export async function handleGetSystem(req: any, res: any) {
         if (existsSync(versionFilePath)) {
             appVersion = readFileSync(versionFilePath, 'utf8').trim();
         }
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.warn('[UI API] Failed to read VERSION file:', error.message);
     }
 
@@ -49,7 +53,7 @@ export async function handleGetSystem(req: any, res: any) {
 /**
  * 下载当日日志
  */
-export async function handleDownloadTodayLog(req: any, res: any) {
+export async function handleDownloadTodayLog(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
         if (!logger.currentLogFile || !existsSync(logger.currentLogFile)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -66,7 +70,7 @@ export async function handleDownloadTodayLog(req: any, res: any) {
         const readStream = createReadStream(logger.currentLogFile);
         readStream.pipe(res);
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to download log:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'Failed to download log: ' + error.message } }));
@@ -77,7 +81,7 @@ export async function handleDownloadTodayLog(req: any, res: any) {
 /**
  * 清空当日日志
  */
-export async function handleClearTodayLog(req: any, res: any) {
+export async function handleClearTodayLog(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
         const success = logger.clearTodayLog();
 
@@ -103,7 +107,7 @@ export async function handleClearTodayLog(req: any, res: any) {
             }));
         }
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to clear log:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -117,7 +121,7 @@ export async function handleClearTodayLog(req: any, res: any) {
 /**
  * 健康检查接口（用于前端token验证）
  */
-export async function handleHealthCheck(req: any, res: any) {
+export async function handleHealthCheck(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
     return true;
@@ -126,7 +130,7 @@ export async function handleHealthCheck(req: any, res: any) {
 /**
  * 获取服务模式信息
  */
-export async function handleGetServiceMode(req: any, res: any) {
+export async function handleGetServiceMode(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
     const masterPort = process.env.MASTER_PORT || 3100;
 
@@ -147,7 +151,7 @@ export async function handleGetServiceMode(req: any, res: any) {
 /**
  * 重启服务端点 - 支持主进程-子进程架构
  */
-export async function handleRestartService(req: any, res: any) {
+export async function handleRestartService(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
         const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
 
@@ -187,7 +191,7 @@ export async function handleRestartService(req: any, res: any) {
             }));
         }
         return true;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to restart service:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

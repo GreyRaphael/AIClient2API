@@ -1,3 +1,7 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+
 import { atomicWriteFile } from '../utils/file-lock.ts';
 import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
@@ -33,7 +37,7 @@ export async function readPasswordFile() {
         }
         logger.info('[Auth] Successfully read password file');
         return trimmedPassword;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         // ENOENT means file does not exist, which is normal
         if (error.code === 'ENOENT') {
             logger.info('[Auth] Password file does not exist, using default password: ' + DEFAULT_PASSWORD);
@@ -48,7 +52,7 @@ export async function readPasswordFile() {
 /**
  * 验证登录凭据
  */
-export async function validateCredentials(password: any) {
+export async function validateCredentials(password: string | null | undefined): Promise<boolean> {
     const storedPassword = await readPasswordFile();
     if (!storedPassword || !password) return false;
 
@@ -57,8 +61,8 @@ export async function validateCredentials(password: any) {
         const parts = storedPassword.split(':');
         if (parts.length !== 3) return false;
         const [, salt, storedHash] = parts;
-        const inputHash = await new Promise<string>((resolve: any, reject: any) =>
-            crypto.pbkdf2(password.trim(), salt as string, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err: any, key: any) =>
+        const inputHash = await new Promise<string>((resolve, reject) =>
+            crypto.pbkdf2(password.trim(), salt, PASSWORD.PBKDF2_ITERATIONS, PASSWORD.PBKDF2_KEYLEN, PASSWORD.PBKDF2_DIGEST, (err: Error | null, key: Buffer) =>
                 err ? reject(err) : resolve(key.toString('hex'))
             )
         );
@@ -78,8 +82,8 @@ export async function validateCredentials(password: any) {
  * @param {import('node:http').IncomingMessage} req
  * @param {number} maxBytes 最大允许字节数，默认 10KB（登录接口够用）
  */
-function parseRequestBody(req: any, maxBytes: any = 10 * 1024) {
-    return new Promise((resolve: any, reject: any) => {
+function parseRequestBody(req: IncomingMessage, maxBytes = 10 * 1024): Promise<DynamicPayload> {
+    return new Promise((resolve, reject) => {
         // 1. 先检查 Content-Length header，快速拒绝超大请求（零读取开销）
         const contentLength = parseInt(req.headers['content-length'] || '0', 10);
         if (!isNaN(contentLength) && contentLength > maxBytes) {
@@ -90,7 +94,7 @@ function parseRequestBody(req: any, maxBytes: any = 10 * 1024) {
         let body = '';
         let received = 0;
 
-        req.on('data', (chunk: any) => {
+        req.on('data', (chunk: Buffer) => {
             received += chunk.length;
             if (received > maxBytes) {
                 // 超限：立即销毁连接，不再累积数据
@@ -103,7 +107,7 @@ function parseRequestBody(req: any, maxBytes: any = 10 * 1024) {
         req.on('end', () => {
             try {
                 resolve(body.trim() ? JSON.parse(body) : {});
-            } catch (error: any) {
+            } catch (caught) { const error = caught as DynamicPayload;
                 reject(new Error('Invalid JSON format'));
             }
         });
@@ -132,7 +136,7 @@ function getExpiryTime() {
 /**
  * 读取token存储文件
  */
-async function readTokenStore() {
+async function readTokenStore(): Promise<{ tokens: Record<string, DynamicPayload> }> {
     try {
         if (existsSync(TOKEN_STORE_FILE)) {
             const content = await fs.readFile(TOKEN_STORE_FILE, 'utf8');
@@ -142,7 +146,7 @@ async function readTokenStore() {
             await writeTokenStore({ tokens: {} });
             return { tokens: {} };
         }
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Token Store] Failed to read token store file:', error);
         return { tokens: {} };
     }
@@ -151,10 +155,10 @@ async function readTokenStore() {
 /**
  * 写入token存储文件
  */
-async function writeTokenStore(tokenStore: any) {
+async function writeTokenStore(tokenStore: { tokens: Record<string, DynamicPayload> }): Promise<void> {
     try {
         await atomicWriteFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), { encoding: 'utf8', mode: 0o600 });
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Token Store] Failed to write token store file:', error);
     }
 }
@@ -162,7 +166,7 @@ async function writeTokenStore(tokenStore: any) {
 /**
  * 验证简单token
  */
-export async function verifyToken(token: any) {
+export async function verifyToken(token: string): Promise<DynamicPayload | null> {
     const tokenStore = await readTokenStore();
     const tokenInfo = tokenStore.tokens[token];
     if (!tokenInfo) {
@@ -181,7 +185,7 @@ export async function verifyToken(token: any) {
 /**
  * 保存token到本地文件
  */
-async function saveToken(token: any, tokenInfo: any) {
+async function saveToken(token: string, tokenInfo: DynamicPayload): Promise<void> {
     const tokenStore = await readTokenStore();
     tokenStore.tokens[token] = tokenInfo;
     await writeTokenStore(tokenStore);
@@ -190,7 +194,7 @@ async function saveToken(token: any, tokenInfo: any) {
 /**
  * 删除token
  */
-async function deleteToken(token: any) {
+async function deleteToken(token: string): Promise<void> {
     const tokenStore = await readTokenStore();
     if (tokenStore.tokens[token]) {
         delete tokenStore.tokens[token];
@@ -202,7 +206,7 @@ async function deleteToken(token: any) {
  * 管理登录尝试频率和锁定
  */
 class LoginAttemptManager {
-    attempts: Map<string, any>;
+    attempts: Map<string, DynamicPayload>;
 
     constructor() {
         this.attempts = new Map(); // IP -> { count, lastAttempt, lockoutUntil }
@@ -211,17 +215,17 @@ class LoginAttemptManager {
     /**
      * 获取 IP 的状态
      */
-    getIpStatus(ip: any) {
+    getIpStatus(ip: string): DynamicPayload {
         if (!this.attempts.has(ip)) {
             this.attempts.set(ip, { count: 0, lastAttempt: 0, lockoutUntil: 0 });
         }
-        return this.attempts.get(ip);
+        return this.attempts.get(ip)!;
     }
 
     /**
      * 检查是否被锁定
      */
-    isLockedOut(ip: any) {
+    isLockedOut(ip: string): { locked: boolean; remainingTime?: number } {
         const status = this.getIpStatus(ip);
         if (status.lockoutUntil > Date.now()) {
             return {
@@ -240,7 +244,7 @@ class LoginAttemptManager {
     /**
      * 检查是否请求过于频繁
      */
-    isTooFrequent(ip: any) {
+    isTooFrequent(ip: string): boolean {
         const status = this.getIpStatus(ip);
         const minInterval = CONFIG.LOGIN_MIN_INTERVAL || 1000;
         const now = Date.now();
@@ -254,7 +258,7 @@ class LoginAttemptManager {
     /**
      * 记录一次失败
      */
-    recordFailure(ip: any) {
+    recordFailure(ip: string): boolean {
         const status = this.getIpStatus(ip);
         status.count++;
         const maxAttempts = CONFIG.LOGIN_MAX_ATTEMPTS || 5;
@@ -271,7 +275,7 @@ class LoginAttemptManager {
     /**
      * 成功后重置
      */
-    reset(ip: any) {
+    reset(ip: string): void {
         this.attempts.delete(ip);
     }
 }
@@ -302,8 +306,8 @@ export async function cleanupExpiredTokens() {
  * 检查token验证
  * 支持 Authorization Header 或 URL 参数 token (用于 SSE)
  */
-export async function checkAuth(req: any) {
-    let token: any = null;
+export async function checkAuth(req: IncomingMessage): Promise<boolean> {
+    let token: string | null = null;
 
     // 1. 检查 Authorization header
     const authHeader = req.headers.authorization;
@@ -316,7 +320,7 @@ export async function checkAuth(req: any) {
         try {
             const url = new URL(req.url, 'http://localhost');
             token = url.searchParams.get('token');
-        } catch (e: any) {
+        } catch (caught) { const e = caught as DynamicPayload;
             // 解析失败忽略
         }
     }
@@ -333,7 +337,7 @@ export async function checkAuth(req: any) {
 /**
  * 处理登录请求
  */
-export async function handleLoginRequest(req: any, res: any) {
+export async function handleLoginRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     if (req.method !== 'POST') {
         res.writeHead(405, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -373,7 +377,7 @@ export async function handleLoginRequest(req: any, res: any) {
     }
 
     try {
-        const requestData = await parseRequestBody(req) as any;
+        const requestData = await parseRequestBody(req);
         const { password } = requestData;
 
         if (!password) {
@@ -434,7 +438,7 @@ export async function handleLoginRequest(req: any, res: any) {
             }));
         }
 
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Auth] Login processing error:', error);
         const isJsonError = error.message === 'Invalid JSON format';
         const isBodyTooLarge = error.code === 'BODY_TOO_LARGE';

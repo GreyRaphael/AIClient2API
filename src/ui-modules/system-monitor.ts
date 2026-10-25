@@ -1,11 +1,15 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+type DynamicPayload = Record<string, any>;
+
 import os from 'os';
 import { execSync } from 'child_process';
 
 // CPU 使用率计算相关变量
-let previousCpuInfo: any = null;
+let previousCpuInfo: { idle: number; total: number } | null = null;
 
 // 进程 CPU 使用率计算相关变量 (PID -> info)
-const processCpuInfoMap = new Map();
+const processCpuInfoMap = new Map<number, DynamicPayload>();
 
 /**
  * 获取系统 CPU 使用率百分比
@@ -19,7 +23,7 @@ export function getSystemCpuUsagePercent() {
 
     for (const cpu of cpus) {
         for (const type in cpu.times) {
-            totalTick += (cpu.times as any)[type];
+            totalTick += cpu.times[type as keyof typeof cpu.times];
         }
         totalIdle += cpu.times.idle;
     }
@@ -50,7 +54,7 @@ export function getSystemCpuUsagePercent() {
  * @param {number} pid - 进程 ID
  * @returns {string} CPU 使用率字符串，如 "5.2%"
  */
-export function getProcessCpuUsagePercent(pid: any) {
+export function getProcessCpuUsagePercent(pid: number | null): string {
     if (!pid) return '0.0%';
 
     try {
@@ -116,14 +120,14 @@ export function getProcessCpuUsagePercent(pid: any) {
                 if (lines.length >= 2) {
                     cpuPercent = parseFloat(lines[1].trim());
                 }
-            } catch (e: any) {
+            } catch (caught) { const e = caught as DynamicPayload;
                 // 如果 ps -p 失败，尝试更通用的 ps 方式或直接忽略
                 cpuPercent = 0;
             }
         }
 
         return `${Math.max(0, cpuPercent).toFixed(1)}%`;
-    } catch (error: any) {
+    } catch (caught) { const error = caught as DynamicPayload;
         // 忽略进程不存在等错误
         return '0.0%';
     }
