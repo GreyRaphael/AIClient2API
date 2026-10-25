@@ -624,7 +624,7 @@ export class TraeApiService {
                 } else if (typeof msg.content === 'object' && msg.content !== null && !Array.isArray(msg.content)) {
                     try {
                         msg.content = [{ type: 'text', text: JSON.stringify(msg.content) }];
-                    } catch (caught) { const _ = caught as DynamicPayload;
+                    } catch {
                         msg.content = [{ type: 'text', text: String(msg.content) }];
                     }
                 } else if (Array.isArray(msg.content)) {
@@ -703,7 +703,7 @@ export class TraeApiService {
                     if (fn.parameters && typeof fn.parameters === 'object') {
                         try {
                             fn.parameters = JSON.stringify(fn.parameters);
-                        } catch (caught) { const _ = caught as DynamicPayload; }
+                        } catch { }
                     }
                     toolObj.function = fn;
                     validTools.push(toolObj);
@@ -785,13 +785,13 @@ export class TraeApiService {
                         const chunks: Buffer[] = [];
                         for await (const chunk of errData) chunks.push(chunk);
                         errMsg = Buffer.concat(chunks).toString('utf-8');
-                    } catch (caught) { const _ = caught as DynamicPayload;
+                    } catch {
                         errMsg = err.message;
                     }
                 } else {
                     try {
                         errMsg = JSON.stringify(errData);
-                    } catch (caught) { const _ = caught as DynamicPayload;
+                    } catch {
                         errMsg = err.message;
                     }
                 }

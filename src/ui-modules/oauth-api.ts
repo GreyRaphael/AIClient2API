@@ -15,14 +15,10 @@ import {
     handleCodexOAuth,
     batchImportCodexTokensStream
 } from '../auth/codex-oauth.ts';
-import {
-    handleZedOAuth,
-    handleZedOAuthCallback
-} from '../auth/zed-oauth.ts';
+import { handleZedOAuth } from '../auth/zed-oauth.ts';
 import {
     handleTraePATLogin,
     handleTraeOAuth,
-    buildTraeWebLoginUrl
 } from '../auth/trae-auth.ts';
 import { normalizeCodexExternalCredentials } from '../auth/codex-import-normalizer.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
@@ -44,7 +40,7 @@ export async function handleGenerateAuthUrl(req: IncomingMessage, res: ServerRes
         try {
             options = await getRequestBody(req) as DynamicPayload;
             logger.debug(`[UI API] Parsed options for ${providerType}:`, JSON.stringify(options));
-        } catch (caught) { const e = caught as DynamicPayload;
+        } catch {
             logger.warn(`[UI API] Failed to parse request body for ${providerType}, using empty options`);
         }
 
@@ -139,7 +135,7 @@ export async function handleGenerateAuthUrl(req: IncomingMessage, res: ServerRes
 export async function handleManualOAuthCallback(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     try {
         const body = await getRequestBody(req) as DynamicPayload;
-        const { provider, callbackUrl, authMethod } = body;
+        const { provider, callbackUrl } = body;
 
         if (!provider || !callbackUrl) {
             res.writeHead(400, { 'Content-Type': 'application/json' });

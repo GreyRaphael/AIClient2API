@@ -1,7 +1,6 @@
 import readline from 'readline';
 import { handleZedOAuth, handleZedOAuthCallback } from '../auth/zed-oauth.ts';
 import { CONFIG, initializeConfig } from '../core/config-manager.ts';
-import logger from '../utils/logger.ts';
 import { getErrorMessage } from '../utils/error.ts';
 async function main() {
     await initializeConfig();

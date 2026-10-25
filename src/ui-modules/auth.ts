@@ -107,7 +107,7 @@ function parseRequestBody(req: IncomingMessage, maxBytes = 10 * 1024): Promise<D
         req.on('end', () => {
             try {
                 resolve(body.trim() ? JSON.parse(body) : {});
-            } catch (caught) { const error = caught as DynamicPayload;
+            } catch {
                 reject(new Error('Invalid JSON format'));
             }
         });
@@ -122,16 +122,6 @@ function parseRequestBody(req: IncomingMessage, maxBytes = 10 * 1024): Promise<D
 function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }
-
- /**
- * 生成token过期时间
- */
-function getExpiryTime() {
-    const now = Date.now();
-    const expiry = (CONFIG.LOGIN_EXPIRY || 3600) * 1000; // 使用配置的过期时间，默认1小时
-    return now + expiry;
-}
-
 
 /**
  * 读取token存储文件
@@ -320,7 +310,7 @@ export async function checkAuth(req: IncomingMessage): Promise<boolean> {
         try {
             const url = new URL(req.url, 'http://localhost');
             token = url.searchParams.get('token');
-        } catch (caught) { const e = caught as DynamicPayload;
+        } catch {
             // 解析失败忽略
         }
     }

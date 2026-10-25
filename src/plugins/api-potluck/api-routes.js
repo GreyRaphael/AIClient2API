@@ -18,7 +18,6 @@ import {
     validateKey,
     KEY_PREFIX,
     applyDailyLimitToAllKeys,
-    getAllKeyIds,
     resetAllTokenStats
 } from './key-manager.js';
 import { getRequestBody } from '../../utils/common.js';
@@ -46,7 +45,6 @@ async function checkAdminAuth(req) {
     // 动态导入 ui-manager 中的 token 验证逻辑
     try {
         const { existsSync, readFileSync } = await import('fs');
-        const { promises: fs } = await import('fs');
         const path = await import('path');
         
         const TOKEN_STORE_FILE = path.join(process.cwd(), 'configs', 'token-store.json');

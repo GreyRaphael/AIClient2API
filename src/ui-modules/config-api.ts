@@ -4,7 +4,6 @@ import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts'
 
 import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
-import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { CONFIG } from '../core/config-manager.ts';

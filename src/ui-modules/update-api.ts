@@ -38,7 +38,7 @@ export async function resolveTargetRepo() {
         if (match) {
             return `${match[1]}/${match[2]}`;
         }
-    } catch (caught) { const e = caught as DynamicPayload;
+    } catch {
         // 非 Git 环境或获取失败，继续走兜底逻辑
     }
     return DEFAULT_GITHUB_REPO;
@@ -257,16 +257,6 @@ async function getVersionsFromGitHub(limit = 10, repo: string | null = null): Pr
 }
 
 /**
- * 通过 GitHub API 获取最新版本
- * @param {string} [repo] - GitHub 仓库
- * @returns {Promise<string|null>} 最新版本号或 null
- */
-async function getLatestVersionFromGitHub(repo: string | null = null): Promise<string | null> {
-    const versions = await getVersionsFromGitHub(1, repo);
-    return versions.length > 0 ? versions[0] : null;
-}
-
-/**
  * 检查是否有新版本可用
  * 支持两种模式：
  * 1. Git 仓库模式：通过 git 命令获取最新 tag
@@ -291,7 +281,7 @@ export async function checkForUpdates(): Promise<DynamicPayload> {
     try {
         await execAsync('git rev-parse --git-dir');
         isGitRepo = true;
-    } catch (caught) { const error = caught as DynamicPayload;
+    } catch {
         isGitRepo = false;
         logger.info('[Update] Not in a Git repository, will use GitHub API to check for updates');
     }
@@ -600,7 +590,7 @@ async function performTarballUpdate(localVersion: string, latestTag: string, rep
                     extractedDir = item;
                     break;
                 }
-            } catch (caught) { const e = caught as DynamicPayload;}
+            } catch {}
         }
 
         if (!extractedDir) {

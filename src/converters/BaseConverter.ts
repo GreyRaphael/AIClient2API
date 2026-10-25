@@ -5,7 +5,6 @@ import type {
     CrossProtocolResponse,
     CrossProtocolStreamChunk
 } from '../../types/protocols/common.js';
-import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
  * 抽象转换器基类

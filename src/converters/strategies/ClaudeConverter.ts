@@ -2150,7 +2150,7 @@ export class ClaudeConverter extends BaseConverter {
             throw error;
         }
 
-        const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
+        const { emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
         const events: DynamicPayload[] = [];
 
         // message_start 事件 - 流开始

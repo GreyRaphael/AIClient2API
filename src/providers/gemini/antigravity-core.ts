@@ -17,7 +17,6 @@ import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAft
 import { getProviderModels } from '../provider-models.ts';
 import { handleGeminiAntigravityOAuth } from '../../auth/gemini-oauth.ts';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
-import { cleanJsonSchemaProperties } from '../../converters/utils.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import { getProviderPoolManager } from '../pool-context.ts';
 import { getConfigToggle } from '../../core/config-manager.ts';
@@ -1166,8 +1165,7 @@ export class AntigravityApiService {
                         logger.info('[Antigravity Auth] New token obtained successfully.');
                         resolve(credentials);
                     }
-                } catch (rawError) {
-            const error = asAntigravityError(rawError);
+                } catch {
                     // 文件尚未创建或无效，继续等待
                 }
             }, 1000);

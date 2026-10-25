@@ -118,7 +118,7 @@ export class ProviderRefreshScheduler {
         this.log('info', `Flushing refresh buffer for ${providerType}. Processing ${bufferQueue.size} unique nodes.`);
 
         // 将缓冲队列中的所有节点放入实际刷新队列
-        for (const [uuid, { providerStatus, force }] of bufferQueue.entries()) {
+        for (const { providerStatus, force } of bufferQueue.values()) {
             this.dispatchRefresh(providerType, providerStatus, force);
         }
 

@@ -1,9 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import logger from '../../utils/logger.ts';
-import * as http from 'http';
-import * as https from 'https';
-import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 
 interface OpenAIResponsesServiceConfig {
@@ -87,7 +85,7 @@ export class OpenAIResponsesApiService {
             const response = await this.axiosInstance.request(axiosConfig as AxiosRequestConfig);
             return response.data as T;
         } catch (error) {
-            const { status, data, message } = getErrorResponseDetails(error);
+            const { status, message } = getErrorResponseDetails(error);
             if (status === 401 || status === 403) {
                 logger.error(`[API] Received ${status}. API Key might be invalid or expired.`);
                 throw error;
@@ -165,7 +163,7 @@ export class OpenAIResponsesApiService {
                 }
             }
         } catch (error) {
-            const { status, data, message } = getErrorResponseDetails(error);
+            const { status, message } = getErrorResponseDetails(error);
             if (status === 401 || status === 403) {
                 logger.error(`[API] Received ${status} during stream. API Key might be invalid or expired.`);
                 throw error;

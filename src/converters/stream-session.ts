@@ -40,7 +40,6 @@ export class StreamSessionStore<T = any> {
     private _states = new Map<string, StreamSessionEntry<T>>();
     private _ttlMs: number;
     private _now: () => number;
-    private _label: string;
     private _sweepTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor({
@@ -51,7 +50,6 @@ export class StreamSessionStore<T = any> {
     }: StreamSessionOptions = {}) {
         this._ttlMs = ttlMs;
         this._now = now;
-        this._label = label;
         if (sweepIntervalMs > 0) {
             this._sweepTimer = setInterval(() => this._sweep(), sweepIntervalMs);
             if (typeof this._sweepTimer.unref === 'function') {

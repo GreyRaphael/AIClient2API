@@ -6,7 +6,29 @@ import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.ts
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.ts';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.ts';
 import { ConverterFactory } from '../src/converters/ConverterFactory.ts';
+import { BaseConverter } from '../src/converters/BaseConverter.ts';
 import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.ts';
+
+describe('BaseConverter contract', () => {
+    class ExampleConverter extends BaseConverter {}
+
+    test('requires subclass construction and preserves the protocol name', () => {
+        expect(() => new BaseConverter('example')).toThrow('BaseConverter是抽象类');
+        const converter = new ExampleConverter('example');
+
+        expect(converter.getProtocolName()).toBe('example');
+        expect(() => converter.resetStreamState('request-1')).not.toThrow();
+    });
+
+    test('requires subclasses to implement conversion methods', () => {
+        const converter = new ExampleConverter('example');
+
+        expect(() => converter.convertRequest({}, 'openai')).toThrow('convertRequest方法必须被子类实现');
+        expect(() => converter.convertResponse({}, 'openai')).toThrow('convertResponse方法必须被子类实现');
+        expect(() => converter.convertStreamChunk({}, 'openai')).toThrow('convertStreamChunk方法必须被子类实现');
+        expect(() => converter.convertModelList({}, 'openai')).toThrow('convertModelList方法必须被子类实现');
+    });
+});
 
 describe('Protocol Converters Matrix & Edge Cases', () => {
     test('Fix 1: OpenAI streaming tool_calls converts to Claude events with stop_reason=tool_use', () => {

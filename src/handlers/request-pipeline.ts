@@ -549,8 +549,6 @@ export async function handleStreamRequest(
     retryContext: PipelineRetryContext | null = null
 ) {
     let fullResponseText = '';
-    let fullResponseJson = '';
-    let fullOldResponseJson = '';
     let responseClosed = false;
     let anyDataSent = retryContext?.anyDataSent || false; // 跟踪是否已向客户端发送过任何数据
     
@@ -1095,8 +1093,6 @@ export async function handleStreamRequest(
         if (!isRetry) {
             await logConversation('output', fullResponseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
         }
-        // fs.writeFile('oldResponseChunk'+Date.now()+'.json', fullOldResponseJson);
-        // fs.writeFile('responseChunk'+Date.now()+'.json', fullResponseJson);
     }
 }
 

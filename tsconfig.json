@@ -7,6 +7,7 @@
     "checkJs": true,
     "noEmit": true,
     "strict": false,
+    "noUnusedLocals": true,
     "skipLibCheck": true,
     "maxNodeModuleJsDepth": 0,
     "allowImportingTsExtensions": true,

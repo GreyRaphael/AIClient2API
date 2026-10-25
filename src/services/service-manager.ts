@@ -3,8 +3,6 @@ import logger from '../utils/logger.ts';
 import { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import deepmerge from 'deepmerge';
 import * as fs from 'fs';
-import { promises as pfs } from 'fs';
-import * as path from 'path';
 import { PROVIDER_MAPPINGS } from '../utils/provider-utils.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../providers/model-capability.ts';

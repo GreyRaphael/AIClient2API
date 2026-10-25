@@ -1,4 +1,3 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
 
 
 import os from 'os';
@@ -120,14 +119,14 @@ export function getProcessCpuUsagePercent(pid: number | null): string {
                 if (lines.length >= 2) {
                     cpuPercent = parseFloat(lines[1].trim());
                 }
-            } catch (caught) { const e = caught as DynamicPayload;
+            } catch {
                 // 如果 ps -p 失败，尝试更通用的 ps 方式或直接忽略
                 cpuPercent = 0;
             }
         }
 
         return `${Math.max(0, cpuPercent).toFixed(1)}%`;
-    } catch (caught) { const error = caught as DynamicPayload;
+    } catch {
         // 忽略进程不存在等错误
         return '0.0%';
     }

@@ -15,7 +15,6 @@ const DEFAULT_CONFIG = {
 let configGetter = null;
 let statsStore = null;
 let isDirty = false;
-let isWriting = false;
 let persistTimer = null;
 let currentPersistInterval = DEFAULT_CONFIG.persistInterval;
 let mutationVersion = 0;
@@ -184,8 +183,6 @@ async function persistIfDirty() {
     }
 
     persistPromise = (async () => {
-        isWriting = true;
-
         try {
             const dir = path.dirname(STATS_STORE_FILE);
             if (!existsSync(dir)) {
@@ -206,7 +203,6 @@ async function persistIfDirty() {
         } catch (error) {
             logger.error('[Model Usage Stats] Persist failed:', error.message);
         } finally {
-            isWriting = false;
             persistPromise = null;
         }
     })();

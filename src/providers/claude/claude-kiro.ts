@@ -8,8 +8,6 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import * as http from 'http';
-import * as https from 'https';
 import { getProviderModels } from '../provider-models.ts';
 import {
     countTextTokens as countTextTokensUtil,
@@ -18,7 +16,7 @@ import {
     processContent as processContentUtil,
     getContentText as getContentTextUtil
 } from '../../utils/token-utils.ts';
-import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, formatExpiryLog, getNormalizedErrorResponseText, buildHttpErrorReason, normalizeProviderErrorMessage, createEmptyUpstreamResponseError } from '../../utils/common.ts';
 import { getProviderPoolManager } from '../pool-context.ts';
 import {
@@ -27,10 +25,8 @@ import {
     isWhitespaceOnly,
     findRealThinkingEndTag,
     findRealThinkingEndTagAtBufferEnd,
-    findMatchingBracket,
     repairJson,
     extractCredentialsFromCorruptedJson,
-    parseSingleToolCall,
     parseBracketToolCalls,
     deduplicateToolCalls
 } from './kiro-stream-parser.ts';
@@ -156,7 +152,7 @@ function normalizeKiroToolInput(input: unknown): string {
     if (typeof input === 'object') {
         try {
             return JSON.stringify(input);
-        } catch (caught) { const e = caught as DynamicPayload;
+        } catch {
             return String(input);
         }
     }
@@ -391,15 +387,6 @@ export class KiroApiService {
         // 仅执行基础的凭证加载
         await this.loadCredentials();
 
-        // 根据当前加载的凭证生成唯一的 Machine ID
-        const machineId = generateMachineIdFromConfig({
-            uuid: this.uuid,
-            profileArn: this.profileArn,
-            clientId: this.clientId
-        });
-        const kiroVersion = KIRO_CONSTANTS.KIRO_VERSION;
-        const { osName, nodeVersion } = getSystemRuntimeInfo();
-
         const axiosConfig: DynamicPayload = {
             timeout: KIRO_CONSTANTS.AXIOS_TIMEOUT,
             headers: {
@@ -439,7 +426,7 @@ async loadCredentials() {
             const fileContent = await fs.readFile(filePath, 'utf8');
             try {
                 return JSON.parse(fileContent);
-            } catch (caught) { const parseError = caught as DynamicPayload;
+            } catch {
                 logger.warn('[Kiro Auth] JSON parse failed, attempting repair...');
                 try {
                     const repaired = repairJson(fileContent);
@@ -707,7 +694,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
         const fileContent = await fs.readFile(filePath, 'utf8');
         try {
             existingData = JSON.parse(fileContent);
-        } catch (caught) { const parseError = caught as DynamicPayload;
+        } catch {
             logger.warn('[Kiro Auth] JSON parse failed, attempting repair...');
             try {
                 const repaired = repairJson(fileContent);
@@ -1516,7 +1503,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                                 try {
                                     const args = JSON.parse(currentToolCallDict.function.arguments);
                                     currentToolCallDict.function.arguments = JSON.stringify(args);
-                                } catch (caught) { const e = caught as DynamicPayload;
+                                } catch {
                                     logger.warn(`[Kiro] Tool call arguments not valid JSON: ${currentToolCallDict.function.arguments}`);
                                 }
                                 toolCalls.push(currentToolCallDict);
@@ -1528,7 +1515,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                         fullContent += eventData.content;
                     }
                     break;
-                } catch (caught) { const e = caught as DynamicPayload;
+                } catch {
                     // JSON 解析失败，继续寻找下一个可能的结束位置
                     continue;
                 }
@@ -2070,7 +2057,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
             let parsed: DynamicPayload;
             try {
                 parsed = JSON.parse(payloadStr);
-            } catch (caught) { const e = caught as DynamicPayload;
+            } catch {
                 // payload 非法 JSON（理论上不应发生），跳过该帧
                 logger.warn('[Kiro] Frame payload not valid JSON, skipped: ' + payloadStr.slice(0, 120));
                 continue;
@@ -2159,7 +2146,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                     break;
                 }
             }
-        } catch (caught) { const e = caught as DynamicPayload; /* 解析失败回退 */ }
+        } catch { /* 解析失败回退 */ }
         return null;
     }
 
@@ -2607,7 +2594,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                                 let parsedInput = currentToolCall.input;
                                 try {
                                     parsedInput = JSON.parse(currentToolCall.input);
-                                } catch (caught) { const e = caught as DynamicPayload;
+                                } catch {
                                     // input 不是有效 JSON，保持原样
                                 }
                                 toolCalls.push({
@@ -2662,7 +2649,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                             let parsedInput = currentToolCall.input;
                             try {
                                 parsedInput = JSON.parse(currentToolCall.input);
-                            } catch (caught) { const e = caught as DynamicPayload;
+                            } catch {
                                 // input 不是有效 JSON，保持原样
                             }
                             toolCalls.push({
@@ -2710,7 +2697,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                         let parsedInput = currentToolCall.input;
                         try {
                             parsedInput = JSON.parse(currentToolCall.input);
-                        } catch (caught) { const e = caught as DynamicPayload;
+                        } catch {
                             // input 不是有效 JSON，保持原样
                         }
                         toolCalls.push({
@@ -2734,7 +2721,7 @@ async saveCredentialsToFile(filePath: string, newData: DynamicPayload) {
                 let parsedInput = currentToolCall.input;
                 try {
                     parsedInput = JSON.parse(currentToolCall.input);
-                } catch (caught) { const e = caught as DynamicPayload;}
+                } catch {}
                 toolCalls.push({
                     toolUseId: currentToolCall.toolUseId,
                     name: currentToolCall.name,

@@ -1893,7 +1893,7 @@ export class OpenAIConverter extends BaseConverter {
             return [];
         }
 
-        const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(openaiChunk, model, requestId);
+        const { emitter } = this._getOpenAIResponsesStreamEmitter(openaiChunk, model, requestId);
         const choice = openaiChunk.choices[0];
         const delta = choice.delta || {};
         const events: DynamicPayload[] = [];

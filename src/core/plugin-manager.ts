@@ -9,7 +9,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Plugin, PluginAuthResult, PluginMiddlewareResult } from '../../types/plugin.js';
+import type { Plugin } from '../../types/plugin.js';
 import { getErrorMessage } from '../utils/error.ts';
 
 

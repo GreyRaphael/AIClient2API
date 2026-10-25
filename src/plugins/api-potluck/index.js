@@ -22,8 +22,7 @@ import {
     incrementUsage,
     getStats,
     resetAllTokenStats,
-    KEY_PREFIX,
-    setConfigGetter
+    KEY_PREFIX
 } from './key-manager.js';
 
 import {

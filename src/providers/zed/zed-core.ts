@@ -2,8 +2,6 @@ import axios from 'axios';
 import logger from '../../utils/logger.ts';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { PROVIDER_MODELS } from '../provider-models.ts';

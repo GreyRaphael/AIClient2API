@@ -932,7 +932,7 @@ export class GeminiConverter extends BaseConverter {
     toOpenAIResponsesStreamChunk(geminiChunk: DynamicPayload, model?: string, requestId?: string | null): DynamicPayload[] {
         if (!geminiChunk) return [];
 
-        const { stateKey, emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
+        const { emitter } = this._getOpenAIResponsesStreamEmitter(model, requestId);
         const events: DynamicPayload[] = [];
 
         // 处理完整的Gemini chunk对象

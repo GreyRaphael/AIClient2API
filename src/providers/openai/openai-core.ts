@@ -1,9 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import logger from '../../utils/logger.ts';
-import * as http from 'http';
-import * as https from 'https';
-import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
@@ -332,7 +330,6 @@ export class OpenAIApiService {
             return result;
         } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
-            const data = error.response?.data;
             const errorCode = error.code;
             const errorMessage = error.message || '';
 
@@ -481,7 +478,6 @@ export class OpenAIApiService {
             }
         } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
-            const data = error.response?.data;
             const errorCode = error.code;
             const errorMessage = error.message || '';
 

@@ -4,7 +4,7 @@ import { getRequestBody } from '../utils/common.ts';
 import {
     normalizeModelIds
 } from '../providers/provider-models.ts';
-import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath, addToUsedPaths, isPathUsed, pathsEqual } from '../utils/provider-utils.ts';
+import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath } from '../utils/provider-utils.ts';
 import { broadcastEvent } from './event-broadcast.ts';
 import { getRegisteredProviders, invalidateServiceAdapter } from '../providers/adapter.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';

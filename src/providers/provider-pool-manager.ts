@@ -1,18 +1,11 @@
 import * as fs from 'fs';
-import { CONFIG } from '../core/config-manager.ts';
 import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.ts';
 import logger from '../utils/logger.ts';
 import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.ts';
-import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { convertData } from '../convert/convert.ts';
 
 import {
-    getCustomModelListProvider
-} from './provider-models.ts';
-import {
-    nodeSupportsModel,
     resolveNodeCapability,
-    resolveProviderCapability,
     resolveProviderCapabilityWithRefresh
 } from './model-capability.ts';
 import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.ts';
@@ -1749,7 +1742,7 @@ export class ProviderPoolManager {
 
         // Count providers to be checked
         let totalProviders = 0;
-        let providersToCheck: Array<{ providerType: string; provider: ProviderStatus; uuid: string; customName: string | null }> = [];
+        let providersToCheck: Array<{ providerType: string; provider: ProviderStatus }> = [];
 
         for (const providerType in this.providerStatus) {
             // Only check selected provider types
@@ -1769,8 +1762,6 @@ export class ProviderPoolManager {
                 providersToCheck.push({
                     providerType,
                     provider,
-                    uuid: provider.config.uuid || '',
-                    customName: provider.config.customName || null
                 });
             }
         }
@@ -1780,7 +1771,7 @@ export class ProviderPoolManager {
         let successCount = 0;
         let failCount = 0;
 
-        for (const { providerType, provider, uuid, customName } of providersToCheck) {
+        for (const { providerType, provider } of providersToCheck) {
             const providerCheckStart = Date.now();
             const baseProviderType = this._getBaseProviderType(providerType);
             const checkModelName = provider.config.checkModelName ||

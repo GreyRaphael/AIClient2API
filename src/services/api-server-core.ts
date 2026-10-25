@@ -2,7 +2,7 @@ import '../core/security-hardening.ts';
 import logger from '../utils/logger.ts';
 import * as http from 'http';
 import { initializeConfig, CONFIG } from '../core/config-manager.ts';
-import { initApiService, autoLinkProviderConfigs } from './service-manager.ts';
+import { initApiService } from './service-manager.ts';
 import { initializeUIManagement } from './ui-manager.ts';
 import { initializeAPIManagement } from './api-manager.ts';
 import { createRequestHandler } from '../handlers/request-handler.ts';

@@ -15,7 +15,6 @@
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import logger from '../utils/logger.ts';
 import { getConfigToggle } from '../core/config-manager.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
