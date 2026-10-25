@@ -75,4 +75,30 @@ describe('coverage gate LCOV parsing', () => {
         expect(status).toBe(1);
         expect(stderr).toContain('[coverage] FAILED');
     });
+
+    test('ignores gitignored user plugins', () => {
+        const lcov = [
+            'TN:',
+            `SF:${path.join(tempDir, 'src', 'plugins-user', 'custom', 'index.ts')}`,
+            'DA:1,0',
+            'FNDA:0,fn0',
+            'BRDA:1,0,0,0',
+            'end_of_record',
+            `SF:${path.join(tempDir, 'src', 'handlers', 'example.ts')}`,
+            'DA:1,1',
+            'FNDA:1,fn0',
+            'BRDA:1,0,0,1',
+            'end_of_record',
+            ''
+        ].join('\n');
+        fs.writeFileSync(path.join(tempDir, 'coverage', 'lcov.info'), lcov);
+
+        const script = path.join(tempDir, 'scripts', 'check-coverage.mjs');
+        execFileSync(process.execPath, [script, '--update'], { stdio: 'pipe' });
+
+        const baseline = JSON.parse(fs.readFileSync(path.join(tempDir, 'scripts', 'coverage-baseline.json'), 'utf8'));
+        expect(baseline.directories['src/plugins-user']).toBeUndefined();
+        expect(baseline.total.lines).toEqual({ covered: 1, total: 1 });
+        expect(baseline.total.functions).toEqual({ covered: 1, total: 1 });
+    });
 });

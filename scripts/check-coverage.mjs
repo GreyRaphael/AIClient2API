@@ -38,6 +38,8 @@ for (const record of fs.readFileSync(LCOV_PATH, 'utf8').split('end_of_record')) 
 
     const relative = source[1].trim().replace(`${ROOT}${path.sep}`, '').replace(/\\/g, '/');
     if (!relative.startsWith('src/')) continue;
+    // 用户插件目录是 gitignored 的本地数据；不同机器内容不同，不能进入仓库基线。
+    if (relative.startsWith('src/plugins-user/')) continue;
 
     const segments = relative.split('/');
     const directory = segments.length > 2 ? `src/${segments[1]}` : 'src/<root>';

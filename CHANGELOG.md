@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- 覆盖率基线排除 gitignored 的 `src/plugins-user` 目录，避免本地存在用户插件时覆盖率高于 clean checkout，导致 CI 覆盖率门槛误判。`check-coverage` 同步跳过该目录，并补充回归测试。
+
 ## [v5.0.4] - 2026-10-25
 
 ### Fixed

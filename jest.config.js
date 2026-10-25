@@ -25,6 +25,8 @@ export default {
   collectCoverageFrom: [
     'src/**/*.{js,ts}',
     '!src/**/*.test.{js,ts}',
+    // 用户插件目录是 gitignored 的本地数据，不参与仓库覆盖率基线
+    '!src/plugins-user/**',
     '!**/node_modules/**'
   ],
   coverageDirectory: 'coverage',
