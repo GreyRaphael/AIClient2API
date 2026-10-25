@@ -21,6 +21,7 @@ import { ENDPOINT_TYPE } from '../utils/common.ts';
 import type { ProviderConfig, ProviderPools, ProviderStatus, ProviderStatusMap, ProviderPoolOptions, ProviderPoolGlobalConfig, RefreshQueueState, RefreshBufferEntry } from './provider-types.ts';
 import { calculateNodeScore } from './provider-pool-scoring.ts';
 import { ProviderPoolPersistence } from './provider-pool-persistence.ts';
+import { ProviderRefreshScheduler } from './provider-refresh-scheduler.ts';
 import { getErrorMessage } from '../utils/error.ts';
 /**
  * Manages a pool of API service providers, handling their health and selection.
@@ -40,7 +41,7 @@ export class ProviderPoolManager {
     _selectionLocks: Record<string, Promise<void>>;
     _isSelecting: Record<string, boolean>;
     refreshConcurrency: { global: number; perProvider: number };
-    activeProviderRefreshes: number;
+    refreshScheduler: ProviderRefreshScheduler;
     globalRefreshWaiters: Array<() => void>;
     warmupTarget: number;
     refreshingUuids: Set<string>;
@@ -87,24 +88,27 @@ export class ProviderPoolManager {
         this._isSelecting = {}; // 同步标志位锁
 
         // --- V2: 读写分离 and 异步刷新队列 ---
-        // 刷新并发控制配置
-        this.refreshConcurrency = {
-            global: options.globalConfig?.REFRESH_CONCURRENCY_GLOBAL ?? 2, // 全局最大并行提供商数
-            perProvider: options.globalConfig?.REFRESH_CONCURRENCY_PER_PROVIDER ?? 1 // 每个提供商内部最大并行数
-        };
-
-        this.activeProviderRefreshes = 0; // 当前正在刷新的提供商类型数量
-        this.globalRefreshWaiters = []; // 等待全局并发槽位的任务
-
-        this.warmupTarget = options.globalConfig?.WARMUP_TARGET || 0; // 默认预热0个节点
-        this.refreshingUuids = new Set(); // 正在刷新的节点 UUID 集合
-
-        this.refreshQueues = {}; // 按 providerType 分组的队列
-        // 缓冲队列机制：延迟5秒，去重后再执行刷新
-        this.refreshBufferQueues = {}; // 按 providerType 分组的缓冲队列
-        this.refreshBufferTimers = {}; // 按 providerType 分组的定时器
-        this.bufferDelay = options.globalConfig?.REFRESH_BUFFER_DELAY ?? 5000; // 默认5秒缓冲延迟
-        this.refreshTaskTimeoutMs = options.globalConfig?.REFRESH_TASK_TIMEOUT_MS ?? 60000; // 默认60秒刷新超时
+        this.refreshScheduler = new ProviderRefreshScheduler({
+            refreshConcurrency: {
+                global: options.globalConfig?.REFRESH_CONCURRENCY_GLOBAL ?? 2,
+                perProvider: options.globalConfig?.REFRESH_CONCURRENCY_PER_PROVIDER ?? 1
+            },
+            bufferDelay: options.globalConfig?.REFRESH_BUFFER_DELAY ?? 5000,
+            getHealthyCount: (providerType) => this.getHealthyCount(providerType),
+            getDisplayName: (config) => this._getDisplayName(config),
+            log: (level, message) => this._log(level, message),
+            refreshNode: (providerType, providerStatus, force) => this._refreshNodeToken(providerType, providerStatus, force),
+            dispatchRefresh: (providerType, providerStatus, force) => this._enqueueRefreshImmediate(providerType, providerStatus, force)
+        });
+        this.refreshConcurrency = this.refreshScheduler.refreshConcurrency;
+        this.globalRefreshWaiters = this.refreshScheduler.globalRefreshWaiters;
+        this.warmupTarget = options.globalConfig?.WARMUP_TARGET || 0;
+        this.refreshingUuids = this.refreshScheduler.refreshingUuids;
+        this.refreshQueues = this.refreshScheduler.refreshQueues;
+        this.refreshBufferQueues = this.refreshScheduler.refreshBufferQueues;
+        this.refreshBufferTimers = this.refreshScheduler.refreshBufferTimers;
+        this.bufferDelay = this.refreshScheduler.bufferDelay;
+        this.refreshTaskTimeoutMs = options.globalConfig?.REFRESH_TASK_TIMEOUT_MS ?? 60000;
 
         // 用于并发选点时的原子排序辅助（自增序列）
         this._selectionSequence = 0;
@@ -228,217 +232,15 @@ export class ProviderPoolManager {
      * @private
      */
     _enqueueRefresh(providerType: string, providerStatus: ProviderStatus, force: boolean = false) {
-        const uuid = providerStatus.uuid;
-
-        // 如果节点被禁用，不进行刷新
-        if (providerStatus.config.isDisabled) {
-            this._log('debug', `Skipping refresh for disabled node ${this._getDisplayName(providerStatus.config)}`);
-            return;
-        }
-
-        // 如果已经在刷新中，直接返回
-        if (this.refreshingUuids.has(uuid)) {
-            this._log('debug', `Node ${this._getDisplayName(providerStatus.config)} is already in refresh queue.`);
-            return;
-        }
-
-        // 判断提供商池内的总可用节点数，小于5个时，不等待缓冲，直接加入刷新队列
-        const healthyCount = this.getHealthyCount(providerType);
-        if (healthyCount < 5) {
-            this._log('info', `Provider ${providerType} has only ${healthyCount} healthy nodes. Bypassing buffer and enqueuing refresh for ${this._getDisplayName(providerStatus.config)} immediately.`);
-            this._enqueueRefreshImmediate(providerType, providerStatus, force);
-            return;
-        }
-
-        // 初始化缓冲队列
-        if (!this.refreshBufferQueues[providerType]) {
-            this.refreshBufferQueues[providerType] = new Map(); // 使用 Map 自动去重
-        }
-
-        const bufferQueue = this.refreshBufferQueues[providerType];
-
-        // 检查是否已在缓冲队列中
-        const existing = bufferQueue.get(uuid);
-        const isNewEntry = !existing;
-
-        // 更新或添加节点（保留 force: true 状态）
-        bufferQueue.set(uuid, {
-            providerStatus,
-            force: existing ? (existing.force || force) : force
-        });
-
-        if (isNewEntry) {
-            this._log('debug', `Node ${this._getDisplayName(providerStatus.config)} added to buffer queue for ${providerType}. Buffer size: ${bufferQueue.size}`);
-        } else {
-            this._log('debug', `Node ${this._getDisplayName(providerStatus.config)} already in buffer queue, updated force flag. Buffer size: ${bufferQueue.size}`);
-        }
-
-        // 只在新增节点或缓冲队列为空时重置定时器
-        // 避免频繁重置导致刷新被无限延迟
-        if (isNewEntry || !this.refreshBufferTimers[providerType]) {
-            // 清除之前的定时器
-            if (this.refreshBufferTimers[providerType]) {
-                clearTimeout(this.refreshBufferTimers[providerType]);
-            }
-
-            // 设置新的定时器，延迟5秒后处理缓冲队列
-            this.refreshBufferTimers[providerType] = setTimeout(() => {
-                this._flushRefreshBuffer(providerType);
-            }, this.bufferDelay);
-        }
+        this.refreshScheduler.enqueue(providerType, providerStatus, force);
     }
 
-    /**
-     * 处理缓冲队列，将去重后的节点放入实际刷新队列
-     * @param {string} providerType
-     * @private
-     */
     _flushRefreshBuffer(providerType: string) {
-        const bufferQueue = this.refreshBufferQueues[providerType];
-        if (!bufferQueue || bufferQueue.size === 0) {
-            return;
-        }
-
-        this._log('info', `Flushing refresh buffer for ${providerType}. Processing ${bufferQueue.size} unique nodes.`);
-
-        // 将缓冲队列中的所有节点放入实际刷新队列
-        for (const [uuid, { providerStatus, force }] of bufferQueue.entries()) {
-            this._enqueueRefreshImmediate(providerType, providerStatus, force);
-        }
-
-        // 清空缓冲队列和定时器
-        bufferQueue.clear();
-        delete this.refreshBufferTimers[providerType];
+        this.refreshScheduler.flushBuffer(providerType);
     }
 
-    /**
-     * 立即将节点放入刷新队列（内部方法，由缓冲队列调用）
-     * @param {string} providerType
-     * @param {object} providerStatus
-     * @param {boolean} force
-     * @private
-     */
     _enqueueRefreshImmediate(providerType: string, providerStatus: ProviderStatus, force: boolean = false) {
-        const uuid = providerStatus.uuid;
-
-        // 再次检查是否已经在刷新中（防止并发问题）
-        if (this.refreshingUuids.has(uuid)) {
-            this._log('debug', `Node ${this._getDisplayName(providerStatus.config)} is already in refresh queue (immediate check).`);
-            return;
-        }
-
-        this.refreshingUuids.add(uuid);
-
-        // 初始化提供商队列
-        if (!this.refreshQueues[providerType]) {
-            this.refreshQueues[providerType] = {
-                activeCount: 0,
-                waitingTasks: [],
-                ownsGlobalSlot: false,
-                waitingForGlobalSlot: false
-            };
-        }
-
-        const queue = this.refreshQueues[providerType];
-
-        const runTask = async () => {
-            try {
-                await this._refreshNodeToken(providerType, providerStatus, force);
-            } catch (err) {
-                this._log('error', `Failed to process refresh for node ${this._getDisplayName(providerStatus.config)}: ${getErrorMessage(err)}`);
-            } finally {
-                this.refreshingUuids.delete(uuid);
-
-                // 再次获取当前队列引用
-                const currentQueue = this.refreshQueues[providerType];
-                if (!currentQueue) return;
-
-                currentQueue.activeCount--;
-
-                // 1. 尝试从当前提供商队列中取下一个任务
-                if (currentQueue.waitingTasks.length > 0) {
-                    const nextTask = currentQueue.waitingTasks.shift();
-                    currentQueue.activeCount++;
-                    // 使用 Promise.resolve().then 避免过深的递归
-                    Promise.resolve().then(nextTask).catch((err) => {
-                        this._log('error', `Failed to execute next task for ${providerType}: ${getErrorMessage(err)}`);
-                    });
-                } else if (currentQueue.activeCount === 0) {
-                    const ownsGlobalSlot = currentQueue.ownsGlobalSlot;
-                    currentQueue.ownsGlobalSlot = false;
-
-                    // 清理空队列：无论是否持有全局槽位，都应删除已无任务的队列对象
-                    if (currentQueue.waitingTasks.length === 0 &&
-                        this.refreshQueues[providerType] === currentQueue) {
-                        delete this.refreshQueues[providerType];
-                    }
-
-                    // 只有持有全局槽位的任务才能递减计数器
-                    if (ownsGlobalSlot) {
-                        this.activeProviderRefreshes = Math.max(0, this.activeProviderRefreshes - 1);
-                    }
-
-                    // 3. 尝试启动下一个等待中的提供商队列
-                    if (this.globalRefreshWaiters.length > 0) {
-                        const nextProviderStart = this.globalRefreshWaiters.shift();
-                        Promise.resolve().then(nextProviderStart).catch((err) => {
-                            this._log('error', `Failed to start next provider queue: ${getErrorMessage(err)}`);
-                        });
-                    }
-                }
-            }
-        };
-
-        const tryStartProviderQueue = () => {
-            const currentQueue = this.refreshQueues[providerType];
-            if (!currentQueue) return;
-
-            if (currentQueue.activeCount < this.refreshConcurrency.perProvider) {
-                currentQueue.activeCount++;
-                runTask().catch((err) => {
-                    this._log('error', `Critical error in runTask for ${providerType}: ${getErrorMessage(err)}`);
-                });
-            } else {
-                currentQueue.waitingTasks.push(runTask);
-            }
-        };
-
-        // 检查全局并发限制（按提供商分组）
-        // 情况1: 该提供商已经在运行，直接加入其队列（不占用新的全局槽位）
-        if (queue.ownsGlobalSlot) {
-            tryStartProviderQueue();
-        }
-        // 情况2: 该提供商正在等待全局槽位，后续任务只加入队列
-        else if (queue.waitingForGlobalSlot) {
-            queue.waitingTasks.push(runTask);
-        }
-        // 情况3: 该提供商未运行，需要检查全局槽位，此路径持有全局槽位
-        else if (this.activeProviderRefreshes < this.refreshConcurrency.global) {
-            queue.ownsGlobalSlot = true;
-            this.activeProviderRefreshes++;
-            tryStartProviderQueue();
-        }
-        // 情况4: 全局槽位已满，进入等待队列，由等待回调负责标记持槽
-        else {
-            queue.waitingForGlobalSlot = true;
-            this.globalRefreshWaiters.push(() => {
-                // 重新获取最新的队列引用
-                if (!this.refreshQueues[providerType]) {
-                    this.refreshQueues[providerType] = {
-                        activeCount: 0,
-                        waitingTasks: [],
-                        ownsGlobalSlot: false,
-                        waitingForGlobalSlot: false
-                    };
-                }
-                // 从等待队列启动时持有全局槽位
-                const currentQueue = this.refreshQueues[providerType];
-                currentQueue.waitingForGlobalSlot = false;
-                currentQueue.ownsGlobalSlot = true;
-                this.activeProviderRefreshes++;
-                tryStartProviderQueue();
-            });
-        }
+        this.refreshScheduler.enqueueImmediate(providerType, providerStatus, force);
     }
 
     /**
@@ -571,6 +373,10 @@ export class ProviderPoolManager {
      * 分数越低，优先级越高
      * @private
      */
+    get activeProviderRefreshes(): number {
+        return this.refreshScheduler.activeProviderRefreshes;
+    }
+
     _calculateNodeScore(providerStatus: ProviderStatus, now: number = Date.now(), minSeqInPool: number = -1) {
         const pool = minSeqInPool === -1 ? (this.providerStatus[providerStatus.type] || []) : [];
         return calculateNodeScore(providerStatus, now, minSeqInPool, pool);
