@@ -29,6 +29,8 @@ import {
 } from '../providers/provider-models.ts';
 import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { PreContentBuffer } from './pre-content-buffer.ts';
+import { startPreContentHeartbeat } from './pre-content-heartbeat.ts';
 import { getErrorMessage } from '../utils/error.ts';
 
 type DynamicPayload = Record<string, any>;
@@ -622,26 +624,23 @@ export async function handleStreamRequest(
     //     且不置 anyDataSent），避免长思考导致连接假死。
     let sawMeaningfulContent = false;
     let sawStreamError = false;
-    const preContentBuffer = []; // string[]，缓存的序列化 SSE 帧
-    let preContentBufferBytes = 0;
     const maxPreContentFrames = Number(CONFIG?.PRE_CONTENT_BUFFER_MAX_FRAMES) > 0
         ? Number(CONFIG.PRE_CONTENT_BUFFER_MAX_FRAMES)
         : PRE_CONTENT_BUFFER_MAX_FRAMES;
     const maxPreContentBytes = Number(CONFIG?.PRE_CONTENT_BUFFER_MAX_BYTES) > 0
         ? Number(CONFIG.PRE_CONTENT_BUFFER_MAX_BYTES)
         : PRE_CONTENT_BUFFER_MAX_BYTES;
+    const preContentBuffer = new PreContentBuffer(maxPreContentFrames, maxPreContentBytes);
     let lastFinishReason = '';
     let lastFinishMessage = '';
-    const preContentHeartbeat = setInterval(() => {
-        if (sawMeaningfulContent || clientDisconnected.value || res.writableEnded) return;
-        try {
-            res.write(': keep-alive\n\n'); // SSE 注释行；不置 anyDataSent，保证空响应仍可重试
-        } catch (heartbeatErr) {
+    const preContentHeartbeat = startPreContentHeartbeat({
+        res,
+        shouldWrite: () => !sawMeaningfulContent && !clientDisconnected.value,
+        onError: (heartbeatErr) => {
             logger.error('[Stream] Failed to write keep-alive:', getErrorMessage(heartbeatErr));
             clientDisconnected.value = true;
         }
-    }, 15000);
-    preContentHeartbeat.unref?.();
+    });
 
     // 请求与响应转换共用同一个 requestId，确保 Codex 等转换器的工具名反向映射可以命中。
     // 必须在 try 外声明：finally 的兜底收尾也需要它。
@@ -809,27 +808,17 @@ export async function handleStreamRequest(
                 // 首内容前缓冲：有效内容出现前不直接下发，缓存起来以便上游空转时无损重试
                 const framesToWrite = [];
                 if (!sawMeaningfulContent) {
-                    for (const frame of outFrames) {
-                        preContentBuffer.push(frame);
-                        preContentBufferBytes += Buffer.byteLength(frame, 'utf8');
-                    }
-                    if (preContentBuffer.length > maxPreContentFrames || preContentBufferBytes > maxPreContentBytes) {
+                    const buffered = preContentBuffer.push(outFrames);
+                    if (buffered.overflowed) {
                         logger.warn(
-                            `[Stream] Pre-content buffer exceeded limit (${preContentBuffer.length}/${maxPreContentFrames} frames, ${preContentBufferBytes}/${maxPreContentBytes} bytes); flushing buffered frames early.`
+                            `[Stream] Pre-content buffer exceeded limit (${buffered.frameCount}/${maxPreContentFrames} frames, ${buffered.byteLength}/${maxPreContentBytes} bytes); flushing buffered frames early.`
                         );
                         sawMeaningfulContent = true;
-                        framesToWrite.push(...preContentBuffer);
-                        preContentBuffer.length = 0;
-                        preContentBufferBytes = 0;
+                        framesToWrite.push(...buffered.framesToWrite);
                     }
                 } else {
-                    if (preContentBuffer.length > 0) {
-                        // 首个有效内容出现：先一次性冲刷此前缓存的 thinking/角色等帧
-                        framesToWrite.push(...preContentBuffer);
-                        preContentBuffer.length = 0;
-                        preContentBufferBytes = 0;
-                    }
-                    framesToWrite.push(...outFrames);
+                    // 首个有效内容出现：先一次性冲刷此前缓存的 thinking/角色等帧
+                    framesToWrite.push(...preContentBuffer.flush(), ...outFrames);
                 }
 
                 for (const frame of framesToWrite) {
@@ -857,8 +846,9 @@ export async function handleStreamRequest(
             if (TERMINAL_EMPTY_FINISH_REASONS.has(lastFinishReason)) {
                 // MAX_TOKENS / SAFETY 等终态即使没有正文也是合法结果：
                 // 冲刷已缓冲的 finish 帧并正常收尾，避免触发空响应重试。
-                logger.warn(`[Stream] Upstream ended with terminal finishReason ${lastFinishReason} and no content; flushing ${preContentBuffer.length} buffered frame(s) as truncated/safety response.`);
-                for (const frame of preContentBuffer) {
+                const terminalFrames = preContentBuffer.flush();
+                logger.warn(`[Stream] Upstream ended with terminal finishReason ${lastFinishReason} and no content; flushing ${terminalFrames.length} buffered frame(s) as truncated/safety response.`);
+                for (const frame of terminalFrames) {
                     if (clientDisconnected.value || res.writableEnded) break;
                     try {
                         res.write(frame);
@@ -869,10 +859,9 @@ export async function handleStreamRequest(
                         break;
                     }
                 }
-                preContentBuffer.length = 0;
                 sawMeaningfulContent = true;
             } else {
-                logger.warn(`[Stream] Upstream stream ended with no meaningful content (finishReason: ${lastFinishReason || 'unknown'}${lastFinishMessage ? `, finishMessage: ${lastFinishMessage}` : ''}). Discarded ${preContentBuffer.length} buffered frame(s) and will treat as empty upstream response.`);
+                logger.warn(`[Stream] Upstream stream ended with no meaningful content (finishReason: ${lastFinishReason || 'unknown'}${lastFinishMessage ? `, finishMessage: ${lastFinishMessage}` : ''}). Discarded ${preContentBuffer.discard().length} buffered frame(s) and will treat as empty upstream response.`);
                 throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
             }
         }
@@ -888,7 +877,7 @@ export async function handleStreamRequest(
                 });
             }
         } else if (clientDisconnected.value) {
-            logger.warn(`[Stream] Client disconnected before any meaningful content was received from ${toProvider} (${pooluuid || 'no-uuid'}). Discarded ${preContentBuffer.length} buffered frame(s).`);
+            logger.warn(`[Stream] Client disconnected before any meaningful content was received from ${toProvider} (${pooluuid || 'no-uuid'}). Discarded ${preContentBuffer.discard().length} buffered frame(s).`);
         }
 
     }  catch (error) {
