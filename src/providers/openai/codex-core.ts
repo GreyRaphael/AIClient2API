@@ -14,6 +14,53 @@ import {getProviderModels} from '../provider-models.ts';
 import {normalizeCodexInstructions} from './codex-request-utils.ts';
 import {resolveProviderCapabilities} from '../provider-capabilities.ts';
 
+import type { ProviderConfig } from '../provider-types.ts';
+
+interface CodexServiceConfig extends ProviderConfig {
+    CODEX_BASE_URL?: string;
+    CODEX_EMAIL?: string;
+    CODEX_OAUTH_CREDS_FILE_PATH?: string;
+    CODEX_VERSION?: string;
+    MODEL_PROVIDER?: string;
+    REQUEST_MAX_RETRIES?: number;
+    REQUEST_BASE_DELAY?: number;
+    [key: string]: unknown;
+}
+
+interface CodexErrorLike {
+    response?: { status?: number; data?: unknown };
+    code?: string;
+    message?: string;
+    credentialMarkedUnhealthy?: boolean;
+    shouldSwitchCredential?: boolean;
+    skipErrorCount?: boolean;
+    retryAfterMs?: number;
+}
+
+interface CodexTerminalError extends Error {
+    response?: { status?: number; data?: unknown };
+    shouldSwitchCredential?: boolean;
+    skipErrorCount?: boolean;
+    retryAfterMs?: number;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return isRecord(value) ? value : {};
+}
+
+function asCodexError(value: unknown): CodexErrorLike {
+    return isRecord(value) ? value as CodexErrorLike : {};
+}
+
 export const CODEX_FALLBACK_VERSION = '0.162.1';
 
 /**
@@ -22,7 +69,7 @@ export const CODEX_FALLBACK_VERSION = '0.162.1';
  * @param {Object} [config]
  * @returns {string}
  */
-export function getCodexVersion(config: any = null) {
+export function getCodexVersion(config: CodexServiceConfig | null = null): string {
     const configVersion = String(config?.CODEX_VERSION ?? '').trim();
     if (configVersion) {
         return configVersion;
@@ -40,21 +87,23 @@ export const CODEX_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
  * @param {Array<string|object>|null} [supportedLevels=null]
  * @returns {string}
  */
-export function normalizeCodexReasoningEffort(effort: any, defaultEffort: any = 'medium', supportedLevels: any = null) {
+export function normalizeCodexReasoningEffort(effort: unknown, defaultEffort: unknown = 'medium', supportedLevels: unknown = null): string {
     const canonicalOrder = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
     const canonicalSet = new Set(canonicalOrder);
     const normalizedDefault = String(defaultEffort || 'medium').trim().toLowerCase();
 
     const supported = Array.isArray(supportedLevels)
         ? new Set(supportedLevels
-            .map((level: any) => (typeof level === 'string'
-                ? level
-                : (level?.effort ?? level?.level ?? level?.value)))
+            .map((level: unknown) => {
+                if (typeof level === 'string') return level;
+                const record = isRecord(level) ? level : null;
+                return record?.effort ?? record?.level ?? record?.value;
+            })
             .filter(Boolean)
-            .map((level: any) => String(level).trim().toLowerCase()))
+            .map((level) => String(level).trim().toLowerCase()))
         : null;
 
-    let candidate: any;
+    let candidate: string;
     if (effort === null || effort === undefined || effort === '') {
         candidate = normalizedDefault;
     } else {
@@ -115,30 +164,32 @@ export function normalizeCodexReasoningEffort(effort: any, defaultEffort: any = 
 
     return supported.has(normalizedDefault)
         ? normalizedDefault
-        : (canonicalOrder.find((level: any) => supported.has(level)) || 'medium');
+        : (canonicalOrder.find((level) => supported.has(level)) || 'medium');
 }
 
 /**
  * 获取当前提供商配置对应的全部可用模型
  */
-export function getCodexModels(providerType: any = MODEL_PROVIDER.CODEX_API) {
+export function getCodexModels(providerType: string = MODEL_PROVIDER.CODEX_API): string[] {
     return getProviderModels(providerType);
 }
 
-function normalizeCodexTerminalError(parsed: any) {
-    if (!parsed || typeof parsed !== 'object') {
+function normalizeCodexTerminalError(parsed: unknown): Record<string, unknown> | null {
+    if (!isRecord(parsed)) {
         return null;
     }
 
-    let errorBody: any = null;
+    let errorBody: Record<string, unknown> | null = null;
     if (parsed.type === 'error') {
-        errorBody = parsed.error && typeof parsed.error === 'object'
+        errorBody = isRecord(parsed.error)
             ? parsed.error
             : { message: parsed.message || parsed.error || 'Codex API error' };
     } else if (parsed.type === 'response.failed') {
-        errorBody = parsed.response?.error || parsed.error;
+        const response = isRecord(parsed.response) ? parsed.response : null;
+        errorBody = isRecord(parsed.error) ? parsed.error : (isRecord(response?.error) ? response.error : null);
         if (!errorBody) {
-            errorBody = { message: parsed.response?.error?.message || parsed.message || 'Codex response failed' };
+            const responseError = isRecord(response?.error) ? response.error : null;
+            errorBody = { message: responseError?.message || parsed.message || 'Codex response failed' };
         }
     }
 
@@ -146,22 +197,19 @@ function normalizeCodexTerminalError(parsed: any) {
         return null;
     }
 
-    if (typeof errorBody !== 'object') {
-        errorBody = { message: String(errorBody) };
-    }
     if (!errorBody.message) {
         errorBody.message = errorBody.code || errorBody.type || 'Codex API error';
     }
     return errorBody;
 }
 
-function createCodexTerminalError(parsed: any) {
+function createCodexTerminalError(parsed: unknown): CodexTerminalError | null {
     const errorBody = normalizeCodexTerminalError(parsed);
     if (!errorBody) {
         return null;
     }
 
-    const error = new Error(`Codex API error: ${errorBody.message}`);
+    const error = new Error(`Codex API error: ${String(errorBody.message)}`) as CodexTerminalError;
     error.response = {
         status: isCodexUsageLimitError(errorBody) || isCodexModelCapacityError(errorBody) ? 429 : 400,
         data: { error: errorBody }
@@ -179,35 +227,37 @@ function createCodexTerminalError(parsed: any) {
     return error;
 }
 
-function shouldSwitchCodexCredential(errorBody: any) {
-    const code = String(errorBody?.code || '').toLowerCase();
-    const type = String(errorBody?.type || '').toLowerCase();
+function shouldSwitchCodexCredential(errorBody: unknown): boolean {
+    const record = asRecord(errorBody);
+    const code = String(record.code || '').toLowerCase();
+    const type = String(record.type || '').toLowerCase();
     return code === 'insufficient_quota' || type === 'insufficient_quota' || isCodexUsageLimitError(errorBody) || isCodexModelCapacityError(errorBody);
 }
 
-function isCodexUsageLimitError(errorBody: any) {
-    return String(errorBody?.type || '').trim().toLowerCase() === 'usage_limit_reached';
+function isCodexUsageLimitError(errorBody: unknown): boolean {
+    return String(asRecord(errorBody).type || '').trim().toLowerCase() === 'usage_limit_reached';
 }
 
-function isCodexModelCapacityError(errorBody: any) {
-    const msg = String(errorBody?.message || '').trim().toLowerCase();
+function isCodexModelCapacityError(errorBody: unknown): boolean {
+    const msg = String(asRecord(errorBody).message || '').trim().toLowerCase();
     return msg.includes('selected model is at capacity') || msg.includes('model is at capacity. please try a different model');
 }
 
-function parseCodexRetryAfterMs(errorBody: any) {
-    const resetsAt = Number(errorBody?.resets_at);
+function parseCodexRetryAfterMs(errorBody: unknown): number | null {
+    const record = asRecord(errorBody);
+    const resetsAt = Number(record.resets_at);
     if (Number.isFinite(resetsAt) && resetsAt > 0) {
         const delay = resetsAt * 1000 - Date.now();
         return delay > 0 ? delay : null;
     }
-    const resetsInSeconds = Number(errorBody?.resets_in_seconds);
+    const resetsInSeconds = Number(record.resets_in_seconds);
     if (Number.isFinite(resetsInSeconds) && resetsInSeconds > 0) {
         return resetsInSeconds * 1000;
     }
     return null;
 }
 
-function extractSSEData(line: any) {
+function extractSSEData(line: string): string | null {
     const trimmedLine = String(line || '').trim();
     if (!trimmedLine || trimmedLine.startsWith(':') || trimmedLine.startsWith('event:') || trimmedLine.startsWith('id:') || trimmedLine.startsWith('retry:')) {
         return null;
@@ -223,7 +273,7 @@ function extractSSEData(line: any) {
  * @param {string} token
  * @returns {{ planType: string, accountId: string|null, userId: string|null, exp: number|null }}
  */
-export function parseCodexTokenMetadata(token: any) {
+export function parseCodexTokenMetadata(token: unknown): Record<string, unknown> {
     try {
         const parts = String(token || '').split('.');
         if (parts.length >= 2) {
@@ -236,7 +286,7 @@ export function parseCodexTokenMetadata(token: any) {
                 exp: payload.exp ? payload.exp * 1000 : null
             };
         }
-    } catch (_: any) {}
+    } catch {}
     return { planType: 'unknown', accountId: null, userId: null, exp: null };
 }
 
@@ -244,30 +294,30 @@ export function parseCodexTokenMetadata(token: any) {
  * Codex API 服务类
  */
 export class CodexApiService {
-    config: any;
-    baseUrl: any;
-    accessToken: any;
-    refreshToken: any;
-    accountId: any;
-    email: any;
-    planType: any;
-    expiresAt: any;
-    idToken: any;
-    last_refresh: any;
-    credsPath: any;
-    accessTokenOnlyRefreshLogged: any;
-    uuid: any;
-    isInitialized: any;
-    conversationCache: any;
-    modelsCache: any;
-    modelsExpiresAt: any;
-    _modelsFetchPromise: any;
-    modelMetadataMap: any;
-    availableModels: any;
-    version: any;
-    cleanupInterval: any;
+    config: CodexServiceConfig;
+    baseUrl: string;
+    accessToken: string | null;
+    refreshToken: string | null;
+    accountId: string | null;
+    email: string | null;
+    planType: string;
+    expiresAt: Date | null;
+    idToken: string | null;
+    last_refresh: string | null;
+    credsPath: string | null;
+    accessTokenOnlyRefreshLogged: boolean;
+    uuid: string | null;
+    isInitialized: boolean;
+    conversationCache: Map<string, { id: string; expire: number }>;
+    modelsCache: string[] | null;
+    modelsExpiresAt: number;
+    _modelsFetchPromise: Promise<string[]> | null;
+    modelMetadataMap: Map<string, unknown>;
+    availableModels: string[];
+    version: string;
+    cleanupInterval: NodeJS.Timeout | null = null;
 
-    constructor(config: any) {
+    constructor(config: CodexServiceConfig) {
         this.config = config;
         this.baseUrl = config.CODEX_BASE_URL || 'https://chatgpt.com/backend-api/codex';
         this.accessToken = null;
@@ -280,7 +330,7 @@ export class CodexApiService {
         this.last_refresh = null;
         this.credsPath = null; // 记录本次加载/使用的凭据文件路径，确保刷新后写回同一文件
         this.accessTokenOnlyRefreshLogged = false;
-        this.uuid = config.uuid; // 保存 uuid 用于号池管理
+        this.uuid = config.uuid || null; // 保存 uuid 用于号池管理
         this.isInitialized = false;
 
         // 会话缓存管理
@@ -296,7 +346,7 @@ export class CodexApiService {
         this.version = getCodexVersion(config);
     }
 
-    _applySidecar(axiosConfig: any) {
+    _applySidecar(axiosConfig: Record<string, unknown>) {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API, this.baseUrl);
     }
 
@@ -314,8 +364,8 @@ export class CodexApiService {
         logger.info(`[Codex] Initialization complete. Account: ${this.email || 'unknown'}`);
 
         // 异步预热获取远端模型列表（非阻塞）
-        this.fetchRemoteModels().catch((err: any) => {
-            logger.debug(`[Codex] Initial remote models fetch notice: ${err.message}`);
+        this.fetchRemoteModels().catch((err) => {
+            logger.debug(`[Codex] Initial remote models fetch notice: ${getErrorMessage(err)}`);
         });
     }
 
@@ -326,8 +376,8 @@ export class CodexApiService {
         const email = this.config.CODEX_EMAIL || 'default';
 
         try {
-            let creds: any;
-            let credsPath: any;
+            let creds: Record<string, unknown>;
+            let credsPath: string;
 
             // 如果指定了具体路径，直接读取
             if (this.config.CODEX_OAUTH_CREDS_FILE_PATH) {
@@ -343,7 +393,7 @@ export class CodexApiService {
                 const targetDir = path.join(projectDir, 'configs', 'codex');
                 const files = await fs.readdir(targetDir);
                 const matchingFile = files
-                    .filter((f: any) => f.includes(`codex-${email}`) && f.endsWith('.json'))
+                    .filter((f) => f.includes(`codex-${email}`) && f.endsWith('.json'))
                     .sort()
                     .pop(); // 获取最新的文件
 
@@ -358,17 +408,18 @@ export class CodexApiService {
             // 记录凭据路径，确保 refresh 时写回同一文件。
             this.credsPath = credsPath;
 
-            this.idToken = creds.id_token || this.idToken;
-            this.accessToken = creds.access_token;
-            this.refreshToken = creds.refresh_token;
-            this.accountId = creds.account_id;
-            this.email = creds.email;
-            this.last_refresh = creds.last_refresh || this.last_refresh;
-            this.expiresAt = new Date(creds.expired); // 注意：字段名是 expired
+            const credsRecord = asRecord(creds);
+            this.idToken = typeof credsRecord.id_token === 'string' ? credsRecord.id_token : this.idToken;
+            this.accessToken = typeof credsRecord.access_token === 'string' ? credsRecord.access_token : null;
+            this.refreshToken = typeof credsRecord.refresh_token === 'string' ? credsRecord.refresh_token : null;
+            this.accountId = typeof credsRecord.account_id === 'string' ? credsRecord.account_id : null;
+            this.email = typeof credsRecord.email === 'string' ? credsRecord.email : null;
+            this.last_refresh = typeof credsRecord.last_refresh === 'string' ? credsRecord.last_refresh : this.last_refresh;
+            this.expiresAt = typeof credsRecord.expired === 'string' ? new Date(credsRecord.expired) : null; // 注意：字段名是 expired
 
             const tokenMeta = parseCodexTokenMetadata(this.accessToken);
-            this.planType = tokenMeta.planType || 'unknown';
-            if (!this.accountId && tokenMeta.accountId) {
+            this.planType = typeof tokenMeta.planType === 'string' ? tokenMeta.planType : 'unknown';
+            if (!this.accountId && typeof tokenMeta.accountId === 'string') {
                 this.accountId = tokenMeta.accountId;
             }
 
@@ -379,15 +430,16 @@ export class CodexApiService {
 
             this.isInitialized = true;
             logger.info(`[Codex] Initialized with account: ${this.email} (plan: ${this.planType})`);
-        } catch (error: any) {
-            logger.warn(`[Codex Auth] Failed to load credentials: ${error.message}`);
+        } catch (rawError) {
+            const error = asCodexError(rawError);
+            logger.warn(`[Codex Auth] Failed to load credentials: ${getErrorMessage(error)}`);
         }
     }
 
     /**
      * 初始化认证并执行必要刷新
      */
-    async initializeAuth(forceRefresh: any = false) {
+    async initializeAuth(forceRefresh = false) {
         // 检查 token 是否需要刷新
         const needsRefresh = forceRefresh;
 
@@ -440,7 +492,7 @@ export class CodexApiService {
     /**
      * 生成内容（非流式）
      */
-    async generateContent(model: any, requestBody: any) {
+    async generateContent<T = unknown>(model: string, requestBody: Record<string, unknown>): Promise<T> {
         if (!this.isInitialized) {
             await this.initialize();
         }
@@ -451,7 +503,7 @@ export class CodexApiService {
             try {
                 await this.fetchRemoteModels(true);
                 supportedModels = this.getSupportedModels();
-            } catch (_: any) {}
+            } catch {}
         }
         if (!supportedModels.includes(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
@@ -478,10 +530,10 @@ export class CodexApiService {
 
         const url = `${this.baseUrl}/responses`;
         const body = await this.prepareRequestBody(selectedModel, requestBody, true);
-        const headers = this.buildHeaders(body.prompt_cache_key, true);
+        const headers = this.buildHeaders(typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key : null, true);
 
         try {
-            const config: any = {
+            const config: Record<string, unknown> = {
                 headers,
                 responseType: 'text', // 确保以文本形式接收 SSE 流
                 timeout: 300000 // 5 分钟超时，适应慢速模型
@@ -497,8 +549,9 @@ export class CodexApiService {
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
-            return this.parseNonStreamResponse(response.data);
-        } catch (error: any) {
+            return this.parseNonStreamResponse(response.data) as T;
+        } catch (rawError) {
+            const error = asCodexError(rawError);
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401. Triggering background refresh...');
                 await normalizeProviderErrorMessage(error, { status: 401, context: 'non-stream' });
@@ -515,7 +568,7 @@ export class CodexApiService {
                 if (error.response?.status) {
                     await normalizeProviderErrorMessage(error, { status: error.response.status, context: 'non-stream' });
                 }
-                logger.error(`[Codex] Error calling non-stream API (Status: ${error.response?.status}, Code: ${error.code || 'N/A'}): ${error.message}`);
+                logger.error(`[Codex] Error calling non-stream API (Status: ${error.response?.status}, Code: ${error.code || 'N/A'}): ${getErrorMessage(error)}`);
                 throw error;
             }
         }
@@ -524,7 +577,7 @@ export class CodexApiService {
     /**
      * 流式生成内容
      */
-    async* generateContentStream(model: any, requestBody: any) {
+    async* generateContentStream(model: string, requestBody: Record<string, unknown>): AsyncGenerator<unknown> {
         if (!this.isInitialized) {
             await this.initialize();
         }
@@ -535,7 +588,7 @@ export class CodexApiService {
             try {
                 await this.fetchRemoteModels(true);
                 supportedModels = this.getSupportedModels();
-            } catch (_: any) {}
+            } catch {}
         }
         if (!supportedModels.includes(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
@@ -562,10 +615,10 @@ export class CodexApiService {
 
         const url = `${this.baseUrl}/responses`;
         const body = await this.prepareRequestBody(selectedModel, requestBody, true);
-        const headers = this.buildHeaders(body.prompt_cache_key, true);
+        const headers = this.buildHeaders(typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key : null, true);
 
         try {
-            const config: any = {
+            const config: Record<string, unknown> = {
                 headers,
                 responseType: 'stream',
                 timeout: 300000 // 5 分钟超时
@@ -582,7 +635,8 @@ export class CodexApiService {
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
             yield* this.parseSSEStream(response.data);
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asCodexError(rawError);
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401 during stream. Triggering background refresh...');
                 await normalizeProviderErrorMessage(error, { status: 401, context: 'stream' });
@@ -599,7 +653,7 @@ export class CodexApiService {
                 if (error.response?.status) {
                     await normalizeProviderErrorMessage(error, { status: error.response.status, context: 'stream' });
                 }
-                logger.error(`[Codex] Error calling streaming API (Status: ${error.response?.status}, Code: ${error.code || 'N/A'}):`, error.message);
+                logger.error(`[Codex] Error calling streaming API (Status: ${error.response?.status}, Code: ${error.code || 'N/A'}):`, getErrorMessage(error));
                 throw error;
             }
         }
@@ -608,14 +662,14 @@ export class CodexApiService {
     /**
      * 构建请求头
      */
-    buildHeaders(cacheId: any, stream: any = true) {
+    buildHeaders(cacheId: string | null, stream = true): Record<string, string> {
         const version = this.version;
-        const headers = {
+        const headers: Record<string, string> = {
             'version': version,
             'x-codex-beta-features': 'powershell_utf8',
             'x-oai-web-search-eligible': 'true',
             'authorization': `Bearer ${this.accessToken}`,
-            'chatgpt-account-id': this.accountId,
+            'chatgpt-account-id': this.accountId || '',
             'content-type': 'application/json',
             'user-agent': `codex-tui/${version} (Windows 10.0.26100; x86_64) WindowsTerminal (codex-tui; ${version})`,
             'originator': 'codex-tui',
@@ -625,15 +679,15 @@ export class CodexApiService {
 
         // 设置 Conversation_id 和 Session_id
         if (cacheId) {
-            (headers as any)['Conversation_id'] = cacheId;
-            (headers as any)['Session_id'] = cacheId;
+            headers['Conversation_id'] = cacheId || '';
+            headers['Session_id'] = cacheId || '';
         }
 
         // 根据是否流式设置 Accept 头
         if (stream) {
-            (headers as any)['accept'] = 'text/event-stream';
+            headers['accept'] = 'text/event-stream';
         } else {
-            (headers as any)['accept'] = 'application/json';
+            headers['accept'] = 'application/json';
         }
 
         return headers;
@@ -645,7 +699,7 @@ export class CodexApiService {
     buildManagementHeaders() {
         return {
             'authorization': `Bearer ${this.accessToken}`,
-            'chatgpt-account-id': this.accountId,
+            'chatgpt-account-id': this.accountId || '',
             'oai-language': 'zh-CN',
             'originator': 'Codex Desktop',
             'accept': 'application/json',
@@ -659,12 +713,12 @@ export class CodexApiService {
     /**
      * 准备请求体
      */
-    async prepareRequestBody(model: any, requestBody: any, stream: any) {
+    async prepareRequestBody(model: string, requestBody: Record<string, unknown>, stream: boolean): Promise<Record<string, unknown>> {
         // 提取 metadata 并从请求体中移除，避免透传到上游
-        const metadata = requestBody.metadata || {};
+        const metadata = asRecord(requestBody.metadata);
 
         // 明确会话维度：优先使用 session_id 或 conversation_id，其次 user_id
-        const sessionId = metadata.session_id || metadata.conversation_id || metadata.user_id || 'default';
+        const sessionId = String(metadata.session_id || metadata.conversation_id || metadata.user_id || 'default');
 
         // 规范化模型名称
         const upstreamModel = String(model || '').trim();
@@ -701,13 +755,13 @@ export class CodexApiService {
 
             // 直接使用真实 upstreamModel，不再硬编码改写为 gpt-5.5
             effectiveUpstreamModel = upstreamModel;
-            const imageToolConfig: any = { type: 'image_generation' };
+            const imageToolConfig: Record<string, unknown> = { type: 'image_generation' };
             if (cleanedBody._imageSize) {
                 imageToolConfig.size = cleanedBody._imageSize;
             }
             delete cleanedBody._imageSize;
             cleanedBody.tools = [imageToolConfig];
-            if (!cleanedBody.instructions?.trim()) {
+            if (typeof cleanedBody.instructions !== 'string' || !cleanedBody.instructions.trim()) {
                 cleanedBody.instructions = 'You are a helpful assistant.';
             }
             logger.info(`[Codex] Image model detected: ${upstreamModel} with image_generation tool${imageToolConfig.size ? `, size=${imageToolConfig.size}` : ''}`);
@@ -717,7 +771,7 @@ export class CodexApiService {
                 cleanedBody.tools = [];
             }
             if (Array.isArray(cleanedBody.tools)) {
-                const hasWebSearch = cleanedBody.tools.some((t: any) => t.type === 'web_search');
+                const hasWebSearch = cleanedBody.tools.some((t) => isRecord(t) && t.type === 'web_search');
                 if (!hasWebSearch) {
                     cleanedBody.tools.push({type: 'web_search'});
                 }
@@ -740,12 +794,12 @@ export class CodexApiService {
         }
 
         // 推理等级 (reasoning_effort) 动态合理映射
-        const inputEffort = requestBody.reasoning_effort ?? requestBody.reasoning?.effort ?? cleanedBody.reasoning_effort ?? cleanedBody.reasoning?.effort;
+        const inputEffort = requestBody.reasoning_effort ?? asRecord(requestBody.reasoning).effort ?? cleanedBody.reasoning_effort ?? asRecord(cleanedBody.reasoning).effort;
         const rawEffort = inputEffort;
 
-        const modelMeta = this.modelMetadataMap?.get(upstreamModel);
-        const defaultEffort = modelMeta?.default_reasoning_level || 'medium';
-        const supportedEfforts = Array.isArray(modelMeta?.supported_reasoning_levels)
+        const modelMeta = asRecord(this.modelMetadataMap?.get(upstreamModel));
+        const defaultEffort = typeof modelMeta.default_reasoning_level === 'string' ? modelMeta.default_reasoning_level : 'medium';
+        const supportedEfforts = Array.isArray(modelMeta.supported_reasoning_levels)
             ? modelMeta.supported_reasoning_levels
             : null;
         const targetEffort = normalizeCodexReasoningEffort(rawEffort, defaultEffort, supportedEfforts);
@@ -771,15 +825,15 @@ export class CodexApiService {
         }
 
         // 注意：requestBody 已经去除了 metadata
-        const result = {
+        const result: Record<string, unknown> = {
             ...cleanedBody,
             store: cleanedBody.store ?? false,
             parallel_tool_calls: cleanedBody.parallel_tool_calls ?? true,
             include: cleanedBody.include || ['reasoning.encrypted_content'],
             reasoning: {
-                ...cleanedBody.reasoning,
+                ...asRecord(cleanedBody.reasoning),
                 effort: targetEffort,
-                summary: cleanedBody.reasoning?.summary || 'auto',
+                summary: asRecord(cleanedBody.reasoning).summary || 'auto',
             },
             stream,
             prompt_cache_key: cache.id
@@ -812,8 +866,9 @@ export class CodexApiService {
                         converterName: 'prepareRequestBody'
                     });
                 }
-            } catch (e: any) {
-                logger.error('[Codex] Error calling onInternalRequestConverted hook:', e.message);
+            } catch (rawError) {
+                const e = asCodexError(rawError);
+                logger.error('[Codex] Error calling onInternalRequestConverted hook:', getErrorMessage(e));
             }
         }
 
@@ -830,23 +885,24 @@ export class CodexApiService {
         }
 
         try {
-            const newTokens: any = await refreshCodexTokensWithRetry(this.refreshToken, this.config);
+            const newTokens = await refreshCodexTokensWithRetry(this.refreshToken || '', this.config);
 
-            this.idToken = newTokens.id_token || this.idToken;
-            this.accessToken = newTokens.access_token;
-            this.refreshToken = newTokens.refresh_token;
-            this.accountId = newTokens.account_id;
-            this.email = newTokens.email;
+            const tokensRecord = asRecord(newTokens);
+            this.idToken = typeof tokensRecord.id_token === 'string' ? tokensRecord.id_token : this.idToken;
+            this.accessToken = typeof tokensRecord.access_token === 'string' ? tokensRecord.access_token : null;
+            this.refreshToken = typeof tokensRecord.refresh_token === 'string' ? tokensRecord.refresh_token : null;
+            this.accountId = typeof tokensRecord.account_id === 'string' ? tokensRecord.account_id : null;
+            this.email = typeof tokensRecord.email === 'string' ? tokensRecord.email : null;
             this.last_refresh = new Date().toISOString();
 
             const tokenMeta = parseCodexTokenMetadata(this.accessToken);
-            if (tokenMeta.planType && tokenMeta.planType !== 'unknown') {
+            if (typeof tokenMeta.planType === 'string' && tokenMeta.planType !== 'unknown') {
                 this.planType = tokenMeta.planType;
             }
 
             // 关键修复：refreshCodexTokensWithRetry 返回字段名是 `expired`（ISO string），不是 `expire`
-            const expiredValue = newTokens.expired || newTokens.expire || newTokens.expires_at || newTokens.expiresAt;
-            const parsedExpiry = expiredValue ? new Date(expiredValue) : null;
+            const expiredValue = tokensRecord.expired || tokensRecord.expire || tokensRecord.expires_at || tokensRecord.expiresAt;
+            const parsedExpiry = (typeof expiredValue === 'string' || typeof expiredValue === 'number') ? new Date(expiredValue) : null;
             if (!parsedExpiry || Number.isNaN(parsedExpiry.getTime())) {
                 // 如果上游没返回可解析的过期时间，保守处理：按 1h 有效期估算（避免 expiresAt 变成 NaN 导致永不刷新）
                 this.expiresAt = new Date(Date.now() + 3600 * 1000);
@@ -864,8 +920,9 @@ export class CodexApiService {
                 poolManager.resetProviderRefreshStatus(this.config.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API, this.uuid);
             }
             logger.info('[Codex] Token refreshed successfully');
-        } catch (error: any) {
-            logger.error('[Codex] Failed to refresh token:', error.message);
+        } catch (rawError) {
+            const error = asCodexError(rawError);
+            logger.error('[Codex] Failed to refresh token:', getErrorMessage(error));
             throw new Error('Failed to refresh Codex token. Please re-authenticate.');
         }
     }
@@ -946,7 +1003,7 @@ export class CodexApiService {
     /**
      * 检查文件是否存在
      */
-    async fileExists(filePath: any) {
+    async fileExists(filePath: string): Promise<boolean> {
         try {
             await fs.access(filePath);
             return true;
@@ -958,11 +1015,11 @@ export class CodexApiService {
     /**
      * 收集 Codex 输出项
      */
-    collectCodexOutputItemDone(eventData: any, outputItemsByIndex: any, outputItemsFallback: any) {
+    collectCodexOutputItemDone(eventData: Record<string, unknown>, outputItemsByIndex: Map<number, unknown>, outputItemsFallback: unknown[]): void {
         if (!eventData.item) {
             return;
         }
-        if (eventData.output_index !== undefined) {
+        if (typeof eventData.output_index === 'number') {
             outputItemsByIndex.set(eventData.output_index, eventData.item);
         } else {
             outputItemsFallback.push(eventData.item);
@@ -972,8 +1029,8 @@ export class CodexApiService {
     /**
      * 修正 Codex 完成输出
      */
-    patchCodexCompletedOutput(eventData: any, outputItemsByIndex: any, outputItemsFallback: any) {
-        const response = eventData.response || {};
+    patchCodexCompletedOutput(eventData: Record<string, unknown>, outputItemsByIndex: Map<number, unknown>, outputItemsFallback: unknown[]): Record<string, unknown> {
+        const response = asRecord(eventData.response);
         const output = response.output;
 
         const shouldPatch = (!output || !Array.isArray(output) || output.length === 0) &&
@@ -983,9 +1040,9 @@ export class CodexApiService {
             return eventData;
         }
 
-        const items: any[] = [];
+        const items: unknown[] = [];
         // 按索引排序
-        const sortedIndexes = (Array.from(outputItemsByIndex.keys()) as any[]).sort((a: any, b: any) => a - b);
+        const sortedIndexes = Array.from(outputItemsByIndex.keys()).sort((a, b) => a - b);
         for (const idx of sortedIndexes) {
             items.push(outputItemsByIndex.get(idx));
         }
@@ -995,7 +1052,7 @@ export class CodexApiService {
         if (!eventData.response) {
             eventData.response = {};
         }
-        eventData.response.output = items;
+        asRecord(eventData.response).output = items;
 
         return eventData;
     }
@@ -1003,10 +1060,10 @@ export class CodexApiService {
     /**
      * 解析 SSE 流
      */
-    async* parseSSEStream(stream: any) {
+    async* parseSSEStream(stream: AsyncIterable<Buffer | string>): AsyncGenerator<unknown> {
         let buffer = '';
         const outputItemsByIndex = new Map();
-        const outputItemsFallback: any[] = [];
+        const outputItemsFallback: unknown[] = [];
 
         for await (const chunk of stream) {
             buffer += chunk.toString();
@@ -1036,11 +1093,12 @@ export class CodexApiService {
                         }
 
                         yield parsed;
-                    } catch (e: any) {
-                        if (e.message.startsWith('Codex API error')) {
+                    } catch (rawError) {
+                const e = asCodexError(rawError);
+                        if (getErrorMessage(e).startsWith('Codex API error')) {
                             throw e;
                         }
-                        logger.error('[Codex] Failed to parse SSE data:', e.message);
+                        logger.error('[Codex] Failed to parse SSE data:', getErrorMessage(e));
                     }
                 }
             }
@@ -1069,11 +1127,12 @@ export class CodexApiService {
                     }
 
                     yield parsed;
-                } catch (e: any) {
-                    if (e.message.startsWith('Codex API error')) {
+                } catch (rawError) {
+                const e = asCodexError(rawError);
+                    if (getErrorMessage(e).startsWith('Codex API error')) {
                         throw e;
                     }
-                    logger.error('[Codex] Failed to parse final SSE data:', e.message);
+                    logger.error('[Codex] Failed to parse final SSE data:', getErrorMessage(e));
                 }
             }
         }
@@ -1082,7 +1141,7 @@ export class CodexApiService {
     /**
      * 解析非流式响应
      */
-    parseNonStreamResponse(data: any) {
+    parseNonStreamResponse(data: unknown): unknown {
         // 确保 data 是字符串
         const responseText = typeof data === 'string' ? data : String(data);
 
@@ -1092,9 +1151,9 @@ export class CodexApiService {
         const textDeltas = new Map(); // item_id -> accumulated text
 
         const outputItemsByIndex = new Map();
-        const outputItemsFallback: any[] = [];
+        const outputItemsFallback: unknown[] = [];
 
-        let completedEvent: any = null;
+        let completedEvent: Record<string, unknown> | null = null;
 
         for (const line of lines) {
             const trimmedLine = line.trim();
@@ -1144,12 +1203,13 @@ export class CodexApiService {
                         completedEvent = this.patchCodexCompletedOutput(parsed, outputItemsByIndex, outputItemsFallback);
                         break;
                 }
-            } catch (e: any) {
-                if (e.message.startsWith('Codex API error')) {
+            } catch (rawError) {
+                const e = asCodexError(rawError);
+                if (getErrorMessage(e).startsWith('Codex API error')) {
                     throw e;
                 }
                 // 继续解析下一行
-                logger.debug('[Codex] Failed to parse SSE line:', e.message);
+                logger.debug('[Codex] Failed to parse SSE line:', getErrorMessage(e));
             }
         }
 
@@ -1174,8 +1234,9 @@ export class CodexApiService {
                 completedEvent = this.patchCodexCompletedOutput(completedEvent, outputItemsByIndex, outputItemsFallback);
 
                 // 如果 patch 后还是没输出，尝试直接从 outputItems 填充
-                if (completedEvent.response.output.length === 0 && outputItems.size > 0) {
-                    completedEvent.response.output = Array.from(outputItems.values());
+                const completedResponse = asRecord(completedEvent.response);
+                if (Array.isArray(completedResponse.output) && completedResponse.output.length === 0 && outputItems.size > 0) {
+                    completedResponse.output = Array.from(outputItems.values());
                 }
             } else {
                 logger.error('[Codex] No completed response found in Codex response');
@@ -1189,16 +1250,17 @@ export class CodexApiService {
 
         // 用累积的 delta 文本 & output_item.done 数据填充 output items 中缺失的内容
         if (completedEvent.response) {
-            const output = completedEvent.response.output || [];
+            const completedResponse = asRecord(completedEvent.response);
+            const output = Array.isArray(completedResponse.output) ? completedResponse.output as Array<Record<string, unknown>> : [];
 
             for (const item of output) {
                 if (item.type === 'message' && item.role === 'assistant') {
                     const accumulatedText = textDeltas.get(item.id);
                     if (accumulatedText !== undefined) {
-                        if (!item.content || item.content.length === 0) {
+                        if (!Array.isArray(item.content) || item.content.length === 0) {
                             item.content = [{type: 'output_text', text: accumulatedText}];
                         } else {
-                            item.content = item.content.map((c: any) => {
+                            item.content = (item.content as Array<Record<string, unknown>>).map((c) => {
                                 if (c.type === 'output_text' && !c.text) {
                                     return {...c, text: accumulatedText};
                                 }
@@ -1218,7 +1280,7 @@ export class CodexApiService {
                     }
                     output.push(item);
                 }
-                completedEvent.response.output = output;
+                completedResponse.output = output;
             }
         }
 
@@ -1240,7 +1302,7 @@ export class CodexApiService {
      * 获取节点专属可用模型（支持号池与节点隔离）
      * @param {boolean} [force=false]
      */
-    async getNodeAvailableModels(force: any = false) {
+    async getNodeAvailableModels(force = false): Promise<string[]> {
         if (!this.isInitialized) {
             await this.initialize();
         }
@@ -1253,7 +1315,7 @@ export class CodexApiService {
      * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<Object>>}
      */
-    async fetchRemoteModels(force: any = false) {
+    async fetchRemoteModels(force = false): Promise<string[]> {
         const now = Date.now();
         if (!force && this.modelsCache && this.modelsExpiresAt > now) {
             return this.modelsCache;
@@ -1290,7 +1352,7 @@ export class CodexApiService {
                 const res = await axios.request(/** @type {any} */ (axiosRequestConfig));
                 if (res.data && Array.isArray(res.data.models)) {
                     const rawModels = res.data.models;
-                    const modelIds: any[] = [];
+                    const modelIds: string[] = [];
                     this.modelMetadataMap.clear();
 
                     for (const m of rawModels) {
@@ -1322,12 +1384,13 @@ export class CodexApiService {
                         return rawModels;
                     }
                 }
-            } catch (error: any) {
+            } catch (rawError) {
+            const error = asCodexError(rawError);
                 if (error.response?.status === 401) {
                     logger.info('[Codex] Received 401 while fetching remote models, triggering refresh...');
                     this.triggerBackgroundRefresh();
                 }
-                logger.warn(`[Codex] Failed to fetch remote models from ${this.baseUrl}/models: ${error.message}`);
+                logger.warn(`[Codex] Failed to fetch remote models from ${this.baseUrl}/models: ${getErrorMessage(error)}`);
             } finally {
                 this._modelsFetchPromise = null;
             }
@@ -1345,7 +1408,7 @@ export class CodexApiService {
         const targetProvider = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
         const allModels = getCodexModels(targetProvider);
         this.availableModels = allModels;
-        return allModels.map((id: any) => ({
+        return allModels.map((id) => ({
             id,
             slug: id,
             object: 'model',
@@ -1358,14 +1421,14 @@ export class CodexApiService {
      * 列出可用模型（OpenAI 兼容格式）
      * @param {boolean} [force=false]
      */
-    async listModels(force: any = false) {
+    async listModels(force = false): Promise<Record<string, unknown>> {
         await this.fetchRemoteModels(force);
         const allModels = this.getSupportedModels();
         return {
             object: 'list',
-            data: allModels.map((id: any) => {
-                const meta = this.modelMetadataMap.get(id);
-                const item: any = {
+            data: allModels.map((id) => {
+                const meta = asRecord(this.modelMetadataMap.get(id));
+                const item: Record<string, unknown> = {
                     id,
                     object: 'model',
                     created: Math.floor(Date.now() / 1000),
@@ -1420,7 +1483,7 @@ export class CodexApiService {
             const url = 'https://chatgpt.com/backend-api/wham/usage';
             const headers = this.buildManagementHeaders();
 
-            const config: any = {
+            const config: Record<string, unknown> = {
                 headers,
                 timeout: 30000
             };
@@ -1437,7 +1500,8 @@ export class CodexApiService {
                 ...response.data,
                 account: this.email
             };
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asCodexError(rawError);
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401 during getUsageLimits. Triggering background refresh...');
                 this.triggerBackgroundRefresh();
@@ -1446,7 +1510,7 @@ export class CodexApiService {
                 error.skipErrorCount = true;
             }
 
-            logger.error('[Codex] Failed to get usage limits:', error.message);
+            logger.error('[Codex] Failed to get usage limits:', getErrorMessage(error));
             throw error;
         }
     }
@@ -1488,7 +1552,8 @@ export class CodexApiService {
                 usage: latestUsage,
                 account: this.email
             };
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asCodexError(rawError);
             if (error.response?.status === 401) {
                 logger.info('[Codex] Received 401 during resetUsageQuota. Triggering background refresh...');
                 this.triggerBackgroundRefresh();
@@ -1497,7 +1562,7 @@ export class CodexApiService {
                 error.skipErrorCount = true;
             }
 
-            logger.error('[Codex] Failed to reset usage quota:', error.message);
+            logger.error('[Codex] Failed to reset usage quota:', getErrorMessage(error));
             throw error;
         }
     }
