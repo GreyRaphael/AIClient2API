@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.2] - 2026-10-25
+
+### Changed
+
+- **TypeScript 严格化重构收尾**：全仓显式 `any` 从 2279 降至 234 处（-90%），`strict` 错误清零，`@ts-nocheck` 保持 0 文件 / 0 行。
+- Provider 层（antigravity、zed、codex、claude-kiro、trae、openai、model-capability、adapter、registry/capabilities/strategies）全部收敛到真实 DTO / 协议类型。
+- 四个协议转换器（Claude / OpenAI / OpenAI Responses / Codex）及 `GeminiConverter` 的公共入口与内部 payload 完成类型化。
+- `request-pipeline` 引入统一 `PipelineError` 边界；handlers、UI API、core 与 services 模块同步类型化。
+- 剩余 234 处显式 `any` 仅位于 `security-hardening.ts` 的 monkey-patch wrapper，按设计保留为受控例外。
+- 新增 `any` 棘轮基线，后续新增显式 `any` 将使 CI 失败。
+
+### Verification
+
+- `npm run verify`：strict 0 errors，30 suites / 494 tests 全绿，imports 128 文件通过，runtime smoke OK。
+
 ## [v5.0.1] - 2026-10-24
 
 ### Fixed
