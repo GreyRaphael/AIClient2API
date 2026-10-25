@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { AxiosInstance } from 'axios';
 import logger from '../../utils/logger.ts';
 import * as http from 'http';
 import * as https from 'https';
@@ -6,13 +7,15 @@ import { configureAxiosProxy, configureTLSSidecar, isTLSSidecarEnabledForProvide
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 
+type DynamicPayload = Record<string, any>;
+
 /**
  * 判断非流式响应体是否实际上是 SSE 文本。
  * 部分 OpenAI 兼容端点无论 `stream` 取值都返回 `text/event-stream`。
  * @param {any} data
  * @returns {boolean}
  */
-function isSSEPayload(data: any) {
+function isSSEPayload(data: unknown): boolean {
     if (typeof data !== 'string') return false;
     const trimmed = data.trimStart();
     return trimmed.startsWith('data:') || trimmed.startsWith('event:') || trimmed.includes('\ndata:');
@@ -23,8 +26,8 @@ function isSSEPayload(data: any) {
  * @param {string} raw
  * @returns {Array<any>}
  */
-function parseSSEChunks(raw: any) {
-    const chunks: any[] = [];
+function parseSSEChunks(raw: unknown): DynamicPayload[] {
+    const chunks: DynamicPayload[] = [];
     for (const line of String(raw).split(/\r?\n/)) {
         if (!line.startsWith('data:')) continue;
         const payload = line.slice(5).trim();
@@ -43,7 +46,7 @@ function parseSSEChunks(raw: any) {
  * @param {any} tool
  * @returns {string}
  */
-function getToolFunctionName(tool: any) {
+function getToolFunctionName(tool: DynamicPayload | null | undefined): string {
     return String(tool?.function?.name || tool?.name || '');
 }
 
@@ -52,7 +55,7 @@ function getToolFunctionName(tool: any) {
  * @param {any} toolChoice
  * @returns {string}
  */
-function getSpecificToolChoiceName(toolChoice: any) {
+function getSpecificToolChoiceName(toolChoice: DynamicPayload | null | undefined): string {
     if (!toolChoice || typeof toolChoice !== 'object') return '';
     if (toolChoice.type !== 'function') return '';
     return String(toolChoice.function?.name || toolChoice.name || '');
@@ -67,7 +70,7 @@ function getSpecificToolChoiceName(toolChoice: any) {
  * @param {Object} capabilities - resolveProviderCapabilities() 结果
  * @returns {Object} 归一化后的请求体（不修改入参）
  */
-export function normalizeToolChoiceForProvider(body: any, capabilities: any) {
+export function normalizeToolChoiceForProvider(body: DynamicPayload, capabilities: DynamicPayload | null | undefined): DynamicPayload {
     if (!body || capabilities?.supportsForcedToolChoice !== false) {
         return body;
     }
@@ -91,7 +94,7 @@ export function normalizeToolChoiceForProvider(body: any, capabilities: any) {
     }
 
     const matchingTools = (Array.isArray(body.tools) ? body.tools : [])
-        .filter((tool: any) => getToolFunctionName(tool) === name);
+        .filter((tool: DynamicPayload) => getToolFunctionName(tool) === name);
 
     if (matchingTools.length > 0) {
         logger.warn(`[OpenAI API] Provider does not support forced tool_choice for '${name}'; narrowing tools and using 'required'`);
@@ -113,12 +116,13 @@ export function normalizeToolChoiceForProvider(body: any, capabilities: any) {
  * @param {any} data
  * @returns {boolean}
  */
-function isEmptyResponsePayload(data: any) {
+function isEmptyResponsePayload(data: unknown): boolean {
     if (data === undefined || data === null || data === '') return true;
     if (typeof data === 'object' && !Array.isArray(data)) {
-        if (Object.keys(data).length === 0) return true;
-        const hasChoices = Array.isArray(data.choices) && data.choices.length > 0;
-        if (!hasChoices && (data.error || data.errcode || data.errmsg)) return true;
+        const record = data as DynamicPayload;
+        if (Object.keys(record).length === 0) return true;
+        const hasChoices = Array.isArray(record.choices) && record.choices.length > 0;
+        if (!hasChoices && (record.error || record.errcode || record.errmsg)) return true;
     }
     return false;
 }
@@ -129,10 +133,10 @@ function isEmptyResponsePayload(data: any) {
  * @param {Array<any>} chunks
  * @returns {Object|null}
  */
-export function aggregateChatCompletionChunks(chunks: any) {
+export function aggregateChatCompletionChunks(chunks: DynamicPayload[] | null | undefined): DynamicPayload | null {
     if (!Array.isArray(chunks) || chunks.length === 0) return null;
 
-    const result: any = {
+    const result: DynamicPayload = {
         id: null,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
@@ -148,7 +152,7 @@ export function aggregateChatCompletionChunks(chunks: any) {
     let content = '';
     let reasoning = '';
     let sawContent = false;
-    const toolCalls = new Map();
+    const toolCalls = new Map<number, DynamicPayload>();
 
     for (const chunk of chunks) {
         if (!chunk || typeof chunk !== 'object') continue;
@@ -180,7 +184,7 @@ export function aggregateChatCompletionChunks(chunks: any) {
                             function: { name: '', arguments: '' }
                         });
                     }
-                    const target = toolCalls.get(index);
+                    const target = toolCalls.get(index)!;
                     if (tc?.id) target.id = tc.id;
                     if (tc?.type) target.type = tc.type;
                     if (tc?.function?.name) target.function.name = tc.function.name;
@@ -193,7 +197,7 @@ export function aggregateChatCompletionChunks(chunks: any) {
                 if (!toolCalls.has(0)) {
                     toolCalls.set(0, { id: undefined, type: 'function', function: { name: '', arguments: '' } });
                 }
-                const target = toolCalls.get(0);
+                const target = toolCalls.get(0)!;
                 if (delta.function_call.name) target.function.name = delta.function_call.name;
                 if (typeof delta.function_call.arguments === 'string') {
                     target.function.arguments += delta.function_call.arguments;
@@ -205,7 +209,7 @@ export function aggregateChatCompletionChunks(chunks: any) {
         }
     }
 
-    const message: any = result.choices[0].message;
+    const message: DynamicPayload = result.choices[0].message;
     if (sawContent || !toolCalls.size) {
         message.content = content;
     } else {
@@ -214,8 +218,8 @@ export function aggregateChatCompletionChunks(chunks: any) {
     if (reasoning) message.reasoning_content = reasoning;
     if (toolCalls.size > 0) {
         message.tool_calls = Array.from(toolCalls.entries())
-            .sort(([a]: any, [b]: any) => a - b)
-            .map(([index, tc]: any) => ({
+            .sort(([a], [b]) => a - b)
+            .map(([index, tc]) => ({
                 index,
                 id: tc.id || `call_${result.id || Date.now()}_${index}`,
                 type: tc.type || 'function',
@@ -231,14 +235,14 @@ export function aggregateChatCompletionChunks(chunks: any) {
 
 // Assumed OpenAI API specification service for interacting with third-party models
 export class OpenAIApiService {
-    config: any;
-    apiKey: any;
-    baseUrl: any;
-    useSystemProxy: any;
-    axiosInstance: any;
-    _loggedNonStreamCapability: any;
+    config: DynamicPayload;
+    apiKey: string;
+    baseUrl: string;
+    useSystemProxy: boolean;
+    axiosInstance!: AxiosInstance;
+    _loggedNonStreamCapability: boolean = false;
 
-    constructor(config: any) {
+    constructor(config: DynamicPayload) {
         if (!config.OPENAI_API_KEY) {
             throw new Error("OpenAI API Key is required for OpenAIApiService.");
         }
@@ -259,11 +263,17 @@ export class OpenAIApiService {
         this.axiosInstance = axios.create(axiosConfig);
     }
 
-    _applySidecar(axiosConfig: any) {
+    _applySidecar(axiosConfig: DynamicPayload): DynamicPayload {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM, this.baseUrl);
     }
 
-    async callApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0, fallbackTried: any = false): Promise<any> {
+    async callApi(
+        endpoint: string,
+        body: DynamicPayload,
+        isRetry = false,
+        retryCount = 0,
+        fallbackTried = false
+    ): Promise<DynamicPayload> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
@@ -283,15 +293,15 @@ export class OpenAIApiService {
         }
 
         try {
-            const axiosConfig = {
+            const axiosConfig: DynamicPayload = {
                 method: 'post',
                 url: endpoint,
                 data: requestData
             };
             this._applySidecar(axiosConfig);
-            const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
+            const response = await this.axiosInstance.request(axiosConfig);
             const contentType = String(response.headers?.['content-type'] || '');
-            let result = response.data;
+            let result: DynamicPayload = response.data;
             if (isSSEPayload(response.data) || contentType.includes('text/event-stream')) {
                 // 兼容“忽略 stream:false、始终返回 SSE”的上游端点。
                 const aggregated = aggregateChatCompletionChunks(parseSSEChunks(response.data));
@@ -306,7 +316,7 @@ export class OpenAIApiService {
             const specificToolName = getSpecificToolChoiceName(normalizedBody?.tool_choice);
             if (!fallbackTried && normalizedBody?.stream !== true && specificToolName && isEmptyResponsePayload(result)) {
                 const matchingTools = (Array.isArray(normalizedBody.tools) ? normalizedBody.tools : [])
-                    .filter((tool: any) => getToolFunctionName(tool) === specificToolName);
+                    .filter((tool: DynamicPayload) => getToolFunctionName(tool) === specificToolName);
                 if (matchingTools.length > 0) {
                     logger.warn(`[OpenAI API] Empty response for forced tool_choice '${specificToolName}'; retrying once with 'required' and narrowed tools`);
                     return this.callApi(
@@ -320,7 +330,7 @@ export class OpenAIApiService {
             }
 
             return result;
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
             const data = error.response?.data;
             const errorCode = error.code;
@@ -344,7 +354,7 @@ export class OpenAIApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[OpenAI API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
                 }
             }
@@ -353,7 +363,7 @@ export class OpenAIApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[OpenAI API] Received ${status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
             }
 
@@ -362,7 +372,7 @@ export class OpenAIApiService {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[OpenAI API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
             }
 
@@ -371,7 +381,12 @@ export class OpenAIApiService {
         }
     }
 
-    async *streamApi(endpoint: any, body: any, isRetry: any = false, retryCount: any = 0): AsyncGenerator<any> {
+    async *streamApi(
+        endpoint: string,
+        body: DynamicPayload,
+        isRetry = false,
+        retryCount = 0
+    ): AsyncGenerator<DynamicPayload> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
@@ -389,7 +404,7 @@ export class OpenAIApiService {
             || !['0', 'false', 'off', 'no'].includes(String(includeUsageRaw).toLowerCase());
         const shouldMergeFinishUsage = body._includeUsageForConversion === true && includeUsageEnabled;
         const { _includeUsageForConversion: _includeUsageMarker, ...cleanBody } = normalizedBody;
-        const streamRequestBody = { ...cleanBody, stream: true };
+        const streamRequestBody: DynamicPayload = { ...cleanBody, stream: true };
         if (shouldMergeFinishUsage) {
             streamRequestBody.stream_options = {
                 ...(cleanBody.stream_options || {}),
@@ -398,24 +413,24 @@ export class OpenAIApiService {
         }
 
         try {
-            const axiosConfig = {
+            const axiosConfig: DynamicPayload = {
                 method: 'post',
                 url: endpoint,
                 data: streamRequestBody,
                 responseType: 'stream'
             };
             this._applySidecar(axiosConfig);
-            const response = await this.axiosInstance.request(/** @type {any} */ (axiosConfig));
+            const response = await this.axiosInstance.request(axiosConfig);
 
             const stream = response.data;
             let buffer = '';
             // include_usage 的 usage 帧在 finish 帧之后到达。跨协议转换时先暂存 finish，
             // 等 usage 帧到达后合并，避免 Claude / Responses 下游拿到全零 usage。
-            let pendingFinishChunk: any = null;
+            let pendingFinishChunk: DynamicPayload | null = null;
 
             for await (const chunk of stream) {
                 buffer += chunk.toString();
-                let newlineIndex: any;
+                let newlineIndex: number;
                 while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
                     const line = buffer.substring(0, newlineIndex).trim();
                     buffer = buffer.substring(newlineIndex + 1);
@@ -445,13 +460,13 @@ export class OpenAIApiService {
                             }
 
                             const hasFinishReason = Array.isArray(parsedChunk.choices)
-                                && parsedChunk.choices.some((choice: any) => choice?.finish_reason);
+                                && parsedChunk.choices.some((choice: DynamicPayload) => choice?.finish_reason);
                             if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
                                 pendingFinishChunk = parsedChunk;
                             } else {
                                 yield parsedChunk;
                             }
-                        } catch (e: any) {
+                        } catch (caught) { const e = caught as DynamicPayload;
                             logger.warn("[OpenAIApiService] Failed to parse stream chunk JSON:", e.message, "Data:", jsonData);
                         }
                     } else if (line === '') {
@@ -464,7 +479,7 @@ export class OpenAIApiService {
             if (pendingFinishChunk) {
                 yield pendingFinishChunk;
             }
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
             const data = error.response?.data;
             const errorCode = error.code;
@@ -488,7 +503,7 @@ export class OpenAIApiService {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     logger.info(`[OpenAI API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                     return;
                 }
@@ -498,7 +513,7 @@ export class OpenAIApiService {
             if (status >= 500 && status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[OpenAI API] Received ${status} server error during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -508,7 +523,7 @@ export class OpenAIApiService {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                 logger.info(`[OpenAI API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }
@@ -518,7 +533,7 @@ export class OpenAIApiService {
         }
     }
 
-    async generateContent(model: any, requestBody: any) {
+    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -531,7 +546,7 @@ export class OpenAIApiService {
         return this.callApi('/chat/completions', requestBody);
     }
 
-    async *generateContentStream(model: any, requestBody: any) {
+    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -544,11 +559,11 @@ export class OpenAIApiService {
         yield* this.streamApi('/chat/completions', requestBody);
     }
 
-    async listModels() {
+    async listModels(): Promise<DynamicPayload> {
         try {
             const response = await this.axiosInstance.get('/models');
             return response.data;
-        } catch (error: any) {
+        } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
             const data = error.response?.data;
             logger.error(`Error listing OpenAI models (Status: ${status}):`, data || error.message);
