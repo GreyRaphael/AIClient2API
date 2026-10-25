@@ -35,6 +35,9 @@ jobs:
       - name: 类型检查
         run: npm run typecheck
 
+      - name: 内置插件类型检查
+        run: npm run typecheck:plugins
+
       - name: 严格度棘轮检查
         run: npm run check:strict
 

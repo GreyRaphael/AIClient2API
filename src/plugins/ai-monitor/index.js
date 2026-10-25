@@ -6,6 +6,7 @@ import logger from '../../utils/logger.js';
  * 1. 捕获 AI 接口的请求参数（转换前和转换后）
  * 2. 捕获 AI 接口的响应结果（转换前和转换后，流式响应聚合输出）
  */
+/** @type {import('../../../types/plugin.js').Plugin & { streamCache: Map<string, { nativeChunks: unknown[], convertedChunks: unknown[], fromProvider: string, toProvider: string }> }} */
 const aiMonitorPlugin = {
     name: 'ai-monitor',
     version: '1.0.0',

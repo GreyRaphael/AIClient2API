@@ -11,6 +11,7 @@ import {
     syncWriteToFile
 } from './stats-manager.js';
 
+/** @type {import('../../../types/plugin.js').Plugin} */
 const modelUsageStatsPlugin = {
     name: 'model-usage-stats',
     version: '1.0.0',

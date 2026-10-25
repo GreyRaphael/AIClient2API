@@ -153,8 +153,16 @@ export async function handlePotluckApiRoutes(method, path, req, res) {
 
         // POST /api/potluck/keys - 创建新 Key
         if (method === 'POST' && path === '/api/potluck/keys') {
-            const body = await getRequestBody(req, { maxBytes: 1024 * 1024 });
-            const { name, dailyLimit } = body;
+            const body = /** @type {Record<string, unknown>} */ (await getRequestBody(req, { maxBytes: 1024 * 1024 }));
+            const name = typeof body.name === 'string' ? body.name : '';
+            const dailyLimit = typeof body.dailyLimit === 'number' ? body.dailyLimit : undefined;
+            if (!name) {
+                sendJson(res, 400, {
+                    success: false,
+                    error: 'name is required'
+                });
+                return true;
+            }
             const keyData = await createKey(name, dailyLimit);
             sendJson(res, 201, {
                 success: true,

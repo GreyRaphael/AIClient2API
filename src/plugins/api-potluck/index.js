@@ -61,6 +61,7 @@ function getPendingUsageForHookContext(hookContext = {}) {
 /**
  * 插件定义
  */
+/** @type {import('../../../types/plugin.js').Plugin} */
 const apiPotluckPlugin = {
     name: 'api-potluck',
     version: '1.0.2',

@@ -53,6 +53,7 @@ function isAuthorized(req, requestUrl, requiredApiKey) {
 /**
  * 默认认证插件定义
  */
+/** @type {import('../../../types/plugin.js').Plugin} */
 const defaultAuthPlugin = {
     name: 'default-auth',
     version: '1.0.0',

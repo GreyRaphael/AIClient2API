@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "strict": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/plugins/**/*.js",
+    "types/**/*.d.ts"
+  ],
+  "exclude": [
+    "src/plugins-user"
+  ]
+}

@@ -9,6 +9,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Plugin, PluginAuthResult, PluginMiddlewareResult } from '../../types/plugin.js';
+import { getErrorMessage } from '../utils/error.ts';
 
 type DynamicPayload = Record<string, any>;
 
@@ -75,14 +77,14 @@ export const PLUGIN_TYPE = {
  * 插件管理器类
  */
 class PluginManager {
-    plugins: Map<string, DynamicPayload>;
+    plugins: Map<string, Plugin>;
     pluginsConfig: DynamicPayload;
     initialized: boolean;
     config: DynamicPayload | null;
 
     constructor() {
         /** @type {Map<string, Plugin>} */
-        this.plugins = new Map();
+        this.plugins = new Map<string, Plugin>();
         /** @type {Object} */
         this.pluginsConfig = { plugins: {} };
         /** @type {boolean} */
@@ -219,7 +221,7 @@ class PluginManager {
      * 注册插件
      * @param {Plugin} plugin - 插件对象
      */
-    register(plugin: DynamicPayload): void {
+    register(plugin: Plugin): void {
         if (!plugin.name) {
             throw new Error('Plugin must have a name');
         }
@@ -242,14 +244,15 @@ class PluginManager {
     registerPlaceholder(name: string, description: string = '', baseDir: string | null = null): void {
         validatePluginId(name);
         if (this.plugins.has(name)) return;
-        this.plugins.set(name, {
+        const placeholder: Plugin = {
             name,
             version: '1.0.0',
             description,
             _enabled: false,
             _placeholder: true,
             _baseDir: baseDir
-        });
+        };
+        this.plugins.set(name, placeholder);
         logger.info(`[PluginManager] Registered disabled plugin placeholder: ${name}`);
     }
 
@@ -319,10 +322,10 @@ class PluginManager {
      * 优先级数字越小越先执行，内置插件（_builtin: true）最后执行
      * @returns {Plugin[]}
      */
-    getEnabledPlugins(): DynamicPayload[] {
+    getEnabledPlugins(): Plugin[] {
         return Array.from(this.plugins.values())
-            .filter((p: DynamicPayload) => p._enabled)
-            .sort((a: DynamicPayload, b: DynamicPayload) => {
+            .filter((p) => Boolean(p._enabled))
+            .sort((a, b) => {
                 // 内置插件排在最后
                 const aBuiltin = a._builtin ? 1 : 0;
                 const bBuiltin = b._builtin ? 1 : 0;
@@ -339,8 +342,8 @@ class PluginManager {
      * 获取所有认证插件（按优先级排序）
      * @returns {Plugin[]}
      */
-    getAuthPlugins(): DynamicPayload[] {
-        return this.getEnabledPlugins().filter((p: DynamicPayload) =>
+    getAuthPlugins(): Plugin[] {
+        return this.getEnabledPlugins().filter((p) =>
             p.type === PLUGIN_TYPE.AUTH && typeof p.authenticate === 'function'
         );
     }
@@ -349,8 +352,8 @@ class PluginManager {
      * 获取所有普通中间件插件（按优先级排序）
      * @returns {Plugin[]}
      */
-    getMiddlewarePlugins(): DynamicPayload[] {
-        return this.getEnabledPlugins().filter((p: DynamicPayload) =>
+    getMiddlewarePlugins(): Plugin[] {
+        return this.getEnabledPlugins().filter((p) =>
             p.type !== PLUGIN_TYPE.AUTH && typeof p.middleware === 'function'
         );
     }
@@ -560,7 +563,7 @@ class PluginManager {
      * @param {string} path - 请求路径
      * @returns {Plugin|null}
      */
-    getPluginByStaticPath(path: string): DynamicPayload | null {
+    getPluginByStaticPath(path: string): Plugin | null {
         for (const plugin of this.plugins.values()) {
             if (!Array.isArray(plugin.staticPaths)) continue;
 
@@ -583,14 +586,17 @@ class PluginManager {
             if (!plugin.hooks || typeof plugin.hooks[hookName] !== 'function') continue;
 
             try {
-                await this.executePluginOperation(plugin, `hook:${hookName}`, () => plugin.hooks[hookName](...args));
+                const hook = plugin.hooks[hookName] as ((...hookArgs: unknown[]) => unknown) | undefined;
+                if (hook) {
+                    await this.executePluginOperation(plugin, `hook:${hookName}`, () => hook(...args));
+                }
             } catch (caught) { const error = caught as DynamicPayload;
                 this.recordPluginError(plugin, `hook:${hookName}`, error);
             }
         }
     }
 
-    executePluginOperation(plugin: DynamicPayload, operationName: string, fn: () => unknown): Promise<DynamicPayload> {
+    executePluginOperation<T>(plugin: Plugin, operationName: string, fn: () => T | Promise<T>): Promise<T> {
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => {
@@ -604,18 +610,19 @@ class PluginManager {
             timeoutPromise
         ]).then((result) => {
             plugin._errorCount = 0;
-            return result as DynamicPayload;
+            return result;
         }).finally(() => clearTimeout(timeoutId));
     }
 
-    recordPluginError(plugin: DynamicPayload, operationName: string, error: DynamicPayload): void {
+    recordPluginError(plugin: Plugin, operationName: string, error: unknown): void {
+        const message = getErrorMessage(error);
         plugin._errorCount = (plugin._errorCount || 0) + 1;
-        logger.error(`[PluginManager] ${operationName} error in plugin "${plugin.name}":`, error.message);
+        logger.error(`[PluginManager] ${operationName} error in plugin "${plugin.name}":`, message);
         auditSecurityEvent({
             type: 'plugin_error',
             plugin: plugin.name,
             operation: operationName,
-            error: error.message,
+            error: message,
             errorCount: plugin._errorCount
         });
 
