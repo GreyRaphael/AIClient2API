@@ -124,6 +124,17 @@ describe('ProviderPoolManager selection characterization', () => {
         expect(manager._selectionSequence).toBe(2);
         stopSaveTimer(manager);
     });
+
+    test('uses the latest provider status after pool reinitialization', async () => {
+        manager = createManager([makeNode('a')]);
+        expect((await manager.selectProvider('openai-custom')).uuid).toBe('a');
+
+        manager.providerPools = { 'openai-custom': [makeNode('b')] };
+        manager.initializeProviderStatus();
+
+        expect((await manager.selectProvider('openai-custom')).uuid).toBe('b');
+        stopSaveTimer(manager);
+    });
 });
 
 describe('ProviderPoolManager fallback and refresh characterization', () => {
