@@ -12,7 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复非号池部署（`providerPools` 为空且使用 `openai-custom` / `openaiResponses-custom` / `claude-custom`）时所有内容生成请求返回 500 `service.generateContent is not a function` 的回归。`request-handler` 恢复传入 `null`，由 `handleContentGenerationRequest` 延迟解析 service。
 - 修复 `request-handler`、`api-manager`、`service-manager`、`plugin-installer`、`provider-api` 中 5 个自递归的 `getErrorMessage`，避免错误路径抛出 `RangeError: Maximum call stack size exceeded`（插件市场离线 fallback、provider 健康检查等）。
 - 新增回归测试：真实 standalone server + 空号池 + 本地假上游；插件市场离线缓存 fallback；全源码 `getErrorMessage` 自递归扫描。
-- `any` 棘轮扩展为同时校验正则口径与 TypeScript AST `AnyKeyword` 节点（`src` + `types/`），并修正发布说明中的口径与 Node.js 版本要求。
+- `any` 棘轮扩展为同时校验正则口径、TypeScript AST `AnyKeyword` 节点（`src` + `types/`）以及 `DynamicPayload` 定义/引用数；新增别名或引用会使 CI 失败。
+- 补齐第三方依赖类型：`busboy` 使用 `@types/busboy`；`adm-zip` 0.5.x 与 `multer` 使用本地最小声明（`types/adm-zip.d.ts`、`types/multer.d.ts`），移除 `types/vendor-modules.d.ts` 的 `any` 模块声明。
+- 在触碰的 UI 上传模块中收敛动态类型：`event-broadcast` / `plugin-api` 移除 `DynamicPayload`，改用真实 multer `File`、`Record<string, unknown>` 与显式窄化/守卫。
+- 修正发布说明中的 `any` 口径与 Node.js 版本要求。
 
 ### Verification
 
@@ -27,8 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Provider 层（antigravity、zed、codex、claude-kiro、trae、openai、model-capability、adapter、registry/capabilities/strategies）全部收敛到真实 DTO / 协议类型。
 - 四个协议转换器（Claude / OpenAI / OpenAI Responses / Codex）及 `GeminiConverter` 的公共入口与内部 payload 完成类型化。
 - `request-pipeline` 引入统一 `PipelineError` 边界；handlers、UI API、core 与 services 模块同步类型化。
-- 正则口径下剩余 234 处显式 `any` 位于 `security-hardening.ts` 的 monkey-patch wrapper；按 TypeScript AST 统计所有 `AnyKeyword` 节点（含泛型位置与 `types/`）为 395 处（src=333 / types=62）。
-- 新增 `any` 棘轮基线（234 annotations / 6 assertions / 395 AST nodes），后续新增 `: any`、`as any` 或 `Record<string, any>` 等泛型 any 将使 CI 失败。
+- 正则口径下剩余 234 处显式 `any` 位于 `security-hardening.ts` 的 monkey-patch wrapper；按 TypeScript AST 统计所有 `AnyKeyword` 节点（含泛型位置与 `types/`）为 393 处（src=331 / types=62）。
+- 新增 `any` 棘轮基线（234 annotations / 6 assertions / 393 AST nodes，DynamicPayload 51 definitions / 1567 references），后续新增 `: any`、`as any`、`Record<string, any>` 或 `DynamicPayload` 将使 CI 失败。
 - **运行要求提升**：Node.js >= 22.18.0（原生 TypeScript 类型擦除），Node 20 及更早版本无法启动。
 
 ### Verification

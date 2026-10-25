@@ -6,7 +6,7 @@
 > 按 `: any` / `as any` 注解口径，`src` 下显式 `any` 从 **2279 处降至 234 处（-90%）**；
 > 这 234 处均位于 `security-hardening.ts` 的 monkey-patch wrapper 边界，作为受控例外保留。
 > 若按 TypeScript AST 统计所有 `AnyKeyword` 节点（含 `Record<string, any>`、`Promise<any>`
-> 等泛型位置及 `types/` 声明），当前为 **395 处（src=333 / types=62）**，其中
+> 等泛型位置及 `types/` 声明），当前为 **393 处（src=331 / types=62）**，其中
 > `security-hardening.ts` 占 239 处，其余集中在动态 payload 与第三方边界。
 
 ---
@@ -18,8 +18,8 @@
 - `strict` 模式错误：**0**
 - `@ts-nocheck`：**0 文件 / 0 行**
 - 显式 `any`（`: any` / `as any` 正则口径）：**2279 → 234 annotations**，**135 → 6 assertions**
-- AST `any` 节点（含泛型位置与 `types/`）：**395 处（src=333 / types=62）**
-- 新增 `any` 棘轮基线（`scripts/any-baseline.json`），同时校验 **234 annotations / 6 assertions / 395 AST nodes**；新增 `: any`、`as any` 或 `Record<string, any>` 等泛型 any 都会导致 CI 失败
+- AST `any` 节点（含泛型位置与 `types/`）：**393 处（src=331 / types=62）**
+- 新增 `any` 棘轮基线（`scripts/any-baseline.json`），同时校验 **234 annotations / 6 assertions / 393 AST nodes**，并冻结 **51 个 `DynamicPayload` 定义 / 1567 处引用**；新增 `: any`、`as any`、`Record<string, any>` 或 `DynamicPayload` 都会导致 CI 失败
 
 ### Provider 层
 
@@ -53,7 +53,7 @@
 | TypeScript strict | **0 errors** |
 | `@ts-nocheck` | **0 文件 / 0 行** |
 | 显式 `any`（正则口径） | **234 annotations / 6 assertions** |
-| AST `any` 节点（含泛型与 `types/`） | **395（src=333 / types=62）** |
+| AST `any` 节点（含泛型与 `types/`） | **393（src=331 / types=62）** |
 | 单元测试 | **30 suites / 494 tests 全绿** |
 | 导入检查 | **128 文件通过** |
 | 运行时冒烟 | **OK** |

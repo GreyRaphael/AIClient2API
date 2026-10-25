@@ -10,7 +10,9 @@
  * - legacy regex counts (`: any`, `as any`) for continuity;
  * - AST `AnyKeyword` node count across the src and types trees, which also
  *   covers generic positions such as `Record<string, any>` and
- *   `Promise<any>` that the regex intentionally misses.
+ *   `Promise<any>` that the regex intentionally misses;
+ * - `DynamicPayload` type-alias definition/reference counts, so new uses of
+ *   the `Record<string, any>` escape hatch cannot grow silently.
  */
 
 import fs from 'node:fs';
@@ -65,7 +67,7 @@ const unknownAssertions = countMatches(/\bas\s+unknown\b/g);
 
 const typeFiles = walk(TYPES).filter((file) => file.endsWith('.ts'));
 
-function countAnyNodes(file) {
+function analyzeFile(file) {
     const sourceFile = ts.createSourceFile(
         file,
         fs.readFileSync(file, 'utf8'),
@@ -73,18 +75,40 @@ function countAnyNodes(file) {
         true,
         ts.ScriptKind.TS
     );
-    let count = 0;
+    let anyNodes = 0;
+    let dynamicPayloadDefs = 0;
+    let dynamicPayloadRefs = 0;
     const visit = (node) => {
-        if (node.kind === ts.SyntaxKind.AnyKeyword) count += 1;
+        if (node.kind === ts.SyntaxKind.AnyKeyword) anyNodes += 1;
+        if (ts.isTypeAliasDeclaration(node) && node.name.text === 'DynamicPayload') {
+            dynamicPayloadDefs += 1;
+        }
+        if (ts.isIdentifier(node) && node.text === 'DynamicPayload') {
+            dynamicPayloadRefs += 1;
+        }
         ts.forEachChild(node, visit);
     };
     visit(sourceFile);
-    return count;
+    return { anyNodes, dynamicPayloadDefs, dynamicPayloadRefs };
 }
 
-const srcAnyNodes = tsFiles.reduce((total, file) => total + countAnyNodes(file), 0);
-const typeAnyNodes = typeFiles.reduce((total, file) => total + countAnyNodes(file), 0);
+function sumMetrics(files) {
+    return files.reduce((total, file) => {
+        const metrics = analyzeFile(file);
+        total.anyNodes += metrics.anyNodes;
+        total.dynamicPayloadDefs += metrics.dynamicPayloadDefs;
+        total.dynamicPayloadRefs += metrics.dynamicPayloadRefs;
+        return total;
+    }, { anyNodes: 0, dynamicPayloadDefs: 0, dynamicPayloadRefs: 0 });
+}
+
+const srcMetrics = sumMetrics(tsFiles);
+const typeMetrics = sumMetrics(typeFiles);
+const srcAnyNodes = srcMetrics.anyNodes;
+const typeAnyNodes = typeMetrics.anyNodes;
 const anyNodes = srcAnyNodes + typeAnyNodes;
+const dynamicPayloadDefs = srcMetrics.dynamicPayloadDefs + typeMetrics.dynamicPayloadDefs;
+const dynamicPayloadRefs = srcMetrics.dynamicPayloadRefs + typeMetrics.dynamicPayloadRefs;
 
 const ANY_BASELINE_PATH = path.join(ROOT, 'scripts', 'any-baseline.json');
 const args = new Set(process.argv.slice(2));
@@ -97,11 +121,14 @@ function writeAnyBaseline() {
         assertions: anyAssertions,
         anyNodes,
         srcAnyNodes,
-        typeAnyNodes
+        typeAnyNodes,
+        dynamicPayloadDefs,
+        dynamicPayloadRefs
     }, null, 2)}\n`);
     console.log(
         `[type-metrics] any baseline updated: ${anyAnnotations} annotations / ${anyAssertions} assertions / ` +
-        `${anyNodes} AST nodes (src=${srcAnyNodes}, types=${typeAnyNodes})`
+        `${anyNodes} AST nodes (src=${srcAnyNodes}, types=${typeAnyNodes}) / ` +
+        `DynamicPayload ${dynamicPayloadDefs} defs / ${dynamicPayloadRefs} refs`
     );
 }
 
@@ -113,22 +140,30 @@ if (shouldUpdateAny) {
         process.exit(1);
     }
     const baseline = JSON.parse(fs.readFileSync(ANY_BASELINE_PATH, 'utf8'));
-    if (typeof baseline.anyNodes !== 'number') {
-        console.error('[type-metrics] Baseline is missing the AST any-node metric; run npm run metrics:types -- --update');
+    if (
+        typeof baseline.anyNodes !== 'number'
+        || typeof baseline.dynamicPayloadDefs !== 'number'
+        || typeof baseline.dynamicPayloadRefs !== 'number'
+    ) {
+        console.error('[type-metrics] Baseline is missing extended metrics; run npm run metrics:types -- --update');
         process.exit(1);
     }
     if (
         anyAnnotations > baseline.annotations
         || anyAssertions > baseline.assertions
         || anyNodes > baseline.anyNodes
+        || dynamicPayloadDefs > baseline.dynamicPayloadDefs
+        || dynamicPayloadRefs > baseline.dynamicPayloadRefs
     ) {
         console.error(
-            `[type-metrics] any ratchet failed: current ${anyAnnotations}/${anyAssertions}/${anyNodes}, ` +
-            `baseline ${baseline.annotations}/${baseline.assertions}/${baseline.anyNodes}`
+            `[type-metrics] any ratchet failed: current ${anyAnnotations}/${anyAssertions}/${anyNodes} ` +
+            `(DynamicPayload ${dynamicPayloadDefs}/${dynamicPayloadRefs}), ` +
+            `baseline ${baseline.annotations}/${baseline.assertions}/${baseline.anyNodes} ` +
+            `(DynamicPayload ${baseline.dynamicPayloadDefs}/${baseline.dynamicPayloadRefs})`
         );
         process.exit(1);
     }
-    console.log('[type-metrics] any ratchet OK (annotations/assertions/AST nodes did not increase)');
+    console.log('[type-metrics] any ratchet OK (annotations/assertions/AST nodes/DynamicPayload did not increase)');
 }
 
 console.log('[type-metrics] TypeScript files:', tsFiles.length);
@@ -136,6 +171,7 @@ console.log('[type-metrics] JavaScript files:', jsFiles.length);
 console.log(`[type-metrics] @ts-nocheck: ${nocheckFiles.length} files / ${lineCount(nocheckFiles)} lines`);
 console.log(`[type-metrics] any: ${anyAnnotations} annotations / ${anyAssertions} assertions`);
 console.log(`[type-metrics] any AST nodes: ${anyNodes} (src=${srcAnyNodes}, types=${typeAnyNodes})`);
+console.log(`[type-metrics] DynamicPayload: ${dynamicPayloadDefs} definitions / ${dynamicPayloadRefs} references`);
 console.log(`[type-metrics] unknown: ${unknownAnnotations} annotations / ${unknownAssertions} assertions`);
 console.log('[type-metrics] per directory:');
 for (const [directory, entry] of [...perDirectory.entries()].sort(([a], [b]) => a.localeCompare(b))) {
