@@ -9,6 +9,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
+import type { Readable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import open from 'open';
 import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
@@ -24,6 +25,45 @@ import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
+
+type DynamicPayload = Record<string, any>;
+
+interface AntigravityServiceConfig extends Record<string, any> {
+    HOST?: string;
+    ANTIGRAVITY_OAUTH_CREDS_FILE_PATH?: string;
+    USER_AGENT?: string;
+    ANTIGRAVITY_USER_AGENT?: string;
+    PROJECT_ID?: string;
+    uuid?: string;
+    MODEL_PROVIDER?: string;
+    REQUEST_MAX_RETRIES?: number;
+    REQUEST_BASE_DELAY?: number;
+    ANTIGRAVITY_BASE_URL?: string;
+    ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS?: number;
+}
+
+interface AntigravityErrorLike {
+    response?: { status?: number; data?: unknown };
+    code?: string;
+    message?: string;
+    credentialMarkedUnhealthy?: boolean;
+    shouldSwitchCredential?: boolean;
+    skipErrorCount?: boolean;
+    retryAfterMs?: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
+
+function asAntigravityError(error: unknown): AntigravityErrorLike {
+    return isRecord(error) ? error as AntigravityErrorLike : {};
+}
 
 // --- Constants ---
 const CREDENTIALS_DIR = '.antigravity';
@@ -52,7 +92,7 @@ const ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS = 300000;
 const ANTIGRAVITY_RAW_FALLBACK_MAX_LINES = 20000;
 const ANTIGRAVITY_ERROR_BODY_MAX_BYTES = 1024 * 1024;
 
-function normalizeAntigravityModelId(modelName: any) {
+function normalizeAntigravityModelId(modelName: unknown): string {
     if (!modelName || typeof modelName !== 'string') return '';
     let normalized = modelName.trim();
     if (normalized.startsWith('models/')) {
@@ -61,13 +101,13 @@ function normalizeAntigravityModelId(modelName: any) {
     return normalized;
 }
 
-function stripModelSuffix(modelName: any) {
+function stripModelSuffix(modelName: unknown): string {
     const normalized = normalizeAntigravityModelId(modelName);
     const match = normalized.match(/^(.+?)\([^()]+\)$/);
     return match ? match[1].trim() : normalized;
 }
 
-function resolveAntigravityUpstreamModel(modelName: any) {
+function resolveAntigravityUpstreamModel(modelName: unknown): string {
     const baseModel = stripModelSuffix(modelName);
     if (!baseModel) return '';
     // Google 上游将 gemini-3.1-pro-high 标记为 deprecated，实际请求端点为 gemini-pro-agent
@@ -80,7 +120,7 @@ function resolveAntigravityUpstreamModel(modelName: any) {
     return baseModel;
 }
 
-function isKnownAntigravityModel(modelName: any) {
+function isKnownAntigravityModel(modelName: unknown): boolean {
     const baseModel = stripModelSuffix(modelName);
     if (!baseModel || baseModel.includes('oss')) return false;
     const resolved = resolveAntigravityUpstreamModel(baseModel);
@@ -92,7 +132,7 @@ function isKnownAntigravityModel(modelName: any) {
     return /^(gemini|claude|gpt)-[a-z0-9]+([-.][a-z0-9]+)*$/i.test(baseModel);
 }
 
-function antigravityModelRequiresStreamForNonStream(modelName: any) {
+function antigravityModelRequiresStreamForNonStream(modelName: unknown): boolean {
     const name = String(modelName || '').toLowerCase();
     return name.includes('claude') || name.includes('gpt') || name === 'gemini-pro-agent' || name.includes('gemini-3.1-pro') || name.includes('gemini-3.1-flash-image');
 }
@@ -102,8 +142,8 @@ function antigravityModelRequiresStreamForNonStream(modelName: any) {
  * @param {string} text
  * @returns {string}
  */
-function sanitizeAgentFingerprint(text: any) {
-    if (typeof text !== 'string') return text;
+function sanitizeAgentFingerprint(text: unknown): string {
+    if (typeof text !== 'string') return String(text);
     return text
         .replace(
             /You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding\./gi,
@@ -122,7 +162,7 @@ function sanitizeAgentFingerprint(text: any) {
         .replace(/Nous Research/gi, 'AI Research');
 }
 
-function normalizeAntigravityTextPart(part: any, isClaudeModel: any = false) {
+function normalizeAntigravityTextPart(part: DynamicPayload, isClaudeModel = false): void {
     if (!part || typeof part !== 'object' || !Object.prototype.hasOwnProperty.call(part, 'text')) {
         return;
     }
@@ -140,23 +180,23 @@ function normalizeAntigravityTextPart(part: any, isClaudeModel: any = false) {
     }
 }
 
-function normalizeAntigravityTextParts(parts: any, isClaudeModel: any = false) {
+function normalizeAntigravityTextParts(parts: DynamicPayload[], isClaudeModel = false): void {
     if (!Array.isArray(parts)) return;
-    parts.forEach((part: any) => normalizeAntigravityTextPart(part, isClaudeModel));
+    parts.forEach((part) => normalizeAntigravityTextPart(part, isClaudeModel));
 }
 
-function cleanAndNormalizeContents(contents: any, isClaudeModel: any = false) {
+function cleanAndNormalizeContents(contents: DynamicPayload[], isClaudeModel = false): void {
     if (!Array.isArray(contents)) return;
-    contents.forEach((content: any) => {
+    contents.forEach((content) => {
         if (!content.role) {
             content.role = 'user';
         }
         if (Array.isArray(content.parts)) {
             // 检查是否包含非文本部分 (例如 functionCall / functionResponse / inlineData)
-            const hasNonTextParts = content.parts.some((p: any) => p && (p.functionCall || p.functionResponse || p.inlineData || p.fileData));
+            const hasNonTextParts = content.parts.some((p) => p && (p.functionCall || p.functionResponse || p.inlineData || p.fileData));
             if (hasNonTextParts) {
                 // 如果包含工具调用或响应，过滤掉无意义的纯空白文本部分，避免污染上下文
-                content.parts = content.parts.filter((p: any) => {
+                content.parts = content.parts.filter((p) => {
                     if (p && typeof p.text === 'string') {
                         p.text = sanitizeAgentFingerprint(p.text);
                         return p.text.trim().length > 0;
@@ -175,8 +215,8 @@ function cleanAndNormalizeContents(contents: any, isClaudeModel: any = false) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function isClaude(modelName: any) {
-    return modelName && modelName.toLowerCase().includes('claude');
+function isClaude(modelName: unknown): boolean {
+    return String(modelName || '').toLowerCase().includes('claude');
 }
 
 /**
@@ -184,8 +224,8 @@ function isClaude(modelName: any) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function isImageModel(modelName: any) {
-    return modelName && modelName.toLowerCase().includes('image');
+function isImageModel(modelName: unknown): boolean {
+    return String(modelName || '').toLowerCase().includes('image');
 }
 
 /**
@@ -193,9 +233,8 @@ function isImageModel(modelName: any) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function isClaude55(modelName: any) {
-    if (!modelName) return false;
-    const name = modelName.toLowerCase();
+function isClaude55(modelName: unknown): boolean {
+    const name = String(modelName || '').toLowerCase();
     return name.includes('claude') && (name.includes('5-5') || name.includes('5.5'));
 }
 
@@ -204,9 +243,8 @@ function isClaude55(modelName: any) {
  * @param {string} modelName - 模型名称
  * @returns {boolean}
  */
-function modelSupportsThinking(modelName: any) {
-    if (!modelName) return false;
-    const name = modelName.toLowerCase();
+function modelSupportsThinking(modelName: unknown): boolean {
+    const name = String(modelName || '').toLowerCase();
     return /^gemini-[3-9]/.test(name) ||
            name.includes('-thinking') ||
            name.includes('-high') ||
@@ -246,7 +284,7 @@ function generateSessionID() {
  * @param {Object} payload - 请求体
  * @returns {string} 稳定的会话ID
  */
-function generateStableSessionID(payload: any) {
+function generateStableSessionID(payload: DynamicPayload): string {
     try {
         const contents = payload?.request?.contents;
         if (Array.isArray(contents)) {
@@ -262,7 +300,7 @@ function generateStableSessionID(payload: any) {
                 }
             }
         }
-    } catch (e: any) {
+    } catch (e) {
         // 如果解析失败，回退到随机会话ID
     }
     return generateSessionID();
@@ -287,7 +325,7 @@ function generateProjectID() {
  * @param {number} budget - 原始 budget 值
  * @returns {number} 规范化后的 budget
  */
-function normalizeThinkingBudget(modelName: any, budget: any) {
+function normalizeThinkingBudget(modelName: unknown, budget: number): number {
     if (budget === -1) return -1;
     if (budget < DEFAULT_THINKING_MIN) return DEFAULT_THINKING_MIN;
     if (budget > DEFAULT_THINKING_MAX) return DEFAULT_THINKING_MAX;
@@ -302,7 +340,7 @@ function normalizeThinkingBudget(modelName: any, budget: any) {
  * @param {boolean} isClaudeModel - 是否为 Claude 模型
  * @returns {Object} 处理后的请求体
  */
-function normalizeAntigravityThinking(modelName: any, payload: any, isClaudeModel: any) {
+function normalizeAntigravityThinking(modelName: unknown, payload: DynamicPayload, isClaudeModel: boolean): DynamicPayload {
     // 如果模型不支持 thinking，移除 thinking 配置
     if (!modelSupportsThinking(modelName)) {
         if (payload?.request?.generationConfig?.thinkingConfig) {
@@ -372,7 +410,7 @@ function generateSyntheticToolId() {
 // 遍历 contents,为缺失 id 的 functionCall 生成 synthetic id,
 // 并按 name 做 FIFO 配对,把同一 id 补到对应的 functionResponse 上。
 // 纯请求体内闭环处理,不依赖跨请求状态。
-function ensureToolCallIds(contents: any) {
+function ensureToolCallIds(contents: DynamicPayload[]): void {
     if (!Array.isArray(contents)) return;
     const pendingByName = new Map(); // name -> [id, ...] (FIFO)
     for (const content of contents) {
@@ -410,7 +448,7 @@ function ensureToolCallIds(contents: any) {
  * @param {Object} [capabilities] - 统一 Provider 能力声明
  * @returns {Object} 转换后的请求体
  */
-export function geminiToAntigravity(modelName: any, payload: any, projectId: any, capabilities: any = null) {
+export function geminiToAntigravity(modelName: string, payload: DynamicPayload, projectId: string | null, capabilities: DynamicPayload | null = null): DynamicPayload {
     // 深拷贝请求体,避免修改原始对象
     let template = JSON.parse(JSON.stringify(payload));
     // [FIX tool_use.id] 补全 functionCall/functionResponse 的私有 id(原生 Gemini 协议客户端场景)
@@ -450,7 +488,7 @@ export function geminiToAntigravity(modelName: any, payload: any, projectId: any
     }
 
     if (template.request?.systemInstruction?.parts && Array.isArray(template.request.systemInstruction.parts)) {
-        template.request.systemInstruction.parts.forEach((part: any) => {
+        template.request.systemInstruction.parts.forEach((part: DynamicPayload) => {
             if (typeof part.text === 'string') {
                 part.text = sanitizeAgentFingerprint(part.text);
             }
@@ -496,9 +534,9 @@ export function geminiToAntigravity(modelName: any, payload: any, projectId: any
     }
 
     if (template.request.tools && Array.isArray(template.request.tools)) {
-        template.request.tools.forEach((tool: any) => {
+        template.request.tools.forEach((tool: DynamicPayload) => {
             if (tool.functionDeclarations && Array.isArray(tool.functionDeclarations)) {
-                tool.functionDeclarations.forEach((funcDecl: any) => {
+                tool.functionDeclarations.forEach((funcDecl: DynamicPayload) => {
                     if (funcDecl.parametersJsonSchema) {
                         funcDecl.parameters = polyfillAndCleanSchemaForGemini(funcDecl.parametersJsonSchema);
                         delete funcDecl.parameters?.$schema;
@@ -601,7 +639,7 @@ export function geminiToAntigravity(modelName: any, payload: any, projectId: any
  * @param {string} line - SSE 行数据
  * @returns {string} 过滤后的行数据
  */
-function filterSSEUsageMetadata(line: any) {
+function filterSSEUsageMetadata(line: string): string {
     if (!line || typeof line !== 'string') return line;
 
     // 检查是否是 data: 开头的 SSE 数据
@@ -625,7 +663,7 @@ function filterSSEUsageMetadata(line: any) {
             }
             return 'data: ' + JSON.stringify(data);
         }
-    } catch (e: any) {
+    } catch (e) {
         // 解析失败，返回原始数据
     }
 
@@ -638,7 +676,7 @@ function filterSSEUsageMetadata(line: any) {
  * @param {Buffer|string} stream - 流式响应数据
  * @returns {Object} 合并后的非流式响应
  */
-function convertStreamToNonStream(stream: any) {
+function convertStreamToNonStream(stream: Buffer | string): DynamicPayload {
     const lines = stream.toString().split('\n');
 
     let responseTemplate = '';
@@ -647,8 +685,8 @@ function convertStreamToNonStream(stream: any) {
     let modelVersion = '';
     let responseId = '';
     let role = '';
-    let usageRaw: any = null;
-    const parts: any[] = [];
+    let usageRaw: DynamicPayload | null = null;
+    const parts: DynamicPayload[] = [];
 
     // 用于合并连续的 text 和 thought 部分
     let pendingKind = '';
@@ -665,7 +703,7 @@ function convertStreamToNonStream(stream: any) {
             }
         } else if (pendingKind === 'thought') {
             if (text.trim() || pendingThoughtSig) {
-                const part: any = { thought: true, text: text };
+                const part: DynamicPayload = { thought: true, text: text };
                 if (pendingThoughtSig) {
                     part.thoughtSignature = pendingThoughtSig;
                 }
@@ -678,7 +716,7 @@ function convertStreamToNonStream(stream: any) {
         pendingThoughtSig = '';
     };
 
-    const normalizePart = (part: any) => {
+    const normalizePart = (part: DynamicPayload) => {
         const m = { ...part };
         // 处理 thoughtSignature / thought_signature
         const sig = part.thoughtSignature || part.thought_signature;
@@ -698,10 +736,10 @@ function convertStreamToNonStream(stream: any) {
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        let data: any;
+        let data: DynamicPayload;
         try {
             data = JSON.parse(trimmed);
-        } catch (e: any) {
+        } catch (e) {
             continue;
         }
 
@@ -832,10 +870,10 @@ function convertStreamToNonStream(stream: any) {
  * @param {Object} antigravityResponse - Antigravity 响应
  * @returns {Object|null} Gemini 格式响应
  */
-function toGeminiApiResponse(antigravityResponse: any) {
+function toGeminiApiResponse(antigravityResponse: DynamicPayload): DynamicPayload | null {
     if (!antigravityResponse) return null;
 
-    const compliantResponse: any = {
+    const compliantResponse: DynamicPayload = {
         candidates: antigravityResponse.candidates
     };
 
@@ -859,7 +897,7 @@ function toGeminiApiResponse(antigravityResponse: any) {
  * @param {Object} requestBody - 请求体
  * @returns {Object} 处理后的请求体
  */
-function ensureRolesInContents(requestBody: any, modelName: any) {
+function ensureRolesInContents(requestBody: DynamicPayload, modelName: string): DynamicPayload {
     delete requestBody.model;
     // delete requestBody.system_instruction;
     // delete requestBody.systemInstruction;
@@ -881,12 +919,12 @@ function ensureRolesInContents(requestBody: any, modelName: any) {
             if (originalSystemPrompt.parts && Array.isArray(originalSystemPrompt.parts)) {
                 // 从 parts 数组中提取所有文本
                 originalSystemPromptText = originalSystemPrompt.parts
-                    .map((part: any) => {
+                    .map((part: DynamicPayload) => {
                         if (typeof part === 'string') return part;
                         if (part && typeof part.text === 'string') return part.text;
                         return '';
                     })
-                    .filter((text: any) => text)
+                    .filter((text: string) => text)
                     .join('\n');
             } else if (originalSystemPrompt.text) {
                 // 直接有 text 属性
@@ -912,24 +950,24 @@ function ensureRolesInContents(requestBody: any, modelName: any) {
 }
 
 export class AntigravityApiService {
-    httpAgent: any;
-    httpsAgent: any;
-    availableModels: any;
-    isInitialized: any;
-    config: any;
-    host: any;
-    oauthCredsFilePath: any;
-    userAgent: any;
-    projectId: any;
-    uuid: any;
-    baseURLs: any;
-    proxyConfig: any;
-    authClient: any;
-    accountEmail: any;
-    tierId: any;
-    upstreamModelMetadata: any;
+    httpAgent: http.Agent;
+    httpsAgent: https.Agent;
+    availableModels: string[];
+    isInitialized: boolean;
+    config: AntigravityServiceConfig;
+    host: string | undefined;
+    oauthCredsFilePath: string | undefined;
+    userAgent: string;
+    projectId: string | undefined;
+    uuid: string | null;
+    baseURLs: string[];
+    proxyConfig: unknown;
+    authClient: OAuth2Client;
+    accountEmail: string | null = null;
+    tierId: string | null = null;
+    upstreamModelMetadata: DynamicPayload = {};
 
-    constructor(config: any) {
+    constructor(config: AntigravityServiceConfig) {
         // 配置 HTTP/HTTPS agent 限制连接池大小，避免资源泄漏
         this.httpAgent = new http.Agent({
             keepAlive: true,
@@ -952,7 +990,7 @@ export class AntigravityApiService {
         this.oauthCredsFilePath = config.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH;
         this.userAgent = config.USER_AGENT || config.ANTIGRAVITY_USER_AGENT || DEFAULT_USER_AGENT;
         this.projectId = config.PROJECT_ID;
-        this.uuid = config.uuid; // 保存 uuid 用于缓存管理
+        this.uuid = config.uuid || null; // 保存 uuid 用于缓存管理
 
         // 多环境降级顺序
         this.baseURLs = this.getBaseURLFallbackOrder(config);
@@ -967,7 +1005,7 @@ export class AntigravityApiService {
         const isTLSSidecarEnabled = isTLSSidecarEnabledForProvider(config, config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY);
 
         // 配置 OAuth2Client 使用自定义的 HTTP agent
-        const oauth2Options: any = {
+        const oauth2Options: DynamicPayload = {
             clientId: OAUTH_CLIENT_ID,
             clientSecret: OAUTH_CLIENT_SECRET,
         };
@@ -992,7 +1030,7 @@ export class AntigravityApiService {
         this.authClient = new OAuth2Client(oauth2Options);
     }
 
-    _applySidecar(requestOptions: any) {
+    _applySidecar(requestOptions: Record<string, unknown>) {
         return configureTLSSidecar(requestOptions, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY);
     }
 
@@ -1001,7 +1039,7 @@ export class AntigravityApiService {
      * @param {Object} config - 配置对象
      * @returns {string[]} Base URL 列表
      */
-    getBaseURLFallbackOrder(config: any) {
+    getBaseURLFallbackOrder(config: AntigravityServiceConfig): string[] {
         // 如果配置了自定义 base_url，只使用该 URL
         if (config.ANTIGRAVITY_BASE_URL) {
             return [config.ANTIGRAVITY_BASE_URL.replace(/\/$/, '')];
@@ -1037,7 +1075,8 @@ export class AntigravityApiService {
             const credentials = JSON.parse(data);
             this.authClient.setCredentials(credentials);
             logger.info('[Antigravity Auth] Credentials loaded successfully from file.');
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             if (error.code === 'ENOENT') {
                 logger.debug(`[Antigravity Auth] Credentials file not found: ${credPath}`);
             } else {
@@ -1046,7 +1085,7 @@ export class AntigravityApiService {
         }
     }
 
-    async initializeAuth(forceRefresh: any = false) {
+    async initializeAuth(forceRefresh = false) {
         const credPath = this.oauthCredsFilePath || path.join(os.homedir(), CREDENTIALS_DIR, CREDENTIALS_FILE);
 
         // 首先执行基础凭证加载
@@ -1079,7 +1118,7 @@ export class AntigravityApiService {
                 } else {
                     logger.info(`[Antigravity Auth] No access token or refresh token. Starting new authentication flow...`);
                     const newTokens = await this.getNewToken(credPath);
-                    this.authClient.setCredentials(newTokens);
+                    this.authClient.setCredentials(newTokens as Parameters<OAuth2Client['setCredentials']>[0]);
                     logger.info('[Antigravity Auth] New token obtained and loaded into memory.');
 
                     // 认证成功，重置状态
@@ -1088,14 +1127,15 @@ export class AntigravityApiService {
                         poolManager.resetProviderRefreshStatus(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, this.uuid);
                     }
                 }
-            } catch (error: any) {
+            } catch (rawError) {
+            const error = asAntigravityError(rawError);
                 logger.error('[Antigravity Auth] Failed to initialize authentication:', error);
                 throw new Error(`Failed to load OAuth credentials.`);
             }
         }
     }
 
-    async getNewToken(credPath: any) {
+    async getNewToken(credPath: string) {
         // 使用统一的 OAuth 处理方法
         const { authUrl } = await handleGeminiAntigravityOAuth(this.config);
 
@@ -1113,7 +1153,7 @@ export class AntigravityApiService {
                 if (childProcess) {
                     childProcess.on('error', () => showFallbackMessage());
                 }
-            } catch (_err: any) {
+            } catch (_err) {
                 showFallbackMessage();
             }
         } else {
@@ -1121,7 +1161,7 @@ export class AntigravityApiService {
         }
 
         // 等待 OAuth 回调完成并读取保存的凭据
-        return new Promise((resolve: any, reject: any) => {
+        return new Promise<DynamicPayload>((resolve, reject) => {
             const checkInterval = setInterval(async () => {
                 try {
                     const data = await fs.readFile(credPath, 'utf8');
@@ -1131,7 +1171,8 @@ export class AntigravityApiService {
                         logger.info('[Antigravity Auth] New token obtained successfully.');
                         resolve(credentials);
                     }
-                } catch (error: any) {
+                } catch (rawError) {
+            const error = asAntigravityError(rawError);
                     // 文件尚未创建或无效，继续等待
                 }
             }, 1000);
@@ -1159,11 +1200,12 @@ export class AntigravityApiService {
      * @param {string} filePath - 凭证文件路径
      * @param {Object} credentials - 凭证数据
      */
-    async _saveCredentialsToFile(filePath: any, credentials: any) {
+    async _saveCredentialsToFile(filePath: string, credentials: DynamicPayload) {
         try {
             await atomicWriteFile(filePath, JSON.stringify(credentials, null, 2), { mode: 0o600 });
             logger.info(`[Antigravity Auth] Credentials saved to ${filePath}`);
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             logger.error(`[Antigravity Auth] Failed to save credentials to ${filePath}: ${error.message}`);
             throw error;
         }
@@ -1189,7 +1231,7 @@ export class AntigravityApiService {
                 metadata: clientMetadata
             };
 
-            const loadResponse = await this.callApi('loadCodeAssist', loadRequest);
+            const loadResponse = await this.callApi<DynamicPayload>('loadCodeAssist', loadRequest);
 
             // 提取账号邮箱
             if (loadResponse.manageSubscriptionUri) {
@@ -1200,7 +1242,7 @@ export class AntigravityApiService {
                     logger.info(`[Antigravity] Extracted account email: ${this.accountEmail}`);
                 }
             } else {
-                const res = await this.authClient.getTokenInfo(this.authClient.credentials.access_token);
+                const res = await this.authClient.getTokenInfo(String(this.authClient.credentials.access_token || ''));
                 if (res?.email) {
                     this.accountEmail = res.email;
                     logger.info(`[Antigravity] Extracted account email from token info: ${this.accountEmail}`);
@@ -1208,7 +1250,7 @@ export class AntigravityApiService {
             }
 
             // 优先使用 paidTier.name，其次使用默认 tier 或 free-tier
-            const defaultTier = loadResponse.allowedTiers?.find((tier: any) => tier.isDefault);
+            const defaultTier = loadResponse.allowedTiers?.find((tier: DynamicPayload) => tier.isDefault);
             const baseTier = defaultTier?.id || 'free-tier';
             this.tierId = loadResponse.paidTier?.name || baseTier;
 
@@ -1236,15 +1278,15 @@ export class AntigravityApiService {
                 },
             };
 
-            let lroResponse = await this.callApi('onboardUser', onboardRequest);
+            let lroResponse: DynamicPayload = await this.callApi<DynamicPayload>('onboardUser', onboardRequest);
 
             // Poll until operation is complete with timeout protection
             const MAX_RETRIES = 30; // Maximum number of retries (60 seconds total)
             let retryCount = 0;
 
             while (!lroResponse.done && retryCount < MAX_RETRIES) {
-                await new Promise((resolve: any) => setTimeout(resolve, 2000));
-                lroResponse = await this.callApi('onboardUser', onboardRequest);
+                await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+                lroResponse = await this.callApi<DynamicPayload>('onboardUser', onboardRequest);
                 retryCount++;
             }
 
@@ -1258,7 +1300,8 @@ export class AntigravityApiService {
             // 获取可用模型
             await this.fetchAvailableModels();
             return discoveredProjectId;
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             logger.error('[Antigravity] Failed to discover Project ID:', error.response?.data || error.message);
             if (configuredProjectId) {
                 this.projectId = configuredProjectId;
@@ -1281,7 +1324,7 @@ export class AntigravityApiService {
         for (const baseURL of this.baseURLs) {
             try {
                 const modelsURL = `${baseURL}/${ANTIGRAVITY_API_VERSION}:fetchAvailableModels`;
-                const requestOptions: any = {
+                const requestOptions: DynamicPayload = {
                     url: modelsURL,
                     method: 'POST',
                     headers: {
@@ -1294,12 +1337,13 @@ export class AntigravityApiService {
 
                 const res = await this.authClient.request(requestOptions);
                 if (res.data) {
-                    this.upstreamModelMetadata = { ...(res.data.models || {}) };
+                    const modelData = res.data as DynamicPayload;
+                    this.upstreamModelMetadata = { ...(modelData.models || {}) };
 
                     // 1. 严格从 agentModelSorts 提取 Agent 对话模型
-                    const agentModels: any[] = [];
-                    if (Array.isArray(res.data.agentModelSorts)) {
-                        for (const sortItem of res.data.agentModelSorts) {
+                    const agentModels: string[] = [];
+                    if (Array.isArray(modelData.agentModelSorts)) {
+                        for (const sortItem of modelData.agentModelSorts) {
                             if (Array.isArray(sortItem?.groups)) {
                                 for (const group of sortItem.groups) {
                                     if (Array.isArray(group?.modelIds)) {
@@ -1311,12 +1355,12 @@ export class AntigravityApiService {
                     }
 
                     // 2. 严格从 imageGenerationModelIds 提取图像生成模型
-                    const imageModels = Array.isArray(res.data.imageGenerationModelIds)
-                        ? res.data.imageGenerationModelIds
+                    const imageModels = Array.isArray(modelData.imageGenerationModelIds)
+                        ? modelData.imageGenerationModelIds
                         : [];
 
                     // 3. 构建候选列表并处理内部 gemini-pro-agent / deprecatedModelIds 规范化映射到 gemini-3.1-pro-high
-                    const deprecatedMap = res.data.deprecatedModelIds || {};
+                    const deprecatedMap = (modelData.deprecatedModelIds || {}) as DynamicPayload;
                     const reverseDeprecatedMap = new Map();
                     for (const [pubId, detail] of Object.entries(deprecatedMap) as [string, any][]) {
                         if (detail?.newModelId) {
@@ -1324,7 +1368,7 @@ export class AntigravityApiService {
                         }
                     }
 
-                    const candidateModels: any[] = [];
+                    const candidateModels: string[] = [];
                     for (const rawId of [...agentModels, ...imageModels]) {
                         if (!rawId || typeof rawId !== 'string') continue;
 
@@ -1343,7 +1387,7 @@ export class AntigravityApiService {
                     }
 
                     // 4. 简化排除逻辑：排除内部辅助 (chat_, tab_)、聚合伪模型 (-tiered)、开源模型 (oss) 及低算力模型 (-low)
-                    const isExcludedModel = (id: any) => {
+                    const isExcludedModel = (id: string) => {
                         const lower = (id || '').toLowerCase();
                         return lower.startsWith('chat_') ||
                                lower.startsWith('tab_') ||
@@ -1352,11 +1396,11 @@ export class AntigravityApiService {
                                lower.includes('-low');
                     };
 
-                    const filteredCandidates = candidateModels.filter((m: any) => !isExcludedModel(m));
+                    const filteredCandidates = candidateModels.filter((m) => !isExcludedModel(m));
 
                     // 5. 容错降级：若上游因异常未返回 agentModelSorts，降级检查 defaultAgentModelId
-                    if (filteredCandidates.length === 0 && res.data.defaultAgentModelId && !isExcludedModel(res.data.defaultAgentModelId)) {
-                        filteredCandidates.push(res.data.defaultAgentModelId);
+                    if (filteredCandidates.length === 0 && modelData.defaultAgentModelId && !isExcludedModel(modelData.defaultAgentModelId)) {
+                        filteredCandidates.push(modelData.defaultAgentModelId);
                     }
 
                     // 确定当前节点的专属 availableModels (去重)
@@ -1365,7 +1409,8 @@ export class AntigravityApiService {
                     logger.info(`[Antigravity] Available models (${baseURL}): [${this.availableModels.join(', ')}]`);
                     return;
                 }
-            } catch (error: any) {
+            } catch (rawError) {
+            const error = asAntigravityError(rawError);
                 logger.error(`[Antigravity] Failed to fetch models from ${baseURL}:`, error.message);
             }
         }
@@ -1384,13 +1429,13 @@ export class AntigravityApiService {
             : getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
 
         const now = Math.floor(Date.now() / 1000);
-        const formattedModels = modelsToList.map((modelId: any) => {
+        const formattedModels = modelsToList.map((modelId: string) => {
             const meta = this.upstreamModelMetadata?.[modelId];
-            const displayName = meta?.displayName || modelId.split('-').map((word: any) =>
+            const displayName = meta?.displayName || modelId.split('-').map((word: string) =>
                 word.charAt(0).toUpperCase() + word.slice(1)
             ).join(' ');
 
-            const modelInfo: any = {
+            const modelInfo: DynamicPayload = {
                 name: `models/${modelId}`,
                 version: '1.0.0',
                 displayName: displayName,
@@ -1420,7 +1465,7 @@ export class AntigravityApiService {
         return { models: formattedModels };
     }
 
-    async callApi(method: any, body: any, isRetry: any = false, retryCount: any = 0, baseURLIndex: any = 0): Promise<any> {
+    async callApi<T = unknown>(method: string, body: DynamicPayload, isRetry = false, retryCount = 0, baseURLIndex = 0): Promise<T> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
 
@@ -1431,7 +1476,7 @@ export class AntigravityApiService {
         const baseURL = this.baseURLs[baseURLIndex];
 
         try {
-            const requestOptions: any = {
+            const requestOptions: DynamicPayload = {
                 url: `${baseURL}/${ANTIGRAVITY_API_VERSION}:${method}`,
                 method: 'POST',
                 headers: {
@@ -1444,8 +1489,9 @@ export class AntigravityApiService {
 
             this._applySidecar(requestOptions);
             const res = await this.authClient.request(requestOptions);
-            return res.data;
-        } catch (error: any) {
+            return res.data as T;
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
@@ -1488,7 +1534,7 @@ export class AntigravityApiService {
                 } else if (retryCount < Math.min(maxRetries, 2)) {
                     const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
                     logger.info(`[Antigravity API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     return this.callApi(method, body, isRetry, retryCount + 1, 0);
                 } else {
                     await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
@@ -1507,16 +1553,16 @@ export class AntigravityApiService {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                     logger.info(`[Antigravity API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     return this.callApi(method, body, isRetry, retryCount + 1, 0);
                 }
             }
 
-            if (status >= 500 && status < 600 && retryCount < maxRetries) {
+            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
                 await normalizeProviderErrorMessage(error, { status, context: 'callApi' });
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Antigravity API] Server error ${status}. Retrying in ${delay}ms...`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 return this.callApi(method, body, isRetry, retryCount + 1, baseURLIndex);
             }
 
@@ -1524,7 +1570,7 @@ export class AntigravityApiService {
         }
     }
 
-    async * streamApi(method: any, body: any, isRetry: any = false, retryCount: any = 0, baseURLIndex: any = 0): AsyncGenerator<any> {
+    async * streamApi(method: string, body: DynamicPayload, isRetry = false, retryCount = 0, baseURLIndex = 0): AsyncGenerator<DynamicPayload> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
 
@@ -1536,7 +1582,7 @@ export class AntigravityApiService {
         let hasYielded = false;
 
         try {
-            const requestOptions: any = {
+            const requestOptions: DynamicPayload = {
                 url: `${baseURL}/${ANTIGRAVITY_API_VERSION}:${method}`,
                 method: 'POST',
                 params: { alt: 'sse' },
@@ -1561,7 +1607,7 @@ export class AntigravityApiService {
 
             const firstByteTimeoutMs = this.config.ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS
                 ?? ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS;
-            let firstByteTimer: any = null;
+            let firstByteTimer: NodeJS.Timeout | null = null;
             let firstByteTimedOut = false;
             if (firstByteTimeoutMs > 0) {
                 const firstByteController = new AbortController();
@@ -1572,10 +1618,11 @@ export class AntigravityApiService {
                 }, firstByteTimeoutMs);
             }
 
-            let res: any;
+            let res: DynamicPayload;
             try {
                 res = await this.authClient.request(requestOptions);
-            } catch (error: any) {
+            } catch (rawError) {
+            const error = asAntigravityError(rawError);
                 if (firstByteTimedOut) {
                     const timeoutError = new Error(`[Antigravity] Stream first byte timeout after ${firstByteTimeoutMs}ms.`);
                     timeoutError.code = 'ETIMEDOUT';
@@ -1590,7 +1637,8 @@ export class AntigravityApiService {
                 let errorBody = '';
                 try {
                     errorBody = await this.readErrorResponseBody(res.data);
-                } catch (error: any) {
+                } catch (rawError) {
+            const error = asAntigravityError(rawError);
                     // 错误响应体本身停滞时按网络超时处理，允许在尚未产出数据时切换端点/重试。
                     if (error?.code === 'ETIMEDOUT') throw error;
                     errorBody = `[Failed to read upstream error body: ${error.message}]`;
@@ -1604,7 +1652,8 @@ export class AntigravityApiService {
                 hasYielded = true;
                 yield chunk;
             }
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
@@ -1656,7 +1705,7 @@ export class AntigravityApiService {
                 } else if (retryCount < Math.min(maxRetries, 2)) {
                     const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
                     logger.info(`[Antigravity API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     yield* this.streamApi(method, body, isRetry, retryCount + 1, 0);
                     return;
                 } else {
@@ -1677,17 +1726,17 @@ export class AntigravityApiService {
                     const delay = baseDelay * Math.pow(2, retryCount);
                     const errorIdentifier = errorCode || errorMessage.substring(0, 50);
                     logger.info(`[Antigravity API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise((resolve: any) => setTimeout(resolve, delay));
+                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
                     yield* this.streamApi(method, body, isRetry, retryCount + 1, 0);
                     return;
                 }
             }
 
-            if (status >= 500 && status < 600 && retryCount < maxRetries) {
+            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
                 await normalizeProviderErrorMessage(error, { status, context: 'stream' });
                 const delay = baseDelay * Math.pow(2, retryCount);
                 logger.info(`[Antigravity API] Server error ${status} during stream. Retrying in ${delay}ms...`);
-                await new Promise((resolve: any) => setTimeout(resolve, delay));
+                await new Promise<void>((resolve) => setTimeout(resolve, delay));
                 yield* this.streamApi(method, body, isRetry, retryCount + 1, baseURLIndex);
                 return;
             }
@@ -1696,12 +1745,12 @@ export class AntigravityApiService {
         }
     }
 
-    async readErrorResponseBody(stream: any) {
+    async readErrorResponseBody(stream: Readable): Promise<string> {
         const idleTimeoutMs = this.config.ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS
             ?? ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS;
-        let idleTimer: any = null;
+        let idleTimer: NodeJS.Timeout | null = null;
         let idleTimedOut = false;
-        const chunks: any[] = [];
+        const chunks: Buffer[] = [];
         let totalBytes = 0;
         let truncated = false;
 
@@ -1716,7 +1765,7 @@ export class AntigravityApiService {
             if (!(idleTimeoutMs > 0)) return;
             idleTimer = setTimeout(() => {
                 idleTimedOut = true;
-                try { stream.destroy(new Error('Antigravity error response idle timeout')); } catch (_: any) { /* 忽略 */ }
+                try { (stream as { destroy?: (err?: Error) => void }).destroy?.(new Error('Antigravity error response idle timeout')); } catch { /* 忽略 */ }
             }, idleTimeoutMs);
         };
 
@@ -1729,13 +1778,14 @@ export class AntigravityApiService {
                 if (data.length > remaining) {
                     if (remaining > 0) chunks.push(data.subarray(0, remaining));
                     truncated = true;
-                    try { stream.destroy(); } catch (_: any) { /* 忽略 */ }
+                    try { (stream as { destroy?: () => void }).destroy?.(); } catch { /* 忽略 */ }
                     break;
                 }
                 chunks.push(data);
                 totalBytes += data.length;
             }
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             if (idleTimedOut) {
                 const timeoutError = new Error(`[Antigravity] Error response idle timeout after ${idleTimeoutMs}ms.`);
                 timeoutError.code = 'ETIMEDOUT';
@@ -1749,7 +1799,7 @@ export class AntigravityApiService {
         return Buffer.concat(chunks).toString('utf8') + (truncated ? '\n[error body truncated]' : '');
     }
 
-    async * parseSSEStream(stream: any) {
+    async * parseSSEStream(stream: Readable): AsyncGenerator<DynamicPayload> {
         const rl = readline.createInterface({
             input: stream,
             crlfDelay: Infinity
@@ -1760,7 +1810,7 @@ export class AntigravityApiService {
         // 使迭代器结束/抛错，从而让上层能走到错误处理并释放并发插槽。
         const idleTimeoutMs = this.config.ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS
             ?? ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS;
-        let idleTimer: any = null;
+        let idleTimer: NodeJS.Timeout | null = null;
         let idleTimedOut = false;
 
         const clearIdleTimer = () => {
@@ -1776,7 +1826,7 @@ export class AntigravityApiService {
                 idleTimedOut = true;
                 logger.error(`[Antigravity Stream] No data received for ${idleTimeoutMs}ms, aborting stream.`);
                 // 销毁底层流以解除 readline 的阻塞；readline 会随之结束迭代
-                try { stream.destroy(new Error('Antigravity stream idle timeout')); } catch (_: any) { /* 忽略 */ }
+                try { (stream as { destroy?: (err?: Error) => void }).destroy?.(new Error('Antigravity stream idle timeout')); } catch { /* 忽略 */ }
             }, idleTimeoutMs);
         };
 
@@ -1787,19 +1837,19 @@ export class AntigravityApiService {
         if (canObserveRawData) stream.on('data', onStreamData);
 
         const sseFields = /^(data|event|id|retry):/i;
-        let buffer: any[] = [];
+        let buffer: string[] = [];
         // 诊断用：统计实际读到的行，以及未能匹配任何分支而被丢弃的行。
         // 上游返回 HTTP 200 但内容不是标准 SSE（纯 JSON 错误体、HTML 错误页、空 body 等）时，
         // 原实现会静默丢弃且不产出任何 chunk，排查时完全看不到上游到底回了什么。
         let lineCount = 0;
         let yieldCount = 0;
-        const droppedLines: any[] = [];
+        const droppedLines: string[] = [];
         // 上游偶尔不按 SSE 返回，而是直接吐一个 pretty-printed 的 JSON 数组
         // （`[{"response":{...}},{...}]`，逐行折行、无 `data: ` 前缀）。
         // 这里保留全量原始文本，SSE 分支一无所获时回退按 JSON 解析。
-        const rawLines: any[] = [];
+        const rawLines: string[] = [];
         let rawTooLarge = false;
-        const collectRaw = (line: any) => {
+        const collectRaw = (line: string) => {
             if (rawTooLarge) return;
             if (rawLines.length >= ANTIGRAVITY_RAW_FALLBACK_MAX_LINES) {
                 rawTooLarge = true;
@@ -1825,8 +1875,8 @@ export class AntigravityApiService {
                     try {
                         yield JSON.parse(buffer.join('\n'));
                         yieldCount++;
-                    } catch (e: any) {
-                        logger.error('[Antigravity Stream] Failed to parse JSON chunk:', buffer.join('\n'), 'Error:', e.message);
+                    } catch (e) {
+                        logger.error('[Antigravity Stream] Failed to parse JSON chunk:', buffer.join('\n'), 'Error:', getErrorMessage(e));
                     }
                     buffer = [];
                 } else if (trimmedLine && !trimmedLine.startsWith(':') && !sseFields.test(trimmedLine) && buffer.length > 0) {
@@ -1837,7 +1887,8 @@ export class AntigravityApiService {
                     if (droppedLines.length < 20) droppedLines.push(trimmedLine.slice(0, 500));
                 }
             }
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             // 看门狗 destroy(stream) 会让 readline 迭代抛出该 destroy 错误。
             // 归一化成带 ETIMEDOUT 的超时错误，便于上层按可重试网络错误处理。
             if (idleTimedOut) {
@@ -1866,8 +1917,8 @@ export class AntigravityApiService {
             try {
                 yield JSON.parse(buffer.join('\n'));
                 yieldCount++;
-            } catch (e: any) {
-                logger.error('[Antigravity Stream] Failed to parse final JSON chunk:', buffer.join('\n'), 'Error:', e.message);
+            } catch (e) {
+                logger.error('[Antigravity Stream] Failed to parse final JSON chunk:', buffer.join('\n'), 'Error:', getErrorMessage(e));
             }
         }
 
@@ -1875,10 +1926,10 @@ export class AntigravityApiService {
         // 先尝试按 JSON 解析并逐个产出，真正解析不出来时才记录原始内容供排查。
         if (yieldCount === 0 && rawLines.length > 0) {
             const rawBody = rawLines.join('\n');
-            let parsed: any = null;
+            let parsed: DynamicPayload | null = null;
             try {
                 parsed = JSON.parse(rawBody);
-            } catch (_: any) {
+            } catch {
                 // 不是完整 JSON，走下面的诊断日志
             }
             if (parsed !== null && typeof parsed === 'object') {
@@ -1906,7 +1957,7 @@ export class AntigravityApiService {
         }
     }
 
-    prepareRequestMetadata(requestBody: any) {
+    prepareRequestMetadata(requestBody: DynamicPayload): DynamicPayload {
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
             delete requestBody._monitorRequestId;
@@ -1925,9 +1976,10 @@ export class AntigravityApiService {
                 });
             }
         }
+        return requestBody;
     }
 
-    buildAntigravityPayload(model: any, requestBody: any) {
+    buildAntigravityPayload(model: string, requestBody: DynamicPayload): DynamicPayload {
         let selectedModel = normalizeAntigravityModelId(model);
         if (!this.availableModels.includes(selectedModel) && !isKnownAntigravityModel(selectedModel)) {
             if (this.config.MODEL_FALLBACK_ENABLED === false) {
@@ -1950,10 +2002,10 @@ export class AntigravityApiService {
             model: actualModelName,
             config: this.config || {}
         });
-        const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId, capabilities);
+        const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId ?? null, capabilities);
 
         // 若选中的模型以 -high / -medium / -low 结尾，确保思考级别设置为对应等级
-        const targetSuffix = ['-high', '-medium', '-low'].find((s: any) => selectedModel.endsWith(s) || actualModelName.endsWith(s));
+        const targetSuffix = ['-high', '-medium', '-low'].find((s: string) => selectedModel.endsWith(s) || actualModelName.endsWith(s));
         if (targetSuffix) {
             if (!payload.request) payload.request = {};
             if (!payload.request.generationConfig) payload.request.generationConfig = {};
@@ -1969,7 +2021,7 @@ export class AntigravityApiService {
         return { payload, selectedModel, actualModelName, capabilities };
     }
 
-    async generateContent(model: any, requestBody: any) {
+    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         if (!this.isInitialized) await this.initialize();
         logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
 
@@ -1981,8 +2033,8 @@ export class AntigravityApiService {
             return await this.executeClaudeNonStream(payload);
         }
 
-        const response = await this.callApi('generateContent', payload);
-        return toGeminiApiResponse(response.response);
+        const response = await this.callApi<DynamicPayload>('generateContent', payload);
+        return toGeminiApiResponse(response.response) || {};
     }
 
     /**
@@ -1991,8 +2043,8 @@ export class AntigravityApiService {
      * @param {Object} payload - 请求体
      * @returns {Promise<Object>} 非流式响应
      */
-    async executeClaudeNonStream(payload: any) {
-        const chunks: any[] = [];
+    async executeClaudeNonStream(payload: DynamicPayload): Promise<DynamicPayload> {
+        const chunks: string[] = [];
 
         try {
             const stream = this.streamApi('streamGenerateContent', payload);
@@ -2005,14 +2057,15 @@ export class AntigravityApiService {
             // 将流式响应转换为非流式响应
             const streamData = chunks.join('\n');
             const nonStreamResponse = convertStreamToNonStream(streamData);
-            return toGeminiApiResponse(nonStreamResponse.response);
-        } catch (error: any) {
+            return toGeminiApiResponse(nonStreamResponse.response) || {};
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             logger.error('[Antigravity] Claude non-stream execution error:', error.message);
             throw error;
         }
     }
 
-    async * generateContentStream(model: any, requestBody: any) {
+    async * generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload> {
         if (!this.isInitialized) await this.initialize();
         logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
 
@@ -2045,10 +2098,11 @@ export class AntigravityApiService {
     isExpiryDateNear() {
         try {
             const nearMinutes = 20;
-            const { message, isNearExpiry } = formatExpiryLog('Antigravity', this.authClient.credentials.expiry_date, nearMinutes);
+            const { message, isNearExpiry } = formatExpiryLog('Antigravity', Number(this.authClient.credentials.expiry_date) || 0, nearMinutes);
             logger.info(message);
             return isNearExpiry;
-        } catch (error: any) {
+        } catch (rawError) {
+            const error = asAntigravityError(rawError);
             logger.error(`[Antigravity] Error checking expiry date: ${error.message}`);
             return false;
         }
@@ -2063,7 +2117,7 @@ export class AntigravityApiService {
         if (!this.tierId) {
             try {
                 await this.discoverProjectAndModels();
-            } catch (_err: any) {
+            } catch (_err) {
                 // ignore
             }
         }
@@ -2099,12 +2153,12 @@ export class AntigravityApiService {
                 this._applySidecar(modelsOptions);
 
                 const [quotaRes, modelsRes] = await Promise.allSettled([
-                    this.authClient.request(quotaOptions),
-                    this.authClient.request(modelsOptions)
+                    this.authClient.request(quotaOptions as Parameters<OAuth2Client['request']>[0]),
+                    this.authClient.request(modelsOptions as Parameters<OAuth2Client['request']>[0])
                 ]);
 
-                const quotaData = quotaRes.status === 'fulfilled' && typeof quotaRes.value?.data === 'object' && quotaRes.value?.data?.groups ? quotaRes.value.data : null;
-                const modelsData = modelsRes.status === 'fulfilled' && typeof modelsRes.value?.data === 'object' && modelsRes.value?.data?.models ? modelsRes.value.data : null;
+                const quotaData = quotaRes.status === 'fulfilled' && isRecord(quotaRes.value?.data) && quotaRes.value.data.groups ? quotaRes.value.data as DynamicPayload : null;
+                const modelsData = modelsRes.status === 'fulfilled' && isRecord(modelsRes.value?.data) && modelsRes.value.data.models ? modelsRes.value.data as DynamicPayload : null;
 
                 if (quotaData || modelsData) {
                     return {
@@ -2114,7 +2168,8 @@ export class AntigravityApiService {
                         account: this.accountEmail
                     };
                 }
-            } catch (error: any) {
+            } catch (rawError) {
+            const error = asAntigravityError(rawError);
                 logger.error(`[Antigravity] Failed to fetch usage limits from ${baseURL}:`, error.message);
             }
         }
