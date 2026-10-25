@@ -1,4 +1,7 @@
 import { getBuiltinProviderCapabilityRules } from './provider-registry.ts';
+
+type DynamicPayload = Record<string, any>;
+type ProviderCapabilities = Record<string, boolean>;
 /**
  * 统一 Provider 能力声明
  *
@@ -55,19 +58,19 @@ const CAPABILITY_KEY_SET = new Set(CAPABILITY_KEYS);
  */
 const BUILTIN_PROVIDER_RULES = getBuiltinProviderCapabilityRules();
 
-function wildcardToRegExp(pattern: any) {
+function wildcardToRegExp(pattern: unknown): RegExp {
     if (pattern instanceof RegExp) return pattern;
     const escaped = String(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
     return new RegExp(`^${escaped}$`);
 }
 
-function matchesPattern(pattern: any, model: any) {
+function matchesPattern(pattern: unknown, model: unknown): boolean {
     const value = String(model || '');
     if (pattern instanceof RegExp) return pattern.test(value);
     return wildcardToRegExp(pattern).test(value);
 }
 
-function matchesRule(rule: any, model: any) {
+function matchesRule(rule: DynamicPayload | null | undefined, model: unknown): boolean {
     if (!rule || typeof rule !== 'object') return false;
     if (typeof rule.match === 'function') return Boolean(rule.match(model));
     if (rule.match instanceof RegExp) return rule.match.test(String(model || ''));
@@ -80,11 +83,12 @@ function matchesRule(rule: any, model: any) {
  * @param {Object} target
  * @param {any} patch
  */
-function applyCapabilityPatch(target: any, patch: any) {
+function applyCapabilityPatch(target: ProviderCapabilities, patch: unknown): void {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return;
+    const record = patch as DynamicPayload;
     for (const key of CAPABILITY_KEYS) {
-        if (typeof patch[key] === 'boolean') {
-            target[key] = patch[key];
+        if (typeof record[key] === 'boolean') {
+            target[key] = record[key];
         }
     }
 }
@@ -95,7 +99,7 @@ function applyCapabilityPatch(target: any, patch: any) {
  * @param {any} config
  * @param {string} model
  */
-function applyCapabilityConfig(target: any, config: any, model: any) {
+function applyCapabilityConfig(target: ProviderCapabilities, config: DynamicPayload | null | undefined, model: unknown): void {
     if (!config || typeof config !== 'object' || Array.isArray(config)) return;
 
     applyCapabilityPatch(target, config);
@@ -128,11 +132,11 @@ function applyCapabilityConfig(target: any, config: any, model: any) {
  * @param {Object} target
  * @param {any} metadata
  */
-function applyMetadataCapabilities(target: any, metadata: any) {
+function applyMetadataCapabilities(target: ProviderCapabilities, metadata: DynamicPayload | null | undefined): void {
     if (!metadata || typeof metadata !== 'object') return;
     applyCapabilityPatch(target, metadata.capabilities);
 
-    const aliases = {
+    const aliases: Record<string, string[]> = {
         supportsTemperature: ['supportsTemperature', 'supports_temperature'],
         supportsForcedToolChoice: ['supportsForcedToolChoice', 'supports_forced_tool_choice'],
         supportsThinking: ['supportsThinking', 'supports_thinking'],
@@ -157,9 +161,9 @@ function applyMetadataCapabilities(target: any, metadata: any) {
  * @param {string} providerType
  * @returns {string[]}
  */
-function getBuiltinRuleKeys(providerType: any) {
+function getBuiltinRuleKeys(providerType: string | null | undefined): string[] {
     if (!providerType) return [];
-    const keys: any[] = [];
+    const keys: string[] = [];
     for (const key of Object.keys(BUILTIN_PROVIDER_RULES)) {
         if (providerType === key || providerType.startsWith(key + '-')) {
             keys.push(key);
@@ -186,9 +190,9 @@ export function resolveProviderCapabilities({
 }: {
     providerType?: string;
     model?: string;
-    config?: any;
-    metadata?: any;
-} = {}): any {
+    config?: DynamicPayload;
+    metadata?: DynamicPayload | null;
+} = {}): ProviderCapabilities {
     const capabilities = { ...DEFAULT_PROVIDER_CAPABILITIES };
 
     // 2. 内置规则
@@ -224,7 +228,7 @@ export function resolveProviderCapabilities({
  * @param {string} key
  * @returns {boolean}
  */
-export function supportsCapability(capabilities: any, key: any) {
+export function supportsCapability(capabilities: ProviderCapabilities | null | undefined, key: string): boolean {
     if (!capabilities || !CAPABILITY_KEY_SET.has(key)) return true;
     return capabilities[key] !== false;
 }

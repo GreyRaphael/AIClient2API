@@ -13,6 +13,8 @@
 
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
 
+type DynamicPayload = Record<string, any>;
+
 /**
  * Trae 通道模式枚举
  */
@@ -30,7 +32,7 @@ export const LEGACY_TRAE_PROVIDER_TYPES = {
     AGENT_V3: 'trae-agent_v3'
 };
 
-const LEGACY_TRAE_PROVIDER_TYPE_MAP = {
+const LEGACY_TRAE_PROVIDER_TYPE_MAP: Record<string, string> = {
     [LEGACY_TRAE_PROVIDER_TYPES.AGENT_V3]: MODEL_PROVIDER.TRAE_SOLO_WORK_LITE
 };
 
@@ -38,7 +40,7 @@ const LEGACY_TRAE_PROVIDER_TYPE_MAP = {
  * 历史 TRAE_CHANNEL_MODE 取值 → 现行取值映射
  * ('agent_v3'/'legacy' 时代个人版仅 SOLO 一条业务通道，统一归入 solo_work_lite)
  */
-const LEGACY_TRAE_CHANNEL_MODE_MAP = {
+const LEGACY_TRAE_CHANNEL_MODE_MAP: Record<string, string> = {
     agent_v3: TRAE_CHANNEL_MODES.SOLO_WORK_LITE,
     legacy: TRAE_CHANNEL_MODES.SOLO_WORK_LITE
 };
@@ -48,7 +50,7 @@ const LEGACY_TRAE_CHANNEL_MODE_MAP = {
  * @param {string} providerType
  * @returns {string}
  */
-export function normalizeLegacyTraeProviderType(providerType: any) {
+export function normalizeLegacyTraeProviderType(providerType: string): string {
     const ptype = String(providerType || '').trim().toLowerCase();
     return LEGACY_TRAE_PROVIDER_TYPE_MAP[ptype] || providerType;
 }
@@ -61,7 +63,7 @@ export function normalizeLegacyTraeProviderType(providerType: any) {
  * @param {Object} providerPools
  * @returns {boolean} 是否发生迁移变更
  */
-export function migrateLegacyTraeProviderPools(providerPools: any) {
+export function migrateLegacyTraeProviderPools(providerPools: DynamicPayload): boolean {
     if (!providerPools || typeof providerPools !== 'object') return false;
     let changed = false;
 
@@ -70,7 +72,7 @@ export function migrateLegacyTraeProviderPools(providerPools: any) {
     if (Array.isArray(providerPools[legacyKey])) {
         const targetKey = MODEL_PROVIDER.TRAE_SOLO_WORK_LITE;
         const target = Array.isArray(providerPools[targetKey]) ? providerPools[targetKey] : [];
-        const knownUuids = new Set(target.map((node: any) => node && node.uuid).filter(Boolean));
+        const knownUuids = new Set<string>(target.map((node: DynamicPayload) => node && node.uuid).filter(Boolean));
         for (const node of providerPools[legacyKey]) {
             if (node && node.uuid && knownUuids.has(node.uuid)) continue;
             target.push(node);
@@ -87,7 +89,7 @@ export function migrateLegacyTraeProviderPools(providerPools: any) {
         for (const node of providerPools[key]) {
             if (!node || typeof node !== 'object') continue;
             const mode = String(node.TRAE_CHANNEL_MODE || '').trim().toLowerCase();
-            const migrated = (LEGACY_TRAE_CHANNEL_MODE_MAP as any)[mode];
+            const migrated = LEGACY_TRAE_CHANNEL_MODE_MAP[mode];
             if (migrated && node.TRAE_CHANNEL_MODE !== migrated) {
                 node.TRAE_CHANNEL_MODE = migrated;
                 changed = true;
@@ -152,7 +154,11 @@ export const TRAE_CHANNEL_PRESETS = {
  * @param {string} [input.baseUrl] - TRAE_BASE_URL 或 TRAE_HOST（用于 URL 特征推断）
  * @returns {'tob_raw_chat'|'solo_work_lite'|'chat_v3'|'custom'}
  */
-export function resolveTraeChannelMode({ configuredMode = '', providerType = '', baseUrl = '' }: any = {}) {
+export function resolveTraeChannelMode({
+    configuredMode = '',
+    providerType = '',
+    baseUrl = ''
+}: { configuredMode?: string; providerType?: string; baseUrl?: string } = {}): string {
     const mode = String(configuredMode || '').trim().toLowerCase();
     const ptype = String(providerType || '').trim().toLowerCase();
 
@@ -183,7 +189,7 @@ export function resolveTraeChannelMode({ configuredMode = '', providerType = '',
  * @param {string} [channelFunction] - getChannelConfig().function
  * @returns {boolean}
  */
-export function isSoloFamilyChannel(mode: any, channelFunction: any) {
+export function isSoloFamilyChannel(mode: string | null | undefined, channelFunction: string | null | undefined): boolean {
     return mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE ||
         mode === TRAE_CHANNEL_MODES.CHAT_V3 ||
         channelFunction === 'solo_work_lite' ||
@@ -196,7 +202,10 @@ export function isSoloFamilyChannel(mode: any, channelFunction: any) {
  * @param {string|Function} [channelFunctionOrGetter] - getChannelConfig().function 或 lazy getter
  * @returns {'chat_v3'|'solo_work_lite'|'canonical'}
  */
-export function resolveAliasTableKind(mode: any, channelFunctionOrGetter: any) {
+export function resolveAliasTableKind(
+    mode: string | null | undefined,
+    channelFunctionOrGetter: string | (() => string) | null | undefined
+): string {
     if (mode === TRAE_CHANNEL_MODES.CHAT_V3) return 'chat_v3';
     if (mode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) return 'solo_work_lite';
     const channelFunction = typeof channelFunctionOrGetter === 'function' ? channelFunctionOrGetter() : channelFunctionOrGetter;
@@ -208,7 +217,7 @@ export function resolveAliasTableKind(mode: any, channelFunctionOrGetter: any) {
  * @param {string} providerType
  * @returns {boolean}
  */
-export function isTraeProviderType(providerType: any) {
+export function isTraeProviderType(providerType: string): boolean {
     const ptype = String(providerType || '').trim().toLowerCase();
     return ptype === MODEL_PROVIDER.TRAE ||
         ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
@@ -220,7 +229,7 @@ export function isTraeProviderType(providerType: any) {
  * @param {string} providerType
  * @returns {boolean}
  */
-export function isSoloFamilyProviderType(providerType: any) {
+export function isSoloFamilyProviderType(providerType: string): boolean {
     const ptype = String(providerType || '').trim().toLowerCase();
     return ptype === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE ||
         ptype === MODEL_PROVIDER.TRAE_CHAT_V3;

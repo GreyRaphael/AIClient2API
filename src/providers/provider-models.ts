@@ -3,6 +3,8 @@ import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProviderStaticModels } from './provider-registry.ts';
 
+type DynamicPayload = Record<string, any>;
+
 /**
  * 获取模型配置元数据
  * @param {string} modelId - 模型 ID 或别名
@@ -24,14 +26,14 @@ export function getCustomModelConfig(modelId: string, provider: string | null = 
     }
 
     if (!targetProvider) {
-        return CONFIG.customModels.find((m: any) =>
+        return CONFIG.customModels.find((m: DynamicPayload) =>
             m && m.enabled !== false &&
             !m.provider &&
             (m.id === targetModelId || m.alias === targetModelId)
         ) || null;
     }
 
-    return CONFIG.customModels.find((m: any) =>
+    return CONFIG.customModels.find((m: DynamicPayload) =>
         m && m.enabled !== false &&
         m.provider === targetProvider &&
         (m.id === targetModelId || m.alias === targetModelId)
@@ -54,26 +56,26 @@ export const MANAGED_MODEL_LIST_PROVIDERS = [
     'claude-custom'
 ];
 
-export function getManagedModelListProviderType(providerType: any) {
-    return MANAGED_MODEL_LIST_PROVIDERS.find((baseType: any) =>
+export function getManagedModelListProviderType(providerType: string): string | null {
+    return MANAGED_MODEL_LIST_PROVIDERS.find((baseType: string) =>
         providerType === baseType || providerType.startsWith(baseType + '-')
     ) || null;
 }
 
-export function usesManagedModelList(providerType: any) {
+export function usesManagedModelList(providerType: string): boolean {
     return getManagedModelListProviderType(providerType) !== null;
 }
 
-export function normalizeModelIds(models: any = []) {
+export function normalizeModelIds(models: unknown = []): string[] {
     return [...new Set(
         (Array.isArray(models) ? models : [])
-            .filter((model: any) => typeof model === 'string')
-            .map((model: any) => model.trim())
+            .filter((model: unknown): model is string => typeof model === 'string')
+            .map((model: string) => model.trim())
             .filter(Boolean)
-    )].sort((a: any, b: any) => a.localeCompare(b));
+    )].sort((a: string, b: string) => a.localeCompare(b));
 }
 
-export function getCustomModelActualProvider(modelConfig: any) {
+export function getCustomModelActualProvider(modelConfig: DynamicPayload | null | undefined): string {
     if (!modelConfig) {
         return '';
     }
@@ -83,7 +85,7 @@ export function getCustomModelActualProvider(modelConfig: any) {
     return modelConfig.provider || '';
 }
 
-export function getCustomModelListProvider(modelConfig: any) {
+export function getCustomModelListProvider(modelConfig: DynamicPayload | null | undefined): string {
     return modelConfig?.provider || getCustomModelActualProvider(modelConfig);
 }
 
@@ -91,44 +93,45 @@ export function getCustomModelListProvider(modelConfig: any) {
  * 获取归属指定 providerType 的启用自定义模型 ID。
  * 仅用于分组最终集与路由，不参与节点候选列表。
  */
-export function getCustomModelIdsForProvider(customModels: any, providerType: any) {
-    const models = Array.isArray(customModels) ? customModels : [];
+export function getCustomModelIdsForProvider(customModels: unknown, providerType: string): string[] {
+    const models: DynamicPayload[] = Array.isArray(customModels) ? customModels as DynamicPayload[] : [];
     return normalizeModelIds(models
-        .filter((model: any) => model && model.enabled !== false && model.id)
-        .filter((model: any) => {
+        .filter((model: DynamicPayload) => model && model.enabled !== false && model.id)
+        .filter((model: DynamicPayload) => {
             const listProvider = getCustomModelListProvider(model);
             return listProvider && (listProvider === providerType || providerType.startsWith(listProvider + '-'));
         })
-        .map((model: any) => model.id));
+        .map((model: DynamicPayload) => model.id));
 }
 
-function extractModelIdsFromListShape(modelList: any) {
+function extractModelIdsFromListShape(modelList: DynamicPayload | null | undefined): string[] {
     if (!modelList) {
         return [];
     }
 
     if (Array.isArray(modelList)) {
-        return modelList.map((item: any) => {
+        return modelList.map((item: DynamicPayload | string) => {
             if (typeof item === 'string') return item;
             return item?.id || item?.name || item?.model || null;
-        }).filter(Boolean);
+        }).filter((value): value is string => Boolean(value));
     }
 
     if (Array.isArray(modelList.data)) {
-        return modelList.data.map((item: any) => item?.id || item?.name || item?.model || null).filter(Boolean);
+        return modelList.data.map((item: DynamicPayload) => item?.id || item?.name || item?.model || null)
+            .filter((value): value is string => Boolean(value));
     }
 
     if (Array.isArray(modelList.models)) {
-        return modelList.models.map((item: any) => {
+        return modelList.models.map((item: DynamicPayload | string) => {
             if (typeof item === 'string') return item;
             return item?.id || item?.name || item?.model || null;
-        }).filter(Boolean);
+        }).filter((value): value is string => Boolean(value));
     }
 
     return [];
 }
 
-export function extractModelIdsFromNativeList(modelList: any, providerType: any) {
+export function extractModelIdsFromNativeList(modelList: DynamicPayload | null | undefined, providerType: string): string[] {
     let convertedModelList = modelList;
 
     // 只有在提供商类型与目标类型协议不同时才尝试转换
@@ -148,7 +151,7 @@ export function extractModelIdsFromNativeList(modelList: any, providerType: any)
     return normalizeModelIds(extractModelIdsFromListShape(modelList));
 }
 
-export function getConfiguredSupportedModels(providerType: string, providerConfig: any = {}) {
+export function getConfiguredSupportedModels(providerType: string, providerConfig: DynamicPayload = {}): string[] {
     return normalizeModelIds(providerConfig?.supportedModels);
 }
 
@@ -158,8 +161,8 @@ export function getConfiguredSupportedModels(providerType: string, providerConfi
  * @param {string} providerType - 提供商类型
  * @returns {Array<string>} 模型列表
  */
-export function getProviderModels(providerType: any) {
-    let models: any[] = [];
+export function getProviderModels(providerType: string): string[] {
+    let models: string[] = [];
     if (PROVIDER_MODELS[providerType]) {
         models = [...PROVIDER_MODELS[providerType]];
     } else {

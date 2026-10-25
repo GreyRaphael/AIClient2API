@@ -1,4 +1,6 @@
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
+
+type DynamicPayload = Record<string, any>;
 import logger from '../../utils/logger.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
@@ -8,13 +10,13 @@ import { applySystemPromptReplacements } from '../../converters/utils.ts';
  * OpenAI provider strategy implementation.
  */
 class OpenAIStrategy extends ProviderStrategy {
-    extractModelAndStreamInfo(req: any, requestBody: any) {
+    extractModelAndStreamInfo(req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
         return { model, isStream };
     }
 
-    extractResponseText(response: any) {
+    extractResponseText(response: DynamicPayload): string {
         if (!response.choices) {
             return '';
         }
@@ -31,13 +33,13 @@ class OpenAIStrategy extends ProviderStrategy {
         return '';
     }
 
-    extractPromptText(requestBody: any) {
+    extractPromptText(requestBody: DynamicPayload): string {
         if (requestBody.messages && requestBody.messages.length > 0) {
             const lastMessage = requestBody.messages[requestBody.messages.length - 1];
             let content = lastMessage.content;
             if (typeof content === 'object' && content !== null) {
                 if (Array.isArray(content)) {
-                    return content.map((item: any) => item.text).join('\n');
+                    return content.map((item: DynamicPayload) => item.text).join('\n');
                 } else {
                     return JSON.stringify(content);
                 }
@@ -47,7 +49,7 @@ class OpenAIStrategy extends ProviderStrategy {
         return '';
     }
 
-    async applySystemPromptFromFile(config: any, requestBody: any) {
+    async applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload): Promise<DynamicPayload> {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;
         }
@@ -69,7 +71,7 @@ class OpenAIStrategy extends ProviderStrategy {
         if (!requestBody.messages) {
             requestBody.messages = [];
         }
-        const systemMessageIndex = requestBody.messages.findIndex((m: any) => m.role === 'system' || m.role === 'developer');
+        const systemMessageIndex = requestBody.messages.findIndex((m: DynamicPayload) => m.role === 'system' || m.role === 'developer');
         if (systemMessageIndex !== -1) {
             requestBody.messages[systemMessageIndex].content = finalSystemText;
         } else {
@@ -80,7 +82,7 @@ class OpenAIStrategy extends ProviderStrategy {
         return requestBody;
     }
 
-    async manageSystemPrompt(requestBody: any) {
+    async manageSystemPrompt(requestBody: DynamicPayload): Promise<void> {
         //logger.info('[System Prompt] Managing system prompt for provider "openai".', requestBody);
         const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI);
         await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.OPENAI);

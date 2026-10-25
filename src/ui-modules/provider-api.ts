@@ -131,7 +131,7 @@ export function validateTraeProviderConfig(providerType: string, config: Provide
 
     // 显式 mode 优先于 providerType（与 resolveTraeChannelMode 的「显式通道模式恒优先」原则一致）；
     // mode 缺省时回退 providerType 家族判定
-    const isSolo = mode ? isSoloFamilyChannel(mode, null) : isSoloFamilyProviderType(providerType);
+    const isSolo = mode ? isSoloFamilyChannel(typeof mode === 'string' ? mode : null, null) : isSoloFamilyProviderType(providerType);
     if (isSolo) {
         if (url.includes('enterprise.trae.cn') || url.includes('llm_raw_chat')) {
             const label = providerType === 'trae-chat_v3' ? 'Chat v3' : 'SOLO Agent';

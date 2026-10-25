@@ -1,4 +1,6 @@
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
+
+type DynamicPayload = Record<string, any>;
 import logger from '../../utils/logger.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
@@ -9,13 +11,13 @@ import { applySystemPromptReplacements } from '../../converters/utils.ts';
  * Migrated from Chat Completions API to Responses API.
  */
 class ResponsesAPIStrategy extends ProviderStrategy {
-    extractModelAndStreamInfo(req: any, requestBody: any) {
+    extractModelAndStreamInfo(req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
         return { model, isStream };
     }
 
-    extractResponseText(response: any) {
+    extractResponseText(response: DynamicPayload): string {
         if (!response.output) {
             return '';
         }
@@ -33,13 +35,13 @@ class ResponsesAPIStrategy extends ProviderStrategy {
         return '';
     }
 
-    extractPromptText(requestBody: any) {
+    extractPromptText(requestBody: DynamicPayload): string {
         // In Responses API, input can be a string or array of items
         if (typeof requestBody.input === 'string') {
             return requestBody.input;
         } else if (Array.isArray(requestBody.input)) {
             // If input is an array of items/messages, get the last user content
-            const userInputItems = requestBody.input.filter((item: any) =>
+            const userInputItems = requestBody.input.filter((item: DynamicPayload) =>
                 (item.role && item.role === 'user') ||
                 (item.type && item.type === 'message' && item.role === 'user') ||
                 (item.type && item.type === 'user')
@@ -50,14 +52,14 @@ class ResponsesAPIStrategy extends ProviderStrategy {
                 if (typeof lastInput.content === 'string') {
                     return lastInput.content;
                 } else if (Array.isArray(lastInput.content)) {
-                    return lastInput.content.map((item: any) => item.text || item.content || '').join('\n');
+                    return lastInput.content.map((item: DynamicPayload) => item.text || item.content || '').join('\n');
                 }
             }
         }
         return '';
     }
 
-    async applySystemPromptFromFile(config: any, requestBody: any) {
+    async applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload): Promise<DynamicPayload> {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;
         }
@@ -81,7 +83,7 @@ class ResponsesAPIStrategy extends ProviderStrategy {
         if (requestBody.instructions !== undefined || !Array.isArray(requestBody.input)) {
             requestBody.instructions = finalSystemText;
         } else {
-            const systemMessageIndex = requestBody.input.findIndex((m: any) =>
+            const systemMessageIndex = requestBody.input.findIndex((m: DynamicPayload) =>
                 m.role === 'system' || m.role === 'developer' || m.type === 'system' || m.type === 'developer'
             );
 
@@ -97,7 +99,7 @@ class ResponsesAPIStrategy extends ProviderStrategy {
         return requestBody;
     }
 
-    async manageSystemPrompt(requestBody: any) {
+    async manageSystemPrompt(requestBody: DynamicPayload): Promise<void> {
         const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
         await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.OPENAI);
     }

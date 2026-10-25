@@ -8,7 +8,38 @@
 
 import { MODEL_PROVIDER, MODEL_PROTOCOL_PREFIX } from '../utils/constants.ts';
 
-export const PROVIDER_DEFINITIONS = [
+type DynamicPayload = Record<string, any>;
+
+interface ProviderCapabilityRule {
+    match: ((model: unknown) => boolean) | string;
+    capabilities: DynamicPayload;
+}
+
+interface ProviderUtilsConfig {
+    mappingOrder?: number;
+    dirName: string;
+    patterns: string[];
+    defaultCheckModel: string;
+    displayName: string;
+    needsProjectId: boolean;
+    urlKeys: string[];
+}
+
+interface ProviderDefinition {
+    type: string;
+    protocolPrefix: string;
+    capabilityRules?: ProviderCapabilityRule[];
+    healthCheckModel?: string;
+    credentialPathKey?: string;
+    credentialLabel?: string;
+    statusIdentify?: boolean;
+    dynamicModels?: boolean;
+    capabilityTtlMs?: number;
+    staticModels: string[];
+    providerUtils?: ProviderUtilsConfig;
+}
+
+export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
     {
         type: MODEL_PROVIDER.ANTIGRAVITY,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.GEMINI,
@@ -16,7 +47,7 @@ export const PROVIDER_DEFINITIONS = [
         // Claude / GPT 走标准流式输出。
         capabilityRules: [
             {
-                match: (model: any) => !/(claude|gpt)/i.test(String(model || '')),
+                match: (model: unknown) => !/(claude|gpt)/i.test(String(model || '')),
                 capabilities: { supportsStreamingThoughts: false }
             }
         ],
@@ -212,20 +243,20 @@ export const PROVIDER_DEFINITIONS = [
 ];
 
 const DEFINITIONS_BY_LONGEST_TYPE = [...PROVIDER_DEFINITIONS]
-    .sort((a: any, b: any) => b.type.length - a.type.length);
+    .sort((a, b) => b.type.length - a.type.length);
 
 /**
  * 获取 provider 定义（支持 `baseType-suffix` 前缀匹配）。
  * @param {string} providerType
  * @returns {Object|null}
  */
-export function getProviderDefinition(providerType: any) {
+export function getProviderDefinition(providerType: string): ProviderDefinition | null {
     if (!providerType) return null;
 
-    const exact = PROVIDER_DEFINITIONS.find((item: any) => item.type === providerType);
+    const exact = PROVIDER_DEFINITIONS.find((item) => item.type === providerType);
     if (exact) return exact;
 
-    return DEFINITIONS_BY_LONGEST_TYPE.find((item: any) => providerType.startsWith(item.type + '-')) || null;
+    return DEFINITIONS_BY_LONGEST_TYPE.find((item) => providerType.startsWith(item.type + '-')) || null;
 }
 
 /**
@@ -235,8 +266,8 @@ export function getProviderDefinition(providerType: any) {
 export function getBuiltinProviderCapabilityRules() {
     return Object.fromEntries(
         PROVIDER_DEFINITIONS
-            .filter((item: any) => item.capabilityRules)
-            .map((item: any) => [item.type, item.capabilityRules])
+            .filter((item) => item.capabilityRules)
+            .map((item) => [item.type, item.capabilityRules] as [string, ProviderCapabilityRule[]])
     );
 }
 
@@ -246,10 +277,10 @@ export function getBuiltinProviderCapabilityRules() {
  */
 export function getProviderMappings() {
     return PROVIDER_DEFINITIONS
-        .filter((item: any) => item.providerUtils)
-        .sort((a: any, b: any) => (a.providerUtils.mappingOrder || 0) - (b.providerUtils.mappingOrder || 0))
-        .map((item: any) => {
-            const { mappingOrder, ...providerUtils } = item.providerUtils;
+        .filter((item) => item.providerUtils)
+        .sort((a, b) => (a.providerUtils?.mappingOrder || 0) - (b.providerUtils?.mappingOrder || 0))
+        .map((item) => {
+            const { mappingOrder, ...providerUtils } = item.providerUtils!;
             return {
                 ...providerUtils,
                 providerType: item.type,
@@ -263,9 +294,9 @@ export function getProviderMappings() {
  * 派生静态模型清单。
  * @returns {Object<string, string[]>}
  */
-export function getProviderStaticModels() {
+export function getProviderStaticModels(): Record<string, string[]> {
     return Object.fromEntries(
-        PROVIDER_DEFINITIONS.map((item: any) => [item.type, [...item.staticModels]])
+        PROVIDER_DEFINITIONS.map((item) => [item.type, [...item.staticModels]])
     );
 }
 
@@ -276,8 +307,8 @@ export function getProviderStaticModels() {
 export function getDefaultHealthCheckModels() {
     return Object.fromEntries(
         PROVIDER_DEFINITIONS
-            .filter((item: any) => item.healthCheckModel)
-            .map((item: any) => [item.type, item.healthCheckModel])
+            .filter((item) => item.healthCheckModel)
+            .map((item) => [item.type, item.healthCheckModel])
     );
 }
 
@@ -288,8 +319,8 @@ export function getDefaultHealthCheckModels() {
 export function getDynamicProviderTypes() {
     return new Set(
         PROVIDER_DEFINITIONS
-            .filter((item: any) => item.dynamicModels)
-            .map((item: any) => item.type)
+            .filter((item) => item.dynamicModels)
+            .map((item) => item.type)
     );
 }
 
@@ -300,8 +331,8 @@ export function getDynamicProviderTypes() {
 export function getProviderCapabilityTtlMs() {
     return Object.fromEntries(
         PROVIDER_DEFINITIONS
-            .filter((item: any) => item.capabilityTtlMs)
-            .map((item: any) => [item.type, item.capabilityTtlMs])
+            .filter((item) => item.capabilityTtlMs)
+            .map((item) => [item.type, item.capabilityTtlMs])
     );
 }
 
@@ -310,7 +341,7 @@ export function getProviderCapabilityTtlMs() {
  * @returns {Object[]}
  */
 export function getCredentialProviderDefinitions() {
-    return PROVIDER_DEFINITIONS.filter((item: any) => item.credentialPathKey);
+    return PROVIDER_DEFINITIONS.filter((item) => item.credentialPathKey);
 }
 
 /**
@@ -320,7 +351,7 @@ export function getCredentialProviderDefinitions() {
 export function getStatusIdentifyFieldMap() {
     return Object.fromEntries(
         PROVIDER_DEFINITIONS
-            .filter((item: any) => item.statusIdentify && item.credentialPathKey)
-            .map((item: any) => [item.type, item.credentialPathKey])
+            .filter((item) => item.statusIdentify && item.credentialPathKey)
+            .map((item) => [item.type, item.credentialPathKey])
     );
 }

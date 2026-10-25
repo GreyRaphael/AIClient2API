@@ -1,10 +1,12 @@
-export function normalizeCodexInstructions(requestBody: any) {
+type DynamicPayload = Record<string, any>;
+
+export function normalizeCodexInstructions(requestBody: DynamicPayload): DynamicPayload {
     if (!Array.isArray(requestBody.input)) {
         return requestBody;
     }
 
-    const instructionTexts: any[] = [];
-    requestBody.input = requestBody.input.filter((item: any) => {
+    const instructionTexts: string[] = [];
+    requestBody.input = requestBody.input.filter((item: DynamicPayload) => {
         const isMessage = !item?.type || item.type === 'message';
         const isInstructionRole = item?.role === 'system' || item?.role === 'developer';
         if (!isMessage || !isInstructionRole) {

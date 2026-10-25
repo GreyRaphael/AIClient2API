@@ -1,3 +1,5 @@
+type DynamicPayload = Record<string, any>;
+
 const ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS = [
     'googleSearch',
     'googleSearchRetrieval',
@@ -13,42 +15,42 @@ const ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS = [
     'code_execution'
 ];
 
-function hasAntigravityFunctionDeclarations(tools: any) {
-    return Array.isArray(tools) && tools.some((tool: any) =>
+function hasAntigravityFunctionDeclarations(tools: DynamicPayload[] | null | undefined): boolean {
+    return Array.isArray(tools) && tools.some((tool: DynamicPayload) =>
         Array.isArray(tool?.functionDeclarations) && tool.functionDeclarations.length > 0
     );
 }
 
-function hasAntigravityServerSideTools(tools: any) {
-    return Array.isArray(tools) && tools.some((tool: any) => {
+function hasAntigravityServerSideTools(tools: DynamicPayload[] | null | undefined): boolean {
+    return Array.isArray(tools) && tools.some((tool: DynamicPayload) => {
         if (!tool || typeof tool !== 'object') return false;
-        return ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.some((field: any) =>
+        return ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.some((field: string) =>
             Object.prototype.hasOwnProperty.call(tool, field)
         );
     });
 }
 
-function removeAntigravityServerSideToolFields(tool: any) {
+function removeAntigravityServerSideToolFields(tool: DynamicPayload | null | undefined): DynamicPayload | null | undefined {
     if (!tool || typeof tool !== 'object') return tool;
-    const cleaned = { ...tool };
-    ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.forEach((field: any) => {
+    const cleaned: DynamicPayload = { ...tool };
+    ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.forEach((field: string) => {
         delete cleaned[field];
     });
     return cleaned;
 }
 
-function stripServerSideToolsWhenFunctionCalling(request: any) {
+function stripServerSideToolsWhenFunctionCalling(request: DynamicPayload): void {
     if (!hasAntigravityFunctionDeclarations(request.tools) ||
         !hasAntigravityServerSideTools(request.tools)) {
         return;
     }
 
     request.tools = request.tools
-        .map((tool: any) => removeAntigravityServerSideToolFields(tool))
-        .filter((tool: any) => tool && Object.keys(tool).length > 0);
+        .map((tool: DynamicPayload) => removeAntigravityServerSideToolFields(tool))
+        .filter((tool: DynamicPayload | null | undefined): tool is DynamicPayload => Boolean(tool && Object.keys(tool).length > 0));
 }
 
-function normalizeAntigravityToolConfigShape(toolConfig: any) {
+function normalizeAntigravityToolConfigShape(toolConfig: DynamicPayload | null | undefined): void {
     if (!toolConfig || typeof toolConfig !== 'object') return;
 
     if (toolConfig.function_calling_config && !toolConfig.functionCallingConfig) {
@@ -60,7 +62,7 @@ function normalizeAntigravityToolConfigShape(toolConfig: any) {
     delete toolConfig.include_server_side_tool_invocations;
 }
 
-export function normalizeAntigravityToolConfig(request: any, isClaudeModel: any = false) {
+export function normalizeAntigravityToolConfig(request: DynamicPayload | null | undefined, isClaudeModel = false): void {
     if (!request || typeof request !== 'object') return;
 
     stripServerSideToolsWhenFunctionCalling(request);
