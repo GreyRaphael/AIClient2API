@@ -1,6 +1,8 @@
 // Provider 元数据注册表
 // 前端所有 provider 的显示名、图标、默认模型、目录与 OAuth 能力都从这里派生，
 // 避免在多个页面各维护一份映射表。
+// 与后端 src/providers/provider-registry.ts 的共享字段由
+// tests/provider-registry-parity.test.js 守护。
 
 import { t } from './i18n.js';
 
