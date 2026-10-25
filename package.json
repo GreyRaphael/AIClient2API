@@ -48,6 +48,8 @@
     "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
     "check:imports": "node scripts/check-imports.mjs",
     "check:cycles": "node scripts/check-cycles.mjs",
+    "check:coverage": "node scripts/check-coverage.mjs",
+    "coverage:update": "node scripts/check-coverage.mjs --update",
     "test:runtime": "node scripts/smoke-runtime.mjs",
     "metrics:types": "node scripts/type-metrics.mjs",
     "metrics:strict": "node scripts/strict-metrics.mjs",

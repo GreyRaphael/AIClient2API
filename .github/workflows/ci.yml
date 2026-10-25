@@ -50,8 +50,11 @@ jobs:
       - name: 类型债务指标
         run: npm run metrics:types
 
-      - name: 单元测试
-        run: npm test -- --runInBand
+      - name: 单元测试与覆盖率
+        run: npm run test:coverage -- --runInBand
+
+      - name: 覆盖率门槛
+        run: npm run check:coverage
 
       - name: 运行时 smoke（plain Node）
         run: npm run test:runtime

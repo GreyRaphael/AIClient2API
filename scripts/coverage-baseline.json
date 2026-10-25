@@ -1,0 +1,200 @@
+{
+  "total": {
+    "lines": {
+      "covered": 6359,
+      "total": 22626
+    },
+    "branches": {
+      "covered": 6143,
+      "total": 20541
+    },
+    "functions": {
+      "covered": 284,
+      "total": 2554
+    }
+  },
+  "directories": {
+    "src/auth": {
+      "lines": {
+        "covered": 66,
+        "total": 1380
+      },
+      "branches": {
+        "covered": 54,
+        "total": 1022
+      },
+      "functions": {
+        "covered": 0,
+        "total": 149
+      }
+    },
+    "src/bootstrap": {
+      "lines": {
+        "covered": 4,
+        "total": 4
+      },
+      "branches": {
+        "covered": 3,
+        "total": 5
+      },
+      "functions": {
+        "covered": 0,
+        "total": 2
+      }
+    },
+    "src/convert": {
+      "lines": {
+        "covered": 9,
+        "total": 15
+      },
+      "branches": {
+        "covered": 10,
+        "total": 13
+      },
+      "functions": {
+        "covered": 1,
+        "total": 1
+      }
+    },
+    "src/converters": {
+      "lines": {
+        "covered": 3497,
+        "total": 4821
+      },
+      "branches": {
+        "covered": 3599,
+        "total": 6196
+      },
+      "functions": {
+        "covered": 125,
+        "total": 467
+      }
+    },
+    "src/core": {
+      "lines": {
+        "covered": 54,
+        "total": 1386
+      },
+      "branches": {
+        "covered": 25,
+        "total": 674
+      },
+      "functions": {
+        "covered": 3,
+        "total": 239
+      }
+    },
+    "src/handlers": {
+      "lines": {
+        "covered": 324,
+        "total": 878
+      },
+      "branches": {
+        "covered": 340,
+        "total": 979
+      },
+      "functions": {
+        "covered": 9,
+        "total": 59
+      }
+    },
+    "src/plugins-user": {
+      "lines": {
+        "covered": 0,
+        "total": 201
+      },
+      "branches": {
+        "covered": 0,
+        "total": 135
+      },
+      "functions": {
+        "covered": 0,
+        "total": 36
+      }
+    },
+    "src/plugins": {
+      "lines": {
+        "covered": 0,
+        "total": 923
+      },
+      "branches": {
+        "covered": 0,
+        "total": 635
+      },
+      "functions": {
+        "covered": 0,
+        "total": 118
+      }
+    },
+    "src/providers": {
+      "lines": {
+        "covered": 1956,
+        "total": 7092
+      },
+      "branches": {
+        "covered": 1774,
+        "total": 6611
+      },
+      "functions": {
+        "covered": 114,
+        "total": 793
+      }
+    },
+    "src/scripts": {
+      "lines": {
+        "covered": 0,
+        "total": 294
+      },
+      "branches": {
+        "covered": 0,
+        "total": 134
+      },
+      "functions": {
+        "covered": 0,
+        "total": 45
+      }
+    },
+    "src/services": {
+      "lines": {
+        "covered": 77,
+        "total": 1320
+      },
+      "branches": {
+        "covered": 34,
+        "total": 1206
+      },
+      "functions": {
+        "covered": 0,
+        "total": 118
+      }
+    },
+    "src/ui-modules": {
+      "lines": {
+        "covered": 112,
+        "total": 3063
+      },
+      "branches": {
+        "covered": 87,
+        "total": 1770
+      },
+      "functions": {
+        "covered": 7,
+        "total": 293
+      }
+    },
+    "src/utils": {
+      "lines": {
+        "covered": 260,
+        "total": 1249
+      },
+      "branches": {
+        "covered": 217,
+        "total": 1161
+      },
+      "functions": {
+        "covered": 25,
+        "total": 234
+      }
+    }
+  }
+}
