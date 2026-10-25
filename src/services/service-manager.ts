@@ -25,7 +25,7 @@ type DynamicPayload = Record<string, any>;
 let providerPoolManager: ProviderPoolManager | null = null;
 
 function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return getErrorMessage(error);
+    if (error instanceof Error) return error.message;
     return String(error);
 }
 

@@ -35,7 +35,7 @@ interface ImageRetryContext {
 }
 
 function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return getErrorMessage(error);
+    if (error instanceof Error) return error.message;
     return String(error);
 }
 
@@ -60,7 +60,7 @@ export async function handleAPIRequests(
     req: IncomingMessage,
     res: ServerResponse,
     currentConfig: DynamicPayload,
-    apiService: DynamicPayload,
+    apiService: DynamicPayload | null,
     providerPoolManager: ProviderPoolManager | null,
     promptLogFilename: string
 ): Promise<boolean> {

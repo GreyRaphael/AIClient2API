@@ -19,7 +19,7 @@ import { getPluginManager } from '../core/plugin-manager.ts';
 import { randomUUID } from 'crypto';
 
 function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return getErrorMessage(error);
+    if (error instanceof Error) return error.message;
     return String(error);
 }
 
@@ -259,7 +259,7 @@ export function createRequestHandler(
                     }
 
                     // 获取或选择 API Service 实例（延迟到 handleAPIRequests 内按需解析）
-                    const apiService: DynamicPayload = {};
+                    const apiService: DynamicPayload | null = null;
 
                     try {
                         // Handle API requests

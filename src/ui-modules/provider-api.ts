@@ -27,7 +27,7 @@ import type {
 } from '../providers/provider-types.ts';
 
 function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return getErrorMessage(error);
+    if (error instanceof Error) return error.message;
     return String(error);
 }
 

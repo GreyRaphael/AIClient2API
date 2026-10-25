@@ -1448,7 +1448,7 @@ export async function handleUnaryRequest(
 export async function handleModelListRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    service: DynamicPayload,
+    service: DynamicPayload | null,
     endpointType: string,
     CONFIG: DynamicPayload,
     providerPoolManager: DynamicPayload,
@@ -1537,7 +1537,7 @@ export async function handleModelListRequest(
 export async function handleContentGenerationRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    service: DynamicPayload,
+    service: DynamicPayload | null,
     endpointType: string,
     CONFIG: DynamicPayload,
     PROMPT_LOG_FILENAME: string,
@@ -1627,6 +1627,11 @@ export async function handleContentGenerationRequest(
         } else {
             logger.info(`[Content Generation] Selected service adapter based on model: ${model}`);
         }
+    }
+
+    // 延迟解析后仍无可用 service：直接走统一错误处理，避免把空对象传给 handleUnaryRequest/handleStreamRequest。
+    if (!service) {
+        throw new Error(`No service available for provider '${toProvider}'.`);
     }
 
     // 1. Convert request body from client format to backend format, if necessary.

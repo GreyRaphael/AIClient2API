@@ -22,7 +22,7 @@ const MAX_PLUGIN_ZIP_BYTES = 10 * 1024 * 1024;
 const MAX_DOWNLOAD_REDIRECTS = 5;
 
 function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) return getErrorMessage(error);
+    if (error instanceof Error) return error.message;
     return String(error);
 }
 
