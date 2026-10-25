@@ -45,6 +45,11 @@ if (result.error) {
 }
 
 const output = `${result.stdout || ''}${result.stderr || ''}`;
+const compilerFailed = result.status !== 0;
+const reportCompilerFailure = () => {
+    console.error('[strict] TypeScript compiler failed; strict check cannot pass.');
+    if (output.trim()) console.error(output.trim());
+};
 const counts = new Map();
 let total = 0;
 
@@ -65,6 +70,10 @@ const current = {
 };
 
 if (shouldUpdate) {
+    if (compilerFailed) {
+        reportCompilerFailure();
+        process.exit(1);
+    }
     fs.writeFileSync(BASELINE_PATH, `${JSON.stringify(current, null, 2)}\n`);
     console.log(`[strict] Baseline updated: ${total} errors across ${counts.size} directories.`);
     process.exit(0);
@@ -94,6 +103,11 @@ console.log(
     `[strict] ${'TOTAL'.padEnd(16)} ${String(current.total).padStart(7)}   ${String(baseline.total || 0).padStart(8)}   ` +
     `${current.total - (baseline.total || 0) >= 0 ? '+' : ''}${current.total - (baseline.total || 0)}`
 );
+
+if (compilerFailed) {
+    reportCompilerFailure();
+    process.exit(1);
+}
 
 if (regressions > 0) {
     console.error(`[strict] Ratchet failed: ${regressions} director${regressions === 1 ? 'y' : 'ies'} exceeded the baseline.`);
