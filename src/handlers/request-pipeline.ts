@@ -31,6 +31,8 @@ import { resolveProviderCapabilityWithRefresh } from '../providers/model-capabil
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PreContentBuffer } from './pre-content-buffer.ts';
 import { startPreContentHeartbeat } from './pre-content-heartbeat.ts';
+import { createStreamRetryContext, writeStreamCompletion } from './stream-lifecycle.ts';
+import type { PipelineRetryContext } from './stream-lifecycle.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
@@ -44,18 +46,6 @@ export type PipelineError = DynamicPayload & {
     shouldSwitchCredential?: boolean;
     credentialMarkedUnhealthy?: boolean;
 };
-
-interface PipelineRetryContext {
-    anyDataSent?: boolean;
-    maxRetries?: number;
-    currentRetry?: number;
-    CONFIG?: DynamicPayload;
-    emptyResponseRetry?: number;
-    emptyResponseStartedAt?: number;
-    clientDisconnected?: { value: boolean };
-    streamState?: DynamicPayload;
-    requestId?: string;
-}
 
 type EmptyRetryOutcome =
     | { retry: false; budgetExhausted?: boolean }
@@ -918,8 +908,8 @@ export async function handleStreamRequest(
 
             if (outcome.retry && outcome.result) {
                 const { result, emptyResponseRetry } = outcome;
-                const newRetryContext = {
-                    ...(retryContext || {}),
+                const newRetryContext = createStreamRetryContext({
+                    retryContext,
                     CONFIG,
                     currentRetry,
                     maxRetries,
@@ -927,11 +917,9 @@ export async function handleStreamRequest(
                     emptyResponseStartedAt,
                     clientDisconnected,
                     anyDataSent,
-                    // 固定本次请求的 stream 会话键，确保递归帧清理/复用同一份 Converter 状态。
-                    requestId: streamRequestId,
-                    // 与外层帧共享终止事件状态，避免重试成功后重复补发 message_stop / response.completed。
+                    streamRequestId,
                     streamState
-                };
+                });
 
                 // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
                 resetConverterStreamState(toProvider, streamRequestId);
@@ -1027,18 +1015,16 @@ export async function handleStreamRequest(
                     logger.info(`[Stream Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
                     
                     // 使用新服务重试
-                    const newRetryContext = {
-                        ...(retryContext || {}),
+                    const newRetryContext = createStreamRetryContext({
+                        retryContext,
                         CONFIG,
                         currentRetry: currentRetry + 1,
                         maxRetries,
-                        clientDisconnected,  // 传递断开状态
-                        anyDataSent,         // 传递数据发送状态
-                        // 固定本次请求的 stream 会话键，确保递归帧清理/复用同一份 Converter 状态。
-                        requestId: streamRequestId,
-                        // 与外层帧共享终止事件状态，避免重试成功后重复补发 message_stop / response.completed。
+                        clientDisconnected,
+                        anyDataSent,
+                        streamRequestId,
                         streamState
-                    };
+                    });
 
                     // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
                     resetConverterStreamState(toProvider, streamRequestId);
@@ -1102,55 +1088,7 @@ export async function handleStreamRequest(
         // 只在非重试或重试失败时才发送结束标记
         // 如果是重试成功，递归调用会处理结束标记
         if (!responseClosed && !clientDisconnected.value && !isRetry) {
-            // 根据客户端协议发送相应的流式结束标记
-            const clientProtocol = getProtocolPrefix(fromProvider);
-            if (!res.writableEnded) {
-                try {
-                    if (clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI) {
-                        // OpenAI 规范：无论是否已有 finish_reason chunk，都必须以 [DONE] 收尾
-                        res.write('data: [DONE]\n\n');
-                        streamState.hasMessageStop = true;
-                    } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
-                        // OpenAI Responses 以 response.completed/response.incomplete（或 error）作为结束事件。
-                        // 如果流结束时仍未发送结束标记，则发送兜底的 response.completed 事件，避免 Codex 等客户端报错
-                        if (!streamState.hasMessageStop) {
-                            const synthCompleted = {
-                                type: 'response.completed',
-                                response: {
-                                    id: streamRequestId || ('resp_' + Date.now()),
-                                    status: 'completed',
-                                    object: 'response',
-                                    model: model || 'unknown',
-                                    output: [],
-                                    usage: {
-                                        input_tokens: 0,
-                                        output_tokens: 0,
-                                        total_tokens: 0
-                                    }
-                                }
-                            };
-                            res.write(`event: response.completed\n`);
-                            res.write(`data: ${JSON.stringify(synthCompleted)}\n\n`);
-                            streamState.hasMessageStop = true;
-                        }
-                    } else if (clientProtocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
-                        if (!streamState.hasMessageStop) {
-                            res.write('event: message_stop\n');
-                            res.write('data: {"type":"message_stop"}\n\n');
-                            streamState.hasMessageStop = true;
-                        }
-                    }
-                    res.end();
-                } catch (writeErr) {
-                    logger.error('[Stream] Failed to write completion marker:', getErrorMessage(writeErr));
-                    // 兜底收尾失败也必须结束响应，避免客户端永久等待读超时。
-                    try {
-                        if (!res.writableEnded) res.end();
-                    } catch (endErr) {
-                        logger.error('[Stream] Failed to end response after completion-marker error:', getErrorMessage(endErr));
-                    }
-                }
-            }
+            writeStreamCompletion({ res, fromProvider, streamState, streamRequestId, model });
         }
         
         // 只在首次请求时记录日志（避免重试时重复记录）
