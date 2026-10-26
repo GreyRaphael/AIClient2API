@@ -4,19 +4,44 @@ export type ZedProvider = 'anthropic' | 'open_ai' | 'google';
 
 const ZED_PROVIDERS: readonly ZedProvider[] = ['anthropic', 'open_ai', 'google'];
 
+const knownZedModelProviders = new Map<string, ZedProvider>();
+
 export function isZedProvider(value: unknown): value is ZedProvider {
     return typeof value === 'string' && (ZED_PROVIDERS as readonly string[]).includes(value);
 }
 
 /**
- * 按模型 ID 约定推断 Zed 上游协议族。
+ * 同步记录已从权威元数据或磁盘快照获知的 model -> provider 映射，
+ * 使同步协议解析路径（getProtocolPrefix / convertData）在非标准前缀模型上也能命中真实协议族。
+ */
+export function registerKnownZedModelProviders(
+    models: Iterable<{ id: string; provider: ZedProvider }>
+): void {
+    for (const item of models) {
+        if (item && typeof item.id === 'string' && item.id && isZedProvider(item.provider)) {
+            knownZedModelProviders.set(item.id, item.provider);
+            knownZedModelProviders.set(item.id.toLowerCase(), item.provider);
+        }
+    }
+}
+
+export function clearKnownZedModelProviders(): void {
+    knownZedModelProviders.clear();
+}
+
+/**
+ * 按已知元数据索引或模型 ID 约定推断 Zed 上游协议族。
  *
- * 只用于元数据缺失时的兜底；已知模型优先使用 cloud.zed.dev/models 返回的 provider 字段。
- * 这里刻意不维护模型清单，新增同族模型无需改代码。
+ * 优先命中运行时已加载（含磁盘快照与远端刷新）的 model -> provider 索引；
+ * 未命中时再按模型名前缀推断，新增同族或异名模型均无需改代码。
  */
 export function inferZedProvider(model: string | null | undefined): ZedProvider | null {
-    const m = String(model || '').toLowerCase();
-    if (!m) return null;
+    const raw = String(model || '').trim();
+    if (!raw) return null;
+    const known = knownZedModelProviders.get(raw) ?? knownZedModelProviders.get(raw.toLowerCase());
+    if (known) return known;
+
+    const m = raw.toLowerCase();
     if (m.startsWith('claude')) return 'anthropic';
     if (m.startsWith('gpt-') || m.startsWith('chatgpt-') || /^o\d/.test(m)) return 'open_ai';
     if (m.startsWith('gemini')) return 'google';

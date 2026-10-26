@@ -5,6 +5,11 @@ import {
     ZedModelRegistry,
     ZED_MODEL_METADATA_CACHE_VERSION
 } from '../src/providers/zed/zed-model-registry.ts';
+import {
+    clearKnownZedModelProviders,
+    resolveZedProtocolPrefix
+} from '../src/providers/zed/zed-protocol.ts';
+import { getProtocolPrefix } from '../src/utils/common.ts';
 import { ZedApiService } from '../src/providers/zed/zed-core.ts';
 
 function remoteModel(id, overrides = {}) {
@@ -108,5 +113,30 @@ describe('ZedModelRegistry cache', () => {
         });
         // 冷启动也使用缓存中的权威上限，而不是静态默认值
         expect(payload.provider_request.max_tokens).toBe(1234);
+    });
+
+    test('synchronizes non-standard model id provider mappings to getProtocolPrefix on applyRemote and loadCache', async () => {
+        clearKnownZedModelProviders();
+        // 未注册前，非标准前缀模型默认回退为 claude
+        expect(getProtocolPrefix('zed', 'codex-luna-x')).toBe('claude');
+        expect(resolveZedProtocolPrefix('bard-argon-x')).toBe('claude');
+
+        const writer = new ZedModelRegistry({ cachePath, accountKey: 'user-a' });
+        await writer.applyRemote([
+            remoteModel('codex-luna-x', { provider: 'open_ai' }),
+            remoteModel('bard-argon-x', { provider: 'google' })
+        ]);
+
+        expect(getProtocolPrefix('zed', 'codex-luna-x')).toBe('openaiResponses');
+        expect(getProtocolPrefix('zed', 'bard-argon-x')).toBe('gemini');
+
+        // 清空内存索引后，从磁盘快照冷启动加载仍能恢复协议映射
+        clearKnownZedModelProviders();
+        expect(getProtocolPrefix('zed', 'codex-luna-x')).toBe('claude');
+
+        const reader = new ZedModelRegistry({ cachePath, accountKey: 'user-a' });
+        expect(reader.source).toBe('cache');
+        expect(getProtocolPrefix('zed', 'codex-luna-x')).toBe('openaiResponses');
+        expect(getProtocolPrefix('zed', 'bard-argon-x')).toBe('gemini');
     });
 });

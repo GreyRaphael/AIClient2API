@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import logger from '../../utils/logger.ts';
 import { atomicWriteFile, withFileLock } from '../../utils/file-lock.ts';
 import { getErrorMessage } from '../../utils/error.ts';
-import { inferZedProvider } from './zed-protocol.ts';
+import { inferZedProvider, registerKnownZedModelProviders } from './zed-protocol.ts';
 import type { ZedProvider } from './zed-protocol.ts';
 import { normalizeZedModelMetadata } from './zed-model-metadata.ts';
 import type { ZedModelMetadata } from './zed-model-metadata.ts';
@@ -130,6 +130,7 @@ export class ZedModelRegistry {
         this._models = new Map(models.map((model) => [model.id, model]));
         this._fetchedAt = Date.now();
         this._source = 'live';
+        registerKnownZedModelProviders(models);
         await this.persist();
         return models;
     }
@@ -164,6 +165,7 @@ export class ZedModelRegistry {
             this._models = new Map(models.map((model) => [model.id, model]));
             this._fetchedAt = Number(entry.fetchedAt) || 0;
             this._source = 'cache';
+            registerKnownZedModelProviders(models);
             logger.debug(`[Zed] Loaded ${models.length} cached model metadata from ${cachePath}`);
         } catch (error) {
             logger.warn(`[Zed] Failed to load model metadata cache ${cachePath}: ${getErrorMessage(error)}`);
