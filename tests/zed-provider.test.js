@@ -1254,6 +1254,51 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
                 axios.request = originalRequest;
             }
         });
+
+        test('generateContent pre-fetches remote models before selecting aggregator for uncached non-standard model', async () => {
+            const zedService = new ZedApiService({ uuid: 'zed-unary-lazy', ZED_SYSTEM_ID: 'sys' });
+            jest.spyOn(zedService, 'getToken').mockResolvedValue('mock-jwt');
+
+            const originalRequest = axios.request;
+            const ssePayload = [
+                'data: {"type":"response.output_text.delta","delta":"Unary OpenAI reply"}\n\n',
+                'data: {"type":"response.completed","response":{"id":"resp_unary_1","status":"completed","usage":{"input_tokens":12,"output_tokens":6}}}\n\n',
+                'data: [DONE]\n\n'
+            ].join('');
+
+            axios.request = jest.fn().mockImplementation(async (cfg) => {
+                if (cfg.method === 'get') {
+                    return {
+                        data: {
+                            models: [
+                                {
+                                    id: 'codex-unary-1',
+                                    provider: 'open_ai',
+                                    display_name: 'Codex Unary 1',
+                                    max_output_tokens: 16384,
+                                    supports_thinking: false,
+                                    supports_disabling_thinking: true,
+                                    supported_effort_levels: []
+                                }
+                            ]
+                        }
+                    };
+                }
+                return { data: Readable.from([Buffer.from(ssePayload)]) };
+            });
+
+            try {
+                const res = await zedService.generateContent('codex-unary-1', {
+                    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]
+                });
+                expect(res.object).toBe('response');
+                expect(res.id).toBe('resp_unary_1');
+                expect(res.output[0].content[0].text).toBe('Unary OpenAI reply');
+                expect(res.usage).toMatchObject({ input_tokens: 12, output_tokens: 6 });
+            } finally {
+                axios.request = originalRequest;
+            }
+        });
     });
 
     describe('Zed Unknown Model Permissive Fallback Tests', () => {

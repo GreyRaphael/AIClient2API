@@ -606,6 +606,10 @@ export class ZedApiService {
      * @param {object} requestBody
      */
     async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+        // 与 generateContentStream 保持一致：未知模型先尝试补齐一次元数据，确保按真实 provider 分发聚合器。
+        if (!this.modelRegistry.has(model)) {
+            await this.fetchRemoteModels().catch(() => {});
+        }
         const provider = this.getProviderForModel(model);
 
         if (provider === 'open_ai') {
