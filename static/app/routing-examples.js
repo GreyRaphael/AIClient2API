@@ -212,17 +212,6 @@ function getAvailableRoutes() {
             badgeClass: 'oauth'
         },
         {
-            provider: 'trae-solo_work_lite',
-            name: 'Trae (solo_work_lite)',
-            paths: {
-                openai: '/trae-solo_work_lite/v1/chat/completions',
-                claude: '/trae-solo_work_lite/v1/messages'
-            },
-            description: 'Trae SOLO Agent 模式 (solo_work_lite)',
-            badge: 'OAuth/PAT',
-            badgeClass: 'oauth'
-        },
-        {
             provider: 'trae-chat_v3',
             name: 'Trae (chat_v3)',
             paths: {
@@ -341,7 +330,6 @@ async function copyCurlExample(provider, options = {}) {
         case 'openai-codex-oauth':
         case 'zed':
         case 'trae':
-        case 'trae-solo_work_lite':
         case 'trae-chat_v3':
             if (protocol === 'openai') {
                 curlCommand = `curl ${hostname}${path} \\

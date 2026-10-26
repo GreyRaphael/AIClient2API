@@ -1219,8 +1219,6 @@ function getFieldOrder(provider) {
         } else if (provider.TRAE_OAUTH_CREDS_FILE_PATH) {
             if (provider.TRAE_CHANNEL_MODE === 'chat_v3') {
                 providerType = 'trae-chat_v3';
-            } else if (provider.TRAE_CHANNEL_MODE === 'solo_work_lite') {
-                providerType = 'trae-solo_work_lite';
             } else {
                 providerType = 'trae';
             }

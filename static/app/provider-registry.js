@@ -108,23 +108,6 @@ const PROVIDER_DEFINITIONS = [
         docUrl: TRAE_DOC_URL
     },
     {
-        id: 'trae-solo_work_lite',
-        name: 'Trae (solo_work_lite)',
-        usageName: 'Trae',
-        icon: 'fa-robot',
-        defaultPath: 'configs/trae/',
-        defaultModel: 'glm-5.2',
-        displayName: 'Trae',
-        oauth: true,
-        credPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
-        oauthCredPath: 'configs/trae/',
-        filePatterns: ['configs/trae/', '/trae/', '/.trae/'],
-        uploadDir: 'trae',
-        shortName: 'trae',
-        registerUrl: TRAE_REGISTER_URL,
-        docUrl: TRAE_DOC_URL
-    },
-    {
         id: 'trae-chat_v3',
         name: 'Trae (chat_v3)',
         usageName: 'Trae',

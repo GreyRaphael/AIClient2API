@@ -308,20 +308,6 @@ function getProviderTypeFields(providerType) {
                 placeholder: 'https://api.enterprise.trae.cn'
             }
         ],
-        'trae-solo_work_lite': [
-            {
-                id: 'TRAE_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
-                type: 'text',
-                placeholder: 'configs/trae/..._oauth_creds.json'
-            },
-            {
-                id: 'TRAE_BASE_URL',
-                label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
-                type: 'text',
-                placeholder: 'https://trae-api-cn.mchost.guru'
-            }
-        ],
         'trae-chat_v3': [
             {
                 id: 'TRAE_OAUTH_CREDS_FILE_PATH',

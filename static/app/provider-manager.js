@@ -1018,23 +1018,15 @@ function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
     modal.style.display = 'flex';
     modal.style.zIndex = '3100';
 
-    const isSolo = providerType === 'trae-solo_work_lite';
     const isChat = providerType === 'trae-chat_v3';
-    const isPersonal = isSolo || isChat;
+    const isPersonal = isChat;
     const defaultHost = isPersonal ? 'https://trae-api-cn.mchost.guru' : 'https://api.enterprise.trae.cn';
     const hostHint = isPersonal
-        ? '个人版/SOLO 默认服务地址为 <code>https://trae-api-cn.mchost.guru</code>。'
+        ? '个人版 (Chat v3) 默认服务地址为 <code>https://trae-api-cn.mchost.guru</code>。'
         : '企业账号默认为 <code>https://api.enterprise.trae.cn</code>；个人海外版可改为 <code>https://api.trae.com.cn</code>。';
 
-    let modalTitle = 'Trae (tob_raw_chat) 账号授权登录';
-    let iconClass = 'fas fa-bolt';
-    if (isSolo) {
-        modalTitle = 'Trae (solo_work_lite) 账号授权登录';
-        iconClass = 'fas fa-robot';
-    } else if (isChat) {
-        modalTitle = 'Trae (chat_v3) 账号授权登录';
-        iconClass = 'fas fa-comments';
-    }
+    let modalTitle = isChat ? 'Trae (chat_v3) 账号授权登录' : 'Trae (tob_raw_chat) 账号授权登录';
+    let iconClass = isChat ? 'fas fa-comments' : 'fas fa-bolt';
 
     modal.innerHTML = `
         <div class="modal-content" style="max-width: 520px;">
