@@ -170,7 +170,7 @@ export function getZedVersionFromSystem() {
 /**
  * 根据模型元数据或模型名推断 Zed 上游 provider 类型
  * @param {string} model
- * @param {Map} [metadataMap] 可选模型元数据映射
+ * @param {ZedModelRegistry} [registry] 可选运行时元数据注册表
  * @returns {'anthropic' | 'open_ai' | 'google'}
  */
 export function getZedProviderForModel(model: string, registry: ZedModelRegistry | null = null): ZedProvider {
