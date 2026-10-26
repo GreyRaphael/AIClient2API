@@ -964,27 +964,23 @@ export class ZedApiService {
 
                 const res = await axios.request(/** @type {any} */ (axiosConfig));
                 if (res.data && Array.isArray(res.data.models)) {
-                    const rawModels = res.data.models;
-                    const modelIds: string[] = [];
-                    this.modelMetadataMap.clear();
-                    for (const builtin of BUILTIN_ZED_MODEL_METADATA) {
-                        this.modelMetadataMap.set(builtin.id, { ...builtin } as Record<string, unknown>);
-                    }
+                    // 远端成功响应是权威来源：整体替换实例元数据，仅保留启用模型。
+                    // 不再回填内置快照，避免上游已下架/禁用的模型继续生效。
+                    const enabledModels = res.data.models.filter((m: DynamicPayload) =>
+                        m && typeof m.id === 'string' && m.id && !m.is_disabled
+                    );
+                    this.modelMetadataMap = new Map(
+                        enabledModels.map((m: DynamicPayload) => [m.id, m as Record<string, unknown>])
+                    );
 
-                    for (const m of rawModels) {
-                        if (m && m.id && !m.is_disabled) {
-                            modelIds.push(m.id);
-                            this.modelMetadataMap.set(m.id, m);
-                        }
-                    }
+                    updateZedModelMetadataStore(enabledModels);
 
-                    updateZedModelMetadataStore(rawModels);
-
-                    if (modelIds.length > 0) {
-                        this.modelsCache = rawModels;
+                    if (enabledModels.length > 0) {
+                        this.modelsCache = enabledModels;
                         this.modelsExpiresAt = Date.now() + ZED_MODELS_CACHE_TTL_MS;
+                        const modelIds = enabledModels.map((m: DynamicPayload) => m.id);
                         logger.info(`[Zed] Successfully updated dynamic model list from cloud.zed.dev (${modelIds.length} models): ${modelIds.join(', ')}`);
-                        return rawModels;
+                        return enabledModels;
                     }
                 }
             } catch (error) {

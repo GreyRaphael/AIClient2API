@@ -1065,4 +1065,48 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             expect(models).toEqual(['model-after-force']);
         });
     });
+
+    describe('Zed Remote Model Snapshot Tests', () => {
+        test('fetchRemoteModels replaces metadata with enabled remote models only', async () => {
+            const zedService = new ZedApiService({ uuid: 'zed-remote-snapshot', ZED_SYSTEM_ID: 'sys' });
+            jest.spyOn(zedService, 'getToken').mockResolvedValue('mock-jwt');
+
+            const originalRequest = axios.request;
+            axios.request = jest.fn().mockResolvedValue({
+                data: {
+                    models: [
+                        {
+                            id: 'remote-model-new',
+                            provider: 'open_ai',
+                            display_name: 'Remote New',
+                            max_output_tokens: 12345,
+                            supports_thinking: true,
+                            supports_disabling_thinking: true,
+                            supported_effort_levels: [{ name: 'High', value: 'high', is_default: true }]
+                        },
+                        {
+                            id: 'remote-model-disabled',
+                            provider: 'anthropic',
+                            display_name: 'Remote Disabled',
+                            is_disabled: true
+                        }
+                    ]
+                }
+            });
+
+            try {
+                const models = await zedService.fetchRemoteModels(true);
+                expect(models.map((m) => m.id)).toEqual(['remote-model-new']);
+                expect(zedService.modelMetadataMap.has('remote-model-new')).toBe(true);
+                expect(zedService.modelMetadataMap.has('remote-model-disabled')).toBe(false);
+                // 远端成功响应后不再回填内置快照，下架模型应消失
+                expect(zedService.modelMetadataMap.has('claude-sonnet-5-5')).toBe(false);
+
+                const listed = await zedService.listModels();
+                expect(listed.data.map((m) => m.id)).toEqual(['remote-model-new']);
+            } finally {
+                axios.request = originalRequest;
+            }
+        });
+    });
 });
