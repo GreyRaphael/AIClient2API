@@ -5,6 +5,7 @@ import {
     ZedModelRegistry,
     ZED_MODEL_METADATA_CACHE_VERSION
 } from '../src/providers/zed/zed-model-registry.ts';
+import { ZedApiService } from '../src/providers/zed/zed-core.ts';
 
 function remoteModel(id, overrides = {}) {
     return {
@@ -79,5 +80,33 @@ describe('ZedModelRegistry cache', () => {
 
         const registry = new ZedModelRegistry({ cachePath, accountKey: 'user-a' });
         expect(registry.isEmpty()).toBe(true);
+    });
+
+    test('ZedApiService cold-starts from the account metadata cache', async () => {
+        const credsPath = path.join(tempDir, 'creds.json');
+        fs.writeFileSync(credsPath, JSON.stringify({
+            user_id: 'user-a',
+            access_token: 'token',
+            system_id: 'sys'
+        }));
+
+        const writer = new ZedModelRegistry({ cachePath, accountKey: 'user-a' });
+        await writer.applyRemote([remoteModel('claude-cached-model')]);
+
+        const service = new ZedApiService({
+            uuid: 'zed-cached',
+            ZED_OAUTH_CREDS_FILE_PATH: credsPath,
+            ZED_MODEL_METADATA_CACHE_PATH: cachePath
+        });
+
+        expect(service.modelRegistry.source).toBe('cache');
+        expect(service.modelRegistry.has('claude-cached-model')).toBe(true);
+
+        const payload = service.buildPayload('claude-cached-model', {
+            max_tokens: 50000,
+            messages: [{ role: 'user', content: 'hi' }]
+        });
+        // 冷启动也使用缓存中的权威上限，而不是静态默认值
+        expect(payload.provider_request.max_tokens).toBe(1234);
     });
 });

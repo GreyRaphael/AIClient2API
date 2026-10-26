@@ -14,6 +14,7 @@ input_system_prompt.txt
 token-store.json
 usage-cache.json
 model-capability-cache.json
+zed-model-metadata-cache.json
 *_oauth_creds.json
 *-auth-token.json
 *_codex-*.json
