@@ -233,3 +233,32 @@ describe('ProviderPoolManager fallback and refresh characterization', () => {
         expect(manager.refreshQueues).toEqual({});
     });
 });
+
+describe('ProviderPoolManager health check requests', () => {
+    let manager;
+
+    afterEach(() => {
+        if (manager) stopSaveTimer(manager);
+        manager = null;
+    });
+
+    test('Zed health check uses a minimum output budget of 16', () => {
+        manager = createManagerForPools({ zed: [makeNode('zed-node')] });
+
+        expect(manager._buildHealthCheckRequests('zed', 'gpt-5-nano')).toEqual([{
+            messages: [{ role: 'user', content: 'Hi' }],
+            model: 'gpt-5-nano',
+            max_tokens: 16
+        }]);
+    });
+
+    test('Kiro health check keeps max_tokens 1', () => {
+        manager = createManagerForPools({ 'claude-kiro-oauth': [makeNode('kiro-node')] });
+
+        expect(manager._buildHealthCheckRequests('claude-kiro-oauth', 'claude-haiku-4-5')).toEqual([{
+            messages: [{ role: 'user', content: 'Hi' }],
+            model: 'claude-haiku-4-5',
+            max_tokens: 1
+        }]);
+    });
+});
