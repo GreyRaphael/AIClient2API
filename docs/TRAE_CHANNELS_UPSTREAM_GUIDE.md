@@ -348,7 +348,8 @@
      * `low` / `light` $\rightarrow$ `light`
      * `medium` / `high` $\rightarrow$ `high`
      * `max` / `ultra` / `extra_high` $\rightarrow$ `extra_high`
-   * 并注入到 `reasoning_effort_level` 字段中。
+   * **全通道统一默认深度**：对于 Trae 的 3 个通道（`trae`、`trae-solo_work_lite`、`trae-chat_v3`），若具备思考能力且未指定 `reasoning_effort` 时，统一默认使用 `extra_high`（标准层映射为 `xhigh`），无特定模型硬编码；
+   * 若客户端传入 `none` / `off` / `false` 则显式关闭思考，不向上游发送 `reasoning_effort_level` 字段。
 
 ---
 
