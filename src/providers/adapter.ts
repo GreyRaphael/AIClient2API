@@ -543,7 +543,7 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
     }
 
     /**
-     * 获取节点实际支持的可用模型列表（来自当前 Zed 账号的 modelsCache）
+     * 获取节点实际支持的可用模型列表（来自当前 Zed 账号的运行时元数据注册表）
      * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<string>>}
      */

@@ -1,6 +1,7 @@
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
+import { inferZedProvider, isZedProvider } from './zed-protocol.ts';
+import type { ZedProvider } from './zed-protocol.ts';
 
-export type ZedProvider = 'anthropic' | 'open_ai' | 'google';
+export type { ZedProvider } from './zed-protocol.ts';
 
 export interface ZedEffortLevel {
     name: string;
@@ -34,645 +35,59 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }
 
-/**
- * Built-in snapshot of https://cloud.zed.dev/models metadata (23 models).
- * Used as initial metadata before remote model discovery completes and as fallback.
- */
-export const BUILTIN_ZED_MODEL_METADATA: ZedModelMetadata[] = [
-    {
-        provider: 'anthropic',
-        id: 'claude-sonnet-5-5',
-        display_name: 'Claude Sonnet 5.5',
-        is_latest: true,
-        max_token_count: 1000000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium' },
-            { name: 'High', value: 'high', is_default: true },
-            { name: 'Extra High', value: 'xhigh' },
-            { name: 'Max', value: 'max' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'anthropic',
-        id: 'claude-sonnet-5',
-        display_name: 'Claude Sonnet 5',
-        is_latest: false,
-        max_token_count: 1000000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium' },
-            { name: 'High', value: 'high', is_default: true },
-            { name: 'Extra High', value: 'xhigh' },
-            { name: 'Max', value: 'max' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'anthropic',
-        id: 'claude-sonnet-4-6',
-        display_name: 'Claude Sonnet 4.6',
-        is_latest: false,
-        max_token_count: 1000000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 64000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium' },
-            { name: 'High', value: 'high', is_default: true },
-            { name: 'Max', value: 'max' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'anthropic',
-        id: 'claude-sonnet-4-5',
-        display_name: 'Claude Sonnet 4.5',
-        is_latest: false,
-        max_token_count: 200000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 8192,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'anthropic',
-        id: 'claude-haiku-5-5',
-        display_name: 'Claude Haiku 5.5',
-        is_latest: true,
-        max_token_count: 100000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low', supports_disabling_thinking: true },
-            { name: 'Medium', value: 'medium', is_default: true, supports_disabling_thinking: true },
-            { name: 'High', value: 'high', supports_disabling_thinking: true },
-            { name: 'Extra High', value: 'xhigh' },
-            { name: 'Max', value: 'max' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'anthropic',
-        id: 'claude-haiku-4-5',
-        display_name: 'Claude Haiku 4.5',
-        is_latest: false,
-        max_token_count: 200000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 64000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-6.1-sol',
-        display_name: 'GPT-6.1 Sol',
-        is_latest: true,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' },
-            { name: 'Max', value: 'max' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-6-sol',
-        display_name: 'GPT-6 Sol',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-6-luna',
-        display_name: 'GPT-6 Luna',
-        is_latest: true,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5.6-sol',
-        display_name: 'GPT-5.6 Sol',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5.6-terra',
-        display_name: 'GPT-5.6 Terra',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5.6-luna',
-        display_name: 'GPT-5.6 Luna',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5.5',
-        display_name: 'GPT-5.5',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5.4',
-        display_name: 'GPT-5.4',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5.3-codex',
-        display_name: 'GPT-5.3-Codex',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'low' },
-            { name: 'Medium', value: 'medium', is_default: true },
-            { name: 'High', value: 'high' },
-            { name: 'Extra High', value: 'xhigh' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: true,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5.2',
-        display_name: 'GPT-5.2',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: false,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5-mini',
-        display_name: 'GPT-5 mini',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: false,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'open_ai',
-        id: 'gpt-5-nano',
-        display_name: 'GPT-5 nano',
-        is_latest: false,
-        max_token_count: 400000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 128000,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: false,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: true,
-        supports_parallel_tool_calls: true,
-        is_disabled: false
-    },
-    {
-        provider: 'google',
-        id: 'gemini-4-argon',
-        display_name: 'Gemini 4 Argon',
-        is_latest: true,
-        max_token_count: 1048576,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 65536,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [
-            { name: 'Low', value: 'LOW' },
-            { name: 'Medium', value: 'MEDIUM', is_default: true },
-            { name: 'High', value: 'HIGH' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: false,
-        supports_parallel_tool_calls: false,
-        is_disabled: false
-    },
-    {
-        provider: 'google',
-        id: 'gemini-3.1-pro-preview',
-        display_name: 'Gemini 3.1 Pro',
-        is_latest: false,
-        max_token_count: 200000,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 65535,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Low', value: 'LOW' },
-            { name: 'Medium', value: 'MEDIUM' },
-            { name: 'High', value: 'HIGH', is_default: true }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: false,
-        supports_parallel_tool_calls: false,
-        is_disabled: false
-    },
-    {
-        provider: 'google',
-        id: 'gemini-3.8-flash',
-        display_name: 'Gemini 3.8 Flash',
-        is_latest: true,
-        max_token_count: 1048576,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 65535,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: false,
-        supported_effort_levels: [
-            { name: 'Low', value: 'LOW' },
-            { name: 'Medium', value: 'MEDIUM', is_default: true },
-            { name: 'High', value: 'HIGH' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: false,
-        supports_parallel_tool_calls: false,
-        is_disabled: false
-    },
-    {
-        provider: 'google',
-        id: 'gemini-3.5-flash',
-        display_name: 'Gemini 3.5 Flash',
-        is_latest: false,
-        max_token_count: 1048576,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 65535,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Minimal', value: 'MINIMAL' },
-            { name: 'Low', value: 'LOW' },
-            { name: 'Medium', value: 'MEDIUM', is_default: true },
-            { name: 'High', value: 'HIGH' }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: false,
-        supports_parallel_tool_calls: false,
-        is_disabled: false
-    },
-    {
-        provider: 'google',
-        id: 'gemini-3-flash',
-        display_name: 'Gemini 3 Flash',
-        is_latest: false,
-        max_token_count: 1048576,
-        max_token_count_in_max_mode: null,
-        max_output_tokens: 65535,
-        supports_tools: true,
-        supports_images: true,
-        supports_thinking: true,
-        supports_disabling_thinking: true,
-        supported_effort_levels: [
-            { name: 'Minimal', value: 'MINIMAL' },
-            { name: 'Low', value: 'LOW' },
-            { name: 'Medium', value: 'MEDIUM' },
-            { name: 'High', value: 'HIGH', is_default: true }
-        ],
-        supports_max_mode: false,
-        supports_fast_mode: false,
-        supports_server_side_compaction: false,
-        supports_streaming_tools: false,
-        supports_parallel_tool_calls: false,
-        is_disabled: false
-    }
-];
+export function isEnabledZedModel(value: unknown): value is Record<string, unknown> & { id: string } {
+    return isRecord(value)
+        && typeof value.id === 'string'
+        && value.id.length > 0
+        && value.is_disabled !== true;
+}
+
+function toFiniteNumber(value: unknown, fallback = 0): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 /**
- * Process-wide Zed model metadata store, seeded with BUILTIN_ZED_MODEL_METADATA
- * and updated whenever ZedApiService.fetchRemoteModels() refreshes from cloud.zed.dev/models.
+ * 将 cloud.zed.dev/models 的原始条目归一化为运行时元数据。
+ *
+ * 元数据是唯一的能力来源；这里只补齐协议族和缺省字段，不维护模型清单。
+ * 布尔能力的缺省值保持宽松（true），避免缺失字段导致误判为不支持。
  */
-const zedModelMetadataStore = new Map<string, ZedModelMetadata>(
-    BUILTIN_ZED_MODEL_METADATA.map((item) => [item.id, item])
-);
+export function normalizeZedModelMetadata(value: unknown): ZedModelMetadata | null {
+    if (!isEnabledZedModel(value)) return null;
 
-export function updateZedModelMetadataStore(models: unknown[]): void {
-    if (!Array.isArray(models)) return;
-    for (const m of models) {
-        if (isRecord(m) && typeof m.id === 'string' && m.id && !m.is_disabled) {
-            const existing = zedModelMetadataStore.get(m.id);
-            zedModelMetadataStore.set(m.id, {
-                ...(existing || {}),
-                ...(m as unknown as ZedModelMetadata)
-            });
-        }
-    }
-}
+    const provider = isZedProvider(value.provider)
+        ? value.provider
+        : (inferZedProvider(value.id) ?? 'anthropic');
 
-export function getZedModelMetadata(
-    model: string,
-    instanceMap?: Map<string, Record<string, unknown>> | null
-): ZedModelMetadata | null {
-    if (!model) return null;
-    const fromInstance = instanceMap?.get(model);
-    const fromBuiltin = zedModelMetadataStore.get(model);
-    if (fromInstance && fromBuiltin) {
-        return {
-            ...fromBuiltin,
-            ...(fromInstance as unknown as Partial<ZedModelMetadata>)
-        };
-    }
-    if (fromInstance) {
-        return fromInstance as unknown as ZedModelMetadata;
-    }
-    return fromBuiltin || null;
-}
-
-export function resolveZedProvider(
-    model: string,
-    instanceMap?: Map<string, Record<string, unknown>> | null
-): ZedProvider {
-    const meta = getZedModelMetadata(model, instanceMap);
-    if (meta && (meta.provider === 'anthropic' || meta.provider === 'open_ai' || meta.provider === 'google')) {
-        return meta.provider;
-    }
-    const m = (model || '').toLowerCase();
-    if (m.startsWith('claude')) {
-        return 'anthropic';
-    }
-    if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')) {
-        return 'open_ai';
-    }
-    if (m.startsWith('gemini')) {
-        return 'google';
-    }
-    return 'anthropic';
-}
-
-export function zedProviderToProtocolPrefix(provider: ZedProvider): string {
-    switch (provider) {
-        case 'open_ai':
-            return MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
-        case 'google':
-            return MODEL_PROTOCOL_PREFIX.GEMINI;
-        case 'anthropic':
-        default:
-            return MODEL_PROTOCOL_PREFIX.CLAUDE;
-    }
-}
-
-export function resolveZedProtocolPrefix(
-    model?: string,
-    instanceMap?: Map<string, Record<string, unknown>> | null
-): string {
-    if (!model) {
-        return MODEL_PROTOCOL_PREFIX.CLAUDE;
-    }
-    return zedProviderToProtocolPrefix(resolveZedProvider(model, instanceMap));
+    return {
+        ...(value as unknown as ZedModelMetadata),
+        id: value.id,
+        provider,
+        display_name: typeof value.display_name === 'string' && value.display_name
+            ? value.display_name
+            : value.id,
+        is_latest: value.is_latest === true,
+        max_token_count: toFiniteNumber(value.max_token_count),
+        max_token_count_in_max_mode: value.max_token_count_in_max_mode === null
+            || value.max_token_count_in_max_mode === undefined
+            ? null
+            : toFiniteNumber(value.max_token_count_in_max_mode, 0),
+        max_output_tokens: toFiniteNumber(value.max_output_tokens),
+        supports_tools: value.supports_tools !== false,
+        supports_images: value.supports_images !== false,
+        supports_thinking: value.supports_thinking !== false,
+        supports_disabling_thinking: value.supports_disabling_thinking !== false,
+        supported_effort_levels: Array.isArray(value.supported_effort_levels)
+            ? value.supported_effort_levels as (ZedEffortLevel | string)[]
+            : [],
+        supports_max_mode: value.supports_max_mode === true,
+        supports_fast_mode: value.supports_fast_mode === true,
+        supports_server_side_compaction: value.supports_server_side_compaction === true,
+        supports_streaming_tools: value.supports_streaming_tools === true,
+        supports_parallel_tool_calls: value.supports_parallel_tool_calls !== false,
+        is_disabled: false
+    };
 }
 
 export function normalizeZedEffortLevels(rawLevels: unknown): ZedEffortLevel[] {
@@ -735,7 +150,7 @@ export function resolveZedEffortLevel({
     meta,
     allowThinking = true
 }: ResolveZedEffortOptions): string | null {
-    const resolvedMeta = (meta || getZedModelMetadata(model)) as Partial<ZedModelMetadata> | null;
+    const resolvedMeta = (meta || null) as Partial<ZedModelMetadata> | null;
     const levels = normalizeZedEffortLevels(resolvedMeta?.supported_effort_levels);
 
     const hasRequestedEffort =

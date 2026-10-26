@@ -9,9 +9,10 @@ import {
     normalizeZedEffortLevels,
     resolveZedEffortLevel
 } from './zed-model-metadata.ts';
-import type { ZedModelMetadata, ZedProvider } from './zed-model-metadata.ts';
+import type { ZedModelMetadata } from './zed-model-metadata.ts';
+import type { ZedProvider } from './zed-protocol.ts';
 
-export type { ZedProvider } from './zed-model-metadata.ts';
+export type { ZedProvider } from './zed-protocol.ts';
 export type ZedRequest = DynamicPayload;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

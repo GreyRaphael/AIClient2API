@@ -16,6 +16,152 @@ import {
     ZED_USERS_ME_URL
 } from '../src/providers/zed/zed-core.ts';
 
+function testZedModel(id, overrides = {}) {
+    return {
+        provider: id.startsWith('claude')
+            ? 'anthropic'
+            : (id.startsWith('gpt') ? 'open_ai' : 'google'),
+        id,
+        display_name: id,
+        is_latest: false,
+        max_token_count: 200000,
+        max_token_count_in_max_mode: null,
+        max_output_tokens: 64000,
+        supports_tools: true,
+        supports_images: true,
+        supports_thinking: true,
+        supports_disabling_thinking: true,
+        supported_effort_levels: [],
+        supports_max_mode: false,
+        supports_fast_mode: false,
+        supports_server_side_compaction: false,
+        supports_streaming_tools: true,
+        supports_parallel_tool_calls: true,
+        is_disabled: false,
+        ...overrides
+    };
+}
+
+const FIVE_EFFORT_LEVELS_HIGH_DEFAULT = [
+    { name: 'Low', value: 'low' },
+    { name: 'Medium', value: 'medium' },
+    { name: 'High', value: 'high', is_default: true },
+    { name: 'Extra High', value: 'xhigh' },
+    { name: 'Max', value: 'max' }
+];
+
+const FIVE_EFFORT_LEVELS_MEDIUM_DEFAULT = [
+    { name: 'Low', value: 'low' },
+    { name: 'Medium', value: 'medium', is_default: true },
+    { name: 'High', value: 'high' },
+    { name: 'Extra High', value: 'xhigh' },
+    { name: 'Max', value: 'max' }
+];
+
+// 测试显式注入元数据，避免依赖任何内置模型快照；新增模型只需在用例里补 fixture。
+const ZED_TEST_MODELS = [
+    testZedModel('claude-sonnet-5-5', {
+        max_token_count: 1000000,
+        max_output_tokens: 128000,
+        supports_disabling_thinking: false,
+        supported_effort_levels: FIVE_EFFORT_LEVELS_HIGH_DEFAULT
+    }),
+    testZedModel('claude-sonnet-5', {
+        max_token_count: 1000000,
+        max_output_tokens: 128000,
+        supported_effort_levels: FIVE_EFFORT_LEVELS_HIGH_DEFAULT
+    }),
+    testZedModel('claude-sonnet-4-6', {
+        max_output_tokens: 64000,
+        supported_effort_levels: [
+            { name: 'Low', value: 'low' },
+            { name: 'Medium', value: 'medium', is_default: true },
+            { name: 'High', value: 'high' },
+            { name: 'Max', value: 'max' }
+        ]
+    }),
+    testZedModel('claude-sonnet-4-5', {
+        max_token_count: 200000,
+        max_output_tokens: 8192
+    }),
+    testZedModel('claude-haiku-5-5', {
+        max_output_tokens: 128000,
+        supports_disabling_thinking: false,
+        supported_effort_levels: [
+            { name: 'Low', value: 'low', supports_disabling_thinking: true },
+            { name: 'Medium', value: 'medium', is_default: true, supports_disabling_thinking: true },
+            { name: 'High', value: 'high', supports_disabling_thinking: true },
+            { name: 'Extra High', value: 'xhigh' },
+            { name: 'Max', value: 'max' }
+        ]
+    }),
+    testZedModel('gpt-6.1-sol', {
+        provider: 'open_ai',
+        max_output_tokens: 128000,
+        supports_disabling_thinking: false,
+        supported_effort_levels: FIVE_EFFORT_LEVELS_MEDIUM_DEFAULT
+    }),
+    testZedModel('gpt-6-luna', {
+        provider: 'open_ai',
+        max_output_tokens: 128000,
+        supported_effort_levels: FIVE_EFFORT_LEVELS_MEDIUM_DEFAULT.filter((level) => level.value !== 'max')
+    }),
+    testZedModel('gpt-5.2-codex', { provider: 'open_ai', max_output_tokens: 128000 }),
+    testZedModel('gpt-5.6-luna', { provider: 'open_ai', max_output_tokens: 128000 }),
+    testZedModel('gpt-5-nano', {
+        provider: 'open_ai',
+        max_output_tokens: 128000,
+        supports_thinking: false,
+        supports_disabling_thinking: false
+    }),
+    testZedModel('gemini-4-argon', {
+        provider: 'google',
+        max_output_tokens: 65536,
+        supports_disabling_thinking: false,
+        supported_effort_levels: [
+            { name: 'Low', value: 'LOW' },
+            { name: 'Medium', value: 'MEDIUM', is_default: true },
+            { name: 'High', value: 'HIGH' }
+        ]
+    }),
+    testZedModel('gemini-3.8-flash', {
+        provider: 'google',
+        max_output_tokens: 65535,
+        supports_disabling_thinking: false,
+        supported_effort_levels: [
+            { name: 'Low', value: 'LOW' },
+            { name: 'Medium', value: 'MEDIUM', is_default: true },
+            { name: 'High', value: 'HIGH' }
+        ]
+    }),
+    testZedModel('gemini-3.5-flash', {
+        provider: 'google',
+        max_output_tokens: 65535,
+        supported_effort_levels: [
+            { name: 'Minimal', value: 'MINIMAL' },
+            { name: 'Low', value: 'LOW' },
+            { name: 'Medium', value: 'MEDIUM', is_default: true },
+            { name: 'High', value: 'HIGH' }
+        ]
+    }),
+    testZedModel('gemini-3.1-pro-preview', {
+        provider: 'google',
+        max_output_tokens: 65535,
+        supported_effort_levels: [
+            { name: 'Low', value: 'LOW' },
+            { name: 'Medium', value: 'MEDIUM' },
+            { name: 'High', value: 'HIGH', is_default: true }
+        ]
+    })
+];
+
+function createZedService(config) {
+    const service = new ZedApiService(config);
+    // applyRemote 在首个 await 前同步替换内存表；测试环境不会落盘。
+    void service.modelRegistry.applyRemote(ZED_TEST_MODELS);
+    return service;
+}
+
 describe('Zed Provider & OAuth Implementation Tests', () => {
     test('Zed provider is properly registered and configured', () => {
         expect(MODEL_PROVIDER.ZED).toBe('zed');
@@ -39,7 +185,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload formats request into Zed zedPayload structure', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -84,7 +230,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload fills is_error for converted Anthropic tool_result blocks', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -118,7 +264,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload maps images to Responses input_image for OpenAI models', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -143,7 +289,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload falls back to text for Google multi-turn tool history', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -163,7 +309,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload applies schema polyfill and preserves tool ids for Google', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id',
             capabilities: {
@@ -201,7 +347,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload formats Google provider request correctly for Gemini 3.1+', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -240,7 +386,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload maps gemini-4-argon reasoning_effort to thinkingLevel', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -327,7 +473,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.getToken deduplicates concurrent calls via _tokenRefreshPromise', async () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -378,7 +524,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         }
     });
     test('ZedApiService.fetchRemoteModels deduplicates concurrent calls via _modelsFetchPromise', async () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -420,7 +566,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.generateContent accumulates and preserves stream usage', async () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -461,7 +607,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload formats adaptive thinking for claude-sonnet-5-5', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -513,7 +659,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.generateContentStream extracts detailed error when upstream returns error stream', async () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -548,7 +694,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     test('ZedApiService.buildPayload supports full 5 reasoning effort levels for OpenAI models', () => {
-        const zedService = new ZedApiService({
+        const zedService = createZedService({
             uuid: 'test-uuid',
             ZED_SYSTEM_ID: 'test-sys-id'
         });
@@ -583,7 +729,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
     describe('Zed Usage & Cache Extraction Tests', () => {
         test('_formatClaudeUsage extracts cache_read_input_tokens across various upstream protocols', () => {
-            const zedService = new ZedApiService({ uuid: 'test-uuid' });
+            const zedService = createZedService({ uuid: 'test-uuid' });
 
             // 1. OpenAI Responses API (response.completed)
             const openaiResponsesUsage = {
@@ -653,7 +799,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('generateContent correctly accumulates cache_read_input_tokens from stream chunks', async () => {
-            const zedService = new ZedApiService({ uuid: 'test-uuid' });
+            const zedService = createZedService({ uuid: 'test-uuid' });
 
             zedService.generateContentStream = async function* () {
                 yield {
@@ -698,7 +844,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('generateContentStream extracts cache_read_input_tokens from response.completed SSE event', async () => {
-            const zedService = new ZedApiService({ uuid: 'test-uuid' });
+            const zedService = createZedService({ uuid: 'test-uuid' });
             jest.spyOn(zedService, 'getToken').mockResolvedValue('mock-jwt');
 
             const { Readable } = await import('stream');
@@ -750,7 +896,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
     describe('Zed Tool Calling & FinishReason Protocol Tests', () => {
         test('function_call 后 response.completed 的 stop_reason 为 tool_use', async () => {
-            const service = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+            const service = createZedService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
             service.getToken = async () => 'fake-jwt';
 
             const sse = [
@@ -788,7 +934,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('tools/tool_choice/functionCall/functionResponse 完整传递', () => {
-            const service = new ZedApiService({
+            const service = createZedService({
                 uuid: 'u',
                 ZED_SYSTEM_ID: 's',
                 capabilities: { models: { 'gemini-*': { supportsToolResultHistory: true } } }
@@ -832,7 +978,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('含特殊字符的工具 id 经 sanitizeToolId 清洗后仍能还原函数名', () => {
-            const service = new ZedApiService({
+            const service = createZedService({
                 uuid: 'u',
                 ZED_SYSTEM_ID: 's',
                 capabilities: { models: { 'gemini-*': { supportsToolResultHistory: true } } }
@@ -856,7 +1002,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('zed google 流式分支 finishReason 与 functionCall 映射', async () => {
-            const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
+            const service = createZedService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
             service.getToken = async () => 'jwt';
 
             let seq = 0;
@@ -918,7 +1064,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('Decision 1: auto-injects default effort level (is_default: true) when supports_disabling_thinking is false', () => {
-            const zedService = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+            const zedService = createZedService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
 
             // claude-sonnet-5-5: supports_disabling_thinking: false, default: 'high'
             const sonnet55 = zedService.buildPayload('claude-sonnet-5-5', {
@@ -961,7 +1107,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('Decision 2: out-of-bounds effort levels or disabling thinking when disallowed throws 400 error directly', () => {
-            const zedService = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+            const zedService = createZedService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
 
             // claude-sonnet-4-6 supports only low, medium, high, max (not xhigh)
             expect(() => zedService.buildPayload('claude-sonnet-4-6', {
@@ -1005,7 +1151,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('Dynamic max_output_tokens clamping uses cloud.zed.dev/models metadata', () => {
-            const zedService = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+            const zedService = createZedService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
 
             // claude-sonnet-4-5 has max_output_tokens: 8192
             const claude45 = zedService.buildPayload('claude-sonnet-4-5', {
@@ -1031,7 +1177,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
     });
 
     describe('Zed Node Model Capability Tests', () => {
-        test('getNodeAvailableModels returns ids from the current node modelsCache', async () => {
+        test('getNodeAvailableModels returns ids from the current node registry', async () => {
             const adapter = new ZedApiServiceAdapter({ uuid: 'zed-node-1' });
             adapter.zedApiService = {
                 listModels: jest.fn().mockResolvedValue({
@@ -1068,7 +1214,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
     describe('Zed Remote Model Snapshot Tests', () => {
         test('fetchRemoteModels replaces metadata with enabled remote models only', async () => {
-            const zedService = new ZedApiService({ uuid: 'zed-remote-snapshot', ZED_SYSTEM_ID: 'sys' });
+            const zedService = createZedService({ uuid: 'zed-remote-snapshot', ZED_SYSTEM_ID: 'sys' });
             jest.spyOn(zedService, 'getToken').mockResolvedValue('mock-jwt');
 
             const originalRequest = axios.request;
@@ -1097,10 +1243,10 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             try {
                 const models = await zedService.fetchRemoteModels(true);
                 expect(models.map((m) => m.id)).toEqual(['remote-model-new']);
-                expect(zedService.modelMetadataMap.has('remote-model-new')).toBe(true);
-                expect(zedService.modelMetadataMap.has('remote-model-disabled')).toBe(false);
-                // 远端成功响应后不再回填内置快照，下架模型应消失
-                expect(zedService.modelMetadataMap.has('claude-sonnet-5-5')).toBe(false);
+                expect(zedService.modelRegistry.has('remote-model-new')).toBe(true);
+                expect(zedService.modelRegistry.has('remote-model-disabled')).toBe(false);
+                // 远端成功响应后整体替换，旧快照中的模型应消失
+                expect(zedService.modelRegistry.has('claude-sonnet-5-5')).toBe(false);
 
                 const listed = await zedService.listModels();
                 expect(listed.data.map((m) => m.id)).toEqual(['remote-model-new']);
@@ -1112,7 +1258,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
     describe('Zed Unknown Model Permissive Fallback Tests', () => {
         test('unknown Anthropic model passes through effort and does not clamp max_tokens', () => {
-            const zedService = new ZedApiService({ uuid: 'zed-unknown-claude', ZED_SYSTEM_ID: 'sys' });
+            const zedService = createZedService({ uuid: 'zed-unknown-claude', ZED_SYSTEM_ID: 'sys' });
             const payload = zedService.buildPayload('claude-future-9-unknown', {
                 reasoning_effort: 'ultra',
                 max_tokens: 200000,
@@ -1127,7 +1273,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('unknown OpenAI Responses model passes through new effort and max_output_tokens', () => {
-            const zedService = new ZedApiService({ uuid: 'zed-unknown-gpt', ZED_SYSTEM_ID: 'sys' });
+            const zedService = createZedService({ uuid: 'zed-unknown-gpt', ZED_SYSTEM_ID: 'sys' });
             const payload = zedService.buildPayload('gpt-future-9-unknown', {
                 input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
                 reasoning: { effort: 'ultra' },
@@ -1140,7 +1286,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         });
 
         test('unknown Gemini model passes through new effort and maxOutputTokens', () => {
-            const zedService = new ZedApiService({ uuid: 'zed-unknown-gemini', ZED_SYSTEM_ID: 'sys' });
+            const zedService = createZedService({ uuid: 'zed-unknown-gemini', ZED_SYSTEM_ID: 'sys' });
             const payload = zedService.buildPayload('gemini-future-9-unknown', {
                 contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
                 reasoning_effort: 'ultra',

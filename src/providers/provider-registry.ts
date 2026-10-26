@@ -10,7 +10,7 @@
  */
 
 import { MODEL_PROVIDER, MODEL_PROTOCOL_PREFIX } from '../utils/constants.ts';
-import { resolveZedProtocolPrefix } from './zed/zed-model-metadata.ts';
+import { resolveZedProtocolPrefix } from './zed/zed-protocol.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 

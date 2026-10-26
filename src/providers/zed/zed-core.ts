@@ -14,17 +14,17 @@ import type { ProviderConfig } from '../provider-types.ts';
 import { getErrorMessage } from '../../utils/error.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import { buildOpenAIZedPayload, buildGoogleZedPayload, buildAnthropicZedPayload } from './zed-payload-builders.ts';
-import type { ZedProvider, ZedRequest } from './zed-payload-builders.ts';
-import {
-    BUILTIN_ZED_MODEL_METADATA,
-    getZedModelMetadata,
-    resolveZedProvider,
-    updateZedModelMetadataStore
-} from './zed-model-metadata.ts';
+import type { ZedRequest } from './zed-payload-builders.ts';
+import { ZedModelRegistry } from './zed-model-registry.ts';
+import { inferZedProvider } from './zed-protocol.ts';
+import type { ZedProvider } from './zed-protocol.ts';
+import { normalizeZedModelMetadata } from './zed-model-metadata.ts';
+import type { ZedModelMetadata } from './zed-model-metadata.ts';
 
 interface ZedServiceConfig extends ProviderConfig {
     ZED_OAUTH_CREDS_FILE_PATH?: string;
     ZED_SYSTEM_ID?: string;
+    ZED_MODEL_METADATA_CACHE_PATH?: string | null;
     [key: string]: unknown;
 }
 
@@ -173,8 +173,8 @@ export function getZedVersionFromSystem() {
  * @param {Map} [metadataMap] 可选模型元数据映射
  * @returns {'anthropic' | 'open_ai' | 'google'}
  */
-export function getZedProviderForModel(model: string, metadataMap: Map<string, Record<string, unknown>> | null = null): ZedProvider {
-    return resolveZedProvider(model, metadataMap);
+export function getZedProviderForModel(model: string, registry: ZedModelRegistry | null = null): ZedProvider {
+    return registry?.resolveProvider(model) ?? inferZedProvider(model) ?? 'anthropic';
 }
 
 /**
@@ -193,10 +193,9 @@ export class ZedApiService {
     jwtExpiresAt: number;
     isInitialized: boolean;
     _tokenRefreshPromise: Promise<string> | null;
-    _modelsFetchPromise: Promise<DynamicPayload[]> | null;
-    modelsCache: DynamicPayload[] | null;
+    _modelsFetchPromise: Promise<ZedModelMetadata[]> | null;
     modelsExpiresAt: number;
-    modelMetadataMap: Map<string, Record<string, unknown>>;
+    modelRegistry: ZedModelRegistry;
     organizationId: string | null = null;
 
     constructor(config: ZedServiceConfig) {
@@ -213,14 +212,23 @@ export class ZedApiService {
         this._tokenRefreshPromise = null;
         this._modelsFetchPromise = null;
 
-        // 实例隔离的模型缓存与元数据映射（初始预填充内置 23 个模型元数据）
-        this.modelsCache = null;
+        // 实例隔离的运行时元数据注册表；冷启动时同步读取最近一次成功快照。
         this.modelsExpiresAt = 0;
-        this.modelMetadataMap = new Map(
-            BUILTIN_ZED_MODEL_METADATA.map((item) => [item.id, { ...item } as Record<string, unknown>])
-        );
+        this.modelRegistry = new ZedModelRegistry({
+            cachePath: this._resolveModelMetadataCachePath()
+        });
 
         this.loadCredentials();
+    }
+
+    /**
+     * 解析模型元数据缓存路径：undefined 使用注册表默认路径，null/空串表示禁用落盘。
+     */
+    _resolveModelMetadataCachePath(): string | null | undefined {
+        const configured = this.config?.ZED_MODEL_METADATA_CACHE_PATH;
+        if (configured === null || configured === '') return null;
+        if (typeof configured === 'string') return configured;
+        return undefined;
     }
 
     /**
@@ -246,6 +254,10 @@ export class ZedApiService {
                 this.jwtExpiresAt = data.expires_at || 0;
             }
             this.isInitialized = Boolean(this.userId && this.accessToken);
+            this.modelRegistry.setAccountKey(this.userId);
+            this.modelsExpiresAt = this.modelRegistry.fetchedAt
+                ? this.modelRegistry.fetchedAt + ZED_MODELS_CACHE_TTL_MS
+                : 0;
             return this.isInitialized;
         } catch (error) {
             logger.error(`[Zed] Error reading credentials file: ${getErrorMessage(error)}`);
@@ -338,7 +350,7 @@ export class ZedApiService {
                 await this.saveCredentials();
 
                 // 成功获取 Token 后，如果当前节点模型缓存失效或未加载，后台触发一次模型列表拉取
-                if (!this.modelsCache || Date.now() > this.modelsExpiresAt) {
+                if (this.modelRegistry.isEmpty() || Date.now() > this.modelsExpiresAt) {
                     this.fetchRemoteModels().catch(() => {});
                 }
 
@@ -356,7 +368,7 @@ export class ZedApiService {
      * @param {string} model
      */
     getProviderForModel(model: string): ZedProvider {
-        return getZedProviderForModel(model, this.modelMetadataMap);
+        return getZedProviderForModel(model, this.modelRegistry);
     }
 
     /**
@@ -365,7 +377,7 @@ export class ZedApiService {
      * @param {string} model
      */
     resolveModelCapabilities(model: string): ProviderCapabilities {
-        const meta = getZedModelMetadata(model, this.modelMetadataMap);
+        const meta = this.modelRegistry.get(model);
         return resolveProviderCapabilities({
             providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ZED,
             model,
@@ -382,7 +394,7 @@ export class ZedApiService {
     buildPayload(model: string, requestBody: ZedRequest): DynamicPayload {
         const provider = this.getProviderForModel(model);
         const capabilities = this.resolveModelCapabilities(model);
-        const meta = getZedModelMetadata(model, this.modelMetadataMap);
+        const meta = this.modelRegistry.get(model);
 
         if (provider === 'open_ai') {
             return buildOpenAIZedPayload(model, requestBody, capabilities, meta);
@@ -424,6 +436,10 @@ export class ZedApiService {
      */
     async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<unknown> {
         const jwt = await this.getToken();
+        // 未知模型先尝试补齐一次元数据（单飞 + TTL 缓存），避免首次请求落在宽松兜底上。
+        if (!this.modelRegistry.has(model)) {
+            await this.fetchRemoteModels().catch(() => {});
+        }
         const provider = this.getProviderForModel(model);
         const payload = this.buildPayload(model, requestBody);
 
@@ -932,10 +948,10 @@ export class ZedApiService {
      * @param {boolean} force 是否强制忽略缓存刷新
      * @returns {Promise<Array<object>>} 模型元数据对象列表
      */
-    async fetchRemoteModels(force = false): Promise<DynamicPayload[]> {
+    async fetchRemoteModels(force = false): Promise<ZedModelMetadata[]> {
         const now = Date.now();
-        if (!force && this.modelsCache && (this.modelsExpiresAt > now)) {
-            return this.modelsCache;
+        if (!force && !this.modelRegistry.isEmpty() && (this.modelsExpiresAt > now)) {
+            return this.modelRegistry.list();
         }
 
         if (this._modelsFetchPromise) {
@@ -947,7 +963,7 @@ export class ZedApiService {
                 const jwt = await this.getToken();
                 if (!jwt) {
                     logger.warn('[Zed] Cannot fetch remote models: No JWT token available');
-                    return this.modelsCache || this._getFallbackModels();
+                    return this.modelRegistry.isEmpty() ? this._getFallbackModels() : this.modelRegistry.list();
                 }
 
                 const axiosConfig: AxiosRequestConfig = {
@@ -964,21 +980,11 @@ export class ZedApiService {
 
                 const res = await axios.request(/** @type {any} */ (axiosConfig));
                 if (res.data && Array.isArray(res.data.models)) {
-                    // 远端成功响应是权威来源：整体替换实例元数据，仅保留启用模型。
-                    // 不再回填内置快照，避免上游已下架/禁用的模型继续生效。
-                    const enabledModels = res.data.models.filter((m: DynamicPayload) =>
-                        m && typeof m.id === 'string' && m.id && !m.is_disabled
-                    );
-                    this.modelMetadataMap = new Map(
-                        enabledModels.map((m: DynamicPayload) => [m.id, m as Record<string, unknown>])
-                    );
-
-                    updateZedModelMetadataStore(enabledModels);
-
+                    // 远端成功响应是权威来源：注册表整体替换并落盘，仅保留启用模型。
+                    const enabledModels = await this.modelRegistry.applyRemote(res.data.models);
                     if (enabledModels.length > 0) {
-                        this.modelsCache = enabledModels;
                         this.modelsExpiresAt = Date.now() + ZED_MODELS_CACHE_TTL_MS;
-                        const modelIds = enabledModels.map((m: DynamicPayload) => m.id);
+                        const modelIds = enabledModels.map((m) => m.id);
                         logger.info(`[Zed] Successfully updated dynamic model list from cloud.zed.dev (${modelIds.length} models): ${modelIds.join(', ')}`);
                         return enabledModels;
                     }
@@ -989,31 +995,23 @@ export class ZedApiService {
                 this._modelsFetchPromise = null;
             }
 
-            return this.modelsCache || this._getFallbackModels();
+            return this.modelRegistry.isEmpty() ? this._getFallbackModels() : this.modelRegistry.list();
         })();
 
         return this._modelsFetchPromise;
     }
 
     /**
-     * 回退静态模型列表（优先使用内置完整模型元数据表）
+     * 回退静态模型种子；仅在没有缓存且远端不可用时使用。
      */
-    _getFallbackModels(): DynamicPayload[] {
+    _getFallbackModels(): ZedModelMetadata[] {
         const modelIds = PROVIDER_MODELS['zed'] || [];
-        return modelIds.map((id: string) => {
-            const meta = getZedModelMetadata(id, this.modelMetadataMap);
-            if (meta) {
-                return { ...meta };
-            }
-            return {
+        return modelIds
+            .map((id: string) => normalizeZedModelMetadata({
                 id,
-                display_name: id,
-                provider: this.getProviderForModel(id),
-                supports_thinking: false,
-                supports_disabling_thinking: true,
-                supported_effort_levels: []
-            };
-        });
+                provider: this.getProviderForModel(id)
+            }))
+            .filter((model): model is ZedModelMetadata => model !== null);
     }
 
     /**
