@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import { promises as pfs } from 'fs';
 import { DEFAULT_REQUEST_BODY_MAX_BYTES, INPUT_SYSTEM_PROMPT_FILE } from '../utils/protocol.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
-import { atomicWriteFile } from '../utils/file-lock.ts';
 import logger from '../utils/logger.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 

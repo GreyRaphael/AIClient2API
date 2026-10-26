@@ -9,7 +9,7 @@
 ### 1. 历史渊源与项目背景
 * **早期逆向与 trae2api-web**：最初社区对 Trae 的反代实现（如 `trae2api-web`）主要基于 Trae 的 **SOLO 个人版 Agent 接口**（即 `solo_work_lite` / `agent_v3` / `chat_v3`）。该接口打向 `https://trae-api-cn.mchost.guru`，主要用于 IDE 的端侧 Agent 协作。
 * **企业版与原生 ToB Raw Chat**：随后 Trae 推出了企业版服务（`api.enterprise.trae.cn`），提供了原生的聊天端点 `/api/ide/v2/llm_raw_chat`（`function: "chat"`），支持更原生的企业模型调用与流式协议。
-* **三通道独立决策**：在 AIClient2API 中，早先曾尝试在单一 provider 内混合多种模式，但由于各模式的**上游 Host、请求 Header 指纹、请求体参数规范、可用模型清单及命名**均存在显著差异。为了彻底杜绝配置混淆与功能限制，系统已将历史的 `agent_v3` 通道彻底清除并重构拆分为 **`trae`** (ToB Raw Chat)、**`trae-solo_work_lite`** (SOLO Agent) 以及 **`trae-chat_v3`** (侧边栏 Chat) 三个完全独立的顶级提供商。
+* **三通道独立决策与后续瘦身**：在 AIClient2API 中，早先曾尝试在单一 provider 内混合多种模式，但由于各模式的**上游 Host、请求 Header 指纹、请求体参数规范、可用模型清单及命名**均存在显著差异。系统将历史的 `agent_v3` 路径彻底清除并一度拆分为 `trae` (ToB Raw Chat)、`trae-solo_work_lite` (SOLO Agent) 以及 `trae-chat_v3` (侧边栏 Chat)。随后，为了保证代码纯粹优雅，系统进一步**彻底清除了代码库中的 `solo_work_lite` 通道**（文档中仍完整保留其上游技术规范以备参考），全面收敛聚焦于 **`trae`** (企业 ToB) 与 **`trae-chat_v3`** (个人版侧边栏) 双核心通道。
 
 ### 2. 深度剖析：`solo_work_lite`、`chat_v3` 与企业 `chat` 三者区别，以及 `agent_v3` 的历史与清理
 
@@ -79,7 +79,7 @@
 | **Agent / 工具链特性** | 内置 subagent 占位符、支持复杂 Agent 工具调度 | 纯问答，不支持 subagent | 支持常规 function_call，无 subagent |
 | **专有辅助能力** | 富上下文规划、poly_prompt 扩展 | `fast_apply`、`title_generation` | 企业链路审计、`x-flow-traceparent` |
 | **请求体必需字段** | `config_name`, `model`, `max_mode` | `config_name`, `model`, `max_mode` | `model_name` (`__max`), `conversation_id`, `session_id`, `access_type: 4`, `mode_type: 0` |
-| **在当前项目中的应用** | `trae-solo_work_lite` 专属模式 (一等公民) | `trae-chat_v3` 专属模式 (一等公民) | `trae` 专属使用的上游 Function |
+| **在当前项目中的应用** | 原 `trae-solo_work_lite` 模式（代码已精简清除，文档保留技术归档） | `trae-chat_v3` 专属模式 (一等公民) | `trae` 专属使用的上游 Function |
 
 ---
 
@@ -281,6 +281,43 @@
 
 ---
 
+### 4. 思考模型严格准入机制与过滤保留清单（双通道核心架构）
+
+在系统的现代化架构迭代中，针对当前活跃的两个通道 **`trae`** (ToB Raw Chat) 与 **`trae-chat_v3`** (个人版侧边栏 Chat)，执行了严格的**思考模型准入过滤机制**：
+
+#### (1) 严格准入准则
+1. **`support_thinking === true`**：必须在上游 `reasoning_effort_config` 中明确标记支持思考能力；
+2. **`options` 必须包含 `'extra_high'`**：上游返回的思考深度选项必须包含最高深度 `extra_high`。
+
+> [!IMPORTANT]
+> **过滤与剔除范围**：
+> 凡未达到上述标准的模型（如全系列豆包仅支持 `["light", "high"]`、小米 Mimo 全系不支持思考、`step-5-preview` 仅支持到 `high`、以及未开放思考的旧版基座模型），均被**彻底从 `xxx/v1/models`、号池动态探测与发现机制中剔除**，不再对外暴露，确保所有客户端可用的 Trae 模型均具备最高深度的完整思考推理能力。
+
+#### (2) 最新实测双通道思考模型过滤保留对照表 (双通道各 13 个)
+
+基于对 Trae 上游网关最新实测动态拉取，通过上述严格准入流水线的 100% 活跃思考模型清单如下：
+
+| 序号 | 模型名称 | `trae` (ToB Raw Chat) | `trae-chat_v3` (侧边栏 Chat) | 支持的思考档位 (`options`) | 专属特性与说明 |
+| :---: | :--- | :---: | :---: | :---: | :--- |
+| 1 | **glm-5.3-flashx** | ✅ `glm-5.3-flashx` | ✅ `glm-5.3-flashx` | `["light", "high", "extra_high"]` | 极速思考增强 |
+| 2 | **glm-5.3-flash** | ✅ `glm-5.3-flash` | ✅ `glm-5.3-flash` | `["light", "high", "extra_high"]` | 极速推理 |
+| 3 | **glm-5.3** | ✅ `glm-5.3` | ✅ `glm-5.3` | `["light", "high", "extra_high"]` | GLM 旗舰思考模型 |
+| 4 | **glm-5.2** | ✅ `glm-5.2` | ✅ `glm-5.2` | `["high", "extra_high"]` | 默认起点即为 `high` |
+| 5 | **DeepSeek-V4.1-Flash** | ✅ `DeepSeek-V4.1-Flash` | ✅ `deepseek-v4.1-flash` | `["light", "high", "extra_high"]` | DeepSeek 思考版 (大小写差异) |
+| 6 | **DeepSeek-V4.1-Flash-1017** | ✅ `DeepSeek-V4.1-Flash-1017` | ❌ *(ToB 独有)* | `["light", "high", "extra_high"]` | 企业版特供定制快照 |
+| 7 | **DeepSeek-V4-Flash-Official** | ✅ `DeepSeek-V4-Flash-Official` | ✅ `DeepSeek-V4-Flash-Official` | `["light", "high", "extra_high"]` | DeepSeek 官方直连版 |
+| 8 | **DeepSeek-V4-Pro-Official** | ✅ `DeepSeek-V4-Pro-Official` | ✅ `DeepSeek-V4-Pro-Official` | `["light", "high", "extra_high"]` | DeepSeek 旗舰官方直连版 |
+| 9 | **kimi-k3.1-pro** | ✅ `kimi-k3.1-pro` | ✅ `kimi-k3.1-pro` | `["light", "high", "extra_high"]` | Kimi 现代化旗舰代码思考模型 |
+| 10 | **kimi-k3** | ✅ `kimi-k3` | ✅ `kimi-k3` | `["light", "high", "extra_high"]` | Kimi 基础深度思考模型 |
+| 11 | **kimi-k2.8-preview** | ✅ `kimi-k2.8-preview` | ✅ `kimi-k2.8-preview` | `["light", "high", "extra_high"]` | Kimi 预览版思考模型 |
+| 12 | **minimax-m3.1-flash** | ✅ `minimax-m3.1-flash` | ✅ `minimax-m3.1-flash` | `["light", "high", "extra_high"]` | MiniMax 极速思考模型 |
+| 13 | **qwen3.8-max** | ✅ `qwen3.8-max` | ✅ `qwen3.8-max` | `["light", "high", "extra_high"]` | 通义千问 3.8 旗舰思考模型 |
+| 14 | **qwen3.8-flash** | ❌ *(chat_v3 独有)* | ✅ `qwen3.8-flash` | `["light", "high", "extra_high"]` | 个人版侧边栏专属极速模型 |
+
+*注：`solo_work_lite` 通道代码已完全清理，仅在本文档中保留其历史协议规范以供技术归档。*
+
+---
+
 ## 六、请求改写与参数适配 (Payload Transformation)
 
 ### 1. 请求体结构对比
@@ -343,13 +380,24 @@
 3. **连续 Assistant 消息合并（规避 4027 错误）**：
    * 如果用户请求中由于上下文截断或连续调用出现相邻的两个 `assistant` 角色消息，上游后端会报错 `Trae stream error (4027): param is invalid`。
    * 本系统在 `prepareRequestBody` 中自动将相邻的连续 assistant 消息的内容与工具调用深度合并为一条。
-4. **思考深度映射 (`reasoning_effort`)**：
-   * 客户端传入的 `reasoning_effort`（`low` / `medium` / `high` / `max`）会被映射为 Trae 上游识别的等级：
-     * `low` / `light` $\rightarrow$ `light`
-     * `medium` / `high` $\rightarrow$ `high`
-     * `max` / `ultra` / `extra_high` $\rightarrow$ `extra_high`
-   * **全通道统一默认深度**：对于 Trae 的 3 个通道（`trae`、`trae-solo_work_lite`、`trae-chat_v3`），若具备思考能力且未指定 `reasoning_effort` 时，统一默认使用 `extra_high`（标准层映射为 `xhigh`），无特定模型硬编码；
-   * 若客户端传入 `none` / `off` / `false` 则显式关闭思考，不向上游发送 `reasoning_effort_level` 字段。
+4. **思考深度映射与动态最大化机制 (`reasoning_effort`)**：
+   * **完整映射矩阵**：
+     客户端请求中的标准 `reasoning_effort` 字段会被解析归一化，并映射为 Trae 上游识别的 `reasoning_effort_level`：
+
+     | 客户端请求标准值 (`reasoning_effort`) | 等效别名 | 权重 | Trae 上游发送字段值 (`reasoning_effort_level`) | 行为说明 |
+     | :--- | :--- | :---: | :--- | :--- |
+     | `low` | `min`, `minimum`, `light`, `small` | 1 | `light` | 映射至上游基础轻量思考档位 |
+     | `medium` | `normal`, `moderate`, `middle` | 2 | `high` *(若模型无 high 则降级为 light)* | 映射至高思考档位（上游无独立 medium） |
+     | `high` | - | 3 | `high` *(若模型无 high 则降级)* | 映射至高思考档位 |
+     | `xhigh` | `extra_high`, `max`, `maximum`, `full`, `ultra` | 4 | `extra_high` | 映射至最高极限思考档位 |
+     | **未显式指定** | - | - | **`extra_high`** *(标准层 `xhigh`)* | **动态最大化决策**：自动锁定当前模型支持的最高档位 |
+     | `none` | `off`, `false`, `null` | 0 | *不传该字段* | 显式关闭思考模式 |
+
+   * **非硬编码的动态最大深度默认决策 (`resolveMaxStandardEffort`)**：
+     1. **脱离上游 `default_level`**：Trae 上游对多数思考模型的 `default_level` 保守设定为 `light`。系统彻底解除了对上游默认字段的依赖；
+     2. **拒绝特定模型硬编码**：摒弃对特定模型（如 Kimi）的硬编码分支；
+     3. **基于权重动态优选**：代码通过 `EFFORT_LEVEL_WEIGHTS` 权重字典（`extra_high: 4`, `high: 3`, `medium: 2`, `light: 1`），动态遍历当前模型在 `options`（或 `reasoning_effort_level_options`）中所声明的全部支持项，提取其中的最高档位作为默认值；
+     4. **对外暴露**：在 `/auto/v1/models`、`/trae/v1/models` 等接口返回的元数据中，所有通过准入的思考模型其 `default_reasoning_effort` 均统一自动呈现为最高强度的标准值 **`xhigh`**。
 
 ---
 
