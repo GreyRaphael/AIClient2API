@@ -1471,7 +1471,7 @@ export async function handleContentGenerationRequest(
     pooluuid: string | null,
     requestPath: string | null = null
 ) {
-    const originalRequestBody = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES });
+    const originalRequestBody = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES }) as DynamicPayload;
 
     if (!originalRequestBody) {
         throw new Error("Request body is missing for content generation.");
