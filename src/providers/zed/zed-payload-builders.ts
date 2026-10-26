@@ -1,12 +1,18 @@
 import { randomUUID } from 'crypto';
 import logger from '../../utils/logger.ts';
 import { sanitizeToolId } from '../../utils/protocol-utils.ts';
-import { budgetTokensToEffort, effortToClaudeBudget, effortToGeminiThinking } from '../../converters/thinking-budget.ts';
+import { budgetTokensToEffort, effortToClaudeBudget } from '../../converters/thinking-budget.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
+import {
+    getZedModelMetadata,
+    normalizeZedEffortLevels,
+    resolveZedEffortLevel
+} from './zed-model-metadata.ts';
+import type { ZedModelMetadata, ZedProvider } from './zed-model-metadata.ts';
 
-export type ZedProvider = 'anthropic' | 'open_ai' | 'google';
+export type { ZedProvider } from './zed-model-metadata.ts';
 export type ZedRequest = DynamicPayload;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -23,95 +29,103 @@ function budgetToClaudeEffort(budget: unknown): 'low' | 'medium' | 'high' | 'max
     return 'max';
 }
 
-/** 构建 Zed OpenAI Responses 通道请求。 */
-export function buildOpenAIZedPayload(model: string, requestBody: ZedRequest) {
+function extractImageUrlFromPart(part: DynamicPayload): string {
+    if (part.source?.type === 'base64' && part.source.data) {
+        return `data:${part.source.media_type || 'image/png'};base64,${part.source.data}`;
+    }
+    if (part.source?.type === 'url') {
+        return part.source.url || '';
+    }
+    if (typeof part.image_url === 'string') {
+        return part.image_url;
+    }
+    if (part.image_url?.url) {
+        return part.image_url.url;
+    }
+    if (typeof part.url === 'string') {
+        return part.url;
+    }
+    return '';
+}
+
+function normalizeResponsesInputItems(rawInput: unknown, instructionsText: string): DynamicPayload[] {
     const input: DynamicPayload[] = [];
 
-    // 处理系统提示词
-    if (requestBody.system) {
-        const sysText = typeof requestBody.system === 'string'
-            ? requestBody.system
-            : Array.isArray(requestBody.system)
-                ? requestBody.system.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : '').join('\n\n')
-                : String(requestBody.system);
-        if (sysText && sysText.trim()) {
-            input.push({
-                type: 'message',
-                role: 'system',
-                content: [{ type: 'input_text', text: sysText.trim() }]
-            });
-        }
+    if (instructionsText && instructionsText.trim()) {
+        input.push({
+            type: 'message',
+            role: 'system',
+            content: [{ type: 'input_text', text: instructionsText.trim() }]
+        });
     }
 
-    // 处理上下文消息
-    const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
-    for (const m of rawMessages) {
-        if (m.role === 'system') {
-            const sysText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-            if (sysText && sysText.trim()) {
-                input.push({
-                    type: 'message',
-                    role: 'system',
-                    content: [{ type: 'input_text', text: sysText.trim() }]
-                });
-            }
+    const items = typeof rawInput === 'string'
+        ? [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: rawInput }] }]
+        : (Array.isArray(rawInput) ? rawInput : []);
+
+    for (const item of items) {
+        if (!isRecord(item)) continue;
+        const itemType = typeof item.type === 'string' ? item.type : (item.role ? 'message' : '');
+
+        if (
+            itemType === 'function_call' ||
+            itemType === 'function_call_output' ||
+            itemType === 'custom_tool_call' ||
+            itemType === 'custom_tool_call_output' ||
+            itemType === 'reasoning'
+        ) {
+            input.push({ ...item });
             continue;
         }
 
-        if (m.role === 'user') {
-            const userContent: DynamicPayload[] = [];
-            if (typeof m.content === 'string') {
-                if (m.content) userContent.push({ type: 'input_text', text: m.content });
-            } else if (Array.isArray(m.content)) {
-                for (const part of m.content) {
+        if (itemType === 'message' || typeof item.role === 'string') {
+            const rawRole = typeof item.role === 'string' ? item.role : 'user';
+            const role = rawRole === 'developer' ? 'system' : rawRole;
+            const defaultTextType = role === 'assistant' ? 'output_text' : 'input_text';
+
+            if (typeof item.content === 'string') {
+                if (item.content) {
+                    input.push({
+                        type: 'message',
+                        role,
+                        content: [{ type: defaultTextType, text: item.content }]
+                    });
+                }
+                continue;
+            }
+
+            if (Array.isArray(item.content)) {
+                const normalizedParts: DynamicPayload[] = [];
+                for (const part of item.content) {
                     if (!part) continue;
-                    if (part.type === 'text') {
-                        if (part.text) userContent.push({ type: 'input_text', text: part.text });
+                    if (typeof part === 'string') {
+                        normalizedParts.push({ type: defaultTextType, text: part });
+                        continue;
+                    }
+                    if (!isRecord(part)) continue;
+                    if (part.type === 'input_text' || part.type === 'output_text') {
+                        normalizedParts.push({ ...part });
+                    } else if (part.type === 'text') {
+                        if (part.text) {
+                            normalizedParts.push({ type: defaultTextType, text: part.text });
+                        }
+                    } else if (part.type === 'input_image' || part.type === 'image' || part.type === 'image_url') {
+                        const imageUrl = extractImageUrlFromPart(part as DynamicPayload);
+                        if (imageUrl) {
+                            normalizedParts.push({
+                                type: 'input_image',
+                                image_url: imageUrl,
+                                ...(part.detail ? { detail: part.detail } : {})
+                            });
+                        }
+                    } else if (part.type === 'input_file') {
+                        normalizedParts.push({ ...part });
                     } else if (part.type === 'tool_result') {
                         input.push({
                             type: 'function_call_output',
                             call_id: part.tool_use_id,
                             output: typeof part.content === 'string' ? part.content : JSON.stringify(part.content)
                         });
-                    } else if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image') {
-                        // Claude 形状：{ type:'image', source:{ type:'base64', media_type, data } }
-                        // OpenAI 形状：{ type:'image_url', image_url:{ url } } 或 { type:'input_image', image_url }
-                        let imageUrl = '';
-                        if (part.source?.type === 'base64' && part.source.data) {
-                            imageUrl = `data:${part.source.media_type || 'image/png'};base64,${part.source.data}`;
-                        } else if (part.source?.type === 'url') {
-                            imageUrl = part.source.url || '';
-                        } else if (typeof part.image_url === 'string') {
-                            imageUrl = part.image_url;
-                        } else if (part.image_url?.url) {
-                            imageUrl = part.image_url.url;
-                        } else if (typeof part.url === 'string') {
-                            imageUrl = part.url;
-                        }
-                        if (imageUrl) {
-                            userContent.push({ type: 'input_image', image_url: imageUrl });
-                        }
-                    }
-                }
-            } else if (m.content) {
-                userContent.push({ type: 'input_text', text: String(m.content) });
-            }
-
-            if (userContent.length > 0) {
-                input.push({
-                    type: 'message',
-                    role: 'user',
-                    content: userContent
-                });
-            }
-        } else if (m.role === 'assistant') {
-            let assistantText = '';
-            if (typeof m.content === 'string') {
-                assistantText = m.content;
-            } else if (Array.isArray(m.content)) {
-                for (const part of m.content) {
-                    if (part.type === 'text') {
-                        assistantText += (assistantText ? '\n' : '') + (part.text || '');
                     } else if (part.type === 'tool_use') {
                         input.push({
                             type: 'function_call',
@@ -119,36 +133,152 @@ export function buildOpenAIZedPayload(model: string, requestBody: ZedRequest) {
                             name: part.name,
                             arguments: typeof part.input === 'string' ? part.input : JSON.stringify(part.input || {})
                         });
+                    } else {
+                        normalizedParts.push({ ...part });
                     }
                 }
-            } else if (m.content) {
-                assistantText = String(m.content);
-            }
 
-            if (Array.isArray(m.tool_calls)) {
-                for (const tc of m.tool_calls) {
+                if (normalizedParts.length > 0) {
                     input.push({
-                        type: 'function_call',
-                        call_id: tc.id,
-                        name: tc.function?.name || 'function',
-                        arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {})
+                        type: 'message',
+                        role,
+                        content: normalizedParts
                     });
                 }
             }
+        }
+    }
 
-            if (assistantText) {
+    return input;
+}
+
+/** 构建 Zed OpenAI Responses 通道请求。 */
+export function buildOpenAIZedPayload(
+    model: string,
+    requestBody: ZedRequest,
+    capabilities?: ProviderCapabilities,
+    meta?: ZedModelMetadata | Record<string, unknown> | null
+) {
+    const resolvedMeta = (meta || getZedModelMetadata(model)) as Partial<ZedModelMetadata> | null;
+    let input: DynamicPayload[] = [];
+
+    const sysSource = requestBody.instructions ?? requestBody.system;
+    const sysText = typeof sysSource === 'string'
+        ? sysSource
+        : Array.isArray(sysSource)
+            ? sysSource.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : (typeof s === 'string' ? s : '')).join('\n\n')
+            : (sysSource ? String(sysSource) : '');
+
+    const hasNativeInput = requestBody.input !== undefined && requestBody.input !== null &&
+        (typeof requestBody.input === 'string' || (Array.isArray(requestBody.input) && requestBody.input.length > 0));
+
+    if (hasNativeInput) {
+        input = normalizeResponsesInputItems(requestBody.input, sysText);
+    } else {
+        // Fallback: 从 messages 构建 input（兼容直接调用 buildPayload 的单元测试）
+        if (sysText && sysText.trim()) {
+            input.push({
+                type: 'message',
+                role: 'system',
+                content: [{ type: 'input_text', text: sysText.trim() }]
+            });
+        }
+
+        const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+        for (const m of rawMessages) {
+            if (m.role === 'system' || m.role === 'developer') {
+                const msgSysText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+                if (msgSysText && msgSysText.trim()) {
+                    input.push({
+                        type: 'message',
+                        role: 'system',
+                        content: [{ type: 'input_text', text: msgSysText.trim() }]
+                    });
+                }
+                continue;
+            }
+
+            if (m.role === 'user') {
+                const userContent: DynamicPayload[] = [];
+                if (typeof m.content === 'string') {
+                    if (m.content) userContent.push({ type: 'input_text', text: m.content });
+                } else if (Array.isArray(m.content)) {
+                    for (const part of m.content) {
+                        if (!part) continue;
+                        if (part.type === 'text' || part.type === 'input_text') {
+                            if (part.text) userContent.push({ type: 'input_text', text: part.text });
+                        } else if (part.type === 'tool_result') {
+                            input.push({
+                                type: 'function_call_output',
+                                call_id: part.tool_use_id,
+                                output: typeof part.content === 'string' ? part.content : JSON.stringify(part.content)
+                            });
+                        } else if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image') {
+                            const imageUrl = extractImageUrlFromPart(part);
+                            if (imageUrl) {
+                                userContent.push({ type: 'input_image', image_url: imageUrl });
+                            }
+                        } else if (part.type === 'input_file') {
+                            userContent.push({ ...part });
+                        }
+                    }
+                } else if (m.content) {
+                    userContent.push({ type: 'input_text', text: String(m.content) });
+                }
+
+                if (userContent.length > 0) {
+                    input.push({
+                        type: 'message',
+                        role: 'user',
+                        content: userContent
+                    });
+                }
+            } else if (m.role === 'assistant') {
+                let assistantText = '';
+                if (typeof m.content === 'string') {
+                    assistantText = m.content;
+                } else if (Array.isArray(m.content)) {
+                    for (const part of m.content) {
+                        if (part.type === 'text' || part.type === 'output_text') {
+                            assistantText += (assistantText ? '\n' : '') + (part.text || '');
+                        } else if (part.type === 'tool_use') {
+                            input.push({
+                                type: 'function_call',
+                                call_id: part.id,
+                                name: part.name,
+                                arguments: typeof part.input === 'string' ? part.input : JSON.stringify(part.input || {})
+                            });
+                        }
+                    }
+                } else if (m.content) {
+                    assistantText = String(m.content);
+                }
+
+                if (Array.isArray(m.tool_calls)) {
+                    for (const tc of m.tool_calls) {
+                        input.push({
+                            type: 'function_call',
+                            call_id: tc.id,
+                            name: tc.function?.name || 'function',
+                            arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {})
+                        });
+                    }
+                }
+
+                if (assistantText) {
+                    input.push({
+                        type: 'message',
+                        role: 'assistant',
+                        content: [{ type: 'output_text', text: assistantText }]
+                    });
+                }
+            } else if (m.role === 'tool' || m.tool_call_id) {
                 input.push({
-                    type: 'message',
-                    role: 'assistant',
-                    content: [{ type: 'output_text', text: assistantText }]
+                    type: 'function_call_output',
+                    call_id: m.tool_call_id || m.name || '',
+                    output: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
                 });
             }
-        } else if (m.role === 'tool' || m.tool_call_id) {
-            input.push({
-                type: 'function_call_output',
-                call_id: m.tool_call_id || m.name || '',
-                output: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-            });
         }
     }
 
@@ -158,29 +288,100 @@ export function buildOpenAIZedPayload(model: string, requestBody: ZedRequest) {
         stream: true
     };
 
-    let reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
-    if (!reasoningEffort && requestBody.thinking) {
-        if (requestBody.thinking.effort) {
-            reasoningEffort = requestBody.thinking.effort;
-        } else if (requestBody.thinking.budget_tokens) {
-            reasoningEffort = budgetToClaudeEffort(requestBody.thinking.budget_tokens);
-        }
+    if (requestBody.temperature !== undefined && (capabilities?.supportsTemperature ?? true)) {
+        provReq.temperature = requestBody.temperature;
+    }
+    if (requestBody.top_p !== undefined) {
+        provReq.top_p = requestBody.top_p;
     }
 
-    if (reasoningEffort && reasoningEffort !== 'none') {
+    const rawMaxTokens = requestBody.max_output_tokens ?? requestBody.max_completion_tokens ?? requestBody.max_tokens;
+    if (rawMaxTokens !== undefined && (capabilities?.supportsMaxOutputTokens ?? true)) {
+        const maxOutLimit = Number(resolvedMeta?.max_output_tokens) > 0 ? Number(resolvedMeta?.max_output_tokens) : 128000;
+        provReq.max_output_tokens = Math.min(Number(rawMaxTokens), maxOutLimit);
+    }
+
+    if (requestBody.parallel_tool_calls !== undefined && resolvedMeta?.supports_parallel_tool_calls !== false) {
+        provReq.parallel_tool_calls = requestBody.parallel_tool_calls;
+    }
+
+    if (requestBody.text !== undefined) {
+        provReq.text = requestBody.text;
+    }
+
+    const rawEffort = requestBody._rawThinkingEffort
+        ?? requestBody.reasoning_effort
+        ?? requestBody.reasoning?.effort
+        ?? requestBody.output_config?.effort
+        ?? requestBody.thinking?.effort;
+    const isExplicitDisable =
+        Boolean(requestBody._rawThinkingDisabled) ||
+        String(rawEffort || '').trim().toLowerCase() === 'none' ||
+        String(requestBody.thinking?.type || '').trim().toLowerCase() === 'disabled';
+
+    let requestedEffort: unknown = rawEffort;
+    if (
+        (requestedEffort === undefined || requestedEffort === null || String(requestedEffort).trim() === '') &&
+        !isExplicitDisable &&
+        requestBody.thinking?.budget_tokens !== undefined
+    ) {
+        requestedEffort = budgetToClaudeEffort(requestBody.thinking.budget_tokens);
+    }
+
+    const resolvedEffort = resolveZedEffortLevel({
+        model,
+        requestedEffort,
+        isExplicitDisable,
+        meta: resolvedMeta,
+        allowThinking: capabilities?.supportsThinking ?? true,
+        fallbackValidEfforts: ['low', 'medium', 'high', 'xhigh', 'max']
+    });
+
+    if (resolvedEffort) {
         provReq.reasoning = {
-            effort: reasoningEffort,
-            summary: 'detailed'
+            effort: resolvedEffort,
+            summary: requestBody.reasoning?.summary || 'detailed'
         };
     }
 
-    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-        provReq.tools = requestBody.tools.map((t) => ({
-            type: 'function',
-            name: t.name,
-            description: t.description,
-            parameters: t.input_schema || t.parameters || {}
-        }));
+    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0 && resolvedMeta?.supports_tools !== false) {
+        provReq.tools = requestBody.tools.map((t: DynamicPayload) => {
+            if (t.type === 'custom') {
+                return { ...t };
+            }
+            const fn = t.function && isRecord(t.function) ? t.function : t;
+            return {
+                type: 'function',
+                name: fn.name || t.name,
+                description: fn.description ?? t.description,
+                parameters: fn.parameters || t.input_schema || t.parameters || {},
+                ...(fn.strict !== undefined ? { strict: fn.strict } : (t.strict !== undefined ? { strict: t.strict } : {}))
+            };
+        });
+    }
+
+    if (requestBody.tool_choice !== undefined) {
+        let tc = requestBody.tool_choice;
+        if (isRecord(tc)) {
+            if (tc.type === 'tool' && tc.name) {
+                tc = { type: 'function', name: tc.name };
+            } else if (tc.type === 'any') {
+                tc = 'required';
+            } else if (tc.type === 'auto') {
+                tc = 'auto';
+            } else if (tc.type === 'none') {
+                tc = 'none';
+            } else if (tc.type === 'function' && isRecord(tc.function) && tc.function.name) {
+                tc = { type: 'function', name: tc.function.name };
+            }
+        }
+        if (
+            capabilities?.supportsForcedToolChoice === false &&
+            (tc === 'required' || (isRecord(tc) && (tc.type === 'function' || tc.type === 'custom')))
+        ) {
+            tc = 'auto';
+        }
+        provReq.tool_choice = tc;
     }
 
     return {
@@ -193,168 +394,251 @@ export function buildOpenAIZedPayload(model: string, requestBody: ZedRequest) {
     };
 }
 
-/** 构建 Zed Google AI 通道请求。 */
-export function buildGoogleZedPayload(model: string, requestBody: ZedRequest, capabilities: ProviderCapabilities) {
-    const contents: DynamicPayload[] = [];
-    const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
-
-    // Zed Google 通道不支持多轮回传 functionCall/functionResponse 历史。
-    // 直接在网关侧给出明确错误，避免上游返回 500 空 body 并触发无意义的凭证切换/重试。
-    const hasToolResultHistory = rawMessages.some((m) => {
-        if (!m) return false;
-        if (m.role === 'tool' || m.tool_call_id) return true;
-        return Array.isArray(m.content) && m.content.some(
-            (part: DynamicPayload) => isRecord(part) && (part.type === 'tool_result' || part.type === 'functionResponse')
-        );
+function downgradeGeminiToolHistoryParts(contents: DynamicPayload[]): DynamicPayload[] {
+    return contents.map((content) => {
+        if (!isRecord(content) || !Array.isArray(content.parts)) return content;
+        const newParts = content.parts.map((part: DynamicPayload) => {
+            if (!isRecord(part)) return part;
+            if (isRecord(part.functionCall)) {
+                const fc = part.functionCall;
+                const args = fc.args && typeof fc.args === 'object' ? fc.args : {};
+                return {
+                    text: `[Tool call: ${fc.name || 'function'}(${JSON.stringify(args)})]`
+                };
+            }
+            if (isRecord(part.functionResponse)) {
+                const fr = part.functionResponse;
+                const respObj = isRecord(fr.response) ? fr.response : {};
+                const rawResult = respObj.result !== undefined
+                    ? respObj.result
+                    : (respObj.content !== undefined ? respObj.content : fr.response);
+                const resultText = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult ?? '');
+                const refId = fr.id || fr.name || '';
+                return {
+                    text: `[Tool result${refId ? ` for ${refId}` : ''}]: ${resultText}`
+                };
+            }
+            return part;
+        });
+        return {
+            ...content,
+            parts: newParts
+        };
     });
-    // Zed Google 通道不支持多轮 functionCall/functionResponse 历史。
-    // 不直接报错，而是把历史工具调用/结果降级为文本，尽量保留上下文；
-    // 当前轮的 tools/tool_choice 仍然生效，模型可以继续发起新的工具调用。
-    const fallbackToolHistoryToText = hasToolResultHistory && capabilities.supportsToolResultHistory === false;
-    if (fallbackToolHistoryToText) {
-        logger.warn(`[Zed] Google channel does not support multi-turn tool history for model ${model}; falling back to text representation.`);
-    }
+}
 
+function sanitizeNativeGeminiContents(contents: DynamicPayload[]): DynamicPayload[] {
+    const merged: DynamicPayload[] = [];
+    for (const item of contents) {
+        if (!isRecord(item) || !Array.isArray(item.parts)) continue;
+        const role = item.role === 'assistant' ? 'model' : (item.role || 'user');
+        const cleanedParts = item.parts.map((part: DynamicPayload) => {
+            if (!isRecord(part)) return part;
+            if (part.thoughtSignature === 'skip_thought_signature_validator') {
+                const { thoughtSignature: _ignored, ...rest } = part;
+                return rest;
+            }
+            return part;
+        });
+        if (cleanedParts.length === 0) continue;
+        if (merged.length > 0 && merged[merged.length - 1].role === role) {
+            merged[merged.length - 1].parts.push(...cleanedParts);
+        } else {
+            merged.push({
+                role,
+                parts: [...cleanedParts]
+            });
+        }
+    }
+    return merged;
+}
+
+/** 构建 Zed Google AI 通道请求。 */
+export function buildGoogleZedPayload(
+    model: string,
+    requestBody: ZedRequest,
+    capabilities: ProviderCapabilities,
+    meta?: ZedModelMetadata | Record<string, unknown> | null
+) {
+    const resolvedMeta = (meta || getZedModelMetadata(model)) as Partial<ZedModelMetadata> | null;
+    const hasNativeContents = Array.isArray(requestBody.contents) && requestBody.contents.length > 0;
+
+    let contents: DynamicPayload[] = [];
     let systemInstruction: DynamicPayload | null = null;
 
-    // 预扫描构建 tool_use_id -> 函数名映射（供 tool_result/functionResponse 还原名称）
-    const toolIdToName: Record<string, string> = {};
-    for (const m of rawMessages) {
-        if (m.role !== 'assistant') continue;
-        if (Array.isArray(m.content)) {
-            for (const p of m.content) {
-                if (p && p.type === 'tool_use' && p.id && p.name) {
-                    toolIdToName[sanitizeToolId(String(p.id))] = String(p.name);
-                }
-            }
-        }
-        if (Array.isArray(m.tool_calls)) {
-            for (const tc of m.tool_calls) {
-                if (tc && tc.id && tc.function?.name) {
-                    toolIdToName[sanitizeToolId(String(tc.id))] = String(tc.function?.name || '');
-                }
-            }
-        }
-    }
-
-    if (requestBody.system) {
-        const sysText = typeof requestBody.system === 'string'
-            ? requestBody.system
-            : Array.isArray(requestBody.system)
-                ? requestBody.system.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : '').join('\n\n')
-                : String(requestBody.system);
-        systemInstruction = { parts: [{ text: sysText }] };
-    }
-
-    for (const m of rawMessages) {
-        if (m.role === 'system') {
-            const sysText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-            if (!systemInstruction) {
-                systemInstruction = { parts: [{ text: sysText }] };
-            } else {
-                systemInstruction.parts.push({ text: sysText });
-            }
-            continue;
+    if (hasNativeContents) {
+        const rawContents = sanitizeNativeGeminiContents(requestBody.contents);
+        const hasToolResultHistory = rawContents.some((c) =>
+            Array.isArray(c.parts) && c.parts.some((p: DynamicPayload) => isRecord(p) && (p.functionCall || p.functionResponse))
+        );
+        const fallbackToolHistoryToText = hasToolResultHistory && capabilities.supportsToolResultHistory === false;
+        if (fallbackToolHistoryToText) {
+            logger.warn(`[Zed] Google channel does not support multi-turn tool history for model ${model}; falling back to text representation.`);
+            contents = downgradeGeminiToolHistoryParts(rawContents);
+        } else {
+            contents = rawContents;
         }
 
-        let role = m.role === 'assistant' ? 'model' : 'user';
-        const parts: DynamicPayload[] = [];
-        if (m.role === 'tool' || m.tool_call_id) {
-            // OpenAI 风格 tool 结果消息 -> functionResponse
-            role = 'user';
-            const resultText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-            if (fallbackToolHistoryToText) {
-                parts.push({ text: `[Tool result${m.tool_call_id ? ` for ${m.tool_call_id}` : ''}]: ${resultText}` });
-            } else {
-                const functionResponse: DynamicPayload = {
-                    name: toolIdToName[sanitizeToolId(String(m.tool_call_id))] || m.name || 'function',
-                    response: {
-                        result: resultText
+        const rawSys = requestBody.systemInstruction || requestBody.system_instruction;
+        if (isRecord(rawSys) && Array.isArray(rawSys.parts)) {
+            systemInstruction = { parts: rawSys.parts };
+        } else if (requestBody.system) {
+            const sysText = typeof requestBody.system === 'string'
+                ? requestBody.system
+                : Array.isArray(requestBody.system)
+                    ? requestBody.system.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : '').join('\n\n')
+                    : String(requestBody.system);
+            systemInstruction = { parts: [{ text: sysText }] };
+        }
+    } else {
+        const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+
+        const hasToolResultHistory = rawMessages.some((m) => {
+            if (!m) return false;
+            if (m.role === 'tool' || m.tool_call_id) return true;
+            return Array.isArray(m.content) && m.content.some(
+                (part: DynamicPayload) => isRecord(part) && (part.type === 'tool_result' || part.type === 'functionResponse')
+            );
+        });
+        const fallbackToolHistoryToText = hasToolResultHistory && capabilities.supportsToolResultHistory === false;
+        if (fallbackToolHistoryToText) {
+            logger.warn(`[Zed] Google channel does not support multi-turn tool history for model ${model}; falling back to text representation.`);
+        }
+
+        // 预扫描构建 tool_use_id -> 函数名映射（供 tool_result/functionResponse 还原名称）
+        const toolIdToName: Record<string, string> = {};
+        for (const m of rawMessages) {
+            if (m.role !== 'assistant') continue;
+            if (Array.isArray(m.content)) {
+                for (const p of m.content) {
+                    if (p && p.type === 'tool_use' && p.id && p.name) {
+                        toolIdToName[sanitizeToolId(String(p.id))] = String(p.name);
                     }
-                };
-                if (m.tool_call_id) functionResponse.id = m.tool_call_id;
-                parts.push({ functionResponse });
+                }
             }
-        } else if (typeof m.content === 'string') {
-            parts.push({ text: m.content });
-        } else if (Array.isArray(m.content)) {
-            for (const p of m.content) {
-                if (p.type === 'text' && p.text) {
-                    parts.push({ text: p.text });
-                } else if (p.type === 'image' && p.source) {
-                    parts.push({
-                        inlineData: {
-                            mimeType: p.source.media_type || 'image/jpeg',
-                            data: p.source.data
+            if (Array.isArray(m.tool_calls)) {
+                for (const tc of m.tool_calls) {
+                    if (tc && tc.id && tc.function?.name) {
+                        toolIdToName[sanitizeToolId(String(tc.id))] = String(tc.function?.name || '');
+                    }
+                }
+            }
+        }
+
+        if (requestBody.system) {
+            const sysText = typeof requestBody.system === 'string'
+                ? requestBody.system
+                : Array.isArray(requestBody.system)
+                    ? requestBody.system.map((s) => isRecord(s) && typeof s.text === 'string' ? s.text : '').join('\n\n')
+                    : String(requestBody.system);
+            systemInstruction = { parts: [{ text: sysText }] };
+        }
+
+        for (const m of rawMessages) {
+            if (m.role === 'system') {
+                const sysText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+                if (!systemInstruction) {
+                    systemInstruction = { parts: [{ text: sysText }] };
+                } else {
+                    systemInstruction.parts.push({ text: sysText });
+                }
+                continue;
+            }
+
+            let role = m.role === 'assistant' ? 'model' : 'user';
+            const parts: DynamicPayload[] = [];
+            if (m.role === 'tool' || m.tool_call_id) {
+                role = 'user';
+                const resultText = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+                if (fallbackToolHistoryToText) {
+                    parts.push({ text: `[Tool result${m.tool_call_id ? ` for ${m.tool_call_id}` : ''}]: ${resultText}` });
+                } else {
+                    const functionResponse: DynamicPayload = {
+                        name: toolIdToName[sanitizeToolId(String(m.tool_call_id))] || m.name || 'function',
+                        response: {
+                            result: resultText
                         }
-                    });
-                } else if (p.type === 'tool_use' && p.name) {
-                    // Claude 风格 assistant 工具调用 -> functionCall
-                    let args = {};
-                    if (typeof p.input === 'string') {
-                        try { args = JSON.parse(String(p.input)) as DynamicPayload; } catch { args = {}; }
-                    } else if (p.input && typeof p.input === 'object') {
-                        args = p.input;
+                    };
+                    if (m.tool_call_id) functionResponse.id = m.tool_call_id;
+                    parts.push({ functionResponse });
+                }
+            } else if (typeof m.content === 'string') {
+                parts.push({ text: m.content });
+            } else if (Array.isArray(m.content)) {
+                for (const p of m.content) {
+                    if (p.type === 'text' && p.text) {
+                        parts.push({ text: p.text });
+                    } else if (p.type === 'image' && p.source) {
+                        parts.push({
+                            inlineData: {
+                                mimeType: p.source.media_type || 'image/jpeg',
+                                data: p.source.data
+                            }
+                        });
+                    } else if (p.type === 'tool_use' && p.name) {
+                        let args = {};
+                        if (typeof p.input === 'string') {
+                            try { args = JSON.parse(String(p.input)) as DynamicPayload; } catch { args = {}; }
+                        } else if (p.input && typeof p.input === 'object') {
+                            args = p.input;
+                        }
+                        if (fallbackToolHistoryToText) {
+                            parts.push({ text: `[Tool call: ${p.name}(${JSON.stringify(args)})]` });
+                        } else {
+                            const functionCall: DynamicPayload = {
+                                name: p.name,
+                                args
+                            };
+                            if (p.id) functionCall.id = p.id;
+                            parts.push({ functionCall });
+                        }
+                    } else if (p.type === 'tool_result') {
+                        const resultText = typeof p.content === 'string' ? p.content : JSON.stringify(p.content);
+                        if (fallbackToolHistoryToText) {
+                            parts.push({ text: `[Tool result${p.tool_use_id ? ` for ${p.tool_use_id}` : ''}]: ${resultText}` });
+                        } else {
+                            const functionResponse: DynamicPayload = {
+                                name: toolIdToName[sanitizeToolId(String(p.tool_use_id))] || p.name || 'function',
+                                response: {
+                                    result: resultText
+                                }
+                            };
+                            if (p.tool_use_id || p.id) {
+                                functionResponse.id = p.tool_use_id || p.id;
+                            }
+                            parts.push({ functionResponse });
+                        }
                     }
+                }
+            }
+
+            if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+                for (const tc of m.tool_calls) {
+                    let args = {};
+                    try {
+                        args = typeof tc.function?.arguments === 'string'
+                            ? JSON.parse(tc.function.arguments)
+                            : (tc.function?.arguments || {});
+                    } catch { /* 保持空对象 */ }
                     if (fallbackToolHistoryToText) {
-                        parts.push({ text: `[Tool call: ${p.name}(${JSON.stringify(args)})]` });
+                        parts.push({ text: `[Tool call: ${tc.function?.name || 'function'}(${JSON.stringify(args)})]` });
                     } else {
                         const functionCall: DynamicPayload = {
-                            name: p.name,
+                            name: tc.function?.name || 'function',
                             args
                         };
-                        if (p.id) functionCall.id = p.id;
+                        if (tc.id) functionCall.id = tc.id;
                         parts.push({ functionCall });
                     }
-                } else if (p.type === 'tool_result') {
-                    // Claude 风格 user 工具结果 -> functionResponse
-                    const resultText = typeof p.content === 'string' ? p.content : JSON.stringify(p.content);
-                    if (fallbackToolHistoryToText) {
-                        parts.push({ text: `[Tool result${p.tool_use_id ? ` for ${p.tool_use_id}` : ''}]: ${resultText}` });
-                    } else {
-                        const functionResponse: DynamicPayload = {
-                            name: toolIdToName[sanitizeToolId(String(p.tool_use_id))] || p.name || 'function',
-                            response: {
-                                result: resultText
-                            }
-                        };
-                        if (p.tool_use_id || p.id) {
-                            functionResponse.id = p.tool_use_id || p.id;
-                        }
-                        parts.push({ functionResponse });
-                    }
                 }
             }
-        }
 
-        // OpenAI 风格 assistant tool_calls -> functionCall
-        if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
-            for (const tc of m.tool_calls) {
-                let args = {};
-                try {
-                    args = typeof tc.function?.arguments === 'string'
-                        ? JSON.parse(tc.function.arguments)
-                        : (tc.function?.arguments || {});
-                } catch { /* 保持空对象 */ }
-                if (fallbackToolHistoryToText) {
-                    parts.push({ text: `[Tool call: ${tc.function?.name || 'function'}(${JSON.stringify(args)})]` });
+            if (parts.length > 0) {
+                if (contents.length > 0 && contents[contents.length - 1].role === role) {
+                    contents[contents.length - 1].parts.push(...parts);
                 } else {
-                    const functionCall: DynamicPayload = {
-                        name: tc.function?.name || 'function',
-                        args
-                    };
-                    if (tc.id) functionCall.id = tc.id;
-                    parts.push({ functionCall });
+                    contents.push({ role, parts });
                 }
-            }
-        }
-
-        if (parts.length > 0) {
-            // 合并连续同角色消息以满足 Gemini API 要求
-            if (contents.length > 0 && contents[contents.length - 1].role === role) {
-                contents[contents.length - 1].parts.push(...parts);
-            } else {
-                contents.push({ role, parts });
             }
         }
     }
@@ -368,71 +652,148 @@ export function buildGoogleZedPayload(model: string, requestBody: ZedRequest, ca
         provReq.systemInstruction = systemInstruction;
     }
 
-    // 工具定义 -> functionDeclarations；tool_choice -> functionCallingConfig
-    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-        provReq.tools = [{
-            functionDeclarations: requestBody.tools
-                .filter((t) => isRecord(t) && t.name)
-                .map((t) => ({
-                    name: t.name,
-                    description: t.description,
-                    // Zed Google 通道同样受 Gemini Protobuf Schema 限制；
-                    // 复用共享 polyfill，避免 pattern/oneOf/$ref 等关键字被上游拒绝。
+    // 工具定义 -> functionDeclarations；tool_choice / toolConfig -> functionCallingConfig
+    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0 && resolvedMeta?.supports_tools !== false) {
+        const rawDecls: DynamicPayload[] = [];
+        for (const t of requestBody.tools) {
+            if (!isRecord(t)) continue;
+            if (Array.isArray(t.functionDeclarations)) {
+                for (const decl of t.functionDeclarations) {
+                    if (isRecord(decl) && decl.name) {
+                        rawDecls.push(decl);
+                    }
+                }
+            } else if (t.name || (isRecord(t.function) && t.function.name)) {
+                const fn = isRecord(t.function) ? t.function : t;
+                rawDecls.push({
+                    name: fn.name || t.name,
+                    description: fn.description ?? t.description,
+                    parameters: fn.parameters || t.input_schema || t.parameters
+                });
+            }
+        }
+
+        if (rawDecls.length > 0) {
+            provReq.tools = [{
+                functionDeclarations: rawDecls.map((decl) => ({
+                    name: decl.name,
+                    description: decl.description,
                     parameters: polyfillAndCleanSchemaForGemini(
-                        t.input_schema || t.parameters || { type: 'object', properties: {} }
+                        decl.parameters || decl.parametersJsonSchema || decl.input_schema || { type: 'object', properties: {} }
                     )
                 }))
-        }];
+            }];
+        }
 
+        const existingFcc = requestBody.toolConfig?.functionCallingConfig;
         const tc = requestBody.tool_choice;
-        if (tc) {
-            let mode: string | null = null;
-            let allowedNames: string[] | null = null;
-            // Zed 的 Google AI 代理端点对 mode 使用小写枚举 (auto / any / none)
+        let mode: string | null = null;
+        let allowedNames: string[] | null = null;
+
+        if (existingFcc && isRecord(existingFcc)) {
+            if (typeof existingFcc.mode === 'string') {
+                mode = existingFcc.mode.toLowerCase();
+            }
+            if (Array.isArray(existingFcc.allowedFunctionNames) && existingFcc.allowedFunctionNames.length > 0) {
+                allowedNames = existingFcc.allowedFunctionNames.map(String);
+            }
+        } else if (tc) {
             if (typeof tc === 'string') {
                 if (tc === 'auto') mode = 'auto';
                 else if (tc === 'none') mode = 'none';
                 else if (tc === 'any' || tc === 'required') mode = 'any';
-            } else if (typeof tc === 'object') {
+            } else if (isRecord(tc)) {
                 if (tc.type === 'auto') mode = 'auto';
                 else if (tc.type === 'none') mode = 'none';
                 else if (tc.type === 'any') mode = 'any';
-                else if (tc.type === 'tool' && tc.name) {
+                else if ((tc.type === 'tool' || tc.type === 'function') && (tc.name || (isRecord(tc.function) && tc.function.name))) {
                     mode = 'any';
-                    allowedNames = [tc.name];
+                    allowedNames = [String(tc.name || (tc.function as DynamicPayload).name)];
                 }
             }
-            if (mode) {
-                provReq.toolConfig = {
-                    functionCallingConfig: {
-                        mode,
-                        ...(allowedNames ? { allowedFunctionNames: allowedNames } : {})
-                    }
-                };
-            }
+        }
+
+        if (mode && !capabilities.supportsForcedToolChoice && mode === 'any') {
+            mode = 'auto';
+            allowedNames = null;
+        }
+
+        if (mode) {
+            provReq.toolConfig = {
+                functionCallingConfig: {
+                    mode,
+                    ...(allowedNames ? { allowedFunctionNames: allowedNames } : {})
+                }
+            };
         }
     }
 
     // 超参数与 Gemini 3.1+ 思考配置
-    const generationConfig: DynamicPayload = {};
-    if (requestBody.temperature !== undefined && capabilities.supportsTemperature) {
+    const generationConfig: DynamicPayload = isRecord(requestBody.generationConfig)
+        ? { ...requestBody.generationConfig }
+        : {};
+    delete generationConfig.thinkingConfig;
+
+    if (requestBody.temperature !== undefined) {
         generationConfig.temperature = requestBody.temperature;
     }
-    if (requestBody.max_tokens) generationConfig.maxOutputTokens = requestBody.max_tokens;
+    if (!capabilities.supportsTemperature) {
+        delete generationConfig.temperature;
+    }
 
-    const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
-    const thinkingBudget = requestBody.thinking?.budget_tokens;
-    if (thinkingBudget) {
-        // Gemini 3+ 只接受 thinkingLevel（MINIMAL/LOW/MEDIUM/HIGH），
-        // 传 thinkingBudget 会被上游以 500 拒绝。阈值统一复用 canonical 表（low<=2048, medium<=8192）。
-        const effort = budgetTokensToEffort(Number(thinkingBudget));
-        const thinkingConfig = effortToGeminiThinking(effort);
-        if (thinkingConfig) generationConfig.thinkingConfig = thinkingConfig;
-    } else if (reasoningEffort && reasoningEffort !== 'none') {
-        const thinkingConfig = effortToGeminiThinking(reasoningEffort);
-        if (thinkingConfig) {
-            generationConfig.thinkingConfig = thinkingConfig;
+    if (requestBody.max_tokens !== undefined) {
+        generationConfig.maxOutputTokens = requestBody.max_tokens;
+    }
+    if (generationConfig.maxOutputTokens !== undefined) {
+        if (!capabilities.supportsMaxOutputTokens) {
+            delete generationConfig.maxOutputTokens;
+        } else {
+            const maxOutLimit = Number(resolvedMeta?.max_output_tokens) > 0 ? Number(resolvedMeta?.max_output_tokens) : 65535;
+            generationConfig.maxOutputTokens = Math.min(Number(generationConfig.maxOutputTokens), maxOutLimit);
         }
+    }
+
+    const rawEffort = requestBody._rawThinkingEffort
+        ?? requestBody.reasoning_effort
+        ?? requestBody.reasoning?.effort
+        ?? requestBody.output_config?.effort
+        ?? requestBody.thinking?.effort;
+    const existingThinkingConfig = isRecord(requestBody.generationConfig?.thinkingConfig)
+        ? requestBody.generationConfig.thinkingConfig
+        : null;
+    const isExplicitDisable =
+        Boolean(requestBody._rawThinkingDisabled) ||
+        String(rawEffort || '').trim().toLowerCase() === 'none' ||
+        String(requestBody.thinking?.type || '').trim().toLowerCase() === 'disabled' ||
+        existingThinkingConfig?.thinkingBudget === 0;
+
+    let requestedEffort: unknown = rawEffort;
+    if (
+        (requestedEffort === undefined || requestedEffort === null || String(requestedEffort).trim() === '') &&
+        !isExplicitDisable
+    ) {
+        if (requestBody.thinking?.budget_tokens !== undefined) {
+            requestedEffort = budgetTokensToEffort(Number(requestBody.thinking.budget_tokens));
+        } else if (existingThinkingConfig?.thinkingLevel) {
+            requestedEffort = existingThinkingConfig.thinkingLevel;
+        } else if (existingThinkingConfig?.thinkingBudget !== undefined && Number(existingThinkingConfig.thinkingBudget) > 0) {
+            requestedEffort = budgetTokensToEffort(Number(existingThinkingConfig.thinkingBudget));
+        }
+    }
+
+    const resolvedLevel = resolveZedEffortLevel({
+        model,
+        requestedEffort,
+        isExplicitDisable,
+        meta: resolvedMeta,
+        allowThinking: capabilities.supportsThinking,
+        fallbackValidEfforts: ['MINIMAL', 'LOW', 'MEDIUM', 'HIGH']
+    });
+
+    if (resolvedLevel) {
+        generationConfig.thinkingConfig = {
+            thinkingLevel: resolvedLevel.toUpperCase()
+        };
     }
 
     if (Object.keys(generationConfig).length > 0) {
@@ -457,7 +818,12 @@ export function buildAnthropicZedPayload(
     modelMetadataMap: Map<string, Record<string, unknown>>,
     provider: ZedProvider
 ) {
-    let maxTokens = Math.min(requestBody.max_tokens || 8192, 64000);
+    const resolvedMeta = getZedModelMetadata(model, modelMetadataMap);
+    const maxOutputLimit = Number(resolvedMeta?.max_output_tokens) > 0
+        ? Number(resolvedMeta?.max_output_tokens)
+        : 64000;
+    const maxTokens = Math.min(Number(requestBody.max_tokens) || 8192, maxOutputLimit);
+
     const provReq: DynamicPayload = {
         model: model,
         max_tokens: maxTokens,
@@ -465,6 +831,15 @@ export function buildAnthropicZedPayload(
         stream: true
     };
     if (provReq.temperature === undefined) delete provReq.temperature;
+    if (requestBody.top_p !== undefined) {
+        provReq.top_p = requestBody.top_p;
+    }
+    if (requestBody.stop_sequences !== undefined) {
+        provReq.stop_sequences = requestBody.stop_sequences;
+    }
+    if (requestBody.metadata !== undefined) {
+        provReq.metadata = requestBody.metadata;
+    }
 
     if (requestBody.system) {
         provReq.system = typeof requestBody.system === 'string'
@@ -474,49 +849,84 @@ export function buildAnthropicZedPayload(
                 : String(requestBody.system);
     }
 
-    const reasoningEffort = requestBody.reasoning_effort || requestBody.reasoning?.effort;
+    const rawEffort = requestBody._rawThinkingEffort
+        ?? requestBody.reasoning_effort
+        ?? requestBody.reasoning?.effort
+        ?? requestBody.output_config?.effort
+        ?? requestBody.thinking?.effort;
     const thinkingObj = requestBody.thinking;
-    const isThinkingRequested = (thinkingObj && thinkingObj.type !== 'disabled') || (reasoningEffort && reasoningEffort !== 'none');
+    const isExplicitDisable =
+        Boolean(requestBody._rawThinkingDisabled) ||
+        String(rawEffort || '').trim().toLowerCase() === 'none' ||
+        String(thinkingObj?.type || '').trim().toLowerCase() === 'disabled';
+    const isThinkingRequested =
+        !isExplicitDisable &&
+        Boolean(
+            (thinkingObj && thinkingObj.type !== 'disabled') ||
+            (rawEffort !== undefined && rawEffort !== null && String(rawEffort).trim() !== '')
+        );
 
     if (isThinkingRequested && !capabilities.supportsThinking) {
         logger.debug(`[Zed] Model ${model} is declared without thinking support; dropping thinking config`);
     }
 
-    if (isThinkingRequested && capabilities.supportsThinking) {
-        const meta = modelMetadataMap?.get(model);
-        const hasEffortLevels = Array.isArray(meta?.supported_effort_levels) && meta.supported_effort_levels.length > 0;
-        const isAdaptive = hasEffortLevels ||
+    const levels = normalizeZedEffortLevels(resolvedMeta?.supported_effort_levels);
+    const isAdaptive = levels.length > 0 || (
+        !resolvedMeta && (
             model.includes('5-5') ||
             model.includes('sonnet-5') ||
             model.includes('sonnet-4-6') ||
-            model.includes('opus-4-6');
+            model.includes('opus-4-6')
+        )
+    );
 
-        if (isAdaptive) {
-            let effort: string | null = null;
-            if (reasoningEffort && reasoningEffort !== 'none') {
-                effort = String(reasoningEffort).toLowerCase().trim();
-            } else if (thinkingObj?.effort) {
-                effort = String(thinkingObj.effort).toLowerCase().trim();
-            } else if (thinkingObj?.budget_tokens) {
-                effort = budgetToClaudeEffort(thinkingObj.budget_tokens);
-            }
+    if (isAdaptive) {
+        let requestedEffort: unknown = rawEffort;
+        if (
+            (requestedEffort === undefined || requestedEffort === null || String(requestedEffort).trim() === '') &&
+            !isExplicitDisable &&
+            thinkingObj?.budget_tokens !== undefined
+        ) {
+            requestedEffort = budgetToClaudeEffort(thinkingObj.budget_tokens);
+        }
 
-            const validEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
-            if (!effort || !validEfforts.includes(effort)) {
-                effort = 'high';
-            }
+        const effort = resolveZedEffortLevel({
+            model,
+            requestedEffort,
+            isExplicitDisable,
+            meta: resolvedMeta,
+            allowThinking: capabilities.supportsThinking,
+            fallbackValidEfforts: ['low', 'medium', 'high', 'xhigh', 'max']
+        });
 
+        if (effort) {
             provReq.thinking = { type: 'adaptive' };
             provReq.output_config = { effort };
-            delete provReq.temperature;
-        } else {
+            if (isThinkingRequested || !capabilities.supportsTemperature) {
+                delete provReq.temperature;
+            }
+            delete provReq.top_p;
+        }
+    } else {
+        if (rawEffort !== undefined && rawEffort !== null && String(rawEffort).trim() !== '' && !isExplicitDisable) {
+            resolveZedEffortLevel({
+                model,
+                requestedEffort: rawEffort,
+                isExplicitDisable,
+                meta: resolvedMeta,
+                allowThinking: capabilities.supportsThinking,
+                fallbackValidEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+            });
+        }
+
+        if (isThinkingRequested && capabilities.supportsThinking) {
             let budget = 4096;
-            if (thinkingObj?.budget_tokens) {
+            if (thinkingObj?.budget_tokens && !rawEffort) {
                 budget = Math.min(Number(thinkingObj.budget_tokens) || 4096, 32000);
             } else {
-                const eff = (reasoningEffort && reasoningEffort !== 'none')
-                    ? String(reasoningEffort).toLowerCase().trim()
-                    : (thinkingObj?.effort ? String(thinkingObj.effort).toLowerCase().trim() : 'medium');
+                const eff = rawEffort
+                    ? String(rawEffort).toLowerCase().trim()
+                    : 'medium';
                 budget = effortToClaudeBudget(eff);
             }
 
@@ -525,13 +935,14 @@ export function buildAnthropicZedPayload(
                 budget_tokens: budget
             };
             delete provReq.temperature;
+            delete provReq.top_p;
             if (provReq.max_tokens <= budget) {
-                provReq.max_tokens = Math.min(budget + 4096, 64000);
+                provReq.max_tokens = Math.min(budget + 4096, Math.max(maxOutputLimit, 64000));
             }
         }
     }
 
-    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
+    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0 && resolvedMeta?.supports_tools !== false) {
         provReq.tools = requestBody.tools.map((t) => ({
             name: t.name,
             description: t.description,
@@ -547,7 +958,13 @@ export function buildAnthropicZedPayload(
                 provReq.tool_choice = { type: 'any' };
             }
         } else if (typeof requestBody.tool_choice === 'object') {
-            provReq.tool_choice = requestBody.tool_choice;
+            provReq.tool_choice = { ...requestBody.tool_choice };
+        }
+        if (
+            isRecord(provReq.tool_choice) &&
+            resolvedMeta?.supports_parallel_tool_calls === false
+        ) {
+            provReq.tool_choice.disable_parallel_tool_use = true;
         }
         if (!capabilities.supportsForcedToolChoice &&
             (provReq.tool_choice?.type === 'tool' || provReq.tool_choice?.type === 'any')) {
@@ -558,7 +975,7 @@ export function buildAnthropicZedPayload(
 
     // 处理并合并连续同角色消息
     const messages: DynamicPayload[] = [];
-    let rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+    const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
     // 虚拟签名剥离由 request-pipeline 对 Claude 协议前缀上游统一执行，此处无需重复
 
     for (const m of rawMessages) {

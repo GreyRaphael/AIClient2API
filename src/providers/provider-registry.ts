@@ -10,6 +10,7 @@
  */
 
 import { MODEL_PROVIDER, MODEL_PROTOCOL_PREFIX } from '../utils/constants.ts';
+import { resolveZedProtocolPrefix } from './zed/zed-model-metadata.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 
@@ -31,6 +32,7 @@ interface ProviderUtilsConfig {
 interface ProviderDefinition {
     type: string;
     protocolPrefix: string;
+    resolveProtocolPrefix?: (model?: string) => string;
     capabilityRules?: ProviderCapabilityRule[];
     healthCheckModel?: string;
     credentialPathKey?: string;
@@ -166,6 +168,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
     {
         type: MODEL_PROVIDER.ZED,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.CLAUDE,
+        resolveProtocolPrefix: (model?: string) => resolveZedProtocolPrefix(model),
         // Zed Claude 5.x 已弃用 temperature，且不支持强制 tool_choice；
         // Zed Google 通道不支持多轮 functionCall/functionResponse 历史。
         capabilityRules: [

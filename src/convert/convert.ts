@@ -89,8 +89,8 @@ export function convertData(
 ): DynamicPayload | DynamicPayload[] | null {
     try {
         // 获取协议前缀
-        const fromProtocol = getProtocolPrefix(fromProvider);
-        const toProtocol = getProtocolPrefix(toProvider);
+        const fromProtocol = getProtocolPrefix(fromProvider, model);
+        const toProtocol = getProtocolPrefix(toProvider, model);
 
         // 从工厂获取转换器
         const converter = ConverterFactory.getConverter(fromProtocol);

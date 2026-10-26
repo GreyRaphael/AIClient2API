@@ -56,8 +56,11 @@ function extractPartsText(parts: unknown): string {
         .join('\n');
 }
 
-export function getProtocolPrefix(provider: string): string {
+export function getProtocolPrefix(provider: string, model?: string): string {
     const definition = getProviderDefinition(provider);
+    if (model && typeof definition?.resolveProtocolPrefix === 'function') {
+        return definition.resolveProtocolPrefix(model);
+    }
     if (definition?.protocolPrefix) {
         return definition.protocolPrefix;
     }

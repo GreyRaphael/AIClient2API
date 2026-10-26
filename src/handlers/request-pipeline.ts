@@ -376,7 +376,7 @@ export const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
  * @param {string} provider - 上游 provider 类型
  * @returns {string} 结束原因；无法判定时返回空串
  */
-export function extractTerminalFinishReason(payload: DynamicPayload | null | undefined, provider: string): string | null {
+export function extractTerminalFinishReason(payload: DynamicPayload | null | undefined, provider: string, model?: string): string | null {
     if (!payload || typeof payload !== 'object') return '';
     if (payload.type === 'response.failed' || payload.response?.status === 'failed' || payload.status === 'failed') {
         return 'failed';
@@ -384,7 +384,11 @@ export function extractTerminalFinishReason(payload: DynamicPayload | null | und
     if (isInStreamErrorPayload(payload)) {
         return 'error';
     }
-    switch (getProtocolPrefix(provider)) {
+    const effectiveModel = model
+        || (typeof payload.model === 'string' ? payload.model : undefined)
+        || (typeof payload.response?.model === 'string' ? payload.response.model : undefined)
+        || (typeof payload.message?.model === 'string' ? payload.message.model : undefined);
+    switch (getProtocolPrefix(provider, effectiveModel)) {
         case MODEL_PROTOCOL_PREFIX.GEMINI:
             return payload.candidates?.[0]?.finishReason || '';
         case MODEL_PROTOCOL_PREFIX.OPENAI:
@@ -430,10 +434,10 @@ export function isTerminalEmptyFinishReason(reason: unknown): boolean {
  * @param {string} provider - 上游 provider 类型
  * @param {string|null|undefined} requestId
  */
-function resetConverterStreamState(provider: string, requestId: string | null): void {
+function resetConverterStreamState(provider: string, requestId: string | null, model?: string): void {
     if (!requestId || !provider) return;
     try {
-        const converter = ConverterFactory.getConverter(getProtocolPrefix(provider));
+        const converter = ConverterFactory.getConverter(getProtocolPrefix(provider, model));
         converter?.resetStreamState?.(requestId);
     } catch (error) {
         logger.debug(`[Stream Retry] Failed to reset stream state for ${provider}: ${getErrorMessage(error)}`);
@@ -458,9 +462,13 @@ function resetConverterStreamState(provider: string, requestId: string | null): 
  * @param {string} toProvider - 上游 provider 类型
  * @returns {boolean} 是否含有有效内容
  */
-export function nativePayloadHasMeaningfulContent(payload: DynamicPayload | null | undefined, toProvider: string): boolean {
+export function nativePayloadHasMeaningfulContent(payload: DynamicPayload | null | undefined, toProvider: string, model?: string): boolean {
     if (!payload || typeof payload !== 'object') return false;
-    switch (getProtocolPrefix(toProvider)) {
+    const effectiveModel = model
+        || (typeof payload.model === 'string' ? payload.model : undefined)
+        || (typeof payload.response?.model === 'string' ? payload.response.model : undefined)
+        || (typeof payload.message?.model === 'string' ? payload.message.model : undefined);
+    switch (getProtocolPrefix(toProvider, effectiveModel)) {
         case MODEL_PROTOCOL_PREFIX.GEMINI: {
             const parts = payload.candidates?.[0]?.content?.parts;
             if (!Array.isArray(parts)) return false;
@@ -635,19 +643,19 @@ export async function handleStreamRequest(
     const streamRequestId = retryContext?.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     // 重试帧可能复用同一个 requestId；清理上一次尝试遗留的流式状态，
     // 避免重试流缺少 message_start / response.created 等生命周期首帧。
-    resetConverterStreamState(toProvider, streamRequestId);
+    resetConverterStreamState(toProvider, streamRequestId, model);
 
     try {
         // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
         // The service returns a stream in its native format (toProvider).
-        const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
+        const needsConversion = getProtocolPrefix(fromProvider, model) !== getProtocolPrefix(toProvider, model);
         // Claude / Responses 下游需要 usage，但 OpenAI Chat 流式默认不返回 usage。
         // 仅在跨协议转换到 OpenAI 上游时要求 include_usage；用不可枚举属性传递，
         // 避免内部标记被 JSON 序列化发送到上游。
         if (needsConversion
-            && getProtocolPrefix(toProvider) === MODEL_PROTOCOL_PREFIX.OPENAI
+            && getProtocolPrefix(toProvider, model) === MODEL_PROTOCOL_PREFIX.OPENAI
             && [MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]
-                .includes(getProtocolPrefix(fromProvider))) {
+                .includes(getProtocolPrefix(fromProvider, model))) {
             // 只设置内部不可枚举标记；实际 stream_options 由 OpenAIApiService 注入，
             // 避免 fallback 到 Trae 等非 OpenAI Chat 实现时把该字段发送出去。
             Object.defineProperty(requestBody, '_includeUsageForConversion', {
@@ -680,19 +688,19 @@ export async function handleStreamRequest(
             if (nativeIsError) {
                 sawStreamError = true;
                 sawMeaningfulContent = true;
-            } else if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider)) {
+            } else if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider, model)) {
                 sawMeaningfulContent = true;
             }
             // 记录上游结束原因（用于空响应诊断与“合法截断不重试”判定）。
             // 各协议词表不同：Gemini finishReason / OpenAI finish_reason /
             // Anthropic stop_reason / Responses incomplete_details.reason。
-            const chunkFinishReason = extractTerminalFinishReason(nativeChunk, toProvider);
+            const chunkFinishReason = extractTerminalFinishReason(nativeChunk, toProvider, model);
             if (chunkFinishReason) lastFinishReason = chunkFinishReason;
             const nativeCandidate = nativeChunk?.candidates?.[0];
             if (nativeCandidate?.finishMessage) lastFinishMessage = nativeCandidate.finishMessage;
 
             // Extract text for logging purposes
-            const chunkText = extractResponseText(nativeChunk, toProvider);
+            const chunkText = extractResponseText(nativeChunk, toProvider, model);
             if (chunkText && !Array.isArray(chunkText)) {
                 fullResponseText += chunkText;
             }
@@ -920,7 +928,7 @@ export async function handleStreamRequest(
                 });
 
                 // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
-                resetConverterStreamState(toProvider, streamRequestId);
+                resetConverterStreamState(toProvider, streamRequestId, model);
                 return await handleStreamRequest(
                     res,
                     result.service,
@@ -1025,7 +1033,7 @@ export async function handleStreamRequest(
                     });
 
                     // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
-                    resetConverterStreamState(toProvider, streamRequestId);
+                    resetConverterStreamState(toProvider, streamRequestId, model);
                     // 递归调用，使用新的服务
                     return await handleStreamRequest(
                         res,
@@ -1119,7 +1127,7 @@ export async function handleUnaryRequest(
 
     try{
         // The service returns the response in its native format (toProvider).
-        const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
+        const needsConversion = getProtocolPrefix(fromProvider, model) !== getProtocolPrefix(toProvider, model);
         requestBody.model = model;
         // fs.writeFile('oldRequest'+Date.now()+'.json', JSON.stringify(requestBody));
         const nativeResponse = await service.generateContent(model, requestBody);
@@ -1143,8 +1151,8 @@ export async function handleUnaryRequest(
         // 典型如 Antigravity 的 Gemini 3 以 MALFORMED_FUNCTION_CALL（空工具调用）收尾、
         // parts 里只有 thinking。非流式场景下尚未向客户端写入任何字节，
         // 直接抛空响应错误走统一的 isEmptyUpstreamResponse 重试分支。
-        if (!nativePayloadHasMeaningfulContent(nativeResponse, toProvider)) {
-            const finishInfo = extractTerminalFinishReason(nativeResponse, toProvider) || 'unknown';
+        if (!nativePayloadHasMeaningfulContent(nativeResponse, toProvider, model)) {
+            const finishInfo = extractTerminalFinishReason(nativeResponse, toProvider, model) || 'unknown';
             const finishMsg = nativeResponse?.candidates?.[0]?.finishMessage;
             if (isTerminalEmptyFinishReason(finishInfo)) {
                 // MAX_TOKENS / SAFETY / length / max_tokens 等终态即使没有正文也是合法结果，不能当作空响应重试；
@@ -1156,7 +1164,7 @@ export async function handleUnaryRequest(
             }
         }
 
-        const responseText = extractResponseText(nativeResponse, toProvider);
+        const responseText = extractResponseText(nativeResponse, toProvider, model);
 
         // Convert the response back to the client's format (fromProvider), if necessary.
         let clientResponse = nativeResponse;
@@ -1566,8 +1574,19 @@ export async function handleContentGenerationRequest(
         processedRequestBody._requestBaseUrl = CONFIG.requestBaseUrl;
     }
 
+    // 保留客户端原始思考档位与显式关闭标记（不可枚举，防止跨协议转换器吸附/截断后丢失原始档位）
+    const rawThinkingEffort = originalRequestBody.reasoning_effort
+        ?? originalRequestBody.reasoning?.effort
+        ?? originalRequestBody.output_config?.effort
+        ?? originalRequestBody.thinking?.effort
+        ?? originalRequestBody.extra_body?.anthropic?.thinking?.effort;
+    const rawThinkingDisabled =
+        String(rawThinkingEffort || '').trim().toLowerCase() === 'none' ||
+        String(originalRequestBody.thinking?.type || '').trim().toLowerCase() === 'disabled' ||
+        String(originalRequestBody.extra_body?.anthropic?.thinking?.type || '').trim().toLowerCase() === 'disabled';
+
     // fs.writeFile('originalRequestBody'+Date.now()+'.json', JSON.stringify(originalRequestBody));
-    if (getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider)) {
+    if (getProtocolPrefix(fromProvider, model) !== getProtocolPrefix(toProvider, model)) {
         logger.info(`[Request Convert] Converting request from ${fromProvider} to ${toProvider}`);
         const preConvertBody = processedRequestBody;
         processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId) as DynamicPayload;
@@ -1582,8 +1601,25 @@ export async function handleContentGenerationRequest(
         logger.info(`[Request Convert] Request format matches backend provider. No conversion needed.`);
     }
 
+    if (rawThinkingEffort !== undefined && rawThinkingEffort !== null && String(rawThinkingEffort).trim() !== '') {
+        Object.defineProperty(processedRequestBody, '_rawThinkingEffort', {
+            value: String(rawThinkingEffort).trim(),
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
+    }
+    if (rawThinkingDisabled) {
+        Object.defineProperty(processedRequestBody, '_rawThinkingDisabled', {
+            value: true,
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
+    }
+
     // 若发往 Claude 协议前缀的上游（包括直通 claude-custom / kiro / zed），剥离虚拟签名避免服务端报 400
-    if (getProtocolPrefix(toProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE &&
+    if (getProtocolPrefix(toProvider, model) === MODEL_PROTOCOL_PREFIX.CLAUDE &&
         Array.isArray(processedRequestBody.messages) &&
         isSignatureStrippingEnabled()) {
         const { messages: strippedMessages, stripped } = stripVirtualSignatures(processedRequestBody.messages);
@@ -1594,15 +1630,15 @@ export async function handleContentGenerationRequest(
     }
     
     // 3. Apply system prompt from file if configured.
-    processedRequestBody = await _applySystemPromptFromFile(CONFIG, processedRequestBody, toProvider);
-    await _manageSystemPrompt(processedRequestBody, toProvider);
+    processedRequestBody = await _applySystemPromptFromFile(CONFIG, processedRequestBody, toProvider, model);
+    await _manageSystemPrompt(processedRequestBody, toProvider, model);
 
     // 4. Log the incoming prompt (after potential conversion to the backend's format).
-    const promptText = extractPromptText(processedRequestBody, toProvider);
+    const promptText = extractPromptText(processedRequestBody, toProvider, model);
     
     // 4.1. 应用自定义模型参数 (温度、最大长度等)
     if (customModelConfig) {
-        _applyCustomModelParameters(processedRequestBody, customModelConfig, toProvider);
+        _applyCustomModelParameters(processedRequestBody, customModelConfig, toProvider, model);
     }
 
     await logConversation('input', promptText, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
@@ -1655,24 +1691,29 @@ function _extractModelAndStreamInfo(req: IncomingMessage, requestBody: DynamicPa
     return strategy.extractModelAndStreamInfo(req, requestBody);
 }
 
-async function _applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload, toProvider: string): Promise<DynamicPayload> {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(toProvider));
+async function _applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload, toProvider: string, model?: string): Promise<DynamicPayload> {
+    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(toProvider, model));
     return strategy.applySystemPromptFromFile(config, requestBody);
 }
 
-async function _manageSystemPrompt(requestBody: DynamicPayload, provider: string): Promise<void> {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
+async function _manageSystemPrompt(requestBody: DynamicPayload, provider: string, model?: string): Promise<void> {
+    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider, model));
     await strategy.manageSystemPrompt(requestBody);
 }
 
 // Helper functions for content extraction and conversion (from convert.js, but needed here)
-export function extractResponseText(response: DynamicPayload, provider: string): string {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
+export function extractResponseText(response: DynamicPayload, provider: string, model?: string): string {
+    const effectiveModel = model
+        || (typeof response?.model === 'string' ? response.model : undefined)
+        || (typeof response?.response?.model === 'string' ? response.response.model : undefined)
+        || (typeof response?.message?.model === 'string' ? response.message.model : undefined);
+    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider, effectiveModel));
     return strategy.extractResponseText(response);
 }
 
-export function extractPromptText(requestBody: DynamicPayload, provider: string): string {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
+export function extractPromptText(requestBody: DynamicPayload, provider: string, model?: string): string {
+    const effectiveModel = model || (typeof requestBody?.model === 'string' ? requestBody.model : undefined);
+    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider, effectiveModel));
     return strategy.extractPromptText(requestBody);
 }
 
@@ -1682,9 +1723,10 @@ export function extractPromptText(requestBody: DynamicPayload, provider: string)
  * @param {Object} customConfig - 自定义模型配置
  * @param {string} provider - 目标提供商
  */
-function _applyCustomModelParameters(requestBody: DynamicPayload, customConfig: DynamicPayload | null, provider: string): void {
+function _applyCustomModelParameters(requestBody: DynamicPayload, customConfig: DynamicPayload | null, provider: string, model?: string): void {
     if (!customConfig) return;
-    const protocol = getProtocolPrefix(provider);
+    const effectiveModel = model || (typeof requestBody?.model === 'string' ? requestBody.model : undefined);
+    const protocol = getProtocolPrefix(provider, effectiveModel);
     const hasConfiguredValue = (value: unknown): boolean => value !== undefined && value !== null;
 
     // 参数映射表

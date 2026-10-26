@@ -7,8 +7,6 @@ import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { PROVIDER_MODELS } from '../provider-models.ts';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.ts';
 import { normalizeUsageCandidate } from '../../utils/usage-normalizer.ts';
-// 共享底层协议映射工具（避免 provider 层反向依赖 converters 层）
-import { mapFinishReason } from '../../utils/protocol-utils.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
@@ -17,6 +15,12 @@ import { getErrorMessage } from '../../utils/error.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import { buildOpenAIZedPayload, buildGoogleZedPayload, buildAnthropicZedPayload } from './zed-payload-builders.ts';
 import type { ZedProvider, ZedRequest } from './zed-payload-builders.ts';
+import {
+    BUILTIN_ZED_MODEL_METADATA,
+    getZedModelMetadata,
+    resolveZedProvider,
+    updateZedModelMetadataStore
+} from './zed-model-metadata.ts';
 
 interface ZedServiceConfig extends ProviderConfig {
     ZED_OAUTH_CREDS_FILE_PATH?: string;
@@ -164,27 +168,13 @@ export function getZedVersionFromSystem() {
 }
 
 /**
- * 根据模型名推断 Zed 上游 provider 类型
+ * 根据模型元数据或模型名推断 Zed 上游 provider 类型
  * @param {string} model
  * @param {Map} [metadataMap] 可选模型元数据映射
  * @returns {'anthropic' | 'open_ai' | 'google'}
  */
 export function getZedProviderForModel(model: string, metadataMap: Map<string, Record<string, unknown>> | null = null): ZedProvider {
-    if (metadataMap && metadataMap.has(model)) {
-        const meta = metadataMap.get(model);
-        if (meta && typeof meta.provider === 'string') return meta.provider as ZedProvider;
-    }
-    const m = (model || '').toLowerCase();
-    if (m.startsWith('claude')) {
-        return 'anthropic';
-    }
-    if (m.startsWith('gpt-')) {
-        return 'open_ai';
-    }
-    if (m.startsWith('gemini')) {
-        return 'google';
-    }
-    return 'anthropic';
+    return resolveZedProvider(model, metadataMap);
 }
 
 /**
@@ -223,10 +213,12 @@ export class ZedApiService {
         this._tokenRefreshPromise = null;
         this._modelsFetchPromise = null;
 
-        // 实例隔离的模型缓存与元数据映射
+        // 实例隔离的模型缓存与元数据映射（初始预填充内置 23 个模型元数据）
         this.modelsCache = null;
         this.modelsExpiresAt = 0;
-        this.modelMetadataMap = new Map();
+        this.modelMetadataMap = new Map(
+            BUILTIN_ZED_MODEL_METADATA.map((item) => [item.id, { ...item } as Record<string, unknown>])
+        );
 
         this.loadCredentials();
     }
@@ -373,28 +365,30 @@ export class ZedApiService {
      * @param {string} model
      */
     resolveModelCapabilities(model: string): ProviderCapabilities {
+        const meta = getZedModelMetadata(model, this.modelMetadataMap);
         return resolveProviderCapabilities({
             providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ZED,
             model,
             config: this.config || {},
-            metadata: this.modelMetadataMap?.get(model) || null
+            metadata: (meta as unknown as Record<string, unknown>) || null
         });
     }
 
     /**
      * 构建适合发送给 Zed cloud completions 的 payload
      * @param {string} model
-     * @param {object} requestBody Claude 规范的请求体
+     * @param {object} requestBody 目标协议或兼容格式的请求体
      */
     buildPayload(model: string, requestBody: ZedRequest): DynamicPayload {
         const provider = this.getProviderForModel(model);
         const capabilities = this.resolveModelCapabilities(model);
+        const meta = getZedModelMetadata(model, this.modelMetadataMap);
 
         if (provider === 'open_ai') {
-            return buildOpenAIZedPayload(model, requestBody);
+            return buildOpenAIZedPayload(model, requestBody, capabilities, meta);
         }
         if (provider === 'google') {
-            return buildGoogleZedPayload(model, requestBody, capabilities);
+            return buildGoogleZedPayload(model, requestBody, capabilities, meta);
         }
         return buildAnthropicZedPayload(model, requestBody, capabilities, this.modelMetadataMap, provider);
     }
@@ -422,13 +416,15 @@ export class ZedApiService {
     }
 
     /**
-     * 流式生成内容 (输出 Claude 规范的 stream 事件)
+     * 流式生成内容（按模型对应的上游原生协议直接透传 SSE 事件：
+     * open_ai -> OpenAI Responses 事件；google -> Gemini generateContent 分块；anthropic -> Claude SSE 事件）
      * @param {string} model
      * @param {object} requestBody
      * @returns {AsyncIterable<object>}
      */
     async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<unknown> {
         const jwt = await this.getToken();
+        const provider = this.getProviderForModel(model);
         const payload = this.buildPayload(model, requestBody);
 
         const axiosConfig: AxiosRequestConfig = {
@@ -481,9 +477,7 @@ export class ZedApiService {
         let buffer = '';
         let messageStarted = false;
         let messageStopped = false;
-        let activeBlockIndex = -1;
-        let activeBlockType: 'thinking' | 'text' | 'tool_use' | null = null;
-        let sawToolUse = false; // 流中是否出现过工具调用（closeActiveBlock 会清空 activeBlockType，需独立标志）
+        let responsesStarted = false;
 
         const ensureMessageStart = function* () {
             if (!messageStarted) {
@@ -503,49 +497,12 @@ export class ZedApiService {
             }
         };
 
-        const ensureThinkingBlockStart = function* () {
-            if (activeBlockType !== 'thinking') {
-                if (activeBlockType !== null) {
-                    yield { type: 'content_block_stop', index: activeBlockIndex };
-                }
-                activeBlockIndex++;
-                activeBlockType = 'thinking';
-                yield {
-                    type: 'content_block_start',
-                    index: activeBlockIndex,
-                    content_block: { type: 'thinking', thinking: '' }
-                };
-            }
-        };
-
-        const ensureTextBlockStart = function* () {
-            if (activeBlockType !== 'text') {
-                if (activeBlockType !== null) {
-                    yield { type: 'content_block_stop', index: activeBlockIndex };
-                }
-                activeBlockIndex++;
-                activeBlockType = 'text';
-                yield {
-                    type: 'content_block_start',
-                    index: activeBlockIndex,
-                    content_block: { type: 'text', text: '' }
-                };
-            }
-        };
-
-        const closeActiveBlock = function* () {
-            if (activeBlockType !== null) {
-                yield { type: 'content_block_stop', index: activeBlockIndex };
-                activeBlockType = null;
-            }
-        };
-
         for await (const chunk of stream) {
             buffer += chunk.toString('utf8');
             const lines = buffer.split('\n');
             buffer = lines.pop() || ''; // 保留未完整的最后一行
 
-            for (let rawLine of lines) {
+            for (const rawLine of lines) {
                 let dataStr = rawLine.trim();
                 if (!dataStr) continue;
                 if (dataStr.startsWith('data:')) {
@@ -569,14 +526,47 @@ export class ZedApiService {
                     obj = obj.event;
                 }
 
-                // 1. Anthropic 原生规范事件 (标记状态后直接透传)
+                // 1. OpenAI Responses 原生流透传 (provider === 'open_ai')
+                if (provider === 'open_ai') {
+                    if (typeof obj.type === 'string' && obj.type === 'response.created') {
+                        responsesStarted = true;
+                        yield obj;
+                        continue;
+                    }
+                    if (!responsesStarted && typeof obj.type === 'string' && obj.type.startsWith('response.') && obj.type !== 'response.failed') {
+                        responsesStarted = true;
+                        yield {
+                            type: 'response.created',
+                            response: {
+                                id: `resp_${randomUUID().replace(/-/g, '')}`,
+                                object: 'response',
+                                model,
+                                status: 'in_progress',
+                                output: []
+                            }
+                        };
+                    }
+                    yield obj;
+                    continue;
+                }
+
+                // 2. Google Gemini 原生流透传 (provider === 'google')
+                if (provider === 'google') {
+                    yield obj;
+                    continue;
+                }
+
+                // 3. Anthropic 原生规范事件透传 (provider === 'anthropic')
                 if (typeof obj.type === 'string' && (
                     obj.type.startsWith('message_') ||
                     obj.type.startsWith('content_block_') ||
-                    obj.type === 'ping'
+                    obj.type === 'ping' ||
+                    obj.type === 'error'
                 )) {
                     if (obj.type === 'message_start') {
                         messageStarted = true;
+                    } else if (obj.type.startsWith('content_block_') || obj.type === 'message_delta') {
+                        yield* ensureMessageStart();
                     }
                     if (obj.type === 'message_stop') {
                         messageStopped = true;
@@ -585,253 +575,261 @@ export class ZedApiService {
                     continue;
                 }
 
-                yield* ensureMessageStart();
-
-                // 2. OpenAI Responses API 事件 (cloud.zed.dev 对 open_ai 系列模型返回)
-                if (typeof obj.type === 'string' && obj.type.startsWith('response.')) {
-                    if (obj.type === 'response.output_text.delta' && obj.delta) {
-                        yield* ensureTextBlockStart();
-                        yield {
-                            type: 'content_block_delta',
-                            index: activeBlockIndex,
-                            delta: {
-                                type: 'text_delta',
-                                text: obj.delta
-                            }
-                        };
-                    } else if ((obj.type === 'response.reasoning_text.delta' ||
-                                obj.type === 'response.thinking_text.delta' ||
-                                obj.type === 'response.reasoning_summary_text.delta') && obj.delta) {
-                        yield* ensureThinkingBlockStart();
-                        yield {
-                            type: 'content_block_delta',
-                            index: activeBlockIndex,
-                            delta: {
-                                type: 'thinking_delta',
-                                thinking: obj.delta
-                            }
-                        };
-                    } else if (obj.type === 'response.output_text.done') {
-                        yield* closeActiveBlock();
-                    } else if (obj.type === 'response.output_item.added') {
-                        const item = obj.item;
-                        if (item?.type === 'function_call') {
-                            yield* closeActiveBlock();
-                            activeBlockIndex++;
-                            activeBlockType = 'tool_use';
-                            sawToolUse = true;
-                            yield {
-                                type: 'content_block_start',
-                                index: activeBlockIndex,
-                                content_block: {
-                                    type: 'tool_use',
-                                    id: item.call_id || item.id || `call_${randomUUID().slice(0, 8)}`,
-                                    name: item.name
-                                }
-                            };
-                        }
-                    } else if (obj.type === 'response.function_call_arguments.delta' && obj.delta) {
-                        yield {
-                            type: 'content_block_delta',
-                            index: activeBlockIndex,
-                            delta: {
-                                type: 'input_json_delta',
-                                partial_json: obj.delta
-                            }
-                        };
-                    } else if (obj.type === 'response.output_item.done') {
-                        const item = obj.item;
-                        if (item?.type === 'function_call') {
-                            yield* closeActiveBlock();
-                        }
-                    } else if (obj.type === 'response.completed') {
-                        yield* closeActiveBlock();
-                        yield {
-                            type: 'message_delta',
-                            delta: {
-                                stop_reason: sawToolUse ? 'tool_use' : 'end_turn'
-                            },
-                            usage: this._formatClaudeUsage(obj.response?.usage)
-                        };
-                        yield {
-                            type: 'message_stop'
-                        };
-                        messageStopped = true;
-                    }
-                    continue;
-                }
-
-                // 3. OpenAI Chat Completions 格式事件 (choices[0].delta)
-                if (Array.isArray(obj.choices) && obj.choices.length > 0) {
-                    const choice = obj.choices[0];
-                    const delta = choice.delta || {};
-
-                    if (delta.reasoning_content) {
-                        yield* ensureThinkingBlockStart();
-                        yield {
-                            type: 'content_block_delta',
-                            index: activeBlockIndex,
-                            delta: {
-                                type: 'thinking_delta',
-                                thinking: delta.reasoning_content
-                            }
-                        };
-                    }
-
-                    if (delta.content) {
-                        yield* ensureTextBlockStart();
-                        yield {
-                            type: 'content_block_delta',
-                            index: activeBlockIndex,
-                            delta: {
-                                type: 'text_delta',
-                                text: delta.content
-                            }
-                        };
-                    }
-
-                    if (Array.isArray(delta.tool_calls)) {
-                        sawToolUse = true;
-                        for (let i = 0; i < delta.tool_calls.length; i++) {
-                            const tc = delta.tool_calls[i];
-                            if (tc.function?.name) {
-                                yield* closeActiveBlock();
-                                activeBlockIndex++;
-                                activeBlockType = 'tool_use';
-                                yield {
-                                    type: 'content_block_start',
-                                    index: activeBlockIndex,
-                                    content_block: {
-                                        type: 'tool_use',
-                                        id: tc.id || `call_${randomUUID().slice(0, 8)}`,
-                                        name: tc.function.name
-                                    }
-                                };
-                            }
-                            if (tc.function?.arguments) {
-                                yield {
-                                    type: 'content_block_delta',
-                                    index: activeBlockIndex,
-                                    delta: {
-                                        type: 'input_json_delta',
-                                        partial_json: tc.function.arguments
-                                    }
-                                };
-                            }
-                        }
-                    }
-
-                    if (choice.finish_reason) {
-                        yield* closeActiveBlock();
-                        const isToolCalls = choice.finish_reason === 'tool_calls' || sawToolUse;
-                        yield {
-                            type: 'message_delta',
-                            delta: { stop_reason: isToolCalls ? 'tool_use' : 'end_turn' },
-                            usage: obj.usage ? this._formatClaudeUsage(obj.usage) : { output_tokens: 0 }
-                        };
-                    }
-                    continue;
-                }
-
-                // OpenAI Chat Completions 独立 usage 块 (例如 stream_options: { include_usage: true } 时 choices 为空)
-                if (obj.usage && (!Array.isArray(obj.choices) || obj.choices.length === 0)) {
-                    yield {
-                        type: 'message_delta',
-                        delta: { stop_reason: sawToolUse ? 'tool_use' : 'end_turn' },
-                        usage: this._formatClaudeUsage(obj.usage)
-                    };
-                    continue;
-                }
-
-                // 4. Google Gemini 格式事件
-                if (Array.isArray(obj.candidates) && obj.candidates.length > 0) {
-                    const candidate = obj.candidates[0];
-                    const parts = candidate.content?.parts;
-                    if (Array.isArray(parts)) {
-                        for (const part of parts) {
-                            if (part.thought && part.text) {
-                                yield* ensureThinkingBlockStart();
-                                yield {
-                                    type: 'content_block_delta',
-                                    index: activeBlockIndex,
-                                    delta: {
-                                        type: 'thinking_delta',
-                                        thinking: part.text
-                                    }
-                                };
-                            } else if (part.text) {
-                                yield* ensureTextBlockStart();
-                                yield {
-                                    type: 'content_block_delta',
-                                    index: activeBlockIndex,
-                                    delta: {
-                                        type: 'text_delta',
-                                        text: part.text
-                                    }
-                                };
-                            } else if (part.functionCall) {
-                                sawToolUse = true;
-                                yield* closeActiveBlock();
-                                activeBlockIndex++;
-                                activeBlockType = 'tool_use';
-                                const toolId = part.functionCall.id || `call_${randomUUID().slice(0, 8)}`;
-                                yield {
-                                    type: 'content_block_start',
-                                    index: activeBlockIndex,
-                                    content_block: {
-                                        type: 'tool_use',
-                                        id: toolId,
-                                        name: part.functionCall.name,
-                                        input: {}
-                                    }
-                                };
-                                yield {
-                                    type: 'content_block_delta',
-                                    index: activeBlockIndex,
-                                    delta: {
-                                        type: 'input_json_delta',
-                                        partial_json: typeof part.functionCall.args === 'string'
-                                            ? part.functionCall.args
-                                            : JSON.stringify(part.functionCall.args || {})
-                                    }
-                                };
-                                yield* closeActiveBlock();
-                            }
-                        }
-                    }
-
-                    if (candidate.finishReason) {
-                        yield* closeActiveBlock();
-                        // 映射表统一收编至 converters/utils.ts 的 mapFinishReason（SAFETY 族->refusal）；
-                        // sawToolUse 无条件优先（zed 现行外部行为保持不变）
-                        const stopReason = sawToolUse
-                            ? 'tool_use'
-                            : mapFinishReason(candidate.finishReason, 'gemini', 'anthropic');
-                        yield {
-                            type: 'message_delta',
-                            delta: {
-                                stop_reason: stopReason
-                            },
-                            usage: this._formatClaudeUsage(obj.usageMetadata)
-                        };
-                    }
-                    continue;
-                }
+                yield obj;
             }
         }
 
-        yield* closeActiveBlock();
-        if (!messageStopped) {
+        if (provider === 'anthropic' && messageStarted && !messageStopped) {
             yield { type: 'message_stop' };
         }
     }
 
     /**
-     * 单次生成内容 (累积流式输出构建完整响应)
+     * 单次生成内容 (累积流式输出构建对应上游协议的完整原生响应)
      * @param {string} model
      * @param {object} requestBody
      */
     async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+        const provider = this.getProviderForModel(model);
+
+        if (provider === 'open_ai') {
+            return this._aggregateOpenAIResponsesContent(model, requestBody);
+        }
+        if (provider === 'google') {
+            return this._aggregateGoogleContent(model, requestBody);
+        }
+        return this._aggregateAnthropicContent(model, requestBody);
+    }
+
+    async _aggregateOpenAIResponsesContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+        let responseId = `resp_${randomUUID().replace(/-/g, '')}`;
+        let status = 'completed';
+        let incompleteDetails: DynamicPayload | null = null;
+        let reasoningText = '';
+        let outputText = '';
+        const toolCalls = new Map<string, { id: string; call_id: string; name: string; arguments: string }>();
+        let completedOutput: DynamicPayload[] | null = null;
+        let usage: DynamicPayload = {
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0
+        };
+
+        // 兼容直接 mock 了 Claude 事件流的旧测试场景
+        let sawClaudeMockEvent = false;
+        let claudeMockStopReason = 'end_turn';
+        let claudeMockUsage: DynamicPayload | null = null;
+
+        for await (const chunk of this.generateContentStream(model, requestBody) as AsyncIterable<DynamicPayload>) {
+            if (!chunk || typeof chunk !== 'object') continue;
+
+            if (chunk.type === 'response.created' && chunk.response?.id) {
+                responseId = chunk.response.id;
+            } else if (
+                (chunk.type === 'response.reasoning_text.delta' ||
+                 chunk.type === 'response.thinking_text.delta' ||
+                 chunk.type === 'response.reasoning_summary_text.delta') &&
+                typeof chunk.delta === 'string'
+            ) {
+                reasoningText += chunk.delta;
+            } else if (chunk.type === 'response.output_text.delta' && typeof chunk.delta === 'string') {
+                outputText += chunk.delta;
+            } else if (chunk.type === 'response.output_item.added' && chunk.item?.type === 'function_call') {
+                const key = String(chunk.output_index ?? chunk.item.id ?? chunk.item.call_id ?? toolCalls.size);
+                toolCalls.set(key, {
+                    id: chunk.item.id || `fc_${randomUUID().slice(0, 8)}`,
+                    call_id: chunk.item.call_id || chunk.item.id || `call_${randomUUID().slice(0, 8)}`,
+                    name: chunk.item.name || 'function',
+                    arguments: typeof chunk.item.arguments === 'string' ? chunk.item.arguments : ''
+                });
+            } else if (chunk.type === 'response.function_call_arguments.delta' && typeof chunk.delta === 'string') {
+                const keys = Array.from(toolCalls.keys());
+                const key = String(chunk.output_index ?? chunk.item_id ?? (keys.length > 0 ? keys[keys.length - 1] : '0'));
+                const tc = toolCalls.get(key) || (keys.length > 0 ? toolCalls.get(keys[keys.length - 1]) : undefined);
+                if (tc) {
+                    tc.arguments += chunk.delta;
+                }
+            } else if (chunk.type === 'response.output_item.done' && chunk.item?.type === 'function_call') {
+                const key = String(chunk.output_index ?? chunk.item.id ?? chunk.item.call_id ?? '0');
+                const existing = toolCalls.get(key);
+                if (existing) {
+                    if (chunk.item.arguments && !existing.arguments) {
+                        existing.arguments = typeof chunk.item.arguments === 'string'
+                            ? chunk.item.arguments
+                            : JSON.stringify(chunk.item.arguments);
+                    }
+                    if (chunk.item.name) existing.name = chunk.item.name;
+                    if (chunk.item.call_id) existing.call_id = chunk.item.call_id;
+                } else {
+                    toolCalls.set(key, {
+                        id: chunk.item.id || `fc_${randomUUID().slice(0, 8)}`,
+                        call_id: chunk.item.call_id || chunk.item.id || `call_${randomUUID().slice(0, 8)}`,
+                        name: chunk.item.name || 'function',
+                        arguments: typeof chunk.item.arguments === 'string'
+                            ? chunk.item.arguments
+                            : JSON.stringify(chunk.item.arguments || {})
+                    });
+                }
+            } else if (chunk.type === 'response.completed' || chunk.type === 'response.incomplete') {
+                if (chunk.response?.id) responseId = chunk.response.id;
+                if (chunk.response?.status) status = chunk.response.status;
+                else if (chunk.type === 'response.incomplete') status = 'incomplete';
+                if (chunk.response?.incomplete_details) incompleteDetails = chunk.response.incomplete_details;
+                if (Array.isArray(chunk.response?.output) && chunk.response.output.length > 0) {
+                    completedOutput = chunk.response.output;
+                }
+                if (chunk.response?.usage) {
+                    const u = chunk.response.usage;
+                    const inTok = Number(u.input_tokens) || 0;
+                    const outTok = Number(u.output_tokens) || 0;
+                    usage = {
+                        input_tokens: inTok,
+                        output_tokens: outTok,
+                        total_tokens: Number(u.total_tokens) || (inTok + outTok),
+                        ...(u.input_tokens_details ? { input_tokens_details: u.input_tokens_details } : {}),
+                        ...(u.output_tokens_details ? { output_tokens_details: u.output_tokens_details } : {})
+                    };
+                }
+            } else if (
+                chunk.type === 'message_start' ||
+                chunk.type === 'content_block_start' ||
+                chunk.type === 'content_block_delta' ||
+                chunk.type === 'message_delta'
+            ) {
+                sawClaudeMockEvent = true;
+                if (chunk.type === 'content_block_delta') {
+                    if (chunk.delta?.type === 'text_delta') outputText += chunk.delta.text || '';
+                    else if (chunk.delta?.type === 'thinking_delta') reasoningText += chunk.delta.thinking || '';
+                } else if (chunk.type === 'message_start' && chunk.message?.usage) {
+                    claudeMockUsage = { ...(claudeMockUsage || {}), ...chunk.message.usage };
+                } else if (chunk.type === 'message_delta') {
+                    if (chunk.delta?.stop_reason) claudeMockStopReason = chunk.delta.stop_reason;
+                    if (chunk.usage) claudeMockUsage = { ...(claudeMockUsage || {}), ...chunk.usage };
+                }
+            }
+        }
+
+        if (sawClaudeMockEvent && !completedOutput && toolCalls.size === 0 && usage.input_tokens === 0 && usage.output_tokens === 0) {
+            const content: DynamicPayload[] = [];
+            if (reasoningText) content.push({ type: 'thinking', thinking: reasoningText });
+            if (outputText) content.push({ type: 'text', text: outputText });
+            return {
+                id: `msg_${randomUUID().replace(/-/g, '')}`,
+                type: 'message',
+                role: 'assistant',
+                model,
+                content,
+                stop_reason: claudeMockStopReason,
+                usage: claudeMockUsage || { input_tokens: 0, output_tokens: 0 }
+            };
+        }
+
+        const output: DynamicPayload[] = [];
+        if (completedOutput && completedOutput.length > 0) {
+            output.push(...completedOutput);
+        } else {
+            if (reasoningText) {
+                output.push({
+                    type: 'reasoning',
+                    id: `rs_${randomUUID().slice(0, 8)}`,
+                    summary: [{ type: 'summary_text', text: reasoningText }]
+                });
+            }
+            if (outputText) {
+                output.push({
+                    type: 'message',
+                    id: `msg_${randomUUID().slice(0, 8)}`,
+                    status: 'completed',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: outputText, annotations: [] }]
+                });
+            }
+            for (const tc of toolCalls.values()) {
+                output.push({
+                    type: 'function_call',
+                    id: tc.id,
+                    call_id: tc.call_id,
+                    name: tc.name,
+                    arguments: tc.arguments || '{}',
+                    status: 'completed'
+                });
+            }
+        }
+
+        return {
+            id: responseId,
+            object: 'response',
+            model,
+            status,
+            ...(incompleteDetails ? { incomplete_details: incompleteDetails } : {}),
+            output,
+            usage
+        };
+    }
+
+    async _aggregateGoogleContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+        const parts: DynamicPayload[] = [];
+        let finishReason = 'STOP';
+        let usageMetadata: DynamicPayload = {
+            promptTokenCount: 0,
+            candidatesTokenCount: 0,
+            totalTokenCount: 0
+        };
+
+        for await (const chunk of this.generateContentStream(model, requestBody) as AsyncIterable<DynamicPayload>) {
+            if (!chunk || typeof chunk !== 'object') continue;
+            const candidate = Array.isArray(chunk.candidates) ? chunk.candidates[0] : null;
+            if (candidate) {
+                const candParts = candidate.content?.parts;
+                if (Array.isArray(candParts)) {
+                    for (const part of candParts) {
+                        if (!isRecord(part)) continue;
+                        if (typeof part.text === 'string' && !part.functionCall && !part.inlineData) {
+                            const lastPart = parts.length > 0 ? parts[parts.length - 1] : null;
+                            if (
+                                lastPart &&
+                                typeof lastPart.text === 'string' &&
+                                Boolean(lastPart.thought) === Boolean(part.thought) &&
+                                !lastPart.functionCall
+                            ) {
+                                lastPart.text += part.text;
+                            } else {
+                                parts.push({ ...part });
+                            }
+                        } else {
+                            parts.push({ ...part });
+                        }
+                    }
+                }
+                if (candidate.finishReason) {
+                    finishReason = candidate.finishReason;
+                }
+            }
+            if (isRecord(chunk.usageMetadata)) {
+                usageMetadata = {
+                    ...usageMetadata,
+                    ...chunk.usageMetadata
+                };
+            }
+        }
+
+        return {
+            candidates: [
+                {
+                    content: {
+                        role: 'model',
+                        parts
+                    },
+                    finishReason,
+                    index: 0
+                }
+            ],
+            usageMetadata,
+            modelVersion: model
+        };
+    }
+
+    async _aggregateAnthropicContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         let fullText = '';
         let fullThinking = '';
         const toolCalls = new Map();
@@ -969,6 +967,9 @@ export class ZedApiService {
                     const rawModels = res.data.models;
                     const modelIds: string[] = [];
                     this.modelMetadataMap.clear();
+                    for (const builtin of BUILTIN_ZED_MODEL_METADATA) {
+                        this.modelMetadataMap.set(builtin.id, { ...builtin } as Record<string, unknown>);
+                    }
 
                     for (const m of rawModels) {
                         if (m && m.id && !m.is_disabled) {
@@ -976,6 +977,8 @@ export class ZedApiService {
                             this.modelMetadataMap.set(m.id, m);
                         }
                     }
+
+                    updateZedModelMetadataStore(rawModels);
 
                     if (modelIds.length > 0) {
                         this.modelsCache = rawModels;
@@ -997,17 +1000,24 @@ export class ZedApiService {
     }
 
     /**
-     * 回退静态模型列表
+     * 回退静态模型列表（优先使用内置完整模型元数据表）
      */
-    _getFallbackModels() {
+    _getFallbackModels(): DynamicPayload[] {
         const modelIds = PROVIDER_MODELS['zed'] || [];
-        return modelIds.map((id: string) => ({
-            id,
-            display_name: id,
-            provider: this.getProviderForModel(id),
-            supports_thinking: id.includes('sonnet') || id.includes('luna') || id.includes('sol') || id.includes('terra') || id.includes('5.5') || id.includes('5.4') || id.includes('codex') || id.includes('flash') || id.includes('pro') || id.includes('5-5'),
-            supported_effort_levels: (id.includes('5-5') || id.includes('sonnet-5') || id.includes('sonnet-4-6') || id.includes('opus-4-6')) ? ['low', 'medium', 'high', 'xhigh', 'max'] : []
-        }));
+        return modelIds.map((id: string) => {
+            const meta = getZedModelMetadata(id, this.modelMetadataMap);
+            if (meta) {
+                return { ...meta };
+            }
+            return {
+                id,
+                display_name: id,
+                provider: this.getProviderForModel(id),
+                supports_thinking: false,
+                supports_disabling_thinking: true,
+                supported_effort_levels: []
+            };
+        });
     }
 
     /**
@@ -1023,6 +1033,7 @@ export class ZedApiService {
             owned_by: 'zed',
             provider: m.provider || this.getProviderForModel(m.id),
             supports_thinking: m.supports_thinking ?? false,
+            supports_disabling_thinking: m.supports_disabling_thinking ?? true,
             supported_effort_levels: m.supported_effort_levels || [],
             max_token_count: m.max_token_count,
             max_output_tokens: m.max_output_tokens

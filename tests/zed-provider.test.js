@@ -4,6 +4,8 @@ import { Readable } from 'stream';
 import axios from 'axios';
 import { MODEL_PROVIDER } from '../src/utils/constants.ts';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.ts';
+import '../src/converters/register-converters.ts';
+import { convertData } from '../src/convert/convert.ts';
 import { isRegisteredProvider, ZedApiServiceAdapter } from '../src/providers/adapter.ts';
 import {
     ZedApiService,
@@ -491,14 +493,23 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(payloadHigh.provider_request.thinking).toEqual({ type: 'adaptive' });
         expect(payloadHigh.provider_request.output_config).toEqual({ effort: 'high' });
 
-        // 3. Without thinking: claude-sonnet-5-5 deprecates temperature, so it is stripped
+        // 3. Without thinking: claude-sonnet-5-5 has supports_disabling_thinking: false -> auto-injects default 'high'
         const payloadNoThinking = zedService.buildPayload('claude-sonnet-5-5', {
             messages: [{ role: 'user', content: 'hello' }],
             temperature: 0.5
         });
-        expect(payloadNoThinking.provider_request.thinking).toBeUndefined();
-        expect(payloadNoThinking.provider_request.output_config).toBeUndefined();
+        expect(payloadNoThinking.provider_request.thinking).toEqual({ type: 'adaptive' });
+        expect(payloadNoThinking.provider_request.output_config).toEqual({ effort: 'high' });
         expect(payloadNoThinking.provider_request.temperature).toBeUndefined();
+
+        // 4. Without thinking on claude-sonnet-5 (supports_disabling_thinking: true) -> omitted
+        const payloadDisablable = zedService.buildPayload('claude-sonnet-5', {
+            messages: [{ role: 'user', content: 'hello' }],
+            temperature: 0.5
+        });
+        expect(payloadDisablable.provider_request.thinking).toBeUndefined();
+        expect(payloadDisablable.provider_request.output_config).toBeUndefined();
+        expect(payloadDisablable.provider_request.temperature).toBeUndefined();
     });
 
     test('ZedApiService.generateContentStream extracts detailed error when upstream returns error stream', async () => {
@@ -707,15 +718,27 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             });
 
             try {
-                const chunks = [];
+                const rawChunks = [];
+                const claudeChunks = [];
+                const reqId = 'test-req-cache';
                 for await (const chunk of zedService.generateContentStream('gpt-5.6-luna', { messages: [] })) {
-                    chunks.push(chunk);
+                    rawChunks.push(chunk);
+                    const converted = convertData(chunk, 'streamChunk', 'zed', 'claude', 'gpt-5.6-luna', reqId);
+                    if (Array.isArray(converted)) claudeChunks.push(...converted);
+                    else if (converted) claudeChunks.push(converted);
                 }
 
-                const deltaChunk = chunks.find(c => c.type === 'message_delta');
+                // Native OpenAI Responses chunk emitted directly from Zed
+                const completedEvent = rawChunks.find(c => c.type === 'response.completed');
+                expect(completedEvent).toBeDefined();
+                expect(completedEvent.response.usage.input_tokens_details.cached_tokens).toBe(960);
+
+                // Converted Claude stream chunk preserves cache_read_input_tokens
+                // (OpenAI's 1200 input_tokens includes 960 cached_tokens, so non-cached input_tokens = 240)
+                const deltaChunk = claudeChunks.find(c => c.type === 'message_delta');
                 expect(deltaChunk).toBeDefined();
-                expect(deltaChunk.usage).toEqual({
-                    input_tokens: 1200,
+                expect(deltaChunk.usage).toMatchObject({
+                    input_tokens: 240,
                     output_tokens: 35,
                     cache_read_input_tokens: 960
                 });
@@ -743,16 +766,22 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
 
             const spy = jest.spyOn(axios, 'request').mockResolvedValue({ data: Readable.from([sse]) });
             try {
-                const events = [];
+                const rawEvents = [];
+                const claudeEvents = [];
+                const reqId = 'test-req-tool';
                 for await (const ev of service.generateContentStream('gpt-5.2-codex', { messages: [{ role: 'user', content: 'hi' }] })) {
-                    events.push(ev);
+                    rawEvents.push(ev);
+                    const converted = convertData(ev, 'streamChunk', 'zed', 'claude', 'gpt-5.2-codex', reqId);
+                    if (Array.isArray(converted)) claudeEvents.push(...converted);
+                    else if (converted) claudeEvents.push(converted);
                 }
-                const messageDelta = events.find(e => e.type === 'message_delta');
+                expect(rawEvents.some(e => e.type === 'response.output_item.added' && e.item?.type === 'function_call')).toBe(true);
+                const messageDelta = claudeEvents.find(e => e.type === 'message_delta');
                 expect(messageDelta).toBeDefined();
                 expect(messageDelta.delta.stop_reason).toBe('tool_use');
                 // 工具块存在且事件序列完整
-                expect(events.some(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use')).toBe(true);
-                expect(events.some(e => e.type === 'message_stop')).toBe(true);
+                expect(claudeEvents.some(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use')).toBe(true);
+                expect(claudeEvents.some(e => e.type === 'message_stop')).toBe(true);
             } finally {
                 spy.mockRestore();
             }
@@ -830,13 +859,17 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             const service = new ZedApiService({ uuid: 'u', ZED_SYSTEM_ID: 's' });
             service.getToken = async () => 'jwt';
 
+            let seq = 0;
             const makeStream = async (candidateObj) => {
                 const sse = `data: ${JSON.stringify(candidateObj)}\n\n`;
                 const spy = jest.spyOn(axios, 'request').mockResolvedValue({ data: Readable.from([sse]) });
+                const reqId = `google-stream-${++seq}`;
                 try {
                     const events = [];
                     for await (const ev of service.generateContentStream('gemini-3.5-flash', { messages: [{ role: 'user', content: 'hi' }] })) {
-                        events.push(ev);
+                        const converted = convertData(ev, 'streamChunk', 'zed', 'claude', 'gemini-3.5-flash', reqId);
+                        if (Array.isArray(converted)) events.push(...converted);
+                        else if (converted) events.push(converted);
                     }
                     return events;
                 } finally {
@@ -871,6 +904,129 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             expect(toolStart.content_block.name).toBe('run_cmd');
             const mdTool = evTool.find(e => e.type === 'message_delta');
             expect(mdTool.delta.stop_reason).toBe('tool_use');
+        });
+    });
+
+    describe('Zed Single-Hop Protocol Resolution & Metadata Enforcement Tests', () => {
+        test('getProtocolPrefix dynamically resolves zed protocol prefix by model metadata', () => {
+            expect(getProtocolPrefix('zed')).toBe('claude');
+            expect(getProtocolPrefix('zed', 'claude-sonnet-5-5')).toBe('claude');
+            expect(getProtocolPrefix('zed', 'gpt-6.1-sol')).toBe('openaiResponses');
+            expect(getProtocolPrefix('zed', 'gpt-5-nano')).toBe('openaiResponses');
+            expect(getProtocolPrefix('zed', 'gemini-4-argon')).toBe('gemini');
+            expect(getProtocolPrefix('zed', 'gemini-3.8-flash')).toBe('gemini');
+        });
+
+        test('Decision 1: auto-injects default effort level (is_default: true) when supports_disabling_thinking is false', () => {
+            const zedService = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+
+            // claude-sonnet-5-5: supports_disabling_thinking: false, default: 'high'
+            const sonnet55 = zedService.buildPayload('claude-sonnet-5-5', {
+                messages: [{ role: 'user', content: 'hi' }]
+            });
+            expect(sonnet55.provider_request.thinking).toEqual({ type: 'adaptive' });
+            expect(sonnet55.provider_request.output_config).toEqual({ effort: 'high' });
+
+            // claude-haiku-5-5: supports_disabling_thinking: false, default: 'medium'
+            const haiku55 = zedService.buildPayload('claude-haiku-5-5', {
+                messages: [{ role: 'user', content: 'hi' }]
+            });
+            expect(haiku55.provider_request.thinking).toEqual({ type: 'adaptive' });
+            expect(haiku55.provider_request.output_config).toEqual({ effort: 'medium' });
+
+            // gpt-6.1-sol: supports_disabling_thinking: false, default: 'medium'
+            const gpt61 = zedService.buildPayload('gpt-6.1-sol', {
+                input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]
+            });
+            expect(gpt61.provider_request.reasoning).toEqual({ effort: 'medium', summary: 'detailed' });
+
+            // gemini-4-argon: supports_disabling_thinking: false, default: 'medium' -> 'MEDIUM'
+            const gemini4 = zedService.buildPayload('gemini-4-argon', {
+                contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
+            });
+            expect(gemini4.provider_request.generationConfig.thinkingConfig).toEqual({
+                thinkingLevel: 'MEDIUM'
+            });
+
+            // supports_disabling_thinking: true models do NOT auto-inject when omitted
+            const gpt6Luna = zedService.buildPayload('gpt-6-luna', {
+                input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]
+            });
+            expect(gpt6Luna.provider_request.reasoning).toBeUndefined();
+
+            const gemini35 = zedService.buildPayload('gemini-3.5-flash', {
+                contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
+            });
+            expect(gemini35.provider_request.generationConfig?.thinkingConfig).toBeUndefined();
+        });
+
+        test('Decision 2: out-of-bounds effort levels or disabling thinking when disallowed throws 400 error directly', () => {
+            const zedService = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+
+            // claude-sonnet-4-6 supports only low, medium, high, max (not xhigh)
+            expect(() => zedService.buildPayload('claude-sonnet-4-6', {
+                reasoning_effort: 'xhigh',
+                messages: [{ role: 'user', content: 'hi' }]
+            })).toThrow(/Unsupported thinking effort level 'xhigh' for model 'claude-sonnet-4-6'/);
+
+            // gpt-6-luna supports only low, medium, high, xhigh (not max)
+            expect(() => zedService.buildPayload('gpt-6-luna', {
+                reasoning: { effort: 'max' },
+                input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]
+            })).toThrow(/Unsupported thinking effort level 'max' for model 'gpt-6-luna'/);
+
+            // gemini-4-argon supports only LOW, MEDIUM, HIGH (not MINIMAL)
+            expect(() => zedService.buildPayload('gemini-4-argon', {
+                generationConfig: { thinkingConfig: { thinkingLevel: 'MINIMAL' } },
+                contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
+            })).toThrow(/Unsupported thinking effort level 'minimal' for model 'gemini-4-argon'/i);
+
+            // gpt-5-nano has supports_thinking: false
+            expect(() => zedService.buildPayload('gpt-5-nano', {
+                reasoning: { effort: 'low' },
+                input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]
+            })).toThrow(/does not support thinking\/reasoning/);
+
+            // Disabling thinking on supports_disabling_thinking: false model throws 400
+            expect(() => zedService.buildPayload('claude-sonnet-5-5', {
+                reasoning_effort: 'none',
+                messages: [{ role: 'user', content: 'hi' }]
+            })).toThrow(/does not support disabling thinking/);
+
+            try {
+                zedService.buildPayload('claude-sonnet-4-6', {
+                    reasoning_effort: 'xhigh',
+                    messages: [{ role: 'user', content: 'hi' }]
+                });
+            } catch (err) {
+                expect(err.status).toBe(400);
+                expect(err.statusCode).toBe(400);
+            }
+        });
+
+        test('Dynamic max_output_tokens clamping uses cloud.zed.dev/models metadata', () => {
+            const zedService = new ZedApiService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
+
+            // claude-sonnet-4-5 has max_output_tokens: 8192
+            const claude45 = zedService.buildPayload('claude-sonnet-4-5', {
+                max_tokens: 64000,
+                messages: [{ role: 'user', content: 'hi' }]
+            });
+            expect(claude45.provider_request.max_tokens).toBe(8192);
+
+            // claude-sonnet-5-5 has max_output_tokens: 128000
+            const claude55 = zedService.buildPayload('claude-sonnet-5-5', {
+                max_tokens: 100000,
+                messages: [{ role: 'user', content: 'hi' }]
+            });
+            expect(claude55.provider_request.max_tokens).toBe(100000);
+
+            // gemini-3.8-flash has max_output_tokens: 65535
+            const gemini38 = zedService.buildPayload('gemini-3.8-flash', {
+                generationConfig: { maxOutputTokens: 100000 },
+                contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
+            });
+            expect(gemini38.provider_request.generationConfig.maxOutputTokens).toBe(65535);
         });
     });
 
