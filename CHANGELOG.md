@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.7] - 2026-10-26
+
+### Added
+
+- 新增 Zed 模型元数据运行时注册表：远端 `/models` 成功后按账号持久化，冷启动自动恢复；支持账户隔离、原子写入与损坏缓存降级。
+- 新增 Zed 协议规则模块，按模型族同步解析 `claude` / `openaiResponses` / `gemini` 上游协议，核心 registry 不再依赖 provider 专属数据表。
+- 补充 Zed 注册表缓存、账户隔离、冷启动、禁用模型过滤、未知模型宽松透传与健康检查预算回归测试。
+
+### Changed
+
+- **Zed 单跳协议感知重构**：客户端协议直接转换到模型对应的上游原生协议，移除 Claude 中枢二次转换；OpenAI Responses、Gemini 与 Anthropic 原生事件直接透传后再单跳回转。
+- **删除 23 个模型的内置硬编码快照**：模型能力完全以 `cloud.zed.dev/models` 的运行时元数据为准，远端成功响应整体替换并过滤 `is_disabled` 模型。
+- **未知模型宽松降级**：严格思考档位校验与 `max_output_tokens` 裁剪仅在权威元数据存在时生效；新增模型/档位不再被本地白名单误杀。
+- **Trae 通道清理**：移除 `solo_work_lite` 节点选项与配置展示，思考模型过滤仅保留包含 `extra_high` 的通道。
+
+### Fixed
+
+- 修复 Zed 健康检查对 OpenAI Responses 通道发送 `max_tokens: 1` 导致上游返回空 500 的问题；Zed 健康检查改用最小可用预算 `16`，Kiro 保持 `1`。
+- 修复 Zed 重构引入的 `request-pipeline` TypeScript 类型错误，`npm run typecheck` 恢复通过。
+- 修复远端模型下架/禁用后仍残留在实例元数据与 `/v1/models` 的问题。
+
+### Verification
+
+- `npm run verify`：**50 suites / 626 tests 全绿**；typecheck、typecheck:plugins、strict、any 棘轮、imports、cycles、覆盖率门槛、runtime smoke 全部通过。
+- 真实上游全量 E2E：**18 个模型 × 11 项核心用例（198 项）+ 6 项通用定向契约全部通过**；4 项 provider 方言 canary 全部通过。
+- Zed 健康检查：3 个有额度节点全部 PASSED；3 个账号仍因 credits 耗尽返回 403（账号状态，非代码问题）。
+- 刷新 any 与覆盖率基线：`DynamicPayload` references 1525；总覆盖率 行 33.49% / 分支 33.91% / 函数 37.24%。
+
 ## [v5.0.6] - 2026-10-26
 
 ### Changed
