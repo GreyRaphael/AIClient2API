@@ -6,7 +6,6 @@ import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfil
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import {
-    getZedModelMetadata,
     normalizeZedEffortLevels,
     resolveZedEffortLevel
 } from './zed-model-metadata.ts';
@@ -159,7 +158,7 @@ export function buildOpenAIZedPayload(
     capabilities?: ProviderCapabilities,
     meta?: ZedModelMetadata | Record<string, unknown> | null
 ) {
-    const resolvedMeta = (meta || getZedModelMetadata(model)) as Partial<ZedModelMetadata> | null;
+    const resolvedMeta = (meta || null) as Partial<ZedModelMetadata> | null;
     let input: DynamicPayload[] = [];
 
     const sysSource = requestBody.instructions ?? requestBody.system;
@@ -297,8 +296,11 @@ export function buildOpenAIZedPayload(
 
     const rawMaxTokens = requestBody.max_output_tokens ?? requestBody.max_completion_tokens ?? requestBody.max_tokens;
     if (rawMaxTokens !== undefined && (capabilities?.supportsMaxOutputTokens ?? true)) {
-        const maxOutLimit = Number(resolvedMeta?.max_output_tokens) > 0 ? Number(resolvedMeta?.max_output_tokens) : 128000;
-        provReq.max_output_tokens = Math.min(Number(rawMaxTokens), maxOutLimit);
+        const maxOutLimit = Number(resolvedMeta?.max_output_tokens);
+        // 只有拿到权威元数据时才裁剪；未知模型交给上游判定，避免用过期上限静默截断。
+        provReq.max_output_tokens = maxOutLimit > 0
+            ? Math.min(Number(rawMaxTokens), maxOutLimit)
+            : Number(rawMaxTokens);
     }
 
     if (requestBody.parallel_tool_calls !== undefined && resolvedMeta?.supports_parallel_tool_calls !== false) {
@@ -333,8 +335,7 @@ export function buildOpenAIZedPayload(
         requestedEffort,
         isExplicitDisable,
         meta: resolvedMeta,
-        allowThinking: capabilities?.supportsThinking ?? true,
-        fallbackValidEfforts: ['low', 'medium', 'high', 'xhigh', 'max']
+        allowThinking: capabilities?.supportsThinking ?? true
     });
 
     if (resolvedEffort) {
@@ -460,7 +461,7 @@ export function buildGoogleZedPayload(
     capabilities: ProviderCapabilities,
     meta?: ZedModelMetadata | Record<string, unknown> | null
 ) {
-    const resolvedMeta = (meta || getZedModelMetadata(model)) as Partial<ZedModelMetadata> | null;
+    const resolvedMeta = (meta || null) as Partial<ZedModelMetadata> | null;
     const hasNativeContents = Array.isArray(requestBody.contents) && requestBody.contents.length > 0;
 
     let contents: DynamicPayload[] = [];
@@ -748,8 +749,11 @@ export function buildGoogleZedPayload(
         if (!capabilities.supportsMaxOutputTokens) {
             delete generationConfig.maxOutputTokens;
         } else {
-            const maxOutLimit = Number(resolvedMeta?.max_output_tokens) > 0 ? Number(resolvedMeta?.max_output_tokens) : 65535;
-            generationConfig.maxOutputTokens = Math.min(Number(generationConfig.maxOutputTokens), maxOutLimit);
+            const maxOutLimit = Number(resolvedMeta?.max_output_tokens);
+            // 未知模型不做本地裁剪，避免过期上限造成静默截断。
+            if (maxOutLimit > 0) {
+                generationConfig.maxOutputTokens = Math.min(Number(generationConfig.maxOutputTokens), maxOutLimit);
+            }
         }
     }
 
@@ -786,8 +790,7 @@ export function buildGoogleZedPayload(
         requestedEffort,
         isExplicitDisable,
         meta: resolvedMeta,
-        allowThinking: capabilities.supportsThinking,
-        fallbackValidEfforts: ['MINIMAL', 'LOW', 'MEDIUM', 'HIGH']
+        allowThinking: capabilities.supportsThinking
     });
 
     if (resolvedLevel) {
@@ -815,14 +818,15 @@ export function buildAnthropicZedPayload(
     model: string,
     requestBody: ZedRequest,
     capabilities: ProviderCapabilities,
-    modelMetadataMap: Map<string, Record<string, unknown>>,
+    meta: ZedModelMetadata | Record<string, unknown> | null,
     provider: ZedProvider
 ) {
-    const resolvedMeta = getZedModelMetadata(model, modelMetadataMap);
-    const maxOutputLimit = Number(resolvedMeta?.max_output_tokens) > 0
-        ? Number(resolvedMeta?.max_output_tokens)
-        : 64000;
-    const maxTokens = Math.min(Number(requestBody.max_tokens) || 8192, maxOutputLimit);
+    const resolvedMeta = (meta || null) as Partial<ZedModelMetadata> | null;
+    const maxOutputLimit = Number(resolvedMeta?.max_output_tokens);
+    const requestedMaxTokens = Number(requestBody.max_tokens) || 8192;
+    const maxTokens = maxOutputLimit > 0
+        ? Math.min(requestedMaxTokens, maxOutputLimit)
+        : requestedMaxTokens;
 
     const provReq: DynamicPayload = {
         model: model,
@@ -871,14 +875,9 @@ export function buildAnthropicZedPayload(
     }
 
     const levels = normalizeZedEffortLevels(resolvedMeta?.supported_effort_levels);
-    const isAdaptive = levels.length > 0 || (
-        !resolvedMeta && (
-            model.includes('5-5') ||
-            model.includes('sonnet-5') ||
-            model.includes('sonnet-4-6') ||
-            model.includes('opus-4-6')
-        )
-    );
+    // 是否走 adaptive 完全由权威元数据决定；元数据缺失时退回 legacy budget 分支，
+    // 不再用模型名子串猜测，避免新增模型被错误分类。
+    const isAdaptive = levels.length > 0;
 
     if (isAdaptive) {
         let requestedEffort: unknown = rawEffort;
@@ -895,8 +894,7 @@ export function buildAnthropicZedPayload(
             requestedEffort,
             isExplicitDisable,
             meta: resolvedMeta,
-            allowThinking: capabilities.supportsThinking,
-            fallbackValidEfforts: ['low', 'medium', 'high', 'xhigh', 'max']
+            allowThinking: capabilities.supportsThinking
         });
 
         if (effort) {
@@ -908,14 +906,23 @@ export function buildAnthropicZedPayload(
             delete provReq.top_p;
         }
     } else {
-        if (rawEffort !== undefined && rawEffort !== null && String(rawEffort).trim() !== '' && !isExplicitDisable) {
+        // 只在有权威元数据时执行严格校验：
+        // - supports_thinking: false + 显式思考请求 -> 400
+        // - supports_disabling_thinking: false + 显式关闭 -> 400
+        // 元数据缺失时透传，交给上游判定。
+        if (resolvedMeta) {
+            const hasRawEffort = rawEffort !== undefined && rawEffort !== null && String(rawEffort).trim() !== '';
+            const validationEffort = hasRawEffort
+                ? rawEffort
+                : (!isExplicitDisable && thinkingObj?.budget_tokens !== undefined
+                    ? budgetToClaudeEffort(thinkingObj.budget_tokens)
+                    : undefined);
             resolveZedEffortLevel({
                 model,
-                requestedEffort: rawEffort,
+                requestedEffort: validationEffort,
                 isExplicitDisable,
                 meta: resolvedMeta,
-                allowThinking: capabilities.supportsThinking,
-                fallbackValidEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+                allowThinking: capabilities.supportsThinking
             });
         }
 
@@ -937,7 +944,10 @@ export function buildAnthropicZedPayload(
             delete provReq.temperature;
             delete provReq.top_p;
             if (provReq.max_tokens <= budget) {
-                provReq.max_tokens = Math.min(budget + 4096, Math.max(maxOutputLimit, 64000));
+                const expanded = budget + 4096;
+                provReq.max_tokens = maxOutputLimit > 0
+                    ? Math.min(expanded, Math.max(maxOutputLimit, 64000))
+                    : expanded;
             }
         }
     }

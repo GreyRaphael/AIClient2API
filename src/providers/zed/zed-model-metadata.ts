@@ -703,7 +703,6 @@ export interface ResolveZedEffortOptions {
     isExplicitDisable?: boolean;
     meta?: ZedModelMetadata | Record<string, unknown> | null;
     allowThinking?: boolean;
-    fallbackValidEfforts?: string[];
 }
 
 function createBadRequestError(message: string): Error & { status: number; statusCode: number } {
@@ -724,17 +723,17 @@ function createBadRequestError(message: string): Error & { status: number; statu
  *      auto-injects the `value` of the level marked `is_default: true` in `supported_effort_levels`.
  *    - Otherwise returns `null`.
  * 5. If an effort is requested:
- *    - Matches case-insensitively against `supported_effort_levels` (or `fallbackValidEfforts`).
- *    - Returns the canonical `level.value` from metadata.
- *    - Throws 400 directly on out-of-bounds / unsupported effort levels (no clamping/snapping).
+ *    - With authoritative metadata: matches case-insensitively against `supported_effort_levels`,
+ *      returns the canonical `level.value`, and throws 400 on out-of-bounds levels.
+ *    - Without metadata: passes the normalized effort through and lets the upstream validate it,
+ *      so newly added upstream levels are not rejected by a stale local allowlist.
  */
 export function resolveZedEffortLevel({
     model,
     requestedEffort,
     isExplicitDisable = false,
     meta,
-    allowThinking = true,
-    fallbackValidEfforts
+    allowThinking = true
 }: ResolveZedEffortOptions): string | null {
     const resolvedMeta = (meta || getZedModelMetadata(model)) as Partial<ZedModelMetadata> | null;
     const levels = normalizeZedEffortLevels(resolvedMeta?.supported_effort_levels);
@@ -793,17 +792,7 @@ export function resolveZedEffortLevel({
         return matched.value;
     }
 
-    if (Array.isArray(fallbackValidEfforts) && fallbackValidEfforts.length > 0) {
-        const matchedFallback = fallbackValidEfforts.find(
-            (val) => val.toLowerCase() === normalizedRequested
-        );
-        if (!matchedFallback) {
-            throw createBadRequestError(
-                `Unsupported thinking effort level '${String(requestedEffort)}' for model '${model}'. Supported effort levels: [${fallbackValidEfforts.join(', ')}]`
-            );
-        }
-        return matchedFallback;
-    }
-
-    return String(requestedEffort).trim();
+    // 元数据缺失时不使用本地白名单拦截，直接透传规范化的档位名称；
+    // 上游新增档位不应因为网关内置列表过期而被误判为 400。
+    return normalizedRequested;
 }

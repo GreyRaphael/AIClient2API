@@ -1109,4 +1109,47 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             }
         });
     });
+
+    describe('Zed Unknown Model Permissive Fallback Tests', () => {
+        test('unknown Anthropic model passes through effort and does not clamp max_tokens', () => {
+            const zedService = new ZedApiService({ uuid: 'zed-unknown-claude', ZED_SYSTEM_ID: 'sys' });
+            const payload = zedService.buildPayload('claude-future-9-unknown', {
+                reasoning_effort: 'ultra',
+                max_tokens: 200000,
+                messages: [{ role: 'user', content: 'hi' }]
+            });
+
+            expect(payload.provider).toBe('anthropic');
+            // 未知模型不应用本地白名单，不抛 400；沿用 legacy thinking 透传
+            expect(payload.provider_request.thinking).toEqual({ type: 'enabled', budget_tokens: 20000 });
+            // 没有权威 max_output_tokens 时不裁剪
+            expect(payload.provider_request.max_tokens).toBe(200000);
+        });
+
+        test('unknown OpenAI Responses model passes through new effort and max_output_tokens', () => {
+            const zedService = new ZedApiService({ uuid: 'zed-unknown-gpt', ZED_SYSTEM_ID: 'sys' });
+            const payload = zedService.buildPayload('gpt-future-9-unknown', {
+                input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+                reasoning: { effort: 'ultra' },
+                max_output_tokens: 200000
+            });
+
+            expect(payload.provider).toBe('open_ai');
+            expect(payload.provider_request.reasoning.effort).toBe('ultra');
+            expect(payload.provider_request.max_output_tokens).toBe(200000);
+        });
+
+        test('unknown Gemini model passes through new effort and maxOutputTokens', () => {
+            const zedService = new ZedApiService({ uuid: 'zed-unknown-gemini', ZED_SYSTEM_ID: 'sys' });
+            const payload = zedService.buildPayload('gemini-future-9-unknown', {
+                contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+                reasoning_effort: 'ultra',
+                generationConfig: { maxOutputTokens: 200000 }
+            });
+
+            expect(payload.provider).toBe('google');
+            expect(payload.provider_request.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'ULTRA' });
+            expect(payload.provider_request.generationConfig.maxOutputTokens).toBe(200000);
+        });
+    });
 });

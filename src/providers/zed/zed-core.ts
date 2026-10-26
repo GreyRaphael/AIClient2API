@@ -390,7 +390,7 @@ export class ZedApiService {
         if (provider === 'google') {
             return buildGoogleZedPayload(model, requestBody, capabilities, meta);
         }
-        return buildAnthropicZedPayload(model, requestBody, capabilities, this.modelMetadataMap, provider);
+        return buildAnthropicZedPayload(model, requestBody, capabilities, meta, provider);
     }
 
     /**
