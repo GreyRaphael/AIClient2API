@@ -643,7 +643,6 @@ registerAdapter(MODEL_PROVIDER.KIRO_API, KiroApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.CODEX_API, CodexApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.ZED, ZedApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.TRAE, TraeApiServiceAdapter);
-registerAdapter(MODEL_PROVIDER.TRAE_SOLO_WORK_LITE, TraeApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.TRAE_CHAT_V3, TraeApiServiceAdapter);
 // 注：FORWARD_API / QWEN_API / IFLOW_API / GEMINI_CLI / GROK_WEB / GROK_CLI 六个提供商已彻底移除（core/auth/adapter 全部删除）。
 

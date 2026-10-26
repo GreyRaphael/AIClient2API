@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
-import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_SOLO_WORK_LITE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
+import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.ts';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.ts';
 import {
@@ -67,49 +67,14 @@ const CANONICAL_MODEL_ALIASES = {
 };
 
 /**
- * Trae SOLO Agent 通道 (solo_work_lite) 专属模型别名与重定向映射表（以全小写作为规范化键）
- */
-const SOLO_WORK_LITE_MODEL_ALIASES = {
-    'auto': 'glm-5.2',
-    'deepseek-v4.1-flash': 'deepseek-v4.1-flash',
-    'deepseek-v4-flash': 'deepseek-v4.1-flash',
-    'deepseek-v4-flash 正式版': 'DeepSeek-V4-Flash-Official',
-    'deepseek-v4-flash-official': 'DeepSeek-V4-Flash-Official',
-    'deepseek-v4-pro 正式版': 'DeepSeek-V4-Pro-Official',
-    'deepseek-v4-pro-official': 'DeepSeek-V4-Pro-Official',
-    'deepseek-v4-pro': 'DeepSeek-V4-Pro',
-    'doubao-seed-2.1-pro-0915': 'Doubao-Seed-2.1-Pro',
-    'doubao-seed-2.1-pro': 'Doubao-Seed-2.1-Pro',
-    'doubao-seed-2.1-turbo': 'Doubao-Seed-2.1-Turbo',
-    'doubao-seed-code': 'Doubao-Seed-2.0-Code',
-    'doubao-seed-evolving': 'Doubao-Seed-Evolving',
-    'doubao-seed-2.0-code': 'Doubao-Seed-2.0-Code',
-    'qwen3.7-plus': 'qwen-3.7-plus',
-    'qwen-3.7-plus': 'qwen-3.7-plus',
-    'qwen3.8-max': 'qwen3.8-max',
-    'qwen3.8-flash': 'qwen3.8-max',
-    'glm-5': 'glm-5.2',
-    'glm-5.2': 'glm-5.2',
-    'glm-5.3': 'glm-5.3',
-    'glm-5.3-flash': 'glm-5.3-flash',
-    'glm-5.3-flashx': 'glm-5.3-flashx',
-    'kimi-k2.6': 'kimi-k2.6',
-    'kimi-k2.7-code': 'kimi-k2.7-code',
-    'kimi-k3': 'kimi-k3',
-    'minimax-m3': 'minimax-m3',
-    'mimo-v2.6-flash': 'mimo-v2.6-flash',
-    'mimo-v2.6-pro': 'mimo-v2.6-pro',
-    'step-5-preview': 'step-5-preview'
-};
-
-/**
  * Trae Chat v3 专属模型别名与重定向映射表
  */
 const CHAT_V3_MODEL_ALIASES = {
-    ...SOLO_WORK_LITE_MODEL_ALIASES,
+    ...CANONICAL_MODEL_ALIASES,
     'qwen3.8-flash': 'qwen3.8-flash',
     'doubao-seed-code': 'Doubao-Seed-Code',
-    'kimi-k2.8-preview': 'kimi-k2.8-preview'
+    'kimi-k2.8-preview': 'kimi-k2.8-preview',
+    'deepseek-v4.1-flash': 'deepseek-v4.1-flash'
 };
 
 
@@ -138,6 +103,102 @@ const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
 
 // 多租户/多账号隔离的缓存容器: Map<accountKey, { models: Array, expiresAt: number, metadataMap: Map, functionMap: Map }>
 const traeAccountCacheMap = new Map<string, TraeAccountCache>();
+
+/**
+ * Trae 上游识别的思考深度等级
+ */
+export const TRAE_UPSTREAM_EFFORT_LEVELS = {
+    LIGHT: 'light',
+    HIGH: 'high',
+    EXTRA_HIGH: 'extra_high'
+} as const;
+
+/**
+ * Trae 通道默认思考深度：统一默认 extra_high (OpenAI 标准层表示为 xhigh)
+ */
+export const DEFAULT_TRAE_REASONING_EFFORT = 'xhigh';
+export const DEFAULT_TRAE_UPSTREAM_EFFORT_LEVEL = TRAE_UPSTREAM_EFFORT_LEVELS.EXTRA_HIGH;
+
+/**
+ * 常见已知具备思考/推理能力的模型特征正则
+ */
+export const TRAE_REASONING_MODEL_PATTERNS = [
+    /deepseek/i,
+    /glm-5/i,
+    /step-5/i,
+    /kimi/i,
+    /qwen3\.8/i,
+    /minimax-m3/i
+];
+
+/**
+ * 判断指定模型是否具备思考/推理能力
+ */
+export function isTraeReasoningModel(modelId: unknown): boolean {
+    const id = String(modelId || '').trim();
+    if (!id) return false;
+    return TRAE_REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(id));
+}
+
+/**
+ * 将任意推理深度级别输入映射为 Trae 上游识别的 reasoning_effort_level ('light' | 'high' | 'extra_high')
+ */
+export function mapToTraeUpstreamEffortLevel(rawEffort: unknown): string {
+    const effortLower = String(rawEffort || '').trim().toLowerCase();
+    if (effortLower === 'low' || effortLower === 'light' || effortLower === 'minimal') {
+        return TRAE_UPSTREAM_EFFORT_LEVELS.LIGHT;
+    }
+    if (effortLower === 'xhigh' || effortLower === 'extra_high' || effortLower === 'max' || effortLower === 'ultra') {
+        return TRAE_UPSTREAM_EFFORT_LEVELS.EXTRA_HIGH;
+    }
+    return TRAE_UPSTREAM_EFFORT_LEVELS.HIGH;
+}
+
+/**
+ * 映射并规范化为 OpenAI 标准推理深度级别 ('low' | 'high' | 'xhigh')
+ */
+export function mapTraeLevelToStandardEffort(lvl: unknown): string {
+    const l = String(lvl || '').trim().toLowerCase();
+    if (l === 'light' || l === 'low' || l === 'minimal') return 'low';
+    if (l === 'extra_high' || l === 'xhigh' || l === 'max' || l === 'ultra') return 'xhigh';
+    return 'high';
+}
+
+/**
+ * 推理深度级别强度加权映射（用于非硬编码动态提取最高深度档位）
+ */
+const EFFORT_LEVEL_WEIGHTS: Record<string, number> = {
+    minimal: 1,
+    light: 1,
+    low: 1,
+    medium: 2,
+    high: 2,
+    extra_high: 3,
+    xhigh: 3,
+    max: 3,
+    ultra: 3
+};
+
+/**
+ * 从模型支持的档位列表中动态解析出最大深度档位（OpenAI 标准层表示）
+ * 不依赖上游 default_level，直接取最高可用档位（例如 extra_high -> xhigh）
+ */
+export function resolveMaxStandardEffort(options: unknown[]): string {
+    if (!Array.isArray(options) || options.length === 0) {
+        return DEFAULT_TRAE_REASONING_EFFORT;
+    }
+    let maxLevel = '';
+    let maxWeight = -1;
+    for (const opt of options) {
+        const str = String(opt || '').trim().toLowerCase();
+        const weight = EFFORT_LEVEL_WEIGHTS[str] ?? 0;
+        if (weight > maxWeight) {
+            maxWeight = weight;
+            maxLevel = str;
+        }
+    }
+    return maxLevel ? mapTraeLevelToStandardEffort(maxLevel) : DEFAULT_TRAE_REASONING_EFFORT;
+}
 
 /**
  * Trae API Service
@@ -205,7 +266,6 @@ export class TraeApiService {
     getTargetProvider(): string {
         if (this.config.MODEL_PROVIDER) return this.config.MODEL_PROVIDER;
         if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) return MODEL_PROVIDER.TRAE_CHAT_V3;
-        if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE) return MODEL_PROVIDER.TRAE_SOLO_WORK_LITE;
         return MODEL_PROVIDER.TRAE;
     }
 
@@ -216,9 +276,6 @@ export class TraeApiService {
         if (provider === MODEL_PROVIDER.TRAE_CHAT_V3) {
             return BASE_TRAE_CHAT_V3_MODELS;
         }
-        if (provider === MODEL_PROVIDER.TRAE_SOLO_WORK_LITE) {
-            return BASE_TRAE_SOLO_WORK_LITE_MODELS;
-        }
         return BASE_TRAE_MODELS;
     }
 
@@ -227,7 +284,7 @@ export class TraeApiService {
      * @returns {Object}
      */
     getChannelConfig(): TraeChannelConfig {
-        if (this.channelMode === TRAE_CHANNEL_MODES.SOLO_WORK_LITE || this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
+        if (this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3) {
             const preset = TRAE_CHANNEL_PRESETS[this.channelMode];
             const baseUrl = (this.config.TRAE_BASE_URL || this.agentHost || preset.defaultHost).replace(/\/+$/, '');
             return {
@@ -254,16 +311,16 @@ export class TraeApiService {
             } catch {
                 isFullEndpoint = rawBase.includes('/api/') || rawBase.includes('/chat');
             }
-            const isSoloPath = rawBase.includes('llm_utils_chat');
+            const isChatPath = rawBase.includes('llm_utils_chat');
             const url = isFullEndpoint ? rawBase : `${rawBase}/api/ide/v2/llm_raw_chat`;
-            const basePreset = isSoloPath
-                ? TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.SOLO_WORK_LITE]
+            const basePreset = isChatPath
+                ? TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.CHAT_V3]
                 : TRAE_CHANNEL_PRESETS[TRAE_CHANNEL_MODES.TOB_RAW_CHAT];
             return {
                 mode: TRAE_CHANNEL_MODES.CUSTOM,
                 url,
-                modelsUrl: isSoloPath ? `${this.agentHost}/api/ide/v1/get_detail_param` : `${this.authHost}/api/ide/v1/batch_get_detail_param`,
-                function: isSoloPath ? 'solo_work_lite' : 'chat',
+                modelsUrl: isChatPath ? `${this.agentHost}/api/ide/v1/get_detail_param` : `${this.authHost}/api/ide/v1/batch_get_detail_param`,
+                function: isChatPath ? 'chat_v3' : 'chat',
                 appId: basePreset.appId,
                 ideVersion: basePreset.ideVersion,
                 ideVersionCode: basePreset.ideVersionCode,
@@ -351,8 +408,8 @@ export class TraeApiService {
         }
 
         // 3. 针对不同通道查阅对应的别名表（aliasKind 构造时已解析缓存）
-        const aliasTable: Record<string, string> = this._aliasKind === 'chat_v3' ? CHAT_V3_MODEL_ALIASES
-            : this._aliasKind === 'solo_work_lite' ? SOLO_WORK_LITE_MODEL_ALIASES
+        const aliasTable: Record<string, string> = this._aliasKind === 'chat_v3'
+            ? CHAT_V3_MODEL_ALIASES
             : CANONICAL_MODEL_ALIASES;
         if (aliasTable[lower]) {
             return aliasTable[lower];
@@ -570,23 +627,27 @@ export class TraeApiService {
             payload.access_type = 4;
         } else {
             payload.max_mode = true;
-            payload.function = channel.function || 'solo_work_lite';
+            payload.function = channel.function || 'chat_v3';
         }
 
         // 映射并注入 Trae 思考深度 (light / high / extra_high)
-        const rawEffort = payload.reasoning_effort || requestBody?.reasoning_effort || (modelMeta?.supports_thinking ? modelMeta.default_reasoning_effort : undefined);
+        // 判定规则：
+        // 1. 若客户端显式关闭思考 (none / off / false)，不传递 reasoning_effort_level
+        // 2. 具备思考能力时（元数据 supports_thinking !== false 或符合推理模型特征），统一默认 extra_high (xhigh)
+        const supportsThinking = modelMeta
+            ? (modelMeta.supports_thinking !== false)
+            : (isTraeReasoningModel(targetModel) || Boolean(payload.reasoning_effort ?? requestBody?.reasoning_effort));
+
+        const rawEffort = payload.reasoning_effort
+            ?? requestBody?.reasoning_effort
+            ?? (supportsThinking ? (modelMeta?.default_reasoning_effort || DEFAULT_TRAE_REASONING_EFFORT) : undefined);
         delete payload.reasoning_effort;
-        if (rawEffort && (modelMeta?.supports_thinking !== false)) {
-            const effortLower = String(rawEffort).toLowerCase();
+
+        if (rawEffort && supportsThinking) {
+            const effortLower = String(rawEffort).toLowerCase().trim();
             const thinkingDisabled = effortLower === 'none' || effortLower === 'off' || effortLower === 'false';
             if (!thinkingDisabled) {
-                if (effortLower === 'low' || effortLower === 'light' || effortLower === 'minimal') {
-                    payload.reasoning_effort_level = 'light';
-                } else if (effortLower === 'xhigh' || effortLower === 'extra_high' || effortLower === 'max' || effortLower === 'ultra') {
-                    payload.reasoning_effort_level = 'extra_high';
-                } else {
-                    payload.reasoning_effort_level = 'high';
-                }
+                payload.reasoning_effort_level = mapToTraeUpstreamEffortLevel(effortLower);
             }
         }
 
@@ -1056,12 +1117,12 @@ export class TraeApiService {
                 const headers = await this.buildHeaders(false);
                 const allConfigs: DynamicPayload[] = [];
 
-                const isSoloOrChat = isSoloFamilyChannel(this.channelMode, channel.function);
-                if (isSoloOrChat) {
-                    // 2. solo_work_lite / chat_v3 通道: POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param
+                const isChatV3 = isSoloFamilyChannel(this.channelMode, channel.function);
+                if (isChatV3) {
+                    // chat_v3 通道: POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param
                     const targetUrl = channel.modelsUrl || `${this.agentHost}/api/ide/v1/get_detail_param`;
                     const agentBody = {
-                        function: channel.function || "solo_work_lite",
+                        function: channel.function || "chat_v3",
                         poly_prompt: true,
                         need_prompt: false,
                         config_names: null,
@@ -1132,23 +1193,6 @@ export class TraeApiService {
                     'custom_model_placeholder'
                 ]);
 
-                // 映射并规范化推理深度级别
-                const mapReasoningLevel = (lvl: unknown): string => {
-                    const l = String(lvl || '').toLowerCase();
-                    if (l === 'light' || l === 'low') return 'low';
-                    if (l === 'extra_high' || l === 'xhigh' || l === 'max') return 'xhigh';
-                    return 'high';
-                };
-
-                // 常见已知具备思考/推理能力模型的正则模式
-                const REASONING_MODEL_PATTERNS = [
-                    /deepseek/i,
-                    /glm-5/i,
-                    /step-5/i,
-                    /kimi-(?:k3|k2\.8)/i,
-                    /qwen3\.8/i
-                ];
-
                 // 严格执行 visible_tob_batch_configs 过滤流水线，统一提取底层 ID、上下文与推理配置
                 for (const item of allConfigs) {
                     let id = item.config_name;
@@ -1185,23 +1229,27 @@ export class TraeApiService {
                     const detailMaxTokens = (item.model_detail_list || []).map((d: DynamicPayload) => d.max_tokens || 0);
                     const maxTok = detailMaxTokens.length > 0 ? Math.max(...detailMaxTokens) : (item.max_tokens || 0);
 
-                    // reasoning_effort 对应配置 (解析 upstream reasoning_effort_config 并映射标准化)
+                    // reasoning_effort 对应配置
+                    // 核心过滤：只留下 support_thinking = true 并且 options 含有 extra_high 的模型
                     const effortConfig = item.reasoning_effort_config;
-                    const hasExplicitThinkingSupport = effortConfig?.support_thinking === true ||
-                        (Array.isArray(effortConfig?.options) && effortConfig.options.length > 0) ||
-                        (Array.isArray(effortConfig?.reasoning_effort_level_options) && effortConfig.reasoning_effort_level_options.length > 0);
-                    const isExplicitlyDisabled = effortConfig?.support_thinking === false;
-                    const supportsThinking = !isExplicitlyDisabled && Boolean(hasExplicitThinkingSupport || REASONING_MODEL_PATTERNS.some((re: RegExp) => re.test(id)));
+                    if (effortConfig?.support_thinking !== true) {
+                        continue;
+                    }
 
-                    const rawOptions = effortConfig?.options || effortConfig?.reasoning_effort_level_options;
-                    const effortLevels = rawOptions?.length
-                        ? [...new Set(rawOptions.map(mapReasoningLevel))]
-                        : (supportsThinking ? ['low', 'high', 'xhigh'] : []);
+                    const rawOptions: unknown[] = Array.isArray(effortConfig?.options)
+                        ? effortConfig.options
+                        : (Array.isArray(effortConfig?.reasoning_effort_level_options) ? effortConfig.reasoning_effort_level_options : []);
 
-                    const rawDefault = effortConfig?.default_level || effortConfig?.default_reasoning_effort_level;
-                    const defaultEffort = rawDefault
-                        ? mapReasoningLevel(rawDefault)
-                        : (supportsThinking ? (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high') : undefined);
+                    const normalizedOptions = rawOptions.map((opt) => String(opt || '').trim().toLowerCase());
+                    if (!normalizedOptions.includes('extra_high')) {
+                        continue;
+                    }
+
+                    const effortLevels = [...new Set(rawOptions.map(mapTraeLevelToStandardEffort))];
+
+                    // 默认 reasoning_effort 不再依赖上游 default_level，直接非硬编码动态提取最高深度档位 (extra_high -> xhigh)
+                    const defaultEffort = resolveMaxStandardEffort(rawOptions);
+                    const supportsThinking = true;
 
                     // 提取底层变体键名 standard_key (__dev) 与 max_key (__max)
                     const detailsList = Array.isArray(item.model_detail_list) && item.model_detail_list.length > 0
@@ -1287,7 +1335,7 @@ export class TraeApiService {
                 context_window: 1000000, // 默认 1M
                 max_tokens: 64000,        // 默认最大
                 supports_thinking: true,
-                default_reasoning_effort: (id.toLowerCase().includes('kimi') ? 'xhigh' : 'high'),
+                default_reasoning_effort: DEFAULT_TRAE_REASONING_EFFORT,
                 reasoning_effort_levels: ['low', 'high', 'xhigh'],
                 standard_key: standardKey,
                 max_key: maxKey

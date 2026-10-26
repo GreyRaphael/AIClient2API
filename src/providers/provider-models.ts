@@ -47,7 +47,6 @@ export function getCustomModelConfig(modelId: string, provider: string | null = 
 export const PROVIDER_MODELS = getProviderStaticModels();
 
 export const BASE_TRAE_MODELS = [...PROVIDER_MODELS.trae];
-export const BASE_TRAE_SOLO_WORK_LITE_MODELS = [...PROVIDER_MODELS['trae-solo_work_lite']];
 export const BASE_TRAE_CHAT_V3_MODELS = [...PROVIDER_MODELS['trae-chat_v3']];
 
 export const MANAGED_MODEL_LIST_PROVIDERS = [

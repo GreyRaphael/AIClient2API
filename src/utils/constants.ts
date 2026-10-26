@@ -62,7 +62,6 @@ export const MODEL_PROVIDER = {
     CODEX_API: 'openai-codex-oauth',
     ZED: 'zed',
     TRAE: 'trae',
-    TRAE_SOLO_WORK_LITE: 'trae-solo_work_lite',
     TRAE_CHAT_V3: 'trae-chat_v3',
     AUTO: 'auto',
 };

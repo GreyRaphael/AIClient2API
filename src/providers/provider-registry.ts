@@ -220,18 +220,6 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         }
     },
     {
-        type: MODEL_PROVIDER.TRAE_SOLO_WORK_LITE,
-        protocolPrefix: MODEL_PROTOCOL_PREFIX.OPENAI,
-        dynamicModels: true,
-        capabilityTtlMs: 60 * 60 * 1000,
-        credentialPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
-        credentialLabel: 'Trae',
-        staticModels: [
-            'glm-5.2',
-            'deepseek-v4.1-flash'
-        ]
-    },
-    {
         type: MODEL_PROVIDER.TRAE_CHAT_V3,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.OPENAI,
         dynamicModels: true,

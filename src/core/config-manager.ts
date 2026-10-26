@@ -4,7 +4,6 @@ import { promises as pfs } from 'fs';
 import { DEFAULT_REQUEST_BODY_MAX_BYTES, INPUT_SYSTEM_PROMPT_FILE } from '../utils/protocol.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { atomicWriteFile } from '../utils/file-lock.ts';
-import { migrateLegacyTraeProviderPools, normalizeLegacyTraeProviderType } from '../providers/trae/trae-channel.ts';
 import logger from '../utils/logger.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
@@ -163,8 +162,7 @@ function normalizeConfiguredProviders(config: DynamicPayload): void {
         if (typeof value !== 'string') {
             return;
         }
-        // 历史 Trae providerType 归一化（trae-agent_v3 -> trae-solo_work_lite）
-        const trimmed = normalizeLegacyTraeProviderType(value.trim());
+        const trimmed = value.trim();
         if (!trimmed) {
             return;
         }
@@ -404,15 +402,6 @@ export async function initializeConfig(
             const poolsData = await pfs.readFile(currentConfig.PROVIDER_POOLS_FILE_PATH, 'utf8');
             currentConfig.providerPools = JSON.parse(poolsData);
             logger.info(`[Config] Loaded provider pools from ${currentConfig.PROVIDER_POOLS_FILE_PATH}`);
-            // 一次性迁移历史 Trae 通道配置（trae-agent_v3 -> trae-solo_work_lite），并回写持久化
-            if (migrateLegacyTraeProviderPools(currentConfig.providerPools)) {
-                logger.info('[Config] Migrated legacy Trae provider pools (trae-agent_v3 -> trae-solo_work_lite)');
-                try {
-                    await atomicWriteFile(currentConfig.PROVIDER_POOLS_FILE_PATH, JSON.stringify(currentConfig.providerPools, null, 2), 'utf8');
-                } catch (caught) { const writeError = caught as DynamicPayload;
-                    logger.warn(`[Config] Failed to persist migrated provider pools: ${writeError.message}`);
-                }
-            }
         } catch (caught) { const error = caught as DynamicPayload;
             logger.error(`[Config Error] Failed to load provider pools from ${currentConfig.PROVIDER_POOLS_FILE_PATH}: ${error.message}`);
             currentConfig.providerPools = {};

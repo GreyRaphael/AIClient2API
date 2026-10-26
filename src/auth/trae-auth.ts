@@ -458,7 +458,7 @@ export function parseTraeCallback(rawUrl: string): TraeCallbackData {
  * @param {string} [options.token] - Personal access token (trae-lt-...) 或完整回调 URL
  * @param {string} [options.host] - Trae API host
  * @param {string} [options.customName]
- * @param {string} [options.providerType] - Trae provider type (trae / trae-solo_work_lite / trae-chat_v3)
+ * @param {string} [options.providerType] - Trae provider type (trae / trae-chat_v3)
  * @returns {Promise<Object>}
  */
 export async function handleTraePATLogin({
