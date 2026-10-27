@@ -659,7 +659,7 @@ describe('Trae Provider Implementation Tests', () => {
 
         // Mock axios to return 4 models with different reasoning_effort_config
         const axios = (await import('axios')).default;
-        const spy = jest.spyOn(axios, 'default').mockImplementationOnce(async () => ({
+        const spy = jest.spyOn(axios, 'request').mockImplementationOnce(async () => ({
             data: {
                 function_configs: [{
                     config_info_list: [
@@ -667,6 +667,10 @@ describe('Trae Provider Implementation Tests', () => {
                             config_name: 'glm-5.2',
                             config_switch: true,
                             is_invisible_to_user: false,
+                            display_config: {
+                                display_name: 'GLM-5.2',
+                                multimodal: false
+                            },
                             reasoning_effort_config: {
                                 support_thinking: true,
                                 options: ['light', 'high', 'extra_high'],
@@ -694,6 +698,10 @@ describe('Trae Provider Implementation Tests', () => {
                             config_name: 'DeepSeek-V4.1-Flash',
                             config_switch: true,
                             is_invisible_to_user: false,
+                            display_config: {
+                                display_name: 'DeepSeek-V4.1-Flash',
+                                multimodal: true
+                            },
                             reasoning_effort_config: {
                                 support_thinking: true,
                                 reasoning_effort_level_options: ['HIGH', 'EXTRA_HIGH'],
@@ -721,6 +729,13 @@ describe('Trae Provider Implementation Tests', () => {
 
             const dsModel = models.find(m => m.id === 'DeepSeek-V4.1-Flash');
             expect(dsModel.default_reasoning_effort).toBe('xhigh');
+
+            // display_config.multimodal 映射为 support_images
+            expect(glmModel.supports_images).toBe(false);
+            expect(dsModel.supports_images).toBe(true);
+            const nodeMetadata = traeService.getNodeModelMetadata();
+            expect(nodeMetadata['glm-5.2'].support_images).toBe(false);
+            expect(nodeMetadata['DeepSeek-V4.1-Flash'].support_images).toBe(true);
 
             // 验证在 listModels (即 /v1/models 响应) 中也完全遵循相同过滤
             const listRes = await traeService.listModels();

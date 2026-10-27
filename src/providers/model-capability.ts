@@ -292,8 +292,16 @@ export function resolveNodeCapability(providerType: string, nodeConfig: DynamicP
 
     const { selectedModels, selectionMode } = resolveSelectedModels(providerType, nodeConfig, candidateModels);
     const ttl = getTtlMs(providerType);
-    // 旧版缓存只有模型 ID，没有元数据；动态 provider 需要重新发现一次以补齐 /v1/models 字段。
-    const metadataMissing = Boolean(entry) && dynamic && entry.modelMetadata === undefined;
+    // 旧版缓存只有模型 ID，或元数据缺少 support_images；动态 provider 需要重新发现一次以补齐 /v1/models 字段。
+    const entryMetadata = (entry?.modelMetadata || {}) as Record<string, unknown>;
+    const metadataMissing = Boolean(entry) && dynamic && (
+        entry?.modelMetadata === undefined
+        || Object.values(entryMetadata).some((metadata) => (
+            metadata !== null
+            && typeof metadata === 'object'
+            && !Object.prototype.hasOwnProperty.call(metadata, 'support_images')
+        ))
+    );
     const stale = entry
         ? (Boolean(entry.lastError) || metadataMissing || (Date.now() - fetchedAt) > ttl)
         : dynamic;

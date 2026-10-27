@@ -5,6 +5,7 @@
  * - display_name: 上游展示名称
  * - context_length: 上游上下文窗口
  * - max_output_tokens: 上游最大输出 token
+ * - support_images: 上游是否支持 image 作为输入
  * - support_efforts: 上游支持的推理档位；无法动态调节时为 null
  */
 import { normalizeSupportEfforts } from './reasoning-effort.ts';
@@ -14,6 +15,7 @@ export interface ModelMetadata {
     display_name?: string;
     context_length?: number;
     max_output_tokens?: number;
+    support_images?: boolean;
     support_efforts?: string[] | null;
 }
 
@@ -37,6 +39,7 @@ export function normalizeModelMetadata(raw: unknown): ModelMetadata | null {
     if (contextLength !== undefined) metadata.context_length = contextLength;
     const maxOutputTokens = toPositiveNumber(record.max_output_tokens);
     if (maxOutputTokens !== undefined) metadata.max_output_tokens = maxOutputTokens;
+    if (typeof record.support_images === 'boolean') metadata.support_images = record.support_images;
 
     if (Object.prototype.hasOwnProperty.call(record, 'support_efforts')) {
         metadata.support_efforts = Array.isArray(record.support_efforts)
@@ -73,6 +76,7 @@ export function mergeModelMetadata(base: ModelMetadata | undefined, patch: Model
     if (merged.display_name === undefined && patch.display_name !== undefined) merged.display_name = patch.display_name;
     if (merged.context_length === undefined && patch.context_length !== undefined) merged.context_length = patch.context_length;
     if (merged.max_output_tokens === undefined && patch.max_output_tokens !== undefined) merged.max_output_tokens = patch.max_output_tokens;
+    if (merged.support_images === undefined && patch.support_images !== undefined) merged.support_images = patch.support_images;
     if (!Object.prototype.hasOwnProperty.call(merged, 'support_efforts')
         && Object.prototype.hasOwnProperty.call(patch, 'support_efforts')) {
         merged.support_efforts = patch.support_efforts ?? null;
@@ -89,6 +93,7 @@ export function applyModelMetadata(target: DynamicPayload, metadata: ModelMetada
     if (metadata.display_name) target.display_name = metadata.display_name;
     if (metadata.context_length !== undefined) target.context_length = metadata.context_length;
     if (metadata.max_output_tokens !== undefined) target.max_output_tokens = metadata.max_output_tokens;
+    if (metadata.support_images !== undefined) target.support_images = metadata.support_images;
     if (Object.prototype.hasOwnProperty.call(metadata, 'support_efforts')) {
         target.support_efforts = metadata.support_efforts ?? null;
     }

@@ -1320,6 +1320,8 @@ export class CodexApiService {
                 metadata.context_length = contextLength;
             }
             metadata.max_output_tokens = CODEX_DEFAULT_MAX_OUTPUT_TOKENS;
+            const inputModalities = Array.isArray(meta.input_modalities) ? meta.input_modalities : [];
+            metadata.support_images = inputModalities.some((modality) => String(modality).toLowerCase() === 'image');
             metadata.support_efforts = normalizeSupportEfforts(meta.supported_reasoning_levels);
             result[id] = metadata;
         }

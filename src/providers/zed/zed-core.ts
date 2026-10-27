@@ -1032,6 +1032,7 @@ export class ZedApiService {
                 display_name: model.display_name || model.id,
                 context_length: Number(model.max_token_count) || undefined,
                 max_output_tokens: Number(model.max_output_tokens) || undefined,
+                support_images: model.supports_images === true,
                 support_efforts: normalizeSupportEfforts(model.supported_effort_levels)
             };
         }

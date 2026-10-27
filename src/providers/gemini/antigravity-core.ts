@@ -1423,6 +1423,7 @@ export class AntigravityApiService {
             const meta = this.upstreamModelMetadata?.[modelId];
             const metadata: DynamicPayload = {
                 display_name: meta?.displayName || formatAntigravityDisplayName(modelId),
+                support_images: meta?.supportsImages === true,
                 // Antigravity 档位固化在模型 ID 中，上游无动态档位字段，按约定输出 null。
                 support_efforts: null
             };

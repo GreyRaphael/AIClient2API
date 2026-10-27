@@ -1174,7 +1174,7 @@ export class TraeApiService {
                             timeout: 8000
                         };
                         configureAxiosProxy(axiosConfig, this.config, this.getTargetProvider());
-                        const res = await axios(/** @type {any} */ (axiosConfig));
+                        const res = await axios.request(/** @type {any} */ (axiosConfig));
                         for (const item of res.data?.config_info_list || []) {
                             if (item) allConfigs.push(item);
                         }
@@ -1203,7 +1203,7 @@ export class TraeApiService {
                             timeout: 8000
                         };
                         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
-                        const res = await axios(/** @type {any} */ (axiosConfig));
+                        const res = await axios.request(/** @type {any} */ (axiosConfig));
                         for (const fc of res.data?.function_configs || []) {
                             for (const item of fc.config_info_list || []) {
                                 if (item) allConfigs.push(item);
@@ -1285,6 +1285,7 @@ export class TraeApiService {
                             display_name: displayName || id,
                             context_window: ctx,
                             max_tokens: maxTok,
+                            supports_images: item.display_config?.multimodal === true,
                             supports_thinking: supportsThinking,
                             default_reasoning_effort: defaultEffort,
                             reasoning_effort_levels: effortLevels,
@@ -1371,6 +1372,7 @@ export class TraeApiService {
                 display_name: meta.display_name || id,
                 context_length: Number(meta.context_window) || undefined,
                 max_output_tokens: Number(meta.max_tokens) || undefined,
+                support_images: meta.supports_images === true,
                 support_efforts: normalizeSupportEfforts(meta.reasoning_effort_levels)
             };
         }
