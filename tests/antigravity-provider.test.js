@@ -46,7 +46,6 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                                         'gemini-3.8-flash-high',
                                         'gemini-3.8-flash-medium',
                                         'gemini-3.8-flash-low',
-                                        'chat_internal_test',
                                         'gemini-pro-agent',
                                         'claude-sonnet-5-5-high',
                                         'claude-opus-5-5-high',
@@ -65,7 +64,9 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                     },
                     models: {
                         'gemini-3.8-flash-high': { displayName: 'Gemini 3.8 Flash' },
-                        'gemini-pro-agent': { displayName: 'Gemini Pro Agent' }
+                        'gemini-pro-agent': { displayName: 'Gemini Pro Agent' },
+                        'chat_internal_test': { displayName: 'Chat Internal' },
+                        'gemini-3.8-flash-tiered': { displayName: 'Tiered Model' }
                     }
                 }
             })

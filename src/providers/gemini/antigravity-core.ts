@@ -1333,71 +1333,51 @@ export class AntigravityApiService {
                     const modelData = res.data as DynamicPayload;
                     this.upstreamModelMetadata = { ...(modelData.models || {}) };
 
-                    // 1. 严格从 agentModelSorts 提取 Agent 对话模型
-                    const agentModels: string[] = [];
-                    if (Array.isArray(modelData.agentModelSorts)) {
-                        for (const sortItem of modelData.agentModelSorts) {
-                            if (Array.isArray(sortItem?.groups)) {
-                                for (const group of sortItem.groups) {
-                                    if (Array.isArray(group?.modelIds)) {
-                                        agentModels.push(...group.modelIds);
-                                    }
-                                }
-                            }
-                        }
+                    // 1. 废弃别名映射 (如 gemini-pro-agent -> gemini-3.1-pro-high)
+                    const aliasMap: Record<string, string> = { 'gemini-pro-agent': 'gemini-3.1-pro-high' };
+                    for (const [pubId, detail] of Object.entries((modelData.deprecatedModelIds || {}) as Record<string, { newModelId?: string }>)) {
+                        if (detail?.newModelId) aliasMap[detail.newModelId] = pubId;
                     }
 
-                    // 2. 严格从 imageGenerationModelIds 提取图像生成模型
-                    const imageModels = Array.isArray(modelData.imageGenerationModelIds)
-                        ? modelData.imageGenerationModelIds
-                        : [];
-
-                    // 3. 构建候选列表并处理内部 gemini-pro-agent / deprecatedModelIds 规范化映射到 gemini-3.1-pro-high
-                    const deprecatedMap = (modelData.deprecatedModelIds || {}) as DynamicPayload;
-                    const reverseDeprecatedMap = new Map();
-                    for (const [pubId, detail] of Object.entries(deprecatedMap) as [string, any][]) {
-                        if (detail?.newModelId) {
-                            reverseDeprecatedMap.set(detail.newModelId, pubId);
-                        }
-                    }
-
-                    const candidateModels: string[] = [];
-                    for (const rawId of [...agentModels, ...imageModels]) {
-                        if (!rawId || typeof rawId !== 'string') continue;
-
-                        const publicAlias = reverseDeprecatedMap.get(rawId) || (rawId === 'gemini-pro-agent' ? 'gemini-3.1-pro-high' : null);
-                        if (publicAlias) {
-                            candidateModels.push(publicAlias);
-                            if (this.upstreamModelMetadata[rawId]) {
-                                this.upstreamModelMetadata[publicAlias] = {
-                                    ...this.upstreamModelMetadata[rawId],
-                                    displayName: this.upstreamModelMetadata[rawId].displayName || (publicAlias === 'gemini-3.1-pro-high' ? 'Gemini 3.1 Pro (High)' : publicAlias)
-                                };
-                            }
-                        } else {
-                            candidateModels.push(rawId);
-                        }
-                    }
-
-                    // 4. 简化排除逻辑：排除内部辅助 (chat_, tab_)、聚合伪模型 (-tiered)、开源模型 (oss) 及低算力模型 (-low)
+                    // 2. 黑名单过滤 (-low 与 oss)
                     const isExcludedModel = (id: string) => {
                         const lower = (id || '').toLowerCase();
-                        return lower.startsWith('chat_') ||
-                               lower.startsWith('tab_') ||
-                               lower.includes('-tiered') ||
-                               lower.includes('oss') ||
-                               lower.includes('-low');
+                        return lower.includes('-low') || lower.includes('oss');
                     };
 
-                    const filteredCandidates = candidateModels.filter((m) => !isExcludedModel(m));
+                    // 3. 收集 agentModelSorts 与 imageGenerationModelIds，就地别名映射、过滤与去重
+                    const modelSet = new Set<string>();
+                    const addModel = (rawId: unknown) => {
+                        if (!rawId || typeof rawId !== 'string') return;
+                        const id = aliasMap[rawId] || rawId;
+                        if (!isExcludedModel(id)) {
+                            modelSet.add(id);
+                            if (rawId !== id && this.upstreamModelMetadata[rawId] && !this.upstreamModelMetadata[id]) {
+                                this.upstreamModelMetadata[id] = {
+                                    ...this.upstreamModelMetadata[rawId],
+                                    displayName: this.upstreamModelMetadata[rawId].displayName || (id === 'gemini-3.1-pro-high' ? 'Gemini 3.1 Pro (High)' : id)
+                                };
+                            }
+                        }
+                    };
 
-                    // 5. 容错降级：若上游因异常未返回 agentModelSorts，降级检查 defaultAgentModelId
-                    if (filteredCandidates.length === 0 && modelData.defaultAgentModelId && !isExcludedModel(modelData.defaultAgentModelId)) {
-                        filteredCandidates.push(modelData.defaultAgentModelId);
+                    for (const sortItem of modelData.agentModelSorts || []) {
+                        for (const group of sortItem?.groups || []) {
+                            for (const id of group?.modelIds || []) {
+                                addModel(id);
+                            }
+                        }
+                    }
+                    for (const id of modelData.imageGenerationModelIds || []) {
+                        addModel(id);
                     }
 
-                    // 确定当前节点的专属 availableModels (去重)
-                    this.availableModels = [...new Set(filteredCandidates)];
+                    // 4. 容错降级：若未提取到任何模型，降级检查 defaultAgentModelId
+                    if (modelSet.size === 0 && modelData.defaultAgentModelId) {
+                        addModel(modelData.defaultAgentModelId);
+                    }
+
+                    this.availableModels = [...modelSet];
 
                     logger.info(`[Antigravity] Available models (${baseURL}): [${this.availableModels.join(', ')}]`);
                     return;
