@@ -20,6 +20,7 @@
 | `0312f61` | test(providers): 覆盖元数据聚合与严格 effort 映射 |
 | `8bbbc6e` | chore(providers): 更新 Antigravity / Codex / Zed / Trae 客户端版本 |
 | `3dfe9be` | chore(trae): chat_v3 使用最新 IDE 版本 |
+| `9816fe0` | fix(trae): model_list 过滤改为 `extra_high && is_invisible_to_user !== true` |
 
 ---
 
@@ -144,19 +145,19 @@ Supported reasoning_effort values: [low, high, xhigh]
 | `gemini-4-argon` | Gemini 4 Argon | 1,048,576 | 65,536 | `["low", "medium", "high"]` |
 | `gemini-3.8-flash` | Gemini 3.8 Flash | 1,048,576 | 65,535 | `["low", "medium", "high"]` |
 
-### 5.4 Trae (tob_raw_chat)（15 个基线候选模型）
+### 5.4 Trae (tob_raw_chat)（13 个可用基线候选模型）
 
 原始数据：`trae_tob_raw_chat_model_list.json`
 
-> 过滤规则：仅保留 `reasoning_effort_config.options` 含 `extra_high` 的模型。
+> 过滤规则：
+> 1. `reasoning_effort_config.options` 必须含 `extra_high`；
+> 2. `is_invisible_to_user !== true`。
 >
-> 最新上游响应中 `deepseek-V4-Pro` / `DeepSeek-V4-Flash` 不再返回 `context_window_tokens` 与 `model_detail_list`，对应字段标记为 N/A；`/v1/models` 对这两个模型省略 `context_length` / `max_output_tokens`。
+> 上游仍会返回 `deepseek-V4-Pro` / `DeepSeek-V4-Flash` 两个历史配置，但它们被标记为 `is_invisible_to_user: true`，且实际请求返回 `4023 model unknown`；`9816fe0` 起统一按 visibility 过滤，不再暴露。
 
 | 模型 ID | 展示名称 | 上下文长度 | 最大输出 | 支持档位 |
 | :--- | :--- | :---: | :---: | :---: |
-| `DeepSeek-V4-Flash` | DeepSeek-V4-Flash | N/A | N/A | `["high", "xhigh"]` |
 | `DeepSeek-V4-Flash-Official` | DeepSeek-V4-Flash 正式版 | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
-| `deepseek-V4-Pro` | DeepSeek-V4-Pro | N/A | N/A | `["high", "xhigh"]` |
 | `DeepSeek-V4-Pro-Official` | DeepSeek-V4-Pro 正式版 | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 | `DeepSeek-V4.1-Flash` | DeepSeek-V4.1-Flash | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 | `DeepSeek-V4.1-Flash-1017` | DeepSeek-V4.1-Flash-1017 | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
@@ -170,17 +171,16 @@ Supported reasoning_effort values: [low, high, xhigh]
 | `minimax-m3.1-flash` | MiniMax-M3.1-Flash | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 | `qwen3.8-max` | Qwen3.8-Max | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 
-### 5.5 Trae (chat_v3)（15 个基线候选模型）
+### 5.5 Trae (chat_v3)（13 个可用基线候选模型）
 
 原始数据：`trae_chat_v3_model_list.json`
 
-> chat_v3 使用 IDE 版本 `3.4.4` 抓取；过滤规则与 tob_raw_chat 相同。
+> chat_v3 使用 IDE 版本 `3.4.4` 抓取；过滤规则与 tob_raw_chat 相同：`extra_high && is_invisible_to_user !== true`。
+> 上游标记为 invisible 的 `DeepSeek-V4-Flash` / `DeepSeek-V4-Pro` 不再暴露。
 
 | 模型 ID | 展示名称 | 上下文长度 | 最大输出 | 支持档位 |
 | :--- | :--- | :---: | :---: | :---: |
-| `DeepSeek-V4-Flash` | DeepSeek-V4-Flash | 1,000,000 | 64,000 | `["high", "xhigh"]` |
 | `DeepSeek-V4-Flash-Official` | DeepSeek-V4-Flash | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
-| `DeepSeek-V4-Pro` | DeepSeek-V4-Pro | 1,000,000 | 64,000 | `["high", "xhigh"]` |
 | `DeepSeek-V4-Pro-Official` | DeepSeek-V4-Pro | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 | `deepseek-v4.1-flash` | DeepSeek-V4.1-Flash | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 | `glm-5.2` | GLM-5.2 | 1,000,000 | 64,000 | `["high", "xhigh"]` |
@@ -212,11 +212,31 @@ Supported reasoning_effort values: [low, high, xhigh]
 - 支持档位与缺省档位实测 200。
 - E2E 核心矩阵覆盖 5 个 Provider；Provider 方言 canary 4/4 通过。
 
+### 6.1 220 组合 reasoning_effort 矩阵（2026-10-27）
+
+- 覆盖：44 个 model_id × `[low, medium, high, xhigh, max]` = 220 个组合，请求 `http://localhost:3000/auto/v1/chat/completions`。
+- 结果：217 PASS，0 LOGIC_FAIL，3 个上游/账号错误。
+- 所有预期不支持的 77 个组合均返回 HTTP 400 且包含 `unsupported`。
+- 预期支持的 143 个组合中 140 个返回 HTTP 200；3 个为上游错误：
+  - Trae chat_v3 `kimi-k3.1-pro` 的 `low` / `high` / `xhigh` → 上游 `1005`（当前账号 plan 限制），非映射逻辑问题。
+
+| Provider | 组合数 | PASS | LOGIC_FAIL | 上游/账号错误 |
+| :--- | ---: | ---: | ---: | ---: |
+| Trae tob_raw_chat | 65 | 65 | 0 | 0 |
+| Trae chat_v3 | 65 | 62 | 0 | 3 |
+| OpenAI Codex OAuth | 15 | 15 | 0 | 0 |
+| Antigravity | 45 | 45 | 0 | 0 |
+| Zed | 30 | 30 | 0 | 0 |
+| **合计** | **220** | **217** | **0** | **3** |
+
+> 矩阵执行时临时将 5 个 Provider 的 `supportedModels` 扩展为全部 44 个候选模型，确保所有 ID 可路由；测试完成后已恢复原配置。当前候选集为 44 个（13+13+9+3+6）。
+
 ---
 
 ## 7. 已知边界
 
 - Antigravity 档位固化在模型 ID 中，`support_efforts` 为 `null`；不注入默认档位。
 - Codex `max_output_tokens` 为 Responses 规范默认 128,000，不是逐模型上游字段。
-- Trae ToB 的 `deepseek-V4-Pro` / `DeepSeek-V4-Flash` 上游未返回上下文与输出明细，相关字段省略。
+- Trae ToB / chat_v3 的 model_list 过滤规则为 `extra_high && is_invisible_to_user !== true`；上游 invisible 配置（ToB 的 `deepseek-V4-Pro` / `DeepSeek-V4-Flash`，chat_v3 的 `DeepSeek-V4-Flash` / `DeepSeek-V4-Pro`）不暴露。
+- 当前 5 个 Provider 的候选集为 44 个（13+13+9+3+6）；220 矩阵基于同一集合执行。
 - 根目录 JSON / `models_mapping.md` 是抓取工作文件，不提交；稳定快照以 `docs/MODELS_MAPPING.md` 为准。
