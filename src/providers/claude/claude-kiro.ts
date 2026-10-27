@@ -204,7 +204,7 @@ function findCustomModelConfigForModel(model: unknown, config: DynamicPayload = 
 function getContextTokensForModel(model: string | null | undefined, config: DynamicPayload = {}, fallbackModel: string | null | undefined = null): number {
     const customModelConfig = findCustomModelConfigForModel(model, config) ||
         findCustomModelConfigForModel(fallbackModel, config);
-    const configuredModelContextLength = normalizeContextLength(customModelConfig?.contextLength);
+    const configuredModelContextLength = normalizeContextLength(customModelConfig?.context_length);
     if (configuredModelContextLength !== null) {
         return configuredModelContextLength;
     }

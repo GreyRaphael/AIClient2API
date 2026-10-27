@@ -132,6 +132,59 @@ export function resolveCustomModelRouting(
     };
 }
 
+const CUSTOM_SUPPORT_EFFORTS = new Set(['high', 'max']);
+
+/**
+ * 自定义模型 support_efforts 仅接受 high / max；空数组或 null 输出 null。
+ * 同时兼容手工配置的单个字符串。
+ */
+function normalizeCustomSupportEfforts(value: unknown): string[] | null {
+    if (value === undefined || value === null) return null;
+    const raw = Array.isArray(value) ? value : [value];
+    const result: string[] = [];
+    for (const item of raw) {
+        const normalized = String(item ?? '').trim().toLowerCase();
+        if (CUSTOM_SUPPORT_EFFORTS.has(normalized) && !result.includes(normalized)) {
+            result.push(normalized);
+        }
+    }
+    return result.length > 0 ? result : null;
+}
+
+/**
+ * 将 custom_models.json 中的模型元数据写入 /v1/models 响应。
+ * 仅使用新字段：context_length / max_output_tokens / support_images / support_efforts。
+ */
+export function applyCustomModelMetadata(target: DynamicPayload, customConfig: DynamicPayload | null | undefined): void {
+    if (!target || !customConfig) return;
+
+    if (customConfig.name) target.display_name = customConfig.name;
+    if (customConfig.description) target.description = customConfig.description;
+
+    const contextLength = customConfig.context_length;
+    if (contextLength !== undefined && contextLength !== null && contextLength !== '') {
+        const numeric = Number(contextLength);
+        if (Number.isFinite(numeric)) target.context_length = numeric;
+    }
+
+    const maxOutputTokens = customConfig.max_output_tokens;
+    if (maxOutputTokens !== undefined && maxOutputTokens !== null && maxOutputTokens !== '') {
+        const numeric = Number(maxOutputTokens);
+        if (Number.isFinite(numeric)) target.max_output_tokens = numeric;
+    }
+
+    const supportImages = customConfig.support_images;
+    if (typeof supportImages === 'boolean') {
+        target.support_images = supportImages;
+    } else if (supportImages === 'true' || supportImages === 'false') {
+        target.support_images = supportImages === 'true';
+    }
+
+    if (Object.prototype.hasOwnProperty.call(customConfig, 'support_efforts')) {
+        target.support_efforts = normalizeCustomSupportEfforts(customConfig.support_efforts);
+    }
+}
+
 function appendCustomModelsToModelList(
     clientModelList: DynamicPayload,
     customEntries: DynamicPayload[],
@@ -139,7 +192,6 @@ function appendCustomModelsToModelList(
     listEndpointType: string
 ): DynamicPayload {
     const entries = Array.isArray(customEntries) ? customEntries : [];
-    const hasConfiguredMetadata = (value: unknown): boolean => value !== undefined && value !== null;
 
     if (!entries.length) {
         return clientModelList;
@@ -151,11 +203,8 @@ function appendCustomModelsToModelList(
         entries.forEach((entry: DynamicPayload) => {
             const existingModel = models.find((model: DynamicPayload) => model?.id === entry.id);
             if (existingModel) {
-                // 更新现有模型的元数据
-                if (entry.config.name) existingModel.display_name = entry.config.name;
-                if (entry.config.description) existingModel.description = entry.config.description;
-                if (hasConfiguredMetadata(entry.config.contextLength)) existingModel.context_length = entry.config.contextLength;
-                if (hasConfiguredMetadata(entry.config.maxTokens)) existingModel.max_tokens = entry.config.maxTokens;
+                // 自定义配置优先级高于上游元数据
+                applyCustomModelMetadata(existingModel, entry.config);
                 return;
             }
 
@@ -168,9 +217,7 @@ function appendCustomModelsToModelList(
                 display_name: entry.config.name || entry.id
             };
 
-            if (entry.config.description) modelResponse.description = entry.config.description;
-            if (hasConfiguredMetadata(entry.config.contextLength)) modelResponse.context_length = entry.config.contextLength;
-            if (hasConfiguredMetadata(entry.config.maxTokens)) modelResponse.max_tokens = entry.config.maxTokens;
+            applyCustomModelMetadata(modelResponse, entry.config);
 
             models.push(modelResponse);
         });
@@ -1425,9 +1472,7 @@ export async function handleModelListRequest(
 
                         // 注入自定义元数据（优先级高于上游元数据）
                         if (customConfig) {
-                            if (customConfig.contextLength) modelResponse.context_length = customConfig.contextLength;
-                            if (customConfig.maxTokens) modelResponse.max_tokens = customConfig.maxTokens;
-                            if (customConfig.description) modelResponse.description = customConfig.description;
+                            applyCustomModelMetadata(modelResponse, customConfig);
                         }
 
                         return modelResponse;
@@ -1805,29 +1850,17 @@ function _applyCustomModelParameters(requestBody: DynamicPayload, customConfig: 
     const protocol = getProtocolPrefix(provider, effectiveModel);
     const hasConfiguredValue = (value: unknown): boolean => value !== undefined && value !== null;
 
-    // 参数映射表
+    // 参数映射表（自定义模型只保留 max_output_tokens）
     const mappings: Record<string, Record<string, string>> = {
-        temperature: {
-            [MODEL_PROTOCOL_PREFIX.OPENAI]: 'temperature',
-            [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'temperature',
-            [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'temperature',
-            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'generationConfig.temperature'
-        },
-        maxTokens: {
+        max_output_tokens: {
             [MODEL_PROTOCOL_PREFIX.OPENAI]: 'max_tokens',
             [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'max_output_tokens',
             [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'max_tokens',
             [MODEL_PROTOCOL_PREFIX.GEMINI]: 'generationConfig.maxOutputTokens'
-        },
-        topP: {
-            [MODEL_PROTOCOL_PREFIX.OPENAI]: 'top_p',
-            [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'top_p',
-            [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'top_p',
-            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'generationConfig.topP'
         }
     };
 
-    // 处理嵌套路径 (例如 generationConfig.temperature)
+    // 处理嵌套路径 (例如 generationConfig.maxOutputTokens)
     const setNestedProperty = (obj: DynamicPayload, path: string, value: unknown): void => {
         const parts = path.split('.');
         let curr = obj;

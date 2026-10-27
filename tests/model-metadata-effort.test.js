@@ -26,6 +26,7 @@ import {
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import { ENDPOINT_TYPE } from '../src/utils/protocol.ts';
 import {
+    applyCustomModelMetadata,
     handleModelListRequest,
     prepareReasoningEffortBeforeDispatch
 } from '../src/handlers/request-pipeline.ts';
@@ -149,6 +150,49 @@ describe('reasoning effort helpers', () => {
             'DeepSeek-V4.1-Flash-1017',
             { reasoning_effort: 'max' }
         )).rejects.toMatchObject({ status: 400, statusCode: 400 });
+    });
+
+    test('applyCustomModelMetadata injects new metadata and limits support_efforts to high/max', () => {
+        const model = { id: 'custom-model' };
+        applyCustomModelMetadata(model, {
+            context_length: 1000000,
+            max_output_tokens: 131072,
+            support_images: true,
+            support_efforts: ['low', 'high', 'max', 'xhigh']
+        });
+
+        expect(model).toMatchObject({
+            context_length: 1000000,
+            max_output_tokens: 131072,
+            support_images: true,
+            support_efforts: ['high', 'max']
+        });
+        expect(model.max_tokens).toBeUndefined();
+    });
+
+    test('applyCustomModelMetadata ignores legacy contextLength/maxTokens', () => {
+        const model = { id: 'legacy-model' };
+        applyCustomModelMetadata(model, {
+            contextLength: 4096,
+            maxTokens: 1024,
+            support_efforts: null
+        });
+
+        expect(model.context_length).toBeUndefined();
+        expect(model.max_output_tokens).toBeUndefined();
+        expect(model.max_tokens).toBeUndefined();
+        expect(model.support_efforts).toBeNull();
+    });
+
+    test('applyCustomModelMetadata normalizes empty efforts and string booleans', () => {
+        const model = { id: 'string-model' };
+        applyCustomModelMetadata(model, {
+            support_images: 'false',
+            support_efforts: ['medium']
+        });
+
+        expect(model.support_images).toBe(false);
+        expect(model.support_efforts).toBeNull();
     });
 });
 

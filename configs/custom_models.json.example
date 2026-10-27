@@ -6,10 +6,13 @@
     "provider": "openai-custom",
     "actualProvider": "openai-custom",
     "actualModel": "gpt-5.5",
-    "contextLength": 8192,
-    "maxTokens": 4096,
-    "temperature": 0.7,
-    "topP": 1.0,
+    "context_length": 8192,
+    "max_output_tokens": 4096,
+    "support_images": true,
+    "support_efforts": [
+      "high",
+      "max"
+    ],
     "description": "Custom configuration for GPT-4"
   },
   {
@@ -19,7 +22,8 @@
     "provider": "claude-custom",
     "actualProvider": "claude-kiro-oauth",
     "actualModel": "claude-sonnet-4-6",
-    "contextLength": 200000,
-    "temperature": 0.5
+    "context_length": 200000,
+    "support_images": true,
+    "support_efforts": null
   }
 ]
