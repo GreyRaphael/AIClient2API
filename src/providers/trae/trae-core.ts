@@ -1179,42 +1179,22 @@ export class TraeApiService {
                     }
                 }
 
-                const excludedConfigNames = new Set([
-                    'computer_use_subagent',
-                    'browser_use_subagent',
-                    'file_search_agent',
-                    'explore_sub_agent_v2',
-                    'summary',
-                    'fast_apply',
-                    'fast_apply_new',
-                    'title_generation',
-                    'input_optimization',
-                    'context_selection',
-                    'custom_model_placeholder'
-                ]);
-
-                // 严格执行 visible_tob_batch_configs 过滤流水线，统一提取底层 ID、上下文与推理配置
+                // 核心过滤：只依赖一条规则 —— reasoning_effort_config 必须含有 extra_high
                 for (const item of allConfigs) {
-                    let id = item.config_name;
-                    if (!id || excludedConfigNames.has(id)) continue;
-                    if (item.config_switch === false || item.is_invisible_to_user === true) continue;
+                    const id = item.config_name;
+                    if (!id) continue;
 
-                    // 优雅过滤企业自定义与外部映射模型：
-                    // 1. 基于上游数据结构：custom_models 为非空数组表示映射至外部提供商 (如 anthropic/gemini 等)
-                    // 2. 基于上游元数据标识：display_config.is_custom_model 为 true
-                    // 3. 基于上游统一命名规范：config_name 以 custom_ 开头
-                    const isCustomMappedModel = Boolean(
-                        (Array.isArray(item.custom_models) && item.custom_models.length > 0) ||
-                        item.display_config?.is_custom_model ||
-                        id.startsWith('custom_')
-                    );
-                    if (isCustomMappedModel) continue;
+                    const effortConfig = item.reasoning_effort_config;
+                    const rawOptions: unknown[] = Array.isArray(effortConfig?.options)
+                        ? effortConfig.options
+                        : (Array.isArray(effortConfig?.reasoning_effort_level_options) ? effortConfig.reasoning_effort_level_options : []);
+
+                    const normalizedOptions = rawOptions.map((opt) => String(opt || '').trim().toLowerCase());
+                    if (!normalizedOptions.includes('extra_high')) {
+                        continue;
+                    }
 
                     const displayName = item.display_config?.display_name?.trim() || item.display_name?.trim();
-                    if (displayName === '-') continue;
-
-                    // 严格使用上游返回的原版真实底层 config_name
-                    id = item.config_name;
 
                     // context_window: 默认使用上游 Max 档位 (context_window_tokens.max)；若未显式提供则取可用最大档位 (如 dev / 详情最大容量)
                     const maxCtx = item.context_window_tokens?.max;
@@ -1228,22 +1208,6 @@ export class TraeApiService {
                     // max_tokens: 默认使用上游最大档位 (从 model_detail_list 所有档位中提取最大值)
                     const detailMaxTokens = (item.model_detail_list || []).map((d: DynamicPayload) => d.max_tokens || 0);
                     const maxTok = detailMaxTokens.length > 0 ? Math.max(...detailMaxTokens) : (item.max_tokens || 0);
-
-                    // reasoning_effort 对应配置
-                    // 核心过滤：只留下 support_thinking = true 并且 options 含有 extra_high 的模型
-                    const effortConfig = item.reasoning_effort_config;
-                    if (effortConfig?.support_thinking !== true) {
-                        continue;
-                    }
-
-                    const rawOptions: unknown[] = Array.isArray(effortConfig?.options)
-                        ? effortConfig.options
-                        : (Array.isArray(effortConfig?.reasoning_effort_level_options) ? effortConfig.reasoning_effort_level_options : []);
-
-                    const normalizedOptions = rawOptions.map((opt) => String(opt || '').trim().toLowerCase());
-                    if (!normalizedOptions.includes('extra_high')) {
-                        continue;
-                    }
 
                     const effortLevels = [...new Set(rawOptions.map(mapTraeLevelToStandardEffort))];
 
