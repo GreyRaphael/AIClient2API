@@ -62,7 +62,7 @@ function asCodexError(value: unknown): CodexErrorLike {
     return isRecord(value) ? value as CodexErrorLike : {};
 }
 
-export const CODEX_FALLBACK_VERSION = '0.162.1';
+export const CODEX_FALLBACK_VERSION = '0.164.0';
 
 /** Responses 规范默认最大输出 token（上游模型列表未单独返回该字段）。 */
 export const CODEX_DEFAULT_MAX_OUTPUT_TOKENS = 128000;

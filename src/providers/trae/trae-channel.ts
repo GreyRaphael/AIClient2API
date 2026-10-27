@@ -24,7 +24,7 @@ export const TRAE_CHANNEL_PRESETS = {
         defaultHost: 'https://api.enterprise.trae.cn',
         function: 'chat',
         appId: '7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0',
-        ideVersion: '0.208.1',
+        ideVersion: '0.211.1',
         ideVersionCode: '20260908',
         deviceType: 'linux',
         osVersion: 'Linux 6.8.0',

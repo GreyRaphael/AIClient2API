@@ -45,7 +45,7 @@ export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
 export const ZED_MODELS_URL = 'https://cloud.zed.dev/models';
 export const ZED_USERS_ME_URL = 'https://cloud.zed.dev/client/users/me';
 export const ZED_FALLBACK_SYSTEM_ID = '6b87ab66-af2c-49c7-b986-ef4c27c9e1fb';
-export const ZED_FALLBACK_VERSION = '0.222.4+stable.147.b385025df963c9e8c3f74cc4dadb1c4b29b3c6f0';
+export const ZED_FALLBACK_VERSION = '1.26.2+preview.381.87353f5227f6bc0757c3a077f42841dac6a8ed8e';
 export const ZED_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 
 /**
@@ -206,7 +206,8 @@ export class ZedApiService {
         this.userId = null;
         this.accessToken = null;
         this.systemId = config.ZED_SYSTEM_ID || null;
-        this.version = getZedVersionFromSystem();
+        // 优先使用节点配置的客户端版本；否则使用内置的最新版本。
+        this.version = String(config.ZED_VERSION || '').trim() || getZedVersionFromSystem();
         this.jwtToken = null;
         this.jwtExpiresAt = 0;
         this.isInitialized = false;
@@ -247,9 +248,8 @@ export class ZedApiService {
             this.userId = data.user_id;
             this.accessToken = data.access_token;
             this.systemId = this.systemId || data.system_id || ZED_FALLBACK_SYSTEM_ID;
-            if (data.version) {
-                this.version = data.version;
-            }
+            // 客户端版本以节点配置/内置最新版为准，忽略旧凭据里的历史版本；
+            // 下次保存凭据时会回写当前版本。
             if (data.jwt_token) {
                 this.jwtToken = data.jwt_token;
                 this.jwtExpiresAt = data.expires_at || 0;

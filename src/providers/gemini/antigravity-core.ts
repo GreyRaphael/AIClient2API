@@ -76,7 +76,7 @@ const ANTIGRAVITY_BASE_URL_PROD = 'https://cloudcode-pa.googleapis.com';
 const ANTIGRAVITY_API_VERSION = 'v1internal';
 const OAUTH_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
 const OAUTH_CLIENT_SECRET = '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';
-const DEFAULT_USER_AGENT = 'antigravity/cli/1.4.5 linux/amd64';
+const DEFAULT_USER_AGENT = 'antigravity/cli/1.4.7 linux/amd64';
 const REFRESH_SKEW = 3000; // 3000秒（50分钟）提前刷新Token
 
 // Thinking 配置相关常量
