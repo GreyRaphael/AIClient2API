@@ -199,29 +199,33 @@ describe('reasoning effort helpers', () => {
 describe('provider model metadata extraction', () => {
     test('codex uses max_context_window (872K), Responses default max output and supported levels', () => {
         const service = new CodexApiService({ uuid: 'codex-meta', MODEL_PROVIDER: 'openai-codex-oauth' });
-        service.availableModels = ['gpt-5.6-terra'];
-        service.modelMetadataMap = new Map([
-            ['gpt-5.6-terra', {
-                display_name: 'GPT-5.6-Terra',
-                max_context_window: 872000,
-                context_window: 272000,
-                input_modalities: ['text', 'image'],
-                supported_reasoning_levels: [
-                    { effort: 'low' }, { effort: 'medium' }, { effort: 'high' },
-                    { effort: 'xhigh' }, { effort: 'max' }, { effort: 'ultra' }
-                ]
-            }]
-        ]);
+        try {
+            service.availableModels = ['gpt-5.6-terra'];
+            service.modelMetadataMap = new Map([
+                ['gpt-5.6-terra', {
+                    display_name: 'GPT-5.6-Terra',
+                    max_context_window: 872000,
+                    context_window: 272000,
+                    input_modalities: ['text', 'image'],
+                    supported_reasoning_levels: [
+                        { effort: 'low' }, { effort: 'medium' }, { effort: 'high' },
+                        { effort: 'xhigh' }, { effort: 'max' }, { effort: 'ultra' }
+                    ]
+                }]
+            ]);
 
-        expect(service.getNodeModelMetadata()).toEqual({
-            'gpt-5.6-terra': {
-                display_name: 'GPT-5.6-Terra',
-                context_length: 872000,
-                max_output_tokens: CODEX_DEFAULT_MAX_OUTPUT_TOKENS,
-                support_images: true,
-                support_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
-            }
-        });
+            expect(service.getNodeModelMetadata()).toEqual({
+                'gpt-5.6-terra': {
+                    display_name: 'GPT-5.6-Terra',
+                    context_length: 872000,
+                    max_output_tokens: CODEX_DEFAULT_MAX_OUTPUT_TOKENS,
+                    support_images: true,
+                    support_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+                }
+            });
+        } finally {
+            service.stopCacheCleanup();
+        }
     });
 
     test('antigravity maps displayName/maxTokens/maxOutputTokens and null support_efforts', () => {
