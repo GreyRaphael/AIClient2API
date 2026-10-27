@@ -17,6 +17,65 @@ export const E2E_WEATHER_QUESTION = 'What is the weather in Paris? Use the get_w
 // 32×32 纯红 PNG，用于多模态转译断言
 export const E2E_RED_32_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg==';
 
+// 320×160 测试图：左红/右蓝 + 白色数字 42 + 左下绿圆，用于图片输入矩阵的强断言
+export const E2E_VISION_PNG_BASE64 = [
+    'iVBORw0KGgoAAAANSUhEUgAAAUAAAACgCAIAAADywSLLAAANYklEQVR4nO3de3BU5RnH8efsLbubTdhsiETCEo2RGEClTkUZGVIF',
+    'SzoRjA4CI8IAodTBBJh2AGvAUZvQGhnCJYloQOxMpMURQUTRoQUZII60KUWiNALhUgwBzGYv2fvuOf0jrdpNcgLsnstLfp+/YM6b',
+    's09m+OY97J7dcKeHDye4eT0yfL/SI4CENEoPAAA3DgEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAM',
+    'AQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMw',
+    'DAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwDAED',
+    'MAwBAzAMAQMwTKf0ACAzPuK/EPL+K+w/HQ1eigbbI8FLfNQtRAMC7xeEiEZr0ehSNNoUbdKtBsvdBsvopJQxGn2a0mND7xCwGu30',
+    'el9zOq9Eo+LLtETjTaYN6enJGrErKT7qDbmbAq6jQffRUNdJgfeLLY64+IiLiMh70u/YT0TEaU1pBclDpplsj3Ac/sGoC3d6+HCl',
+    'Z4D/cyIUmtbe3k+7P7Lcal2YmtrroSjRT8MFnvZtJPxwPrvdfs8994wePTo7O9tut9vt9vT0dLPZbDab9Xq92+12uVwul6ulpaWp',
+    'qampqenw4cPBYJCIdElZttzfGdMmxPsdQuIgYHUJC0Jxe3tLOLxs2bKqqirxxbW1taWlpc+kpLyU1vsl7kG/v+TqVYPBcP/99xcU',
+    'FEyYMOGBBx6wWq3XNZLD4XjnnXfefPPN5uZmIkrOmJp2x8saXcp1nQQkgiex1KXW7W4Jh0eMGPHyyy/Hf7ZT4TARLV68+PDhw5WV',
+    'lZMnT77eeonIZrOVlZUdP3583bp1FovFe3X35RMzo6Er8Y8H8UPAKnIyFNrkdms0mi1btphMJqXH+T8ajWbJkiXNzc2jR48Oe1uu',
+    'flXCR71KDwUIWDWiRCscjogglJWVjR8/XulxepednX3w4MH8/PyQ92Rn6ytKjwMIWDU2uVxfh0I5OTmrV69WehYxNptt586dJpPJ',
+    'e3lH0N2k9DgDHQJWhVPhcI3bzXHc5s2bzWaz0uP0Iy8vb/ny5UTkurBR6VkGOgSsvCjRio6OsCA8++yzDz/8sDwPeuzYscrKyqKi',
+    'opycnOTk5KSkpKysrMcff7yhoSESifT75UuXLjUajQFnYzTYLsO00BcErLzNbveXoVB2dvarr74q9WN1dnZWV1fn5eXdd999K1eu',
+    '/Pjjj8+ePevz+UKhUFtb2+7du2fPnj127NjW1lbx81it1sLCQiLe7zwk9cwgAjfWKKw1HN7gchFRfX19Skrsi6vhcFiv1yfkgdrb',
+    '2ysqKt566y2/309EWsMtRut4Y9p4Q/JdWsMtnDY5GrwccB52X3zj2LFjEydOPHr0aEZGhsgJCwoKdu3aFfKcoCFPJWRCuAHYgZXE',
+    'Ez3vcAQFYcGCBY8++mjM0UAgsHbt2vgfxeVyvfjii7m5ubW1tX5/wJg2IWPkm1ljD6ePqErOmKo3j9DorByn1xmHWTJnZv5kT1Lq',
+    'fefOnVu1apX4afPy8ogoErgQ/4Rww7ADK+mPHs8/gsGsrKw1a9b0PLpy5cqOjo54zm/X6Yiovr6++6/m9J8Pyv6N3nyHyJdotMnp',
+    'd1a1NU3atm3bhg0bDAZDXyu79+f/3jgNCsEOrJgLkchap5OI3njjjUGDBsUc/fzzz6urq+N8iElmsyVzhkZnNaUVZN67Y3B+nXi9',
+    '3XSm2/SmOzwez6lTp0SWabVaIiK69ru2IfGwAytDIFrR0eEXhDlz5hQVFcUc9fv9c+fO5Xk+zkfREtlyK225ldf7hZzOQkRdXV0i',
+    'azo7O4lIo4v90QNywg6sjHc8nr8Fg5mZmevWret5tLy8/JtvvpF9qB9EA98S0XDRN7q0tLQQkTYpS6aZoDcIWAEXI5Eqp5OIXn/9',
+    '9bQebyQ6cuTI+vXrFRjrfwKuL6Lh7+x2e2ZmpsiyxsZGIkqy3C3XXNALBKyAFxwOnyDMnDmzuLg45pDP5+u+eL5dp9D/boSo81wV',
+    'ES1cuJDjuL5WBQKB3bt3ExHeHqwsBCy3P3d1NQYCGRkZGzf2ch/iCy+8cPr06bv0+gV9vEdfas7za0Ke45mZmWVlZSLLtm7d6na7',
+    'k1LG6Ix22WaDnhCwrNqj0T84nURUW1s7ePDgmKOHDh3auHGjjuOq0tN1fe9+0nH/u859sV6r1TY0NPR8Yvx7LperoqKCiFKGLZRx',
+    'OugFApZVucPRxfNPPvnkU0/F3r3k8/nmzZvH8/yi1NSRfb/6Kh3X+Wrn+bUcx9XX10+cOFFkZWlpaVtbW1LKGHN67M0nIDO8jCSf',
+    'HV7vQb/fZrPV1dX1PPr888+fOXMm32BYJP/FsxB1nFnV1f6uTqfbsmXLnDlzRNbW1NQ0NDRwGlP6iDVEClwmwI8hYJlciUYrOzuJ',
+    'aMOGDUOGDIk5evDgwZqaGh3HVdlsMl88C3zgu5al/o6/mM3m7du3P/bYYyKLP/jggyVLlhBxtjsrdabb5JoR+oSAZbLK4XDz/JQp',
+    'U2bNmhVzyOv1zp8/XxCERYMG5ct78cxHXFe//lXQ/XebzbZnz55x48aJLN67d++MGTN4nrdm/zo5Y6psQ4IIBCyH3V7vX/1+q9W6',
+    'adOmnkdXrFjR2toq/8VzNHT5SvPcsO+U3W7/9NNP8/PzRRbv3bv3iSeeCAaDKUPnpdoXyTYkiMOTWJJz8vwrnZ1EVF1dPXTo0Jij',
+    'Bw4cqKurk//iOew70358Wth3atSoUY2NjeL1bt++vbi4OBgMpgydm5ZTLtuQ0C/swJLb5/M5eX7SpElz586NOdTV1VVSUiIIQoRo',
+    'SvsNfrRFg8fT4PF0/9nEccXJya/YbOI/CYKef179agEfcT700EMffvhhz7vBfqympmbx4sWCIKQO+6X1thU3NiRIBDuw5Lp/Q8qD',
+    'Dz7Y89Dy5cvPnj2bwMfyC8KfurqOBAJiaxwHrpyYzUecU6dO3bdvn3i95eXlZWVlgkDW23+LelUIASuprq5OELV161aRL3/uuedi',
+    '1i9YsICI2vr+UCvv5R1XTz4r8P6SkpL3339f5NOnI5HI/PnzV69eTZw2fcRrqVkl8XynIBFcQg8g7oubnOfWEFF5eXn3rVR98fl8',
+    '06dP/+ijjzitafBdG01pP5NnQrheCHiAEDpbKz1tb2s0mvXr15eWloos7ejoKCoq+uKLLzR62y0j6w0p98o2JVwvBHzzE4RwxzfL',
+    'fFf3GAyGhoaGnndx/tj58+cnT57c0tKiMw67ZdTbuFtD5RDwTY6Per87uSjgPJKamrpr1y7xz53+8ssvCwsLL126ZLCMzBi5RWsQ',
+    '+1RKUAMEfDPzC8KVE7NCXc1Dhgz55JNPxowZI7L4s88+Ky4udrlcRBTq+vrbo2J3ZXXT6tOtOeW4K0tBeBb6ZrbN4wl1Nefm5jY2',
+    'NorX+9577xUWFnbXe+2i4Q7HqXJB6P83OYBEEPDN7FI0SkSlpaU5OTniK6dNmxYIBMRf0+opMzNT4P18uFOW7wZ6gYAld6tOR0QV',
+    'FRXc9Zs3b57ImWtra2PWb968mYiGKvVxPCA7BCy5KWbzL8xmvSz3ORs5bqbF8pDRKMNjgRrgR7Xk9By3scen5/Rrh9e74tp+LcMz',
+    'KSkvid4OCTcx7MAADEPAAAxDwAAMQ8AADONOi/7+G1BKYyAw58qVa1m53Gpd2Mdn8Wxxu3/vdCZyrB44jWnYuGMch2dDlYEdWKXG',
+    'GY1PWyxG0ReftEQTjManLZa+Fsy0WExpBcRpJRiQiEirT7fdWYF6FYQd+Cb3yPD9So8AElLLz85H3u3n58j+6RfkmQSAIYoF3G+x',
+    '4uvRMwDJH/D1dtvveVAyDGTyBZyodHs9LTKGgUmOgCVKt+dDIGMYaCR/GUmGehV5LAA1kHAHViQnbMUwoEi1Ayu7GWIrhgFCkoDV',
+    '0I8aZgCQWuIDVk856pkEQCIJDlhtzahtHoDESmTA6qxFnVMBJETCAlZzJ2qeDSAeeDshAMMSE7D6tzj1TwhwA7ADAzAsAQGzsrmx',
+    'MifAtcMODMCweANma1tja1qAfmEHBmAYAgZgWFwBs3hFyuLMAH3BDgzAMAQMwDAEDMAwBAzAMAQMwDAEDMAwBAzAMAQMwLC4Ambx',
+    '45dZnBmgL9iBARiGgAEYFm/AbF2RsjUtQL+wAwMwLAEBs7KtsTInwLXDDgzAsMQErP7NTf0TAtwA7MAADEtYwGre4tQ8G0A8ErkD',
+    'q7MTdU4FkBAJvoRWWy1qmwcgsRL/f2D1NKOeSQAkIsmTWGooRw0zAEhNqmehle0H9cIAoZPu1N0Vyfw5zEgXBhTJXweWsyjUCwON',
+    'hDvw92TYipEuDExyBNxNooyRLgxk8gXc7fve4iwZ3QKQ/AF/L6bAfntGsQA9KRZwDPQJcAPwbiQAhiFgAIYhYACGIWAAhiFgAIYh',
+    'YACGIWAAhiFgAIb9B/+usN/VUV7BAAAAAElFTkSuQmCC',
+].join('');
+
+export const E2E_VISION_PROMPT = 'Look at the attached image and answer in one short sentence: what are the two main background colors, and what number is displayed?';
+
+/** 判断模型是否真的读到了测试图（红色 + 蓝色 + 数字 42）。 */
+export function hasVisionImageAnswer(text) {
+    const value = String(text || '');
+    return hasNumber(value, 42) && /\bred\b|红/i.test(value) && /\bblue\b|蓝/i.test(value);
+}
+
 export const E2E_HARD_REASONING_PROMPT = 'A farmer has 17 sheep. All but 9 run away. Then he buys 3 times as many sheep as remain, and sells 5. How many sheep does he have now? Show your step-by-step reasoning.';
 
 export function resolveApiKey() {

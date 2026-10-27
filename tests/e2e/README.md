@@ -23,6 +23,8 @@ npm run test:e2e
 | `AICLIENT_CONFIG_PATH` | `configs/config.json` | 指定配置文件路径 |
 | `AICLIENT_E2E_MODELS` | 从 `/auto/v1/models` 动态获取全部模型 | `all`/`*` 等同于默认；也可传逗号分隔的模型列表，只跑指定模型 |
 | `AICLIENT_E2E_MODELS_FILE` | 系统临时目录 `aiclient-e2e-models.json` | 模型列表缓存文件路径；一般无需设置 |
+| `AICLIENT_E2E_IMAGE_NEGATIVE_TIMEOUT_MS` | `30000` | `support_images=false` 模型的图片请求超时；超时按“未识图”计为通过 |
+| `AICLIENT_E2E_IMAGE_GAP_MS` | `1500` | 图片矩阵请求间隔，降低上游限流概率 |
 
 示例：
 
@@ -61,6 +63,41 @@ npm run test:e2e
 > 定向用例不再硬编码具体模型：从 `/auto/v1/models` 按 provider 前缀和模型名特征动态选择。
 > 测试名会显示实际选中的模型；若没有匹配模型（例如某个 provider 被移除或模型下线），该用例自动 `skip`，不会误报失败。
 
+### 图片输入矩阵（默认运行）
+
+用例文件：`tests/e2e/image-input.e2e.test.js`
+
+- 取样：`/auto/v1/models` 中 5 个核心 Provider（`gemini-antigravity` / `openai-codex-oauth` / `zed` / `trae` / `trae-chat_v3`）的模型，按 provider 前缀动态选择，不硬编码数量。
+- 排除生图模型：`gemini-3.1-flash-image` 的 text-to-image / image-to-image 能力需要独立的图片生成测试，不进入本输入矩阵。
+- 覆盖：每个模型分别请求 Chat / Responses / Messages 三种非流式图片输入。
+- 测试图：320×160，左红/右蓝、中央数字 `42`、左下绿圆；通过 `support_images` 作为预期判据。
+- `support_images=true`：强断言 `HTTP 200` 且正文包含 red + blue + 42。
+- `support_images=false`：允许 4xx/5xx 或超时；HTTP 200 时必须没有正确识图，避免文本模型猜中造成假阳性。
+- `false` 模型默认请求超时 `30s`（可用 `AICLIENT_E2E_IMAGE_NEGATIVE_TIMEOUT_MS` 调整），超时计为“未识图”通过。
+- 上游持续 `429` / 配额耗尽时自动重试 2 次（间隔 20s）；仍失败则输出 `[image-e2e] ... skipped` warning 并跳过该单元格断言，不计为转译失败。
+- 仅当模型 `support_efforts` 包含 `low` 时才注入 `reasoning_effort=low`，避免 `gemini-3.1-flash-image` 等非思考模型在 Responses 路径收到不支持的 thinking level。
+
+```bash
+# 仅跑图片输入矩阵
+npm run test:e2e:images
+```
+
+### 图片生成矩阵（OpenAI Images API，opt-in）
+
+用例文件：`tests/e2e/image-generation.e2e.test.js`
+
+- 模型：`gemini-antigravity:gemini-3.1-flash-image`（从 `/auto/v1/models` 动态查找；不存在时整组 skip）。
+- text-to-image：`POST /v1/images/generations`，断言 `data[0].b64_json` 非空，并校验返回字节是 PNG / JPEG / WebP。
+- image-to-image：`POST /v1/images/edits`（multipart：测试图 + prompt），同样校验返回图片字节。
+- 上游持续 429 / 配额耗尽时重试 2 次（间隔 20s），仍失败则 warning skip；HTTP 400 `Image generation rejected` 或其他非 200 视为失败。
+
+```bash
+# 仅跑图片生成（text-to-image / image-to-image）
+npm run test:e2e:images:generation
+```
+
+> 该用例默认不随 `npm run test:e2e` 运行，避免生图配额导致日常 E2E 不稳定。
+
 ### Provider 方言 canary（4 项，opt-in）
 
 ```bash
@@ -98,12 +135,13 @@ npm run test:e2e:providers
 - Gemini `maxOutputTokens` 已透传，但 thinking token 也计入预算，极小值可能只产出 thinking。
 - 显式 `cache_control` 仍不跨协议保留；网关默认开启工具稳定排序以对齐隐式前缀缓存。
 - Codex 上游可能忽略 `max_output_tokens`，网关已透传该字段。
+- 图片输入矩阵中上游持续 `429` / 配额耗尽（例如 `gemini-3.1-flash-image` 的图片生成配额）会记为 warning 并跳过该单元格断言，不作为图片转译失败。
 
 测试会在控制台输出 `[E2E warnings]`，但只有确定性核心断言失败才会让测试失败。
 
 ## 注意
 
-- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 20 个模型时约 220 次核心请求，另有 6 项通用定向契约。4 项 provider 方言 canary 仅在 `test:e2e:providers` 中运行。
+- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 20 个模型时约 220 次核心请求，另有 6 项通用定向契约。图片输入矩阵再对 5 个核心 Provider 的非生图模型各执行 3 次请求（当前 13 个模型 → 39 次，`gemini-3.1-flash-image` 单独测试）。4 项 provider 方言 canary 仅在 `test:e2e:providers` 中运行。
 - 建议使用独立实例端口，避免影响主实例。
 - 默认串行执行（`--runInBand`），避免并发触发上游限流。
 - 发布前建议至少跑一次默认全量矩阵；仅本地快速回归时可传 `AICLIENT_E2E_MODELS=...` 子集。

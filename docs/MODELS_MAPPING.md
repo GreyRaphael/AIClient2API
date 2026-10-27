@@ -234,6 +234,15 @@ Supported reasoning_effort values: [low, high, xhigh]
 
 > 矩阵执行时临时将 5 个 Provider 的 `supportedModels` 扩展为全部 44 个候选模型，确保所有 ID 可路由；测试完成后已恢复原配置。当前候选集为 44 个（13+13+9+3+6）。
 
+### 6.2 图片输入 E2E（2026-10-27）
+
+- 用例：`tests/e2e/image-input.e2e.test.js`，已纳入 `npm run test:e2e` 默认执行，也可 `npm run test:e2e:images` 单独运行。
+- 取样：`/auto/v1/models` 中 5 个核心 Provider 的非生图模型，按 provider 前缀动态选择；当前为 13 个（14 个核心模型中排除 `gemini-3.1-flash-image`），其中 11 个 `support_images=true`、2 个 `false`。
+- 覆盖：13 模型 × 3 种下游格式（Chat / Responses / Messages）= 39 个非流式图片输入请求；判据为 `support_images`。
+- 结果：11 个 `true` 模型 × 3 格式 = 33/33 正确识别测试图（左红右蓝、数字 42）；2 个 `false` 模型 × 3 格式均未识图，符合判据（部分请求 30s 超时）。
+- 生图模型：`gemini-3.1-flash-image` 的 text-to-image / image-to-image 能力由独立用例 `tests/e2e/image-generation.e2e.test.js` 覆盖（`npm run test:e2e:images:generation`），走 `/v1/images/generations` 与 `/v1/images/edits`，不进入通用图片输入矩阵；其 text-to-text / image-to-text 能力可在聊天协议中单独验证。
+- 说明：上游持续 429/配额耗尽时，E2E 重试后记 warning 并跳过该单元格，不计为转译失败。
+
 ---
 
 ## 7. 已知边界
