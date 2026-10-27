@@ -246,11 +246,19 @@ Supported reasoning_effort values: [low, high, xhigh]
 - 生图模型：`gemini-3.1-flash-image` 的 text-to-image / image-to-image 能力由独立用例 `tests/e2e/image-generation.e2e.test.js` 覆盖（`npm run test:e2e:images:generation`），走 `/v1/images/generations` 与 `/v1/images/edits`，不进入通用图片输入矩阵；其 text-to-text / image-to-text 能力可在聊天协议中单独验证。
 - 说明：上游持续 429/配额耗尽时，E2E 重试后记 warning 并跳过该单元格，不计为转译失败。
 
+### 6.3 reasoning_effort 契约修复实测（2026-10-27）
+
+- Antigravity：`gemini-3.8-flash-high` / `claude-opus-5-5-high` × Chat / Responses / Messages 显式传 `max`，全部返回 200；下游 effort 已被剥离，不再 400。
+- Trae strict 路径未受影响：`trae:DeepSeek-V4.1-Flash-1017` + `max` 仍返回 400 `unsupported`。
+- Claude → Codex：Messages 未提供 thinking 时不再硬编码 `medium`，改由 Codex provider 按元数据取最高档。
+  - `gpt-6-luna` 缺省 → 200（最高档 `max`）。
+  - `gpt-5.6-terra` 缺省 → 400（最高档 `ultra` 被上游拒绝；属于尚未修复的已知 P0）。
+
 ---
 
 ## 7. 已知边界
 
-- Antigravity 档位固化在模型 ID 中，`support_efforts` 为 `null`；不注入默认档位。
+- Antigravity 档位固化在模型 ID 中，`support_efforts` 为 `null`；下游显式 effort 一律剥离，不注入默认档位，也不因 effort 返回 400。
 - Codex `max_output_tokens` 为 Responses 规范默认 128,000，不是逐模型上游字段。
 - Trae ToB / chat_v3 的 model_list 过滤规则为 `extra_high && is_invisible_to_user !== true`；上游 invisible 配置（ToB 的 `deepseek-V4-Pro` / `DeepSeek-V4-Flash`，chat_v3 的 `DeepSeek-V4-Flash` / `DeepSeek-V4-Pro`）不暴露。
 - 当前 5 个 Provider 的候选集为 44 个（13+13+9+3+6）；220 矩阵基于同一集合执行。

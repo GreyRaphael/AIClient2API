@@ -2360,8 +2360,10 @@ export class ClaudeConverter extends BaseConverter {
             parallel_tool_calls: claudeRequest.tool_choice?.disable_parallel_tool_use !== true,
             metadata: claudeRequest.metadata || {},
             reasoning: {
-                effort: claudeRequest.reasoning?.effort || 'medium',
-                summary: 'auto'
+                ...(claudeRequest.reasoning?.effort
+                    ? { effort: claudeRequest.reasoning.effort }
+                    : {}),
+                summary: claudeRequest.reasoning?.summary || 'auto'
             },
             include: ['reasoning.encrypted_content']
         };

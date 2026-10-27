@@ -234,6 +234,16 @@ describe('v4 P2 regressions', () => {
         expect(request.reasoning.effort).toBe('low');
     });
 
+    test('P2-2b Claude -> Codex 未提供 thinking 时不注入默认 effort', () => {
+        const converter = new ClaudeConverter();
+        const request = converter.toCodexRequest({
+            model: 'gpt-5-codex',
+            messages: [{ role: 'user', content: 'hi' }]
+        });
+        expect(request.reasoning).toEqual({ summary: 'auto' });
+        expect(request.reasoning.effort).toBeUndefined();
+    });
+
     test('P2-3 tool_choice 映射：required/any/Responses->Gemini', () => {
         const openai = new OpenAIConverter();
         const claude = new ClaudeConverter();
