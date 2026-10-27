@@ -11,8 +11,16 @@ import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '..
 import {getProviderModels} from '../provider-models.ts';
 import {normalizeCodexInstructions} from './codex-request-utils.ts';
 import {resolveProviderCapabilities} from '../provider-capabilities.ts';
+import {
+    createUnsupportedEffortError,
+    isDisableEffort,
+    normalizeEffortName,
+    normalizeSupportEfforts,
+    pickMaxEffort
+} from '../reasoning-effort.ts';
 
 import type { ProviderConfig } from '../provider-types.ts';
+import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import { getErrorMessage } from '../../utils/error.ts';
 
 interface CodexServiceConfig extends ProviderConfig {
@@ -56,6 +64,9 @@ function asCodexError(value: unknown): CodexErrorLike {
 
 export const CODEX_FALLBACK_VERSION = '0.162.1';
 
+/** Responses 规范默认最大输出 token（上游模型列表未单独返回该字段）。 */
+export const CODEX_DEFAULT_MAX_OUTPUT_TOKENS = 128000;
+
 /**
  * 获取 Codex 客户端版本号
  * 仅支持通过节点配置 CODEX_VERSION（WebUI）指定，未设置时使用 CODEX_FALLBACK_VERSION
@@ -73,91 +84,54 @@ export function getCodexVersion(config: CodexServiceConfig | null = null): strin
 export const CODEX_MODELS_CACHE_TTL_MS = 10 * 60 * 1000; // 10分钟缓存
 
 /**
- * 规范化 Codex 模型的推理强度 (reasoning effort)
- * 支持将多种别名映射为上游标准等级，并在提供模型能力时收敛到受支持等级。
+ * 规范化 Codex 模型的推理强度 (reasoning effort)。
+ *
+ * 规则：
+ * - 下游未提供档位 -> 使用上游支持的最高档位；
+ * - 下游显式档位必须与上游 supported_reasoning_levels 一一对应，否则抛出 400 unsupported；
+ * - 无权威元数据时宽松透传，交给上游校验。
+ *
  * @param {string|null|undefined} effort
- * @param {string} [defaultEffort='medium']
+ * @param {string} [defaultEffort='max'] 无上游元数据且未提供档位时的兜底值
  * @param {Array<string|object>|null} [supportedLevels=null]
- * @returns {string}
+ * @param {string} [model=''] 仅用于错误信息
+ * @returns {string|null} null 表示显式关闭思考（省略 reasoning.effort）
  */
-export function normalizeCodexReasoningEffort(effort: unknown, defaultEffort: unknown = 'medium', supportedLevels: unknown = null): string {
-    const canonicalOrder = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-    const canonicalSet = new Set(canonicalOrder);
-    const normalizedDefault = String(defaultEffort || 'medium').trim().toLowerCase();
+export function normalizeCodexReasoningEffort(
+    effort: unknown,
+    defaultEffort: unknown = 'max',
+    supportedLevels: unknown = null,
+    model = ''
+): string | null {
+    const supported = normalizeSupportEfforts(supportedLevels);
+    const hasRequested = effort !== null && effort !== undefined && String(effort).trim() !== '';
 
-    const supported = Array.isArray(supportedLevels)
-        ? new Set(supportedLevels
-            .map((level: unknown) => {
-                if (typeof level === 'string') return level;
-                const record = isRecord(level) ? level : null;
-                return record?.effort ?? record?.level ?? record?.value;
-            })
-            .filter(Boolean)
-            .map((level) => String(level).trim().toLowerCase()))
-        : null;
+    if (hasRequested && isDisableEffort(effort)) {
+        // 上游明确支持 none 时透传；否则视为显式关闭，省略 effort。
+        return supported?.includes('none') ? 'none' : null;
+    }
 
-    let candidate: string;
-    if (effort === null || effort === undefined || effort === '') {
-        candidate = normalizedDefault;
-    } else {
-        const str = String(effort).trim().toLowerCase();
-        switch (str) {
-            case 'none':
-            case 'off':
-            case 'false':
-                candidate = 'none';
-                break;
-            case 'minimal':
-                candidate = 'minimal';
-                break;
-            case 'low':
-                candidate = 'low';
-                break;
-            case 'medium':
-                candidate = 'medium';
-                break;
-            case 'high':
-                candidate = 'high';
-                break;
-            case 'xhigh':
-            case 'extra_high':
-            case 'extra-high':
-            case 'very_high':
-                candidate = 'xhigh';
-                break;
-            case 'max':
-            case 'maximum':
-                candidate = 'max';
-                break;
-            default:
-                candidate = normalizedDefault;
+    if (hasRequested) {
+        const candidate = normalizeEffortName(effort);
+        if (supported && supported.length > 0) {
+            const matched = supported.find((level) => normalizeEffortName(level) === candidate);
+            if (!matched) {
+                throw createUnsupportedEffortError({
+                    model,
+                    requested: effort,
+                    supported,
+                    provider: 'codex'
+                });
+            }
+            return matched;
         }
-    }
-
-    if (!canonicalSet.has(candidate)) {
-        candidate = canonicalSet.has(normalizedDefault) ? normalizedDefault : 'medium';
-    }
-
-    if (!supported || supported.size === 0) {
         return candidate;
     }
 
-    if (supported.has(candidate)) {
-        return candidate;
+    if (supported && supported.length > 0) {
+        return pickMaxEffort(supported);
     }
-
-    // 就近降级/升级：优先选择不高于请求等级的受支持值，其次选择更高等级
-    const candidateIndex = canonicalOrder.indexOf(candidate);
-    for (let i = candidateIndex; i >= 0; i--) {
-        if (supported.has(canonicalOrder[i])) return canonicalOrder[i];
-    }
-    for (let i = candidateIndex + 1; i < canonicalOrder.length; i++) {
-        if (supported.has(canonicalOrder[i])) return canonicalOrder[i];
-    }
-
-    return supported.has(normalizedDefault)
-        ? normalizedDefault
-        : (canonicalOrder.find((level) => supported.has(level)) || 'medium');
+    return normalizeEffortName(defaultEffort) || 'max';
 }
 
 /**
@@ -786,16 +760,32 @@ export class CodexApiService {
             delete cleanedBody.max_completion_tokens;
         }
 
-        // 推理等级 (reasoning_effort) 动态合理映射
-        const inputEffort = requestBody.reasoning_effort ?? asRecord(requestBody.reasoning).effort ?? cleanedBody.reasoning_effort ?? asRecord(cleanedBody.reasoning).effort;
-        const rawEffort = inputEffort;
+        // 推理等级 (reasoning_effort) 严格映射：
+        // - 下游未提供 -> 默认上游最高档；
+        // - 下游显式档位不在上游列表 -> 400 unsupported。
+        let modelMeta = asRecord(this.modelMetadataMap?.get(upstreamModel));
+        if (Object.keys(modelMeta).length === 0 && this.accessToken && !isImageModel) {
+            try {
+                await this.fetchRemoteModels();
+                modelMeta = asRecord(this.modelMetadataMap?.get(upstreamModel));
+            } catch {
+                // 元数据不可用时保持宽松透传，避免冷启动误杀请求。
+            }
+        }
 
-        const modelMeta = asRecord(this.modelMetadataMap?.get(upstreamModel));
-        const defaultEffort = typeof modelMeta.default_reasoning_level === 'string' ? modelMeta.default_reasoning_level : 'medium';
+        const rawEffort = requestBody._rawThinkingEffort
+            ?? requestBody.reasoning_effort
+            ?? asRecord(requestBody.reasoning).effort
+            ?? cleanedBody.reasoning_effort
+            ?? asRecord(cleanedBody.reasoning).effort;
+        const defaultEffort = typeof modelMeta.default_reasoning_level === 'string' ? modelMeta.default_reasoning_level : 'max';
         const supportedEfforts = Array.isArray(modelMeta.supported_reasoning_levels)
             ? modelMeta.supported_reasoning_levels
             : null;
-        const targetEffort = normalizeCodexReasoningEffort(rawEffort, defaultEffort, supportedEfforts);
+        // 图片模型不参与推理档位；仅在显式指定时校验。
+        const targetEffort = isImageModel && (rawEffort === undefined || rawEffort === null || String(rawEffort).trim() === '')
+            ? null
+            : normalizeCodexReasoningEffort(rawEffort, defaultEffort, supportedEfforts, upstreamModel);
 
         const requestedServiceTier = cleanedBody.service_tier;
 
@@ -817,17 +807,24 @@ export class CodexApiService {
             this.conversationCache.set(cacheKey, cache);
         }
 
+        // 显式关闭思考时删除可能残留的 reasoning.effort。
+        const reasoningPayload: Record<string, unknown> = {
+            ...asRecord(cleanedBody.reasoning),
+            summary: asRecord(cleanedBody.reasoning).summary || 'auto'
+        };
+        if (targetEffort) {
+            reasoningPayload.effort = targetEffort;
+        } else {
+            delete reasoningPayload.effort;
+        }
+
         // 注意：requestBody 已经去除了 metadata
         const result: Record<string, unknown> = {
             ...cleanedBody,
             store: cleanedBody.store ?? false,
             parallel_tool_calls: cleanedBody.parallel_tool_calls ?? true,
             include: cleanedBody.include || ['reasoning.encrypted_content'],
-            reasoning: {
-                ...asRecord(cleanedBody.reasoning),
-                effort: targetEffort,
-                summary: asRecord(cleanedBody.reasoning).summary || 'auto',
-            },
+            reasoning: reasoningPayload,
             stream,
             prompt_cache_key: cache.id
         };
@@ -1301,6 +1298,33 @@ export class CodexApiService {
         }
         await this.fetchRemoteModels(force);
         return this.getSupportedModels();
+    }
+
+    /**
+     * 导出节点模型元数据，供 /v1/models 扩展字段使用。
+     * 上下文取上游 max_context_window（872K）；max_output_tokens 使用 Responses 规范默认值。
+     */
+    getNodeModelMetadata(): Record<string, DynamicPayload> {
+        const result: Record<string, DynamicPayload> = {};
+
+        for (const id of this.getSupportedModels()) {
+            const meta = asRecord(this.modelMetadataMap?.get(id));
+            if (!meta || Object.keys(meta).length === 0) continue;
+
+            const metadata: DynamicPayload = {};
+            if (typeof meta.display_name === 'string' && meta.display_name) {
+                metadata.display_name = meta.display_name;
+            }
+            const contextLength = Number(meta.max_context_window);
+            if (Number.isFinite(contextLength) && contextLength > 0) {
+                metadata.context_length = contextLength;
+            }
+            metadata.max_output_tokens = CODEX_DEFAULT_MAX_OUTPUT_TOKENS;
+            metadata.support_efforts = normalizeSupportEfforts(meta.supported_reasoning_levels);
+            result[id] = metadata;
+        }
+
+        return result;
     }
 
     /**

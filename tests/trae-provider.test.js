@@ -83,13 +83,19 @@ describe('Trae Provider Implementation Tests', () => {
         expect(typeof prepared.tools[0].function.parameters).toBe('string');
         expect(prepared.tools[0].function.parameters).toBe('{"type":"object"}');
 
-        // Test reasoning_effort mapping
+        // Test reasoning_effort strict mapping
         const reqWithEffort = traeService.prepareRequestBody('glm-5.3', {
             ...openAIRequestBody,
-            reasoning_effort: 'max'
+            reasoning_effort: 'xhigh'
         });
         expect(reqWithEffort.reasoning_effort_level).toBe('extra_high');
         expect(reqWithEffort.reasoning_effort).toBeUndefined();
+
+        // 上游没有 max 档位时必须报错 unsupported
+        expect(() => traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'max'
+        })).toThrow(/unsupported/i);
 
         const reqNone = traeService.prepareRequestBody('glm-5.3', {
             ...openAIRequestBody,
@@ -97,19 +103,18 @@ describe('Trae Provider Implementation Tests', () => {
         });
         expect(reqNone.reasoning_effort_level).toBeUndefined();
 
-        const reqMinimal = traeService.prepareRequestBody('glm-5.3', {
+        // 上游没有 minimal / medium 档位，必须报错 unsupported
+        expect(() => traeService.prepareRequestBody('glm-5.3', {
             ...openAIRequestBody,
             reasoning_effort: 'minimal'
-        });
-        expect(reqMinimal.reasoning_effort_level).toBe('light');
+        })).toThrow(/unsupported/i);
 
-        const reqMedium = traeService.prepareRequestBody('glm-5.3', {
+        expect(() => traeService.prepareRequestBody('glm-5.3', {
             ...openAIRequestBody,
             reasoning_effort: 'medium'
-        });
-        expect(reqMedium.reasoning_effort_level).toBe('high');
+        })).toThrow(/unsupported/i);
 
-        // 默认不传 reasoning_effort 时，推理模型统一默认 extra_high，无特定模型硬编码
+        // 默认不传 reasoning_effort 时，使用上游最高档 extra_high，无特定模型硬编码
         const reqDefaultEffort = traeService.prepareRequestBody('glm-5.3', {
             ...openAIRequestBody
         });

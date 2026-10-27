@@ -28,6 +28,14 @@ import {
     getCustomModelListProvider
 } from '../providers/provider-models.ts';
 import { resolveProviderCapabilityWithRefresh } from '../providers/model-capability.ts';
+import { applyModelMetadata } from '../providers/model-metadata.ts';
+import type { ModelMetadata } from '../providers/model-metadata.ts';
+import { getProviderDefinition } from '../providers/provider-registry.ts';
+import {
+    extractRequestedReasoningEffort,
+    isDisableEffort,
+    resolveStrictEffort
+} from '../providers/reasoning-effort.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PreContentBuffer } from './pre-content-buffer.ts';
 import { startPreContentHeartbeat } from './pre-content-heartbeat.ts';
@@ -1393,7 +1401,12 @@ export async function handleModelListRequest(
 
         let clientModelList;
 
-        const buildConfiguredModelListResponse = (models: string[], providerType: string, listEndpointType: string) => {
+        const buildConfiguredModelListResponse = (
+            models: string[],
+            providerType: string,
+            listEndpointType: string,
+            modelMetadata: Record<string, ModelMetadata> = {}
+        ) => {
             if (listEndpointType === ENDPOINT_TYPE.OPENAI_MODEL_LIST) {
                 return {
                     object: 'list',
@@ -1405,14 +1418,17 @@ export async function handleModelListRequest(
                             created: Math.floor(Date.now() / 1000),
                             owned_by: providerType
                         };
-                        
-                        // 注入自定义元数据
+
+                        // 注入上游模型元数据（display_name / context_length / max_output_tokens / support_efforts）
+                        applyModelMetadata(modelResponse, modelMetadata[modelId]);
+
+                        // 注入自定义元数据（优先级高于上游元数据）
                         if (customConfig) {
                             if (customConfig.contextLength) modelResponse.context_length = customConfig.contextLength;
                             if (customConfig.maxTokens) modelResponse.max_tokens = customConfig.maxTokens;
                             if (customConfig.description) modelResponse.description = customConfig.description;
                         }
-                        
+
                         return modelResponse;
                     })
                 };
@@ -1433,7 +1449,12 @@ export async function handleModelListRequest(
                 : (providerPoolManager?.providerPools?.[toProvider] || CONFIG.providerPools?.[toProvider] || []);
             const capability = resolveProviderCapabilityWithRefresh(toProvider, nodes);
             logger.info(`[ModelList] Using capability models for ${toProvider}: ${capability.models.length} models (source=${capability.source}, stale=${capability.stale})`);
-            clientModelList = buildConfiguredModelListResponse(capability.models, toProvider, endpointType);
+            clientModelList = buildConfiguredModelListResponse(
+                capability.models,
+                toProvider,
+                endpointType,
+                (capability.modelMetadata || {}) as Record<string, ModelMetadata>
+            );
         }
 
         if (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO) {
@@ -1448,6 +1469,53 @@ export async function handleModelListRequest(
         logger.error('\n[Server] Error during model list processing:', (error as PipelineError).stack);
         handleError(res, error as PipelineError, CONFIG.MODEL_PROVIDER, fromProvider);
     }
+}
+
+/** 需要严格校验 reasoning_effort 的 provider（上游提供动态档位元数据）。 */
+const REASONING_EFFORT_PROVIDERS = new Set([
+    MODEL_PROVIDER.ANTIGRAVITY,
+    MODEL_PROVIDER.CODEX_API,
+    MODEL_PROVIDER.ZED,
+    MODEL_PROVIDER.TRAE,
+    MODEL_PROVIDER.TRAE_CHAT_V3
+]);
+
+/** Antigravity 档位固化在模型 ID 中，可识别的档位族固定为 low/medium/high。 */
+const ANTIGRAVITY_FIXED_EFFORTS = ['low', 'medium', 'high'];
+
+/**
+ * 在写出任何响应字节之前校验下游 reasoning_effort，保证三种协议（Chat / Responses / Messages）
+ * 的流式与非流式请求都能返回真正的 HTTP 400，而不是流内错误。
+ */
+async function validateReasoningEffortBeforeDispatch(
+    service: DynamicPayload | null,
+    providerType: string,
+    model: string,
+    requestBody: DynamicPayload
+): Promise<void> {
+    const baseProviderType = getProviderDefinition(providerType)?.type || providerType;
+    if (!REASONING_EFFORT_PROVIDERS.has(baseProviderType)) return;
+
+    const requested = extractRequestedReasoningEffort(requestBody);
+    if (requested === undefined || requested === null || String(requested).trim() === '') return;
+    if (isDisableEffort(requested)) return;
+
+    if (!service || typeof service.getNodeModelMetadata !== 'function') return;
+    let metadataMap: Record<string, DynamicPayload> | null = null;
+    try {
+        metadataMap = await service.getNodeModelMetadata();
+    } catch {
+        return;
+    }
+    const metadata = metadataMap?.[model];
+    if (!metadata) return;
+
+    const supported = baseProviderType === MODEL_PROVIDER.ANTIGRAVITY
+        ? ANTIGRAVITY_FIXED_EFFORTS
+        : (Array.isArray(metadata.support_efforts) ? metadata.support_efforts : null);
+
+    // 抛出的错误带 status/statusCode=400 与 response.status=400，管线不会误判为上游故障。
+    resolveStrictEffort({ requested, supported, model, provider: baseProviderType });
 }
 
 /**
@@ -1559,6 +1627,9 @@ export async function handleContentGenerationRequest(
     if (!service) {
         throw new Error(`No service available for provider '${toProvider}'.`);
     }
+
+    // 1.1 在响应头写出前完成 reasoning_effort 严格校验（三种客户端协议一致）。
+    await validateReasoningEffortBeforeDispatch(service, toProvider, model, originalRequestBody);
 
     // 1. Convert request body from client format to backend format, if necessary.
     // 使用浅拷贝以避免直接变异 originalRequestBody，保持原始数据的纯净性以供后续钩子使用

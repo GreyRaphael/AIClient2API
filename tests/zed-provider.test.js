@@ -638,22 +638,22 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
         expect(payloadHigh.provider_request.thinking).toEqual({ type: 'adaptive' });
         expect(payloadHigh.provider_request.output_config).toEqual({ effort: 'high' });
 
-        // 3. Without thinking: claude-sonnet-5-5 has supports_disabling_thinking: false -> auto-injects default 'high'
+        // 3. Without thinking: default to the highest supported effort ('max')
         const payloadNoThinking = zedService.buildPayload('claude-sonnet-5-5', {
             messages: [{ role: 'user', content: 'hello' }],
             temperature: 0.5
         });
         expect(payloadNoThinking.provider_request.thinking).toEqual({ type: 'adaptive' });
-        expect(payloadNoThinking.provider_request.output_config).toEqual({ effort: 'high' });
+        expect(payloadNoThinking.provider_request.output_config).toEqual({ effort: 'max' });
         expect(payloadNoThinking.provider_request.temperature).toBeUndefined();
 
-        // 4. Without thinking on claude-sonnet-5 (supports_disabling_thinking: true) -> omitted
+        // 4. Without thinking on claude-sonnet-5 (supports_disabling_thinking: true) -> still defaults to max
         const payloadDisablable = zedService.buildPayload('claude-sonnet-5', {
             messages: [{ role: 'user', content: 'hello' }],
             temperature: 0.5
         });
-        expect(payloadDisablable.provider_request.thinking).toBeUndefined();
-        expect(payloadDisablable.provider_request.output_config).toBeUndefined();
+        expect(payloadDisablable.provider_request.thinking).toEqual({ type: 'adaptive' });
+        expect(payloadDisablable.provider_request.output_config).toEqual({ effort: 'max' });
         expect(payloadDisablable.provider_request.temperature).toBeUndefined();
     });
 
@@ -1062,47 +1062,47 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             expect(getProtocolPrefix('zed', 'gemini-3.8-flash')).toBe('gemini');
         });
 
-        test('Decision 1: auto-injects default effort level (is_default: true) when supports_disabling_thinking is false', () => {
+        test('Decision 1: defaults to the highest supported effort when omitted', () => {
             const zedService = createZedService({ uuid: 'test-uuid', ZED_SYSTEM_ID: 'sys' });
 
-            // claude-sonnet-5-5: supports_disabling_thinking: false, default: 'high'
+            // claude-sonnet-5-5: levels low..max -> max
             const sonnet55 = zedService.buildPayload('claude-sonnet-5-5', {
                 messages: [{ role: 'user', content: 'hi' }]
             });
             expect(sonnet55.provider_request.thinking).toEqual({ type: 'adaptive' });
-            expect(sonnet55.provider_request.output_config).toEqual({ effort: 'high' });
+            expect(sonnet55.provider_request.output_config).toEqual({ effort: 'max' });
 
-            // claude-haiku-5-5: supports_disabling_thinking: false, default: 'medium'
+            // claude-haiku-5-5: levels low..max -> max
             const haiku55 = zedService.buildPayload('claude-haiku-5-5', {
                 messages: [{ role: 'user', content: 'hi' }]
             });
             expect(haiku55.provider_request.thinking).toEqual({ type: 'adaptive' });
-            expect(haiku55.provider_request.output_config).toEqual({ effort: 'medium' });
+            expect(haiku55.provider_request.output_config).toEqual({ effort: 'max' });
 
-            // gpt-6.1-sol: supports_disabling_thinking: false, default: 'medium'
+            // gpt-6.1-sol: levels low..max -> max
             const gpt61 = zedService.buildPayload('gpt-6.1-sol', {
                 input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]
             });
-            expect(gpt61.provider_request.reasoning).toEqual({ effort: 'medium', summary: 'detailed' });
+            expect(gpt61.provider_request.reasoning).toEqual({ effort: 'max', summary: 'detailed' });
 
-            // gemini-4-argon: supports_disabling_thinking: false, default: 'medium' -> 'MEDIUM'
+            // gemini-4-argon: levels LOW/MEDIUM/HIGH -> HIGH
             const gemini4 = zedService.buildPayload('gemini-4-argon', {
                 contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
             });
             expect(gemini4.provider_request.generationConfig.thinkingConfig).toEqual({
-                thinkingLevel: 'MEDIUM'
+                thinkingLevel: 'HIGH'
             });
 
-            // supports_disabling_thinking: true models do NOT auto-inject when omitted
+            // supports_disabling_thinking: true also defaults to the highest supported level
             const gpt6Luna = zedService.buildPayload('gpt-6-luna', {
                 input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]
             });
-            expect(gpt6Luna.provider_request.reasoning).toBeUndefined();
+            expect(gpt6Luna.provider_request.reasoning).toEqual({ effort: 'xhigh', summary: 'detailed' });
 
             const gemini35 = zedService.buildPayload('gemini-3.5-flash', {
                 contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
             });
-            expect(gemini35.provider_request.generationConfig?.thinkingConfig).toBeUndefined();
+            expect(gemini35.provider_request.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'HIGH' });
         });
 
         test('Decision 2: out-of-bounds effort levels or disabling thinking when disallowed throws 400 error directly', () => {

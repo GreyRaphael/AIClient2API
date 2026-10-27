@@ -1,5 +1,6 @@
 import { inferZedProvider, isZedProvider } from './zed-protocol.ts';
 import type { ZedProvider } from './zed-protocol.ts';
+import { pickMaxEffort } from '../reasoning-effort.ts';
 
 export type { ZedProvider } from './zed-protocol.ts';
 
@@ -186,9 +187,9 @@ export function resolveZedEffortLevel({
     }
 
     if (!hasRequestedEffort) {
-        if (resolvedMeta?.supports_thinking && resolvedMeta.supports_disabling_thinking === false && levels.length > 0) {
-            const defaultLevel = levels.find((l) => l.is_default) || levels[0];
-            return defaultLevel.value;
+        // 下游未提供档位：默认使用上游支持的最高档位。
+        if (levels.length > 0) {
+            return pickMaxEffort(levels.map((level) => level.value));
         }
         return null;
     }

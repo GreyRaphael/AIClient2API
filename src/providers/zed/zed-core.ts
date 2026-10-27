@@ -20,6 +20,7 @@ import { inferZedProvider } from './zed-protocol.ts';
 import type { ZedProvider } from './zed-protocol.ts';
 import { normalizeZedModelMetadata } from './zed-model-metadata.ts';
 import type { ZedModelMetadata } from './zed-model-metadata.ts';
+import { normalizeSupportEfforts } from '../reasoning-effort.ts';
 
 interface ZedServiceConfig extends ProviderConfig {
     ZED_OAUTH_CREDS_FILE_PATH?: string;
@@ -1017,6 +1018,25 @@ export class ZedApiService {
                 is_latest: true
             }))
             .filter((model): model is ZedModelMetadata => model !== null);
+    }
+
+    /**
+     * 导出节点模型元数据，供 /v1/models 扩展字段使用。
+     * 数据完全来自 cloud.zed.dev/models 的运行时元数据注册表。
+     */
+    getNodeModelMetadata(): Record<string, DynamicPayload> {
+        const result: Record<string, DynamicPayload> = {};
+
+        for (const model of this.modelRegistry.list()) {
+            result[model.id] = {
+                display_name: model.display_name || model.id,
+                context_length: Number(model.max_token_count) || undefined,
+                max_output_tokens: Number(model.max_output_tokens) || undefined,
+                support_efforts: normalizeSupportEfforts(model.supported_effort_levels)
+            };
+        }
+
+        return result;
     }
 
     /**

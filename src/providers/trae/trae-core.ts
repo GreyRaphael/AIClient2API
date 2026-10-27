@@ -16,6 +16,13 @@ import {
     resolveAliasTableKind
 } from './trae-channel.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
+import {
+    createUnsupportedEffortError,
+    isDisableEffort,
+    normalizeEffortName,
+    normalizeSupportEfforts,
+    resolveStrictEffort
+} from '../reasoning-effort.ts';
 
 // 通道模式枚举与预设已迁移至 trae-channel.js（single source of truth），此处再导出以保持兼容
 export { TRAE_CHANNEL_MODES, TRAE_CHANNEL_PRESETS };
@@ -141,17 +148,21 @@ export function isTraeReasoningModel(modelId: unknown): boolean {
 }
 
 /**
- * 将任意推理深度级别输入映射为 Trae 上游识别的 reasoning_effort_level ('light' | 'high' | 'extra_high')
+ * 将标准化档位映射为 Trae 上游识别的 reasoning_effort_level ('light' | 'high' | 'extra_high')。
+ * 仅接受一一对应的标准档位；不支持的档位返回空串，由调用方抛出 400。
  */
 export function mapToTraeUpstreamEffortLevel(rawEffort: unknown): string {
-    const effortLower = String(rawEffort || '').trim().toLowerCase();
-    if (effortLower === 'low' || effortLower === 'light' || effortLower === 'minimal') {
+    const effort = normalizeEffortName(rawEffort);
+    if (effort === 'low' || effort === 'minimal') {
         return TRAE_UPSTREAM_EFFORT_LEVELS.LIGHT;
     }
-    if (effortLower === 'xhigh' || effortLower === 'extra_high' || effortLower === 'max' || effortLower === 'ultra') {
+    if (effort === 'high') {
+        return TRAE_UPSTREAM_EFFORT_LEVELS.HIGH;
+    }
+    if (effort === 'xhigh') {
         return TRAE_UPSTREAM_EFFORT_LEVELS.EXTRA_HIGH;
     }
-    return TRAE_UPSTREAM_EFFORT_LEVELS.HIGH;
+    return '';
 }
 
 /**
@@ -631,24 +642,48 @@ export class TraeApiService {
         }
 
         // 映射并注入 Trae 思考深度 (light / high / extra_high)
-        // 判定规则：
-        // 1. 若客户端显式关闭思考 (none / off / false)，不传递 reasoning_effort_level
-        // 2. 具备思考能力时（元数据 supports_thinking !== false 或符合推理模型特征），统一默认 extra_high (xhigh)
-        const supportsThinking = modelMeta
-            ? (modelMeta.supports_thinking !== false)
-            : (isTraeReasoningModel(targetModel) || Boolean(payload.reasoning_effort ?? requestBody?.reasoning_effort));
-
-        const rawEffort = payload.reasoning_effort
+        // 规则：
+        // 1. 下游显式档位必须与上游 reasoning_effort_config.options 一一对应，否则 400 unsupported；
+        // 2. 下游未提供档位时默认使用上游最高档位（extra_high -> xhigh）；
+        // 3. 显式 none/off/false 不传递 reasoning_effort_level。
+        const supportsThinking = modelMeta ? (modelMeta.supports_thinking !== false) : true;
+        const clientEffort = requestBody?._rawThinkingEffort
+            ?? payload.reasoning_effort
             ?? requestBody?.reasoning_effort
-            ?? (supportsThinking ? (modelMeta?.default_reasoning_effort || DEFAULT_TRAE_REASONING_EFFORT) : undefined);
+            ?? requestBody?.reasoning?.effort;
         delete payload.reasoning_effort;
 
-        if (rawEffort && supportsThinking) {
-            const effortLower = String(rawEffort).toLowerCase().trim();
-            const thinkingDisabled = effortLower === 'none' || effortLower === 'off' || effortLower === 'false';
-            if (!thinkingDisabled) {
-                payload.reasoning_effort_level = mapToTraeUpstreamEffortLevel(effortLower);
+        if (supportsThinking) {
+            const supportedEfforts: string[] = Array.isArray(modelMeta?.reasoning_effort_levels)
+                && modelMeta.reasoning_effort_levels.length > 0
+                ? modelMeta.reasoning_effort_levels
+                : ['low', 'high', 'xhigh'];
+            const resolved = resolveStrictEffort({
+                requested: clientEffort,
+                supported: supportedEfforts,
+                model: targetModel,
+                provider: 'trae'
+            });
+            if (!resolved.disabled && resolved.effort) {
+                const upstreamLevel = mapToTraeUpstreamEffortLevel(resolved.effort);
+                if (!upstreamLevel) {
+                    throw createUnsupportedEffortError({
+                        model: targetModel,
+                        requested: resolved.effort,
+                        supported: supportedEfforts,
+                        provider: 'trae'
+                    });
+                }
+                payload.reasoning_effort_level = upstreamLevel;
             }
+        } else if (clientEffort !== undefined && clientEffort !== null
+            && String(clientEffort).trim() !== '' && !isDisableEffort(clientEffort)) {
+            throw createUnsupportedEffortError({
+                model: targetModel,
+                requested: clientEffort,
+                supported: null,
+                provider: 'trae'
+            });
         }
 
         if (Array.isArray(payload.messages)) {
@@ -1316,6 +1351,25 @@ export class TraeApiService {
         }
 
         return fallbackList;
+    }
+
+    /**
+     * 导出节点模型元数据，供 /v1/models 扩展字段使用。
+     * 数据完全来自上游 reasoning_effort_config / context_window_tokens / model_detail_list。
+     */
+    getNodeModelMetadata(): Record<string, DynamicPayload> {
+        const result: Record<string, DynamicPayload> = {};
+
+        for (const [id, meta] of this.modelMetadataMap.entries()) {
+            result[id] = {
+                display_name: meta.display_name || id,
+                context_length: Number(meta.context_window) || undefined,
+                max_output_tokens: Number(meta.max_tokens) || undefined,
+                support_efforts: normalizeSupportEfforts(meta.reasoning_effort_levels)
+            };
+        }
+
+        return result;
     }
 
     /**

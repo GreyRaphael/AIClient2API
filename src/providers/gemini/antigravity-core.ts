@@ -24,6 +24,12 @@ import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
+import {
+    createUnsupportedEffortError,
+    extractRequestedReasoningEffort,
+    isDisableEffort,
+    normalizeEffortName
+} from '../reasoning-effort.ts';
 import { getErrorMessage } from '../../utils/error.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -93,6 +99,17 @@ function normalizeAntigravityModelId(modelName: unknown): string {
         normalized = normalized.slice('models/'.length);
     }
     return normalized;
+}
+
+/**
+ * 上游未提供 displayName 时的展示名兜底（由模型 ID 派生，不硬编码）。
+ */
+function formatAntigravityDisplayName(modelId: string): string {
+    return String(modelId || '')
+        .split('-')
+        .filter(Boolean)
+        .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
 }
 
 function stripModelSuffix(modelName: unknown): string {
@@ -245,6 +262,29 @@ function modelSupportsThinking(modelName: unknown): boolean {
            name.includes('-medium') ||
            name.startsWith('gpt-') ||
            isClaude55(name);
+}
+
+/**
+ * Antigravity 档位固化在模型 ID 中，上游没有动态档位数组。
+ * 下游显式档位只允许 low/medium/high（上游可识别的固定档位族），其余（max/xhigh/ultra 等）直接 400。
+ */
+const ANTIGRAVITY_FIXED_EFFORTS = ['low', 'medium', 'high'];
+
+function validateAntigravityReasoningEffort(modelName: unknown, requestBody: DynamicPayload): void {
+    const requested = requestBody?._rawThinkingEffort
+        ?? extractRequestedReasoningEffort(requestBody)
+        ?? requestBody?.generationConfig?.thinkingConfig?.thinkingLevel;
+    if (requested === undefined || requested === null || String(requested).trim() === '') return;
+    if (requestBody?._rawThinkingDisabled || isDisableEffort(requested)) return;
+
+    if (!modelSupportsThinking(modelName) || !ANTIGRAVITY_FIXED_EFFORTS.includes(normalizeEffortName(requested))) {
+        throw createUnsupportedEffortError({
+            model: String(modelName || ''),
+            requested,
+            supported: ANTIGRAVITY_FIXED_EFFORTS,
+            provider: 'gemini-antigravity'
+        });
+    }
 }
 
 /**
@@ -1369,6 +1409,37 @@ export class AntigravityApiService {
         }
     }
 
+    /**
+     * 导出节点模型元数据，供 /v1/models 扩展字段使用。
+     * 数据完全来自上游 fetchAvailableModels 返回的 models 明细。
+     */
+    getNodeModelMetadata(): Record<string, DynamicPayload> {
+        const modelsToList = (Array.isArray(this.availableModels) && this.availableModels.length > 0)
+            ? this.availableModels
+            : getProviderModels(MODEL_PROVIDER.ANTIGRAVITY);
+        const result: Record<string, DynamicPayload> = {};
+
+        for (const modelId of modelsToList) {
+            const meta = this.upstreamModelMetadata?.[modelId];
+            const metadata: DynamicPayload = {
+                display_name: meta?.displayName || formatAntigravityDisplayName(modelId),
+                // Antigravity 档位固化在模型 ID 中，上游无动态档位字段，按约定输出 null。
+                support_efforts: null
+            };
+            const contextLength = Number(meta?.maxTokens);
+            if (Number.isFinite(contextLength) && contextLength > 0) {
+                metadata.context_length = contextLength;
+            }
+            const maxOutputTokens = Number(meta?.maxOutputTokens);
+            if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) {
+                metadata.max_output_tokens = maxOutputTokens;
+            }
+            result[modelId] = metadata;
+        }
+
+        return result;
+    }
+
     async listModels() {
         if (!this.isInitialized) await this.initialize();
 
@@ -1379,9 +1450,7 @@ export class AntigravityApiService {
         const now = Math.floor(Date.now() / 1000);
         const formattedModels = modelsToList.map((modelId: string) => {
             const meta = this.upstreamModelMetadata?.[modelId];
-            const displayName = meta?.displayName || modelId.split('-').map((word: string) =>
-                word.charAt(0).toUpperCase() + word.slice(1)
-            ).join(' ');
+            const displayName = meta?.displayName || formatAntigravityDisplayName(modelId);
 
             const modelInfo: DynamicPayload = {
                 name: `models/${modelId}`,
@@ -1943,6 +2012,8 @@ export class AntigravityApiService {
 
         const actualModelName = resolveAntigravityUpstreamModel(selectedModel);
         logger.info(`[Antigravity] Selected model: ${selectedModel} -> upstream: ${actualModelName}`);
+
+        validateAntigravityReasoningEffort(actualModelName, requestBody);
 
         const processedRequestBody = ensureRolesInContents(JSON.parse(JSON.stringify(requestBody)), selectedModel);
         const capabilities = resolveProviderCapabilities({

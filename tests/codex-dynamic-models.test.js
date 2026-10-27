@@ -256,9 +256,10 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
     });
 
     test('normalizeCodexReasoningEffort maps effort levels and aliases correctly', () => {
-        expect(normalizeCodexReasoningEffort('none')).toBe('none');
+        // 显式关闭：上游无 none 档位时返回 null（由调用方省略 reasoning.effort）
+        expect(normalizeCodexReasoningEffort('none')).toBeNull();
+        expect(normalizeCodexReasoningEffort('off')).toBeNull();
         expect(normalizeCodexReasoningEffort('minimal')).toBe('minimal');
-        expect(normalizeCodexReasoningEffort('off')).toBe('none');
         expect(normalizeCodexReasoningEffort('low')).toBe('low');
         expect(normalizeCodexReasoningEffort('medium')).toBe('medium');
         expect(normalizeCodexReasoningEffort('high')).toBe('high');
@@ -268,17 +269,23 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         expect(normalizeCodexReasoningEffort('max')).toBe('max');
         expect(normalizeCodexReasoningEffort('maximum')).toBe('max');
         expect(normalizeCodexReasoningEffort(undefined, 'high')).toBe('high');
-        expect(normalizeCodexReasoningEffort(null)).toBe('medium');
-        expect(normalizeCodexReasoningEffort('unknown-level')).toBe('medium');
+        // 未提供档位且无元数据时默认最高档 max
+        expect(normalizeCodexReasoningEffort(null)).toBe('max');
+        // 无权威元数据时未知档位宽松透传
+        expect(normalizeCodexReasoningEffort('unknown-level')).toBe('unknown-level');
     });
 
-    test('normalizeCodexReasoningEffort respects model supported levels', () => {
-        expect(normalizeCodexReasoningEffort('max', 'medium', ['low', 'medium', 'high'])).toBe('high');
-        expect(normalizeCodexReasoningEffort('max', 'medium', ['xhigh'])).toBe('xhigh');
-        expect(normalizeCodexReasoningEffort('minimal', 'medium', ['low', 'medium'])).toBe('low');
-        expect(normalizeCodexReasoningEffort('none', 'medium', ['minimal', 'low'])).toBe('minimal');
+    test('normalizeCodexReasoningEffort strictly validates model supported levels', () => {
+        // 上游不支持的档位必须报错，而不是静默降级
+        expect(() => normalizeCodexReasoningEffort('max', 'medium', ['low', 'medium', 'high'])).toThrow(/unsupported/i);
+        expect(() => normalizeCodexReasoningEffort('max', 'medium', ['xhigh'])).toThrow(/unsupported/i);
+        expect(() => normalizeCodexReasoningEffort('minimal', 'medium', ['low', 'medium'])).toThrow(/unsupported/i);
+        expect(normalizeCodexReasoningEffort('none', 'medium', ['minimal', 'low'])).toBeNull();
         expect(normalizeCodexReasoningEffort('high', 'medium', [{ effort: 'low' }, { effort: 'high' }])).toBe('high');
-        expect(normalizeCodexReasoningEffort('max', 'low', ['low', 'medium'])).toBe('medium');
+        // 未提供档位时默认取上游最高档
+        expect(normalizeCodexReasoningEffort(undefined, 'medium', ['low', 'medium', 'high'])).toBe('high');
+        expect(normalizeCodexReasoningEffort(undefined, 'medium', ['low', 'high', 'xhigh', 'max', 'ultra'])).toBe('ultra');
+        expect(normalizeCodexReasoningEffort('ultra', 'medium', ['low', 'high', 'xhigh', 'max', 'ultra'])).toBe('ultra');
     });
 
     test('prepareRequestBody maps user input reasoning_effort and service_tier properly', async () => {
@@ -330,7 +337,8 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
             messages: [{ role: 'user', content: 'hello' }]
         }, true);
 
-        expect(body.reasoning.effort).toBe('low');
+        // 未提供档位时默认取上游最高档（low/high -> high）
+        expect(body.reasoning.effort).toBe('high');
 
         // 当前账号的 /backend-api/codex/models 未返回 gpt-image-2 时必须明确拒绝
         service.availableModels = ['gpt-6-luna'];

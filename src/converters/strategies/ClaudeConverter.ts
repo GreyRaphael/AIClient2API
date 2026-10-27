@@ -1760,12 +1760,9 @@ export class ClaudeConverter extends BaseConverter {
             return undefined;
         }
         const configuredEffort = claudeRequest.output_config?.effort;
-        let effort = configuredEffort
+        const effort = configuredEffort
             ? String(configuredEffort).toLowerCase()
             : determineReasoningEffortFromBudget(claudeRequest.thinking?.budget_tokens);
-        if (effort === 'max') {
-            effort = 'xhigh';
-        }
         return { effort };
     }
 
@@ -2547,22 +2544,21 @@ export class ClaudeConverter extends BaseConverter {
         }
 
         // 处理 thinking 转换（enabled 按 budget 换算，adaptive 取 output_config.effort）
+        // 档位保持原样透传，由 Codex provider 基于上游 supported_reasoning_levels 做严格校验。
         const codexThinkingType = claudeRequest.thinking?.type;
         if (codexThinkingType === 'enabled' || codexThinkingType === 'adaptive') {
-            let effort: string;
+            let effort: unknown;
             if (codexThinkingType === 'adaptive') {
-                effort = claudeRequest.output_config?.effort
-                    || claudeRequest.thinking?.effort
-                    || 'high';
+                effort = claudeRequest.output_config?.effort ?? claudeRequest.thinking?.effort;
             } else {
                 effort = determineReasoningEffortFromBudget(claudeRequest.thinking?.budget_tokens);
             }
-            effort = String(effort).toLowerCase();
-            if (effort === 'max') effort = 'xhigh';
-            if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) {
-                effort = 'high';
+            const normalizedEffort = effort === undefined || effort === null ? '' : String(effort).trim().toLowerCase();
+            if (normalizedEffort) {
+                codexRequest.reasoning.effort = normalizedEffort;
+            } else {
+                delete codexRequest.reasoning.effort;
             }
-            codexRequest.reasoning.effort = effort;
         } else if (codexThinkingType === 'disabled') {
             delete codexRequest.reasoning.effort;
         }
