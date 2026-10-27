@@ -1214,7 +1214,9 @@ export class TraeApiService {
                     }
                 }
 
-                // 核心过滤：只依赖一条规则 —— reasoning_effort_config 必须含有 extra_high
+                // 核心过滤：
+                // 1. reasoning_effort_config 必须含有 extra_high；
+                // 2. 上游标记为 is_invisible_to_user 的配置不暴露给下游。
                 for (const item of allConfigs) {
                     const id = item.config_name;
                     if (!id) continue;
@@ -1226,6 +1228,10 @@ export class TraeApiService {
 
                     const normalizedOptions = rawOptions.map((opt) => String(opt || '').trim().toLowerCase());
                     if (!normalizedOptions.includes('extra_high')) {
+                        continue;
+                    }
+
+                    if (item.is_invisible_to_user === true) {
                         continue;
                     }
 
