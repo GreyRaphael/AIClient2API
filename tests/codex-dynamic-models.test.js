@@ -135,7 +135,7 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         expect(invalidMeta.accountId).toBeNull();
     });
 
-    test('CodexApiService filters out models with supported_in_api: false or upgrade required', async () => {
+    test('CodexApiService filters out models with supported_in_api: false, upgrade required, or visibility: hide', async () => {
         const service = new CodexApiService({
             uuid: 'test-codex-filter',
             MODEL_PROVIDER: 'openai-codex-oauth'
@@ -152,19 +152,29 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
                         slug: 'gpt-5.6-luna',
                         display_name: 'GPT-5.6-Luna',
                         supported_in_api: true,
-                        upgrade: null
+                        upgrade: null,
+                        visibility: 'list'
                     },
                     {
                         slug: 'gpt-6-pro-exclusive',
                         display_name: 'GPT-6 Pro Exclusive',
                         supported_in_api: true,
-                        upgrade: { type: 'upgrade_plan', target_plan: 'pro' }
+                        upgrade: { type: 'upgrade_plan', target_plan: 'pro' },
+                        visibility: 'list'
                     },
                     {
                         slug: 'codex-internal-only',
                         display_name: 'Internal Non-API Model',
                         supported_in_api: false,
-                        upgrade: null
+                        upgrade: null,
+                        visibility: 'list'
+                    },
+                    {
+                        slug: 'gpt-hidden-model',
+                        display_name: 'Hidden Model',
+                        supported_in_api: true,
+                        upgrade: null,
+                        visibility: 'hide'
                     }
                 ]
             }
@@ -175,10 +185,11 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
 
         expect(nodeModels).toContain('gpt-5.6-luna');
         expect(nodeModels).not.toContain('gpt-5.6-luna-fast');
-        // Models requiring upgrade or with supported_in_api: false must not be present
+        // Models requiring upgrade, with supported_in_api: false, or visibility: hide must not be present
         expect(nodeModels).not.toContain('gpt-6-pro-exclusive');
         expect(nodeModels).not.toContain('gpt-6-pro-exclusive-fast');
         expect(nodeModels).not.toContain('codex-internal-only');
+        expect(nodeModels).not.toContain('gpt-hidden-model');
 
         service.stopCacheCleanup();
         mockAxiosRequest.mockRestore();

@@ -1362,6 +1362,11 @@ export class CodexApiService {
                                 logger.debug(`[Codex] Skipping model "${trimmedId}" because account upgrade is required`);
                                 continue;
                             }
+                            // 过滤隐藏模型 (visibility = hide)
+                            if (m.visibility === 'hide') {
+                                logger.debug(`[Codex] Skipping model "${trimmedId}" because visibility is hide`);
+                                continue;
+                            }
                             modelIds.push(trimmedId);
                             this.modelMetadataMap.set(trimmedId, m);
                         }
