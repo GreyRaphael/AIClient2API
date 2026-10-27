@@ -95,6 +95,15 @@ export class ApiServiceAdapter {
     }
 
     /**
+     * 获取节点模型元数据（display_name / context_length / max_output_tokens / support_efforts）。
+     * 默认不提供；由支持上游模型元数据的 provider 覆盖。
+     * @returns {Promise<Object<string, Object>|null>}
+     */
+    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+        return null;
+    }
+
+    /**
      * 判断日期是否接近过期
      * @returns {boolean}
      */
@@ -176,6 +185,11 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
             }
         }
         return this.antigravityApiService.availableModels || [];
+    }
+
+    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+        if (typeof this.antigravityApiService.getNodeModelMetadata !== 'function') return null;
+        return this.antigravityApiService.getNodeModelMetadata();
     }
 
     /**
@@ -480,6 +494,11 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         return this.codexApiService.getNodeAvailableModels(force);
     }
 
+    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+        if (typeof this.codexApiService.getNodeModelMetadata !== 'function') return null;
+        return this.codexApiService.getNodeModelMetadata();
+    }
+
     async refreshToken() {
         if (!this.codexApiService.isInitialized) {
             await this.codexApiService.initialize();
@@ -558,6 +577,11 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
         return list.map((model: DynamicPayload) => model?.id || model?.name).filter(Boolean);
     }
 
+    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+        if (typeof this.zedApiService.getNodeModelMetadata !== 'function') return null;
+        return this.zedApiService.getNodeModelMetadata();
+    }
+
     async refreshToken() {
         if (this.isExpiryDateNear()) {
             logger.info('[Zed] Expiry date is near, refreshing LLM token...');
@@ -612,6 +636,11 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
         }
         const res = await this.traeApiService.listModels();
         return (res?.data || []).map((m: DynamicPayload) => m.id).filter(Boolean);
+    }
+
+    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+        if (typeof this.traeApiService.getNodeModelMetadata !== 'function') return null;
+        return this.traeApiService.getNodeModelMetadata();
     }
 
     async refreshToken() {

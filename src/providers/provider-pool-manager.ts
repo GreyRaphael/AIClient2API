@@ -17,6 +17,8 @@ import { ProviderPoolPersistence } from './provider-pool-persistence.ts';
 import { ProviderRefreshScheduler } from './provider-refresh-scheduler.ts';
 import { ProviderPoolSelector } from './provider-pool-selector.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { applyModelMetadata } from './model-metadata.ts';
+import type { ModelMetadata } from './model-metadata.ts';
 /**
  * Manages a pool of API service providers, handling their health and selection.
  */
@@ -1164,13 +1166,15 @@ export class ProviderPoolManager {
                 }
 
                 // 单一事实来源：分组最终集 = 活跃节点选择集并集 ∪ 该分组的自定义模型
-                const models = this.getActiveProviderModels(providerType, activeNodes);
+                const capability = resolveProviderCapabilityWithRefresh(providerType, activeNodes);
+                const modelMetadata = (capability.modelMetadata || {}) as Record<string, ModelMetadata>;
 
-                for (const model of models) {
+                for (const model of capability.models) {
                     allModels.push({
                         id: `${providerType}:${model}`,
                         provider: providerType,
-                        model: model
+                        model: model,
+                        metadata: modelMetadata[model] || null
                     });
                 }
             }
@@ -1186,12 +1190,12 @@ export class ProviderPoolManager {
             // OpenAI 格式聚合
             return {
                 object: "list",
-                data: allModels.map((m) => ({
+                data: allModels.map((m) => applyModelMetadata({
                     id: m.id,
                     object: "model",
                     created: Math.floor(Date.now() / 1000),
                     owned_by: m.provider
-                }))
+                }, m.metadata as ModelMetadata | null))
             };
         }
 

@@ -10,6 +10,8 @@ import {
     usesManagedModelList
 } from './provider-models.ts';
 import { getDynamicProviderTypes, getProviderCapabilityTtlMs } from './provider-registry.ts';
+import { mergeModelMetadata, normalizeModelMetadataMap } from './model-metadata.ts';
+import type { ModelMetadata } from './model-metadata.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
@@ -290,8 +292,10 @@ export function resolveNodeCapability(providerType: string, nodeConfig: DynamicP
 
     const { selectedModels, selectionMode } = resolveSelectedModels(providerType, nodeConfig, candidateModels);
     const ttl = getTtlMs(providerType);
+    // 旧版缓存只有模型 ID，没有元数据；动态 provider 需要重新发现一次以补齐 /v1/models 字段。
+    const metadataMissing = Boolean(entry) && dynamic && entry.modelMetadata === undefined;
     const stale = entry
-        ? (Boolean(entry.lastError) || (Date.now() - fetchedAt) > ttl)
+        ? (Boolean(entry.lastError) || metadataMissing || (Date.now() - fetchedAt) > ttl)
         : dynamic;
 
     return {
@@ -305,7 +309,8 @@ export function resolveNodeCapability(providerType: string, nodeConfig: DynamicP
         fetchedAt,
         stale,
         known,
-        entry
+        entry,
+        modelMetadata: entry?.modelMetadata || {}
     };
 }
 
@@ -347,6 +352,15 @@ export function resolveProviderCapability(providerType: string, nodes: unknown[]
     }
 
     const models = Array.from(modelSet).sort((a: string, b: string) => a.localeCompare(b));
+    // 聚合各节点元数据，只保留最终集中可见的模型；多节点字段互补。
+    const modelMetadata: Record<string, ModelMetadata> = {};
+    for (const capability of contributors) {
+        const entries = (capability.modelMetadata || {}) as Record<string, ModelMetadata>;
+        for (const [modelId, metadata] of Object.entries(entries)) {
+            if (!modelSet.has(modelId)) continue;
+            modelMetadata[modelId] = mergeModelMetadata(modelMetadata[modelId], metadata);
+        }
+    }
     const fetchedAt = contributors.reduce((max: number, capability: DynamicPayload) => Math.max(max, capability.fetchedAt || 0), 0);
     const stale = contributors.length > 0 ? contributors.every((capability: DynamicPayload) => capability.stale) : true;
 
@@ -354,6 +368,7 @@ export function resolveProviderCapability(providerType: string, nodes: unknown[]
         models,
         nodes: nodeCapabilities,
         customModels,
+        modelMetadata,
         selectionMode: contributors.length > 0 && contributors.every((capability: DynamicPayload) => capability.selectionMode === 'explicit')
             ? 'explicit'
             : 'all',
@@ -455,10 +470,21 @@ export async function refreshNodeCapability(
                 return existing;
             }
 
+            const normalizedModels = normalizeModelIds(result);
+            let rawMetadata: unknown = null;
+            if (typeof resolvedAdapter.getNodeModelMetadata === 'function') {
+                try {
+                    rawMetadata = await resolvedAdapter.getNodeModelMetadata();
+                } catch (error) {
+                    logger.debug(`[ModelCapability] ${key} metadata fetch failed: ${(error as Error).message}`);
+                }
+            }
+
             const entry: DynamicPayload = {
                 providerType,
                 uuid: nodeConfig.uuid || null,
-                models: normalizeModelIds(result),
+                models: normalizedModels,
+                modelMetadata: normalizeModelMetadataMap(rawMetadata, new Set(normalizedModels)),
                 fetchedAt: Date.now(),
                 source: CAPABILITY_SOURCE.LIVE,
                 lastError: null,
