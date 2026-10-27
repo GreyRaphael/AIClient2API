@@ -23,7 +23,7 @@ function testZedModel(id, overrides = {}) {
             : (id.startsWith('gpt') ? 'open_ai' : 'google'),
         id,
         display_name: id,
-        is_latest: false,
+        is_latest: true,
         max_token_count: 200000,
         max_token_count_in_max_mode: null,
         max_output_tokens: 64000,
@@ -37,7 +37,6 @@ function testZedModel(id, overrides = {}) {
         supports_server_side_compaction: false,
         supports_streaming_tools: true,
         supports_parallel_tool_calls: true,
-        is_disabled: false,
         ...overrides
     };
 }
@@ -541,8 +540,8 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
                 return {
                     data: {
                         models: [
-                            { id: 'remote-model-1', display_name: 'Remote 1' },
-                            { id: 'remote-model-2', display_name: 'Remote 2' }
+                            { id: 'remote-model-1', display_name: 'Remote 1', is_latest: true },
+                            { id: 'remote-model-2', display_name: 'Remote 2', is_latest: true }
                         ]
                     }
                 };
@@ -1225,16 +1224,17 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
                             id: 'remote-model-new',
                             provider: 'open_ai',
                             display_name: 'Remote New',
+                            is_latest: true,
                             max_output_tokens: 12345,
                             supports_thinking: true,
                             supports_disabling_thinking: true,
                             supported_effort_levels: [{ name: 'High', value: 'high', is_default: true }]
                         },
                         {
-                            id: 'remote-model-disabled',
+                            id: 'remote-model-not-latest',
                             provider: 'anthropic',
-                            display_name: 'Remote Disabled',
-                            is_disabled: true
+                            display_name: 'Remote Not Latest',
+                            is_latest: false
                         }
                     ]
                 }
@@ -1244,7 +1244,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
                 const models = await zedService.fetchRemoteModels(true);
                 expect(models.map((m) => m.id)).toEqual(['remote-model-new']);
                 expect(zedService.modelRegistry.has('remote-model-new')).toBe(true);
-                expect(zedService.modelRegistry.has('remote-model-disabled')).toBe(false);
+                expect(zedService.modelRegistry.has('remote-model-not-latest')).toBe(false);
                 // 远端成功响应后整体替换，旧快照中的模型应消失
                 expect(zedService.modelRegistry.has('claude-sonnet-5-5')).toBe(false);
 
@@ -1275,6 +1275,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
                                     id: 'codex-unary-1',
                                     provider: 'open_ai',
                                     display_name: 'Codex Unary 1',
+                                    is_latest: true,
                                     max_output_tokens: 16384,
                                     supports_thinking: false,
                                     supports_disabling_thinking: true,

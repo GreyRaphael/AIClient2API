@@ -17,6 +17,7 @@ function remoteModel(id, overrides = {}) {
         id,
         provider: id.startsWith('gpt') ? 'open_ai' : 'anthropic',
         display_name: id,
+        is_latest: true,
         max_output_tokens: 1234,
         supports_thinking: true,
         supports_disabling_thinking: true,
@@ -42,7 +43,7 @@ describe('ZedModelRegistry cache', () => {
         const writer = new ZedModelRegistry({ cachePath, accountKey: 'user-a' });
         await writer.applyRemote([
             remoteModel('remote-model-a'),
-            remoteModel('remote-model-disabled', { is_disabled: true })
+            remoteModel('remote-model-not-latest', { is_latest: false })
         ]);
 
         expect(writer.source).toBe('live');
@@ -51,7 +52,7 @@ describe('ZedModelRegistry cache', () => {
         const reader = new ZedModelRegistry({ cachePath, accountKey: 'user-a' });
         expect(reader.source).toBe('cache');
         expect(reader.get('remote-model-a')?.max_output_tokens).toBe(1234);
-        expect(reader.has('remote-model-disabled')).toBe(false);
+        expect(reader.has('remote-model-not-latest')).toBe(false);
         expect(reader.fetchedAt).toBe(writer.fetchedAt);
     });
 

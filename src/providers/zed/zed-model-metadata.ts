@@ -28,7 +28,6 @@ export interface ZedModelMetadata {
     supports_server_side_compaction: boolean;
     supports_streaming_tools: boolean;
     supports_parallel_tool_calls: boolean;
-    is_disabled: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,7 +38,7 @@ export function isEnabledZedModel(value: unknown): value is Record<string, unkno
     return isRecord(value)
         && typeof value.id === 'string'
         && value.id.length > 0
-        && value.is_disabled !== true;
+        && value.is_latest === true;
 }
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
@@ -50,8 +49,7 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
 /**
  * 将 cloud.zed.dev/models 的原始条目归一化为运行时元数据。
  *
- * 元数据是唯一的能力来源；这里只补齐协议族和缺省字段，不维护模型清单。
- * 布尔能力的缺省值保持宽松（true），避免缺失字段导致误判为不支持。
+ * 仅保留 is_latest = true 的最新模型。
  */
 export function normalizeZedModelMetadata(value: unknown): ZedModelMetadata | null {
     if (!isEnabledZedModel(value)) return null;
@@ -67,7 +65,7 @@ export function normalizeZedModelMetadata(value: unknown): ZedModelMetadata | nu
         display_name: typeof value.display_name === 'string' && value.display_name
             ? value.display_name
             : value.id,
-        is_latest: value.is_latest === true,
+        is_latest: true,
         max_token_count: toFiniteNumber(value.max_token_count),
         max_token_count_in_max_mode: value.max_token_count_in_max_mode === null
             || value.max_token_count_in_max_mode === undefined
@@ -85,8 +83,7 @@ export function normalizeZedModelMetadata(value: unknown): ZedModelMetadata | nu
         supports_fast_mode: value.supports_fast_mode === true,
         supports_server_side_compaction: value.supports_server_side_compaction === true,
         supports_streaming_tools: value.supports_streaming_tools === true,
-        supports_parallel_tool_calls: value.supports_parallel_tool_calls !== false,
-        is_disabled: false
+        supports_parallel_tool_calls: value.supports_parallel_tool_calls !== false
     };
 }
 

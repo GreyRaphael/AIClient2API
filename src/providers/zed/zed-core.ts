@@ -984,7 +984,7 @@ export class ZedApiService {
 
                 const res = await axios.request(/** @type {any} */ (axiosConfig));
                 if (res.data && Array.isArray(res.data.models)) {
-                    // 远端成功响应是权威来源：注册表整体替换并落盘，仅保留启用模型。
+                    // 远端成功响应是权威来源：注册表整体替换并落盘，仅保留 is_latest=true 的最新模型。
                     const enabledModels = await this.modelRegistry.applyRemote(res.data.models);
                     if (enabledModels.length > 0) {
                         this.modelsExpiresAt = Date.now() + ZED_MODELS_CACHE_TTL_MS;
@@ -1013,7 +1013,8 @@ export class ZedApiService {
         return modelIds
             .map((id: string) => normalizeZedModelMetadata({
                 id,
-                provider: this.getProviderForModel(id)
+                provider: this.getProviderForModel(id),
+                is_latest: true
             }))
             .filter((model): model is ZedModelMetadata => model !== null);
     }
