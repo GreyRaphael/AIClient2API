@@ -1333,10 +1333,17 @@ export class AntigravityApiService {
                     const modelData = res.data as DynamicPayload;
                     this.upstreamModelMetadata = { ...(modelData.models || {}) };
 
-                    // 1. 废弃别名映射 (如 gemini-pro-agent -> gemini-3.1-pro-high)
-                    const aliasMap: Record<string, string> = { 'gemini-pro-agent': 'gemini-3.1-pro-high' };
-                    for (const [pubId, detail] of Object.entries((modelData.deprecatedModelIds || {}) as Record<string, { newModelId?: string }>)) {
-                        if (detail?.newModelId) aliasMap[detail.newModelId] = pubId;
+                    // 1. 收集 agentModelSorts 与 imageGenerationModelIds
+                    const candidateModels: string[] = [];
+                    for (const sortItem of modelData.agentModelSorts || []) {
+                        for (const group of sortItem?.groups || []) {
+                            for (const id of group?.modelIds || []) {
+                                if (id) candidateModels.push(id);
+                            }
+                        }
+                    }
+                    for (const id of modelData.imageGenerationModelIds || []) {
+                        if (id) candidateModels.push(id);
                     }
 
                     // 2. 黑名单过滤 (-low 与 oss)
@@ -1345,39 +1352,7 @@ export class AntigravityApiService {
                         return lower.includes('-low') || lower.includes('oss');
                     };
 
-                    // 3. 收集 agentModelSorts 与 imageGenerationModelIds，就地别名映射、过滤与去重
-                    const modelSet = new Set<string>();
-                    const addModel = (rawId: unknown) => {
-                        if (!rawId || typeof rawId !== 'string') return;
-                        const id = aliasMap[rawId] || rawId;
-                        if (!isExcludedModel(id)) {
-                            modelSet.add(id);
-                            if (rawId !== id && this.upstreamModelMetadata[rawId] && !this.upstreamModelMetadata[id]) {
-                                this.upstreamModelMetadata[id] = {
-                                    ...this.upstreamModelMetadata[rawId],
-                                    displayName: this.upstreamModelMetadata[rawId].displayName || (id === 'gemini-3.1-pro-high' ? 'Gemini 3.1 Pro (High)' : id)
-                                };
-                            }
-                        }
-                    };
-
-                    for (const sortItem of modelData.agentModelSorts || []) {
-                        for (const group of sortItem?.groups || []) {
-                            for (const id of group?.modelIds || []) {
-                                addModel(id);
-                            }
-                        }
-                    }
-                    for (const id of modelData.imageGenerationModelIds || []) {
-                        addModel(id);
-                    }
-
-                    // 4. 容错降级：若未提取到任何模型，降级检查 defaultAgentModelId
-                    if (modelSet.size === 0 && modelData.defaultAgentModelId) {
-                        addModel(modelData.defaultAgentModelId);
-                    }
-
-                    this.availableModels = [...modelSet];
+                    this.availableModels = [...new Set(candidateModels.filter((id) => !isExcludedModel(id)))];
 
                     logger.info(`[Antigravity] Available models (${baseURL}): [${this.availableModels.join(', ')}]`);
                     return;

@@ -46,7 +46,7 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                                         'gemini-3.8-flash-high',
                                         'gemini-3.8-flash-medium',
                                         'gemini-3.8-flash-low',
-                                        'gemini-pro-agent',
+                                        'gemini-3.1-pro-high',
                                         'claude-sonnet-5-5-high',
                                         'claude-opus-5-5-high',
                                         'gpt-oss-120b-medium',
@@ -59,12 +59,9 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                         }
                     ],
                     imageGenerationModelIds: ['gemini-3.1-flash-image'],
-                    deprecatedModelIds: {
-                        'gemini-3.1-pro-high': { newModelId: 'gemini-pro-agent' }
-                    },
                     models: {
                         'gemini-3.8-flash-high': { displayName: 'Gemini 3.8 Flash' },
-                        'gemini-pro-agent': { displayName: 'Gemini Pro Agent' },
+                        'gemini-3.1-pro-high': { displayName: 'Gemini 3.1 Pro (High)' },
                         'chat_internal_test': { displayName: 'Chat Internal' },
                         'gemini-3.8-flash-tiered': { displayName: 'Tiered Model' }
                     }
@@ -77,7 +74,7 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         // 验证包含有效对话模型（-high, -medium）与生图模型，以及为未来准备的 GPT 系列
         expect(service1.availableModels).toContain('gemini-3.8-flash-high');
         expect(service1.availableModels).toContain('gemini-3.8-flash-medium');
-        expect(service1.availableModels).toContain('gemini-3.1-pro-high'); // deprecated 映射替换 (gemini-pro-agent -> gemini-3.1-pro-high)
+        expect(service1.availableModels).toContain('gemini-3.1-pro-high');
         expect(service1.availableModels).toContain('claude-sonnet-5-5-high');
         expect(service1.availableModels).toContain('claude-opus-5-5-high');
         expect(service1.availableModels).toContain('gemini-3.1-flash-image');
