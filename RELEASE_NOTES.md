@@ -1,77 +1,68 @@
-# AIClient-2-API 发布说明 (v5.0.7)
+# AIClient-2-API 发布说明 (v5.0.8)
 
-> **v5.0.7** 是 v5.0.6 之后的 Zed 通道重构与稳定性版本。
+> **v5.0.8** 是 v5.0.7 之后的 reasoning_effort 契约修复与自定义模型 metadata 能力版本。
 >
-> 本轮完成 Zed 单跳协议感知转换、模型元数据运行时注册表与磁盘缓存，移除 23 个模型的内置硬编码快照；同时修复健康检查空 500、禁用模型泄漏与未知模型被静态白名单误杀等问题。保持现有 API、配置与插件公共契约不变，无需强制迁移。
+> 本轮统一了 Antigravity / Codex 的 reasoning_effort 行为，并为自定义模型新增 `context_length`、`max_output_tokens`、`support_images`、`support_efforts` 四个 metadata 字段，WebUI 可直接配置并透传到 `/v1/models`。同时移除了自定义模型的历史字段兼容与 temperature/topP 覆盖逻辑。
 
 ---
 
-## 🧠 Zed 单跳协议重构
+## 🧠 reasoning_effort 契约修复
 
-- 客户端协议直接转换到模型对应的上游原生协议，不再经过 Claude 中枢二次转换。
-- 同构协议零转换直通；跨协议路径由 `ConverterFactory` 统一单跳回转。
-- OpenAI Responses、Gemini 与 Anthropic 原生流式事件直接透传，保留 usage、cache token、工具调用与终止原因等原始语义。
-- 非流式请求先聚合上游原生事件，再单跳转换为客户端协议，避免中间协议造成的信息丢失。
+- **Antigravity**：`support_efforts` 固定为 `null`，下游传入的 `reasoning_effort`（含 `low` / `medium` / `high` / `max` / `xhigh`）一律剥离，不再返回 400；最终档位由模型 ID 决定。
+- **OpenAI Codex OAuth**：Claude → Codex 的 Messages 转换不再硬编码默认 `medium`，未指定 thinking/effort 时统一由 Codex Provider 按上游元数据取最高档。
+- 保留 Trae / Zed / Codex 的动态档位严格校验：不支持的档位仍在写出响应前返回 HTTP 400 `unsupported`。
 
-## 🗂️ 模型元数据运行时化
+## 🗂️ 自定义模型 metadata
 
-- 新增 `ZedModelRegistry`：每个 Zed 节点独立，按账号隔离模型元数据。
-- 远端 `cloud.zed.dev/models` 成功后整体替换启用模型，并原子落盘到 `configs/zed-model-metadata-cache.json`。
-- 冷启动同步读取最近一次成功快照；文件损坏、版本不匹配或账户切换时安全降级。
-- 远端下架或 `is_disabled` 的模型不再出现在实例元数据与 `/v1/models`。
-- 删除 23 条内置模型硬编码快照，协议路由改为稳定的模型族规则；新增同族模型无需改代码。
+- WebUI“自定义模型”新增并支持编辑：
+  - `context_length`
+  - `max_output_tokens`
+  - `support_images`
+  - `support_efforts`（下拉：`null` / `high` / `max` / `high+max`）
+- 后端在 `/auto/v1/models` 与单 Provider `/xxx/v1/models` 中注入上述字段。
+- `support_efforts` 后端仅保留 `high` / `max`；空数组或 `null` 输出 `null`。
+- `max_output_tokens` 同时作为自定义模型的请求默认输出上限。
+- 移除了 `contextLength` / `maxTokens` 旧字段兼容与旧 `max_tokens` 输出。
+- 移除了自定义模型的 `temperature` / `topP` 配置与强制覆盖逻辑，采样参数回归由客户端控制。
 
-## 🛡️ 稳定性与兼容性修复
+## 🧹 清理与兼容性
 
-- **Zed 健康检查**：OpenAI Responses 通道实测 `max_tokens` 低于 16 会返回空 HTTP 500；Zed 健康检查改用最小可用预算 `16`，Kiro 保持 `1`，避免有额度节点被误判为不健康。
-- **未知模型宽松降级**：严格思考档位校验与 `max_output_tokens` 裁剪仅在权威元数据存在时生效；新增模型/档位不再被本地白名单误杀。
-- **类型检查**：修复 Zed 重构引入的 `request-pipeline` TypeScript 类型错误，`npm run typecheck` 恢复通过。
-- **Trae 清理**：移除 `solo_work_lite` 节点选项与配置展示，思考模型过滤仅保留包含 `extra_high` 的通道；已有配置中的该选项会被忽略。
+- WebUI 自定义模型表单、表格参数列、i18n 与样式同步更新。
+- `configs/custom_models.json.example` 已更新为新字段格式。
+- `configs/custom_models.json` 为运行时配置且被 `.gitignore` 忽略；升级后可通过 WebUI 重新填写，或参考示例手动配置。
+- 运行要求保持不变：Node.js `^22.18.0 || >=23.6.0`。
+- 无 Provider 增删，无插件公共契约变更。
 
 ## 🧪 验证结果
 
 | 项目 | 结果 |
 |---|---|
-| `npm run verify` | **50 suites / 626 tests 全绿** |
-| TypeScript / plugins / strict | **全部通过** |
-| imports / cycles / runtime smoke | **全部通过** |
-| any 棘轮 / 覆盖率门槛 | **通过** |
-| 真实上游全量 E2E | **18 个模型 × 11 项核心用例（198 项）全部通过** |
-| 通用定向契约 | **6 项全部通过** |
-| provider 方言 canary | **4 项全部通过** |
-| Zed 健康检查 | **3 个有额度节点 PASSED**；3 个账号因 credits 耗尽返回 403（账号状态，非代码问题） |
+| `npm test` | **51 suites / 649 tests 全绿** |
+| `npm run typecheck` | **通过** |
+| `npm run typecheck:strict` | **通过** |
+| `npm run check:imports` | **通过** |
+| `npm run check:cycles` | **通过** |
+| 自定义模型 e2e | **72 次请求全部通过** |
 
-### E2E 覆盖
+### 自定义模型 E2E 覆盖
 
-- 18 个模型 × 11 项核心用例：Chat / Responses / Claude 三协议非流式与流式文本、单轮工具调用、多轮工具结果、连续同角色折叠、usage 不变量等。
-- 6 项通用定向契约：强制 `tool_choice`、多模态图片、上游 4xx 细节、三下游协议流式工具生命周期、Responses→Gemini developer/text.format、仅 system/developer 本地 400。
-- 4 项 provider 方言 canary：Zed Gemini 工具历史降级、非法 tool id 清洗、Gemini thinking 回退、`max_tokens` 截断不触发空响应重试。
-- 部分模型仅出现文档允许的非阻塞 reasoning/thinking 提示，不影响确定性断言。
+- 6 个模型 × 3 种协议（Chat / Responses / Messages）× 2 个 effort（`high` / `max`）× text / image = **72 次请求**。
+- 36 次文本请求全部 HTTP 200 并返回预期内容。
+- 24 次 `support_images=true` 图片请求全部正确识图。
+- 12 次 `support_images=false` 图片请求均未识图，符合 metadata 判据。
+- 0 个逻辑失败、0 个超时、0 个限流。
 
-### 质量基线
-
-- `DynamicPayload` references：**1525**。
-- 总覆盖率：**行 33.49% / 分支 33.91% / 函数 37.24%**。
-- 同步刷新 any 与覆盖率基线，使 CI 门槛与本版本真实状态一致。
-
-## 📦 兼容性
-
-- 运行要求保持不变：Node.js `^22.18.0 || >=23.6.0`。
-- 无 API、数据格式或插件公共契约变更。
-- 无 provider 增删；Zed 模型能力改为运行时发现，首次启动会自动拉取并缓存。
-- Trae `solo_work_lite` 节点选项已移除；已有配置无需手工删除，但该选项不再生效。
-
-## ⬆️ 升级建议
+## 📦 升级建议
 
 - 源码：
 
   ```bash
   git fetch --tags
-  git checkout v5.0.7
+  git checkout v5.0.8
   npm install
   npm start
   ```
 
-- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `5.0.7` 与 `latest` 镜像；未配置凭据时按现有流程跳过，可稍后手动运行“发布版本与构建 Docker 镜像”工作流。
+- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `5.0.8` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
 
-- Zed 用户：首次启动会自动拉取最新模型元数据并写入本地缓存；如需清空缓存，删除 `configs/zed-model-metadata-cache.json` 后重启即可。
+- 升级后请重启服务并硬刷新 WebUI，以加载新的自定义模型表单与 metadata 字段。

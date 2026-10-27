@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.0.8] - 2026-10-27
+
+### Added
+
+- 自定义模型新增 `context_length`、`max_output_tokens`、`support_images`、`support_efforts` metadata 字段，支持 WebUI 编辑并透传到 `/auto/v1/models` 与单 Provider `/v1/models`。
+- `support_efforts` 支持 `null` / `high` / `max` / `high+max` 下拉配置；后端仅保留 `high` / `max`。
+- 新增自定义模型 72 次 e2e 矩阵：6 模型 × 3 协议 × 2 effort × text/image。
+
+### Changed
+
+- **Antigravity**：`support_efforts=null` 时下游 `reasoning_effort` 一律剥离，不再返回 400；Provider 层同步兜底清理 thinkingConfig。
+- **OpenAI Codex OAuth**：Claude → Codex 的 Messages 转换不再硬编码默认 `medium`，改由 Provider 按上游元数据取最高档。
+- 自定义模型移除 `contextLength` / `maxTokens` 旧字段兼容与旧 `max_tokens` 输出，统一使用 `context_length` / `max_output_tokens`。
+- 自定义模型移除 `temperature` / `topP` 配置与强制覆盖逻辑，采样参数回归客户端控制。
+
+### Fixed
+
+- 修复自定义模型 WebUI 无法修改推理档位的问题；多选控件改为明确的 `null` / `high` / `max` / `high+max` 下拉。
+- 修复自定义模型 metadata 在 auto 聚合与单 Provider 模型列表中不一致的问题。
+
+### Verification
+
+- `npm test`：**51 suites / 649 tests 全绿**；typecheck、typecheck:strict、imports、cycles 全部通过。
+- 自定义模型 e2e：**72/72 通过**（36 次文本、24 次识图、12 次无识图），0 逻辑失败 / 0 超时 / 0 限流。
+
 ## [v5.0.7] - 2026-10-26
 
 ### Added
