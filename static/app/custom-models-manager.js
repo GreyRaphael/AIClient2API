@@ -331,6 +331,11 @@ export class CustomModelsManager {
 
         tbody.innerHTML = modelsToRender.map(model => {
             const isEnabled = model.enabled !== false;
+            const contextLength = model.context_length;
+            const maxOutputTokens = model.max_output_tokens;
+            const supportEfforts = Array.isArray(model.support_efforts)
+                ? model.support_efforts.join('/')
+                : (model.support_efforts === null ? 'null' : '');
             return `
             <tr class="${isEnabled ? '' : 'model-disabled'}">
                 <td>
@@ -344,10 +349,10 @@ export class CustomModelsManager {
                 <td>${this.renderActualRouteCell(model)}</td>
                 <td>
                     <div class="params-group">
-                        ${model.contextLength ? `<span class="param-pill ctx" title="Context Length"><i class="fas fa-align-left"></i> ${this.formatNumber(model.contextLength)}</span>` : ''}
-                        ${model.maxTokens ? `<span class="param-pill tokens" title="Max Tokens"><i class="fas fa-outdent"></i> ${this.formatNumber(model.maxTokens)}</span>` : ''}
-                        ${(model.temperature !== undefined && model.temperature !== null && !isNaN(model.temperature)) ? `<span class="param-pill temp" title="Temperature"><i class="fas fa-thermometer-half"></i> ${model.temperature}</span>` : ''}
-                        ${(model.topP !== undefined && model.topP !== null && !isNaN(model.topP)) ? `<span class="param-pill topp" title="Top P"><i class="fas fa-percentage"></i> ${model.topP}</span>` : ''}
+                        ${contextLength ? `<span class="param-pill ctx" title="Context Length"><i class="fas fa-align-left"></i> ${this.formatNumber(contextLength)}</span>` : ''}
+                        ${maxOutputTokens ? `<span class="param-pill tokens" title="Max Output Tokens"><i class="fas fa-outdent"></i> ${this.formatNumber(maxOutputTokens)}</span>` : ''}
+                        ${typeof model.support_images === 'boolean' ? `<span class="param-pill ${model.support_images ? 'vision' : 'no-vision'}" title="${t('customModels.params.supportImages')}"><i class="fas fa-image"></i> ${model.support_images ? t('customModels.params.image') : t('customModels.params.noImage')}</span>` : ''}
+                        ${supportEfforts ? `<span class="param-pill effort" title="${t('customModels.params.supportEfforts')}"><i class="fas fa-brain"></i> ${supportEfforts}</span>` : ''}
                     </div>
                 </td>
                 <td>
@@ -403,7 +408,12 @@ export class CustomModelsManager {
 
         const enabledInput = document.getElementById('customModelEnabled');
         if (enabledInput) enabledInput.checked = true;
-        
+
+        const supportImages = document.getElementById('support_images');
+        if (supportImages) supportImages.value = 'false';
+        const supportEfforts = document.getElementById('support_efforts');
+        if (supportEfforts) supportEfforts.value = '';
+
         this.showModal('customModelModal');
     }
 
@@ -428,13 +438,9 @@ export class CustomModelsManager {
             'customModelProvider': 'provider',
             'customModelActualProvider': 'actualProvider',
             'actualModel': 'actualModel',
-            'contextLength': 'contextLength',
-            'maxTokens': 'maxTokens',
-            'temperature': 'temperature',
-            'topP': 'topP',
             'modelDescription': 'description'
         };
-        
+
         Object.keys(fields).forEach(fieldId => {
             const el = document.getElementById(fieldId);
             if (!el) return;
@@ -444,6 +450,25 @@ export class CustomModelsManager {
             }
             el.value = model[fields[fieldId]] ?? '';
         });
+
+        // metadata 字段
+        const contextLengthEl = document.getElementById('context_length');
+        if (contextLengthEl) {
+            contextLengthEl.value = model.context_length ?? '';
+        }
+        const maxOutputTokensEl = document.getElementById('max_output_tokens');
+        if (maxOutputTokensEl) {
+            maxOutputTokensEl.value = model.max_output_tokens ?? '';
+        }
+        const supportImagesEl = document.getElementById('support_images');
+        if (supportImagesEl) {
+            supportImagesEl.value = model.support_images === true ? 'true' : 'false';
+        }
+        const supportEffortsEl = document.getElementById('support_efforts');
+        if (supportEffortsEl) {
+            const efforts = Array.isArray(model.support_efforts) ? model.support_efforts : [];
+            supportEffortsEl.value = ['high', 'max'].filter(effort => efforts.includes(effort)).join(',');
+        }
 
         const enabledInput = document.getElementById('customModelEnabled');
         if (enabledInput) {
@@ -461,14 +486,19 @@ export class CustomModelsManager {
         }
 
         const getVal = (id) => document.getElementById(id)?.value ?? '';
-        const getNum = (id, isFloat = false) => {
+        const getNum = (id) => {
             const val = getVal(id).trim();
             if (val === '') return null;
 
-            const parsed = isFloat ? parseFloat(val) : parseInt(val, 10);
+            const parsed = parseInt(val, 10);
             return Number.isNaN(parsed) ? null : parsed;
         };
         const origId = document.getElementById('editModelOriginalId').value;
+        const supportImagesEl = document.getElementById('support_images');
+        const supportEffortsEl = document.getElementById('support_efforts');
+        const supportEfforts = supportEffortsEl && supportEffortsEl.value
+            ? supportEffortsEl.value.split(',')
+            : null;
 
         const data = {
             id: getVal('modelId'),
@@ -477,16 +507,16 @@ export class CustomModelsManager {
             provider: getVal('customModelProvider'),
             actualProvider: getVal('customModelActualProvider'),
             actualModel: getVal('actualModel'),
-            contextLength: getNum('contextLength'),
-            maxTokens: getNum('maxTokens'),
-            temperature: getNum('temperature', true),
-            topP: getNum('topP', true),
+            context_length: getNum('context_length'),
+            max_output_tokens: getNum('max_output_tokens'),
+            support_images: supportImagesEl ? supportImagesEl.value === 'true' : false,
+            support_efforts: supportEfforts,
             description: getVal('modelDescription'),
             enabled: document.getElementById('customModelEnabled')?.checked ?? true
         };
 
         if (!origId) {
-            ['contextLength', 'maxTokens', 'temperature', 'topP'].forEach(key => {
+            ['context_length', 'max_output_tokens'].forEach(key => {
                 if (data[key] === null) delete data[key];
             });
         }

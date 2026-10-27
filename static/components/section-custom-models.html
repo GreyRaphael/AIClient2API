@@ -86,22 +86,31 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label data-i18n="customModels.form.contextLength">上下文长度</label>
-                        <input type="number" id="contextLength" class="form-control" placeholder="8192">
+                        <input type="number" id="context_length" class="form-control" placeholder="8192">
                     </div>
                     <div class="form-group">
-                        <label data-i18n="customModels.form.maxTokens">最大 Token</label>
-                        <input type="number" id="maxTokens" class="form-control" placeholder="4096">
+                        <label data-i18n="customModels.form.maxOutputTokens">最大输出 Token</label>
+                        <input type="number" id="max_output_tokens" class="form-control" placeholder="4096">
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label data-i18n="customModels.form.temperature">温度 (Temp)</label>
-                        <input type="number" id="temperature" class="form-control" step="0.1" placeholder="0.7">
+                        <label data-i18n="customModels.form.supportImages">支持图片输入</label>
+                        <select id="support_images" class="form-control">
+                            <option value="false" data-i18n="customModels.form.supportImages.no">否</option>
+                            <option value="true" data-i18n="customModels.form.supportImages.yes">是</option>
+                        </select>
                     </div>
                     <div class="form-group">
-                        <label data-i18n="customModels.form.topP">Top P</label>
-                        <input type="number" id="topP" class="form-control" step="0.01" placeholder="1.0">
+                        <label data-i18n="customModels.form.supportEfforts">支持推理档位</label>
+                        <select id="support_efforts" class="form-control">
+                            <option value="" data-i18n="customModels.form.supportEfforts.none">null（不设置）</option>
+                            <option value="high">high</option>
+                            <option value="max">max</option>
+                            <option value="high,max">high + max</option>
+                        </select>
+                        <small class="custom-model-form-help" data-i18n="customModels.form.supportEffortsHint">可选 high / max / high+max / null</small>
                     </div>
                 </div>
 

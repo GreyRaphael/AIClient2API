@@ -301,8 +301,9 @@
 }
 
 .param-pill.ctx { background: var(--info-bg-light); color: var(--info-text); border: 1px solid var(--info-border); }
-.param-pill.temp { background: var(--warning-bg); color: var(--warning-text); border: 1px solid var(--warning-border); }
-.param-pill.topp { background: var(--success-bg); color: var(--success-text); border: 1px solid var(--success-color); }
+.param-pill.vision { background: var(--success-bg); color: var(--success-text); border: 1px solid var(--success-color); }
+.param-pill.no-vision { background: var(--danger-bg); color: var(--danger-text); border: 1px solid var(--danger-border); }
+.param-pill.effort { background: var(--info-bg-light); color: var(--info-text); border: 1px solid var(--info-border); }
 .param-pill.tokens { background: var(--danger-bg); color: var(--danger-text); border: 1px solid var(--danger-border); }
 
 /* 操作按钮 */
@@ -495,6 +496,14 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-secondary);
+}
+
+.custom-model-form-help {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    opacity: 0.85;
 }
 
 /* 状态列与 Toggle Switch 样式 */
