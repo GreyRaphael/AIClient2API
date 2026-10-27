@@ -24,12 +24,7 @@ import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
-import {
-    createUnsupportedEffortError,
-    extractRequestedReasoningEffort,
-    isDisableEffort,
-    normalizeEffortName
-} from '../reasoning-effort.ts';
+import { stripRequestedReasoningEffort } from '../reasoning-effort.ts';
 import { getErrorMessage } from '../../utils/error.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -265,26 +260,30 @@ function modelSupportsThinking(modelName: unknown): boolean {
 }
 
 /**
- * Antigravity 档位固化在模型 ID 中，上游没有动态档位数组。
- * 下游显式档位只允许 low/medium/high（上游可识别的固定档位族），其余（max/xhigh/ultra 等）直接 400。
+ * Antigravity 档位固化在模型 ID 中，support_efforts 固定为 null。
+ * 下游显式 effort 一律剥离，不校验、不报错；这里在 provider 层再清理一次，
+ * 防止元数据未就绪或直接调用 service 时把 effort / thinking level 透传给上游。
  */
-const ANTIGRAVITY_FIXED_EFFORTS = ['low', 'medium', 'high'];
+function stripAntigravityReasoningEffort(requestBody: DynamicPayload): boolean {
+    if (!requestBody || typeof requestBody !== 'object') return false;
 
-function validateAntigravityReasoningEffort(modelName: unknown, requestBody: DynamicPayload): void {
-    const requested = requestBody?._rawThinkingEffort
-        ?? extractRequestedReasoningEffort(requestBody)
-        ?? requestBody?.generationConfig?.thinkingConfig?.thinkingLevel;
-    if (requested === undefined || requested === null || String(requested).trim() === '') return;
-    if (requestBody?._rawThinkingDisabled || isDisableEffort(requested)) return;
-
-    if (!modelSupportsThinking(modelName) || !ANTIGRAVITY_FIXED_EFFORTS.includes(normalizeEffortName(requested))) {
-        throw createUnsupportedEffortError({
-            model: String(modelName || ''),
-            requested,
-            supported: ANTIGRAVITY_FIXED_EFFORTS,
-            provider: 'gemini-antigravity'
-        });
+    let stripped = false;
+    if (Object.prototype.hasOwnProperty.call(requestBody, '_rawThinkingEffort')) {
+        delete requestBody._rawThinkingEffort;
+        stripped = true;
     }
+    if (stripRequestedReasoningEffort(requestBody)) stripped = true;
+
+    // 转换器可能已经把下游 effort / thinking budget 映射为 Gemini thinkingConfig。
+    if (requestBody.generationConfig && typeof requestBody.generationConfig === 'object'
+        && requestBody.generationConfig.thinkingConfig) {
+        delete requestBody.generationConfig.thinkingConfig;
+        stripped = true;
+        if (Object.keys(requestBody.generationConfig).length === 0) {
+            delete requestBody.generationConfig;
+        }
+    }
+    return stripped;
 }
 
 /**
@@ -2014,7 +2013,9 @@ export class AntigravityApiService {
         const actualModelName = resolveAntigravityUpstreamModel(selectedModel);
         logger.info(`[Antigravity] Selected model: ${selectedModel} -> upstream: ${actualModelName}`);
 
-        validateAntigravityReasoningEffort(actualModelName, requestBody);
+        if (stripAntigravityReasoningEffort(requestBody)) {
+            logger.debug(`[Antigravity] Stripped downstream reasoning_effort for model '${actualModelName}'`);
+        }
 
         const processedRequestBody = ensureRolesInContents(JSON.parse(JSON.stringify(requestBody)), selectedModel);
         const capabilities = resolveProviderCapabilities({

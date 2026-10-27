@@ -3,7 +3,8 @@ jest.mock('open', () => ({ default: jest.fn() }));
 import {
     normalizeSupportEfforts,
     pickMaxEffort,
-    resolveStrictEffort
+    resolveStrictEffort,
+    stripRequestedReasoningEffort
 } from '../src/providers/reasoning-effort.ts';
 import {
     applyModelMetadata,
@@ -24,7 +25,10 @@ import {
 } from '../src/providers/model-capability.ts';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import { ENDPOINT_TYPE } from '../src/utils/protocol.ts';
-import { handleModelListRequest } from '../src/handlers/request-pipeline.ts';
+import {
+    handleModelListRequest,
+    prepareReasoningEffortBeforeDispatch
+} from '../src/handlers/request-pipeline.ts';
 
 function liveEntry(models, modelMetadata = {}) {
     return {
@@ -85,6 +89,67 @@ describe('reasoning effort helpers', () => {
             model: 'DeepSeek-V4.1-Flash-1017'
         })).toEqual({ effort: null, disabled: true });
     });
+
+    test('stripRequestedReasoningEffort removes effort from all three client protocols', () => {
+        const chat = { reasoning_effort: 'max', messages: [] };
+        expect(stripRequestedReasoningEffort(chat)).toBe(true);
+        expect(chat.reasoning_effort).toBeUndefined();
+
+        const responses = { reasoning: { effort: 'high', summary: 'auto' } };
+        expect(stripRequestedReasoningEffort(responses)).toBe(true);
+        expect(responses.reasoning).toEqual({ summary: 'auto' });
+
+        const messages = {
+            thinking: { type: 'adaptive', effort: 'max' },
+            output_config: { effort: 'max', format: { type: 'json_schema' } },
+            messages: []
+        };
+        expect(stripRequestedReasoningEffort(messages)).toBe(true);
+        expect(messages.thinking).toBeUndefined();
+        expect(messages.output_config).toEqual({ format: { type: 'json_schema' } });
+
+        // 显式 thinking budget 不属于 effort，保持原样。
+        const budgetThinking = { thinking: { type: 'enabled', budget_tokens: 20000 } };
+        expect(stripRequestedReasoningEffort(budgetThinking)).toBe(false);
+        expect(budgetThinking.thinking).toEqual({ type: 'enabled', budget_tokens: 20000 });
+
+        const extra = {
+            extra_body: {
+                reasoning_effort: 'max',
+                anthropic: { thinking: { type: 'adaptive', effort: 'max' } }
+            }
+        };
+        expect(stripRequestedReasoningEffort(extra)).toBe(true);
+        expect(extra.extra_body).toBeUndefined();
+    });
+
+    test('prepareReasoningEffortBeforeDispatch strips Antigravity effort instead of 400', async () => {
+        const service = { getNodeModelMetadata: async () => ({}) };
+        const bodies = [
+            { reasoning_effort: 'max', messages: [] },
+            { reasoning: { effort: 'max', summary: 'auto' }, input: [] },
+            { thinking: { type: 'adaptive', effort: 'max' }, output_config: { effort: 'max' }, messages: [] }
+        ];
+        for (const body of bodies) {
+            await prepareReasoningEffortBeforeDispatch(service, 'gemini-antigravity', 'claude-opus-5-5-high', body);
+            expect(body.reasoning_effort).toBeUndefined();
+            expect(body.reasoning?.effort).toBeUndefined();
+            expect(body.output_config?.effort).toBeUndefined();
+            expect(body.thinking).toBeUndefined();
+        }
+    });
+
+    test('prepareReasoningEffortBeforeDispatch keeps strict 400 for dynamic providers', async () => {
+        const service = {
+            getNodeModelMetadata: async () => ({ 'DeepSeek-V4.1-Flash-1017': { support_efforts: ['low', 'high', 'xhigh'] } })
+        };
+        await expect(prepareReasoningEffortBeforeDispatch(
+            service,
+            'trae',
+            'DeepSeek-V4.1-Flash-1017',
+            { reasoning_effort: 'max' }
+        )).rejects.toMatchObject({ status: 400, statusCode: 400 });
+    });
 });
 
 describe('provider model metadata extraction', () => {
@@ -135,6 +200,30 @@ describe('provider model metadata extraction', () => {
                 support_images: true,
                 support_efforts: null
             }
+        });
+    });
+
+    test('antigravity buildAntigravityPayload strips downstream effort and thinking config', () => {
+        const service = new AntigravityApiService({ MODEL_PROVIDER: 'gemini-antigravity' });
+        service.availableModels = ['gemini-3.8-flash-high'];
+        const body = {
+            contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+            generationConfig: { thinkingConfig: { thinkingLevel: 'MAX', includeThoughts: true } },
+            reasoning_effort: 'max'
+        };
+        Object.defineProperty(body, '_rawThinkingEffort', {
+            value: 'max',
+            enumerable: false,
+            configurable: true
+        });
+
+        const { payload } = service.buildAntigravityPayload('gemini-3.8-flash-high', body);
+
+        expect(body.reasoning_effort).toBeUndefined();
+        expect(body._rawThinkingEffort).toBeUndefined();
+        expect(payload.request.generationConfig.thinkingConfig).toMatchObject({
+            thinkingLevel: 'high',
+            includeThoughts: true
         });
     });
 

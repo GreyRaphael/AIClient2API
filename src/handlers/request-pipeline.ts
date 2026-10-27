@@ -34,7 +34,8 @@ import { getProviderDefinition } from '../providers/provider-registry.ts';
 import {
     extractRequestedReasoningEffort,
     isDisableEffort,
-    resolveStrictEffort
+    resolveStrictEffort,
+    stripRequestedReasoningEffort
 } from '../providers/reasoning-effort.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PreContentBuffer } from './pre-content-buffer.ts';
@@ -1473,27 +1474,33 @@ export async function handleModelListRequest(
 
 /** 需要严格校验 reasoning_effort 的 provider（上游提供动态档位元数据）。 */
 const REASONING_EFFORT_PROVIDERS = new Set([
-    MODEL_PROVIDER.ANTIGRAVITY,
     MODEL_PROVIDER.CODEX_API,
     MODEL_PROVIDER.ZED,
     MODEL_PROVIDER.TRAE,
     MODEL_PROVIDER.TRAE_CHAT_V3
 ]);
 
-/** Antigravity 档位固化在模型 ID 中，可识别的档位族固定为 low/medium/high。 */
-const ANTIGRAVITY_FIXED_EFFORTS = ['low', 'medium', 'high'];
-
 /**
- * 在写出任何响应字节之前校验下游 reasoning_effort，保证三种协议（Chat / Responses / Messages）
- * 的流式与非流式请求都能返回真正的 HTTP 400，而不是流内错误。
+ * 在写出任何响应字节之前处理下游 reasoning_effort：
+ * - Antigravity 的 support_efforts 固定为 null（档位固化在模型 ID 中），下游 effort 一律剥离，不校验；
+ * - 其余动态档位 Provider 在响应头写出前完成严格校验，保证三种协议（Chat / Responses / Messages）
+ *   的流式与非流式请求都能返回真正的 HTTP 400，而不是流内错误。
  */
-async function validateReasoningEffortBeforeDispatch(
+export async function prepareReasoningEffortBeforeDispatch(
     service: DynamicPayload | null,
     providerType: string,
     model: string,
     requestBody: DynamicPayload
 ): Promise<void> {
     const baseProviderType = getProviderDefinition(providerType)?.type || providerType;
+
+    if (baseProviderType === MODEL_PROVIDER.ANTIGRAVITY) {
+        if (stripRequestedReasoningEffort(requestBody)) {
+            logger.debug(`[Content Generation] Stripped downstream reasoning_effort for Antigravity model '${model}'`);
+        }
+        return;
+    }
+
     if (!REASONING_EFFORT_PROVIDERS.has(baseProviderType)) return;
 
     const requested = extractRequestedReasoningEffort(requestBody);
@@ -1510,9 +1517,7 @@ async function validateReasoningEffortBeforeDispatch(
     const metadata = metadataMap?.[model];
     if (!metadata) return;
 
-    const supported = baseProviderType === MODEL_PROVIDER.ANTIGRAVITY
-        ? ANTIGRAVITY_FIXED_EFFORTS
-        : (Array.isArray(metadata.support_efforts) ? metadata.support_efforts : null);
+    const supported = Array.isArray(metadata.support_efforts) ? metadata.support_efforts : null;
 
     // 抛出的错误带 status/statusCode=400 与 response.status=400，管线不会误判为上游故障。
     resolveStrictEffort({ requested, supported, model, provider: baseProviderType });
@@ -1628,8 +1633,8 @@ export async function handleContentGenerationRequest(
         throw new Error(`No service available for provider '${toProvider}'.`);
     }
 
-    // 1.1 在响应头写出前完成 reasoning_effort 严格校验（三种客户端协议一致）。
-    await validateReasoningEffortBeforeDispatch(service, toProvider, model, originalRequestBody);
+    // 1.1 在响应头写出前处理 reasoning_effort（Antigravity 剥离；其余 Provider 严格校验）。
+    await prepareReasoningEffortBeforeDispatch(service, toProvider, model, originalRequestBody);
 
     // 1. Convert request body from client format to backend format, if necessary.
     // 使用浅拷贝以避免直接变异 originalRequestBody，保持原始数据的纯净性以供后续钩子使用

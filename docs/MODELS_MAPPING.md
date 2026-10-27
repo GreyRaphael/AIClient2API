@@ -52,7 +52,7 @@
 
 | Provider | `display_name` | `context_length` | `max_output_tokens` | `support_images` | `support_efforts` |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Antigravity** | `displayName` | `maxTokens` | `maxOutputTokens` | `supportsImages` | 无动态数组，固定为 `null`（档位固化在模型 ID 中） |
+| **Antigravity** | `displayName` | `maxTokens` | `maxOutputTokens` | `supportsImages` | 无动态数组，固定为 `null`（档位固化在模型 ID 中；下游显式 effort 会被剥离） |
 | **OpenAI Codex OAuth** | `display_name` | `max_context_window`（872K，取最大值） | 默认 128,000（Responses 规范） | `input_modalities` 包含 `image` | `supported_reasoning_levels[].effort` |
 | **Zed** | `display_name` | `max_token_count` | `max_output_tokens` | `supports_images` | `supported_effort_levels[].value`（小写归一化） |
 | **Trae (tob_raw_chat)** | `display_config.display_name` | `context_window_tokens.max` 或 `.dev` | `model_detail_list[].max_tokens` | `display_config.multimodal` | `reasoning_effort_config.options`（标准化映射） |
@@ -76,8 +76,9 @@
 - 下游未提供 `reasoning_effort`：默认使用上游支持的最高档位。
 - 下游显式提供的档位必须与上游支持列表一一对应；不在列表中的档位直接返回 **HTTP 400 unsupported**。
 - 显式 `none` / `off` / `false`：视为关闭思考；上游明确支持 `none` 时透传，否则省略 effort。
+- **Antigravity 例外**：`support_efforts` 为 `null`，下游传入的任意 `reasoning_effort`（含 `low` / `medium` / `high` / `max` / `xhigh`）一律剥离，不校验、不返回 400；档位由模型 ID 决定。
 - 校验发生在写出任何响应字节之前，因此 Chat / Responses / Messages 三种协议的流式与非流式请求都会得到真正的 HTTP 400。
-- Provider 层保留二次校验，防止元数据未就绪或直接调用 service 时绕过。
+- Provider 层保留二次校验；Antigravity provider 层保留二次剥离，防止元数据未就绪或直接调用 service 时绕过。
 
 错误示例：
 
@@ -90,13 +91,13 @@ Supported reasoning_effort values: [low, high, xhigh]
 
 | Provider | 上游档位来源 | 下游标准档位 | 缺省默认 | 不支持示例 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Antigravity** | 无动态数组，档位固化在模型 ID | 接受 `low` / `medium` / `high` | 不注入（模型 ID 已决定） | `max` / `xhigh` / `ultra` → 400 |
+| **Antigravity** | 无动态数组，档位固化在模型 ID | 任意 effort 一律剥离，不校验 | 不注入（模型 ID 已决定） | 无（`max` / `xhigh` / `ultra` 也会被剥离） |
 | **OpenAI Codex OAuth** | `supported_reasoning_levels[].effort` | 与上游完全一致，含 `xhigh` / `max` / `ultra` | 列表最高档（terra 为 `ultra`） | luna 的 `ultra` → 400 |
 | **Zed** | `supported_effort_levels[].value` | 与上游完全一致，大小写不敏感 | 列表最高档 | `gpt-6-luna` 的 `max` → 400 |
 | **Trae (tob_raw_chat)** | `reasoning_effort_config.options` | `low` / `high` / `xhigh` ↔ `light` / `high` / `extra_high` | `xhigh` | `max` / `minimal` / `medium` → 400 |
 | **Trae (chat_v3)** | 同上 | 同上 | `xhigh` | 同上 |
 
-> Antigravity 的 `support_efforts` 为 `null`，但上游可按 low/medium/high 三档族识别；模型 ID（如 `-high` / `-medium`）仍是最终档位。
+> Antigravity 的 `support_efforts` 为 `null`：下游 effort 一律剥离，不注入、不校验；模型 ID（如 `-high` / `-medium`）是最终档位的唯一来源。
 
 ---
 
@@ -106,7 +107,7 @@ Supported reasoning_effort values: [low, high, xhigh]
 
 原始数据：`antigravity_model_list.json`
 
-> 上游无动态可选档位字段；高/中深度作为独立模型实体发布，`support_efforts` 固定为 `null`。
+> 上游无动态可选档位字段；高/中深度作为独立模型实体发布，`support_efforts` 固定为 `null`，下游显式 effort 会被剥离。
 
 | 模型 ID | 展示名称 | 上下文长度 | 最大输出 | 支持档位 |
 | :--- | :--- | :---: | :---: | :---: |
@@ -233,6 +234,8 @@ Supported reasoning_effort values: [low, high, xhigh]
 | **合计** | **220** | **217** | **0** | **3** |
 
 > 矩阵执行时临时将 5 个 Provider 的 `supportedModels` 扩展为全部 44 个候选模型，确保所有 ID 可路由；测试完成后已恢复原配置。当前候选集为 44 个（13+13+9+3+6）。
+>
+> 2026-10-27 起 Antigravity 的下游 effort 契约调整为“一律剥离”；本表 Antigravity 45 个组合是调整前的历史记录，不再作为当前契约基线。
 
 ### 6.2 图片输入 E2E（2026-10-27）
 

@@ -57,6 +57,79 @@ export function extractRequestedReasoningEffort(body: unknown): unknown {
 }
 
 /**
+ * 删除下游请求体中的显式 reasoning_effort（三种协议字段）。
+ *
+ * 用于 `support_efforts=null` 的 Provider：这类上游没有动态档位，下游传入的
+ * effort 必须被剥离，而不是校验或透传。
+ *
+ * Messages 的 `thinking.type=adaptive` 在没有 budget_tokens 时只通过 effort 表达强度；
+ * 删除 effort 后转换器会回退到默认档位，因此这里一并移除该 thinking 壳。
+ * 显式 `thinking.type=enabled/disabled` 与 budget_tokens 不属于 effort，保持不变。
+ *
+ * @returns 是否实际删除了字段
+ */
+export function stripRequestedReasoningEffort(body: unknown): boolean {
+    if (!body || typeof body !== 'object') return false;
+    const record = body as Record<string, any>;
+    let stripped = false;
+
+    const deleteEffort = (target: unknown): boolean => {
+        if (!target || typeof target !== 'object' || Array.isArray(target)) return false;
+        const obj = target as Record<string, any>;
+        if (!Object.prototype.hasOwnProperty.call(obj, 'effort')) return false;
+        delete obj.effort;
+        return true;
+    };
+
+    if (Object.prototype.hasOwnProperty.call(record, 'reasoning_effort')) {
+        delete record.reasoning_effort;
+        stripped = true;
+    }
+
+    if (deleteEffort(record.reasoning)) {
+        stripped = true;
+        if (Object.keys(record.reasoning).length === 0) delete record.reasoning;
+    }
+
+    if (deleteEffort(record.output_config)) {
+        stripped = true;
+        if (Object.keys(record.output_config).length === 0) delete record.output_config;
+    }
+
+    if (deleteEffort(record.thinking)) {
+        stripped = true;
+    }
+    if (record.thinking && typeof record.thinking === 'object' && !Array.isArray(record.thinking)
+        && String(record.thinking.type || '').trim().toLowerCase() === 'adaptive'
+        && record.thinking.budget_tokens === undefined) {
+        delete record.thinking;
+        stripped = true;
+    }
+
+    const extraBody = record.extra_body;
+    if (extraBody && typeof extraBody === 'object' && !Array.isArray(extraBody)) {
+        if (Object.prototype.hasOwnProperty.call(extraBody, 'reasoning_effort')) {
+            delete extraBody.reasoning_effort;
+            stripped = true;
+        }
+        const anthropic = extraBody.anthropic;
+        if (anthropic && typeof anthropic === 'object' && !Array.isArray(anthropic)) {
+            if (deleteEffort(anthropic.thinking)) stripped = true;
+            if (anthropic.thinking && typeof anthropic.thinking === 'object' && !Array.isArray(anthropic.thinking)
+                && String(anthropic.thinking.type || '').trim().toLowerCase() === 'adaptive'
+                && anthropic.thinking.budget_tokens === undefined) {
+                delete anthropic.thinking;
+                stripped = true;
+            }
+            if (Object.keys(anthropic).length === 0) delete extraBody.anthropic;
+        }
+        if (Object.keys(extraBody).length === 0) delete record.extra_body;
+    }
+
+    return stripped;
+}
+
+/**
  * 将上游声明的档位数组归一化为去重后的标准名称数组。
  * 支持字符串与 `{ effort | value | level }` 对象；空数组返回 null（无法动态调节）。
  */
