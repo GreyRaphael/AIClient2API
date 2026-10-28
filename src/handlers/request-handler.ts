@@ -107,7 +107,7 @@ export function createRequestHandler(
                                 }));
                                 return;
                             }
-                            const served = await serveStaticFiles(path, res);
+                            const served = await serveStaticFiles(path, res, req);
                             if (served) return;
                         }
                     }

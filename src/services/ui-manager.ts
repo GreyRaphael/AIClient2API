@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import path from 'path';
@@ -24,16 +24,50 @@ import { HELP_DATA, API_GUIDE_DATA, API_EXAMPLES, formatHelpText, formatApiGuide
 // Re-export from event-broadcast module
 export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials, upload } from '../ui-modules/event-broadcast.ts';
 
+const getStaticRoot = (): string => path.join(process.cwd(), 'static');
+
+const STATIC_CONTENT_TYPES: Record<string, string> = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.mjs': 'text/javascript',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.json': 'application/json',
+    '.ico': 'image/x-icon',
+    '.woff2': 'font/woff2',
+    '.woff': 'font/woff'
+};
+
+/** 浏览器端模块/样式等文本资源：每次请求都向服务器再验证（命中 ETag 返回 304） */
+const REVALIDATE_EXTENSIONS = ['.html', '.css', '.js', '.mjs', '.json'];
+
+/** static/vendor/ 下的第三方文件目录名带版本号，内容不可变，可强缓存 */
+const IMMUTABLE_PREFIX = '/vendor/';
+
+function isInsideStaticRoot(filePath: string, staticRoot: string): boolean {
+    return filePath === staticRoot || filePath.startsWith(staticRoot + path.sep);
+}
+
 /**
  * Serve static files for the UI
  * @param {string} pathParam - The request path
  * @param {import('node:http').ServerResponse} res - The HTTP response object
+ * @param {import('node:http').IncomingMessage} [req] - The HTTP request (用于 If-None-Match 条件请求)
  */
-export async function serveStaticFiles(pathParam: string, res: ServerResponse): Promise<boolean> {
-    // 1. 尝试从系统 static 目录服务
-    let filePath = path.join(process.cwd(), 'static', pathParam === '/' || pathParam === '/index.html' ? 'index.html' : pathParam.replace('/static/', ''));
+export async function serveStaticFiles(pathParam: string, res: ServerResponse, req?: IncomingMessage): Promise<boolean> {
+    // 1. 尝试从系统 static 目录服务（拒绝越出 static 根目录的路径）
+    const relativePath = pathParam === '/' || pathParam === '/index.html' ? 'index.html' : pathParam.replace('/static/', '');
+    const staticRoot = getStaticRoot();
+    let filePath = path.join(staticRoot, relativePath);
+    if (!isInsideStaticRoot(filePath, staticRoot)) {
+        filePath = '';
+    }
 
-    if (!existsSync(filePath)) {
+    if (!filePath || !existsSync(filePath)) {
         // 2. 尝试从插件目录服务
         const pluginManager = getPluginManager();
         const plugin = pluginManager.getPluginByStaticPath(pathParam);
@@ -43,25 +77,23 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse): 
         }
     }
 
-    if (existsSync(filePath)) {
+    if (filePath && existsSync(filePath) && statSync(filePath).isFile()) {
         const ext = path.extname(filePath);
-        const contentType = {
-            '.html': 'text/html',
-            '.css': 'text/css',
-            '.js': 'application/javascript',
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.svg': 'image/svg+xml',
-            '.json': 'application/json',
-            '.ico': 'image/x-icon'
-        }[ext] || 'text/plain';
+        const contentType = STATIC_CONTENT_TYPES[ext] || 'text/plain';
+        const stat = statSync(filePath);
 
         const headers: Record<string, string> = { 'Content-Type': contentType };
-        // 无构建步骤的前端：文本资源禁用缓存，确保 CSS/JS/HTML 更新后立即生效。
-        if (['.html', '.css', '.js', '.json'].includes(ext)) {
-            headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-            headers['Pragma'] = 'no-cache';
-            headers['Expires'] = '0';
+        if (pathParam.startsWith(IMMUTABLE_PREFIX)) {
+            headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+        } else if (REVALIDATE_EXTENSIONS.includes(ext)) {
+            // 无构建步骤的前端：文本资源总是再验证，更新后立即生效；未变化时走 304，避免重复下载大量模块。
+            headers['Cache-Control'] = 'no-cache';
+            headers['ETag'] = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+            if (req && req.headers['if-none-match'] === headers['ETag']) {
+                res.writeHead(304, headers);
+                res.end();
+                return true;
+            }
         }
 
         res.writeHead(200, headers);

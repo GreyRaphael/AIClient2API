@@ -69,7 +69,7 @@ export const MODEL_PROVIDER = {
 // UI 相关的路径常量
 export const UI_PATHS = {
     // 静态文件和基础路径前缀
-    STATIC_PREFIXES: ['/static/', '/app/', '/components/'],
+    STATIC_PREFIXES: ['/static/', '/app/', '/components/', '/ui/', '/vendor/'],
     // 静态文件精确匹配路径
     STATIC_EXACT: ['/', '/favicon.ico', '/index.html', '/login.html'],
     // API 路径前缀
