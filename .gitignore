@@ -30,3 +30,7 @@ configs/trae/
 
 /.codegraph/
 
+
+# Playwright
+test-results/
+playwright-report/

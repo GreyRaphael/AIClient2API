@@ -23,12 +23,20 @@
   "devDependencies": {
     "@babel/preset-env": "^7.28.0",
     "@babel/preset-typescript": "^7.29.7",
+    "@fortawesome/fontawesome-free": "6.7.2",
     "@jest/globals": "^29.7.0",
+    "@playwright/test": "1.49.1",
+    "@preact/signals": "2.11.4",
+    "@preact/signals-core": "1.14.5",
     "@types/busboy": "^1.5.5",
     "@types/node": "^22.20.5",
     "babel-jest": "^30.0.5",
     "babel-plugin-transform-import-meta": "^2.3.3",
+    "htm": "3.1.1",
     "jest": "^29.7.0",
+    "preact": "11.1.0",
+    "preact-render-to-string": "6.8.2",
+    "subset-font": "2.9.0",
     "typescript": "^5.9.3",
     "undici": "^7.12.0"
   },
@@ -63,6 +71,11 @@
     "login:zed": "node src/scripts/login-zed.ts",
     "login:trae": "node src/scripts/login-trae.ts",
     "benchmark:concurrent": "node src/scripts/concurrent-test.ts",
-    "check:any": "node scripts/type-metrics.mjs --check"
+    "check:any": "node scripts/type-metrics.mjs --check",
+    "vendor:webui": "node scripts/sync-webui-vendor.mjs",
+    "vendor:webui:check": "node scripts/sync-webui-vendor.mjs --check",
+    "vendor:fa": "node scripts/subset-fontawesome.mjs",
+    "typecheck:webui": "tsc -p tsconfig.webui.json --noEmit",
+    "test:webui:e2e": "playwright test -c tests/webui-e2e/playwright.config.js"
   }
 }
