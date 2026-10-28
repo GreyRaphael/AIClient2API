@@ -145,12 +145,12 @@ function bindEvents() {
 
     document.addEventListener('change', (e) => {
         if (e.target.id === 'pg-interface-select') {
-            const isChat = e.target.value === 'chat';
+            const streamable = TEXT_INTERFACES.has(e.target.value);
             const streamBox = getStreamCheckbox();
             if (streamBox) {
-                streamBox.disabled = !isChat;
+                streamBox.disabled = !streamable;
                 const wrap = streamBox.closest('.pg-stream-toggle-wrap');
-                if (wrap) wrap.style.opacity = isChat ? '1' : '0.5';
+                if (wrap) wrap.style.opacity = streamable ? '1' : '0.5';
             }
         }
     });
@@ -288,11 +288,8 @@ async function handleSend() {
     const reasoningEffort = getReasoningEffort()?.value || 'high';
     const useStream = getStreamCheckbox()?.checked ?? true;
 
-    // Build history for request
-    const requestMessages = [];
-    if (sysPrompt) requestMessages.push({ role: 'system', content: sysPrompt });
-    messages.slice(-20).forEach(m => requestMessages.push(m));
-
+    // Build history for request（system 由各协议适配器单独处理）
+    const requestMessages = messages.slice(-20);
     const filesToSend = [...pendingFiles];
     const userContent = buildUserContent(text, filesToSend);
     requestMessages.push({ role: 'user', content: userContent });
@@ -313,18 +310,18 @@ async function handleSend() {
 
     const assistantBubble = appendMessage('assistant', '');
     
+    const protocolParams = {
+        system: sysPrompt,
+        messages: requestMessages,
+        reasoning_effort: reasoningEffort
+    };
+
     if (interfaceType === 'image' || interfaceType === 'image-edit') {
         await imageResponse(provider, model, text, filesToSend, assistantBubble, interfaceType);
     } else if (useStream) {
-        await streamResponse(provider, model, assistantBubble, {
-            messages: requestMessages,
-            reasoning_effort: reasoningEffort
-        });
+        await streamResponse(interfaceType, provider, model, assistantBubble, protocolParams);
     } else {
-        await unaryResponse(provider, model, assistantBubble, {
-            messages: requestMessages,
-            reasoning_effort: reasoningEffort
-        });
+        await unaryResponse(interfaceType, provider, model, assistantBubble, protocolParams);
     }
 }
 
@@ -354,6 +351,213 @@ function dataUrlToBlob(dataUrl) {
     const mime = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
     const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
     return new Blob([bytes], {type: mime});
+}
+
+// ── Protocol adapters (Chat / Responses / Messages) ──────────────────────────
+
+const TEXT_INTERFACES = new Set(['chat', 'responses', 'messages']);
+const CLAUDE_MAX_TOKENS = 8192;
+const RESPONSES_REASONING_DELTA_TYPES = new Set([
+    'response.reasoning_summary_text.delta',
+    'response.reasoning_text.delta',
+    'response.reasoning.delta',
+    'response.reasoning_summary.delta'
+]);
+
+function parseDataUrl(url) {
+    const match = /^data:([^;,]+);base64,(.+)$/.exec(url || '');
+    return match ? { mediaType: match[1], data: match[2] } : null;
+}
+
+function getImageUrl(part) {
+    return typeof part?.image_url === 'string' ? part.image_url : part?.image_url?.url;
+}
+
+/** 将内部 Chat 风格历史转换为 Responses input items。 */
+function toResponsesInputItem(message) {
+    if (typeof message.content === 'string') {
+        return { role: message.role, content: [{ type: 'input_text', text: message.content }] };
+    }
+    const content = (Array.isArray(message.content) ? message.content : [])
+        .map(part => {
+            if (part?.type === 'text') return { type: 'input_text', text: part.text || '' };
+            if (part?.type === 'image_url') {
+                const url = getImageUrl(part);
+                return url ? { type: 'input_image', image_url: url } : null;
+            }
+            return null;
+        })
+        .filter(Boolean);
+    return { role: message.role, content };
+}
+
+/** 将内部 Chat 风格历史转换为 Anthropic Messages 请求消息。 */
+function toClaudeMessage(message) {
+    if (typeof message.content === 'string') {
+        return { role: message.role, content: message.content };
+    }
+    const content = (Array.isArray(message.content) ? message.content : [])
+        .map(part => {
+            if (part?.type === 'text') return { type: 'text', text: part.text || '' };
+            if (part?.type === 'image_url') {
+                const url = getImageUrl(part);
+                if (!url) return null;
+                const parsed = parseDataUrl(url);
+                if (parsed) {
+                    return { type: 'image', source: { type: 'base64', media_type: parsed.mediaType, data: parsed.data } };
+                }
+                if (/^https?:\/\//.test(url)) {
+                    return { type: 'image', source: { type: 'url', url } };
+                }
+            }
+            return null;
+        })
+        .filter(Boolean);
+    return { role: message.role, content };
+}
+
+/** 解析 Responses 非流式 output。 */
+function extractResponsesOutput(json) {
+    let content = '';
+    let reasoning = '';
+    for (const item of Array.isArray(json?.output) ? json.output : []) {
+        if (item?.type === 'message') {
+            for (const part of item.content || []) {
+                if (part?.type === 'output_text') content += part.text || '';
+                if (part?.type === 'refusal') content += part.refusal || '';
+            }
+        }
+        if (item?.type === 'reasoning') {
+            for (const part of item.summary || []) reasoning += part.text || '';
+            for (const part of item.content || []) reasoning += part.text || '';
+        }
+    }
+    return { content, reasoning };
+}
+
+const TEXT_PROTOCOLS = {
+    chat: {
+        endpoint: '/v1/chat/completions',
+        buildBody(model, params, stream) {
+            const messages = [];
+            if (params.system) messages.push({ role: 'system', content: params.system });
+            messages.push(...params.messages);
+            return {
+                model,
+                messages,
+                ...(params.reasoning_effort && params.reasoning_effort !== 'none'
+                    ? { reasoning_effort: params.reasoning_effort }
+                    : {}),
+                stream
+            };
+        },
+        extractUnary(json) {
+            const message = json.choices?.[0]?.message || {};
+            return {
+                content: typeof message.content === 'string' ? message.content : '',
+                reasoning: message.reasoning_content || message.thinking || ''
+            };
+        },
+        extractStreamDelta(json) {
+            const delta = json.choices?.[0]?.delta || {};
+            return {
+                content: typeof delta.content === 'string' ? delta.content : '',
+                reasoning: typeof delta.reasoning_content === 'string'
+                    ? delta.reasoning_content
+                    : (typeof delta.thinking === 'string' ? delta.thinking : '')
+            };
+        },
+        streamError(json) {
+            return json.error?.message || '';
+        },
+        isTerminal() {
+            return false;
+        }
+    },
+    responses: {
+        endpoint: '/v1/responses',
+        buildBody(model, params, stream) {
+            return {
+                model,
+                ...(params.system ? { instructions: params.system } : {}),
+                input: params.messages.map(toResponsesInputItem),
+                ...(params.reasoning_effort && params.reasoning_effort !== 'none'
+                    ? { reasoning: { effort: params.reasoning_effort, summary: 'auto' } }
+                    : {}),
+                stream
+            };
+        },
+        extractUnary: extractResponsesOutput,
+        extractStreamDelta(json) {
+            if (json.type === 'response.output_text.delta') {
+                return { content: json.delta || '', reasoning: '' };
+            }
+            if (RESPONSES_REASONING_DELTA_TYPES.has(json.type)) {
+                return { content: '', reasoning: json.delta || '' };
+            }
+            return { content: '', reasoning: '' };
+        },
+        streamError(json) {
+            if (json.type === 'response.failed') {
+                return json.response?.error?.message || json.error?.message || json.message || '';
+            }
+            if (json.type === 'error') return json.error?.message || json.message || '';
+            return json.error?.message || '';
+        },
+        isTerminal(json) {
+            return json.type === 'response.completed'
+                || json.type === 'response.incomplete'
+                || json.type === 'response.failed';
+        },
+        finalOutput(json) {
+            if (json.type === 'response.completed' || json.type === 'response.incomplete') {
+                return extractResponsesOutput(json.response || {});
+            }
+            return null;
+        }
+    },
+    messages: {
+        endpoint: '/v1/messages',
+        buildBody(model, params, stream) {
+            return {
+                model,
+                ...(params.system ? { system: params.system } : {}),
+                max_tokens: CLAUDE_MAX_TOKENS,
+                messages: params.messages.map(toClaudeMessage),
+                ...(params.reasoning_effort && params.reasoning_effort !== 'none'
+                    ? { thinking: { type: 'adaptive' }, output_config: { effort: params.reasoning_effort } }
+                    : {}),
+                stream
+            };
+        },
+        extractUnary(json) {
+            let content = '';
+            let reasoning = '';
+            for (const block of Array.isArray(json?.content) ? json.content : []) {
+                if (block?.type === 'text') content += block.text || '';
+                if (block?.type === 'thinking') reasoning += block.thinking || '';
+            }
+            return { content, reasoning };
+        },
+        extractStreamDelta(json) {
+            if (json.type !== 'content_block_delta') return { content: '', reasoning: '' };
+            const delta = json.delta || {};
+            if (delta.type === 'text_delta') return { content: delta.text || '', reasoning: '' };
+            if (delta.type === 'thinking_delta') return { content: '', reasoning: delta.thinking || '' };
+            return { content: '', reasoning: '' };
+        },
+        streamError(json) {
+            if (json.type === 'error') return json.error?.message || json.message || '';
+            return json.error?.message || '';
+        },
+        isTerminal(json) {
+            return json.type === 'message_stop';
+        }
+    }
+};
+
+function getTextProtocol(interfaceType) {
+    return TEXT_PROTOCOLS[interfaceType] || TEXT_PROTOCOLS.chat;
 }
 
 async function imageResponse(provider, model, prompt, files, bubble, interfaceType) {
@@ -426,27 +630,23 @@ async function imageResponse(provider, model, prompt, files, bubble, interfaceTy
     }
 }
 
-async function unaryResponse(provider, model, bubble, params) {
+async function unaryResponse(interfaceType, provider, model, bubble, params) {
     isStreaming = true;
     updateInputState();
-    
+
     currentAbortController = new AbortController();
+    const protocol = getTextProtocol(interfaceType);
 
     let errorMsg = '';
     try {
-        const response = await fetch('/v1/chat/completions', {
+        const response = await fetch(protocol.endpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
                 'model-provider': provider
             },
-            body: JSON.stringify({
-                model,
-                messages: params.messages,
-                ...(params.reasoning_effort && params.reasoning_effort !== 'none' ? { reasoning_effort: params.reasoning_effort } : {}),
-                stream: false
-            }),
+            body: JSON.stringify(protocol.buildBody(model, params, false)),
             signal: currentAbortController.signal
         });
 
@@ -456,8 +656,7 @@ async function unaryResponse(provider, model, bubble, params) {
         }
 
         const json = await response.json();
-        const content = json.choices?.[0]?.message?.content || '';
-        const reasoning = json.choices?.[0]?.message?.reasoning_content || json.choices?.[0]?.message?.thinking || '';
+        const { content, reasoning } = protocol.extractUnary(json);
 
         bubble.innerHTML = '';
         const msgWrapper = bubble.closest('.pg-message');
@@ -495,32 +694,28 @@ async function unaryResponse(provider, model, bubble, params) {
     }
 }
 
-async function streamResponse(provider, model, bubble, params) {
+async function streamResponse(interfaceType, provider, model, bubble, params) {
     isStreaming = true;
     updateInputState();
 
     const cursor = document.createElement('span');
     cursor.className = 'pg-cursor';
-    
+
     currentAbortController = new AbortController();
+    const protocol = getTextProtocol(interfaceType);
     let accumulated = '';
     let accumulatedReasoning = '';
     let errorMsg = '';
 
     try {
-        const response = await fetch('/v1/chat/completions', {
+        const response = await fetch(protocol.endpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
                 'model-provider': provider
             },
-            body: JSON.stringify({
-                model,
-                messages: params.messages,
-                ...(params.reasoning_effort && params.reasoning_effort !== 'none' ? { reasoning_effort: params.reasoning_effort } : {}),
-                stream: true
-            }),
+            body: JSON.stringify(protocol.buildBody(model, params, true)),
             signal: currentAbortController.signal
         });
  
@@ -548,12 +743,13 @@ async function streamResponse(provider, model, bubble, params) {
 
                 try {
                     const json = JSON.parse(data);
-                    if (json.error) throw new Error(json.error.message || t('playground.reqFailed'));
-                    
-                    const delta = json.choices?.[0]?.delta;
-                    const content = delta?.content || '';
-                    const reasoning = delta?.reasoning_content || delta?.thinking || '';
-                    
+                    const streamError = protocol.streamError(json);
+                    if (streamError) throw new Error(streamError || t('playground.reqFailed'));
+
+                    const delta = protocol.extractStreamDelta(json);
+                    const content = delta.content;
+                    const reasoning = delta.reasoning;
+
                     if (content || reasoning) {
                         if (!accumulated && !accumulatedReasoning) {
                             const msgWrapper = bubble.closest('.pg-message');
@@ -587,6 +783,15 @@ async function streamResponse(provider, model, bubble, params) {
                             bubble.appendChild(cursor);
                         }
                         scrollToBottom();
+                    }
+
+                    if (protocol.isTerminal(json)) {
+                        const final = protocol.finalOutput?.(json);
+                        if (final) {
+                            accumulated = accumulated || final.content;
+                            accumulatedReasoning = accumulatedReasoning || final.reasoning;
+                        }
+                        break outer;
                     }
                 } catch (e) {
                     if (e.message && !e.message.startsWith('Unexpected')) throw e;

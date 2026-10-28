@@ -274,7 +274,7 @@ export function extractSseStreamError(events) {
     return null;
 }
 
-export async function postSse({ baseUrl, apiKey, pathName, body, timeoutMs = 180000, retries = 1 }) {
+export async function postSse({ baseUrl, apiKey, pathName, body, headers = {}, timeoutMs = 180000, retries = 1 }) {
     let lastError;
     for (let attempt = 0; attempt <= retries; attempt++) {
         const started = Date.now();

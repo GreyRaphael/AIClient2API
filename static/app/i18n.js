@@ -848,6 +848,8 @@ const translations = {
         'playground.selectModel': '— 选择模型 —',
         'playground.interface': '接口类型',
         'playground.interface.chat': '对话接口 (Chat)',
+        'playground.interface.responses': '响应接口 (Responses)',
+        'playground.interface.messages': '消息接口 (Messages)',
         'playground.interface.image': '生图接口 (Generations)',
         'playground.interface.imageEdit': '修图接口 (Edits)',
         'playground.providerFirst': '请先选择提供商',
