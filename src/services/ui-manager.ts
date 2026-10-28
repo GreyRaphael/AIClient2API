@@ -56,7 +56,15 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse): 
             '.ico': 'image/x-icon'
         }[ext] || 'text/plain';
 
-        res.writeHead(200, { 'Content-Type': contentType });
+        const headers: Record<string, string> = { 'Content-Type': contentType };
+        // 无构建步骤的前端：文本资源禁用缓存，确保 CSS/JS/HTML 更新后立即生效。
+        if (['.html', '.css', '.js', '.json'].includes(ext)) {
+            headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+            headers['Pragma'] = 'no-cache';
+            headers['Expires'] = '0';
+        }
+
+        res.writeHead(200, headers);
         res.end(readFileSync(filePath));
         return true;
     }

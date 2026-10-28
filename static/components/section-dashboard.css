@@ -764,7 +764,11 @@
 .provider-models-title i {
     flex: 0 0 1.25rem;
     width: 1.25rem;
-    text-align: center;
+    height: 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
     font-size: 0.95rem;
     color: var(--primary-color);
 }
@@ -777,8 +781,14 @@
     white-space: nowrap;
     font-size: 0.92rem;
     font-weight: 600;
-    line-height: 1;
+    /* 与图标/徽标的 1.25rem 盒子对齐；不使用固定高度，避免文字被裁切 */
+    line-height: 1.25rem;
     color: var(--text-primary);
+    /*
+     * flex 的 align-items:center 居中的是 em 盒，而小写字母的视觉中心
+     * 比 em 盒中心低约 2px（Segoe UI / Arial 等常见字体），因此做光学补偿。
+     */
+    transform: translateY(-2px);
 }
 
 .provider-models-count {
@@ -793,6 +803,7 @@
     border-radius: 9999px;
     font-size: 0.68rem;
     font-weight: 600;
+    line-height: 1;
 }
 
 .provider-models-toggle {
