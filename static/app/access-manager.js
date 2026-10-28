@@ -256,20 +256,6 @@ function renderProviderCards(providers, defaultProviders, configMap) {
     }).join('');
 }
 
-function updateStats(data) {
-    const providerGroupsCount = data.providers.length;
-    const totalNodesCount = data.providers.reduce((sum, provider) => sum + provider.totalNodes, 0);
-
-    const keyStatus = data.hasApiKey
-        ? t('access.stats.keyReady')
-        : t('access.stats.keyMissing');
-
-    if (getElement('accessApiKeyStatus')) getElement('accessApiKeyStatus').textContent = keyStatus;
-    if (getElement('accessDefaultProvidersCount')) getElement('accessDefaultProvidersCount').textContent = data.defaultProviders.length;
-    if (getElement('accessProviderGroupsCount')) getElement('accessProviderGroupsCount').textContent = providerGroupsCount;
-    if (getElement('accessTotalNodesCount')) getElement('accessTotalNodesCount').textContent = totalNodesCount;
-}
-
 function updateFields(data) {
     const apiKeyField = getElement('accessApiKeyField');
     const baseUrlField = getElement('accessBaseUrlField');
@@ -480,7 +466,6 @@ function renderAccessPage(data) {
     const visibleProviders = getVisibleProviders(data.providers || []);
 
     setSelectedSnippetFormat(getSelectedSnippetFormat());
-    updateStats(data);
     updateFields(data);
     renderDefaultProviders(data.defaultProviders || [], configMap);
     renderSnippetProviderOptions(data, configMap);

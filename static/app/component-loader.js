@@ -77,19 +77,6 @@ async function loadComponents(components) {
 async function initializeComponents() {
     const basePath = 'components/';
     
-    // 定义组件配置
-    const componentConfigs = [
-        { path: `${basePath}header.html`, container: '.container', position: 'afterbegin' },
-        { path: `${basePath}sidebar.html`, container: '#sidebar-container', position: 'replace' },
-        { path: `${basePath}section-dashboard.html`, container: '#content-container', position: 'beforeend' },
-        { path: `${basePath}section-config.html`, container: '#content-container', position: 'beforeend' },
-        { path: `${basePath}section-upload-config.html`, container: '#content-container', position: 'beforeend' },
-        { path: `${basePath}section-providers.html`, container: '#content-container', position: 'beforeend' },
-        { path: `${basePath}section-usage.html`, container: '#content-container', position: 'beforeend' },
-        { path: `${basePath}section-logs.html`, container: '#content-container', position: 'beforeend' },
-        { path: `${basePath}section-plugins.html`, container: '#content-container', position: 'beforeend' },
-    ];
-
     try {
         // 首先加载 header
         await insertComponent(`${basePath}header.html`, '.container', 'afterbegin');
@@ -102,7 +89,6 @@ async function initializeComponents() {
             { path: `${basePath}section-dashboard.html`, container: '#content-container', position: 'beforeend' },
             { path: `${basePath}section-access.html`, container: '#content-container', position: 'beforeend' },
             { path: `${basePath}section-guide.html`, container: '#content-container', position: 'beforeend' },
-            { path: `${basePath}section-tutorial.html`, container: '#content-container', position: 'beforeend' },
             { path: `${basePath}section-config.html`, container: '#content-container', position: 'beforeend' },
             { path: `${basePath}section-upload-config.html`, container: '#content-container', position: 'beforeend' },
             { path: `${basePath}section-providers.html`, container: '#content-container', position: 'beforeend' },

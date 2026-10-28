@@ -4,18 +4,6 @@
 <section id="dashboard" class="section active" aria-labelledby="dashboard-title">
     <h2 id="dashboard-title" data-i18n="dashboard.title">系统概览</h2>
     <div class="dashboard-top-row">
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon">
-                    <i class="fas fa-clock"></i>
-                </div>
-                <div class="stat-info">
-                    <h3 id="uptime">--</h3>
-                    <p data-i18n="dashboard.uptime">运行时间</p>
-                </div>
-            </div>
-        </div>
-        
         <!-- Contact and Sponsor Section -->
         <div class="contact-section dashboard-contact">
             <div class="contact-grid">
@@ -77,34 +65,10 @@
             </div>
             <div class="info-item">
                 <span class="info-label">
-                    <i class="fas fa-clock"></i> <span data-i18n="dashboard.serverTime">服务器时间</span>
+                    <i class="fas fa-clock"></i> <span data-i18n="dashboard.uptime">运行时间</span>
                 </span>
                 <div class="version-display-wrapper">
-                <span class="info-value" id="serverTime">--</span>
-                </div>
-            </div>
-            <div class="info-item">
-                <span class="info-label">
-                    <i class="fas fa-desktop"></i> <span data-i18n="dashboard.platform">操作系统</span>
-                </span>
-                <div class="version-display-wrapper">
-                <span class="info-value" id="platformInfo">--</span>
-                </div>
-            </div>
-            <div class="info-item">
-                <span class="info-label">
-                    <i class="fas fa-memory"></i> <span data-i18n="dashboard.memoryUsage">内存使用</span>
-                </span>
-                <div class="version-display-wrapper">
-                <span class="info-value" id="memoryUsage">--</span>
-                </div>
-            </div>
-            <div class="info-item">
-                <span class="info-label">
-                    <i class="fas fa-microchip"></i> <span data-i18n="dashboard.cpuUsage">CPU 使用</span>
-                </span>
-                <div class="version-display-wrapper">
-                <span class="info-value" id="cpuUsage">--</span>
+                <span class="info-value" id="uptime">--</span>
                 </div>
             </div>
             <div class="info-item">
@@ -115,15 +79,56 @@
                 <span class="info-value" id="serviceMode">--</span>
                 </div>
             </div>
-            <div class="info-item">
-                <span class="info-label">
-                    <i class="fas fa-microchip"></i> <span data-i18n="dashboard.processPid">进程 PID</span>
-                </span>
-                <div class="version-display-wrapper">
-                <span class="info-value" id="processPid">--</span>
+        </div>
+
+        <details class="system-info-details">
+            <summary>
+                <i class="fas fa-chevron-down"></i>
+                <span data-i18n="dashboard.moreSystemInfo">更多系统信息</span>
+            </summary>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">
+                        <i class="fas fa-clock"></i> <span data-i18n="dashboard.serverTime">服务器时间</span>
+                    </span>
+                    <div class="version-display-wrapper">
+                    <span class="info-value" id="serverTime">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">
+                        <i class="fas fa-desktop"></i> <span data-i18n="dashboard.platform">操作系统</span>
+                    </span>
+                    <div class="version-display-wrapper">
+                    <span class="info-value" id="platformInfo">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">
+                        <i class="fas fa-memory"></i> <span data-i18n="dashboard.memoryUsage">内存使用</span>
+                    </span>
+                    <div class="version-display-wrapper">
+                    <span class="info-value" id="memoryUsage">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">
+                        <i class="fas fa-microchip"></i> <span data-i18n="dashboard.cpuUsage">CPU 使用</span>
+                    </span>
+                    <div class="version-display-wrapper">
+                    <span class="info-value" id="cpuUsage">--</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">
+                        <i class="fas fa-microchip"></i> <span data-i18n="dashboard.processPid">进程 PID</span>
+                    </span>
+                    <div class="version-display-wrapper">
+                    <span class="info-value" id="processPid">--</span>
+                    </div>
                 </div>
             </div>
-        </div>
+        </details>
     </div>
 
     <!-- Provider Nodes Status Panel -->
@@ -154,7 +159,7 @@
             <i class="fas fa-chevron-down caret-icon"></i>
         </summary>
 
-        <div class="routing-examples-panel" style="margin-top: 1rem; border-top: none;">
+        <div class="dashboard-models-panel" style="margin-top: 1rem; border-top: none;">
             <!-- 可用模型列表 -->
             <div class="models-section" style="margin-top: 0;">
                 <div class="models-description" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;">

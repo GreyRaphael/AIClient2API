@@ -12,10 +12,6 @@
     line-height: 1.6;
 }
 
-.access-stats {
-    margin-bottom: 1.5rem;
-}
-
 .access-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -212,34 +208,11 @@
     font-weight: 600;
 }
 
-.access-hint-list {
-    display: grid;
-    gap: 0.875rem;
-}
-
 .access-quick-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 0.75rem;
     margin-top: 1rem;
-}
-
-.access-hint-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    padding: 1rem;
-}
-
-.access-hint-card strong {
-    display: block;
-    margin-bottom: 0.35rem;
-}
-
-.access-hint-card p {
-    color: var(--text-secondary);
-    line-height: 1.55;
-    margin: 0;
 }
 
 .access-provider-list {
@@ -509,19 +482,6 @@
 
 .access-details[open] .expand-hint {
     display: none;
-}
-
-.routing-examples-panel {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: none;
-    background: transparent;
-    box-shadow: none;
-    padding: 0 1.5rem 1.5rem;
-}
-
-.routing-examples-panel h3 {
-    padding-top: 1rem;
 }
 
 .access-endpoint-actions {

@@ -377,11 +377,6 @@ function updateSingleProviderGroup(providerType, providerData, expandedCards = n
  * 更新时间相关信息
  */
 function updateTimeInfo(data) {
-    if (data.serverTime) {
-        const el = document.getElementById('serverTimeValue');
-        if (el) el.textContent = new Date(data.serverTime).toLocaleString(getCurrentLanguage());
-    }
-    
     const lastUpdateEl = document.getElementById('usageLastUpdate');
     if (lastUpdateEl) {
         const timeStr = new Date(data.timestamp || Date.now()).toLocaleString(getCurrentLanguage());

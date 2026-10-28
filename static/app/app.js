@@ -60,10 +60,6 @@ import {
 } from './modal.js';
 
 import {
-    initRoutingExamples
-} from './routing-examples.js';
-
-import {
     initAccessManager,
     loadAccessInfo
 } from './access-manager.js';
@@ -93,10 +89,6 @@ import {
     loadPlugins,
     togglePlugin
 } from './plugin-manager.js';
-
-import {
-    initTutorialManager
-} from './tutorial-manager.js';
 
 import {
     CustomModelsManager
@@ -192,7 +184,6 @@ async function initApp() {
     initUsageManager(); // 初始化用量管理功能
     initImageZoom(); // 初始化图片放大功能
     initPluginManager(); // 初始化插件管理功能
-    initTutorialManager(); // 初始化教程管理功能
     initPlaygroundManager(); // 初始化 Playground
     initMobileMenu(); // 初始化移动端菜单
     
