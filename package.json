@@ -25,7 +25,7 @@
     "@babel/preset-typescript": "^7.29.7",
     "@fortawesome/fontawesome-free": "6.7.2",
     "@jest/globals": "^29.7.0",
-    "@playwright/test": "1.49.1",
+    "@playwright/test": "1.64.1",
     "@preact/signals": "2.11.4",
     "@preact/signals-core": "1.14.5",
     "@types/busboy": "^1.5.5",

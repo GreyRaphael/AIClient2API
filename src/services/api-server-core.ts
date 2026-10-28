@@ -317,7 +317,10 @@ async function startServer() {
         logger.info(`  • UI Management Console: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/`);
 
         // Auto-open browser to UI (only if host is 0.0.0.0 or 127.0.0.1 and UI_ENABLED is true)
-        if (CONFIG.UI_ENABLED) {
+        // 设置 AICLIENT_NO_AUTO_OPEN=1 可跳过自动打开浏览器（自动化测试/无头环境使用）
+        if (CONFIG.UI_ENABLED && process.env.AICLIENT_NO_AUTO_OPEN === '1') {
+            logger.info(`[UI] Auto-open browser disabled. Login page: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
+        } else if (CONFIG.UI_ENABLED) {
             try {
                 const open = (await import('open')).default;
                 // 作为子进程启动时，需要更长的延迟确保服务完全就绪
