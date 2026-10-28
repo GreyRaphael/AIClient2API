@@ -707,6 +707,68 @@ async function streamResponse(interfaceType, provider, model, bubble, params) {
     let accumulatedReasoning = '';
     let errorMsg = '';
 
+    // 打字机预览：上游可能把多个 token 合并成少量大 delta（甚至一次返回全文），
+    // 这里按字符渐进展示，保证 stream=true 始终有可见的打字效果。
+    let revealedContent = 0;
+    let revealedReasoning = 0;
+    let previewTimer = null;
+
+    const renderPreview = () => {
+        if (!revealedContent && !revealedReasoning) return;
+
+        const msgWrapper = bubble.closest('.pg-message');
+        if (msgWrapper) msgWrapper.style.display = 'flex';
+
+        let html = '';
+        if (revealedReasoning) {
+            html += `<div class="pg-reasoning">
+                <div class="pg-reasoning-title"><i class="fas fa-brain"></i>${t('playground.thinking')}</div>
+                <div class="pg-reasoning-content"></div>
+            </div>`;
+        }
+
+        bubble.innerHTML = html;
+        if (revealedReasoning) {
+            const resContent = bubble.querySelector('.pg-reasoning-content');
+            resContent.textContent = accumulatedReasoning.slice(0, revealedReasoning);
+            if (!revealedContent) resContent.appendChild(cursor);
+        }
+
+        if (revealedContent || !revealedReasoning) {
+            const contentSpan = document.createElement('span');
+            contentSpan.textContent = accumulated.slice(0, revealedContent);
+            bubble.appendChild(contentSpan);
+            bubble.appendChild(cursor);
+        }
+        scrollToBottom();
+    };
+
+    const revealMore = () => {
+        const contentPending = accumulated.length - revealedContent;
+        const reasoningPending = accumulatedReasoning.length - revealedReasoning;
+        if (contentPending <= 0 && reasoningPending <= 0) {
+            if (previewTimer) {
+                clearInterval(previewTimer);
+                previewTimer = null;
+            }
+            return;
+        }
+
+        // 积压越多步进越大，避免长回答在流结束后仍长时间追帧。
+        const stepFor = (pending) => Math.max(1, Math.ceil(pending / 16));
+        if (contentPending > 0) {
+            revealedContent = Math.min(accumulated.length, revealedContent + stepFor(contentPending));
+        }
+        if (reasoningPending > 0) {
+            revealedReasoning = Math.min(accumulatedReasoning.length, revealedReasoning + stepFor(reasoningPending));
+        }
+        renderPreview();
+    };
+
+    const startPreview = () => {
+        if (!previewTimer) previewTimer = setInterval(revealMore, 20);
+    };
+
     try {
         const response = await fetch(protocol.endpoint, {
             method: 'POST',
@@ -751,38 +813,9 @@ async function streamResponse(interfaceType, provider, model, bubble, params) {
                     const reasoning = delta.reasoning;
 
                     if (content || reasoning) {
-                        if (!accumulated && !accumulatedReasoning) {
-                            const msgWrapper = bubble.closest('.pg-message');
-                            if (msgWrapper) msgWrapper.style.display = 'flex';
-                        }
-                        
                         if (reasoning) accumulatedReasoning += reasoning;
                         if (content) accumulated += content;
-                        
-                        let html = '';
-                        if (accumulatedReasoning) {
-                            html += `<div class="pg-reasoning">
-                                <div class="pg-reasoning-title"><i class="fas fa-brain"></i>${t('playground.thinking')}</div>
-                                <div class="pg-reasoning-content"></div>
-                            </div>`;
-                        }
-                        
-                        bubble.innerHTML = html;
-                        if (accumulatedReasoning) {
-                            const resContent = bubble.querySelector('.pg-reasoning-content');
-                            resContent.textContent = accumulatedReasoning;
-                            if (!accumulated) {
-                                resContent.appendChild(cursor);
-                            }
-                        }
-                        
-                        if (accumulated || !accumulatedReasoning) {
-                            const contentSpan = document.createElement('span');
-                            contentSpan.textContent = accumulated;
-                            bubble.appendChild(contentSpan);
-                            bubble.appendChild(cursor);
-                        }
-                        scrollToBottom();
+                        startPreview();
                     }
 
                     if (protocol.isTerminal(json)) {
@@ -810,6 +843,19 @@ async function streamResponse(interfaceType, provider, model, bubble, params) {
             errorMsg = e.message || t('playground.reqFailed');
         }
     } finally {
+        if (previewTimer) {
+            clearInterval(previewTimer);
+            previewTimer = null;
+        }
+        // 流结束后让打字机把剩余字符吐完（最多 800ms），避免大 delta 一次性闪现。
+        if (!errorMsg) {
+            const drainDeadline = Date.now() + 800;
+            while ((revealedContent < accumulated.length || revealedReasoning < accumulatedReasoning.length)
+                && Date.now() < drainDeadline) {
+                revealMore();
+                await new Promise(resolve => setTimeout(resolve, 16));
+            }
+        }
         cursor.remove();
         const msgWrapper = bubble.closest('.pg-message');
         if (msgWrapper) msgWrapper.style.display = 'flex';
