@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { getRequestBody } from '../utils/common.ts';
 import {
+    getCustomModelListProvider,
     normalizeModelIds
 } from '../providers/provider-models.ts';
+import { applyCustomModelMetadata } from '../providers/custom-model-metadata.ts';
 import { generateUUID, createProviderConfig, formatSystemPath, detectProviderFromPath } from '../utils/provider-utils.ts';
 import { broadcastEvent } from './event-broadcast.ts';
 import { getRegisteredProviders, invalidateServiceAdapter } from '../providers/adapter.ts';
@@ -493,6 +495,69 @@ export async function handleGetProviderModels(req: IncomingMessage, res: ServerR
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(allModels));
+    return true;
+}
+
+/**
+ * 获取所有 Provider 的模型 metadata，供仪表盘“可用模型列表”展示参数。
+ * 返回结构：{ [providerType]: { [modelId]: { display_name, context_length, max_output_tokens, support_images, support_efforts } } }
+ */
+export async function handleGetProviderModelMetadata(req: IncomingMessage, res: ServerResponse, currentConfig: GlobalConfigLike, providerPoolManager: ProviderPoolManager | null) {
+    const registeredProviders = getRegisteredProviders();
+    let providerPools: ProviderPools = {};
+
+    try {
+        providerPools = loadProviderPools(currentConfig, providerPoolManager);
+    } catch (error: unknown) {
+        logger.warn('[UI API] Failed to load provider pools for model metadata:', getErrorMessage(error));
+    }
+
+    const poolTypes = Object.keys(providerPools);
+    const allTypes = [...new Set([...registeredProviders, ...poolTypes])];
+    const result: Record<string, Record<string, Record<string, unknown>>> = {};
+    const customModels: Array<Record<string, unknown>> = Array.isArray(currentConfig.customModels)
+        ? currentConfig.customModels as Array<Record<string, unknown>>
+        : [];
+
+    const resolved = await Promise.all(allTypes.map(async (type: string) => {
+        const nodes = providerPoolManager?.providerStatus?.[type]?.length
+            ? providerPoolManager.providerStatus[type]
+            : (providerPools[type] || []);
+        const capability = await ensureProviderCapability(type, nodes, {
+            reason: 'read-through'
+        });
+        const models = Array.isArray(capability.models) ? capability.models : [];
+        const metadataMap: Record<string, Record<string, unknown>> = {};
+
+        for (const modelId of models) {
+            const upstreamMetadata = capability.modelMetadata?.[modelId];
+            const target: Record<string, unknown> = { ...(upstreamMetadata || {}) };
+            const customConfig = customModels.find((model) => {
+                if (!model || model.enabled === false) return false;
+                const listProvider = getCustomModelListProvider(model);
+                const providerMatches = Boolean(listProvider)
+                    && (listProvider === type || type.startsWith(`${listProvider}-`));
+                return providerMatches && (model.id === modelId || model.alias === modelId);
+            });
+            if (customConfig) {
+                applyCustomModelMetadata(target, customConfig);
+            }
+            if (Object.keys(target).length > 0) {
+                metadataMap[modelId] = target;
+            }
+        }
+
+        return [type, metadataMap] as const;
+    }));
+
+    for (const [type, metadataMap] of resolved) {
+        if (Object.keys(metadataMap).length > 0) {
+            result[type] = metadataMap;
+        }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
     return true;
 }
 

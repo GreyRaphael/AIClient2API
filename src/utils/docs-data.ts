@@ -88,6 +88,7 @@ export const API_GUIDE_DATA = [
         { method: 'POST',   path: '/api/providers/{type}/{uuid}/disable', desc: '禁用特定的账号节点' },
         { method: 'POST',   path: '/api/providers/{type}/{uuid}/refresh-uuid', desc: '刷新特定账号的 UUID' },
         { method: 'GET',    path: '/api/provider-models',         desc: '获取所有已配置账号支持的模型汇总' },
+        { method: 'GET',    path: '/api/provider-models/metadata', desc: '获取所有 Provider 的模型 metadata（仪表盘参数标签）' },
         { method: 'GET',    path: '/api/usage',                   desc: '获取全量提供商配额使用统计' },
         { method: 'GET',    path: '/api/usage/supported-providers', desc: '获取支持配额查询的提供商列表' },
         { method: 'GET',    path: '/api/usage/{type}',            desc: '获取指定提供商类型的配额详情' },

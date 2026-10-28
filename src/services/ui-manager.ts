@@ -168,6 +168,11 @@ export async function handleUIApiRequests(
         return await providerApi.handleGetProviderType(req, res, currentConfig, providerPoolManager, providerType);
     }
 
+    // Get model metadata for all providers (dashboard parameter pills)
+    if (method === 'GET' && pathParam === '/api/provider-models/metadata') {
+        return await providerApi.handleGetProviderModelMetadata(req, res, currentConfig, providerPoolManager);
+    }
+
     // Get available models for all providers or specific provider type
     if (method === 'GET' && pathParam === '/api/provider-models') {
         return await providerApi.handleGetProviderModels(req, res, currentConfig, providerPoolManager);

@@ -10,7 +10,7 @@ import {
     resolveNodeCapability,
     setCapabilityStore
 } from '../src/providers/model-capability.ts';
-import { handleGetProviderModels, handleGetProviders } from '../src/ui-modules/provider-api.ts';
+import { handleGetProviderModels, handleGetProviders, handleGetProviderModelMetadata } from '../src/ui-modules/provider-api.ts';
 import { CONFIG } from '../src/core/config-manager.ts';
 
 function createResponse() {
@@ -217,5 +217,51 @@ describe('Model capability endpoint consistency', () => {
         const capability = resolveNodeCapability('trae', { uuid });
         expect(capability.candidateModels).not.toContain('custom-trae-model');
         expect(capability.selectedModels).not.toContain('custom-trae-model');
+    });
+
+    test('模型 metadata 端点返回上游与自定义模型参数', async () => {
+        store.setEntry(capabilityKey('trae', { uuid }), {
+            ...liveEntry([model, 'glm-5.3']),
+            modelMetadata: {
+                [model]: {
+                    display_name: 'DeepSeek-V4.1-Flash-1017',
+                    context_length: 1000000,
+                    max_output_tokens: 64000,
+                    support_images: true,
+                    support_efforts: ['low', 'high', 'xhigh']
+                }
+            }
+        });
+        CONFIG.customModels = [{
+            id: 'custom-trae-model',
+            provider: 'trae',
+            actualModel: 'actual-trae-model',
+            enabled: true,
+            context_length: 200000,
+            max_output_tokens: 32000,
+            support_images: false,
+            support_efforts: ['low', 'high', 'max']
+        }];
+
+        const res = createResponse();
+        await handleGetProviderModelMetadata({}, res, {
+            providerPools: manager.providerPools,
+            customModels: CONFIG.customModels
+        }, manager);
+        const payload = parseResponse(res);
+
+        expect(payload.trae[model]).toMatchObject({
+            display_name: 'DeepSeek-V4.1-Flash-1017',
+            context_length: 1000000,
+            max_output_tokens: 64000,
+            support_images: true,
+            support_efforts: ['low', 'high', 'xhigh']
+        });
+        expect(payload.trae['custom-trae-model']).toMatchObject({
+            context_length: 200000,
+            max_output_tokens: 32000,
+            support_images: false,
+            support_efforts: ['high', 'max']
+        });
     });
 });
