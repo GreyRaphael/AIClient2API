@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.1.0] - 2026-10-28
+
+### Added
+
+- 新增 `GET /api/provider-models/metadata`，返回所有 Provider 的模型 metadata（上游 capability 与自定义模型配置合并），供 WebUI 展示。
+- 仪表盘“可用模型列表”改为两列卡片，每个模型单行展示 `id`、`context_length`、`max_output_tokens`、`support_images`、`support_efforts`；点击卡片复制模型 ID 与 metadata JSON。
+- Playground 接口类型新增 OpenAI Responses（`/v1/responses`）与 Anthropic Messages（`/v1/messages`），支持流式/非流式与图片附件输入。
+- Playground 流式输出新增客户端打字机预览，上游合并 delta 时仍保持逐字显示。
+- 新增 Playground 三协议 e2e（Responses/Messages 文本流式与非流式、图片输入）与 UI 路由单测。
+
+### Changed
+
+- 自定义模型 metadata 注入逻辑抽取为 `src/providers/custom-model-metadata.ts`，`/v1/models` 与 metadata 端点共用。
+- Playground 协议适配层统一处理 Chat / Responses / Messages 的请求构造、流式事件解析与非流式结果提取。
+
+### Fixed
+
+- 修复 `section-access.css` 中重复的模型列表样式覆盖仪表盘两列布局、导致卡片按 4 列排布的问题。
+- 修复 Playground 在上游把多个 token 合并为少量大 delta 时看不到打字机效果的问题。
+
+### Verification
+
+- `npm test`：**52 suites / 651 tests 全绿**。
+- `npm run verify`：typecheck、typecheck:plugins、strict、any、imports、cycles、coverage、runtime smoke 全部通过。
+- Playground e2e：**10/10 通过**（2 个模型 × Responses/Messages × 流式/非流式 + Responses/Messages 图片输入）。
+
 ## [v5.0.8] - 2026-10-27
 
 ### Added
