@@ -986,11 +986,12 @@ const translations = {
 
         // Models
         'models.title': '可用模型列表',
-        'models.note': '点击模型名称可直接复制到剪贴板',
+        'models.note': '两列展示模型各项参数；点击卡片可复制模型 ID 与 metadata',
         'models.empty': '暂无可用模型',
         'models.loadError': '加载模型列表失败',
         'models.copied': '已复制',
-        'models.clickToCopy': '点击复制',
+        'models.clickToCopy': '点击复制模型信息',
+        'models.params.none': 'null',
 
         // Guide
         'guide.title': '使用指南',
@@ -2199,11 +2200,12 @@ const translations = {
 
         // Models
         'models.title': 'Available Models',
-        'models.note': 'Click model name to copy to clipboard',
+        'models.note': 'Two model columns, one parameter row per model; click a card to copy the model ID and metadata',
         'models.empty': 'No models available',
         'models.loadError': 'Failed to load models',
         'models.copied': 'Copied',
-        'models.clickToCopy': 'Click to copy',
+        'models.clickToCopy': 'Click to copy model info',
+        'models.params.none': 'null',
 
         // Guide
         'guide.title': 'User Guide',

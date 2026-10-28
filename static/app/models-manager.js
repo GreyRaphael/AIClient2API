@@ -14,6 +14,9 @@ import {
 // 模型数据缓存
 let modelsCache = null;
 
+// 模型 metadata 缓存（context_length / max_output_tokens / support_images / support_efforts）
+let modelMetadataCache = null;
+
 // 提供商配置缓存
 let currentProviderConfigs = null;
 
@@ -37,9 +40,17 @@ async function fetchProviderModels() {
     if (modelsCache) {
         return modelsCache;
     }
-    
+
     try {
-        modelsCache = await apiClient.get('/provider-models');
+        const [models, metadata] = await Promise.all([
+            apiClient.get('/provider-models'),
+            apiClient.get('/provider-models/metadata').catch((error) => {
+                console.warn('[Models Manager] Failed to fetch model metadata:', error);
+                return {};
+            })
+        ]);
+        modelsCache = models;
+        modelMetadataCache = metadata || {};
         return modelsCache;
     } catch (error) {
         console.error('[Models Manager] Failed to fetch provider models:', error);
@@ -105,6 +116,61 @@ function showCopyToast(modelName) {
 }
 
 /**
+ * 将 token 数格式化为紧凑形式（1M / 384K）。
+ */
+function formatNumber(num) {
+    if (num === undefined || num === null || num === '') return '';
+    const value = Number(num);
+    if (!Number.isFinite(value)) return String(num);
+
+    const absValue = Math.abs(value);
+    const formatScaled = (scaled) => String(Math.round(scaled * 10) / 10);
+
+    if (absValue >= 1000000 && value % 1000000 === 0) return `${formatScaled(value / 1000000)}M`;
+    if (absValue >= 1024 * 1024 && value % (1024 * 1024) === 0) {
+        return `${formatScaled(value / (1024 * 1024))}M`;
+    }
+    if (absValue >= 1000 && value % 1000 === 0) return `${formatScaled(value / 1000)}K`;
+    if (absValue >= 1024 && value % 1024 === 0) return `${formatScaled(value / 1024)}K`;
+    if (absValue >= 1000000) return `${formatScaled(value / 1000000)}M`;
+    if (absValue >= 1000) return `${formatScaled(value / 1000)}K`;
+    return String(value);
+}
+
+/**
+ * 渲染模型参数区：所有参数排成一行。
+ * 依次展示 id / context_length / max_output_tokens / support_images / support_efforts。
+ */
+function renderModelParams(model, metadata = {}) {
+    const meta = metadata && typeof metadata === 'object' ? metadata : {};
+    const parts = [
+        `<span class="model-param-id" title="${escapeAttribute(model)}">${escapeHtml(model)}</span>`
+    ];
+
+    const contextLength = Number(meta.context_length);
+    if (Number.isFinite(contextLength) && contextLength > 0) {
+        parts.push(`<span class="model-param-number ctx" title="context_length: ${escapeAttribute(String(contextLength))}"><i class="fas fa-align-left"></i> ${formatNumber(contextLength)}</span>`);
+    }
+
+    const maxOutputTokens = Number(meta.max_output_tokens);
+    if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) {
+        parts.push(`<span class="model-param-number tokens" title="max_output_tokens: ${escapeAttribute(String(maxOutputTokens))}"><i class="fas fa-outdent"></i> ${formatNumber(maxOutputTokens)}</span>`);
+    }
+
+    if (typeof meta.support_images === 'boolean') {
+        parts.push(`<span class="model-param-flag ${meta.support_images ? 'vision' : 'no-vision'}" title="support_images"><i class="fas fa-image"></i> ${meta.support_images}</span>`);
+    }
+
+    if (Array.isArray(meta.support_efforts) && meta.support_efforts.length > 0) {
+        parts.push(`<span class="model-param-flag effort" title="support_efforts"><i class="fas fa-brain"></i> ${escapeHtml(meta.support_efforts.join('/'))}</span>`);
+    } else if (meta.support_efforts === null) {
+        parts.push(`<span class="model-param-flag muted" title="support_efforts"><i class="fas fa-brain"></i> ${escapeHtml(t('models.params.none') || 'null')}</span>`);
+    }
+
+    return parts.join('');
+}
+
+/**
  * 渲染模型列表
  * @param {Object} models - 模型数据
  */
@@ -139,7 +205,8 @@ function renderModelsList(models) {
         
         const providerDisplayName = getProviderDisplayName(providerType);
         const providerIcon = getProviderIcon(providerType);
-        
+        const providerMetadata = modelMetadataCache?.[providerType] || {};
+
         html += `
             <div class="provider-models-group" data-provider="${providerType}">
                 <div class="provider-models-header" onclick="window.toggleProviderModels('${providerType}')">
@@ -153,17 +220,21 @@ function renderModelsList(models) {
                     </div>
                 </div>
                 <div class="provider-models-content" id="models-${providerType}">
-                    ${modelList.map(model => `
-                        <div class="model-item" onclick="window.copyModelName('${escapeHtml(model)}', this)" title="${t('models.clickToCopy') || '点击复制'}">
-                            <div class="model-item-icon">
-                                <i class="fas fa-cube"></i>
+                    ${modelList.map(model => {
+                        const metadata = providerMetadata[model] || {};
+                        const encodedProvider = encodeURIComponent(providerType).replace(/'/g, '%27');
+                        const encodedModel = encodeURIComponent(model).replace(/'/g, '%27');
+                        return `
+                        <div class="model-item" onclick="window.copyModelInfo(decodeURIComponent('${encodedProvider}'), decodeURIComponent('${encodedModel}'), this)" title="${escapeAttribute(t('models.clickToCopy') || '点击复制模型信息')}">
+                            <div class="model-item-params">
+                                ${renderModelParams(model, metadata)}
                             </div>
-                            <span class="model-item-name">${escapeHtml(model)}</span>
                             <div class="model-item-copy">
                                 <i class="fas fa-copy"></i>
                             </div>
                         </div>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </div>
             </div>
         `;
@@ -233,6 +304,15 @@ function escapeHtml(text) {
 }
 
 /**
+ * HTML 属性转义（同时处理引号）。
+ */
+function escapeAttribute(text) {
+    return escapeHtml(String(text ?? ''))
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
  * 切换提供商模型列表的展开/折叠状态
  * @param {string} providerType - 提供商类型
  */
@@ -253,20 +333,58 @@ function toggleProviderModels(providerType) {
 }
 
 /**
- * 复制模型名称
+ * 构造模型信息文本：模型 ID + 对应 metadata，格式为 JSON。
+ * @param {string} providerType - 提供商类型
+ * @param {string} modelName - 模型名称
+ * @returns {string} 可直接粘贴的 JSON 文本
+ */
+function buildModelMetadataText(providerType, modelName) {
+    const meta = modelMetadataCache?.[providerType]?.[modelName] || {};
+    const payload = { provider: providerType, id: modelName };
+
+    if (typeof meta.display_name === 'string' && meta.display_name.trim()) {
+        payload.display_name = meta.display_name.trim();
+    }
+
+    const contextLength = Number(meta.context_length);
+    if (Number.isFinite(contextLength) && contextLength > 0) {
+        payload.context_length = contextLength;
+    }
+
+    const maxOutputTokens = Number(meta.max_output_tokens);
+    if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) {
+        payload.max_output_tokens = maxOutputTokens;
+    }
+
+    if (typeof meta.support_images === 'boolean') {
+        payload.support_images = meta.support_images;
+    }
+
+    if (Array.isArray(meta.support_efforts)) {
+        payload.support_efforts = meta.support_efforts.slice();
+    } else if (meta.support_efforts === null) {
+        payload.support_efforts = null;
+    }
+
+    return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * 复制模型 ID 及其 metadata
+ * @param {string} providerType - 提供商类型
  * @param {string} modelName - 模型名称
  * @param {HTMLElement} element - 点击的元素
  */
-async function copyModelName(modelName, element) {
-    const success = await copyToClipboard(modelName);
-    
+async function copyModelInfo(providerType, modelName, element) {
+    const success = await copyToClipboard(buildModelMetadataText(providerType, modelName));
+
     if (success) {
         // 添加复制成功的视觉反馈
         element.classList.add('copied');
         setTimeout(() => {
             element.classList.remove('copied');
         }, 1000);
-        
+
         // 显示 Toast 提示
         showCopyToast(modelName);
     }
@@ -297,6 +415,7 @@ async function initModelsManager() {
  */
 async function refreshModels() {
     modelsCache = null;
+    modelMetadataCache = null;
     await initModelsManager();
 }
 
@@ -307,6 +426,7 @@ async function refreshModelCapabilities() {
     try {
         await apiClient.post('/provider-models/refresh');
         modelsCache = null;
+        modelMetadataCache = null;
         await initModelsManager();
     } catch (error) {
         console.error('[Models Manager] Failed to refresh model capabilities:', error);
@@ -316,7 +436,7 @@ async function refreshModelCapabilities() {
 
 // 导出到全局作用域供 HTML 调用
 window.toggleProviderModels = toggleProviderModels;
-window.copyModelName = copyModelName;
+window.copyModelInfo = copyModelInfo;
 window.refreshModels = refreshModels;
 window.refreshModelCapabilities = refreshModelCapabilities;
 
