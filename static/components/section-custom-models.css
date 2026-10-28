@@ -237,24 +237,6 @@
     text-overflow: ellipsis;
 }
 
-.provider-badge {
-    background: var(--info-bg);
-    color: var(--info-text);
-    border: 1px solid var(--info-border);
-}
-
-.route-provider-badge {
-    background: var(--success-bg);
-    color: var(--success-text);
-    border: 1px solid var(--success-color);
-}
-
-.actual-model-chip {
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-}
-
 /* 实际 ID */
 .actual-id-code {
     display: block;
@@ -406,76 +388,13 @@
     border-top: 1px solid var(--border-color);
 }
 
-
-.modal-overlay.show {
-    display: flex;
-    opacity: 1;
-}
-
-.modal-content {
-    background: var(--bg-primary);
-    border-radius: var(--radius-xl);
-    width: 100%;
-    max-width: 640px;
-    box-shadow: var(--shadow-xl);
-    border: 1px solid var(--border-color);
-    overflow: hidden;
-    transform: scale(0.95);
-    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.modal-overlay.show .modal-content {
-    transform: scale(1);
-}
-
-.modal-header {
-    background: var(--bg-secondary);
-    padding: 1.25rem 1.5rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid var(--border-color);
-}
-
-#custom-models .modal-header h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.modal-close {
-    background: transparent;
-    border: none;
-    font-size: 1.5rem;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    line-height: 1;
-    padding: 0.5rem;
+#customModelModal .modal-close {
     border-radius: var(--radius-md);
-    transition: var(--transition);
 }
 
-.modal-close:hover {
+#customModelModal .modal-close:hover {
     background: var(--bg-tertiary);
     color: var(--danger-color);
-}
-
-#custom-models .modal-body {
-    padding: 1.5rem;
-    max-height: 70vh;
-    overflow-y: auto;
-}
-
-#custom-models .modal-footer {
-    padding: 1rem 1.5rem;
-    background: var(--bg-secondary);
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    border-top: 1px solid var(--border-color);
 }
 
 /* 表单行优化 */

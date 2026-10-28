@@ -38,39 +38,6 @@
     color: var(--log-warn);
 }
 
-/* 系统信息卡片样式 */
-.system-info {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1.5rem;
-}
-
-.info-card {
-    background: var(--bg-primary);
-    padding: 1.5rem;
-    border-radius: 0.5rem;
-    box-shadow: var(--shadow-md);
-}
-
-.info-card h3 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin-bottom: 1rem;
-    color: var(--text-primary);
-}
-
-.info-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.info-row:last-child {
-    border-bottom: none;
-}
-
 .info-label {
     color: var(--text-secondary);
     font-size: 0.875rem;

@@ -540,14 +540,6 @@ body {
 .toast.success { border-left: 4px solid var(--success-color); }
 .toast.error { border-left: 4px solid var(--danger-color); }
 
-/* 复选框和单选框通用样式 */
-.checkbox-item, .radio-label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-}
-
 .form-control {
     width: 100%;
     padding: 0.75rem 1rem;

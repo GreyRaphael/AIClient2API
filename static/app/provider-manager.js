@@ -787,7 +787,7 @@ function generateDocButton(providerConfig) {
  */
 function showSimplePrompt(title, placeholder, callback) {
     const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
+    overlay.className = 'modal-overlay provider-aux-modal';
     overlay.style.display = 'flex';
     overlay.style.zIndex = '3000';
 
@@ -887,7 +887,7 @@ async function handleGenerateAuthUrl(providerType) {
  */
 function showZedAuthSelector(providerType) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     modal.style.zIndex = '3100';
 
@@ -960,7 +960,7 @@ function showZedAuthSelector(providerType) {
  */
 function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     modal.style.zIndex = '3100';
 
@@ -1116,7 +1116,7 @@ function showTraeAuthSelector(providerType = 'trae', extraOptions = {}) {
  */
 function showCodexAuthMethodSelector(providerType) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -1208,7 +1208,7 @@ function showCodexAuthMethodSelector(providerType) {
  */
 function showCodexBatchImportModal(providerType) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -1506,7 +1506,7 @@ function showCodexBatchImportModal(providerType) {
 function showCodexExternalImportModal(providerType, source) {
     const meta = getCodexExternalImportMeta(source, t);
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
 
     modal.innerHTML = `
@@ -1761,7 +1761,7 @@ function showCodexExternalImportModal(providerType, source) {
  */
 function showKiroAuthMethodSelector(providerType) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -1858,7 +1858,7 @@ function showKiroAuthMethodSelector(providerType) {
  */
 function showGeminiAuthMethodSelector(providerType) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -1932,7 +1932,7 @@ function showGeminiAuthMethodSelector(providerType) {
  */
 function showGeminiBatchImportModal(providerType) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -2227,7 +2227,7 @@ function showGeminiBatchImportModal(providerType) {
  */
 function showKiroBatchImportModal() {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -2506,7 +2506,7 @@ function showKiroBatchImportModal() {
  */
 function showKiroAwsImportModal() {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -3437,7 +3437,7 @@ function getAuthFilePath(provider) {
  */
 function showAuthModal(authUrl, authInfo) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     
     // 获取授权文件路径
@@ -3892,7 +3892,7 @@ function showAuthModal(authUrl, authInfo) {
  */
 function showRestartRequiredModal(version) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay restart-required-modal';
+    modal.className = 'modal-overlay provider-aux-modal restart-required-modal';
     modal.style.display = 'flex';
     
     modal.innerHTML = `
@@ -4159,7 +4159,7 @@ async function restartServiceAfterUpdate() {
  */
 function showAddProviderGroupModal(defaultBaseType = null) {
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay provider-aux-modal';
     modal.style.display = 'flex';
     modal.style.zIndex = '2000';
     

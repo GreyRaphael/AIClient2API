@@ -1,5 +1,6 @@
 // 语言切换器组件
 import { setLanguage, getCurrentLanguage, t } from './i18n.js';
+import { showToast } from './utils.js';
 
 // 创建语言切换器 HTML
 export function createLanguageSwitcher() {
@@ -86,17 +87,6 @@ function bindLanguageSwitcherEvents() {
     document.addEventListener('click', () => {
         languageDropdown.classList.remove('show');
     });
-}
-
-// 显示提示消息（使用现有的 toast 系统）
-function showToast(title, message, type = 'info') {
-    // 检查是否有 showToast 函数
-    if (typeof window.showToast === 'function') {
-        window.showToast(title, message, type);
-    } else {
-        // 如果没有，使用简单的 alert
-        console.log(`${title}: ${message}`);
-    }
 }
 
 export default {

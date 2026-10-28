@@ -1,7 +1,7 @@
 // 工具函数
 import { t } from './i18n.js';
 import { apiClient } from './auth.js';
-import { getBaseProviderConfigs } from './provider-registry.js';
+import { getBaseProviderConfigs, getProviderIcon as getRegistryProviderIcon } from './provider-registry.js';
 
 /**
  * 获取所有支持的提供商配置列表
@@ -52,6 +52,20 @@ function getProviderConfigs(supportedProviders = []) {
     });
 
     return result;
+}
+
+/**
+ * 解析提供商图标类名（含 Font Awesome 前缀）。
+ * 优先使用运行时配置中的图标，其次回退到静态 provider 注册表。
+ * @param {string} providerType - 提供商类型
+ * @param {Object[]|null} configs - 可选：运行时提供商配置列表
+ * @param {string} fallback - 注册表缺失时的图标类名
+ * @returns {string}
+ */
+function resolveProviderIcon(providerType, configs = null, fallback = 'fa-server') {
+    const config = configs?.find(c => c.id === providerType);
+    const icon = config?.icon || getRegistryProviderIcon(providerType, fallback);
+    return icon.startsWith('fa-') ? `fas ${icon}` : icon;
 }
 
 /**
@@ -453,6 +467,7 @@ export {
     getProviderTypeFields,
     getProviderConfigs,
     getBaseProviderConfigs,
+    resolveProviderIcon,
     getProviderStats,
     apiRequest,
     copyToClipboard,

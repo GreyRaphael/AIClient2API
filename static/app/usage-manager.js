@@ -1,6 +1,6 @@
 // 用量管理模块
 
-import { showToast, bindOnce, getBaseProviderConfigs } from './utils.js';
+import { showToast, bindOnce, getBaseProviderConfigs, resolveProviderIcon } from './utils.js';
 import { getAuthHeaders } from './auth.js';
 import { t, getCurrentLanguage } from './i18n.js';
 
@@ -662,20 +662,12 @@ function renderUsageDetails(usage) {
 }
 
 function getProviderDisplayName(type) {
-    return getProviderMeta(type).name;
+    const config = currentProviderConfigs?.find(c => c.id === type) || getBaseProviderConfigs().find(c => c.id === type);
+    return config?.usageName || config?.shortName || config?.name || type;
 }
 
 function getProviderIcon(type) {
-    const icon = getProviderMeta(type).icon;
-    return icon.startsWith('fa-') ? `fas ${icon}` : icon;
-}
-
-function getProviderMeta(type) {
-    const config = currentProviderConfigs?.find(c => c.id === type) || getBaseProviderConfigs().find(c => c.id === type);
-    return {
-        name: config?.usageName || config?.shortName || config?.name || type,
-        icon: config?.icon || 'fa-server'
-    };
+    return resolveProviderIcon(type, currentProviderConfigs || getBaseProviderConfigs());
 }
 
 async function downloadConfigFile(path) {

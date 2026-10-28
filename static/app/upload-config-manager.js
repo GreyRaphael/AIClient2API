@@ -1,6 +1,6 @@
 // 配置管理功能模块
 
-import { showToast, bindOnce } from './utils.js';
+import { showToast, bindOnce, escapeHtml } from './utils.js';
 import { detectProviderFromPath } from './provider-registry.js';
 import { t } from './i18n.js';
 
@@ -789,17 +789,6 @@ async function copyConfigContent(path) {
         console.error('复制失败:', error);
         showToast(t('common.error'), t('common.copy.failed') + ': ' + error.message, 'error');
     }
-}
-
-/**
- * HTML转义
- * @param {string} text - 要转义的文本
- * @returns {string} 转义后的文本
- */
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 /**

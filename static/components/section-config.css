@@ -459,31 +459,6 @@ input:checked + .toggle-slider:before {
 }
 
 
-/* 高级配置区域 */
-.advanced-config-section {
-    border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
-    padding: 1.5rem;
-    margin-top: 1.5rem;
-    background: var(--bg-secondary);
-}
-
-.advanced-config-section h3 {
-    color: var(--text-primary);
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-bottom: 1.5rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.advanced-config-section h3 i {
-    color: var(--primary-color);
-}
-
 .pool-section .form-text {
     margin-top: 0.5rem;
     color: var(--text-secondary);

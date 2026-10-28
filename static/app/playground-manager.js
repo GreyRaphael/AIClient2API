@@ -1,7 +1,7 @@
 // Playground 管理模块
 
 import { getAuthHeaders } from './auth.js';
-import { markOnce, getProviderConfigs } from './utils.js';
+import { markOnce, getProviderConfigs, copyToClipboard, escapeHtml } from './utils.js';
 import { t } from './i18n.js';
 
 let providerModels = {};   // { providerType: [model1, model2, ...] }
@@ -966,25 +966,6 @@ function appendMessage(role, text) {
     return bubble;
 }
 
-async function copyToClipboard(text) {
-    if (!text) return false;
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch (e) {
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        return ok;
-    }
-}
-
 function clearChat() {
     messages = [];
     pendingFiles = [];
@@ -1023,10 +1004,6 @@ function createEmptyState() {
 function scrollToBottom() {
     const container = getMessages();
     if (container) container.scrollTop = container.scrollHeight;
-}
-
-function escapeHtml(str) {
-    return str.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 function isSafeImageUrl(url) {

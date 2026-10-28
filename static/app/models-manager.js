@@ -5,11 +5,8 @@
 
 import { t } from './i18n.js';
 import { apiClient } from './auth.js';
-import {
-    findProviderDefinition,
-    getProviderName,
-    getProviderIcon as getRegistryProviderIcon
-} from './provider-registry.js';
+import { findProviderDefinition, getProviderName } from './provider-registry.js';
+import { copyToClipboard, escapeHtml, resolveProviderIcon } from './utils.js';
 
 // 模型数据缓存
 let modelsCache = null;
@@ -55,37 +52,6 @@ async function fetchProviderModels() {
     } catch (error) {
         console.error('[Models Manager] Failed to fetch provider models:', error);
         throw error;
-    }
-}
-
-/**
- * 复制文本到剪贴板
- * @param {string} text - 要复制的文本
- * @returns {Promise<boolean>} 是否复制成功
- */
-async function copyToClipboard(text) {
-    try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(text);
-            return true;
-        }
-        
-        // Fallback for older browsers
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        textArea.style.top = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        return successful;
-    } catch (error) {
-        console.error('[Models Manager] Failed to copy to clipboard:', error);
-        return false;
     }
 }
 
@@ -204,7 +170,7 @@ function renderModelsList(models) {
         }
         
         const providerDisplayName = getProviderDisplayName(providerType);
-        const providerIcon = getProviderIcon(providerType);
+        const providerIcon = resolveProviderIcon(providerType, currentProviderConfigs);
         const providerMetadata = modelMetadataCache?.[providerType] || {};
 
         html += `
@@ -268,39 +234,6 @@ function getProviderDisplayName(providerType) {
     }
 
     return `${baseName} (${providerType.substring(definition.id.length + 1)})`;
-}
-
-/**
- * 获取提供商图标
- * @param {string} providerType - 提供商类型
- * @returns {string} 图标类名
- */
-function getProviderIcon(providerType) {
-    // 优先从外部传入的配置中获取图标
-    if (currentProviderConfigs) {
-        const config = currentProviderConfigs.find(c => c.id === providerType);
-        if (config && config.icon) {
-            // 如果 icon 已经包含 fa- 则直接使用，否则加上 fas
-            return config.icon.startsWith('fa-') ? `fas ${config.icon}` : config.icon;
-        }
-    }
-
-    const icon = getRegistryProviderIcon(providerType, '');
-    if (!icon) {
-        return 'fas fa-server';
-    }
-    return icon.startsWith('fa-') ? `fas ${icon}` : icon;
-}
-
-/**
- * HTML 转义
- * @param {string} text - 原始文本
- * @returns {string} 转义后的文本
- */
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 /**

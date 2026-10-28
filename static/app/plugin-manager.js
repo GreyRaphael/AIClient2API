@@ -1,5 +1,6 @@
 import { t } from './i18n.js';
 import { showToast, apiRequest, bindOnce } from './utils.js';
+import { compareVersions } from './provider-manager-utils.js';
 
 // 插件列表状态
 let pluginsList = [];
@@ -84,22 +85,6 @@ async function fetchSystemVersion() {
     } catch (e) {
         console.warn('Failed to fetch system version:', e);
     }
-}
-
-/**
- * 比较版本号
- * @returns {number} 1: v1 > v2, -1: v1 < v2, 0: v1 == v2
- */
-function compareVersions(v1, v2) {
-    const parts1 = v1.split('.').map(Number);
-    const parts2 = v2.split('.').map(Number);
-    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-        const p1 = parts1[i] || 0;
-        const p2 = parts2[i] || 0;
-        if (p1 > p2) return 1;
-        if (p1 < p2) return -1;
-    }
-    return 0;
 }
 
 /**
