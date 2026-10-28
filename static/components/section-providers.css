@@ -1,4 +1,18 @@
 /* 统计卡片 */
+.pool-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.25rem 0 0.75rem;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.pool-hint i {
+    color: var(--info-text);
+}
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

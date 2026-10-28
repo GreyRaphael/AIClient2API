@@ -345,7 +345,7 @@
 }
 
 .dashboard-overview-row .dashboard-contact {
-    flex: 0 0 230px;
+    flex: 0 0 340px;
     margin-top: 0;
     padding: 0;
     border-top: none;
@@ -530,8 +530,8 @@
     }
 
     .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 80px;
-        height: 80px;
+        width: 144px;
+        height: 144px;
     }
 }
 
@@ -730,7 +730,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.875rem 1.25rem;
+    padding: 0.35rem 0.75rem;
     background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
     border-bottom: 1px solid var(--border-color);
     cursor: pointer;
@@ -744,17 +744,17 @@
 .provider-models-title {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
 .provider-models-title i {
-    font-size: 1.125rem;
+    font-size: 0.95rem;
     color: var(--primary-color);
 }
 
 .provider-models-title h3 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 0.88rem;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -763,18 +763,19 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 1.5rem;
-    height: 1.5rem;
-    padding: 0 0.4rem;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.3rem;
     background: var(--primary-color);
     color: white;
     border-radius: 9999px;
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     font-weight: 600;
 }
 
 .provider-models-toggle {
     color: var(--text-secondary);
+    font-size: 0.85rem;
     transition: var(--transition);
 }
 
@@ -1041,8 +1042,8 @@
     }
 
     .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 80px;
-        height: 80px;
+        width: 144px;
+        height: 144px;
     }
 }
 
@@ -1069,8 +1070,8 @@
         padding: 0.6rem 0.45rem;
     }
     .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 72px;
-        height: 72px;
+        width: 144px;
+        height: 144px;
     }
 }
 
@@ -1080,8 +1081,8 @@
         height: 150px;
     }
     .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 68px;
-        height: 68px;
+        width: 120px;
+        height: 120px;
     }
     .contact-card {
         padding: 1rem;

@@ -154,6 +154,20 @@
     margin-bottom: 2rem;
 }
 
+.plugins-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0 0 0.6rem;
+    color: var(--text-tertiary);
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
+
+.plugins-hint i {
+    color: var(--info-text);
+}
+
 .plugins-list-header {
     display: flex;
     align-items: center;
