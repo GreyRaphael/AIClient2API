@@ -3,28 +3,7 @@
 <!-- Dashboard Section -->
 <section id="dashboard" class="section active" aria-labelledby="dashboard-title">
     <h2 id="dashboard-title" data-i18n="dashboard.title">系统概览</h2>
-    <div class="dashboard-top-row">
-        <!-- Contact and Sponsor Section -->
-        <div class="contact-section dashboard-contact">
-            <div class="contact-grid">
-                <div class="contact-card">
-                    <h3><i id="wechat-icon" class="fab fa-weixin"></i> <span id="wechat-title" data-i18n="dashboard.contact.wechat">扫码进群，注明来意</span></h3>
-                    <div class="qr-container">
-                        <img src="static/wechat.png" id="wechat-img" alt="微信二维码" data-i18n-alt="dashboard.contact.wechatAlt" class="qr-code clickable-qr">
-                    </div>
-                    <p class="qr-description" id="wechat-desc" data-i18n="dashboard.contact.wechatDesc">添加微信获取更多技术支持和交流</p>
-                </div>
-                <div class="contact-card" id="sponsor-card">
-                    <h3><i class="fas fa-heart"></i> <span id="sponsor-title" data-i18n="dashboard.contact.sponsor">扫码赞助</span></h3>
-                    <div class="qr-container">
-                        <img src="static/sponsor.png" id="sponsor-img" alt="赞助二维码" data-i18n-alt="dashboard.contact.sponsorAlt" class="qr-code clickable-qr">
-                    </div>
-                    <p class="qr-description" id="sponsor-desc" data-i18n="dashboard.contact.sponsorDesc">您的赞助是项目持续发展的动力</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
+    <div class="dashboard-overview-row">
     <!-- System Information Panel -->
     <div class="system-info-panel">
         <div class="system-info-header">
@@ -131,6 +110,27 @@
         </details>
     </div>
 
+        <!-- Contact and Sponsor Section -->
+        <div class="contact-section dashboard-contact">
+            <div class="contact-grid">
+                <div class="contact-card">
+                    <h3><i id="wechat-icon" class="fab fa-weixin"></i> <span id="wechat-title" data-i18n="dashboard.contact.wechat">扫码进群，注明来意</span></h3>
+                    <div class="qr-container">
+                        <img src="static/wechat.png" id="wechat-img" alt="微信二维码" data-i18n-alt="dashboard.contact.wechatAlt" class="qr-code clickable-qr">
+                    </div>
+                    <p class="qr-description" id="wechat-desc" data-i18n="dashboard.contact.wechatDesc">添加微信获取更多技术支持和交流</p>
+                </div>
+                <div class="contact-card" id="sponsor-card">
+                    <h3><i class="fas fa-heart"></i> <span id="sponsor-title" data-i18n="dashboard.contact.sponsor">扫码赞助</span></h3>
+                    <div class="qr-container">
+                        <img src="static/sponsor.png" id="sponsor-img" alt="赞助二维码" data-i18n-alt="dashboard.contact.sponsorAlt" class="qr-code clickable-qr">
+                    </div>
+                    <p class="qr-description" id="sponsor-desc" data-i18n="dashboard.contact.sponsorDesc">您的赞助是项目持续发展的动力</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Provider Nodes Status Panel -->
     <div class="provider-status-panel">
         <div class="system-info-header">
@@ -149,7 +149,7 @@
     </div>
 
     <!-- Advanced Information (Collapsible) -->
-    <details class="dashboard-details">
+    <details class="dashboard-details" open>
         <summary class="dashboard-summary">
             <div class="summary-content">
                 <i class="fas fa-cube"></i>
@@ -159,16 +159,13 @@
             <i class="fas fa-chevron-down caret-icon"></i>
         </summary>
 
-        <div class="dashboard-models-panel" style="margin-top: 1rem; border-top: none;">
+        <div class="dashboard-models-panel" style="margin-top: 0.5rem; border-top: none;">
             <!-- 可用模型列表 -->
             <div class="models-section" style="margin-top: 0;">
-                <div class="models-description" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;">
-                    <div class="highlight-note">
-                        <i class="fas fa-info-circle"></i>
-                        <span data-i18n="models.note">两列展示模型，每个模型一行参数；点击卡片可复制模型 ID 与 metadata</span>
-                    </div>
-                    <button class="btn-small btn-edit" onclick="window.refreshModelCapabilities()" title="强制刷新模型能力（绕过 TTL）">
-                        <i class="fas fa-sync-alt"></i> 刷新模型
+                <div class="models-toolbar">
+                    <span class="models-hint" data-i18n="models.note">点击卡片复制模型 ID 与 metadata</span>
+                    <button class="models-refresh-btn" onclick="window.refreshModelCapabilities()" title="强制刷新模型能力（绕过 TTL）">
+                        <i class="fas fa-sync-alt"></i>
                     </button>
                 </div>
                 
@@ -232,11 +229,11 @@
             <!-- Become a Sponsor -->
             <div class="sponsor-card become-sponsor">
                 <div class="sponsor-logo">
-                    <img src="static/wechat.png" alt="Sponsor Contact">
+                    <i class="fas fa-handshake"></i>
                 </div>
                 <div class="sponsor-content">
                     <h3><strong data-i18n="sponsors.becomeTitle">成为赞助商</strong></h3>
-                    <p data-i18n="sponsors.becomeDesc">如果您有意赞助本项目，请扫描左侧微信二维码（添加时请注明来意：<strong>赞助</strong>）。</p>
+                    <p data-i18n="sponsors.becomeDesc">如果您有意赞助本项目，请通过上方系统信息右侧的微信二维码联系（添加时请注明来意：赞助）。</p>
                 </div>
             </div>
         </div>

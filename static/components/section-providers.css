@@ -20,6 +20,47 @@
     overflow: hidden;
 }
 
+.providers-stats-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.providers-stats-grid .stat-card {
+    padding: 0.6rem 0.7rem;
+    gap: 0.55rem;
+    border-radius: var(--radius-lg);
+}
+
+.providers-stats-grid .stat-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-md);
+    font-size: 0.95rem;
+}
+
+.providers-stats-grid .stat-info h3 {
+    font-size: 1.2rem;
+    margin-bottom: 0.1rem;
+}
+
+.providers-stats-grid .stat-info p {
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+@media (max-width: 1200px) {
+    .providers-stats-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .providers-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 .stat-card:hover {
     transform: translateY(-4px);
     box-shadow: var(--shadow-lg);

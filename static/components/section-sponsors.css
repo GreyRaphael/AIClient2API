@@ -95,8 +95,9 @@
     background: var(--primary-10);
 }
 
-.become-sponsor .sponsor-logo img {
-    max-height: 88px;
+.become-sponsor .sponsor-logo i {
+    font-size: 2rem;
+    color: var(--primary-color);
 }
 
 @media (max-width: 768px) {

@@ -77,19 +77,19 @@
 
 .provider-status-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 0.75rem;
-    margin-top: 0.75rem;
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.6rem;
 }
 
 .provider-status-card {
     background: var(--bg-secondary);
-    padding: 1rem;
-    border-radius: var(--radius-lg);
+    padding: 0.55rem 0.7rem;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.35rem;
     transition: all 0.2s ease;
 }
 
@@ -103,25 +103,25 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    height: 20px;
+    height: 18px;
 }
 
 .provider-status-card .provider-name {
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 140px;
+    max-width: 120px;
 }
 
 .provider-nodes-summary {
     display: flex;
     gap: 8px;
-    font-size: 0.7rem;
-    margin-bottom: 2px;
-    height: 16px;
+    font-size: 0.65rem;
+    margin-bottom: 0;
+    height: 14px;
     align-items: center;
 }
 
@@ -134,23 +134,22 @@
 .provider-status-card .node-dots {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    height: 60px; /* 固定高度 */
+    gap: 4px;
+    height: 34px; /* 固定高度 */
     overflow-y: auto;
-    padding: 2px;
-    padding-right: 6px;
-    margin: 4px 0;
+    padding: 1px 4px 1px 1px;
+    margin: 1px 0;
 }
 
 .provider-stats-summary {
     display: flex;
     gap: 10px;
-    font-size: 0.75rem;
+    font-size: 0.68rem;
     color: var(--text-secondary);
     border-top: 1px solid var(--border-color);
-    margin-top: 4px;
-    padding-top: 8px;
-    height: 24px;
+    margin-top: 1px;
+    padding-top: 4px;
+    height: 18px;
     align-items: center;
 }
 
@@ -179,8 +178,8 @@
 }
 
 .node-dot {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
     cursor: help;
     transition: transform 0.15s ease;
@@ -331,52 +330,64 @@
     color: var(--danger-text);
 }
 
-/* Dashboard Top Row Layout */
-.dashboard-top-row {
+/* Dashboard Overview Row: system info + QR codes */
+.dashboard-overview-row {
     display: flex;
-    gap: 1.25rem;
-    margin-bottom: 1.25rem;
-    align-items: stretch;
-    justify-content: flex-start;
-}
-
-.dashboard-top-row .dashboard-contact {
-    flex: 1;
-    margin-top: 0;
-    padding-top: 0;
-    border-top: none;
-}
-
-.dashboard-top-row .dashboard-contact .contact-grid {
-    margin-top: 0;
-    height: 100%;
-    grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
+    margin-bottom: 1rem;
+    align-items: stretch;
 }
 
-.dashboard-top-row .dashboard-contact .contact-card {
-    padding: 1.25rem;
+.dashboard-overview-row .system-info-panel {
+    flex: 1;
+    min-width: 0;
+    margin-top: 0;
+}
+
+.dashboard-overview-row .dashboard-contact {
+    flex: 0 0 230px;
+    margin-top: 0;
+    padding: 0;
+    border-top: none;
+    display: flex;
+}
+
+.dashboard-overview-row .dashboard-contact .contact-grid {
+    margin-top: 0;
+    width: 100%;
+    height: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.dashboard-overview-row .dashboard-contact .contact-card {
+    padding: 0.6rem 0.45rem;
     height: 100%;
     display: flex;
     flex-direction: column;
+    align-items: center;
     justify-content: center;
+    gap: 0.25rem;
 }
 
-.dashboard-top-row .dashboard-contact .qr-container {
-    margin: 0.75rem 0;
+.dashboard-overview-row .dashboard-contact .qr-container {
+    margin: 0.4rem 0;
 }
 
-.dashboard-top-row .dashboard-contact .qr-code {
-    width: 100px;
-    height: 100px;
+.dashboard-overview-row .dashboard-contact .qr-code {
+    width: 72px;
+    height: 72px;
+    padding: 0.25rem;
 }
 
-.dashboard-top-row .dashboard-contact .contact-card h3 {
-    font-size: 1rem;
+.dashboard-overview-row .dashboard-contact .contact-card h3 {
+    font-size: 0.72rem;
+    gap: 0.25rem;
+    text-align: center;
 }
 
-.dashboard-top-row .dashboard-contact .qr-description {
-    font-size: 0.75rem;
+.dashboard-overview-row .dashboard-contact .qr-description {
+    display: none;
 }
 
 /* Contact and Sponsor Section */
@@ -509,13 +520,18 @@
 
 /* 响应式调整 */
 @media (max-width: 1024px) {
-    .dashboard-top-row {
+    .dashboard-overview-row {
         flex-direction: column;
     }
-    
-    .dashboard-top-row .dashboard-contact .qr-code {
-        width: 160px;
-        height: 160px;
+
+    .dashboard-overview-row .dashboard-contact {
+        flex: none;
+        width: 100%;
+    }
+
+    .dashboard-overview-row .dashboard-contact .qr-code {
+        width: 80px;
+        height: 80px;
     }
 }
 
@@ -630,9 +646,39 @@
     color: var(--primary-color);
 }
 
-/* 模型描述区域 */
-.models-description {
-    margin-bottom: 1.5rem;
+/* 模型工具条 */
+.models-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.models-hint {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.models-refresh-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.models-refresh-btn:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
 }
 
 /* 模型容器 */
@@ -934,33 +980,6 @@
     font-size: 0.9rem;
 }
 
-/* 高亮说明样式 */
-.models-description .highlight-note {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.875rem 1rem;
-    background: linear-gradient(135deg, var(--info-bg) 0%, var(--info-bg-light, var(--info-bg)) 100%);
-    border: 1px solid var(--info-border);
-    border-radius: 0.5rem;
-    color: var(--info-text);
-    font-weight: 500;
-    width: 100%;
-    box-sizing: border-box;
-    font-size: 0.875rem;
-}
-
-.models-description .highlight-note i {
-    color: var(--info-color, var(--info-text));
-    font-size: 1.125rem;
-    flex-shrink: 0;
-}
-
-.models-description .highlight-note span {
-    flex: 1;
-    text-align: center;
-}
-
 @media (max-width: 768px) {
     .provider-models-content {
         grid-template-columns: 1fr;
@@ -1007,24 +1026,23 @@
     border-color: var(--primary-color);
 }
 
-[data-theme="dark"] .models-description .highlight-note {
-    background: linear-gradient(135deg, var(--info-bg) 0%, var(--info-bg-light, var(--info-bg)) 100%);
-    border-color: var(--info-border);
-    color: var(--info-text);
-}
-
 [data-theme="dark"] .models-container {
     background: var(--bg-secondary);
 }
 
 @media (max-width: 1024px) {
-    .dashboard-top-row {
+    .dashboard-overview-row {
         flex-direction: column;
     }
-    
-    .dashboard-top-row .dashboard-contact .qr-code {
-        width: 160px;
-        height: 160px;
+
+    .dashboard-overview-row .dashboard-contact {
+        flex: none;
+        width: 100%;
+    }
+
+    .dashboard-overview-row .dashboard-contact .qr-code {
+        width: 80px;
+        height: 80px;
     }
 }
 
@@ -1043,12 +1061,27 @@
         width: 180px;
         height: 180px;
     }
+    .dashboard-overview-row .dashboard-contact .contact-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+    }
+    .dashboard-overview-row .dashboard-contact .contact-card {
+        padding: 0.6rem 0.45rem;
+    }
+    .dashboard-overview-row .dashboard-contact .qr-code {
+        width: 72px;
+        height: 72px;
+    }
 }
 
 @media (max-width: 480px) {
     .qr-code {
         width: 150px;
         height: 150px;
+    }
+    .dashboard-overview-row .dashboard-contact .qr-code {
+        width: 68px;
+        height: 68px;
     }
     .contact-card {
         padding: 1rem;

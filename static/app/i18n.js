@@ -43,7 +43,7 @@ const translations = {
         'sponsors.title': '项目赞助商',
         'sponsors.subtitle': '感谢以下合作伙伴对项目的支持，按赞助时间排序。',
         'sponsors.becomeTitle': '成为赞助商',
-        'sponsors.becomeDesc': '如果您有意赞助本项目，请扫描左侧微信二维码（添加时请注明来意：赞助）。',
+        'sponsors.becomeDesc': '如果您有意赞助本项目，请通过上方系统信息右侧的微信二维码联系（添加时请注明来意：赞助）。',
         'sponsors.packyDesc': 'PackyCode 是一家可靠且高效的 API 中转服务商，提供 Claude Code、Codex、Gemini 等模型的中转服务。PackyCode 为本软件用户提供特别优惠：<a href="https://www.packyapi.com/register?aff=AIClient2API" target="_blank" rel="noopener noreferrer">通过此链接注册</a>并在充值时输入 <strong>AIClient2API</strong> 优惠码，即可享受 <strong>10% 的折扣</strong>。',
         'sponsors.vmcardDesc': '<strong>VMCard｜AI 业务企业级支付卡</strong>，面向 AI 账号商、AI API 服务商及批量订阅业务团队。GPT / Claude 丝滑支付，专属美国 Visa 卡段，支持 API 批量开卡，全网最低结算汇率，满足大批量、长期稳定支付需求。<a href="https://vmcardio.com/zh/register?code=902506" target="_blank" rel="noopener noreferrer">通过此链接注册</a>。',
 
@@ -828,7 +828,7 @@ const translations = {
         'customModels.form.placeholder.name': '给模型起个好听的名字',
 
         // Models
-        'models.note': '两列展示模型各项参数；点击卡片可复制模型 ID 与 metadata',
+        'models.note': '点击卡片复制模型 ID 与 metadata',
         'models.empty': '暂无可用模型',
         'models.loadError': '加载模型列表失败',
         'models.copied': '已复制',
@@ -974,7 +974,7 @@ const translations = {
         'sponsors.title': 'Project Sponsors',
         'sponsors.subtitle': 'Thanks to the following partners for supporting the project. Listed in sponsorship order.',
         'sponsors.becomeTitle': 'Become a Sponsor',
-        'sponsors.becomeDesc': 'If you are interested in sponsoring this project, please scan the WeChat QR code on the left (please indicate: Sponsorship).',
+        'sponsors.becomeDesc': 'If you are interested in sponsoring this project, please use the WeChat QR code to the right of the system information above (please indicate: Sponsorship).',
         'sponsors.packyDesc': 'PackyCode is a reliable and efficient API relay service provider for Claude Code, Codex, Gemini, and more. AIClient2API users receive a special offer: <a href="https://www.packyapi.com/register?aff=AIClient2API" target="_blank" rel="noopener noreferrer">register through this link</a> and enter the <strong>AIClient2API</strong> promo code when topping up to get <strong>10% off</strong>.',
         'sponsors.vmcardDesc': '<strong>VMCard | Enterprise Payment Cards for AI Businesses</strong> is built for AI account vendors, AI API providers, and teams managing bulk subscriptions. It supports seamless GPT / Claude payments, dedicated U.S. Visa BINs, API-based bulk card issuance, and highly competitive settlement exchange rates for stable, high-volume payment needs. <a href="https://vmcardio.com/zh/register?code=902506" target="_blank" rel="noopener noreferrer">Register through this link</a>.',
         
@@ -1759,7 +1759,7 @@ const translations = {
         'customModels.form.placeholder.name': 'Enter a friendly name',
 
         // Models
-        'models.note': 'Two model columns, one parameter row per model; click a card to copy the model ID and metadata',
+        'models.note': 'Click a card to copy the model ID and metadata',
         'models.empty': 'No models available',
         'models.loadError': 'Failed to load models',
         'models.copied': 'Copied',
