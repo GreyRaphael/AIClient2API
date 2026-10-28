@@ -22,13 +22,28 @@
         }
 
         .login-container {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+            background: var(--bg-glass-strong, #fff);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 20px;
+            box-shadow: 0 24px 60px -20px rgba(15, 23, 42, 0.25), 0 4px 12px rgba(15, 23, 42, 0.05);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             width: 100%;
-            max-width: 400px;
-            padding: 40px;
+            max-width: 420px;
+            padding: 44px 40px 36px;
             animation: fadeIn 0.5s ease-in;
+        }
+
+        .login-container::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            height: 4px;
+            background: var(--gradient-accent, linear-gradient(135deg, #059669, #6366f1));
         }
 
         @keyframes fadeIn {
@@ -52,17 +67,20 @@
             height: 80px;
             border-radius: 50%;
             margin-bottom: 15px;
+            box-shadow: 0 0 0 4px var(--bg-primary, #fff), 0 0 0 6px var(--primary-20, rgba(5, 150, 105, 0.2));
         }
 
         .logo h1 {
-            font-size: 24px;
-            color: #333;
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text-primary, #333);
             margin-bottom: 5px;
         }
 
         .logo p {
             font-size: 14px;
-            color: #666;
+            color: var(--text-secondary, #666);
         }
 
         .form-group {
@@ -72,28 +90,35 @@
         .form-group label {
             display: block;
             margin-bottom: 8px;
-            color: #333;
+            color: var(--text-primary, #333);
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
         }
 
         .form-group input {
             width: 100%;
             padding: 12px 15px;
-            border: 2px solid #e1e8ed;
-            border-radius: 8px;
+            border: 1px solid var(--border-color, #e1e8ed);
+            border-radius: 10px;
+            background: var(--bg-secondary, #fff);
+            color: var(--text-primary, #333);
             font-size: 14px;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             outline: none;
         }
 
+        .form-group input:hover {
+            border-color: var(--border-hover, #cbd5e1);
+        }
+
         .form-group input:focus {
-            border-color: #059669;
-            box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
+            border-color: var(--primary-color, #059669);
+            background: var(--bg-primary, #fff);
+            box-shadow: 0 0 0 3px var(--primary-20, rgba(5, 150, 105, 0.2));
         }
 
         .form-group input::placeholder {
-            color: #aaa;
+            color: var(--text-tertiary, #aaa);
         }
 
         .error-message {
@@ -117,10 +142,11 @@
         .login-button {
             width: 100%;
             padding: 12px;
-            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            background: var(--gradient-primary, linear-gradient(135deg, #059669 0%, #10b981 100%));
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
+            box-shadow: 0 8px 18px -8px rgba(5, 150, 105, 0.6);
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
@@ -147,12 +173,12 @@
             text-align: center;
             margin-top: 30px;
             padding-top: 20px;
-            border-top: 1px solid #e1e8ed;
+            border-top: 1px solid var(--border-color, #e1e8ed);
         }
 
         .footer p {
             font-size: 13px;
-            color: #999;
+            color: var(--text-tertiary, #999);
         }
 
         .loading {
@@ -182,6 +208,16 @@
         }
     </style>
     <link rel="stylesheet" href="app/base.css">
+    <script>
+        // 与主界面保持一致：提前应用已保存的主题，避免闪烁
+        (function () {
+            try {
+                var t = localStorage.getItem('theme');
+                if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
+                if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+            } catch (e) {}
+        })();
+    </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>

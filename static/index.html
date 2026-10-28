@@ -30,6 +30,9 @@
         </div>
     </div>
 
+    <!-- 对齐修正层：需位于所有动态加载的组件样式之后 -->
+    <link rel="stylesheet" href="app/alignment.css?v=20261028-2">
+
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
@@ -38,7 +41,7 @@
     <script type="module" src="app/language-switcher.js"></script>
     <script type="module" src="app/theme-switcher.js"></script>
     <script type="module" src="app/auth.js"></script>
-    <script type="module" src="app/models-manager.js?v=20261028-2"></script>
+    <script type="module" src="app/models-manager.js?v=20261028-3"></script>
     <script type="module">
         // 导入组件加载器
         import { initializeComponents } from './app/component-loader.js';

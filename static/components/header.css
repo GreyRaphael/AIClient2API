@@ -221,3 +221,96 @@
 [data-theme="dark"] .header {
     background: var(--bg-glass);
 }
+
+/* ===== 视觉优化 ===== */
+.header {
+    box-shadow: 0 1px 0 var(--border-color), 0 8px 24px -16px rgba(15, 23, 42, 0.18);
+}
+
+.header h1 .header-logo {
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--primary-20);
+}
+
+.header h1 .header-title {
+    background: var(--gradient-accent);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+.header-controls {
+    gap: 0.625rem;
+}
+
+/* 推广链接降噪：由大面积渐变改为柔和描边药丸 */
+.kiro-buy-link,
+.kiro-video-link {
+    height: 40px;
+    font-size: 0.8125rem;
+    box-shadow: none;
+    background: transparent;
+    border: 1px solid transparent;
+}
+
+.kiro-buy-link {
+    color: var(--indigo-600);
+    background: rgba(var(--indigo-rgb), 0.1);
+    border-color: rgba(var(--indigo-rgb), 0.25);
+}
+
+.kiro-buy-link:hover {
+    background: var(--gradient-accent);
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: var(--white);
+    box-shadow: 0 6px 14px -6px rgba(99, 102, 241, 0.6);
+}
+
+.kiro-video-link {
+    color: #e0457b;
+    background: rgba(251, 114, 153, 0.12);
+    border-color: rgba(251, 114, 153, 0.3);
+}
+
+.kiro-video-link:hover {
+    background: linear-gradient(135deg, #fb7299 0%, #fc4080 100%);
+    color: var(--white);
+    box-shadow: 0 6px 14px -6px rgba(251, 114, 153, 0.65);
+}
+
+[data-theme="dark"] .kiro-buy-link { color: #a5b4fc; }
+[data-theme="dark"] .kiro-video-link { color: #f9a8c4; }
+
+/* 状态徽标：连接状态更直观 */
+.status-badge {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    text-transform: none;
+    letter-spacing: 0.02em;
+}
+
+.status-badge i {
+    filter: drop-shadow(0 0 4px var(--success-color));
+}
+
+.status-badge.error i {
+    filter: drop-shadow(0 0 4px var(--danger-color));
+}
+
+.github-link {
+    box-shadow: var(--shadow-sm);
+}
+
+/* 中等宽度下收起文字标签，避免头部拥挤 */
+@media (max-width: 1280px) and (min-width: 769px) {
+    .github-link .github-label,
+    .header-controls > .kiro-buy-link span,
+    .header-controls > .kiro-video-link span {
+        display: none;
+    }
+
+    .kiro-buy-link,
+    .kiro-video-link {
+        padding: 0.5rem 0.75rem;
+    }
+}

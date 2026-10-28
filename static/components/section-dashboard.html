@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="components/section-dashboard.css?v=20261028-2">
+<link rel="stylesheet" href="components/section-dashboard.css?v=20261028-3">
 <link rel="stylesheet" href="components/section-sponsors.css">
 <!-- Dashboard Section -->
 <section id="dashboard" class="section active" aria-labelledby="dashboard-title">
@@ -163,7 +163,10 @@
             <!-- 可用模型列表 -->
             <div class="models-section" style="margin-top: 0;">
                 <div class="models-toolbar">
-                    <span class="models-hint" data-i18n="models.note">点击卡片复制模型 ID 与 metadata</span>
+                    <span class="models-hint">
+                        <i class="fas fa-mouse-pointer" aria-hidden="true"></i>
+                        <span data-i18n="models.note">点击卡片复制模型 ID 与 metadata</span>
+                    </span>
                     <button class="models-refresh-btn" onclick="window.refreshModelCapabilities()" title="强制刷新模型能力（绕过 TTL）">
                         <i class="fas fa-sync-alt"></i>
                     </button>

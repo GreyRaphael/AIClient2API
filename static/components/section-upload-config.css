@@ -63,6 +63,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
 }
 
 .config-list-header h3 {
@@ -70,12 +72,15 @@
     font-size: 1.125rem;
     font-weight: 600;
     color: var(--text-primary);
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .config-stats {
     display: flex;
-    gap: 1rem;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
 }
 
 .config-stats span {
@@ -835,3 +840,57 @@
 [data-theme="dark"] .delete-confirm-modal.used .delete-modal-header { background: linear-gradient(135deg, var(--danger-bg) 0%, var(--bg-primary) 100%); }
 [data-theme="dark"] .delete-confirm-modal.unused .delete-modal-header { background: linear-gradient(135deg, var(--warning-bg) 0%, var(--bg-primary) 100%); }
 [data-theme="dark"] .config-info { background: var(--bg-secondary); border-color: var(--border-color); }
+
+/* 批量关联按钮样式 */
+.btn-batch-link {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px var(--primary-30);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.btn-batch-link:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+}
+
+.btn-batch-link:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* 列表头部打包下载按钮样式 */
+.config-list-header .btn-download {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px var(--primary-30);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.config-list-header .btn-download:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    background: linear-gradient(135deg, #047857 0%, #059669 100%);
+}

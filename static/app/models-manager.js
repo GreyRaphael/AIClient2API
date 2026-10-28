@@ -171,50 +171,6 @@ function renderModelParams(model, metadata = {}) {
 }
 
 /**
- * 按实际字体墨迹中心校正 Provider 名称的垂直位置。
- *
- * flex 的 align-items:center 居中的是 em 盒，而文字的视觉中心受字体
- * ascent/descent 与 x-height 影响，不同系统字体会偏上或偏下。这里用
- * Canvas 读取当前字体的墨迹边界，计算出精确的补偿值，保证名称中心与
- * 左右图标、数字徽标的中心在同一条水平线上。
- */
-function alignProviderTitleText(container) {
-    const titles = container.querySelectorAll('.provider-models-title h3');
-    if (titles.length === 0) return;
-
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) return;
-
-    titles.forEach((title) => {
-        const text = title.textContent?.trim();
-        if (!text) return;
-
-        const style = window.getComputedStyle(title);
-        const fontSize = Number.parseFloat(style.fontSize);
-        if (!Number.isFinite(fontSize) || fontSize <= 0) return;
-
-        context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        const metrics = context.measureText(text);
-        const {
-            fontBoundingBoxAscent,
-            fontBoundingBoxDescent,
-            actualBoundingBoxAscent,
-            actualBoundingBoxDescent
-        } = metrics;
-
-        if (![fontBoundingBoxAscent, fontBoundingBoxDescent, actualBoundingBoxAscent, actualBoundingBoxDescent]
-            .every(Number.isFinite)) {
-            return;
-        }
-
-        const offsetPx = (fontBoundingBoxAscent - fontBoundingBoxDescent) / 2
-            + (actualBoundingBoxDescent - actualBoundingBoxAscent) / 2;
-        title.style.transform = `translateY(${(-offsetPx / fontSize).toFixed(4)}em)`;
-    });
-}
-
-/**
  * 渲染模型列表
  * @param {Object} models - 模型数据
  */
@@ -285,14 +241,6 @@ function renderModelsList(models) {
     }
     
     container.innerHTML = html;
-    alignProviderTitleText(container);
-
-    // 字体异步加载完成后重新校正一次（系统字体通常已就绪）。
-    if (document.fonts?.ready) {
-        document.fonts.ready
-            .then(() => alignProviderTitleText(container))
-            .catch(() => {});
-    }
 }
 
 /**

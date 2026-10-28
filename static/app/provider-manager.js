@@ -382,7 +382,7 @@ function renderProviders(providers, supportedProviders = []) {
                     ${generateDocButton(configMap[providerType])}
                     ${generateAuthButton(providerType)}
                     <div class="provider-status ${statusClass}">
-                        <i class="fas fa-${statusIcon}"></i>
+                        <i class="fas ${statusIcon}"></i>
                         <span>${statusText}</span>
                     </div>
                 </div>

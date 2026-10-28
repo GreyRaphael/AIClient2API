@@ -1,0 +1,247 @@
+/* ==========================================================================
+   对齐修正层 (Alignment fixes)
+   在所有组件样式之后加载（见 index.html），用于统一图标/文字/表单的对齐，
+   并修正不同组件间同名 class 互相“泄漏”造成的错位。
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. 图标 + 文字：统一为 flex 居中，图标固定宽度避免字形宽度不一致
+   -------------------------------------------------------------------------- */
+body :is(h2, h3, h4, h5):has(> i[class*="fa-"]),
+body :is(button, a.btn, .btn):has(> i[class*="fa-"]) {
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* 标题类：必须是 flex 才能居中（按钮类保留各自原有的 display，避免破坏 display:none 等状态） */
+body :is(h3, h4, h5):has(> i[class*="fa-"]) {
+    display: flex;
+}
+
+body :is(h3, h4, h5, button, .btn) > i[class*="fa-"]:not(.fa-spin) {
+    flex-shrink: 0;
+    width: 1.25em;
+    margin-right: 0;
+    text-align: center;
+    line-height: 1;
+}
+
+/* 上面的 gap 已负责间距，清除各组件里零散的 margin 以免重复 */
+body :is(button, .btn) > i[class*="fa-"] + span,
+body :is(h3, h4, h5) > i[class*="fa-"] + span {
+    margin-left: 0;
+}
+
+/* 仅图标的按钮：图标居中 */
+body button:not(:has(> :not(i))):has(> i[class*="fa-"]) {
+    justify-content: center;
+}
+
+body button:not(:has(> :not(i))) > i[class*="fa-"] {
+    width: auto;
+}
+
+/* --------------------------------------------------------------------------
+   2. 顶栏
+   -------------------------------------------------------------------------- */
+body .status-badge {
+    line-height: 1;
+}
+
+body .status-badge .status-text {
+    line-height: 1;
+}
+
+body .header-controls > .logout-btn,
+body .header-controls .language-btn {
+    line-height: 1;
+}
+
+/* --------------------------------------------------------------------------
+   3. 表单：统一输入框/下拉框高度，统一栅格列间距与行距
+   -------------------------------------------------------------------------- */
+body input.form-control:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+body select.form-control {
+    min-height: 2.75rem;
+    line-height: 1.4;
+}
+
+body select.form-control {
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+}
+
+body .form-row,
+body .config-row {
+    gap: 0 1.5rem;
+    align-items: start;
+    margin-bottom: 0;
+}
+
+body .form-row > .form-group,
+body .config-row > .form-group {
+    margin-bottom: 1.5rem;
+}
+
+body .form-row:last-child > .form-group,
+body .config-row:last-child > .form-group {
+    margin-bottom: 0;
+}
+
+/* 说明文字：全局统一样式（此前只有 .pool-section 内有样式，其余为默认黑色且贴着输入框） */
+body .form-text {
+    display: block;
+    margin-top: 0.375rem;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text-tertiary);
+}
+
+/* 开关：与相邻输入框同高，垂直居中；滑块左右留白对称 */
+body .form-group > .toggle-switch {
+    display: block;
+    margin: 0.4375rem 0;
+}
+
+body .toggle-slider:before {
+    left: 2px;
+}
+
+/* 密码框旁的按钮与输入框等高 */
+body .password-input-wrapper {
+    align-items: stretch;
+}
+
+body .generate-key-btn {
+    height: auto;
+    align-self: stretch;
+}
+
+/* --------------------------------------------------------------------------
+   4. 各页面具体错位
+   -------------------------------------------------------------------------- */
+
+/* 提供商池：同名 .provider-name 的 margin-bottom 泄漏，导致名称比右侧按钮偏高；
+   .provider-type-text 的内边距使名称比下方统计项缩进 8px */
+body .provider-header .provider-name {
+    margin-bottom: 0;
+    line-height: 1.4;
+}
+
+body .provider-header .provider-type-text {
+    margin-left: -8px;
+}
+
+body .provider-header-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+/* 自定义模型：说明条文字左对齐、图标与首行文字对齐 */
+body #custom-models .highlight-note {
+    align-items: flex-start;
+    text-align: left;
+}
+
+body #custom-models .highlight-note i {
+    flex-shrink: 0;
+    width: 1.25em;
+    margin-top: 0.15em;
+    text-align: center;
+    line-height: 1.5;
+}
+
+/* 仪表盘：模型列表与折叠标题保持一致的左右留白 */
+body .dashboard-models-panel {
+    padding: 0 1.25rem 1.25rem;
+}
+
+body .models-toolbar {
+    margin-bottom: 0.75rem;
+}
+
+/* 仪表盘：系统信息标签允许换行时，图标与首行对齐 */
+body .info-item .info-label {
+    align-items: flex-start;
+    line-height: 24px;
+}
+
+/* 快速接入：页头按钮与标题垂直对齐 */
+body .access-header > .btn {
+    margin-top: 0.4rem;
+    flex-shrink: 0;
+}
+
+/* 快速接入：片段卡片标题图标与文字对齐、复制按钮与标题同一行 */
+body .access-snippet-head {
+    align-items: flex-start;
+}
+
+body .access-snippet-head h4 {
+    min-height: 1.75rem;
+}
+
+/* 凭据文件管理：筛选区各控件底部对齐、标签行高一致 */
+body .search-controls {
+    align-items: end;
+}
+
+body .search-controls .form-group {
+    margin-bottom: 0;
+}
+
+body .search-controls .form-group > label {
+    line-height: 1.25;
+    margin-bottom: 0.5rem;
+}
+
+body .search-input-group .btn {
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+body .search-input-group .btn:hover {
+    transform: translateY(-50%);
+}
+
+/* 凭据文件管理：列表头部标题、计数、徽标、按钮统一垂直居中 */
+body .config-list-header,
+body .config-stats {
+    align-items: center;
+}
+
+body .config-stats > * {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+body .config-stats > button {
+    height: 2rem;
+    line-height: 1;
+}
+
+/* 插件管理：头部统计行 */
+body .plugins-list-header,
+body .plugins-inline-stats {
+    align-items: center;
+}
+
+/* 模型测试：带下拉的参数行，标签不换行并占满剩余空间 */
+body .pg-workspace .slider-info {
+    align-items: center;
+    gap: 0.75rem;
+}
+
+body .pg-workspace .slider-info > span:first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+/* --------------------------------------------------------------------------
+   5. 通用徽标/标签：文字垂直居中
+   -------------------------------------------------------------------------- */
+body :is(.provider-status, .status-used, .status-unused, .status-invalid, .expiration-tag, .update-badge) {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1.2;
+}
