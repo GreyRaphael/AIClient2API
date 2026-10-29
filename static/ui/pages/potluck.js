@@ -6,6 +6,7 @@ import { copyToClipboard } from '../lib/clipboard.js';
 import { confirmDialog } from '../store/confirm.js';
 import { toast } from '../store/toast.js';
 import { ToastHost } from '../components/Toast.js';
+import { ConfirmDialogHost } from '../components/ConfirmDialog.js';
 import { Modal } from '../components/Modal.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
 import { DistributionList } from '../components/DistributionList.js';
@@ -513,6 +514,8 @@ async function boot() {
     render(html`<${PotluckAdminPage} />`, page);
     const toastRoot = document.getElementById('toastContainer');
     if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
+    const confirmRoot = document.getElementById('confirm-root');
+    if (confirmRoot) render(html`<${ConfirmDialogHost} />`, confirmRoot);
 }
 
 void boot();

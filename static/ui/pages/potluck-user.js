@@ -4,6 +4,7 @@ import { initTheme, toggleTheme } from '../lib/theme.js';
 import { copyToClipboard } from '../lib/clipboard.js';
 import { toast } from '../store/toast.js';
 import { ToastHost } from '../components/Toast.js';
+import { ConfirmDialogHost } from '../components/ConfirmDialog.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
 import { DistributionList } from '../components/DistributionList.js';
 import {
@@ -238,6 +239,8 @@ async function boot() {
     render(html`<${PotluckUserPage} />`, page);
     const toastRoot = document.getElementById('toastContainer');
     if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
+    const confirmRoot = document.getElementById('confirm-root');
+    if (confirmRoot) render(html`<${ConfirmDialogHost} />`, confirmRoot);
 }
 
 void boot();

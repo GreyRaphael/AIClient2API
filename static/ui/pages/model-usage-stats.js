@@ -4,6 +4,7 @@ import { initTheme, toggleTheme } from '../lib/theme.js';
 import { confirmDialog } from '../store/confirm.js';
 import { toast } from '../store/toast.js';
 import { ToastHost } from '../components/Toast.js';
+import { ConfirmDialogHost } from '../components/ConfirmDialog.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
 import {
     flattenModelUsage,
@@ -386,6 +387,8 @@ async function boot() {
     render(html`<${ModelUsageStatsPage} />`, page);
     const toastRoot = document.getElementById('toastContainer');
     if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
+    const confirmRoot = document.getElementById('confirm-root');
+    if (confirmRoot) render(html`<${ConfirmDialogHost} />`, confirmRoot);
 }
 
 void boot();

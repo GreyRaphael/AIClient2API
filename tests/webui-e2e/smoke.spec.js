@@ -567,6 +567,11 @@ test.describe('plugin pages', () => {
         await expect(page.locator('.stats-grid').first()).toContainText('总 Key 数');
         await expect(page.locator('.key-card')).toContainText('E2E Key');
         await expect(page.locator('.distribution-item').first()).toBeVisible();
+
+        await page.locator('.navbar-actions .btn-primary').click();
+        await expect(page.locator('.modal-overlay.show')).toBeVisible();
+        await page.locator('.modal-overlay.show .modal-close').click();
+        await expect(page.locator('.modal-overlay.show')).toHaveCount(0);
         expect(problems).toEqual([]);
     });
 
@@ -612,6 +617,11 @@ test.describe('plugin pages', () => {
         await expect(page.locator('.providers')).toContainText('gemini-antigravity');
         await expect(page.locator('tbody')).toContainText('gemini-3-flash');
         await expect(page.locator('.calendar-day').first()).toBeVisible();
+
+        await page.getByRole('button', { name: /重置 Token/ }).click();
+        await expect(page.locator('.confirm-dialog')).toBeVisible();
+        await page.locator('.confirm-dialog .btn-secondary').click();
+        await expect(page.locator('.confirm-dialog')).toHaveCount(0);
         expect(problems).toEqual([]);
     });
 });
