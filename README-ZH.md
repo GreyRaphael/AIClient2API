@@ -341,6 +341,16 @@ docker compose up -d
 
 ---
 
+### 🧩 WebUI 开发约定（免构建）
+
+管理控制台与插件独立页均为 `static/ui/` 下的原生 ES Module（Preact 11 + htm + signals），没有 Vite/Webpack/JSX 构建步骤。
+
+- 第三方运行时文件入库在 `static/vendor/`：`npm run vendor:webui` 同步，`npm run vendor:webui:check` 校验。
+- Font Awesome 使用生成子集：新增/删除图标后运行 `npm run vendor:fa`；图标类名必须以完整字面量出现（如 `fa-server`），否则扫描不到。
+- 前端类型检查：`npm run typecheck:webui`。
+- 隔离 E2E：`npm run test:webui:e2e`（临时配置目录 + 独立端口，不影响真实配置）。
+- 不要手工修改 `static/vendor/`；升级依赖后重新执行同步脚本。
+
 ### 📋 核心功能
 
 #### Web UI 管理控制台

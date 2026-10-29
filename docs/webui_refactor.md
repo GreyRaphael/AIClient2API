@@ -467,7 +467,7 @@ sections/providers/
 | Phase 3 中等页面 | ✅ |
 | Phase 4 重型页面 | ✅ |
 | Phase 5 i18n 拆分与独立页面 | ✅ |
-| Phase 6 清理 | ⏳ 下一步 |
+| Phase 6 清理 | ✅ |
 
 ### 14.1 实施记录
 
@@ -510,10 +510,15 @@ sections/providers/
   - 删除 `app/i18n.js`、`theme-switcher.js`、`language-switcher.js`、`I18N_GUIDE.md`；全站 `data-i18n` 与 MutationObserver 清零，`static/app` 仅剩 CSS。
   - 三个插件页切换为本地 FA 子集（143 icons），并在 E2E 隔离实例中启用对应插件以覆盖静态页面。
   - `tests/static-syntax`/`static-import-graph` 改为扫描 `static/ui`；E2E 增至 23 个用例。
+- **Phase 6（已完成）**
+  - `static/app/*.css` 迁至 `static/ui/styles/`，`static/components/*.css` 迁至 `static/ui/styles/components/`；所有页面引用同步更新，旧目录已删除。
+  - 确认 `window.*` 赋值与 `onclick=` 清零；新代码统一使用 import 与事件处理器。
+  - `tests/static-*` 覆盖 `static/ui` 全部 JS；README（中/英）补充 WebUI 开发约定；CHANGELOG 增加本次重构记录。
+  - 最终回归：`npm test` 68 suites / 822 tests，E2E 23/23，`typecheck`、`typecheck:webui`、`vendor:webui:check` 全部通过。
 
 ### 14.2 与计划的偏差（有意保留）
 
-- `static/app/*.css`、`static/components/*.css` 保留（样式不动）；计划在 Phase 6 合并/移动到 `ui/` 后删除目录。
+- CSS 仅移动到 `static/ui/styles/`，未按页面合并/重写；`components/` 作为子目录保留原文件名，避免样式回归。
 - 插件独立页（potluck / potluck-user / model-usage-stats）原本无语言切换，迁移后仍保持中文文案，未引入 i18n 双语文案。
 - 授权链接弹窗改为「自动本地回调 + 手动粘贴回调 URL + `oauth_success` 事件」；不再轮询跨域子窗口 URL（浏览器安全限制下不可靠）。
 - Kiro 的「AWS 凭据文件导入」（旧 `aws-import`）尚未迁移；其余认证方式与批量导入已覆盖。

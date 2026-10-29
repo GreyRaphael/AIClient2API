@@ -342,6 +342,16 @@ If you are running directly on your local machine (via script or Node.js) and ne
 
 ---
 
+### 🧩 WebUI Development (No Build)
+
+The management console and plugin pages are native ES modules under `static/ui/` (Preact 11 + htm + signals). There is no Vite/Webpack/JSX build step.
+
+- Third-party runtime files are committed under `static/vendor/`; sync with `npm run vendor:webui` and verify with `npm run vendor:webui:check`.
+- Font Awesome is shipped as a generated subset: run `npm run vendor:fa` after adding/removing icons (icon class names must appear as complete literals, e.g. `fa-server`, so the scanner can find them).
+- Type-check the frontend with `npm run typecheck:webui`.
+- Run the isolated Playwright suite with `npm run test:webui:e2e` (temporary config/data directory, separate port).
+- Do not edit `static/vendor/` by hand; update the dependency and re-run the sync scripts.
+
 ### 📋 Core Features
 
 #### Web UI Management Console

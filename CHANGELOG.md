@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- WebUI 无构建重构（Preact 11 + htm + signals）：`static/ui/` 统一入口、import map、`static/vendor/` 本地依赖与 Font Awesome 子集。
+- 统一 `Modal/ConfirmDialog/Pagination/Toast`、`useApi/useEvent/useInterval` 与 provider/usage/stats 纯函数模块。
+- Playwright 隔离 E2E（23 个用例）与 Jest SSR/i18n parity/import map/FA 子集守卫。
+
+### Changed
+
+- 控制台全部 11 个页面迁移为 Preact 组件；旧 `static/app/*.js`、`static/components/*.html` 全部移除。
+- 提供商授权/批量导入迁移为 `AuthDialog`，配置页改为字段声明驱动表单。
+- 登录页、`potluck.html`、`potluck-user.html`、`model-usage-stats.html` 迁移为 `ui/pages/*`，插件路径保持不变。
+- `ui-manager` 静态服务补齐 `.mjs`/字体 MIME、ETag 再验证、`/vendor/` immutable 与 static 根目录校验。
+
+### Removed
+
+- `static/app/` 旧 JS（provider-manager、modal、event-stream、i18n DOM 扫描等）与旧 HTML 片段。
+- `static/app/`、`static/components/` 目录（CSS 统一迁至 `static/ui/styles/`）。
+
+### Verification
+
+- `npm test`：**68 suites / 822 tests 全绿**。
+- WebUI E2E：**23/23 通过**。
+- `npm run typecheck`、`typecheck:webui`、`vendor:webui:check` 通过。
+
 ## [v5.1.0] - 2026-10-28
 
 ### Added
