@@ -3,7 +3,6 @@
 import { elements } from './constants.js';
 import { showToast } from './utils.js';
 import { t } from './i18n.js';
-import { loadProviders } from './provider-manager.js';
 import { serviceMode } from '../ui/store/system.js';
 import { confirmDialog } from '../ui/store/confirm.js';
 
@@ -36,14 +35,6 @@ function initEventListeners() {
             } else {
                 console.error('showAddProviderGroupModal function not found');
             }
-        });
-    }
-
-    // 提供商搜索功能
-    const providerSearchInput = document.getElementById('providerSearchInput');
-    if (providerSearchInput) {
-        providerSearchInput.addEventListener('input', () => {
-            loadProviders();
         });
     }
 

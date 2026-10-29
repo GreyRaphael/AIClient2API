@@ -494,6 +494,7 @@ export default {
     'providers.addGroup.baseType': '基础类型',
     'providers.addGroup.error': '创建失败',
     'providers.addGroup.suffix': '分组名称 (后缀)',
+    'providers.addGroup.desc': '为当前提供商创建一个带后缀的新分组，例如 openai-custom-dev。',
     'providers.addGroup.suffixPlaceholder': '例如: kimi, glm, minimax',
     'providers.addGroup.example': '示例：{baseType} + prod → {baseType}-prod',
     'providers.note': '如使用客户端默认授权配置需使用空节点',

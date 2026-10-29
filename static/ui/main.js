@@ -13,7 +13,7 @@ import { clearToken, getToken, isTokenValid, redirectToLogin } from './lib/auth.
 import { on, startEvents } from './store/events.js';
 import { initLogs } from './store/logs.js';
 import { pushToast } from './store/toast.js';
-import { markLegacyAppReady } from './sections.js';
+import { hasLegacySections, markLegacyAppReady } from './sections.js';
 
 const LEGACY_EVENT_STREAM = '../app/event-stream.js';
 
@@ -85,6 +85,10 @@ async function boot() {
     }
     if (confirmRoot) {
         render(html`<${ConfirmDialogHost} />`, confirmRoot);
+    }
+    // 所有 Section 均已迁移时没有 LegacySection 触发 componentsLoaded，这里补发一次
+    if (!hasLegacySections) {
+        window.dispatchEvent(new CustomEvent('componentsLoaded'));
     }
 }
 

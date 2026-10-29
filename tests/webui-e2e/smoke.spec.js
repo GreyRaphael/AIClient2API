@@ -285,6 +285,51 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('提供商页：节点新增、编辑、停用与删除', async ({ authedPage: page, problems }) => {
+        await page.goto('/#providers');
+        await expect(page.locator('section#providers.active')).toBeVisible();
+        await expect(page.locator('#providersList .provider-item').first()).toBeVisible();
+        expect(await page.locator('#providersList .provider-item').count()).toBeGreaterThan(5);
+
+        await page.locator('#providersList .provider-item[data-provider-type="openai-custom"]').click();
+        await expect(page.locator('.provider-modal')).toBeVisible();
+        await expect(page.locator('.provider-summary')).toContainText('总账户数');
+
+        await page.locator('.provider-summary-actions .btn-success').click();
+        await expect(page.locator('.add-provider-form')).toBeVisible();
+        await page.locator('#new-customName').fill('E2E Provider');
+        await page.locator('#new-OPENAI_API_KEY').fill('sk-e2e-test');
+        await page.locator('#new-OPENAI_BASE_URL').fill('https://example.com/v1');
+        await page.locator('.add-provider-form .btn-success').click();
+        await expect(page.locator('#toastContainer')).toContainText('添加成功');
+
+        const node = page.locator('.provider-item-detail', { hasText: 'E2E Provider' });
+        await expect(node).toBeVisible();
+        await node.locator('.provider-item-header').click();
+        await expect(node.locator('[data-field="customName"] input')).toBeVisible();
+
+        await node.locator('.btn-edit').click();
+        await node.locator('[data-field="customName"] input').fill('E2E Provider 2');
+        await node.locator('.btn-save').click();
+        const edited = page.locator('.provider-item-detail', { hasText: 'E2E Provider 2' });
+        await expect(edited).toBeVisible();
+
+        await edited.locator('.btn-warning').click();
+        await expect(page.locator('.confirm-dialog')).toBeVisible();
+        await page.locator('.confirm-dialog .btn-danger').click();
+        await expect(page.locator('.provider-item-detail', { hasText: 'E2E Provider 2' }))
+            .toHaveClass(/disabled/);
+
+        await page.locator('.provider-item-detail', { hasText: 'E2E Provider 2' }).locator('.btn-delete').click();
+        await expect(page.locator('.confirm-dialog')).toBeVisible();
+        await page.locator('.confirm-dialog .btn-danger').click();
+        await expect(page.locator('#providersList')).not.toContainText('E2E Provider 2');
+
+        await page.locator('.provider-modal .modal-close').click();
+        await expect(page.locator('.provider-modal')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
     test('Playground：流式对话、复制与清空', async ({ authedPage: page, problems }) => {
         await page.route('**/api/access-info', (route) => route.fulfill({
             status: 200,

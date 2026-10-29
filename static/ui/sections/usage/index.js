@@ -38,8 +38,7 @@ function providerIconClass(type, configs) {
 function openProviderManager(type, uuid) {
     navigate('providers');
     setTimeout(() => {
-        const manager = /** @type {any} */ (globalThis).openProviderManager;
-        manager?.(type, uuid);
+        window.dispatchEvent(new CustomEvent('providers:open', { detail: { type, uuid } }));
     }, 100);
 }
 

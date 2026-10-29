@@ -253,7 +253,8 @@ async function loadProvidersPageData(forceRefreshSupported = false) {
  */
 function renderProviders(providers, supportedProviders = []) {
     const container = document.getElementById('providersList');
-    if (!container) return;
+    // Phase 4 起提供商页面由 static/ui/sections/providers 接管，旧渲染只保留给历史调用方
+    if (!container || container.dataset.ui === 'next') return;
     
     container.innerHTML = '';
 

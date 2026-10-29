@@ -493,6 +493,7 @@ export default {
     'providers.addGroup.title': 'Add New Configuration Group',
     'providers.addGroup.baseType': 'Base Type',
     'providers.addGroup.suffix': 'Suffix Name',
+    'providers.addGroup.desc': 'Create a new group with a suffix for this provider, e.g. openai-custom-dev.',
     'providers.addGroup.suffixPlaceholder': 'e.g., kimi, glm, minimax',
     'providers.addGroup.example': 'Example: {baseType} + prod → {baseType}-prod',
     'providers.addGroup.success': 'Configuration group created, please add accounts',
