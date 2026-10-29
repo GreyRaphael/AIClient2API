@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - 修复 WebUI 弹窗关闭按钮显示 `&times;`、登录页页脚显示 `&copy;` 的问题（htm 文本节点不解析 HTML 实体，改用 `×` / `©` 字面量）。
+- 修复 Kiro 授权弹窗与 OAuth 路径提示把 `<strong>` / `<code>` 标签显示为字面量的问题，静态 i18n 富文本改用 `dangerouslySetInnerHTML` 渲染。
 
 ## [v5.2.0] - 2026-10-29
 

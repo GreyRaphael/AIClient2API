@@ -352,7 +352,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                     <div class="auth-instructions">
                         <h4>${t('oauth.modal.steps')}</h4>
                         ${isKiro ? html`
-                            <p>${t('oauth.kiro.manualHint')}</p>
+                            <p dangerouslySetInnerHTML=${{ __html: t('oauth.kiro.manualHint') }}></p>
                             <ol>
                                 <li>${t('oauth.kiro.step1')}</li>
                                 <li>${t('oauth.kiro.step2', { method: authData.authInfo?.authMethod === 'builder-id' ? 'AWS Builder ID' : (authData.authInfo?.socialProvider || 'Google') })}</li>
@@ -383,7 +383,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                     </div>
                     <div style="margin-top:16px;padding:12px;background:var(--bg-secondary);border-radius:8px;">
                         <h4>${t('oauth.manual.title')}</h4>
-                        <p style="font-size:0.875rem;">${t('oauth.manual.desc')}</p>
+                        <p style="font-size:0.875rem;" dangerouslySetInnerHTML=${{ __html: t('oauth.manual.desc') }}></p>
                         <div style="display:flex;gap:6px;">
                             <input type="text" class="form-control" value=${manualUrl}
                                 placeholder=${t('oauth.manual.placeholder')}

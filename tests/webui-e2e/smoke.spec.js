@@ -353,6 +353,57 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('Kiro 授权弹窗：富文本提示按 HTML 渲染', async ({ authedPage: page, problems }) => {
+        await page.route('**/api/providers/claude-kiro-oauth/generate-auth-url', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    authUrl: 'https://example.com/kiro-auth',
+                    authInfo: {
+                        provider: 'Kiro',
+                        callbackPort: '3000',
+                        authMethod: 'builder-id'
+                    }
+                })
+            });
+        });
+
+        await page.goto('/#providers');
+        const card = page.locator('.provider-item[data-provider-type="claude-kiro-oauth"]');
+        await card.locator('.generate-auth-btn').click();
+        await page.locator('.auth-method-btn[data-method="builder-id"]').click();
+
+        const modal = page.locator('.modal-overlay.show');
+        await expect(modal.locator('.auth-instructions strong')).toContainText('手动授权提示');
+        await expect(modal.locator('.auth-instructions code')).toContainText('kiro://');
+        await expect(modal.locator('.auth-info')).not.toContainText('<strong>');
+        await expect(modal.locator('.auth-info')).not.toContainText('<code>');
+        await expect(modal.locator('.auth-info strong').filter({ hasText: '完整 URL' })).toBeVisible();
+
+        await modal.locator('.modal-close').click();
+        await expect(modal).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
+    test('Kiro 节点表单：OAuth 路径提示按 HTML 渲染', async ({ authedPage: page, problems }) => {
+        await page.goto('/#providers');
+        await page.locator('.provider-item[data-provider-type="claude-kiro-oauth"]').click();
+        await expect(page.locator('.provider-modal')).toBeVisible();
+        await page.locator('.provider-summary-actions .btn-success').click();
+
+        const hint = page.locator('.config-item[data-field="KIRO_OAUTH_CREDS_FILE_PATH"] .form-text');
+        await expect(hint).toBeVisible();
+        await expect(hint.locator('code').first()).toContainText('clientId');
+        await expect(hint).not.toContainText('<code>');
+
+        await page.locator('.add-provider-form .btn-secondary').click();
+        await page.locator('.provider-modal .modal-close').click();
+        await expect(page.locator('.provider-modal')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
     test('Kiro AWS 导入：JSON 校验与单条提交', async ({ authedPage: page, problems }) => {
         let submitted = null;
         await page.route('**/api/kiro/import-aws-credentials', async (route) => {
