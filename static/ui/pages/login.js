@@ -85,7 +85,7 @@ function LoginPage() {
             </form>
 
             <div class="footer">
-                <p>&copy; 2077 AIClient2API. All rights reserved.</p>
+                <p>© 2077 AIClient2API. All rights reserved.</p>
             </div>
         </div>`;
 }

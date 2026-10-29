@@ -3,6 +3,7 @@ import { test, expect, SECTIONS, E2E_PASSWORD } from './fixtures.js';
 test.describe('login', () => {
     test('错误密码提示失败，正确密码进入控制台', async ({ page, problems }) => {
         await page.goto('/login.html');
+        await expect(page.locator('.footer')).toContainText('© 2077 AIClient2API');
         await page.locator('#password').fill('wrong-password');
         await page.locator('#loginButton').click();
         await expect(page.locator('#errorMessage')).toHaveClass(/show/);
@@ -293,6 +294,7 @@ test.describe('console shell', () => {
 
         await page.locator('#providersList .provider-item[data-provider-type="openai-custom"]').click();
         await expect(page.locator('.provider-modal')).toBeVisible();
+        await expect(page.locator('.provider-modal .modal-close')).toHaveText('×');
         await expect(page.locator('.provider-summary')).toContainText('总账户数');
 
         await page.locator('.provider-summary-actions .btn-success').click();

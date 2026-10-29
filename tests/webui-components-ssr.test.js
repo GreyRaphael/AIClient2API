@@ -58,6 +58,8 @@ describe('UI 组件 SSR 冒烟', () => {
         const modal = render(html`<${Modal} title="标题"><p>内容</p><//>`);
         expect(modal).toContain('role="dialog"');
         expect(modal).toContain('标题');
+        expect(modal).toContain('×');
+        expect(modal).not.toContain('&times;');
         expect(render(html`<${ConfirmDialogHost} />`)).toBe('');
         const pager = render(html`<${Pagination} page=${2} pageSize=${10} total=${35} onChange=${() => {}} />`);
         expect(pager).toContain('第 2/4 页');

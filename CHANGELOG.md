@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- 修复 WebUI 弹窗关闭按钮显示 `&times;`、登录页页脚显示 `&copy;` 的问题（htm 文本节点不解析 HTML 实体，改用 `×` / `©` 字面量）。
+
 ## [v5.2.0] - 2026-10-29
 
 ### Added

@@ -352,7 +352,7 @@ export default function PluginsSection() {
                         <h2 id="paymentTitle">
                             ${paying ? t('plugins.payment.titleWithName', { name: paying.name }) : t('plugins.payment.title')}
                         </h2>
-                        <button class="modal-close" id="closePaymentModal" onClick=${() => setPaying(null)}>&times;</button>
+                        <button class="modal-close" id="closePaymentModal" onClick=${() => setPaying(null)}>×</button>
                     </div>
                     <div class="modal-body">
                         <div style="text-align: center; margin-bottom: 1.5rem">

@@ -60,7 +60,7 @@ export function Modal({ open = true, title, onClose, children, footer, width, cl
                 ${title ? html`
                     <div class=${`modal-header ${headerClassName}`}>
                         <h3>${title}</h3>
-                        <button class="modal-close" aria-label=${t('common.close')} onClick=${onClose}>&times;</button>
+                        <button class="modal-close" aria-label=${t('common.close')} onClick=${onClose}>×</button>
                     </div>` : null}
                 <div class=${`modal-body ${bodyClassName}`}>${children}</div>
                 ${footer ? html`<div class=${`modal-footer ${footerClassName}`}>${footer}</div>` : null}
