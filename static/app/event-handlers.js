@@ -267,9 +267,6 @@ function handleProviderPasswordToggle(button) {
     }
 }
 
-// 重载配置回调
-let reloadConfig;
-
 // 当前服务模式（由 provider-manager.js 设置）
 let currentServiceMode = 'worker';
 
@@ -322,11 +319,6 @@ async function handleReloadConfig() {
     
     // 刷新提供商列表（如果已初始化）
     window.loadProviders?.();
-
-    // 如果reloadConfig函数可用，则也刷新配置
-    if (reloadConfig) {
-        await reloadConfig();
-    }
 }
 
 /**
@@ -365,10 +357,6 @@ async function handleRestartService() {
             showToast(t('common.info'), result.hint, 'warning');
         }
     }
-}
-
-export function setReloadConfig(configReloader) {
-    reloadConfig = configReloader;
 }
 
 export {

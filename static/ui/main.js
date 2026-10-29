@@ -32,7 +32,6 @@ async function startRealtime() {
     initLogs();
     on('provider', legacy.updateProviderStatus);
     on('provider_update', legacy.handleProviderUpdate);
-    on('config_update', legacy.handleConfigUpdate);
     on('oauth_success', (data) => {
         pushToast({
             title: t('common.success'),

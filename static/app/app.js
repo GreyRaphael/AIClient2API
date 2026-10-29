@@ -22,13 +22,11 @@ import {
 } from './file-upload.js';
 
 import {
-    initEventListeners,
-    setReloadConfig
+    initEventListeners
 } from './event-handlers.js';
 
 import {
-    setProviderLoaders,
-    setConfigLoaders
+    setProviderLoaders
 } from './event-stream.js';
 
 import {
@@ -46,16 +44,6 @@ import {
     showProviderManagerModal,
     refreshProviderConfig
 } from './modal.js';
-
-import {
-    initUploadConfigManager,
-    loadConfigList,
-    viewConfig,
-    deleteConfig,
-    closeConfigModal,
-    copyConfigContent,
-    reloadConfig
-} from './upload-config-manager.js';
 
 import {
     initImageZoom
@@ -91,15 +79,9 @@ async function initApp() {
     initI18n();
 
     // 设置数据加载器
-    // 设置reloadConfig函数
-    setReloadConfig(reloadConfig);
-    
     // 设置提供商加载器
     setProviderLoaders(loadProviders, refreshProviderConfig);
     
-    // 设置配置加载器
-    setConfigLoaders(loadConfigList);
-
     // 导出全局函数供其他模块使用
     window.loadPlaygroundData = loadPlaygroundData;
     window.loadProviders = loadProviders;
@@ -114,19 +96,12 @@ async function initApp() {
     window.showAddProviderGroupModal = showAddProviderGroupModal;
 
     // 配置管理相关全局函数
-    window.viewConfig = viewConfig;
-    window.deleteConfig = deleteConfig;
-    window.loadConfigList = loadConfigList;
-    window.closeConfigModal = closeConfigModal;
-    window.copyConfigContent = copyConfigContent;
-    window.reloadConfig = reloadConfig;
 
     // 插件管理相关全局函数
 
     // 初始化各个模块（SSE 连接由 ui/store/events.js 统一管理）
     initEventListeners();
     initFileUpload(); // 初始化文件上传功能
-    initUploadConfigManager(); // 初始化配置管理功能
     initImageZoom(); // 初始化图片放大功能
     initPlaygroundManager(); // 初始化 Playground
 

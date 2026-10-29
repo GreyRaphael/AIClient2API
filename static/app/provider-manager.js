@@ -5,7 +5,6 @@ import { showToast, formatUptime, getProviderConfigs, getBaseProviderConfigs, es
 import { fileUploadHandler } from './file-upload.js';
 import { t, getCurrentLanguage } from './i18n.js';
 import { isOAuthProvider, getGroupableProviderIds, getProviderAuthFilePath } from '../ui/lib/provider-registry.js';
-import { loadConfigList, updateProviderFilterOptions } from './upload-config-manager.js';
 import { setServiceMode } from './event-handlers.js';
 import { compareVersions, getCodexExternalImportMeta, getCodexExternalImportStats } from '../ui/lib/provider-manager-utils.js';
 
@@ -230,7 +229,6 @@ async function loadProviders(forceRefreshSupported = false) {
             const providerConfigs = getProviderConfigs(cachedSupportedProviders);
             
             // 动态更新各个页面的提供商信息
-            updateProviderFilterOptions(providerConfigs);
                         isStaticProviderConfigsUpdated = true;
         }
 
@@ -1451,7 +1449,6 @@ function showCodexBatchImportModal(providerType) {
                                     if (data.successCount > 0) {
                                         importSuccess = true;
                                         loadProviders();
-                                        loadConfigList();
                                     }
                                 } else if (eventType === 'error') {
                                     throw new Error(data.error);
@@ -1712,7 +1709,6 @@ function showCodexExternalImportModal(providerType, source) {
                                 if (data.successCount > 0) {
                                     importSuccess = true;
                                     loadProviders();
-                                    loadConfigList();
                                 }
                             } else if (eventType === 'error') {
                                 throw new Error(data.error);
@@ -2175,7 +2171,6 @@ function showGeminiBatchImportModal(providerType) {
                                     if (data.successCount > 0) {
                                         importSuccess = true;
                                         loadProviders();
-                                        loadConfigList();
                                     }
                                 } else if (eventType === 'error') {
                                     throw new Error(data.error);
@@ -2450,7 +2445,6 @@ function showKiroBatchImportModal() {
                                     if (data.successCount > 0) {
                                         importSuccess = true;
                                         loadProviders();
-                                        loadConfigList();
                                     }
                                     
                                 } else if (eventType === 'error') {
@@ -3260,7 +3254,6 @@ function showKiroAwsImportModal() {
                                         if (data.successCount > 0) {
                                             importSuccess = true;
                                             loadProviders();
-                                            loadConfigList();
                                         }
                                         
                                     } else if (eventType === 'error') {
@@ -3305,7 +3298,6 @@ function showKiroAwsImportModal() {
                     
                     // 刷新提供商列表和配置列表
                     loadProviders();
-                    loadConfigList();
                 } else if (response.error === 'duplicate') {
                     // 显示重复凭据警告
                     const existingPath = response.existingPath || '';
@@ -3401,7 +3393,6 @@ async function executeGenerateAuthUrl(providerType, extraOptions = {}) {
                 }
             }
             if (typeof loadProviders === 'function') loadProviders();
-            if (typeof loadConfigList === 'function') loadConfigList();
             return response;
         } else {
             showToast(t('common.error'), (response.error && response.error.message) || t('modal.provider.auth.failed'), 'error');
@@ -3689,7 +3680,6 @@ function showAuthModal(authUrl, authInfo) {
             
             // 授权成功后刷新配置和提供商列表
             loadProviders();
-            loadConfigList();
         };
 
         // 回调页主动 postMessage 时，优先使用父页面关闭子窗口

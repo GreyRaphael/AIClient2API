@@ -13,10 +13,15 @@ import { t } from '../lib/i18n.js';
  *   children?: any,
  *   footer?: any,
  *   width?: string,
- *   className?: string
+ *   className?: string,
+ *   id?: string,
+ *   contentClassName?: string,
+ *   headerClassName?: string,
+ *   bodyClassName?: string,
+ *   footerClassName?: string
  * }} props
  */
-export function Modal({ open = true, title, onClose, children, footer, width, className = '' }) {
+export function Modal({ open = true, title, onClose, children, footer, width, className = '', id, contentClassName = '', headerClassName = '', bodyClassName = '', footerClassName = '' }) {
     const panel = useRef(/** @type {HTMLDivElement|null} */ (null));
 
     useEffect(() => {
@@ -47,18 +52,18 @@ export function Modal({ open = true, title, onClose, children, footer, width, cl
     if (!open) return null;
 
     const content = html`
-        <div class=${`modal-overlay show ${className}`}
+        <div class=${`modal-overlay show ${className}`} id=${id}
             onClick=${(event) => { if (event.target === event.currentTarget) onClose?.(); }}>
-            <div class="modal-content" ref=${panel} role="dialog" aria-modal="true"
+            <div class=${`modal-content ${contentClassName}`} ref=${panel} role="dialog" aria-modal="true"
                 aria-label=${title || undefined} tabindex="-1"
                 style=${width ? `max-width: ${width};` : undefined}>
                 ${title ? html`
-                    <div class="modal-header">
+                    <div class=${`modal-header ${headerClassName}`}>
                         <h3>${title}</h3>
                         <button class="modal-close" aria-label=${t('common.close')} onClick=${onClose}>&times;</button>
                     </div>` : null}
-                <div class="modal-body">${children}</div>
-                ${footer ? html`<div class="modal-footer">${footer}</div>` : null}
+                <div class=${`modal-body ${bodyClassName}`}>${children}</div>
+                ${footer ? html`<div class=${`modal-footer ${footerClassName}`}>${footer}</div>` : null}
             </div>
         </div>`;
 

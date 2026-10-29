@@ -254,6 +254,37 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('凭据文件页：列表、搜索、查看与删除确认', async ({ authedPage: page, problems }) => {
+        await page.goto('/#upload-config');
+        await expect(page.locator('section#upload-config.active')).toBeVisible();
+        await expect(page.locator('#configList .config-item-manager').first()).toBeVisible();
+
+        const initialCount = await page.locator('#configList .config-item-manager').count();
+        expect(initialCount).toBeGreaterThan(0);
+
+        await page.locator('#configSearch').fill('plugins');
+        await expect(page.locator('#configList')).toContainText('plugins.json');
+
+        await page.locator('#configSearch').fill('');
+        await expect(page.locator('#configList .config-item-manager').first()).toBeVisible();
+
+        const card = page.locator('#configList .config-item-manager').first();
+        await card.locator('.config-item-main-row').click();
+        await expect(card).toHaveClass(/expanded/);
+
+        await card.locator('.btn-view').click();
+        await expect(page.locator('.config-view-modal')).toBeVisible();
+        await expect(page.locator('.config-view-modal .config-content-display')).not.toBeEmpty();
+        await page.locator('.config-view-modal .btn-close-modal').click();
+        await expect(page.locator('.config-view-modal')).toHaveCount(0);
+
+        await card.locator('.btn-delete-small').click();
+        await expect(page.locator('.delete-confirm-modal')).toBeVisible();
+        await page.locator('.delete-confirm-modal .btn-cancel-delete').click();
+        await expect(page.locator('.delete-confirm-modal')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
     test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
         await page.goto('/#plugins');
         await expect(page.locator('section#plugins.active')).toBeVisible();

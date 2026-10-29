@@ -143,6 +143,30 @@ export class ApiClient {
     }
 
     /**
+     * 下载并解析 Content-Disposition 文件名。
+     * @param {string} endpoint
+     * @param {RequestOptions} [options]
+     * @returns {Promise<{blob: Blob, filename: string|null}>}
+     */
+    async getBlobFile(endpoint, options = {}) {
+        const token = getToken();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const response = await fetch(`/api${endpoint}`, { headers, signal: options.signal });
+
+        if (response.status === 401) {
+            this.handleUnauthorized();
+            throw new Error(t('common.unauthorized'));
+        }
+        if (!response.ok) {
+            throw new ApiError(`${t('common.requestFailed')} (${t('common.status')}: ${response.status})`, response.status);
+        }
+
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = /filename="?([^";]+)"?/.exec(disposition);
+        return { blob: await response.blob(), filename: match ? match[1] : null };
+    }
+
+    /**
      * FormData 上传（自动带 token，不设置 Content-Type）。
      * @param {string} endpoint
      * @param {FormData} formData
