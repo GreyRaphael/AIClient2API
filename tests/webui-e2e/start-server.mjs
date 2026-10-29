@@ -8,7 +8,7 @@
  *   - 设置 AICLIENT_NO_AUTO_OPEN=1，避免服务启动时弹出系统浏览器。
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, copyFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +22,12 @@ mkdirSync(path.join(workDir, 'configs'), { recursive: true });
 mkdirSync(path.join(workDir, 'src'), { recursive: true });
 symlinkSync(path.join(REPO, 'static'), path.join(workDir, 'static'), 'dir');
 symlinkSync(path.join(REPO, 'src', 'plugins'), path.join(workDir, 'src', 'plugins'), 'dir');
-copyFileSync(path.join(REPO, 'configs', 'plugins.json.example'), path.join(workDir, 'configs', 'plugins.json'));
+const pluginConfig = JSON.parse(readFileSync(path.join(REPO, 'configs', 'plugins.json.example'), 'utf8'));
+// 插件独立页面由 staticPaths 提供，需启用对应插件才能访问
+for (const name of ['api-potluck', 'model-usage-stats']) {
+    pluginConfig.plugins[name] = { ...(pluginConfig.plugins[name] || {}), enabled: true };
+}
+writeFileSync(path.join(workDir, 'configs', 'plugins.json'), JSON.stringify(pluginConfig, null, 2));
 writeFileSync(path.join(workDir, 'configs', 'pwd'), E2E_PASSWORD);
 writeFileSync(path.join(workDir, 'configs', 'config.json'), JSON.stringify({
     REQUIRED_API_KEY: 'e2e-api-key',

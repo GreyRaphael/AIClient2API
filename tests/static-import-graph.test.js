@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const STATIC_APP_DIR = path.join(process.cwd(), 'static', 'app');
+const STATIC_UI_DIR = path.join(process.cwd(), 'static', 'ui');
 
 function listJsFiles(dir) {
     const out = [];
@@ -35,8 +35,8 @@ function extractModuleSpecifiers(source) {
     return specifiers;
 }
 
-describe('static/app ESM import graph', () => {
-    const files = listJsFiles(STATIC_APP_DIR);
+describe('static/ui ESM import graph', () => {
+    const files = listJsFiles(STATIC_UI_DIR);
 
     test.each(files.map((file) => [path.relative(process.cwd(), file), file]))(
         '%s resolves every relative import',

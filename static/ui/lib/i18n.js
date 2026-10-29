@@ -2,7 +2,7 @@
  * 统一 i18n 实现：语言状态用 signal 管理，组件渲染时读取 `lang.value` 会自动订阅语言变化。
  *
  * 迁移期说明：
- *  - 旧模块 `static/app/i18n.js` 转发到这里，并保留 data-i18n DOM 扫描直到旧模板全部迁移完毕。
+ *  - 所有页面（控制台 / 登录 / 插件独立页）统一使用本模块，已不再有 data-i18n DOM 扫描。
  *  - zh-CN 同步预加载（首屏 + 回退语言），en-US 首次切换时动态 import。
  *  - 本模块在 import 阶段不访问 document/window，可在 Node（Jest SSR）环境安全加载。
  */

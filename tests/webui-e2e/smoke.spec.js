@@ -466,3 +466,153 @@ test.describe('console shell', () => {
         expect(await page.evaluate(() => localStorage.getItem('authToken'))).toBeNull();
     });
 });
+
+test.describe('plugin pages', () => {
+    test('登录页：中英切换并持久化', async ({ page }) => {
+        await page.goto('/login.html');
+        await expect(page.locator('.logo p')).toHaveText('请登录以继续');
+
+        await page.locator('#languageBtn').click();
+        await page.locator('.language-option[data-lang="en-US"]').click();
+        await expect(page.locator('.logo p')).toHaveText('Please login to continue');
+
+        await page.reload();
+        await expect(page.locator('.logo p')).toHaveText('Please login to continue');
+
+        await page.locator('#languageBtn').click();
+        await page.locator('.language-option[data-lang="zh-CN"]').click();
+        await expect(page.locator('.logo p')).toHaveText('请登录以继续');
+    });
+
+    test('大锅饭用户页：API Key 登录与用量展示', async ({ page, problems }) => {
+        const now = new Date().toISOString();
+        await page.route('**/api/potluckuser/usage', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                data: {
+                    name: 'E2E User',
+                    total: 10,
+                    tokens: { total: 5000, cached: 500 },
+                    lastUsedAt: now,
+                    usage: {
+                        today: 5, limit: 100, remaining: 95,
+                        totalTokens: 1200, cachedTokens: 100,
+                        qps: 1.2, maxQps: 2, rpm: 3, maxRpm: 5, tps: 4, maxTps: 6
+                    },
+                    usageHistory: {
+                        [now.slice(0, 10)]: {
+                            summary: { totalTokens: 1000, requestCount: 5 },
+                            providers: { 'gemini-antigravity': { requestCount: 3, totalTokens: 600 } },
+                            models: { 'gemini-3-flash': { requestCount: 2, totalTokens: 400 } }
+                        }
+                    }
+                }
+            })
+        }));
+
+        await page.goto('/potluck-user.html');
+        await page.locator('#apiKeyInput').fill('maki_e2e_key');
+        await page.locator('#loginBtn').click();
+        await expect(page.locator('.navbar-user')).toContainText('E2E User');
+        await expect(page.locator('.distribution-item').first()).toBeVisible();
+        expect(await page.locator('.calendar-day').count()).toBeGreaterThan(80);
+        expect(problems).toEqual([]);
+    });
+
+    test('大锅饭管理页：统计与 Key 列表', async ({ authedPage: page, problems }) => {
+        const now = new Date().toISOString();
+        const usageHistory = {
+            [now.slice(0, 10)]: {
+                summary: { totalTokens: 1000, requestCount: 5 },
+                providers: { 'gemini-antigravity': { requestCount: 3, totalTokens: 600 } },
+                models: { 'gemini-3-flash': { requestCount: 2, totalTokens: 400 } }
+            }
+        };
+        await page.route('**/api/potluck/keys', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                data: {
+                    keys: [{
+                        id: 'maki_e2e_full_key',
+                        name: 'E2E Key',
+                        maskedKey: 'maki_****e2e',
+                        enabled: true,
+                        todayUsage: 1,
+                        dailyLimit: 100,
+                        todayTotalTokens: 100,
+                        todayCachedTokens: 0,
+                        totalUsage: 2,
+                        totalTokens: 200,
+                        totalCachedTokens: 0,
+                        qps: 0, rpm: 0, maxQps: 0, maxRpm: 0, tps: 0, maxTps: 0,
+                        lastUsedAt: now,
+                        createdAt: now,
+                        usageHistory
+                    }],
+                    stats: {
+                        totalKeys: 1, enabledKeys: 1, todayTotalUsage: 1, totalUsage: 2,
+                        todayTotalTokens: 100, todayCachedTokens: 0, totalTokens: 200, totalCachedTokens: 0,
+                        qps: 0, maxQps: 0, rpm: 0, maxRpm: 0, tps: 0, maxTps: 0,
+                        usageHistory
+                    }
+                }
+            })
+        }));
+
+        await page.goto('/potluck.html');
+        await expect(page.locator('.stats-grid').first()).toContainText('总 Key 数');
+        await expect(page.locator('.key-card')).toContainText('E2E Key');
+        await expect(page.locator('.distribution-item').first()).toBeVisible();
+        expect(problems).toEqual([]);
+    });
+
+    test('模型用量统计页：凭证加载、汇总与明细', async ({ page, problems }) => {
+        const now = new Date().toISOString();
+        const summary = {
+            requestCount: 10, promptTokens: 1000, cachedTokens: 100,
+            completionTokens: 200, totalTokens: 1300,
+            qps: 1, maxQps: 2, rpm: 3, maxRpm: 4, tps: 5, maxTps: 6,
+            lastUsedAt: now
+        };
+        await page.route('**/api/model-usage-stats', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                data: {
+                    summary,
+                    providers: {
+                        'gemini-antigravity': {
+                            summary,
+                            models: {
+                                'gemini-3-flash': {
+                                    requestCount: 10,
+                                    promptTokens: 1000,
+                                    cachedTokens: 100,
+                                    completionTokens: 200,
+                                    totalTokens: 1300,
+                                    lastUsedAt: now
+                                }
+                            }
+                        }
+                    },
+                    daily: { [now.slice(0, 10)]: { totalTokens: 1000, requestCount: 5 } },
+                    updatedAt: now
+                }
+            })
+        }));
+
+        await page.goto('/model-usage-stats.html');
+        await page.locator('#credentialValue').fill('e2e-credential');
+        await page.locator('#connectBtn').click();
+        await expect(page.locator('.providers')).toContainText('gemini-antigravity');
+        await expect(page.locator('tbody')).toContainText('gemini-3-flash');
+        await expect(page.locator('.calendar-day').first()).toBeVisible();
+        expect(problems).toEqual([]);
+    });
+});
+

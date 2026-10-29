@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="login.title">登录 - AIClient2API</title>
+    <title>登录 - AIClient2API</title>
     <link rel="icon" type="image/x-icon" href="https://src.hex2077.dev/logo/favicon.ico">
     <script type="importmap">
     {
@@ -230,169 +230,12 @@
             } catch (e) {}
         })();
     </script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="app/shared.css">
+    <link rel="stylesheet" href="vendor/fontawesome@6.7.2/fa-subset.css">
 </head>
 <body>
-    <div style="position: absolute; top: 20px; right: 20px;" id="langSwitcherContainer"></div>
-    <div class="login-container">
-        <div class="logo">
-            <img src="https://src.hex2077.dev/logo/favicon.ico" alt="Logo" onerror="this.style.display='none'">
-            <h1>AIClient2API</h1>
-            <p data-i18n="login.heading">请登录以继续</p>
-        </div>
-
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="password" data-i18n="login.password">密码</label>
-                <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    data-i18n="login.passwordPlaceholder"
-                    placeholder="请输入密码"
-                    autocomplete="current-password"
-                    required
-                >
-                <div class="error-message" id="errorMessage" data-i18n="login.error.incorrect">密码错误，请重试</div>
-            </div>
-
-            <button type="submit" class="login-button" id="loginButton" data-i18n="login.button">
-                登录
-            </button>
-        </form>
-
-        <div class="footer">
-            <p>&copy; 2077 AIClient2API. All rights reserved.</p>
-        </div>
-    </div>
-
-    <script type="module">
-        import { initI18n, t, setLanguage } from './app/i18n.js';
-        import { initLanguageSwitcher } from './app/language-switcher.js';
-
-        // 初始化多语言
-        initI18n();
-        
-        // 初始化语言切换器
-        const langContainer = document.getElementById('langSwitcherContainer');
-        if (langContainer) {
-            import('./app/language-switcher.js').then(module => {
-                const switcher = module.createLanguageSwitcher();
-                langContainer.appendChild(switcher);
-                
-                // 绑定事件逻辑（由于是动态创建，复用逻辑）
-                const languageBtn = switcher.querySelector('#languageBtn');
-                const languageDropdown = switcher.querySelector('#languageDropdown');
-                const languageOptions = switcher.querySelectorAll('.language-option');
-                
-                languageBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    languageDropdown.classList.toggle('show');
-                });
-                
-                languageOptions.forEach(option => {
-                    option.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const lang = option.getAttribute('data-lang');
-                        setLanguage(lang);
-                        switcher.querySelector('.current-lang').textContent = lang === 'zh-CN' ? '中文' : 'EN';
-                        languageOptions.forEach(opt => opt.classList.remove('active'));
-                        option.classList.add('active');
-                        languageDropdown.classList.remove('show');
-                    });
-                });
-                
-                document.addEventListener('click', () => {
-                    languageDropdown.classList.remove('show');
-                });
-            });
-        }
-
-        const loginForm = document.getElementById('loginForm');
-        const passwordInput = document.getElementById('password');
-        const errorMessage = document.getElementById('errorMessage');
-        const loginButton = document.getElementById('loginButton');
-
-        // 检查是否已经登录
-        checkLoginStatus();
-
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const password = passwordInput.value.trim();
-            
-            if (!password) {
-                showError(t('login.error.empty'));
-                return;
-            }
-
-            // 禁用按钮并显示加载状态
-            loginButton.disabled = true;
-            loginButton.innerHTML = `<span class="loading"></span>${t('login.loggingIn')}`;
-            errorMessage.classList.remove('show');
-
-            try {
-                // 直接使用fetch进行登录请求（登录页面不需要token）
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        password
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.success) {
-                    // 登录成功，保存token
-                    localStorage.setItem('authToken', data.token);
-                    
-                    // 跳转到主页
-                    window.location.href = '/';
-                } else {
-                    const errorMsg = data.messageCode ? t(data.messageCode, data.messageParams) : (data.message || t('login.error.incorrect'));
-                    showError(errorMsg);
-                    loginButton.disabled = false;
-                    loginButton.innerHTML = t('login.button');
-                    passwordInput.value = '';
-                    passwordInput.focus();
-                }
-            } catch (error) {
-                console.error('登录错误:', error);
-                showError(t('login.error.failed'));
-                loginButton.disabled = false;
-                loginButton.innerHTML = t('login.button');
-            }
-        });
-
-        function showError(message) {
-            errorMessage.textContent = message;
-            errorMessage.classList.add('show');
-            passwordInput.classList.add('error');
-            
-            setTimeout(() => {
-                passwordInput.classList.remove('error');
-            }, 300);
-        }
-
-        function checkLoginStatus() {
-            const token = localStorage.getItem('authToken');
-            
-            if (token) {
-                // Token存在，跳转到主页
-                window.location.href = '/';
-            }
-        }
-
-        // 监听输入，清除错误提示
-        passwordInput.addEventListener('input', () => {
-            errorMessage.classList.remove('show');
-        });
-
-        // 页面加载时聚焦到密码输入框
-        passwordInput.focus();
-    </script>
-    </body>
+    <div id="page"></div>
+    <div id="toastContainer" class="toast-container"></div>
+    <script type="module" src="/ui/pages/login.js"></script>
+</body>
 </html>

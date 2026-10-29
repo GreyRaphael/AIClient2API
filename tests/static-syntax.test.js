@@ -5,14 +5,14 @@
  * 加载失败（按钮全部失灵、运行时间不更新）。静态文件没有构建步骤，语法错误只有
  * 到浏览器端才暴露，故在此以 SyntaxError 检查方式守住。
  *
- * 覆盖 static/app 下全部 .js 文件（按 ES Module 解析）。
+ * 覆盖 static/ui 下全部 .js 文件（按 ES Module 解析）。
  */
 
 import { jest } from '@jest/globals';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const STATIC_APP_DIR = path.join(process.cwd(), 'static', 'app');
+const STATIC_UI_DIR = path.join(process.cwd(), 'static', 'ui');
 
 function listJsFiles(dir) {
     const out = [];
@@ -35,8 +35,8 @@ function listJsFiles(dir) {
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
-describe('static/app 前端文件语法完整性', () => {
-    const files = listJsFiles(STATIC_APP_DIR);
+describe('static/ui 前端文件语法完整性', () => {
+    const files = listJsFiles(STATIC_UI_DIR);
 
     test('应存在前端文件', () => {
         expect(files.length).toBeGreaterThan(0);
