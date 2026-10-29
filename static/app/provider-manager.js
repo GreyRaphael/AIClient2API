@@ -4,7 +4,6 @@ import { providerStats, updateProviderStats } from './constants.js';
 import { showToast, formatUptime, getProviderConfigs, getBaseProviderConfigs, escapeHtml } from './utils.js';
 import { fileUploadHandler } from './file-upload.js';
 import { t, getCurrentLanguage } from './i18n.js';
-import { updateModelsProviderConfigs } from './models-manager.js';
 import { isOAuthProvider, getGroupableProviderIds, getProviderAuthFilePath } from '../ui/lib/provider-registry.js';
 import { updateUsageProviderConfigs } from './usage-manager.js';
 import { updateConfigProviderConfigs } from './config-manager.js';
@@ -99,7 +98,7 @@ async function loadSystemInfo() {
 /**
  * 加载服务运行模式信息
  */
-async function loadServiceModeInfo() {
+export async function loadServiceModeInfo() {
     try {
         const data = await window.apiClient.get('/service-mode');
         
@@ -233,8 +232,7 @@ async function loadProviders(forceRefreshSupported = false) {
             const providerConfigs = getProviderConfigs(cachedSupportedProviders);
             
             // 动态更新各个页面的提供商信息
-            updateModelsProviderConfigs(providerConfigs);
-                updateUsageProviderConfigs(providerConfigs);
+            updateUsageProviderConfigs(providerConfigs);
             updateConfigProviderConfigs(providerConfigs);
             updateProviderFilterOptions(providerConfigs);
                         isStaticProviderConfigsUpdated = true;

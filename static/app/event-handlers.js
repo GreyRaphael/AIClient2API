@@ -3,7 +3,7 @@
 import { elements } from './constants.js';
 import { showToast } from './utils.js';
 import { t } from './i18n.js';
-import { checkUpdate, performUpdate, loadProviders } from './provider-manager.js';
+import { loadProviders } from './provider-manager.js';
 import { serviceMode } from '../ui/store/system.js';
 import { confirmDialog } from '../ui/store/confirm.js';
 
@@ -74,30 +74,6 @@ function initEventListeners() {
     // if (providerPoolsInput) {
     //     providerPoolsInput.addEventListener('input', handleProviderPoolsConfigChange);
     // }
-
-    // 检查更新按钮
-    const checkUpdateBtn = document.getElementById('checkUpdateBtn');
-    if (checkUpdateBtn) {
-        checkUpdateBtn.addEventListener('click', () => checkUpdate(false));
-    }
-
-    // 执行更新按钮
-    const performUpdateBtn = document.getElementById('performUpdateBtn');
-    if (performUpdateBtn) {
-        performUpdateBtn.addEventListener('click', performUpdate);
-    }
-
-    // 刷新提供商状态按钮
-    const refreshProviderStatusBtn = document.getElementById('refreshProviderStatusBtn');
-    if (refreshProviderStatusBtn) {
-        refreshProviderStatusBtn.addEventListener('click', () => {
-            const icon = refreshProviderStatusBtn.querySelector('i');
-            if (icon) icon.classList.add('fa-spin');
-            loadProviders(true).finally(() => {
-                if (icon) icon.classList.remove('fa-spin');
-            });
-        });
-    }
 
     // 添加提供商组按钮
     const addProviderGroupBtn = document.getElementById('add-provider-group-btn');

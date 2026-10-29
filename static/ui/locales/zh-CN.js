@@ -832,6 +832,7 @@ export default {
     'models.empty': '暂无可用模型',
     'models.loadError': '加载模型列表失败',
     'models.copied': '已复制',
+    'models.refreshCapabilities': '强制刷新模型能力（绕过 TTL）',
     'models.clickToCopy': '点击复制模型信息',
     'models.params.none': 'null',
 

@@ -17,7 +17,7 @@
 
 /** @type {SectionDef[]} */
 export const SECTIONS = [
-    { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'fa-tachometer-alt', legacy: { src: 'components/section-dashboard.html' } },
+    { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'fa-tachometer-alt', load: () => import('./sections/dashboard/index.js') },
     { id: 'access', labelKey: 'nav.access', icon: 'fa-key', load: () => import('./sections/access/index.js') },
     { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', load: () => import('./sections/guide.js') },
     { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', legacy: { src: 'components/section-config.html' } },

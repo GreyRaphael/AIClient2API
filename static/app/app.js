@@ -33,8 +33,7 @@ import {
 } from './event-stream.js';
 
 import {
-    loadSystemInfo,
-    updateTimeDisplay,
+    loadServiceModeInfo,
     loadProviders,
     openProviderManager,
     showAuthModal,
@@ -89,7 +88,7 @@ let isAppInitialized = false;
  */
 async function loadInitialData() {
     await Promise.all([
-        loadSystemInfo(),
+        loadServiceModeInfo(),
         loadProviders()
     ]);
 }
@@ -161,11 +160,6 @@ async function initApp() {
 
     // 显示欢迎消息
     showToast(t('common.success'), t('common.welcome'), 'success');
-    
-    // 每5秒更新服务器时间和运行时间显示
-    setInterval(() => {
-        updateTimeDisplay();
-    }, 5000);
     
     // 定期刷新系统信息
     setInterval(() => {

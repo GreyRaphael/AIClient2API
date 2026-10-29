@@ -18,11 +18,12 @@ export function formatUptime(seconds) {
 /**
  * 格式化服务器时间（按当前语言）。
  * @param {string|number|Date|null|undefined} value
+ * @param {string} [locale]
  * @returns {string}
  */
-export function formatServerTime(value) {
+export function formatServerTime(value, locale) {
     if (!value) return '--';
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return '--';
-    return date.toLocaleString();
+    return date.toLocaleString(locale);
 }

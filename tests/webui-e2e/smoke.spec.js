@@ -79,6 +79,19 @@ test.describe('console shell', () => {
         expect(await html.getAttribute('data-theme')).toBe(toggled);
     });
 
+    test('仪表盘：系统信息、模型列表与赞助商', async ({ authedPage: page, problems }) => {
+        await page.goto('/#dashboard');
+        await expect(page.locator('section#dashboard.active')).toBeVisible();
+        await expect(page.locator('#appVersion')).not.toHaveText('--');
+        await expect(page.locator('#nodeVersion')).not.toHaveText('--');
+        await expect(page.locator('#uptime')).not.toHaveText('--');
+        await expect(page.locator('#serviceMode')).toContainText(/独立模式|子进程模式/);
+        await expect(page.locator('#checkUpdateBtn')).toBeVisible();
+        await expect(page.locator('#sponsors')).toContainText('项目赞助商');
+        await expect(page.locator('.models-toolbar').or(page.locator('.models-empty'))).toBeVisible();
+        expect(problems).toEqual([]);
+    });
+
     test('使用指南页面渲染 FAQ 并随语言切换', async ({ authedPage: page }) => {
         await page.goto('/#guide');
         await expect(page.locator('section#guide.active')).toBeVisible();
@@ -159,6 +172,8 @@ test.describe('console shell', () => {
     test('日志页：SSE 日志、自动滚动开关与清空', async ({ authedPage: page, problems }) => {
         await page.goto('/#logs');
         await expect(page.locator('section#logs.active')).toBeVisible();
+        // 等 SSE 连接建立后再触发日志，避免事件早于订阅
+        await expect(page.locator('#serverStatus')).toContainText(/已连接|Connected/);
 
         const toggle = page.locator('#toggleAutoScroll');
         await expect(toggle).toContainText('自动滚动: 开');
@@ -167,14 +182,13 @@ test.describe('console shell', () => {
         await toggle.click();
         await expect(toggle).toContainText('自动滚动: 开');
 
-        // 触发服务端请求产生 SSE 日志
+        // 触发经过 request-handler 的模型请求，产生 info 级 SSE 日志
         await page.evaluate(async () => {
-            const token = localStorage.getItem('authToken');
             for (let i = 0; i < 3; i++) {
-                await fetch('/api/system', { headers: { Authorization: `Bearer ${token}` } });
+                await fetch('/v1/models', { headers: { Authorization: 'Bearer e2e-api-key' } });
             }
         });
-        await expect(page.locator('#logsContainer .log-entry').first()).toBeVisible();
+        await expect(page.locator('#logsContainer .log-entry').first()).toBeVisible({ timeout: 15000 });
 
         const before = await page.locator('#logsContainer .log-entry').count();
         await page.locator('#clearLogs').click();

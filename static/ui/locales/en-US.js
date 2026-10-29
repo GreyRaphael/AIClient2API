@@ -832,6 +832,7 @@ export default {
     'models.empty': 'No models available',
     'models.loadError': 'Failed to load models',
     'models.copied': 'Copied',
+    'models.refreshCapabilities': 'Force refresh model capabilities (bypass TTL)',
     'models.clickToCopy': 'Click to copy model info',
     'models.params.none': 'null',
 

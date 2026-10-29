@@ -29,82 +29,6 @@ export function setLanguage(language) {
     return setLanguageUI(language);
 }
 
-/**
- * 更新仪表盘赞助商/联系方式图片（旧逻辑按语言切换图片与文案）。
- * @param {string} language
- */
-function updateDashboardImages(language) {
-    const sponsorImg = document.getElementById('sponsor-img');
-    const sponsorTitle = document.getElementById('sponsor-title');
-    const sponsorDesc = document.getElementById('sponsor-desc');
-
-    const wechatImg = document.getElementById('wechat-img');
-    const wechatIcon = document.getElementById('wechat-icon');
-    const wechatTitle = document.getElementById('wechat-title');
-    const wechatDesc = document.getElementById('wechat-desc');
-
-    if (language === 'en-US') {
-        if (sponsorImg) {
-            sponsorImg.src = 'static/coffee.png';
-            sponsorImg.alt = 'Buy me a coffee';
-            if (sponsorTitle) {
-                sponsorTitle.setAttribute('data-i18n', 'dashboard.contact.coffee');
-                sponsorTitle.textContent = t('dashboard.contact.coffee');
-            }
-            if (sponsorDesc) {
-                sponsorDesc.setAttribute('data-i18n', 'dashboard.contact.coffeeDesc');
-                sponsorDesc.textContent = t('dashboard.contact.coffeeDesc');
-            }
-        }
-
-        if (wechatImg) {
-            wechatImg.src = 'static/x.com.png';
-            wechatImg.alt = 'X.com';
-            if (wechatIcon) {
-                wechatIcon.className = 'fab fa-x-twitter';
-            }
-            if (wechatTitle) {
-                wechatTitle.setAttribute('data-i18n', 'dashboard.contact.x');
-                wechatTitle.textContent = t('dashboard.contact.x') || 'Follow on X.com';
-            }
-            if (wechatDesc) {
-                wechatDesc.setAttribute('data-i18n', 'dashboard.contact.xDesc');
-                wechatDesc.textContent = t('dashboard.contact.xDesc') || 'Follow us on X for latest updates';
-            }
-        }
-        return;
-    }
-
-    if (sponsorImg) {
-        sponsorImg.src = 'static/sponsor.png';
-        sponsorImg.alt = '赞助二维码';
-        if (sponsorTitle) {
-            sponsorTitle.setAttribute('data-i18n', 'dashboard.contact.sponsor');
-            sponsorTitle.textContent = t('dashboard.contact.sponsor');
-        }
-        if (sponsorDesc) {
-            sponsorDesc.setAttribute('data-i18n', 'dashboard.contact.sponsorDesc');
-            sponsorDesc.textContent = t('dashboard.contact.sponsorDesc');
-        }
-    }
-
-    if (wechatImg) {
-        wechatImg.src = 'static/wechat.png';
-        wechatImg.alt = '微信二维码';
-        if (wechatIcon) {
-            wechatIcon.className = 'fab fa-weixin';
-        }
-        if (wechatTitle) {
-            wechatTitle.setAttribute('data-i18n', 'dashboard.contact.wechat');
-            wechatTitle.textContent = t('dashboard.contact.wechat');
-        }
-        if (wechatDesc) {
-            wechatDesc.setAttribute('data-i18n', 'dashboard.contact.wechatDesc');
-            wechatDesc.textContent = t('dashboard.contact.wechatDesc');
-        }
-    }
-}
-
 const I18N_SELECTOR = [
     '[data-i18n]',
     '[data-i18n-html]',
@@ -164,7 +88,6 @@ function updatePageLanguage() {
 // 初始化多语言
 export function initI18n() {
     updatePageLanguage();
-    updateDashboardImages(lang.value);
 
     // 动态插入的文本、HTML 和属性使用同一套翻译逻辑。
     const observer = new MutationObserver((mutations) => {
@@ -186,7 +109,6 @@ export function initI18n() {
 // 语言切换后刷新旧模板（新组件通过 signal 自动重渲染，无需扫描）
 onLanguageChange(() => {
     updatePageLanguage();
-    updateDashboardImages(lang.value);
 });
 
 // 导出所有函数
