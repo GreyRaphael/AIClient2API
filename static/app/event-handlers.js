@@ -5,6 +5,7 @@ import { showToast } from './utils.js';
 import { t } from './i18n.js';
 import { checkUpdate, performUpdate, loadProviders } from './provider-manager.js';
 import { serviceMode } from '../ui/store/system.js';
+import { confirmDialog } from '../ui/store/confirm.js';
 
 /**
  * 初始化所有事件监听器
@@ -387,7 +388,7 @@ async function handleRestart() {
  */
 async function handleReloadConfig() {
     // 确认重载操作
-    if (!confirm(t('header.reload.confirm'))) {
+    if (!(await confirmDialog({ title: t('header.reload'), message: t('header.reload.confirm') }))) {
         return;
     }
     
@@ -409,7 +410,7 @@ async function handleReloadConfig() {
  */
 async function handleRestartService() {
     // 确认重启操作
-    if (!confirm(t('header.restart.confirm'))) {
+    if (!(await confirmDialog({ title: t('header.restart'), message: t('header.restart.confirm') }))) {
         return;
     }
     

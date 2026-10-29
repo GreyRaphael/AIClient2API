@@ -177,8 +177,9 @@ test.describe('console shell', () => {
         await expect(page.locator('#logsContainer .log-entry').first()).toBeVisible();
 
         const before = await page.locator('#logsContainer .log-entry').count();
-        page.once('dialog', (dialog) => dialog.accept());
         await page.locator('#clearLogs').click();
+        await expect(page.locator('.confirm-dialog')).toBeVisible();
+        await page.locator('.confirm-dialog .btn-danger').click();
         await expect(page.locator('#toastContainer')).toContainText('清空成功');
         expect(await page.locator('#logsContainer .log-entry').count()).toBeLessThan(before);
         expect(problems).toEqual([]);
@@ -186,8 +187,9 @@ test.describe('console shell', () => {
 
     test('登出清除 token 并回到登录页', async ({ authedPage: page }) => {
         await page.goto('/');
-        page.once('dialog', (dialog) => dialog.accept());
         await page.locator('#logoutBtn').click();
+        await expect(page.locator('.confirm-dialog')).toBeVisible();
+        await page.locator('.confirm-dialog .btn-danger').click();
         await page.waitForURL(/login\.html/);
         expect(await page.evaluate(() => localStorage.getItem('authToken'))).toBeNull();
     });

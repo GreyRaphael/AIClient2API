@@ -10,6 +10,7 @@ import { theme, toggleTheme } from '../lib/theme.js';
 import { serviceMode } from '../store/system.js';
 import { clearToken, redirectToLogin } from '../lib/auth.js';
 import { toast } from '../store/toast.js';
+import { confirmDialog } from '../store/confirm.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 
 function LanguageSwitcher() {
@@ -63,7 +64,13 @@ export function Header() {
     }, [menuOpen]);
 
     const handleLogout = async () => {
-        if (!confirm(`${t('common.confirm')} ${t('header.logout')}?`)) return;
+        const confirmed = await confirmDialog({
+            title: t('header.logout'),
+            message: `${t('common.confirm')} ${t('header.logout')}?`,
+            danger: true,
+            confirmLabel: t('header.logout')
+        });
+        if (!confirmed) return;
         clearToken();
         redirectToLogin();
     };

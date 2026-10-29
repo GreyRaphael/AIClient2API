@@ -6,5 +6,5 @@ import { h } from 'preact';
 import htm from 'htm';
 
 export const html = htm.bind(h);
-export { render, Fragment } from 'preact';
+export { render, Fragment, createPortal } from 'preact';
 export { useState, useEffect, useRef, useMemo, useCallback } from 'preact/hooks';

@@ -3,6 +3,7 @@ import { html, useEffect, useRef } from '../html.js';
 import { t } from '../lib/i18n.js';
 import { api } from '../lib/api.js';
 import { toast } from '../store/toast.js';
+import { confirmDialog } from '../store/confirm.js';
 import { entries, autoScroll, clearEntries } from '../store/logs.js';
 
 export default function LogsSection() {
@@ -25,7 +26,12 @@ export default function LogsSection() {
     };
 
     const handleClear = async () => {
-        if (!confirm(t('logs.clear.confirm.msg'))) return;
+        const confirmed = await confirmDialog({
+            title: t('logs.clear'),
+            message: t('logs.clear.confirm.msg'),
+            danger: true
+        });
+        if (!confirmed) return;
         try {
             await api.post('/system/clear-log');
             clearEntries();

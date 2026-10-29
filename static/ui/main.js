@@ -5,6 +5,7 @@
 import { html, render } from './html.js';
 import { App } from './app.js';
 import { ToastHost } from './components/Toast.js';
+import { ConfirmDialogHost } from './components/ConfirmDialog.js';
 import { initLanguage, t } from './lib/i18n.js';
 import { initTheme } from './lib/theme.js';
 import { api } from './lib/api.js';
@@ -74,6 +75,7 @@ async function boot() {
 
     const appRoot = document.getElementById('app');
     const toastRoot = document.getElementById('toastContainer');
+    const confirmRoot = document.getElementById('confirm-root');
     if (!appRoot) {
         console.error('Missing #app root');
         return;
@@ -81,6 +83,9 @@ async function boot() {
     render(html`<${App} />`, appRoot);
     if (toastRoot) {
         render(html`<${ToastHost} />`, toastRoot);
+    }
+    if (confirmRoot) {
+        render(html`<${ConfirmDialogHost} />`, confirmRoot);
     }
 }
 

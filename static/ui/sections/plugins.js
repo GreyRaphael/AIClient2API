@@ -12,6 +12,7 @@ import { Spinner } from '../components/Spinner.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Switch } from '../components/Switch.js';
 import { useEvent } from '../hooks/useEvent.js';
+import { confirmDialog } from '../store/confirm.js';
 
 const BADGES = [
     { key: 'hasMiddleware', className: 'middleware', label: 'Middleware', title: 'plugins.badge.middleware.title' },
@@ -136,7 +137,12 @@ export default function PluginsSection() {
     };
 
     const handleUninstall = async (plugin) => {
-        if (!confirm(t('plugins.uninstall.confirm', { name: plugin.name }))) return;
+        const confirmed = await confirmDialog({
+            title: t('plugins.uninstall.title'),
+            message: t('plugins.uninstall.confirm', { name: plugin.name }),
+            danger: true
+        });
+        if (!confirmed) return;
         try {
             const response = await api.delete(`/plugins/${encodeURIComponent(plugin.name)}`);
             if (response?.success === false) {

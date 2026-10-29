@@ -11,6 +11,9 @@ import { CopyButton } from '@ui/components/CopyButton.js';
 import { CodeBlock } from '@ui/components/CodeBlock.js';
 import { toasts } from '@ui/store/toast.js';
 import { sanitizeHtml } from '@ui/lib/sanitize.js';
+import { Modal } from '@ui/components/Modal.js';
+import { ConfirmDialogHost } from '@ui/components/ConfirmDialog.js';
+import { Pagination } from '@ui/components/Pagination.js';
 
 describe('UI 组件 SSR 冒烟', () => {
     test('StatusBadge 渲染当前连接状态', () => {
@@ -48,6 +51,15 @@ describe('UI 组件 SSR 冒烟', () => {
         expect(markup).toContain('type="checkbox"');
         expect(markup).toContain('checked');
         expect(markup).toContain('toggle-slider');
+    });
+
+    test('Modal / Pagination / ConfirmDialog SSR', () => {
+        const modal = render(html`<${Modal} title="标题"><p>内容</p><//>`);
+        expect(modal).toContain('role="dialog"');
+        expect(modal).toContain('标题');
+        expect(render(html`<${ConfirmDialogHost} />`)).toBe('');
+        const pager = render(html`<${Pagination} page=${2} pageSize=${10} total=${35} onChange=${() => {}} />`);
+        expect(pager).toContain('第 2/4 页');
     });
 
     test('sanitizeHtml 在 Node 环境退化为纯文本', () => {
