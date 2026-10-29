@@ -11,6 +11,7 @@ import { toast } from '../store/toast.js';
 import { Spinner } from '../components/Spinner.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Switch } from '../components/Switch.js';
+import { useEvent } from '../hooks/useEvent.js';
 
 const BADGES = [
     { key: 'hasMiddleware', className: 'middleware', label: 'Middleware', title: 'plugins.badge.middleware.title' },
@@ -92,6 +93,11 @@ export default function PluginsSection() {
             setMarketLoading(false);
         }
     }, [marketUrl]);
+
+    useEvent('plugin_update', () => {
+        void loadPlugins();
+        if (market !== null) void loadMarket();
+    });
 
     useEffect(() => {
         let alive = true;

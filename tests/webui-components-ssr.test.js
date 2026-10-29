@@ -10,6 +10,7 @@ import { Switch } from '@ui/components/Switch.js';
 import { CopyButton } from '@ui/components/CopyButton.js';
 import { CodeBlock } from '@ui/components/CodeBlock.js';
 import { toasts } from '@ui/store/toast.js';
+import { sanitizeHtml } from '@ui/lib/sanitize.js';
 
 describe('UI 组件 SSR 冒烟', () => {
     test('StatusBadge 渲染当前连接状态', () => {
@@ -47,6 +48,11 @@ describe('UI 组件 SSR 冒烟', () => {
         expect(markup).toContain('type="checkbox"');
         expect(markup).toContain('checked');
         expect(markup).toContain('toggle-slider');
+    });
+
+    test('sanitizeHtml 在 Node 环境退化为纯文本', () => {
+        expect(sanitizeHtml('<a href="https://x">t</a><br><script>bad()</script>')).toContain('t');
+        expect(sanitizeHtml('<a href="https://x">t</a><br>')).not.toContain('<a');
     });
 
     test('CopyButton / CodeBlock 保留文本与按钮结构', () => {
