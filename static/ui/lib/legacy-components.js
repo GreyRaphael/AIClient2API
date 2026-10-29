@@ -5,7 +5,7 @@
 const componentCache = new Map();
 
 /**
- * @param {string} src 例如 `components/section-logs.html`
+ * @param {string} src 例如 `components/section-dashboard.html`
  * @returns {Promise<string>}
  */
 export async function loadComponentHtml(src) {
