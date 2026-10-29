@@ -8,7 +8,7 @@
     border: 1px solid var(--border-color);
     overflow: hidden;
     margin-top: -0.5rem;
-    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: pg-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 顶部导航限制 */
@@ -60,17 +60,17 @@
     border: 1px solid transparent;
 }
 
-.pg-workspace .pg-indicator.active { 
-    color: var(--primary-color); 
+.pg-workspace .pg-indicator.active {
+    color: var(--primary-color);
     background: var(--primary-10);
     border: 1px solid var(--primary-20);
     box-shadow: 0 0 12px var(--primary-10);
 }
 
-.pg-workspace .pg-indicator .dot { 
-    width: 8px; 
-    height: 8px; 
-    border-radius: 50%; 
+.pg-workspace .pg-indicator .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
     background: currentColor;
     position: relative;
 }
@@ -81,7 +81,7 @@
     top: 0; left: 0; right: 0; bottom: 0;
     background: currentColor;
     border-radius: 50%;
-    animation: pulse 2s infinite;
+    animation: pg-pulse 2s infinite;
 }
 
 .pg-workspace .pg-header-tools {
@@ -123,7 +123,7 @@
 }
 
 /* 侧边栏 & 配置面板 */
-.pg-workspace .pg-side-nav, 
+.pg-workspace .pg-side-nav,
 .pg-workspace .pg-config-panel {
     background: var(--bg-secondary);
     padding: 1.75rem;
@@ -180,7 +180,7 @@
     border-radius: 24px;
     border: 1px solid var(--border-color);
     box-shadow: var(--shadow-lg);
-    animation: slideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: pg-slide-in 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pg-workspace .welcome-icon {
@@ -227,10 +227,10 @@
 }
 
 .pg-workspace .pg-message.user .pg-avatar { background: var(--primary-color); color: white; }
-.pg-workspace .pg-message.assistant .pg-avatar { 
-    background: var(--bg-tertiary); 
-    color: var(--primary-color); 
-    border: 1px solid var(--border-color); 
+.pg-workspace .pg-message.assistant .pg-avatar {
+    background: var(--bg-tertiary);
+    color: var(--primary-color);
+    border: 1px solid var(--border-color);
 }
 
 .pg-workspace .pg-message-bubble {
@@ -320,12 +320,6 @@
 
 .pg-workspace .pg-message.user .pg-message-actions {
     flex-direction: row-reverse;
-}
-
-.pg-workspace .pg-action-link.btn-retry-msg:hover {
-    color: var(--warning-color);
-    background: var(--warning-15);
-    border-color: var(--warning-20);
 }
 
 /* 输入框区域 */
@@ -494,36 +488,6 @@
     font-weight: 600;
 }
 
-.pg-workspace .slider-info .val {
-    background: var(--primary-10);
-    color: var(--primary-color);
-    padding: 0.2rem 0.6rem;
-    border-radius: 6px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-}
-
-.pg-workspace .pg-num-input {
-    width: 80px;
-    border: 1.5px solid var(--border-color);
-    background: var(--bg-secondary);
-    text-align: center;
-    border-radius: 8px;
-    font-size: 0.85rem;
-    padding: 0.4rem;
-    color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 700;
-    outline: none;
-    transition: all 0.2s ease;
-}
-
-.pg-workspace .pg-num-input:focus {
-    border-color: var(--primary-color);
-    background: var(--bg-primary);
-    box-shadow: 0 0 0 3px var(--primary-10);
-}
-
 .pg-workspace .pg-select-inline {
     border: 1.5px solid var(--border-color);
     background: var(--bg-secondary);
@@ -651,7 +615,7 @@
         padding: 0.5rem 1rem;
         gap: 0.5rem;
     }
-    
+
     .pg-mobile-tabs .pg-tab-btn {
         flex: 1;
         padding: 0.65rem 0.5rem;
@@ -669,13 +633,13 @@
         transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         box-shadow: var(--shadow-sm);
     }
-    
+
     .pg-mobile-tabs .pg-tab-btn:hover {
         color: var(--primary-color);
         background: var(--bg-secondary);
         border-color: var(--primary-20);
     }
-    
+
     .pg-mobile-tabs .pg-tab-btn.active {
         background: var(--primary-10);
         color: var(--primary-color);
@@ -683,28 +647,28 @@
         box-shadow: 0 2px 8px var(--primary-10);
     }
 
-    .pg-workspace .pg-main-layout { 
-        grid-template-columns: 1fr; 
+    .pg-workspace .pg-main-layout {
+        grid-template-columns: 1fr;
     }
-    
+
     /* 默认在移动端隐藏所有面板，根据 active-tab-xxx 展示 */
-    .pg-workspace .pg-side-nav, 
-    .pg-workspace .pg-chat-column, 
-    .pg-workspace .pg-config-panel { 
-        display: none !important; 
+    .pg-workspace .pg-side-nav,
+    .pg-workspace .pg-chat-column,
+    .pg-workspace .pg-config-panel {
+        display: none !important;
     }
-    
+
     .pg-workspace.active-tab-chat .pg-chat-column {
         display: flex !important;
     }
-    
+
     .pg-workspace.active-tab-settings .pg-side-nav {
         display: flex !important;
         width: 100% !important;
         border-right: none !important;
         background: var(--bg-primary) !important;
     }
-    
+
     .pg-workspace.active-tab-parameters .pg-config-panel {
         display: flex !important;
         width: 100% !important;
@@ -733,21 +697,21 @@
         margin-top: 1rem;
         box-shadow: 0 4px 12px var(--primary-20);
     }
-    
+
     .pg-workspace .pg-mobile-start-chat-btn:hover {
         background: var(--primary-hover);
         transform: translateY(-1px);
     }
-    
+
     .pg-workspace .pg-mobile-only-divider {
         display: block !important;
     }
 }
 
 /* 其他动画 & 辅助类 */
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0; } 100% { transform: scale(1); opacity: 0; } }
+@keyframes pg-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pg-slide-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pg-pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0; } 100% { transform: scale(1); opacity: 0; } }
 @keyframes pg-blink { 0%, 100% { opacity: 1; transform: scaleY(1); } 50% { opacity: 0.3; transform: scaleY(0.8); } }
 
 /* 流式光标美化 */

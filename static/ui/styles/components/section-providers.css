@@ -155,25 +155,6 @@
     color: var(--text-primary);
 }
 
-.copy-btn {
-    position: absolute;
-    right: 0.5rem;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 0.25rem;
-    transition: var(--transition);
-}
-
-.copy-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--primary-color);
-}
-
 /* 提供商类型显示 */
 .provider-type-text {
     font-size: 16px;
@@ -233,24 +214,6 @@
     font-weight: 600;
 }
 
-.provider-aux-modal .modal-cancel {
-    padding: 0.75rem 1.5rem;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: var(--transition);
-}
-
-.provider-aux-modal .modal-cancel:hover {
-    background: var(--neutral-200);
-    border-color: var(--neutral-500);
-    transform: translateY(-1px);
-}
-
 /* 授权信息样式 */
 .auth-info {
     display: flex;
@@ -273,24 +236,6 @@
     position: relative;
     display: flex;
     align-items: center;
-}
-
-.auth-url-container .copy-btn {
-    position: absolute;
-    right: 0.5rem;
-    top: 50%;
-    transform: translateY(-50%);
-    background: var(--primary-color);
-    color: white;
-    border: none;
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    transition: var(--transition);
-}
-
-.auth-url-container .copy-btn:hover {
-    background: var(--btn-primary-hover);
 }
 
 .provider-modal-body {
@@ -452,28 +397,6 @@
 .btn-delete:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px var(--danger-40);
-}
-
-.btn-quick-link {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 11px;
-    cursor: pointer;
-    margin-left: 8px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 6px var(--indigo-30);
-}
-
-.btn-quick-link:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
-    background: linear-gradient(135deg, var(--btn-primary-hover) 0%, var(--primary-color) 100%);
 }
 
 .btn-batch-link {
@@ -728,26 +651,6 @@
     text-decoration: line-through;
 }
 
-.disabled-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-weight: 500;
-    padding: 0.25rem 0.5rem;
-    border-radius: 6px;
-    transition: var(--transition);
-}
-
-.provider-item-detail.disabled .disabled-status {
-    color: var(--neutral-500);
-    background: var(--primary-10);
-}
-
-.provider-item-detail:not(.disabled) .disabled-status {
-    color: var(--primary-color);
-    background: var(--success-10);
-}
-
 /* 禁用/启用按钮特殊样式 */
 .btn-warning {
     background: linear-gradient(135deg, var(--warning-color) 0%, var(--warning-text-dark) 100%);
@@ -891,10 +794,6 @@
     border-color: var(--neutral-400);
 }
 
-.model-selection-item.model-selection-hidden {
-    display: none;
-}
-
 .model-selection-item .model-name {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1005,54 +904,6 @@
     background: #10b981;
     color: white;
     transform: translateY(-1px);
-}
-
-/* 提供商辅助弹窗：在共享 modal 基础上覆盖标题/底部样式 */
-.provider-aux-modal .modal-header {
-    padding: 1.5rem 2rem;
-    background: linear-gradient(135deg, var(--info-bg-alt) 0%, var(--white) 100%);
-}
-
-.provider-aux-modal .modal-header h3 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.provider-aux-modal .modal-body {
-    padding: 2rem;
-}
-
-.provider-aux-modal .modal-footer {
-    padding: 1.5rem 2rem;
-    gap: 1rem;
-    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--white) 100%);
-}
-
-.open-auth-btn {
-    padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-    color: white;
-    border: none;
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: var(--transition);
-    box-shadow: 0 2px 8px var(--primary-30);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.open-auth-btn:hover {
-    background: linear-gradient(135deg, var(--btn-primary-hover) 0%, var(--primary-color) 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px var(--primary-40);
 }
 
 .auth-instructions {
@@ -1446,7 +1297,6 @@
     text-align: center;
 }
 
-
 .form-group {
     margin-bottom: 1.5rem;
 }
@@ -1465,7 +1315,7 @@
     font-size: 0.9rem;
 }
 
-.optional-tag, .form-group label .optional-mark {
+.optional-tag {
     font-size: 0.75rem;
     color: var(--text-tertiary);
     font-weight: 400;
@@ -1496,7 +1346,6 @@
 .form-control::placeholder {
     color: var(--text-tertiary);
 }
-
 
 /* 复选框样式 */
 .form-group input[type="checkbox"] {
@@ -1624,7 +1473,7 @@
     .provider-summary-actions { margin-left: 0; }
     .form-grid { grid-template-columns: 1fr; }
     .provider-item-detail.disabled { opacity: 0.5; }
-    .disabled-status { font-size: 0.75rem; padding: 0.2rem 0.4rem; }
+
     .provider-actions-group { flex-wrap: wrap; gap: 0.5rem; }
     .modal-content { width: 95%; max-height: 90vh; }
     .stats-grid { grid-template-columns: 1fr; }
@@ -1634,8 +1483,7 @@
 [data-theme="dark"] .provider-modal-header { background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%); }
 [data-theme="dark"] .provider-item-header:hover { background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%); }
 [data-theme="dark"] .provider-error-info { background: linear-gradient(135deg, var(--danger-bg) 0%, var(--danger-bg-medium) 100%); border-color: var(--danger-border); }
-[data-theme="dark"] .provider-aux-modal .modal-header,
-[data-theme="dark"] .provider-aux-modal .modal-footer { background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%); }
+
 [data-theme="dark"] .model-selection-empty { background: var(--bg-secondary); border-color: var(--border-color); }
 [data-theme="dark"] .model-selection-item { background: var(--bg-primary); border-color: var(--border-color); }
 [data-theme="dark"] .model-selection-item:hover { background: var(--bg-tertiary); border-color: var(--primary-color); }

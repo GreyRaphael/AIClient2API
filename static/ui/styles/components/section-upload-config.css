@@ -92,7 +92,6 @@
 
 .status-used { background: var(--success-bg); color: var(--success-text); }
 .status-unused { background: var(--warning-bg); color: var(--warning-text); }
-.status-invalid { background: var(--danger-bg); color: var(--danger-text); }
 
 .config-list {
     overflow-y: auto;
@@ -407,21 +406,21 @@
         align-items: flex-start;
         gap: 1rem;
     }
-    
+
     .config-item-middle {
         width: 100%;
     }
-    
+
     .config-meta-info {
         flex-direction: row;
         gap: 1.5rem;
     }
-    
+
     .config-item-right {
         width: 100%;
         justify-content: space-between;
     }
-    
+
     .config-status-col {
         flex-direction: row;
         align-items: center;
@@ -731,8 +730,7 @@
 @media (max-width: 768px) {
     .search-controls { grid-template-columns: 1fr; gap: 1rem; }
     .config-list-header { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
-    .config-item-header { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
-    .config-item-path { max-width: 100%; margin: 0; }
+
     .config-modal-content { width: 95%; max-height: 90vh; }
     .config-file-info { grid-template-columns: 1fr; }
     .delete-modal-content { width: 95%; max-height: 90vh; }
@@ -833,7 +831,6 @@
 /* 暗黑主题适配 */
 [data-theme="dark"] .status-used { background: var(--success-bg); color: var(--success-text); }
 [data-theme="dark"] .status-unused { background: var(--warning-bg); color: var(--warning-text); }
-[data-theme="dark"] .status-invalid { background: var(--danger-bg); color: var(--danger-text); }
 [data-theme="dark"] .config-modal-content { background: var(--bg-primary); }
 [data-theme="dark"] .config-modal-header, [data-theme="dark"] .config-modal-footer { background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%); }
 [data-theme="dark"] .delete-modal-content { background: var(--bg-primary); }

@@ -410,44 +410,6 @@
 }
 
 /* Collapsible Access Details (Moved from Dashboard) */
-.access-details {
-    background: var(--bg-primary);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-color);
-    margin-top: 1.5rem;
-    overflow: hidden;
-    box-shadow: var(--shadow-sm);
-    transition: var(--transition);
-}
-
-.access-details:hover {
-    border-color: var(--primary-color);
-    box-shadow: var(--shadow-md);
-}
-
-.access-details[open] {
-    box-shadow: var(--shadow-md);
-}
-
-.access-summary {
-    list-style: none;
-    padding: 1rem 1.5rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--bg-primary);
-    user-select: none;
-    transition: var(--transition);
-}
-
-.access-summary::-webkit-details-marker {
-    display: none;
-}
-
-.access-summary:hover {
-    background: var(--primary-10);
-}
 
 .summary-content {
     display: flex;
@@ -476,21 +438,7 @@
     font-size: 0.9rem;
 }
 
-.access-details[open] .caret-icon {
-    transform: rotate(180deg);
-}
-
-.access-details[open] .expand-hint {
-    display: none;
-}
-
 .access-endpoint-actions {
     display: flex;
     gap: 0.5rem;
-}
-
-/* Dark Theme Adjustments */
-[data-theme="dark"] .access-details {
-    background: var(--bg-primary);
-    border-color: var(--border-color);
 }

@@ -180,10 +180,6 @@
     gap: 1rem;
 }
 
-.stat-success { color: var(--success-color); }
-.stat-error { color: var(--danger-color); }
-.stat-total { color: var(--text-secondary); }
-
 /* 实例卡片 */
 .usage-instance-card {
     background: var(--bg-primary);
@@ -261,12 +257,6 @@
     font-size: 0.7rem; color: var(--text-secondary);
     display: flex; align-items: center; gap: 0.25rem;
     max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-.user-subscription {
-    font-size: 0.65rem; padding: 0.125rem 0.375rem;
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-    color: white; border-radius: 9999px; font-weight: 500;
 }
 
 .instance-status-badges {
@@ -453,12 +443,6 @@
     margin-top: 0.5rem;
 }
 
-.total-percent {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-}
-
 .total-reset-info {
     font-size: 0.65rem;
     color: var(--text-tertiary);
@@ -483,8 +467,6 @@
 .progress-bar.danger .progress-fill, .progress-bar-small.danger .progress-fill { background: var(--danger-color); }
 
 .extra-usage-info { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; font-size: 0.6rem; padding: 0.375rem; border-radius: 0.25rem; margin-top: 0.375rem; }
-.extra-usage-info.free-trial { background: var(--info-bg-lighter); color: var(--info-text); border: 1px solid var(--info-bg); }
-.extra-usage-info.bonus { background: var(--warning-bg-alt); color: var(--warning-text); border: 1px solid var(--warning-bg); }
 
 .usage-card-collapsed-summary {
     display: flex; flex-direction: column; padding: 0.5rem 0.75rem; cursor: pointer; user-select: none;
@@ -537,7 +519,6 @@
 .collapsed-progress-bar.warning .progress-fill { background: var(--warning-color); }
 .collapsed-progress-bar.danger .progress-fill { background: var(--danger-color); }
 .collapsed-percent { font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); min-width: 36px; }
-.collapsed-usage-text { font-size: 0.65rem; color: var(--text-tertiary); width: 100%; margin-top: 0.125rem; text-align: center; }
 
 .usage-toggle-icon { font-size: 0.6rem; color: var(--text-secondary); transition: transform 0.3s ease; flex-shrink: 0; }
 .usage-instance-card:not(.collapsed) .usage-toggle-icon { transform: rotate(90deg); }
@@ -550,21 +531,6 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 16px; background: var(--bg-tertiary); border-radius: 8px;
     margin: 12px 0; flex-wrap: wrap; gap: 12px;
-}
-
-.page-btn {
-    min-width: 36px; height: 36px; padding: 0 10px; border: 1px solid var(--border-color);
-    background: var(--bg-primary); color: var(--text-primary); border-radius: 6px;
-    cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: var(--transition);
-    display: inline-flex; align-items: center; justify-content: center;
-}
-
-.page-btn:hover:not(:disabled), .page-btn.active { background: var(--primary-color); color: white; border-color: var(--primary-color); }
-
-.page-jump-input {
-    width: 60px; height: 36px; padding: 0 8px; border: 1px solid var(--border-color);
-    border-radius: 6px; text-align: center; font-size: 0.875rem;
-    background: var(--bg-primary); color: var(--text-primary);
 }
 
 /* 响应式调整 */
@@ -582,9 +548,6 @@
 [data-theme="dark"] .usage-section { background: var(--bg-secondary); border-color: var(--border-color); }
 [data-theme="dark"] .total-usage { background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%); border-color: var(--primary-color); }
 [data-theme="dark"] .usage-breakdown-compact { background: var(--bg-secondary); border-color: var(--border-color); }
-[data-theme="dark"] .extra-usage-info.free-trial { background: var(--info-bg); color: var(--info-text); border-color: var(--info-border); }
-[data-theme="dark"] .extra-usage-info.bonus { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border); }
+
 [data-theme="dark"] .pagination-container { background: var(--bg-tertiary); }
-[data-theme="dark"] .page-btn { background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary); }
-[data-theme="dark"] .page-jump-input { background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary); }
 

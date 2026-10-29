@@ -240,7 +240,7 @@ body .pg-workspace .slider-info > span:first-child {
 /* --------------------------------------------------------------------------
    5. 通用徽标/标签：文字垂直居中
    -------------------------------------------------------------------------- */
-body :is(.provider-status, .status-used, .status-unused, .status-invalid, .expiration-tag, .update-badge) {
+body :is(.provider-status, .status-used, .status-unused, .expiration-tag, .update-badge) {
     display: inline-flex;
     align-items: center;
     line-height: 1.2;

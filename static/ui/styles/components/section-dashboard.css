@@ -596,20 +596,6 @@
     border-top: none;
 }
 
-.models-section-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin-bottom: 1.25rem;
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.models-section-title i {
-    color: var(--primary-color);
-}
-
 /* 模型工具条 */
 .models-toolbar {
     display: flex;
