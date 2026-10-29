@@ -216,6 +216,7 @@ export default {
     'oauth.kiro.awsSelectedFiles': '已选择的文件',
     'oauth.kiro.awsClearFiles': '清空全部',
     'oauth.kiro.awsFileReplaced': '已替换同名文件: {filename}',
+    'oauth.kiro.awsFileArrayUnsupported': '文件模式仅支持单个凭据对象；批量导入请使用 JSON 粘贴模式。',
     'oauth.kiro.awsJsonInput': '粘贴 JSON 凭据',
     'oauth.kiro.awsJsonPlaceholderSimple': '在此粘贴包含 clientId、clientSecret、accessToken、refreshToken 的 JSON...',
     'oauth.kiro.awsJsonExample': '查看 JSON 格式示例',

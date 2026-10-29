@@ -14,6 +14,7 @@ import { sanitizeHtml } from '@ui/lib/sanitize.js';
 import { Modal } from '@ui/components/Modal.js';
 import { ConfirmDialogHost } from '@ui/components/ConfirmDialog.js';
 import { Pagination } from '@ui/components/Pagination.js';
+import { KiroAwsImportModal } from '@ui/sections/providers/auth/KiroAwsImportModal.js';
 
 describe('UI 组件 SSR 冒烟', () => {
     test('StatusBadge 渲染当前连接状态', () => {
@@ -65,6 +66,14 @@ describe('UI 组件 SSR 冒烟', () => {
     test('sanitizeHtml 在 Node 环境退化为纯文本', () => {
         expect(sanitizeHtml('<a href="https://x">t</a><br><script>bad()</script>')).toContain('t');
         expect(sanitizeHtml('<a href="https://x">t</a><br>')).not.toContain('<a');
+    });
+
+    test('KiroAwsImportModal 默认渲染文件上传模式', () => {
+        const markup = render(html`<${KiroAwsImportModal} onClose=${() => {}} />`);
+        expect(markup).toContain('导入 AWS 账号');
+        expect(markup).toContain('文件上传');
+        expect(markup).toContain('aws-dropzone');
+        expect(markup).toContain('确认导入');
     });
 
     test('CopyButton / CodeBlock 保留文本与按钮结构', () => {

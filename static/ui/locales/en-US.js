@@ -217,6 +217,7 @@ export default {
     'oauth.kiro.awsSelectedFiles': 'Selected Files',
     'oauth.kiro.awsClearFiles': 'Clear All',
     'oauth.kiro.awsFileReplaced': 'Replaced file: {filename}',
+    'oauth.kiro.awsFileArrayUnsupported': 'File mode supports a single credential object only; use JSON paste for batch imports.',
     'oauth.kiro.awsJsonInput': 'Paste JSON Credentials',
     'oauth.kiro.awsJsonPlaceholderSimple': 'Paste JSON containing clientId, clientSecret, accessToken, refreshToken here...',
     'oauth.kiro.awsJsonExample': 'View JSON format example',

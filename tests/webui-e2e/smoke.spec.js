@@ -351,6 +351,95 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('Kiro AWS 导入：JSON 校验与单条提交', async ({ authedPage: page, problems }) => {
+        let submitted = null;
+        await page.route('**/api/kiro/import-aws-credentials', async (route) => {
+            submitted = route.request().postDataJSON();
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, path: 'configs/kiro/aws.json' })
+            });
+        });
+
+        await page.goto('/#providers');
+        const card = page.locator('.provider-item[data-provider-type="claude-kiro-oauth"]');
+        await card.locator('.generate-auth-btn').click();
+        await expect(page.locator('.modal-overlay.show')).toContainText('导入 AWS 账号');
+        await expect(page.locator('.auth-method-btn')).toHaveCount(5);
+
+        await page.locator('.auth-method-btn[data-method="aws-import"]').click();
+        await page.locator('.aws-import-tab', { hasText: 'JSON 粘贴' }).click();
+        const textarea = page.locator('.modal-overlay.show textarea');
+        await textarea.fill('{bad');
+        await expect(page.locator('.modal-overlay.show .aws-validation.error')).toContainText('JSON 格式错误');
+
+        await textarea.fill(JSON.stringify({
+            clientId: 'client-id',
+            clientSecret: 'client-secret',
+            accessToken: 'access-token',
+            refreshToken: 'refresh-token'
+        }));
+        await expect(page.locator('.modal-overlay.show .aws-validation.success')).toContainText('验证通过');
+        await expect(page.locator('.modal-overlay.show .aws-preview pre')).toContainText('clientId');
+        await page.locator('.modal-overlay.show .btn-primary').click();
+
+        await expect(page.locator('#toastContainer')).toContainText('AWS 凭据导入成功');
+        await expect(page.locator('.modal-overlay.show')).toHaveCount(0);
+        expect(submitted?.credentials).toMatchObject({
+            clientId: 'client-id',
+            authMethod: 'builder-id'
+        });
+        expect(problems).toEqual([]);
+    });
+
+    test('Kiro AWS 导入：批量 SSE 进度与结果', async ({ authedPage: page, problems }) => {
+        let submitted = null;
+        await page.route('**/api/kiro/import-aws-credentials', async (route) => {
+            submitted = route.request().postDataJSON();
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/event-stream',
+                body: [
+                    'event: start',
+                    'data: {"total":2}',
+                    '',
+                    'event: progress',
+                    'data: {"index":1,"total":2,"successCount":1,"failedCount":0,"current":{"index":1,"success":true,"path":"a.json"}}',
+                    '',
+                    'event: progress',
+                    'data: {"index":2,"total":2,"successCount":2,"failedCount":0,"current":{"index":2,"success":true,"path":"b.json"}}',
+                    '',
+                    'event: complete',
+                    'data: {"success":true,"total":2,"successCount":2,"failedCount":0,"details":[{"index":1,"success":true,"path":"a.json"},{"index":2,"success":true,"path":"b.json"}]}',
+                    '',
+                    ''
+                ].join('\n')
+            });
+        });
+
+        await page.goto('/#providers');
+        const card = page.locator('.provider-item[data-provider-type="claude-kiro-oauth"]');
+        await card.locator('.generate-auth-btn').click();
+        await page.locator('.auth-method-btn[data-method="aws-import"]').click();
+        await page.locator('.aws-import-tab', { hasText: 'JSON 粘贴' }).click();
+        await page.locator('.modal-overlay.show textarea').fill(JSON.stringify([
+            { clientId: 'c1', clientSecret: 's1', accessToken: 'a1', refreshToken: 'r1' },
+            { clientId: 'c2', clientSecret: 's2', accessToken: 'a2', refreshToken: 'r2' }
+        ]));
+
+        await expect(page.locator('.modal-overlay.show .aws-validation.success')).toContainText('批量验证通过');
+        await page.locator('.modal-overlay.show .btn-primary').click();
+        await expect(page.locator('.modal-overlay.show .aws-result.success')).toContainText('2 / 2');
+        await expect(page.locator('.modal-overlay.show .aws-result-details')).toContainText('a.json');
+        expect(submitted?.credentials).toHaveLength(2);
+        expect(submitted?.credentials.every((credential) => credential.authMethod === 'builder-id')).toBe(true);
+
+        await page.locator('.modal-overlay.show .modal-close').click();
+        await expect(page.locator('.modal-overlay.show')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
     test('Playground：流式对话、复制与清空', async ({ authedPage: page, problems }) => {
         await page.route('**/api/access-info', (route) => route.fulfill({
             status: 200,

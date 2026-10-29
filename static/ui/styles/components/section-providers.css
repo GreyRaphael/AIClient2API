@@ -1085,6 +1085,340 @@
     box-shadow: 0 0 0 3px var(--primary-10);
 }
 
+/* Kiro AWS 凭据导入 */
+.aws-import-instructions {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px;
+    margin-bottom: 16px;
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
+    border-radius: 8px;
+    color: var(--warning-text);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.aws-import-instructions i {
+    color: var(--warning-color);
+    margin-top: 2px;
+}
+
+.aws-import-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.aws-import-tab {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.aws-import-tab:hover:not(:disabled) {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.aws-import-tab.active {
+    border-color: var(--primary-color);
+    background: var(--bg-secondary);
+    color: var(--primary-color);
+}
+
+.aws-import-tab:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.aws-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 24px;
+    border: 2px dashed var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.aws-dropzone:hover,
+.aws-dropzone.dragover {
+    border-color: var(--primary-color);
+    background: var(--bg-tertiary);
+}
+
+.aws-dropzone:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.aws-dropzone p {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.aws-dropzone span {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.aws-dropzone-icon {
+    font-size: 36px;
+    color: var(--text-tertiary);
+}
+
+.aws-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    line-height: 1.5;
+}
+
+.aws-hint i {
+    color: var(--warning-color);
+    margin-top: 2px;
+}
+
+.aws-file-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 16px 0 8px;
+}
+
+.aws-file-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: none;
+    color: var(--danger-color);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.aws-file-clear:hover:not(:disabled) {
+    background: var(--danger-bg-light);
+}
+
+.aws-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.aws-file-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-primary);
+}
+
+.aws-file-icon {
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.aws-file-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.aws-file-name {
+    font-size: 0.85rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.aws-file-fields {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.aws-file-remove {
+    border: none;
+    background: none;
+    color: var(--danger-color);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.aws-file-remove:hover:not(:disabled) {
+    background: var(--danger-bg-light);
+}
+
+.aws-example {
+    margin-top: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+}
+
+.aws-example summary {
+    padding: 10px 12px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.aws-example pre {
+    margin: 0;
+    padding: 12px;
+    max-height: 220px;
+    overflow: auto;
+    background: var(--bg-tertiary);
+    border-radius: 0 0 8px 8px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.aws-example .aws-hint {
+    padding: 0 12px 12px;
+    margin: 0;
+}
+
+.aws-validation {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.aws-validation.success {
+    border-color: var(--success-color);
+    background: var(--success-bg-light);
+    color: var(--success-text);
+}
+
+.aws-validation.error {
+    border-color: var(--danger-color);
+    background: var(--danger-bg-light);
+    color: var(--danger-text);
+}
+
+.aws-validation-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.875rem;
+}
+
+.aws-validation-items {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.aws-preview {
+    margin-top: 16px;
+}
+
+.aws-preview label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.aws-preview pre {
+    margin: 0;
+    padding: 12px;
+    max-height: 220px;
+    overflow: auto;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.aws-progress {
+    margin-top: 16px;
+}
+
+.aws-progress-label {
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.aws-result {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.aws-result.success {
+    border-color: var(--success-color);
+    background: var(--success-bg-light);
+    color: var(--success-text);
+}
+
+.aws-result.warning {
+    border-color: var(--warning-border);
+    background: var(--warning-bg);
+    color: var(--warning-text);
+}
+
+.aws-result-summary {
+    margin-top: 6px;
+    font-size: 12px;
+}
+
+.aws-result-details {
+    margin-top: 8px;
+    max-height: 160px;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
 /* 高亮说明样式 */
 .highlight-note {
     display: inline-flex;

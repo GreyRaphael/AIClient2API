@@ -11,12 +11,15 @@ import { toast } from '../../../store/toast.js';
 import { useEvent } from '../../../hooks/useEvent.js';
 import { Modal } from '../../../components/Modal.js';
 import { CopyButton } from '../../../components/CopyButton.js';
+import { streamSse } from '../../../lib/sse.js';
+import { KiroAwsImportModal } from './KiroAwsImportModal.js';
 
 const AUTH_METHODS = {
     'claude-kiro-oauth': [
         { method: 'google', icon: 'fab fa-google', titleKey: 'oauth.kiro.google', descKey: 'oauth.kiro.googleDesc' },
         { method: 'github', icon: 'fab fa-github', titleKey: 'oauth.kiro.github', descKey: 'oauth.kiro.githubDesc' },
         { method: 'builder-id', icon: 'fab fa-aws', titleKey: 'oauth.kiro.awsBuilder', descKey: 'oauth.kiro.awsBuilderDesc' },
+        { method: 'aws-import', icon: 'fas fa-cloud-upload-alt', titleKey: 'oauth.kiro.awsImport', descKey: 'oauth.kiro.awsImportDesc' },
         { method: 'batch-import', icon: 'fas fa-file-import', titleKey: 'oauth.kiro.batchImport', descKey: 'oauth.kiro.batchImportDesc' }
     ],
     'openai-codex-oauth': [
@@ -68,36 +71,6 @@ function defaultTraeHost(providerType) {
     return providerType === 'trae-chat_v3'
         ? 'https://trae-api-cn.mchost.guru'
         : 'https://api.enterprise.trae.cn';
-}
-
-async function streamSse(response, onEvent) {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const blocks = buffer.split('\n\n');
-        buffer = blocks.pop() || '';
-        for (const block of blocks) {
-            let eventName = 'message';
-            const dataLines = [];
-            block.split('\n').forEach((line) => {
-                if (line.startsWith('event: ')) eventName = line.slice(7).trim();
-                else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
-            });
-            if (dataLines.length === 0) continue;
-            let payload = null;
-            try {
-                payload = JSON.parse(dataLines.join('\n'));
-            } catch {
-                continue;
-            }
-            onEvent(eventName, payload);
-        }
-    }
 }
 
 export function AuthDialog({ providerType, onClose, onCompleted }) {
@@ -167,6 +140,10 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
     function pickMethod(method) {
         if (method === 'batch-import') {
             setStep('batch');
+            setProgress(null);
+            setResult(null);
+        } else if (method === 'aws-import') {
+            setStep('aws-import');
             setProgress(null);
             setResult(null);
         } else if (method === 'cpa-import' || method === 'sub2api-import') {
@@ -305,6 +282,10 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
         } finally {
             setBusy(false);
         }
+    }
+
+    if (step === 'aws-import') {
+        return html`<${KiroAwsImportModal} onClose=${onClose} onCompleted=${onCompleted} />`;
     }
 
     const externalMeta = externalSource
