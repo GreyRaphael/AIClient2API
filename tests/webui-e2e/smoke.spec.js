@@ -79,6 +79,34 @@ test.describe('console shell', () => {
         expect(await html.getAttribute('data-theme')).toBe(toggled);
     });
 
+    test('日志页：SSE 日志、自动滚动开关与清空', async ({ authedPage: page, problems }) => {
+        await page.goto('/#logs');
+        await expect(page.locator('section#logs.active')).toBeVisible();
+
+        const toggle = page.locator('#toggleAutoScroll');
+        await expect(toggle).toContainText('自动滚动: 开');
+        await toggle.click();
+        await expect(toggle).toContainText('自动滚动: 关');
+        await toggle.click();
+        await expect(toggle).toContainText('自动滚动: 开');
+
+        // 触发服务端请求产生 SSE 日志
+        await page.evaluate(async () => {
+            const token = localStorage.getItem('authToken');
+            for (let i = 0; i < 3; i++) {
+                await fetch('/api/system', { headers: { Authorization: `Bearer ${token}` } });
+            }
+        });
+        await expect(page.locator('#logsContainer .log-entry').first()).toBeVisible();
+
+        const before = await page.locator('#logsContainer .log-entry').count();
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.locator('#clearLogs').click();
+        await expect(page.locator('#toastContainer')).toContainText('清空成功');
+        expect(await page.locator('#logsContainer .log-entry').count()).toBeLessThan(before);
+        expect(problems).toEqual([]);
+    });
+
     test('登出清除 token 并回到登录页', async ({ authedPage: page }) => {
         await page.goto('/');
         page.once('dialog', (dialog) => dialog.accept());

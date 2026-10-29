@@ -1,6 +1,6 @@
 // 事件监听器模块
 
-import { elements, autoScroll, setAutoScroll, clearLogs } from './constants.js';
+import { elements } from './constants.js';
 import { showToast } from './utils.js';
 import { t } from './i18n.js';
 import { checkUpdate, performUpdate, loadProviders } from './provider-manager.js';
@@ -13,129 +13,6 @@ function initEventListeners() {
     // 重启按钮
     if (elements.restartBtn) {
         elements.restartBtn.addEventListener('click', handleRestart);
-    }
-
-    // 清空日志
-    if (elements.clearLogsBtn) {
-        elements.clearLogsBtn.addEventListener('click', async () => {
-            // 显示确认对话框，明确提示会清空本地日志文件
-            const confirmed = confirm(t('logs.clear.confirm.msg'));
-            
-            if (!confirmed) {
-                return;
-            }
-            
-            try {
-                const token = window.authManager.getToken();
-                if (!token) {
-                    showToast(t('common.error'), t('common.loginRequired'), 'error');
-                    return;
-                }
-                
-                // 调用后端 API 清空日志文件
-                const response = await fetch(`${window.location.origin}/api/system/clear-log`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (response.status === 401) {
-                    showToast(t('common.error'), t('common.unauthorized'), 'error');
-                    window.authManager.clearToken();
-                    window.location.href = '/login.html';
-                    return;
-                }
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    // 清空前端日志显示
-                    clearLogs();
-                    if (elements.logsContainer) {
-                        elements.logsContainer.innerHTML = '';
-                    }
-                    
-                    // 显示成功提示，明确说明已清空本地日志文件
-                    showToast(
-                        t('logs.clear.success.title'), 
-                        t('logs.clear.success.msg'), 
-                        'success',
-                        5000 // 显示 5 秒
-                    );
-                } else {
-                    showToast(t('common.error'), t('logs.clear.failed'), 'error');
-                }
-            } catch (error) {
-                console.error('清空日志失败:', error);
-                showToast(t('common.error'), t('logs.clear.failed') + ': ' + error.message, 'error');
-            }
-        });
-    }
-
-    // 下载日志
-    if (elements.downloadLogsBtn) {
-        elements.downloadLogsBtn.addEventListener('click', async () => {
-            try {
-                const token = window.authManager.getToken();
-                if (!token) {
-                    showToast(t('common.error'), t('common.loginRequired'), 'error');
-                    return;
-                }
-                
-                // 使用带认证的方式下载文件
-                const url = `${window.location.origin}/api/system/download-log`;
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-                
-                if (response.status === 401) {
-                    showToast(t('common.error'), t('common.unauthorized'), 'error');
-                    window.authManager.clearToken();
-                    window.location.href = '/login.html';
-                    return;
-                }
-                
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    showToast(t('common.error'), errorData.error?.message || t('common.downloadFailed'), 'error');
-                    return;
-                }
-
-                const blob = await response.blob();
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.download = `app-${new Date().toISOString().split('T')[0]}.log`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(downloadUrl);
-                document.body.removeChild(a);
-                
-                showToast(t('common.success'), t('common.downloadSuccess'), 'success');
-            } catch (error) {
-                console.error('下载日志失败:', error);
-                showToast(t('common.error'), t('common.downloadFailed') + ': ' + error.message, 'error');
-            }
-        });
-    }
-
-    // 自动滚动切换
-    if (elements.toggleAutoScrollBtn) {
-        elements.toggleAutoScrollBtn.addEventListener('click', () => {
-            const newAutoScroll = !autoScroll;
-            setAutoScroll(newAutoScroll);
-            elements.toggleAutoScrollBtn.dataset.enabled = newAutoScroll;
-            const statusText = newAutoScroll ? t('logs.autoScroll.on') : t('logs.autoScroll.off');
-            elements.toggleAutoScrollBtn.innerHTML = `
-                <i class="fas fa-arrow-down"></i>
-                <span data-i18n="${newAutoScroll ? 'logs.autoScroll.on' : 'logs.autoScroll.off'}">${statusText}</span>
-            `;
-        });
     }
 
     // 保存配置
@@ -241,23 +118,6 @@ function initEventListeners() {
         });
     }
 
-    // 日志容器滚动
-    if (elements.logsContainer) {
-        elements.logsContainer.addEventListener('scroll', () => {
-            if (autoScroll) {
-                const isAtBottom = elements.logsContainer.scrollTop + elements.logsContainer.clientHeight
-                    >= elements.logsContainer.scrollHeight - 5;
-                if (!isAtBottom) {
-                    setAutoScroll(false);
-                    elements.toggleAutoScrollBtn.dataset.enabled = false;
-                    elements.toggleAutoScrollBtn.innerHTML = `
-                        <i class="fas fa-arrow-down"></i>
-                        <span data-i18n="logs.autoScroll.off">${t('logs.autoScroll.off')}</span>
-                    `;
-                }
-            }
-        });
-    }
 }
 
 /**

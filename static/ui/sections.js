@@ -1,10 +1,9 @@
 /**
  * Section 注册表 + 迁移期协调器。
  *
- * 全部 11 个页面目前仍以旧 HTML 片段挂载；已迁移页面改为 `{ load: () => import(...) }`，
- * 未迁移页面保留 `src` 与按需调用的旧数据加载函数。
- * 旧加载函数使用变量形式的动态 import：既避免把 legacy 模块拉进 typecheck:webui 程序，
- * 也保证只有真正切到该页面时才执行。
+ * - 未迁移页面：`legacy.src` 指向旧 HTML 片段，由 LegacySection 原样挂载；
+ * - 已迁移页面：`load` 返回动态 import，由 App 在激活时挂载、离开时卸载。
+ * 旧加载函数使用变量形式的动态 import，避免把 legacy 模块拉进 typecheck:webui 程序。
  */
 
 /**
@@ -12,23 +11,23 @@
  * @property {string} id
  * @property {string} labelKey
  * @property {string} icon 完整字面量 Font Awesome 类名（供子集扫描）
- * @property {string} [src] 旧 HTML 片段路径
- * @property {() => Promise<any>} [load] 已迁移组件的加载器
+ * @property {{src: string}} [legacy] 旧 HTML 片段
+ * @property {() => Promise<{default: any}>} [load] 已迁移组件的加载器
  */
 
 /** @type {SectionDef[]} */
 export const SECTIONS = [
-    { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'fa-tachometer-alt', src: 'components/section-dashboard.html' },
-    { id: 'access', labelKey: 'nav.access', icon: 'fa-key', src: 'components/section-access.html' },
-    { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', src: 'components/section-guide.html' },
-    { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', src: 'components/section-config.html' },
-    { id: 'providers', labelKey: 'nav.providers', icon: 'fa-network-wired', src: 'components/section-providers.html' },
-    { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', src: 'components/section-custom-models.html' },
-    { id: 'upload-config', labelKey: 'nav.upload', icon: 'fa-upload', src: 'components/section-upload-config.html' },
-    { id: 'usage', labelKey: 'nav.usage', icon: 'fa-chart-bar', src: 'components/section-usage.html' },
-    { id: 'plugins', labelKey: 'nav.plugins', icon: 'fa-puzzle-piece', src: 'components/section-plugins.html' },
-    { id: 'playground', labelKey: 'nav.playground', icon: 'fa-flask', src: 'components/section-playground.html' },
-    { id: 'logs', labelKey: 'nav.logs', icon: 'fa-file-alt', src: 'components/section-logs.html' }
+    { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'fa-tachometer-alt', legacy: { src: 'components/section-dashboard.html' } },
+    { id: 'access', labelKey: 'nav.access', icon: 'fa-key', legacy: { src: 'components/section-access.html' } },
+    { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', legacy: { src: 'components/section-guide.html' } },
+    { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', legacy: { src: 'components/section-config.html' } },
+    { id: 'providers', labelKey: 'nav.providers', icon: 'fa-network-wired', legacy: { src: 'components/section-providers.html' } },
+    { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', legacy: { src: 'components/section-custom-models.html' } },
+    { id: 'upload-config', labelKey: 'nav.upload', icon: 'fa-upload', legacy: { src: 'components/section-upload-config.html' } },
+    { id: 'usage', labelKey: 'nav.usage', icon: 'fa-chart-bar', legacy: { src: 'components/section-usage.html' } },
+    { id: 'plugins', labelKey: 'nav.plugins', icon: 'fa-puzzle-piece', legacy: { src: 'components/section-plugins.html' } },
+    { id: 'playground', labelKey: 'nav.playground', icon: 'fa-flask', legacy: { src: 'components/section-playground.html' } },
+    { id: 'logs', labelKey: 'nav.logs', icon: 'fa-file-alt', load: () => import('./sections/logs.js') }
 ];
 
 /**
@@ -54,12 +53,15 @@ const sectionLoaders = {
     )
 };
 
-const pendingSections = new Set(SECTIONS.map((section) => section.id));
+const legacySections = SECTIONS.filter((section) => section.legacy);
+const pendingSections = new Set(legacySections.map((section) => section.id));
 /** @type {() => void} */
 let resolveSectionsReady = () => {};
 /** @type {() => void} */
 let resolveAppReady = () => {};
-const sectionsReady = new Promise((resolve) => { resolveSectionsReady = () => resolve(undefined); });
+const sectionsReady = pendingSections.size === 0
+    ? Promise.resolve(undefined)
+    : new Promise((resolve) => { resolveSectionsReady = () => resolve(undefined); });
 const appReady = new Promise((resolve) => { resolveAppReady = () => resolve(undefined); });
 
 /**
@@ -80,13 +82,13 @@ export function markLegacyAppReady() {
     resolveAppReady();
 }
 
-/** 等待"片段全部就绪 + 旧 initApp 完成"，再执行按需数据加载。 */
+/** 等待"旧片段全部就绪 + 旧 initApp 完成"，再执行按需数据加载。 */
 export function whenLegacyReady() {
     return Promise.all([sectionsReady, appReady]);
 }
 
 /**
- * 触发某个 Section 的数据加载（等价旧 navigation.js 的 sectionLoaders）。
+ * 触发某个未迁移 Section 的数据加载（等价旧 navigation.js 的 sectionLoaders）。
  * @param {string} id
  */
 export function runSectionLoader(id) {

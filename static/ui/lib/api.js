@@ -122,6 +122,27 @@ export class ApiClient {
     }
 
     /**
+     * 下载二进制/文本响应（自动带 token）。
+     * @param {string} endpoint
+     * @param {RequestOptions} [options]
+     * @returns {Promise<Blob>}
+     */
+    async getBlob(endpoint, options = {}) {
+        const token = getToken();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const response = await fetch(`/api${endpoint}`, { headers, signal: options.signal });
+
+        if (response.status === 401) {
+            this.handleUnauthorized();
+            throw new Error(t('common.unauthorized'));
+        }
+        if (!response.ok) {
+            throw new ApiError(`${t('common.requestFailed')} (${t('common.status')}: ${response.status})`, response.status);
+        }
+        return response.blob();
+    }
+
+    /**
      * FormData 上传（自动带 token，不设置 Content-Type）。
      * @param {string} endpoint
      * @param {FormData} formData

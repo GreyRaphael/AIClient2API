@@ -10,6 +10,7 @@ import { initTheme } from './lib/theme.js';
 import { api } from './lib/api.js';
 import { clearToken, getToken, isTokenValid, redirectToLogin } from './lib/auth.js';
 import { on, startEvents } from './store/events.js';
+import { initLogs } from './store/logs.js';
 import { pushToast } from './store/toast.js';
 import { markLegacyAppReady } from './sections.js';
 
@@ -26,7 +27,8 @@ function importLegacy(modulePath) {
 async function startRealtime() {
     const legacy = await importLegacy(LEGACY_EVENT_STREAM);
 
-    on('log', legacy.addLogEntry);
+    // 日志缓冲由 store/logs.js 订阅，保证进入日志页前的事件也不丢
+    initLogs();
     on('provider', legacy.updateProviderStatus);
     on('provider_update', legacy.handleProviderUpdate);
     on('config_update', legacy.handleConfigUpdate);
