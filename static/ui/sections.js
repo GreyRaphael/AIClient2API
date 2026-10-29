@@ -22,7 +22,7 @@ export const SECTIONS = [
     { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', load: () => import('./sections/guide.js') },
     { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', load: () => import('./sections/config/index.js') },
     { id: 'providers', labelKey: 'nav.providers', icon: 'fa-network-wired', legacy: { src: 'components/section-providers.html' } },
-    { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', legacy: { src: 'components/section-custom-models.html' } },
+    { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', load: () => import('./sections/custom-models/index.js') },
     { id: 'upload-config', labelKey: 'nav.upload', icon: 'fa-upload', legacy: { src: 'components/section-upload-config.html' } },
     { id: 'usage', labelKey: 'nav.usage', icon: 'fa-chart-bar', load: () => import('./sections/usage/index.js') },
     { id: 'plugins', labelKey: 'nav.plugins', icon: 'fa-puzzle-piece', load: () => import('./sections/plugins.js') },
@@ -43,10 +43,7 @@ function legacyLoader(modulePath, exportName) {
 const sectionLoaders = {
     providers: legacyLoader('../app/provider-manager.js', 'loadProvidersPageData'),
     'upload-config': legacyLoader('../app/upload-config-manager.js', 'loadConfigList'),
-    playground: legacyLoader('../app/playground-manager.js', 'loadPlaygroundData'),
-    'custom-models': () => Promise.resolve(
-        /** @type {any} */ (globalThis).customModelsManager?.load()
-    )
+    playground: legacyLoader('../app/playground-manager.js', 'loadPlaygroundData')
 };
 
 const legacySections = SECTIONS.filter((section) => section.legacy);

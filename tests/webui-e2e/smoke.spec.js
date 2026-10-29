@@ -223,6 +223,37 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('自定义模型页：新增、启停、编辑与删除', async ({ authedPage: page, problems }) => {
+        await page.goto('/#custom-models');
+        await expect(page.locator('section#custom-models.active')).toBeVisible();
+        await expect(page.locator('#customModelsTableBody')).toContainText('暂无自定义模型');
+
+        await page.locator('#addCustomModelBtn').click();
+        await expect(page.locator('#customModelModal')).toBeVisible();
+        await page.locator('#modelId').fill('e2e-custom-model');
+        await page.locator('#modelName').fill('E2E Model');
+        await page.locator('#saveCustomModelBtn').click();
+        await expect(page.locator('#toastContainer')).toContainText('模型已保存');
+        const row = page.locator('#customModelsTableBody tr', { hasText: 'e2e-custom-model' });
+        await expect(row).toBeVisible();
+
+        await row.locator('.toggle-switch').click();
+        await expect(row).toHaveClass(/model-disabled/);
+
+        await row.locator('.edit-model-btn').click();
+        await expect(page.locator('#customModelModal')).toBeVisible();
+        await expect(page.locator('#modelId')).toBeDisabled();
+        await page.locator('#modelName').fill('E2E Model 2');
+        await page.locator('#saveCustomModelBtn').click();
+        await expect(row).toContainText('E2E Model 2');
+
+        await row.locator('.delete-model-btn').click();
+        await expect(page.locator('.confirm-dialog')).toBeVisible();
+        await page.locator('.confirm-dialog .btn-danger').click();
+        await expect(page.locator('#customModelsTableBody')).not.toContainText('e2e-custom-model');
+        expect(problems).toEqual([]);
+    });
+
     test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
         await page.goto('/#plugins');
         await expect(page.locator('section#plugins.active')).toBeVisible();

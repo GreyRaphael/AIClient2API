@@ -62,10 +62,6 @@ import {
 } from './image-zoom.js';
 
 import {
-    CustomModelsManager
-} from './custom-models-manager.js';
-
-import {
     initPlaygroundManager,
     loadPlaygroundData
 } from './playground-manager.js';
@@ -126,9 +122,6 @@ async function initApp() {
     window.reloadConfig = reloadConfig;
 
     // 插件管理相关全局函数
-
-    // 初始化自定义模型管理
-    window.customModelsManager = new CustomModelsManager();
 
     // 初始化各个模块（SSE 连接由 ui/store/events.js 统一管理）
     initEventListeners();
