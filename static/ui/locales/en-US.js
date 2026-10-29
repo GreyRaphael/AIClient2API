@@ -905,6 +905,7 @@ export default {
     'common.auto': 'Auto',
     'common.save': 'Save Configuration',
     'common.providerPoolRefreshed': 'Provider pool data refreshed',
+    'common.copy': 'Copy',
     'common.copy.success': 'Content copied to clipboard',
     'common.copy.failed': 'Copy failed, please copy manually',
     'common.refresh.success': 'Refresh successful',

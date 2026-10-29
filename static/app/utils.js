@@ -1,59 +1,12 @@
 // 工具函数
 import { t } from './i18n.js';
 import { apiClient } from './auth.js';
-import { getBaseProviderConfigs, getProviderIcon as getRegistryProviderIcon } from './provider-registry.js';
+import { getProviderIcon as getRegistryProviderIcon } from '../ui/lib/provider-registry.js';
+import { getProviderConfigs, getBaseProviderConfigs } from '../ui/lib/provider-configs.js';
+import { copyToClipboard } from '../ui/lib/clipboard.js';
 import { pushToast } from '../ui/store/toast.js';
 
-/**
- * 获取所有支持的提供商配置列表
- * @param {string[]} supportedProviders - 已注册的提供商类型列表
- * @returns {Object[]} 提供商配置对象数组
- */
-function getProviderConfigs(supportedProviders = []) {
-    const baseConfigs = getBaseProviderConfigs();
-    const baseConfigIds = new Set(baseConfigs.map(c => c.id));
-
-    const result = [];
-    const usedIds = new Set();
-
-    // 1. 遍历基础配置，使其按照定义顺序排列，并且让带后缀的自定义提供商紧跟在它的基础母版后面
-    baseConfigs.forEach(baseConfig => {
-        const isSupported = supportedProviders.includes(baseConfig.id);
-        result.push({ ...baseConfig, visible: isSupported });
-        usedIds.add(baseConfig.id);
-
-        // 紧接着寻找匹配该基础 ID 的带后缀的自定义类型（例如 openai-custom-test），排除本身就是基础配置的 providerId
-        supportedProviders.forEach(providerId => {
-            if (usedIds.has(providerId) || baseConfigIds.has(providerId)) return;
-
-            if (providerId.startsWith(baseConfig.id + '-')) {
-                const suffix = providerId.substring(baseConfig.id.length + 1);
-                result.push({
-                    ...baseConfig,
-                    id: providerId,
-                    name: `${baseConfig.name} (${suffix})`,
-                    visible: true
-                });
-                usedIds.add(providerId);
-            }
-        });
-    });
-
-    // 2. 安全兜底：如果还有一些 supportedProviders 既不匹配任何基础 ID 也不匹配任何前缀，就追加到最后
-    supportedProviders.forEach(providerId => {
-        if (!usedIds.has(providerId)) {
-            result.push({
-                id: providerId,
-                name: providerId,
-                icon: 'fa-server',
-                visible: true
-            });
-            usedIds.add(providerId);
-        }
-    });
-
-    return result;
-}
+export { getProviderConfigs, getBaseProviderConfigs, copyToClipboard };
 
 /**
  * 解析提供商图标类名（含 Font Awesome 前缀）。
@@ -371,40 +324,6 @@ async function apiRequest(url, options = {}) {
 }
 
 /**
- * 复制文本到剪贴板（带兼容性回退）
- * @param {string} text - 要复制的文本
- * @returns {Promise<boolean>} 是否成功
- */
-async function copyToClipboard(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        try {
-            await navigator.clipboard.writeText(text);
-            return true;
-        } catch (err) {
-            console.warn('navigator.clipboard failed, trying fallback:', err);
-        }
-    }
-
-    // Fallback: 使用 textarea 模拟复制
-    try {
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        textArea.style.top = '0';
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        return successful;
-    } catch (err) {
-        console.error('Fallback copy failed:', err);
-        return false;
-    }
-}
-
-/**
  * 只为元素绑定一次事件
  * @param {HTMLElement|null} element - 需要绑定事件的元素
  * @param {string} eventName - 事件名称
@@ -452,12 +371,9 @@ export {
     showToast,
     getFieldLabel,
     getProviderTypeFields,
-    getProviderConfigs,
-    getBaseProviderConfigs,
     resolveProviderIcon,
     getProviderStats,
     apiRequest,
-    copyToClipboard,
     bindOnce,
     markOnce
 };

@@ -5,12 +5,12 @@ import { showToast, formatUptime, getProviderConfigs, getBaseProviderConfigs, es
 import { fileUploadHandler } from './file-upload.js';
 import { t, getCurrentLanguage } from './i18n.js';
 import { updateModelsProviderConfigs } from './models-manager.js';
-import { isOAuthProvider, getGroupableProviderIds, getProviderAuthFilePath } from './provider-registry.js';
+import { isOAuthProvider, getGroupableProviderIds, getProviderAuthFilePath } from '../ui/lib/provider-registry.js';
 import { updateUsageProviderConfigs } from './usage-manager.js';
 import { updateConfigProviderConfigs } from './config-manager.js';
 import { loadConfigList, updateProviderFilterOptions } from './upload-config-manager.js';
 import { setServiceMode } from './event-handlers.js';
-import { compareVersions, getCodexExternalImportMeta, getCodexExternalImportStats } from './provider-manager-utils.js';
+import { compareVersions, getCodexExternalImportMeta, getCodexExternalImportStats } from '../ui/lib/provider-manager-utils.js';
 
 // 保存初始服务器时间和运行时间
 let initialServerTime = null;

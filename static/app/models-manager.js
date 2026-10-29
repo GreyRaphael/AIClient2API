@@ -5,7 +5,7 @@
 
 import { t } from './i18n.js';
 import { apiClient } from './auth.js';
-import { findProviderDefinition, getProviderName } from './provider-registry.js';
+import { findProviderDefinition, getProviderName } from '../ui/lib/provider-registry.js';
 import { copyToClipboard, escapeHtml, resolveProviderIcon } from './utils.js';
 
 // 模型数据缓存

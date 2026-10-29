@@ -1,7 +1,7 @@
 // 配置管理功能模块
 
 import { showToast, bindOnce, escapeHtml } from './utils.js';
-import { detectProviderFromPath } from './provider-registry.js';
+import { detectProviderFromPath } from '../ui/lib/provider-registry.js';
 import { t } from './i18n.js';
 
 let allConfigs = []; // 存储所有配置数据

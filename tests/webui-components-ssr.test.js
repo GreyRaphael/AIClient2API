@@ -4,6 +4,11 @@ import { html } from '@ui/html.js';
 import { StatusBadge } from '@ui/components/StatusBadge.js';
 import { ToastHost } from '@ui/components/Toast.js';
 import { Sidebar } from '@ui/layout/Sidebar.js';
+import { Spinner } from '@ui/components/Spinner.js';
+import { EmptyState } from '@ui/components/EmptyState.js';
+import { Switch } from '@ui/components/Switch.js';
+import { CopyButton } from '@ui/components/CopyButton.js';
+import { CodeBlock } from '@ui/components/CodeBlock.js';
 import { toasts } from '@ui/store/toast.js';
 
 describe('UI 组件 SSR 冒烟', () => {
@@ -29,5 +34,25 @@ describe('UI 组件 SSR 冒烟', () => {
         expect(markup).toContain('toast success');
         expect(markup).toContain('已保存');
         toasts.value = [];
+    });
+
+    test('Spinner / EmptyState 渲染默认文案', () => {
+        expect(render(html`<${Spinner} />`)).toContain('加载中');
+        expect(render(html`<${EmptyState} message="暂无数据" />`)).toContain('暂无数据');
+    });
+
+    test('Switch 输出旧 .toggle-switch 结构', () => {
+        const markup = render(html`<${Switch} checked=${true} />`);
+        expect(markup).toContain('class="toggle-switch"');
+        expect(markup).toContain('type="checkbox"');
+        expect(markup).toContain('checked');
+        expect(markup).toContain('toggle-slider');
+    });
+
+    test('CopyButton / CodeBlock 保留文本与按钮结构', () => {
+        const copy = render(html`<${CopyButton} value="abc" />`);
+        expect(copy).toContain('btn btn-secondary btn-sm');
+        expect(copy).toContain('fas fa-copy');
+        expect(render(html`<${CodeBlock} text="a < b" />`)).toContain('a &lt; b');
     });
 });

@@ -1,7 +1,7 @@
 // 模态框管理模块
 
 import { escapeHtml, showToast, getFieldLabel, getProviderTypeFields } from './utils.js';
-import { isOAuthProvider } from './provider-registry.js';
+import { isOAuthProvider } from '../ui/lib/provider-registry.js';
 import { handleProviderPasswordToggle } from './event-handlers.js';
 import { t } from './i18n.js';
 

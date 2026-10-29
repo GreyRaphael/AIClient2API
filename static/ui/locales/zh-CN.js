@@ -905,6 +905,7 @@ export default {
     'common.providerPoolRefreshed': '提供商池数据已刷新',
     'common.togglePassword': '显示/隐藏密码',
     'common.switchLanguage': '切换语言',
+    'common.copy': '复制',
     'common.copy.success': '内容已复制到剪贴板',
     'common.copy.failed': '复制失败，请手动复制',
     'common.refresh.success': '刷新成功',

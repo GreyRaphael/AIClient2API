@@ -1,6 +1,6 @@
 import { t } from './i18n.js';
 import { showToast, apiRequest, bindOnce } from './utils.js';
-import { compareVersions } from './provider-manager-utils.js';
+import { compareVersions } from '../ui/lib/provider-manager-utils.js';
 
 // 插件列表状态
 let pluginsList = [];

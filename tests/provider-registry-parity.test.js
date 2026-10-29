@@ -1,7 +1,7 @@
 /**
  * 前后端 provider 注册表一致性。
  *
- * 后端 src/providers/provider-registry.ts 与前端 static/app/provider-registry.js
+ * 后端 src/providers/provider-registry.ts 与前端 static/ui/lib/provider-registry.js
  * 各自维护 UI/能力字段；这里锁定两者共享的 provider 集合与元数据，避免新增
  * provider 时只改一侧。
  *
@@ -37,7 +37,7 @@ async function loadFrontendDefinitions() {
     global.CustomEvent = class {};
 
     try {
-        const module = await import('../static/app/provider-registry.js');
+        const module = await import('../static/ui/lib/provider-registry.js');
         return module.PROVIDER_DEFINITIONS;
     } finally {
         global.localStorage = original.localStorage;

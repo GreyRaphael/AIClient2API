@@ -1,6 +1,6 @@
 import { getProviderConfigs, copyToClipboard, showToast, escapeHtml } from './utils.js';
 import { getAvailableRoutes, copyCurlExample } from './routing-examples.js';
-import { getProviderDefaultModel } from './provider-registry.js';
+import { getProviderDefaultModel } from '../ui/lib/provider-registry.js';
 import { t } from './i18n.js';
 
 let latestAccessData = null;

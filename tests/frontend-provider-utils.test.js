@@ -2,7 +2,7 @@ import {
     compareVersions,
     getCodexExternalImportMeta,
     getCodexExternalImportStats
-} from '../static/app/provider-manager-utils.js';
+} from '../static/ui/lib/provider-manager-utils.js';
 
 describe('frontend provider-manager utils', () => {
     test('compares semantic version strings with optional v prefix', () => {
