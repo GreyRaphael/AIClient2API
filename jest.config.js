@@ -4,7 +4,8 @@ export default {
     '^.+\\.(js|mjs|ts|mts)$': 'babel-jest',
   },
   transformIgnorePatterns: [
-    '/node_modules/(?!(uuid|open)/)', // uuid and open are ESM modules that need to be transformed
+    // uuid/open 以及 WebUI 运行时依赖（preact/htm/signals）以 ESM 发布，需要经 babel 转换
+    '/node_modules/(?!(uuid|open|preact|@preact|htm)/)',
   ],
   globals: {
     'jest': {
@@ -12,6 +13,7 @@ export default {
     }
   },
   moduleNameMapper: {
+    '^@ui/(.*)$': '<rootDir>/static/ui/$1',
     '^(\\.{1,2}/.*)\\.js$': '$1'
   },
   testPathIgnorePatterns: [
