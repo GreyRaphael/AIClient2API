@@ -466,8 +466,8 @@ sections/providers/
 | Phase 2 简单页面 | ✅ |
 | Phase 3 中等页面 | ✅ |
 | Phase 4 重型页面 | ✅ |
-| Phase 5 i18n 拆分与独立页面 | ⏳ 下一步 |
-| Phase 6 清理 | ⬜ |
+| Phase 5 i18n 拆分与独立页面 | ✅ |
+| Phase 6 清理 | ⏳ 下一步 |
 
 ### 14.1 实施记录
 
@@ -503,12 +503,18 @@ sections/providers/
   - 删除旧应用层：`app.js`、`provider-manager.js`、`modal.js`、`event-handlers.js`、`event-stream.js`、`file-upload.js`、`utils.js`、`auth.js`、`constants.js`、`image-zoom.js`、`component-loader.js`、`LegacySection.js` 及全部旧 HTML 片段。
   - Header 接管重启/重载；main 直接启动 SSE；`static/components/` 只剩 CSS。
   - 测试：新增 providers/playground 单测与节点 CRUD、授权弹窗、流式 Playground E2E；全量 E2E 19 个用例。
+- **Phase 5（已完成）**
+  - 登录页迁至 `ui/pages/login.js`，复用 `ui/lib/{i18n,theme,auth}` 与共享 `LanguageSwitcher`；HTML 保留样式外壳。
+  - `potluck.html`、`potluck-user.html`、`model-usage-stats.html` 迁至 `ui/pages/*`，HTML 只保留样式 + `#page` + Toast 容器；插件 `staticPaths` 路径不变。
+  - 新增共享 `StatsCalendar`、`DistributionList`、`lib/stats.js`（日历热力图、分布聚合、模型明细、格式化）。
+  - 删除 `app/i18n.js`、`theme-switcher.js`、`language-switcher.js`、`I18N_GUIDE.md`；全站 `data-i18n` 与 MutationObserver 清零，`static/app` 仅剩 CSS。
+  - 三个插件页切换为本地 FA 子集（143 icons），并在 E2E 隔离实例中启用对应插件以覆盖静态页面。
+  - `tests/static-syntax`/`static-import-graph` 改为扫描 `static/ui`；E2E 增至 23 个用例。
 
 ### 14.2 与计划的偏差（有意保留）
 
-- `static/app/theme-switcher.js`、`language-switcher.js` **暂不删除**：`login.html`、`potluck-user.html`、`model-usage-stats.html` 仍直接 import，按计划在 Phase 5 迁移独立页面后再删除。
-- `static/app/i18n.js` 兼容层保留：login 页仍使用 `data-i18n` DOM 扫描；Phase 5 拆分/迁移完成后删除。
-- `static/components/*.css` 保留（样式不动）；旧 HTML 片段已全部删除。
+- `static/app/*.css`、`static/components/*.css` 保留（样式不动）；计划在 Phase 6 合并/移动到 `ui/` 后删除目录。
+- 插件独立页（potluck / potluck-user / model-usage-stats）原本无语言切换，迁移后仍保持中文文案，未引入 i18n 双语文案。
 - 授权链接弹窗改为「自动本地回调 + 手动粘贴回调 URL + `oauth_success` 事件」；不再轮询跨域子窗口 URL（浏览器安全限制下不可靠）。
 - Kiro 的「AWS 凭据文件导入」（旧 `aws-import`）尚未迁移；其余认证方式与批量导入已覆盖。
 - 插件描述属于插件/市场提供的富文本，旧实现直接 `innerHTML`。为保持链接可用且降低 XSS 风险，改用 `ui/lib/sanitize.js` 白名单清洗后注入（仅 br/a/code/strong/em/b/i，链接限 http(s)/站内/锚点/mailto 并强制 `noopener`）。
