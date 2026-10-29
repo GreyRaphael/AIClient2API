@@ -4,7 +4,7 @@ import { elements, autoScroll, setAutoScroll, clearLogs } from './constants.js';
 import { showToast } from './utils.js';
 import { t } from './i18n.js';
 import { checkUpdate, performUpdate, loadProviders } from './provider-manager.js';
-import { switchSectionIfActive } from './navigation.js';
+import { serviceMode } from '../ui/store/system.js';
 
 /**
  * 初始化所有事件监听器
@@ -451,8 +451,10 @@ function handleProviderPoolsConfigChange(event) {
         // 隐藏提供商池菜单
         if (providersMenuItem) providersMenuItem.style.display = 'none';
         
-        // 如果当前在提供商池页面，切换到仪表盘
-        switchSectionIfActive('providers', 'dashboard');
+        // 如果当前在提供商池页面，切换到仪表盘（由 hash 路由统一处理）
+        if (document.getElementById('providers')?.classList.contains('active')) {
+            window.location.hash = 'dashboard';
+        }
     }
 }
 
@@ -490,6 +492,8 @@ let currentServiceMode = 'worker';
  */
 export function setServiceMode(mode) {
     currentServiceMode = mode;
+    // 同步给新外壳 Header（重启/重载按钮文案）
+    serviceMode.value = mode;
 }
 
 /**

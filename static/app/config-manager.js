@@ -3,7 +3,7 @@
 import { showToast, formatUptime, copyToClipboard, bindOnce } from './utils.js';
 import { handleProviderChange, handleGeminiCredsTypeChange, handleKiroCredsTypeChange } from './event-handlers.js';
 import { t } from './i18n.js';
-import { loadSectionIfActive } from './navigation.js';
+import { runSectionLoader } from '../ui/sections.js';
 
 // 提供商配置缓存
 let currentProviderConfigs = null;
@@ -627,8 +627,9 @@ async function saveConfiguration() {
         }
 
         // 检查当前是否在提供商池管理页面，如果是则刷新数据
-        const refreshedProviders = await loadSectionIfActive('providers');
-        if (refreshedProviders) {
+        const providersActive = document.getElementById('providers')?.classList.contains('active');
+        if (providersActive) {
+            await runSectionLoader('providers');
             showToast(t('common.success'), t('common.providerPoolRefreshed'), 'success');
         }
     } catch (error) {

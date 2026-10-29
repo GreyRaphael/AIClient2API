@@ -2,6 +2,7 @@
 import { t } from './i18n.js';
 import { apiClient } from './auth.js';
 import { getBaseProviderConfigs, getProviderIcon as getRegistryProviderIcon } from './provider-registry.js';
+import { pushToast } from '../ui/store/toast.js';
 
 /**
  * 获取所有支持的提供商配置列表
@@ -94,12 +95,13 @@ function escapeHtml(text) {
 }
 
 /**
- * 显示提示消息
+ * 显示提示消息（迁移期转发到 ui/store/toast.js，保证全局只有一个 Toast 容器）。
  * @param {string} title - 提示标题 (可选，旧接口为 message)
  * @param {string} message - 提示消息
  * @param {string} type - 消息类型 (info, success, error)
+ * @param {number} [duration] - 显示时长（毫秒）
  */
-function showToast(title, message, type = 'info') {
+function showToast(title, message, type = 'info', duration = 3000) {
     // 兼容旧接口 (message, type)
     if (arguments.length === 2 && (message === 'success' || message === 'error' || message === 'info' || message === 'warning')) {
         type = message;
@@ -107,22 +109,7 @@ function showToast(title, message, type = 'info') {
         title = t(`common.${type}`);
     }
 
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(title)}</div>
-        <div>${escapeHtml(message)}</div>
-    `;
-
-    // 获取toast容器
-    const toastContainer = document.getElementById('toastContainer') || document.querySelector('.toast-container');
-    if (toastContainer) {
-        toastContainer.appendChild(toast);
-
-        setTimeout(() => {
-            toast.remove();
-        }, 3000);
-    }
+    pushToast({ title, message, type, duration });
 }
 
 /**

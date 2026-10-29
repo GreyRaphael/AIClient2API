@@ -7,100 +7,52 @@
     <meta name="description" content="AIClient2API Management Console - Unified management of AI service providers" data-i18n="header.description">
     <title data-i18n="header.title">AIClient2API - 管理控制台</title>
     <link rel="icon" type="image/x-icon" href="https://src.hex2077.dev/logo/favicon.ico">
+    <script>
+        // 尽早应用保存的主题，避免首屏闪白
+        try {
+            if (localStorage.getItem('theme') === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* ignore */ }
+    </script>
     <link rel="stylesheet" href="app/base.css">
     <link rel="stylesheet" href="app/shared.css?v=20261028-1">
     <link rel="stylesheet" href="app/mobile.css">
+    <link rel="stylesheet" href="components/header.css">
+    <link rel="stylesheet" href="components/sidebar.css">
     <link rel="stylesheet" href="components/section-custom-models.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="vendor/fontawesome@6.7.2/fa-subset.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "preact": "/vendor/preact@11.1.0/preact.mjs",
+            "preact/hooks": "/vendor/preact@11.1.0/hooks.mjs",
+            "htm": "/vendor/htm@3.1.1/htm.mjs",
+            "@preact/signals": "/vendor/signals@2.11.4/signals.mjs",
+            "@preact/signals-core": "/vendor/signals-core@1.14.5/signals-core.mjs",
+            "@ui/": "/ui/"
+        }
+    }
+    </script>
+    <link rel="modulepreload" href="/ui/main.js">
+    <link rel="modulepreload" href="/app/app.js">
 </head>
 <body>
-    <div class="container">
-        <!-- Header 将由组件加载器动态插入 -->
-        
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- Sidebar 容器 -->
-            <div id="sidebar-container">
-                <!-- Sidebar 将由组件加载器动态插入 -->
-            </div>
-
-            <!-- Content Area -->
-            <main class="content" role="main" id="content-container">
-                <!-- 各个 Section 将由组件加载器动态插入 -->
-            </main>
-        </div>
-    </div>
+    <!-- Preact 外壳（Header / Sidebar / Section）挂载点 -->
+    <div id="app"></div>
 
     <!-- 对齐修正层：需位于所有动态加载的组件样式之后 -->
     <link rel="stylesheet" href="app/alignment.css?v=20261028-2">
 
-    <!-- Toast Notifications -->
+    <!-- 全局 Toast 容器（store/toast.js 的唯一渲染目标） -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <!-- Scripts -->
-    <script type="module" src="app/i18n.js"></script>
-    <script type="module" src="app/language-switcher.js"></script>
-    <script type="module" src="app/theme-switcher.js"></script>
-    <script type="module" src="app/auth.js"></script>
-    <script type="module" src="app/models-manager.js?v=20261028-3"></script>
-    <script type="module">
-        // 导入组件加载器
-        import { initializeComponents } from './app/component-loader.js';
-        // 导入多语言、主题切换和认证函数
-        import { initI18n, t, setLanguage, getCurrentLanguage } from './app/i18n.js';
-        import { initLanguageSwitcher } from './app/language-switcher.js';
-        import { initThemeSwitcher, setTheme, getCurrentTheme } from './app/theme-switcher.js';
-        import { initAuth, logout } from './app/auth.js';
-        
-        // 尽早应用保存的主题以避免闪烁（但不绑定按钮事件，因为按钮还不存在）
-        setTheme(getCurrentTheme());
-        
-        // 页面加载时检查登录状态并加载组件
-        (async function() {
-            const isAuthenticated = await initAuth();
-            if (!isAuthenticated) {
-                // 如果未认证，initAuth会自动重定向到登录页面
-                return;
-            }
-            // 认证成功，继续加载页面
-            console.log('用户已认证');
-            
-            try {
-                // 加载所有组件
-                await initializeComponents();
-                
-                // 组件加载完成后初始化主题切换器（此时按钮已存在于DOM中）
-                initThemeSwitcher();
-                
-                // 组件加载完成后初始化多语言
-                initI18n();
-                
-                // 初始化语言切换器
-                initLanguageSwitcher();
-                
-                // 重新应用当前语言（因为组件是动态加载的）
-                setLanguage(getCurrentLanguage());
-                
-                // 显示登出按钮（如果配置了密码保护）
-                const logoutBtn = document.getElementById('logoutBtn');
-                if (logoutBtn && localStorage.getItem('authToken')) {
-                    logoutBtn.style.display = 'inline-block';
-                    logoutBtn.addEventListener('click', async () => {
-                        if (confirm(t('common.confirm') + ' ' + t('header.logout') + '?')) {
-                            await logout();
-                        }
-                    });
-                }
+    <!-- 弹窗根节点（后续迁移的 Modal 使用） -->
+    <div id="modal-root"></div>
 
-            } catch (error) {
-                console.error('Failed to load components:', error);
-            }
-        })();
-
-        // 导出到 window 供其他脚本使用
-        window.initAuth = initAuth;
-        window.logout = logout;
-    </script>
+    <!-- 旧模块初始化（等待外壳派发 componentsLoaded） -->
     <script type="module" src="app/app.js"></script>
+    <!-- 新外壳入口：鉴权 -> 挂载 App -> 启动 SSE -->
+    <script type="module" src="ui/main.js"></script>
 </body>
 </html>
