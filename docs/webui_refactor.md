@@ -461,13 +461,35 @@ sections/providers/
 | Phase | 状态 |
 |---|---|
 | 文档确认 | ✅ |
-| Phase 0 基础设施 | ⏳ |
-| Phase 1 外壳 + 适配器 | ⬜ |
-| Phase 2 简单页面 | ⬜ |
+| Phase 0 基础设施 | ✅ |
+| Phase 1 外壳 + 适配器 | ✅ |
+| Phase 2 简单页面 | ⏳ 下一步 |
 | Phase 3 中等页面 | ⬜ |
 | Phase 4 重型页面 | ⬜ |
 | Phase 5 i18n 拆分与独立页面 | ⬜ |
 | Phase 6 清理 | ⬜ |
+
+### 14.1 实施记录
+
+- **Phase 0（已完成）**
+  - `scripts/sync-webui-vendor.mjs` / `scripts/subset-fontawesome.mjs` + `static/vendor/`（Preact 11.1.0、htm 3.1.1、signals、FA 6.7.2 子集）入库。
+  - `ui-manager.ts#serveStaticFiles`：补齐 `.mjs`/字体 MIME、`/vendor/` immutable、其余文本 `no-cache + ETag`、static 根目录校验。
+  - Playwright E2E（`tests/webui-e2e/`）在临时目录 + 独立端口启动隔离实例；`AICLIENT_NO_AUTO_OPEN=1`。
+  - `tsconfig.webui.json` + `typecheck:webui`；Jest `@ui/` 映射与 preact/htm/signals 转换（`babel.config.cjs`）。
+  - `index.html` import map、`ui/html.js` 与 `ui/lib/{api,auth,i18n,router,theme}.js` 骨架；Jest 新增 importmap、SSR、FA 子集、i18n parity 测试。
+- **Phase 1（已完成）**
+  - `static/ui/` 接管 Header / Sidebar / hash 路由 / SSE 连接 / Toast；11 个旧片段通过 `LegacySection` 原样挂载。
+  - 旧 `app.js` 保留未迁移模块初始化，在外壳派发 `componentsLoaded` 后运行，并在结束时派发 `legacyAppReady`；外壳收到后才触发当前页面的按需数据加载。
+  - 删除 `static/app/navigation.js`；`component-loader.js` 缩减为 `loadComponentHtml` 兼容导出。
+  - SSE 改为 `store/events.js` 单一连接，旧 `event-stream.js` 的 `addLogEntry`/`updateProviderStatus`/`handleProviderUpdate`/`handleConfigUpdate` 作为事件处理器桥接。
+  - `utils.showToast` 转发到 `store/toast.js`，全局只保留一个 Toast 容器。
+  - 服务模式通过 `store/system.js#serviceMode` 同步，Header 的重启/重载按钮文案随模式与语言更新（点击事件暂由旧 `event-handlers.js` 绑定，Phase 3 迁移）。
+
+### 14.2 与计划的偏差（有意保留）
+
+- `static/app/theme-switcher.js`、`language-switcher.js` **暂不删除**：`login.html`、`potluck-user.html`、`model-usage-stats.html` 仍直接 import，按计划在 Phase 5 迁移独立页面后再删除。
+- `static/app/event-stream.js#initEventStream` 保留但不再调用，作为 Phase 2 日志页迁移前的回滚点；Phase 6 统一删除。
+- `static/components/header.html`、`sidebar.html` 已无引用，按计划在 Phase 6 与其余旧片段一起删除。
 
 ## 附录 A：迁移前后对照示例（日志页）
 

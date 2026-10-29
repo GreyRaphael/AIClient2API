@@ -298,6 +298,8 @@ docker compose up -d
 👉 [**http://localhost:3000**](http://localhost:3000)
 
 > **默认密码**: `admin123` (登录后可在控制台或修改 `pwd` 文件变更)
+>
+> **浏览器要求**：控制台为免构建前端（原生 ES Module + import map），需要 Chrome/Edge 89+、Firefox 108+、Safari 16.4+。
 
 #### 3. 可视化配置 (推荐)
 进入 **"配置管理"** 页面，您可以直接：
