@@ -622,9 +622,7 @@ async function saveConfiguration() {
 
         showToast(t('common.success'), t('common.configSaved'), 'success');
 
-        if (window.loadAccessInfo) {
-            await window.loadAccessInfo();
-        }
+        // 接入页为懒挂载组件，进入时自行拉取最新数据，无需在此刷新
 
         // 检查当前是否在提供商池管理页面，如果是则刷新数据
         const providersActive = document.getElementById('providers')?.classList.contains('active');

@@ -5,7 +5,7 @@ import { t } from '../lib/i18n.js';
 import { toast } from '../store/toast.js';
 
 /**
- * @param {{value: string|(() => string), title?: string, className?: string, icon?: string, label?: string, onCopied?: () => void}} props
+ * @param {{value: string|(() => string), title?: string, className?: string, icon?: string, label?: string, id?: string, onCopied?: () => void}} props
  */
 export function CopyButton({
     value,
@@ -13,6 +13,7 @@ export function CopyButton({
     className = 'btn btn-secondary btn-sm',
     icon = 'fa-copy',
     label,
+    id,
     onCopied
 }) {
     const handleClick = async (event) => {
@@ -32,7 +33,7 @@ export function CopyButton({
     };
 
     return html`
-        <button type="button" class=${className} title=${title || t('common.copy')} onClick=${handleClick}>
+        <button type="button" class=${className} id=${id} title=${title || t('common.copy')} onClick=${handleClick}>
             <i class=${`fas ${icon}`}></i>
             ${label ? html` <span>${label}</span>` : null}
         </button>`;

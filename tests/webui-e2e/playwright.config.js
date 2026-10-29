@@ -14,7 +14,9 @@ export default defineConfig({
     use: {
         baseURL: `http://127.0.0.1:${PORT}`,
         trace: 'retain-on-failure',
-        screenshot: 'only-on-failure'
+        screenshot: 'only-on-failure',
+        // 复制按钮用例需要读取剪贴板
+        permissions: ['clipboard-read', 'clipboard-write']
     },
     projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
     webServer: {

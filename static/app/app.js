@@ -55,11 +55,6 @@ import {
 } from './modal.js';
 
 import {
-    initAccessManager,
-    loadAccessInfo
-} from './access-manager.js';
-
-import {
     initUploadConfigManager,
     loadConfigList,
     viewConfig,
@@ -144,7 +139,6 @@ async function initApp() {
     window.copyConfigContent = copyConfigContent;
     window.reloadConfig = reloadConfig;
     window.generateApiKey = generateApiKey;
-    window.loadAccessInfo = loadAccessInfo;
 
     // 用量管理相关全局函数
     window.refreshUsage = refreshUsage;
@@ -157,7 +151,6 @@ async function initApp() {
     // 初始化各个模块（SSE 连接由 ui/store/events.js 统一管理）
     initEventListeners();
     initFileUpload(); // 初始化文件上传功能
-    initAccessManager(); // 初始化快速接入页面
     initUploadConfigManager(); // 初始化配置管理功能
     initUsageManager(); // 初始化用量管理功能
     initImageZoom(); // 初始化图片放大功能

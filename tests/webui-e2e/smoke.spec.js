@@ -93,6 +93,44 @@ test.describe('console shell', () => {
         await expect(page.locator('#guide')).toContainText('常见问题');
     });
 
+    test('快速接入页：信息展示、供应商过滤、片段格式与复制', async ({ authedPage: page, problems }) => {
+        await page.goto('/#access');
+        await expect(page.locator('section#access.active')).toBeVisible();
+
+        // 空提供商池时默认只显示已配置供应商 → 空态
+        await expect(page.locator('#accessProvidersTable .access-empty'))
+            .toContainText('当前没有已配置节点的供应商');
+
+        const keyInput = page.locator('#accessApiKeyField');
+        await expect(keyInput).toHaveAttribute('type', 'password');
+        await expect(keyInput).toHaveValue('e2e-api-key');
+        await page.locator('#toggleAccessApiKey').click();
+        await expect(keyInput).toHaveAttribute('type', 'text');
+
+        const origin = await page.evaluate(() => location.origin);
+        await expect(page.locator('#accessBaseUrlField')).toHaveValue(origin);
+
+        await page.locator('#accessConfiguredOnly').uncheck();
+        await expect(page.locator('.access-provider-card').first()).toBeVisible();
+        expect(await page.locator('.access-provider-card').count()).toBeGreaterThan(5);
+
+        await expect(page.locator('#accessCherrySnippet')).toContainText('AIClient2API');
+        await page.locator('.access-format-btn[data-format="env"]').click();
+        await expect(page.locator('#accessNextChatSnippet')).toContainText('NEXTCHAT_OPENAI_BASE_URL');
+        await page.locator('.access-format-btn[data-format="json"]').click();
+        await expect(page.locator('#accessNextChatSnippet')).toContainText('"client": "NextChat"');
+        await page.locator('.access-format-btn[data-format="markdown"]').click();
+
+        await page.locator('#copyAccessApiKey').click();
+        await expect(page.locator('#toastContainer')).toContainText('内容已复制到剪贴板');
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('e2e-api-key');
+
+        await page.locator('.access-jump-btn').first().click();
+        await expect(page).toHaveURL(/#config$/);
+        await expect(page.locator('section#config.active')).toBeVisible();
+        expect(problems).toEqual([]);
+    });
+
     test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
         await page.goto('/#plugins');
         await expect(page.locator('section#plugins.active')).toBeVisible();
