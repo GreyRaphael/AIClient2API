@@ -79,6 +79,20 @@ test.describe('console shell', () => {
         expect(await html.getAttribute('data-theme')).toBe(toggled);
     });
 
+    test('使用指南页面渲染 FAQ 并随语言切换', async ({ authedPage: page }) => {
+        await page.goto('/#guide');
+        await expect(page.locator('section#guide.active')).toBeVisible();
+        await expect(page.locator('#guide .faq-item')).toHaveCount(8);
+        await expect(page.locator('#guide')).toContainText('常见问题');
+
+        await page.locator('#languageBtn').click();
+        await page.locator('.language-option[data-lang="en-US"]').click();
+        await expect(page.locator('#guide')).toContainText('FAQ');
+        await page.locator('#languageBtn').click();
+        await page.locator('.language-option[data-lang="zh-CN"]').click();
+        await expect(page.locator('#guide')).toContainText('常见问题');
+    });
+
     test('日志页：SSE 日志、自动滚动开关与清空', async ({ authedPage: page, problems }) => {
         await page.goto('/#logs');
         await expect(page.locator('section#logs.active')).toBeVisible();

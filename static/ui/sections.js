@@ -19,7 +19,7 @@
 export const SECTIONS = [
     { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'fa-tachometer-alt', legacy: { src: 'components/section-dashboard.html' } },
     { id: 'access', labelKey: 'nav.access', icon: 'fa-key', legacy: { src: 'components/section-access.html' } },
-    { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', legacy: { src: 'components/section-guide.html' } },
+    { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', load: () => import('./sections/guide.js') },
     { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', legacy: { src: 'components/section-config.html' } },
     { id: 'providers', labelKey: 'nav.providers', icon: 'fa-network-wired', legacy: { src: 'components/section-providers.html' } },
     { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', legacy: { src: 'components/section-custom-models.html' } },
