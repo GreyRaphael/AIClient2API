@@ -1535,9 +1535,7 @@ async function refreshProviderConfig(providerType) {
         }
 
         // 同步刷新模型测试（Playground）中的模型列表
-        if (typeof window.loadPlaygroundData === 'function') {
-            window.loadPlaygroundData().catch(e => console.error('Failed to reload playground data:', e));
-        }
+        window.dispatchEvent(new CustomEvent('playground:refresh'));
         
     } catch (error) {
         console.error('Failed to refresh provider config:', error);

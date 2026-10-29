@@ -285,6 +285,57 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('Playground：流式对话、复制与清空', async ({ authedPage: page, problems }) => {
+        await page.route('**/api/access-info', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                apiKey: 'e2e-api-key',
+                providers: [{ id: 'openai-custom', totalNodes: 1, usableNodes: 1 }],
+                defaultProviders: ['openai-custom']
+            })
+        }));
+        await page.route('**/api/provider-models', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ 'openai-custom': ['test-model'] })
+        }));
+        await page.route('**/v1/chat/completions', (route) => route.fulfill({
+            status: 200,
+            contentType: 'text/event-stream',
+            body: [
+                'data: {"choices":[{"delta":{"content":"Hello "}}]}',
+                '',
+                'data: {"choices":[{"delta":{"content":"from stream"}}]}',
+                '',
+                'data: [DONE]',
+                '',
+                ''
+            ].join('\n')
+        }));
+
+        await page.goto('/#playground');
+        await expect(page.locator('section#playground.active')).toBeVisible();
+        await expect(page.locator('#pg-provider-select option[value="openai-custom"]')).toHaveCount(1);
+        await page.locator('#pg-provider-select').selectOption('openai-custom');
+        await page.locator('#pg-model-select').selectOption('test-model');
+        await expect(page.locator('#pg-status-text')).toContainText('已就绪');
+
+        await page.locator('#pg-input').fill('你好');
+        await page.locator('#pg-send-btn').click();
+        await expect(page.locator('.pg-message.user')).toContainText('你好');
+        await expect(page.locator('.pg-message.assistant')).toContainText('Hello from stream');
+        await expect(page.locator('#pg-status-text')).toContainText('已就绪');
+
+        await page.locator('.pg-message.assistant .pg-action-link').click();
+        await expect(page.locator('#toastContainer')).toContainText('内容已复制到剪贴板');
+
+        await page.locator('#pg-clear-btn').click();
+        await expect(page.locator('.pg-welcome')).toBeVisible();
+        await expect(page.locator('.pg-message')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
     test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
         await page.goto('/#plugins');
         await expect(page.locator('section#plugins.active')).toBeVisible();

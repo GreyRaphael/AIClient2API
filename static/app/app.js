@@ -49,11 +49,6 @@ import {
     initImageZoom
 } from './image-zoom.js';
 
-import {
-    initPlaygroundManager,
-    loadPlaygroundData
-} from './playground-manager.js';
-
 let isAppInitialized = false;
 
 /**
@@ -83,7 +78,6 @@ async function initApp() {
     setProviderLoaders(loadProviders, refreshProviderConfig);
     
     // 导出全局函数供其他模块使用
-    window.loadPlaygroundData = loadPlaygroundData;
     window.loadProviders = loadProviders;
     window.openProviderManager = openProviderManager;
     window.showProviderManagerModal = showProviderManagerModal;
@@ -103,7 +97,6 @@ async function initApp() {
     initEventListeners();
     initFileUpload(); // 初始化文件上传功能
     initImageZoom(); // 初始化图片放大功能
-    initPlaygroundManager(); // 初始化 Playground
 
     // 加载初始数据（外壳在 legacyAppReady 后触发当前页面的数据加载）
     await loadInitialData();

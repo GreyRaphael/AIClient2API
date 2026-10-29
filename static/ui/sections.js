@@ -26,7 +26,7 @@ export const SECTIONS = [
     { id: 'upload-config', labelKey: 'nav.upload', icon: 'fa-upload', load: () => import('./sections/upload-config/index.js') },
     { id: 'usage', labelKey: 'nav.usage', icon: 'fa-chart-bar', load: () => import('./sections/usage/index.js') },
     { id: 'plugins', labelKey: 'nav.plugins', icon: 'fa-puzzle-piece', load: () => import('./sections/plugins.js') },
-    { id: 'playground', labelKey: 'nav.playground', icon: 'fa-flask', legacy: { src: 'components/section-playground.html' } },
+    { id: 'playground', labelKey: 'nav.playground', icon: 'fa-flask', load: () => import('./sections/playground/index.js') },
     { id: 'logs', labelKey: 'nav.logs', icon: 'fa-file-alt', load: () => import('./sections/logs.js') }
 ];
 
@@ -42,7 +42,6 @@ function legacyLoader(modulePath, exportName) {
 /** @type {Record<string, () => Promise<any>>} */
 const sectionLoaders = {
     providers: legacyLoader('../app/provider-manager.js', 'loadProvidersPageData'),
-    playground: legacyLoader('../app/playground-manager.js', 'loadPlaygroundData')
 };
 
 const legacySections = SECTIONS.filter((section) => section.legacy);
