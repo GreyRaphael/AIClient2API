@@ -330,6 +330,27 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('提供商授权弹窗：方式选择与批量导入校验', async ({ authedPage: page, problems }) => {
+        await page.goto('/#providers');
+        const card = page.locator('.provider-item[data-provider-type="openai-codex-oauth"]');
+        await card.locator('.generate-auth-btn').click();
+        await expect(page.locator('.modal-overlay.show')).toContainText('Codex');
+        await expect(page.locator('.auth-method-btn')).toHaveCount(4);
+
+        await page.locator('.auth-method-btn[data-method="batch-import"]').click();
+        await expect(page.locator('.modal-overlay.show textarea')).toBeVisible();
+        await page.locator('.modal-overlay.show .btn-primary').click();
+        await expect(page.locator('#toastContainer')).toContainText('请输入有效的 Token 数据');
+
+        await page.locator('.modal-overlay.show textarea').fill('not-json');
+        await page.locator('.modal-overlay.show .btn-primary').click();
+        await expect(page.locator('#toastContainer')).toContainText('请输入有效的 Token 数据');
+
+        await page.locator('.modal-overlay.show .modal-close').click();
+        await expect(page.locator('.modal-overlay.show')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
     test('Playground：流式对话、复制与清空', async ({ authedPage: page, problems }) => {
         await page.route('**/api/access-info', (route) => route.fulfill({
             status: 200,

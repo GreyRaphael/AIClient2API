@@ -11,6 +11,7 @@ import { toast } from '../../store/toast.js';
 import { Modal } from '../../components/Modal.js';
 import { Spinner } from '../../components/Spinner.js';
 import { ProviderManagerModal } from './ProviderManagerModal.js';
+import { AuthDialog } from './auth/AuthDialog.js';
 
 export default function ProvidersSection() {
     const { data, loading, reload } = useApi(async ({ signal }) => {
@@ -27,16 +28,22 @@ export default function ProvidersSection() {
     const [search, setSearch] = useState('');
     const [managerType, setManagerType] = useState('');
     const [groupPrompt, setGroupPrompt] = useState(/** @type {any} */ (null));
+    const [authType, setAuthType] = useState('');
 
-    // 仪表盘/用量页通过事件打开新弹窗
+    // 仪表盘/用量页通过事件打开新弹窗；Header 重载配置时刷新列表
     useEffect(() => {
         const open = (event) => {
             const type = event.detail?.type;
             if (type) setManagerType(type);
         };
+        const refresh = () => { void reload(); };
         window.addEventListener('providers:open', open);
-        return () => window.removeEventListener('providers:open', open);
-    }, []);
+        window.addEventListener('providers:refresh', refresh);
+        return () => {
+            window.removeEventListener('providers:open', open);
+            window.removeEventListener('providers:refresh', refresh);
+        };
+    }, [reload]);
 
     const providers = data?.providersData?.providers || {};
     const supportedProviders = data?.providersData?.supportedProviders || [];
@@ -169,7 +176,7 @@ export default function ProvidersSection() {
                             <button class="generate-auth-btn" title=${t('providers.auth.generateTitle')}
                                 onClick=${(event) => {
                                     event.stopPropagation();
-                                    /** @type {any} */ (globalThis).handleGenerateAuthUrl?.(type);
+                                    setAuthType(type);
                                 }}>
                                 <i class="fas fa-key"></i>
                                 <span>${t('providers.auth.generate')}</span>
@@ -249,7 +256,13 @@ export default function ProvidersSection() {
 
             ${managerType ? html`
                 <${ProviderManagerModal} providerType=${managerType}
-                    onClose=${() => setManagerType('')} onChanged=${() => void reload()} />` : null}
+                    onClose=${() => setManagerType('')} onChanged=${() => void reload()}
+                    onAuth=${(type) => setAuthType(type)} />` : null}
+
+            ${authType ? html`
+                <${AuthDialog} providerType=${authType}
+                    onClose=${() => setAuthType('')}
+                    onCompleted=${() => void reload()} />` : null}
 
             <${Modal} open=${!!groupPrompt} title=${t('providers.addGroup.title')}
                 onClose=${() => setGroupPrompt(null)} width="420px"

@@ -1,6 +1,5 @@
 // 语言切换器组件
 import { setLanguage, getCurrentLanguage, t } from './i18n.js';
-import { showToast } from './utils.js';
 
 // 创建语言切换器 HTML
 export function createLanguageSwitcher() {
@@ -78,8 +77,6 @@ function bindLanguageSwitcherEvents() {
             // 隐藏下拉菜单
             languageDropdown.classList.remove('show');
             
-            // 显示提示
-            showToast(t('common.success'), lang === 'zh-CN' ? '已切换到简体中文' : 'Switched to English', 'success');
         });
     });
     

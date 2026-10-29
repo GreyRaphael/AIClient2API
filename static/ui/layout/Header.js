@@ -8,6 +8,7 @@ import { html, useState, useEffect } from '../html.js';
 import { t, lang, setLanguage } from '../lib/i18n.js';
 import { theme, toggleTheme } from '../lib/theme.js';
 import { serviceMode } from '../store/system.js';
+import { api } from '../lib/api.js';
 import { clearToken, redirectToLogin } from '../lib/auth.js';
 import { toast } from '../store/toast.js';
 import { confirmDialog } from '../store/confirm.js';
@@ -63,6 +64,47 @@ export function Header() {
         return () => document.removeEventListener('click', closeMenu);
     }, [menuOpen]);
 
+    const handleRestart = async () => {
+        if (serviceMode.value === 'standalone') {
+            const confirmed = await confirmDialog({
+                title: t('header.reload'),
+                message: t('header.reload.confirm')
+            });
+            if (!confirmed) return;
+            toast.info(t('common.info'), t('header.reload.requesting'));
+            window.dispatchEvent(new CustomEvent('providers:refresh'));
+            return;
+        }
+
+        const confirmed = await confirmDialog({
+            title: t('header.restart'),
+            message: t('header.restart.confirm'),
+            danger: true
+        });
+        if (!confirmed) return;
+
+        toast.info(t('common.info'), t('header.restart.requesting'));
+        try {
+            const result = await api.post('/restart-service');
+            if (result?.success) {
+                toast.success(t('common.success'), result.message || t('header.restart.success'));
+                if (result.mode === 'worker') {
+                    setTimeout(() => {
+                        toast.info(t('common.info'), t('header.restart.reconnecting'));
+                        setTimeout(() => window.location.reload(), 3000);
+                    }, 2000);
+                }
+            } else {
+                toast.error(t('common.error'), result?.message || result?.error?.message || t('header.restart.failed'));
+                if (result?.mode === 'standalone') {
+                    toast.warning(t('common.info'), result.hint);
+                }
+            }
+        } catch (error) {
+            toast.error(t('common.error'), `${t('header.restart.failed')}: ${error.message}`);
+        }
+    };
+
     const handleLogout = async () => {
         const confirmed = await confirmDialog({
             title: t('header.logout'),
@@ -112,7 +154,8 @@ export function Header() {
                     <button id="logoutBtn" class="logout-btn" title=${t('header.logout')} onClick=${handleLogout}>
                         <i class="fas fa-sign-out-alt"></i> <span>${t('header.logout')}</span>
                     </button>
-                    <button id="restartBtn" class="logout-btn" aria-label=${isStandalone ? t('header.reload') : t('header.restart')}>
+                    <button id="restartBtn" class="logout-btn" aria-label=${isStandalone ? t('header.reload') : t('header.restart')}
+                        onClick=${() => void handleRestart()}>
                         <i id="restartBtnIcon" class=${isStandalone ? 'fas fa-sync-alt' : 'fas fa-redo'}></i>
                         <span id="restartBtnText" class="btn-text">${isStandalone ? t('header.reload') : t('header.restart')}</span>
                     </button>

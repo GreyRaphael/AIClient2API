@@ -1,53 +1,31 @@
 /**
- * 控制台入口：鉴权 -> 挂载外壳 -> 等待旧片段/旧 initApp -> 启动 SSE。
- * 旧 app.js 仍通过 `componentsLoaded` 事件执行未迁移模块的初始化。
+ * 控制台入口：鉴权 -> 挂载外壳 -> 启动 SSE。
+ * 所有页面均为 Preact 组件，不再加载 legacy app.js。
  */
 import { html, render } from './html.js';
 import { App } from './app.js';
 import { ToastHost } from './components/Toast.js';
 import { ConfirmDialogHost } from './components/ConfirmDialog.js';
-import { initLanguage, t } from './lib/i18n.js';
+import { initLanguage, onLanguageChange, t } from './lib/i18n.js';
 import { initTheme } from './lib/theme.js';
+import { initImageZoom } from './lib/image-zoom.js';
 import { api } from './lib/api.js';
 import { clearToken, getToken, isTokenValid, redirectToLogin } from './lib/auth.js';
 import { on, startEvents } from './store/events.js';
 import { initLogs } from './store/logs.js';
 import { pushToast } from './store/toast.js';
-import { hasLegacySections, markLegacyAppReady } from './sections.js';
+import { serviceMode } from './store/system.js';
 
-const LEGACY_EVENT_STREAM = '../app/event-stream.js';
-
-/**
- * 用变量形式动态 import：运行期解析相对路径，同时避免把 legacy 模块加入 typecheck:webui 程序。
- * @param {string} modulePath
- */
-function importLegacy(modulePath) {
-    return import(modulePath);
-}
-
-async function startRealtime() {
-    const legacy = await importLegacy(LEGACY_EVENT_STREAM);
-
-    // 日志缓冲由 store/logs.js 订阅，保证进入日志页前的事件也不丢
-    initLogs();
-    on('provider', legacy.updateProviderStatus);
-    on('provider_update', legacy.handleProviderUpdate);
-    on('oauth_success', (data) => {
-        pushToast({
-            title: t('common.success'),
-            message: `${t('common.success')} (${data.provider})`,
-            type: 'success'
-        });
-        // 保留旧自定义事件，兼容尚未迁移的授权向导
-        window.dispatchEvent(new CustomEvent('oauth_success_event', { detail: data }));
-    });
-
-    startEvents(getToken());
+function applyDocumentMeta() {
+    document.title = t('header.title');
+    document.querySelector('meta[name="description"]')?.setAttribute('content', t('header.description'));
 }
 
 async function boot() {
     initTheme();
+    initImageZoom();
     await initLanguage();
+    applyDocumentMeta();
 
     if (!isTokenValid()) {
         redirectToLogin();
@@ -62,15 +40,12 @@ async function boot() {
         return;
     }
 
-    // 监听必须在挂载前注册：片段加载与旧 initApp 都发生在其后
-    window.addEventListener('componentsLoaded', () => {
-        void startRealtime().catch((error) => {
-            console.error('Failed to start realtime events:', error);
-        });
-    }, { once: true });
-    window.addEventListener('legacyAppReady', () => markLegacyAppReady(), { once: true });
-    // 兜底：旧 initApp 异常时不至于让所有页面永远等不到数据加载
-    setTimeout(markLegacyAppReady, 5000);
+    try {
+        const mode = await api.get('/service-mode');
+        serviceMode.value = mode?.mode || 'worker';
+    } catch {
+        // 保持默认 worker
+    }
 
     const appRoot = document.getElementById('app');
     const toastRoot = document.getElementById('toastContainer');
@@ -79,17 +54,21 @@ async function boot() {
         console.error('Missing #app root');
         return;
     }
+
     render(html`<${App} />`, appRoot);
-    if (toastRoot) {
-        render(html`<${ToastHost} />`, toastRoot);
-    }
-    if (confirmRoot) {
-        render(html`<${ConfirmDialogHost} />`, confirmRoot);
-    }
-    // 所有 Section 均已迁移时没有 LegacySection 触发 componentsLoaded，这里补发一次
-    if (!hasLegacySections) {
-        window.dispatchEvent(new CustomEvent('componentsLoaded'));
-    }
+    if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
+    if (confirmRoot) render(html`<${ConfirmDialogHost} />`, confirmRoot);
+
+    initLogs();
+    on('oauth_success', (data) => {
+        pushToast({
+            title: t('common.success'),
+            message: `${t('common.success')} (${data.provider})`,
+            type: 'success'
+        });
+        window.dispatchEvent(new CustomEvent('oauth_success_event', { detail: data }));
+    });
+    startEvents(getToken());
 }
 
 void boot();

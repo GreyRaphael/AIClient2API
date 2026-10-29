@@ -1,9 +1,6 @@
 /**
- * Section 注册表 + 迁移期协调器。
- *
- * - 未迁移页面：`legacy.src` 指向旧 HTML 片段，由 LegacySection 原样挂载；
- * - 已迁移页面：`load` 返回动态 import，由 App 在激活时挂载、离开时卸载。
- * 旧加载函数使用变量形式的动态 import，避免把 legacy 模块拉进 typecheck:webui 程序。
+ * Section 注册表。
+ * 所有页面均已迁移为 Preact 组件，按需动态 import；旧 LegacySection 适配器已移除。
  */
 
 /**
@@ -11,8 +8,7 @@
  * @property {string} id
  * @property {string} labelKey
  * @property {string} icon 完整字面量 Font Awesome 类名（供子集扫描）
- * @property {{src: string}} [legacy] 旧 HTML 片段
- * @property {() => Promise<{default: any}>} [load] 已迁移组件的加载器
+ * @property {() => Promise<{default: any}>} load
  */
 
 /** @type {SectionDef[]} */
@@ -29,65 +25,3 @@ export const SECTIONS = [
     { id: 'playground', labelKey: 'nav.playground', icon: 'fa-flask', load: () => import('./sections/playground/index.js') },
     { id: 'logs', labelKey: 'nav.logs', icon: 'fa-file-alt', load: () => import('./sections/logs.js') }
 ];
-
-/**
- * @param {string} modulePath
- * @param {string} exportName
- * @returns {() => Promise<any>}
- */
-function legacyLoader(modulePath, exportName) {
-    return () => import(modulePath).then((mod) => mod[exportName]());
-}
-
-/** @type {Record<string, () => Promise<any>>} */
-const sectionLoaders = {
-};
-
-const legacySections = SECTIONS.filter((section) => section.legacy);
-export const hasLegacySections = legacySections.length > 0;
-const pendingSections = new Set(legacySections.map((section) => section.id));
-/** @type {() => void} */
-let resolveSectionsReady = () => {};
-/** @type {() => void} */
-let resolveAppReady = () => {};
-const sectionsReady = pendingSections.size === 0
-    ? Promise.resolve(undefined)
-    : new Promise((resolve) => { resolveSectionsReady = () => resolve(undefined); });
-const appReady = new Promise((resolve) => { resolveAppReady = () => resolve(undefined); });
-
-/**
- * 每个旧片段插入完成后调用；全部就绪时派发 `componentsLoaded`（旧 app.js 依赖此事件）。
- * @param {string} id
- */
-export function legacySectionReady(id) {
-    if (!pendingSections.delete(id)) return;
-    if (pendingSections.size > 0) return;
-    if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('componentsLoaded'));
-    }
-    resolveSectionsReady();
-}
-
-/** 旧 initApp 完成后由 main.js 调用。 */
-export function markLegacyAppReady() {
-    resolveAppReady();
-}
-
-/** 等待"旧片段全部就绪 + 旧 initApp 完成"，再执行按需数据加载。 */
-export function whenLegacyReady() {
-    return Promise.all([sectionsReady, appReady]);
-}
-
-/**
- * 触发某个未迁移 Section 的数据加载（等价旧 navigation.js 的 sectionLoaders）。
- * @param {string} id
- */
-export function runSectionLoader(id) {
-    const loader = sectionLoaders[id];
-    if (!loader) return Promise.resolve(undefined);
-    return Promise.resolve()
-        .then(loader)
-        .catch((error) => {
-            console.error(`Failed to load section data for ${id}:`, error);
-        });
-}

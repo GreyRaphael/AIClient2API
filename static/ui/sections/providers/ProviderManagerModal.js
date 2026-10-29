@@ -215,9 +215,9 @@ async function uploadOAuthFile(providerType, fieldKey, onDone) {
 }
 
 /**
- * @param {{providerType: string, onClose: () => void, onChanged: () => void}} props
+ * @param {{providerType: string, onClose: () => void, onChanged: () => void, onAuth?: (providerType: string) => void}} props
  */
-export function ProviderManagerModal({ providerType, onClose, onChanged }) {
+export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth }) {
     const [data, setData] = useState(/** @type {any} */ (null));
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -759,7 +759,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged }) {
                     </button>
                     ${isOAuthProvider(providerType) ? html`
                         <button class="btn btn-primary" title=${t('providers.auth.generateTitle')}
-                            onClick=${() => /** @type {any} */ (globalThis).handleGenerateAuthUrl?.(providerType)}>
+                            onClick=${() => onAuth?.(providerType)}>
                             <i class="fas fa-key"></i> <span>${t('providers.auth.generate')}</span>
                         </button>` : null}
                     <button class="btn btn-warning" title=${t('modal.provider.resetHealth')} onClick=${() => void resetAllHealth()}>
@@ -812,7 +812,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged }) {
                         </button>
                         ${isOAuthProvider(providerType) ? html`
                             <button type="button" class="btn btn-primary"
-                                onClick=${() => /** @type {any} */ (globalThis).handleGenerateAuthUrl?.(providerType)}>
+                                onClick=${() => onAuth?.(providerType)}>
                                 <i class="fas fa-key"></i> <span>${t('providers.auth.generate')}</span>
                             </button>` : null}
                         <button class="btn btn-secondary" onClick=${() => setAddMode(false)}>

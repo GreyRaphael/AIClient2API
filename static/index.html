@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <meta name="theme-color" content="#059669">
-    <meta name="description" content="AIClient2API Management Console - Unified management of AI service providers" data-i18n="header.description">
-    <title data-i18n="header.title">AIClient2API - 管理控制台</title>
+    <meta name="description" content="AIClient2API Management Console - Unified management of AI service providers">
+    <title>AIClient2API - 管理控制台</title>
     <link rel="icon" type="image/x-icon" href="https://src.hex2077.dev/logo/favicon.ico">
     <script>
         // 尽早应用保存的主题，避免首屏闪白
@@ -46,7 +46,6 @@
     }
     </script>
     <link rel="modulepreload" href="/ui/main.js">
-    <link rel="modulepreload" href="/app/app.js">
 </head>
 <body>
     <!-- Preact 外壳（Header / Sidebar / Section）挂载点 -->
@@ -63,7 +62,6 @@
     <div id="confirm-root"></div>
 
     <!-- 旧模块初始化（等待外壳派发 componentsLoaded） -->
-    <script type="module" src="app/app.js"></script>
     <!-- 新外壳入口：鉴权 -> 挂载 App -> 启动 SSE -->
     <script type="module" src="ui/main.js"></script>
 </body>
