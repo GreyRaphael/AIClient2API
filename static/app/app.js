@@ -58,11 +58,6 @@ import {
 } from './upload-config-manager.js';
 
 import {
-    initUsageManager,
-    refreshUsage
-} from './usage-manager.js';
-
-import {
     initImageZoom
 } from './image-zoom.js';
 
@@ -130,9 +125,6 @@ async function initApp() {
     window.copyConfigContent = copyConfigContent;
     window.reloadConfig = reloadConfig;
 
-    // 用量管理相关全局函数
-    window.refreshUsage = refreshUsage;
-
     // 插件管理相关全局函数
 
     // 初始化自定义模型管理
@@ -142,7 +134,6 @@ async function initApp() {
     initEventListeners();
     initFileUpload(); // 初始化文件上传功能
     initUploadConfigManager(); // 初始化配置管理功能
-    initUsageManager(); // 初始化用量管理功能
     initImageZoom(); // 初始化图片放大功能
     initPlaygroundManager(); // 初始化 Playground
 

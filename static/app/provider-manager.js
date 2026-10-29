@@ -5,7 +5,6 @@ import { showToast, formatUptime, getProviderConfigs, getBaseProviderConfigs, es
 import { fileUploadHandler } from './file-upload.js';
 import { t, getCurrentLanguage } from './i18n.js';
 import { isOAuthProvider, getGroupableProviderIds, getProviderAuthFilePath } from '../ui/lib/provider-registry.js';
-import { updateUsageProviderConfigs } from './usage-manager.js';
 import { loadConfigList, updateProviderFilterOptions } from './upload-config-manager.js';
 import { setServiceMode } from './event-handlers.js';
 import { compareVersions, getCodexExternalImportMeta, getCodexExternalImportStats } from '../ui/lib/provider-manager-utils.js';
@@ -231,7 +230,6 @@ async function loadProviders(forceRefreshSupported = false) {
             const providerConfigs = getProviderConfigs(cachedSupportedProviders);
             
             // 动态更新各个页面的提供商信息
-            updateUsageProviderConfigs(providerConfigs);
             updateProviderFilterOptions(providerConfigs);
                         isStaticProviderConfigsUpdated = true;
         }

@@ -173,6 +173,56 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('用量页：支持提供商、卡片渲染与刷新', async ({ authedPage: page, problems }) => {
+        const usagePayload = {
+            timestamp: new Date().toISOString(),
+            fromCache: false,
+            providers: {
+                'gemini-antigravity': {
+                    instances: [{
+                        uuid: 'u1',
+                        name: 'acct',
+                        success: true,
+                        isHealthy: true,
+                        usage: {
+                            summary: {
+                                usedPercent: 42,
+                                remainingPercent: 58,
+                                status: 'normal',
+                                unit: 'percent',
+                                plan: 'Pro'
+                            },
+                            user: { email: 'a@b.c' },
+                            items: [{ id: 'gemini-5h', label: '5h', unit: 'percent', percent: 30, status: 'normal' }]
+                        }
+                    }]
+                }
+            }
+        };
+        await page.route(/\/api\/usage(\?.*)?$/, (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(usagePayload)
+        }));
+
+        await page.goto('/#usage');
+        await expect(page.locator('section#usage.active')).toBeVisible();
+        await expect(page.locator('#supportedProvidersList .provider-tag').first()).toBeVisible();
+        await expect(page.locator('.usage-provider-group')).toHaveCount(1);
+        await expect(page.locator('.usage-instance-card')).toHaveCount(1);
+
+        await page.locator('.usage-group-title').click();
+        await expect(page.locator('.usage-provider-group')).not.toHaveClass(/collapsed/);
+        await page.locator('.usage-card-collapsed-summary').click();
+        await expect(page.locator('.usage-instance-card')).not.toHaveClass(/collapsed/);
+        await expect(page.locator('.usage-instance-card')).toContainText('42.0%');
+        await expect(page.locator('.usage-instance-card')).toContainText('5小时限制');
+
+        await page.locator('#refreshUsageBtn').click();
+        await expect(page.locator('#toastContainer')).toContainText('刷新成功');
+        expect(problems).toEqual([]);
+    });
+
     test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
         await page.goto('/#plugins');
         await expect(page.locator('section#plugins.active')).toBeVisible();
