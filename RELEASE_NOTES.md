@@ -1,62 +1,63 @@
-# AIClient-2-API 发布说明 (v5.1.0)
+# AIClient-2-API 发布说明 (v5.2.0)
 
-> **v5.1.0** 是 v5.0.8 之后的模型 metadata 可视化与 Playground 多协议版本。
+> **v5.2.0** 是 v5.1.0 之后的 WebUI 无构建重构版本。
 >
-> 仪表盘现在可以直接查看所有可用模型的上下文长度、输出上限、图片能力与推理档位；Playground 新增 OpenAI Responses 与 Anthropic Messages 两种接口类型，并修复了流式输出的打字机效果。
+> 管理控制台全部迁移到 Preact 11 + htm + signals，仍然保持“零构建、零 CDN、离线可用”；同时补齐 Kiro AWS 账号导入，并加固插件富文本链接清洗。后端 API、Hash 路由、localStorage 键与插件静态路径保持兼容。
 
 ---
 
-## 🗂️ 仪表盘模型 metadata
+## 🎨 WebUI 无构建重构
 
-- 新增 `GET /api/provider-models/metadata`，按 Provider 汇总模型 metadata：
-  - 上游 capability 已有的 `display_name` / `context_length` / `max_output_tokens` / `support_images` / `support_efforts`
-  - 自定义模型配置中的同名 metadata 会合并覆盖上游值
-- 仪表盘“可用模型列表”改为每行 2 个卡片，每个模型单行展示：
-  - `id`
-  - `context_length`
-  - `max_output_tokens`
-  - `support_images`
-  - `support_efforts`
-- 点击卡片会把模型 ID 与对应 metadata 以 JSON 复制到剪贴板，便于直接粘贴到配置或脚本中。
-- 刷新模型能力时同步清空并重新拉取 metadata 缓存。
-- 自定义模型 metadata 注入逻辑抽取到 `src/providers/custom-model-metadata.ts`，`/v1/models` 与 metadata 端点共用同一套规则。
+- **技术栈**：Preact 11 + htm + `@preact/signals`，浏览器原生 ES Module + import map，无需 Vite/Webpack/JSX 编译。
+- **目录统一**：新代码全部位于 `static/ui/`，第三方依赖入库到 `static/vendor/`，Font Awesome 使用本地子集（145 icons）。
+- **页面迁移**：
+  - 控制台 11 个页面：dashboard / access / guide / config / providers / custom-models / upload-config / usage / plugins / playground / logs。
+  - 独立页面：login、potluck、potluck-user、model-usage-stats。
+- **基础能力统一**：`Modal` / `ConfirmDialog` / `Pagination` / `Toast`、`useApi` / `useEvent` / `useInterval`、统一 API 客户端与 SSE 连接。
+- **i18n**：拆分为 `locales/zh-CN.js` 与 `locales/en-US.js`，`en-US` 按需加载；移除 `data-i18n` 全页扫描与 `MutationObserver`。
+- **清理**：删除旧 `static/app/*.js`、`static/components/*.html`；全站 `window.*` 顶层赋值与内联 `onclick=` 清零。
+- **样式**：CSS 仅移动到 `static/ui/styles/`，未做大规模重写，以降低视觉回归风险。
 
-## 🧪 Playground 多协议接口
+## 🔐 Kiro AWS 账号导入
 
-- “接口类型”新增：
-  - `responses` — OpenAI Responses（`POST /v1/responses`）
-  - `messages` — Anthropic Messages（`POST /v1/messages`）
-- 三种文本接口均支持流式与非流式：
-  - Chat：`messages` + `reasoning_effort`
-  - Responses：`instructions` + `input` + `reasoning.effort`
-  - Messages：`system` + `messages` + `max_tokens` + `thinking: adaptive` + `output_config.effort`
-- 历史消息与附件会自动转换成各协议格式：
-  - Responses：`input_text` / `input_image`
-  - Messages：`text` / `image` base64 block
-- 流式解析覆盖：
-  - Responses：`response.output_text.delta`、reasoning summary delta、`response.completed`
-  - Messages：`text_delta`、`thinking_delta`、`message_stop`
-- 新增客户端打字机预览队列：即使上游把多个 token 合并成少量大 delta，`stream=true` 仍会逐字展示，并在流结束后最多用 800ms 排空剩余字符。
+- 恢复旧版 `aws-import` 认证入口。
+- 支持 AWS SSO cache JSON 文件上传与多文件字段合并。
+- 支持直接粘贴单个凭据对象或凭据数组（批量）。
+- 自动校验 `clientId` / `clientSecret` / `accessToken` / `refreshToken`，并补齐 `authMethod: builder-id`。
+- 提供敏感字段脱敏预览、重复凭据提示与批量 SSE 实时进度。
+- 单条与批量均使用 `POST /api/kiro/import-aws-credentials`，成功后自动刷新提供商列表。
 
-## 🧹 修复
+## 🛡️ 安全与稳定性
 
-- 修复 `section-access.css` 中残留的重复模型列表样式：它在并行加载时可能覆盖仪表盘 CSS，导致模型卡片按 4 列排布。
-- 修复 Playground 流式输出在 delta 合并场景下看起来与非流式一致的问题。
+- `sanitizeHtml()` 链接策略改为按 URL 协议校验：
+  - 允许 `http(s)`、`mailto`、站内路径与锚点；
+  - 拒绝 `//host`、`/\host`、`javascript:`、`data:`、`vbscript:` 等绕过方式；
+  - 保留白名单标签，移除事件属性与未知属性。
+- OAuth 授权继续使用「自动本地回调 + 手动粘贴回调 URL + `oauth_success`」方案，不依赖跨域子窗口轮询。
+- 插件描述富文本继续使用白名单清洗后注入，链接强制 `target="_blank"` 与 `rel="noopener noreferrer"`。
+
+## 🧹 兼容性与已知说明
+
+- Hash 路由保持不变：`#dashboard`、`#access`、`#guide`、`#config`、`#providers`、`#custom-models`、`#upload-config`、`#usage`、`#plugins`、`#playground`、`#logs`。
+- `localStorage` 键保持不变：`authToken`、`authTokenExpiry`、`language`、`theme`。
+- 插件 `staticPaths` 保持不变：`potluck.html`、`potluck-user.html`、`model-usage-stats.html`。
+- 后端 `/api/*` 接口与鉴权协议未改动，无需迁移配置。
+- 最低浏览器版本：Chrome / Edge 89+、Firefox 108+、Safari 16.4+。
+- 有意保留的取舍：CSS 未按页面合并重写；三个插件独立页仍保持中文文案；`upload-config` 保留 20 条/页的前端分页。
 
 ## 🧪 验证结果
 
 | 项目 | 结果 |
 |---|---|
-| `npm test` | **52 suites / 651 tests 全绿** |
+| `npm test` | **70 suites / 838 tests 全绿** |
+| WebUI E2E | **26/26 通过** |
 | `npm run verify` | **通过**（typecheck / plugins / strict / any / imports / cycles / coverage / runtime smoke） |
-| Playground e2e | **10/10 通过** |
+| `npm run typecheck` | **通过** |
+| `npm run typecheck:webui` | **通过** |
+| `npm run vendor:webui:check` | **通过** |
+| Font Awesome 子集 | **145 icons** |
 
-### Playground E2E 覆盖
-
-- 2 个目标模型：Chat 原生 `openai-custom` 与 Responses 原生 `openaiResponses-custom`。
-- Responses / Messages 各自非流式 + 流式文本，全部 HTTP 200 且返回预期 `391`。
-- Responses / Messages 图片输入，均正确识别测试图的 `red + blue + 42`。
-- 覆盖跨协议转译（Chat → Responses/Messages）与同协议直通（Responses → Responses）。
+E2E 覆盖登录、11 个控制台页面、中英/明暗切换、SSE 状态、Provider 节点 CRUD、授权弹窗、Kiro AWS 单条/批量导入、Playground 流式对话、插件页、日志页、登出，以及 4 个独立页面。
 
 ## 📦 升级建议
 
@@ -64,13 +65,13 @@
 
   ```bash
   git fetch --tags
-  git checkout v5.1.0
+  git checkout v5.2.0
   npm install
   npm start
   ```
 
-- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `5.1.0` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
+- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `5.2.0` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
 
-- 升级后请重启服务并硬刷新 WebUI，以加载新的仪表盘模型卡片与 Playground 接口类型。
+- 升级后请重启服务并硬刷新 WebUI，以加载新的 `static/ui/` 模块与本地 Font Awesome 子集。
 
-- 兼容性：无 Provider 增删，无插件公共契约变更；自定义模型继续使用 `context_length` / `max_output_tokens` / `support_images` / `support_efforts` 字段。
+- 从 v5.1.0 升级无需修改配置；已有 Provider 池、插件配置与自定义模型配置继续可用。

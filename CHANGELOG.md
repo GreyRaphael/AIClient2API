@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.2.0] - 2026-10-29
+
 ### Added
 
 - WebUI 无构建重构（Preact 11 + htm + signals）：`static/ui/` 统一入口、import map、`static/vendor/` 本地依赖与 Font Awesome 子集。
@@ -34,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `npm test`：**70 suites / 838 tests 全绿**。
 - WebUI E2E：**26/26 通过**。
-- `npm run typecheck`、`typecheck:webui`、`vendor:webui:check` 通过。
+- `npm run verify`：typecheck、typecheck:plugins、strict、any、imports、cycles、coverage、runtime smoke 全部通过。
+- `typecheck:webui`、`vendor:webui:check` 通过。
 
 ## [v5.1.0] - 2026-10-28
 
