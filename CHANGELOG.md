@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - WebUI 无构建重构（Preact 11 + htm + signals）：`static/ui/` 统一入口、import map、`static/vendor/` 本地依赖与 Font Awesome 子集。
 - 统一 `Modal/ConfirmDialog/Pagination/Toast`、`useApi/useEvent/useInterval` 与 provider/usage/stats 纯函数模块。
-- Playwright 隔离 E2E（23 个用例）与 Jest SSR/i18n parity/import map/FA 子集守卫。
+- 提供商授权补齐 Kiro AWS 账号导入：支持 AWS SSO cache JSON 文件合并、JSON 粘贴、单条提交与批量 SSE 进度。
+- Playwright 隔离 E2E（26 个用例）与 Jest SSR/i18n parity/import map/FA 子集守卫。
 
 ### Changed
 
@@ -25,10 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `static/app/` 旧 JS（provider-manager、modal、event-stream、i18n DOM 扫描等）与旧 HTML 片段。
 - `static/app/`、`static/components/` 目录（CSS 统一迁至 `static/ui/styles/`）。
 
+### Fixed
+
+- 插件描述富文本清洗拒绝 `//host`、`/\host` 等协议相对/反斜杠链接绕过，并补充危险协议、事件属性与嵌套标签测试。
+
 ### Verification
 
-- `npm test`：**68 suites / 822 tests 全绿**。
-- WebUI E2E：**23/23 通过**。
+- `npm test`：**70 suites / 838 tests 全绿**。
+- WebUI E2E：**26/26 通过**。
 - `npm run typecheck`、`typecheck:webui`、`vendor:webui:check` 通过。
 
 ## [v5.1.0] - 2026-10-28

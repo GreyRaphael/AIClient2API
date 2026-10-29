@@ -521,9 +521,14 @@ sections/providers/
 - CSS 仅移动到 `static/ui/styles/`，未按页面合并/重写；`components/` 作为子目录保留原文件名，避免样式回归。
 - 插件独立页（potluck / potluck-user / model-usage-stats）原本无语言切换，迁移后仍保持中文文案，未引入 i18n 双语文案。
 - 授权链接弹窗改为「自动本地回调 + 手动粘贴回调 URL + `oauth_success` 事件」；不再轮询跨域子窗口 URL（浏览器安全限制下不可靠）。
-- Kiro 的「AWS 凭据文件导入」（旧 `aws-import`）尚未迁移；其余认证方式与批量导入已覆盖。
 - 插件描述属于插件/市场提供的富文本，旧实现直接 `innerHTML`。为保持链接可用且降低 XSS 风险，改用 `ui/lib/sanitize.js` 白名单清洗后注入（仅 br/a/code/strong/em/b/i，链接限 http(s)/站内/锚点/mailto 并强制 `noopener`）。
 - `upload-config` 在计划外加了 20 条/页的前端分页，避免大量凭据文件时一次性渲染过长。
+
+### 14.3 后续补充修复
+
+- **Kiro AWS 凭据导入已补齐**：新增 `sections/providers/auth/KiroAwsImportModal.js`，支持 AWS SSO cache JSON 文件合并、JSON 粘贴、单条提交与批量 SSE 进度；补齐重复凭据提示、字段校验与脱敏预览，原 §14.2 的 `aws-import` 缺口关闭。
+- **富文本链接策略加固**：`ui/lib/sanitize.js` 新增 `isSafeHref()`，拒绝 `//host`、`/\host` 等协议相对/反斜杠绕过，并补充危险协议、事件属性与嵌套标签测试；真实浏览器 E2E 覆盖清洗结果。
+- **测试更新**：`npm test` 70 suites / 838 tests，WebUI E2E 26/26，`typecheck:webui` 与 `vendor:webui:check` 通过；Font Awesome 子集更新为 145 icons。
 
 ## 附录 A：迁移前后对照示例（日志页）
 
