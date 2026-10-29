@@ -463,8 +463,8 @@ sections/providers/
 | 文档确认 | ✅ |
 | Phase 0 基础设施 | ✅ |
 | Phase 1 外壳 + 适配器 | ✅ |
-| Phase 2 简单页面 | ⏳ 下一步 |
-| Phase 3 中等页面 | ⬜ |
+| Phase 2 简单页面 | ✅ |
+| Phase 3 中等页面 | ⏳ 下一步 |
 | Phase 4 重型页面 | ⬜ |
 | Phase 5 i18n 拆分与独立页面 | ⬜ |
 | Phase 6 清理 | ⬜ |
