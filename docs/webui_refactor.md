@@ -464,8 +464,8 @@ sections/providers/
 | Phase 0 基础设施 | ✅ |
 | Phase 1 外壳 + 适配器 | ✅ |
 | Phase 2 简单页面 | ✅ |
-| Phase 3 中等页面 | ⏳ 下一步 |
-| Phase 4 重型页面 | ⬜ |
+| Phase 3 中等页面 | ✅ |
+| Phase 4 重型页面 | ⏳ 下一步 |
 | Phase 5 i18n 拆分与独立页面 | ⬜ |
 | Phase 6 清理 | ⬜ |
 
@@ -484,12 +484,31 @@ sections/providers/
   - SSE 改为 `store/events.js` 单一连接，旧 `event-stream.js` 的 `addLogEntry`/`updateProviderStatus`/`handleProviderUpdate`/`handleConfigUpdate` 作为事件处理器桥接。
   - `utils.showToast` 转发到 `store/toast.js`，全局只保留一个 Toast 容器。
   - 服务模式通过 `store/system.js#serviceMode` 同步，Header 的重启/重载按钮文案随模式与语言更新（点击事件暂由旧 `event-handlers.js` 绑定，Phase 3 迁移）。
+- **Phase 2（已完成）**
+  - 新增原子组件 `Spinner/EmptyState/Switch/CopyButton/CodeBlock/Field` 与 hooks `useApi/useEvent/useInterval`；`provider-registry`、`provider-manager-utils` 提前迁入 `ui/lib/`（纯 ESM，Jest 路径同步）。
+  - `logs`：`store/logs.js`（2000 条封顶、autoScroll）+ `sections/logs.js`；旧 event-stream 日志 DOM、constants 日志状态、event-handlers 日志绑定全部删除。
+  - `guide`：`sections/guide.js` 纯展示，FAQ 中英切换由 signal 驱动。
+  - `plugins`：`sections/plugins.js` 覆盖已安装列表/开关/卸载、市场/安装/更新、付费弹窗与 ZIP 上传；删除 `plugin-manager.js` 与 `window.togglePlugin`；新增 `sanitize.js` 清洗插件描述富文本；`plugin_update` 事件通过 `useEvent` 自动刷新。
+  - `access`：`sections/access/` 拆出 `snippets.js` 纯函数与页面组件，删除 `access-manager.js`、`routing-examples.js` 与 `window.loadAccessInfo`。
+- **Phase 3（已完成）**
+  - 新增 `Modal/ConfirmDialog/Pagination` 原语；Header/logs/plugins/restart/reload 的原生 `confirm` 全部替换为 `confirmDialog()`。
+  - `dashboard`：系统信息/运行时间、更新检查与降级、提供商状态概览、模型列表、赞助商；删除 `models-manager.js`，模型 helper 拆到 `dashboard/models-utils.js`。
+  - `config`：字段声明驱动表单（`config/fields.js` + `config-model.js`），覆盖基础/代理/治理/OAuth/健康检查/日志/高级；删除 `config-manager.js`。
+  - `usage`：支持提供商标签、分组/实例卡片、单实例/单 provider/全量刷新、Codex 额度重置、授权文件下载；删除 `usage-manager.js`。
+  - `custom-models`：表格、三态排序、启停、编辑/新增 Modal、删除确认；删除 `custom-models-manager.js` 与 `window.customModelsManager`。
+  - `upload-config`：搜索/状态/提供商过滤、20 条分页、展开详情、查看/下载/删除/强制过期/一键关联/批量关联/删除未关联/打包下载；`config_update` 经 `useEvent` 自动刷新；删除 `upload-config-manager.js`。
+  - SSE 桥接进一步收缩：`event-stream.js` 仅保留 provider 事件；`setConfigLoaders`/`handleConfigUpdate`/`setReloadConfig` 移除。
+  - 测试：新增 dashboard/config/usage/custom-models/upload-config 纯逻辑与 E2E 用例；E2E 增至 16 个。
 
 ### 14.2 与计划的偏差（有意保留）
 
 - `static/app/theme-switcher.js`、`language-switcher.js` **暂不删除**：`login.html`、`potluck-user.html`、`model-usage-stats.html` 仍直接 import，按计划在 Phase 5 迁移独立页面后再删除。
-- `static/app/event-stream.js#initEventStream` 保留但不再调用，作为 Phase 2 日志页迁移前的回滚点；Phase 6 统一删除。
+- `static/app/file-upload.js` 保留：仍被提供商编辑/授权弹窗的 `.upload-btn` 使用，Phase 4 迁移 providers 时一并删除。
+- `static/app/event-stream.js` 已瘦身为 provider 事件处理器；Phase 4 完成后删除。
+- `provider-manager.js` 中 dashboard 遗留函数（`loadSystemInfo`、`checkUpdate`、`performUpdate`、`showRestartRequiredModal` 等）暂留，随 Phase 4 整个文件删除。
 - `static/components/header.html`、`sidebar.html` 已无引用，按计划在 Phase 6 与其余旧片段一起删除。
+- 插件描述属于插件/市场提供的富文本，旧实现直接 `innerHTML`。为保持链接可用且降低 XSS 风险，改用 `ui/lib/sanitize.js` 白名单清洗后注入（仅 br/a/code/strong/em/b/i，链接限 http(s)/站内/锚点/mailto 并强制 `noopener`）。
+- `upload-config` 在计划外加了 20 条/页的前端分页，避免大量凭据文件时一次性渲染过长。
 
 ## 附录 A：迁移前后对照示例（日志页）
 
