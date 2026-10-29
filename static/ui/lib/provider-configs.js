@@ -1,6 +1,6 @@
 /**
  * Provider 展示配置（纯函数）：把运行时 supportedProviders 与静态注册表合并，
- * 供提供商页、接入页、配置页共用。迁移自 static/app/utils.js#getProviderConfigs。
+ * 供提供商页、接入页、配置页共用。迁移自旧版 utils.getProviderConfigs。
  */
 import { getBaseProviderConfigs } from './provider-registry.js';
 

@@ -39,13 +39,13 @@ describe('serveStaticFiles', () => {
 
     test('文本资源带 ETag，If-None-Match 命中返回 304', async () => {
         const first = createResponse();
-        await serveStaticFiles('/app/base.css', first);
+        await serveStaticFiles('/ui/styles/base.css', first);
         expect(first.statusCode).toBe(200);
         expect(first.headers['Cache-Control']).toBe('no-cache');
         expect(first.headers['ETag']).toMatch(/^W\//);
 
         const second = createResponse();
-        const served = await serveStaticFiles('/app/base.css', second, { headers: { 'if-none-match': first.headers['ETag'] } });
+        const served = await serveStaticFiles('/ui/styles/base.css', second, { headers: { 'if-none-match': first.headers['ETag'] } });
         expect(served).toBe(true);
         expect(second.statusCode).toBe(304);
         expect(second.body).toBeUndefined();

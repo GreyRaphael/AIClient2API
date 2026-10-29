@@ -22,7 +22,7 @@ import { createModelSelection, TARGET_TIMEOUT_MS } from './model-selection.js';
 /**
  * Playground 三种文本接口（Chat / Responses / Messages）的线上验收集。
  *
- * 请求体与 static/app/playground-manager.js 中各协议适配器生成的 body 保持一致，
+ * 请求体与 static/ui/sections/playground/protocols.js 中各协议适配器生成的 body 保持一致，
  * 模型使用 `provider:model` 前缀经 /auto 路由，覆盖 Chat 原生与 Responses 原生上游的跨协议转译。
  */
 

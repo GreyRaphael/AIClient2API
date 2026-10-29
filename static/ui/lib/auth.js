@@ -1,5 +1,5 @@
 /**
- * 认证与 token 存取（行为与旧 `static/app/auth.js` 的 AuthManager 保持一致）。
+ * 认证与 token 存取（行为与旧版 AuthManager 保持一致）。
  * 本模块在 import 阶段不访问 window/document/localStorage。
  */
 

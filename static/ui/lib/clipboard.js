@@ -1,6 +1,6 @@
 /**
  * 复制到剪贴板（navigator.clipboard + textarea 回退）。
- * 迁移自 static/app/utils.js#copyToClipboard，供新旧代码共用。
+ * 迁移自旧版 utils.copyToClipboard。
  */
 
 /**

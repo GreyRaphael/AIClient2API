@@ -1,6 +1,6 @@
 /**
  * 提供商路由与 curl 示例（纯逻辑 + 复制动作）。
- * 迁移自 static/app/routing-examples.js，供接入页使用。
+ * 迁移自旧版 routing-examples 模块，供接入页使用。
  */
 import { t } from './i18n.js';
 import { copyToClipboard } from './clipboard.js';

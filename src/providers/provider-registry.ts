@@ -5,7 +5,7 @@
  * 只在注册表维护一份，其他模块通过派生函数读取，避免每新增/删除一个 provider
  * 需要同步修改 10+ 个映射表。
  *
- * 与前端 static/app/provider-registry.js 的共享字段由
+ * 与前端 static/ui/lib/provider-registry.js 的共享字段由
  * tests/provider-registry-parity.test.js 守护。
  */
 

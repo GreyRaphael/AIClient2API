@@ -1,6 +1,6 @@
 /**
  * 接入页客户端配置片段（纯函数，可在 Node 中测试）。
- * 迁移自 static/app/access-manager.js。
+ * 迁移自旧版 access-manager。
  */
 import { t } from '../../lib/i18n.js';
 

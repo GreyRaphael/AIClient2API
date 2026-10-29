@@ -1,4 +1,4 @@
-/** 二维码点击放大（迁移自 static/app/image-zoom.js）。 */
+/** 二维码点击放大（迁移自旧版 image-zoom 模块）。 */
 export function initImageZoom() {
     if (typeof document === 'undefined') return;
     const overlay = document.createElement('div');
