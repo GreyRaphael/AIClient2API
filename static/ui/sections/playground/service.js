@@ -21,18 +21,19 @@ import {
     buildUserContent,
     dataUrlToBlob
 } from './protocols.js';
+import { on } from '../../store/events.js';
 
 let currentAbortController = null;
 
-// 提供商数据变化时（旧 modal.js 会派发该事件）失效缓存，下次进入或当前页面立即刷新
-if (typeof window !== 'undefined') {
-    window.addEventListener('playground:refresh', () => {
-        pgLoaded.value = false;
-        if (document.getElementById('playground')) {
-            void loadPlaygroundData(true);
-        }
-    });
-}
+const refreshPlaygroundCache = () => {
+    pgLoaded.value = false;
+    if (typeof document !== 'undefined' && document.getElementById('playground')) {
+        void loadPlaygroundData(true);
+    }
+};
+
+on('provider', refreshPlaygroundCache);
+on('provider_update', refreshPlaygroundCache);
 
 /** @param {any[]} next */
 function setMessages(next) {

@@ -56,7 +56,6 @@ function PotluckAdminPage() {
     };
 
     useEffect(() => {
-        initTheme();
         if (!getToken()) {
             window.location.href = '/login.html';
             return;

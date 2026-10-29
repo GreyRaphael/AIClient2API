@@ -1,6 +1,6 @@
 /** 登录页（Phase 5 迁移）。 */
 import { html, render, useEffect, useRef, useState } from '../html.js';
-import { initLanguage, onLanguageChange, t } from '../lib/i18n.js';
+import { initLanguage, lang, t } from '../lib/i18n.js';
 import { initTheme } from '../lib/theme.js';
 import { getToken, saveToken } from '../lib/auth.js';
 import { LanguageSwitcher } from '../components/LanguageSwitcher.js';
@@ -11,6 +11,11 @@ function LoginPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const inputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
+    const currentLanguage = lang.value;
+
+    useEffect(() => {
+        document.title = t('login.title');
+    }, [currentLanguage]);
 
     useEffect(() => {
         if (getToken()) {
@@ -93,9 +98,6 @@ function LoginPage() {
 async function boot() {
     initTheme();
     await initLanguage();
-    const applyTitle = () => { document.title = t('login.title'); };
-    applyTitle();
-    onLanguageChange(applyTitle);
 
     const page = document.getElementById('page');
     render(html`<${LoginPage} />`, page);

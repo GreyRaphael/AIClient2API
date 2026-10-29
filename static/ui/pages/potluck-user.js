@@ -58,7 +58,6 @@ function PotluckUserPage() {
     };
 
     useEffect(() => {
-        initTheme();
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
             setApiKey(saved);

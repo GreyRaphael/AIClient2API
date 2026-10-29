@@ -1,11 +1,11 @@
 /**
- * 主题：沿用 `data-theme="dark"` + localStorage `theme` 契约（旧 theme-switcher.js 仍在独立页面使用）。
+ * 主题：沿用 `data-theme="dark"` + localStorage `theme` 契约。
  */
 import { signal } from '@preact/signals';
 
-export const THEME_KEY = 'theme';
-export const THEME_LIGHT = 'light';
-export const THEME_DARK = 'dark';
+const THEME_KEY = 'theme';
+const THEME_LIGHT = 'light';
+const THEME_DARK = 'dark';
 
 function readSavedTheme() {
     try {
@@ -20,7 +20,7 @@ function systemPrefersDark() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-export function getInitialTheme() {
+function getInitialTheme() {
     const saved = readSavedTheme();
     if (saved === THEME_DARK || saved === THEME_LIGHT) return saved;
     return systemPrefersDark() ? THEME_DARK : THEME_LIGHT;
@@ -37,8 +37,9 @@ function updateMetaThemeColor(value) {
 /**
  * 应用主题。
  * @param {string} value
+ * @param {boolean} [persist=true]
  */
-export function applyTheme(value) {
+function applyTheme(value, persist = true) {
     const next = value === THEME_DARK ? THEME_DARK : THEME_LIGHT;
     theme.value = next;
 
@@ -51,15 +52,14 @@ export function applyTheme(value) {
         updateMetaThemeColor(next);
     }
 
-    try {
-        globalThis.localStorage?.setItem(THEME_KEY, next);
-    } catch {
-        // 忽略隐私模式下的持久化失败
+    if (persist) {
+        try {
+            globalThis.localStorage?.setItem(THEME_KEY, next);
+        } catch {
+            // 忽略隐私模式下的持久化失败
+        }
     }
 
-    if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('themechange', { detail: { theme: next } }));
-    }
     return next;
 }
 
@@ -70,7 +70,7 @@ export function toggleTheme() {
 let initialized = false;
 
 export function initTheme() {
-    applyTheme(theme.value);
+    applyTheme(theme.value, false);
     if (initialized || typeof window === 'undefined' || !window.matchMedia) return;
     initialized = true;
 
@@ -78,7 +78,7 @@ export function initTheme() {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (event) => {
         if (!readSavedTheme()) {
             theme.value = event.matches ? THEME_DARK : THEME_LIGHT;
-            applyTheme(theme.value);
+            applyTheme(theme.value, false);
         }
     });
 }

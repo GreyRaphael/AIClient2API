@@ -100,7 +100,6 @@ function ModelUsageStatsPage() {
     };
 
     useEffect(() => {
-        initTheme();
         try {
             const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
             if (saved?.value) {

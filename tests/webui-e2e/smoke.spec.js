@@ -80,6 +80,31 @@ test.describe('console shell', () => {
         expect(await html.getAttribute('data-theme')).toBe(toggled);
     });
 
+    test('未手动设置主题时跟随系统', async ({ authedPage: page }) => {
+        await page.emulateMedia({ colorScheme: 'light' });
+        await page.goto('/');
+        await page.evaluate(() => localStorage.removeItem('theme'));
+        await page.reload();
+
+        const html = page.locator('html');
+        await expect(html).not.toHaveAttribute('data-theme', 'dark');
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await expect(html).toHaveAttribute('data-theme', 'dark');
+        await page.emulateMedia({ colorScheme: 'light' });
+        await expect(html).not.toHaveAttribute('data-theme', 'dark');
+    });
+
+    test('主界面标题与描述随语言切换', async ({ authedPage: page }) => {
+        await page.goto('/');
+        await expect(page).toHaveTitle('AIClient2API 管理控制台');
+
+        await page.locator('#languageBtn').click();
+        await page.locator('.language-option[data-lang="en-US"]').click();
+        await expect(page).toHaveTitle('AIClient2API Management Console');
+        await expect(page.locator('meta[name="description"]'))
+            .toHaveAttribute('content', 'AIClient2API Management Console - Unified management of AI service providers');
+    });
+
     test('仪表盘：系统信息、模型列表与赞助商', async ({ authedPage: page, problems }) => {
         await page.goto('/#dashboard');
         await expect(page.locator('section#dashboard.active')).toBeVisible();

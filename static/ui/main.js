@@ -6,7 +6,8 @@ import { html, render } from './html.js';
 import { App } from './app.js';
 import { ToastHost } from './components/Toast.js';
 import { ConfirmDialogHost } from './components/ConfirmDialog.js';
-import { initLanguage, onLanguageChange, t } from './lib/i18n.js';
+import { initLanguage, t } from './lib/i18n.js';
+import { effect } from '@preact/signals';
 import { initTheme } from './lib/theme.js';
 import { initImageZoom } from './lib/image-zoom.js';
 import { api } from './lib/api.js';
@@ -25,7 +26,7 @@ async function boot() {
     initTheme();
     initImageZoom();
     await initLanguage();
-    applyDocumentMeta();
+    effect(applyDocumentMeta);
 
     if (!isTokenValid()) {
         redirectToLogin();
@@ -66,7 +67,6 @@ async function boot() {
             message: `${t('common.success')} (${data.provider})`,
             type: 'success'
         });
-        window.dispatchEvent(new CustomEvent('oauth_success_event', { detail: data }));
     });
     startEvents(getToken());
 }
