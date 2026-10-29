@@ -144,6 +144,35 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('配置页：加载、生成 Key、JSON 校验与保存', async ({ authedPage: page, problems }) => {
+        await page.goto('/#config');
+        await expect(page.locator('section#config.active')).toBeVisible();
+        await expect(page.locator('#apiKey')).toHaveValue('******');
+        await expect(page.locator('#host')).toHaveValue('127.0.0.1');
+        await expect(page.locator('#port')).toHaveValue(/^\d+$/);
+        expect(await page.locator('.provider-tag.selected').count()).toBeGreaterThan(0);
+
+        await page.locator('#generateApiKey').click();
+        await expect(page.locator('#apiKey')).toHaveValue(/^sk-[0-9a-f]{32}$/);
+        await expect(page.locator('#toastContainer')).toContainText(/已生成/);
+
+        await page.locator('#resetConfig').click();
+        await expect(page.locator('#apiKey')).toHaveValue('******');
+
+        await page.locator('#providerFallbackChain').fill('{bad');
+        await page.locator('#saveConfig').click();
+        await expect(page.locator('#toastContainer')).toContainText('格式无效');
+
+        await page.locator('#providerFallbackChain').fill('');
+        await page.locator('#saveConfig').click();
+        await expect(page.locator('#toastContainer')).toContainText('配置已保存');
+
+        await page.locator('#configOpenQuickAccess').click();
+        await expect(page).toHaveURL(/#access$/);
+        await expect(page.locator('section#access.active')).toBeVisible();
+        expect(problems).toEqual([]);
+    });
+
     test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
         await page.goto('/#plugins');
         await expect(page.locator('section#plugins.active')).toBeVisible();

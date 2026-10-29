@@ -14,9 +14,6 @@ let providerStats = {
 // DOM元素 - 使用 getter 延迟获取，以支持动态加载的组件
 const elements = {
     get restartBtn() { return document.getElementById('restartBtn'); },
-    get saveConfigBtn() { return document.getElementById('saveConfig'); },
-    get resetConfigBtn() { return document.getElementById('resetConfig'); },
-    get modelProvider() { return document.getElementById('modelProvider'); },
 };
 
 // 定期刷新间隔

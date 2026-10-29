@@ -6,7 +6,6 @@ import { fileUploadHandler } from './file-upload.js';
 import { t, getCurrentLanguage } from './i18n.js';
 import { isOAuthProvider, getGroupableProviderIds, getProviderAuthFilePath } from '../ui/lib/provider-registry.js';
 import { updateUsageProviderConfigs } from './usage-manager.js';
-import { updateConfigProviderConfigs } from './config-manager.js';
 import { loadConfigList, updateProviderFilterOptions } from './upload-config-manager.js';
 import { setServiceMode } from './event-handlers.js';
 import { compareVersions, getCodexExternalImportMeta, getCodexExternalImportStats } from '../ui/lib/provider-manager-utils.js';
@@ -233,7 +232,6 @@ async function loadProviders(forceRefreshSupported = false) {
             
             // 动态更新各个页面的提供商信息
             updateUsageProviderConfigs(providerConfigs);
-            updateConfigProviderConfigs(providerConfigs);
             updateProviderFilterOptions(providerConfigs);
                         isStaticProviderConfigsUpdated = true;
         }

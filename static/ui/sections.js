@@ -20,7 +20,7 @@ export const SECTIONS = [
     { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'fa-tachometer-alt', load: () => import('./sections/dashboard/index.js') },
     { id: 'access', labelKey: 'nav.access', icon: 'fa-key', load: () => import('./sections/access/index.js') },
     { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', load: () => import('./sections/guide.js') },
-    { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', legacy: { src: 'components/section-config.html' } },
+    { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', load: () => import('./sections/config/index.js') },
     { id: 'providers', labelKey: 'nav.providers', icon: 'fa-network-wired', legacy: { src: 'components/section-providers.html' } },
     { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', legacy: { src: 'components/section-custom-models.html' } },
     { id: 'upload-config', labelKey: 'nav.upload', icon: 'fa-upload', legacy: { src: 'components/section-upload-config.html' } },
@@ -41,7 +41,6 @@ function legacyLoader(modulePath, exportName) {
 
 /** @type {Record<string, () => Promise<any>>} */
 const sectionLoaders = {
-    config: legacyLoader('../app/config-manager.js', 'loadConfiguration'),
     providers: legacyLoader('../app/provider-manager.js', 'loadProvidersPageData'),
     'upload-config': legacyLoader('../app/upload-config-manager.js', 'loadConfigList'),
     usage: legacyLoader('../app/usage-manager.js', 'loadUsagePageData'),

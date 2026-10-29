@@ -23,7 +23,6 @@ import {
 
 import {
     initEventListeners,
-    setDataLoaders,
     setReloadConfig
 } from './event-handlers.js';
 
@@ -42,11 +41,6 @@ import {
     showAddProviderGroupModal,
     showTraeAuthSelector
 } from './provider-manager.js';
-
-import {
-    saveConfiguration,
-    generateApiKey
-} from './config-manager.js';
 
 import {
     showProviderManagerModal,
@@ -106,8 +100,6 @@ async function initApp() {
     initI18n();
 
     // 设置数据加载器
-    setDataLoaders(loadInitialData, saveConfiguration);
-    
     // 设置reloadConfig函数
     setReloadConfig(reloadConfig);
     
@@ -137,7 +129,6 @@ async function initApp() {
     window.closeConfigModal = closeConfigModal;
     window.copyConfigContent = copyConfigContent;
     window.reloadConfig = reloadConfig;
-    window.generateApiKey = generateApiKey;
 
     // 用量管理相关全局函数
     window.refreshUsage = refreshUsage;

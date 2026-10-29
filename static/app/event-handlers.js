@@ -16,54 +16,6 @@ function initEventListeners() {
         elements.restartBtn.addEventListener('click', handleRestart);
     }
 
-    // 保存配置
-    if (elements.saveConfigBtn) {
-        elements.saveConfigBtn.addEventListener('click', () => {
-            if (window.saveConfiguration) {
-                window.saveConfiguration();
-            } else if (saveConfiguration) {
-                saveConfiguration();
-            }
-        });
-    }
-
-    // 重置配置
-    if (elements.resetConfigBtn) {
-        elements.resetConfigBtn.addEventListener('click', loadInitialData);
-    }
-
-    // 模型提供商切换
-    if (elements.modelProvider) {
-        elements.modelProvider.addEventListener('change', handleProviderChange);
-    }
-
-    // Gemini凭据类型切换
-    document.querySelectorAll('input[name="geminiCredsType"]').forEach(radio => {
-        radio.addEventListener('change', handleGeminiCredsTypeChange);
-    });
-
-    // Kiro凭据类型切换
-    document.querySelectorAll('input[name="kiroCredsType"]').forEach(radio => {
-        radio.addEventListener('change', handleKiroCredsTypeChange);
-    });
-
-    // 密码显示/隐藏切换
-    document.querySelectorAll('.password-toggle').forEach(button => {
-        button.addEventListener('click', handlePasswordToggle);
-    });
-
-    // 生成 API 密钥按钮监听
-    const generateApiKeyBtn = document.getElementById('generateApiKey');
-    if (generateApiKeyBtn) {
-        generateApiKeyBtn.addEventListener('click', () => {
-            if (window.generateApiKey) {
-                window.generateApiKey();
-            } else {
-                console.error('generateApiKey function not found');
-            }
-        });
-    }
-
     // 生成凭据按钮监听
     document.querySelectorAll('.generate-creds-btn').forEach(button => {
         button.addEventListener('click', handleGenerateCreds);
@@ -315,9 +267,7 @@ function handleProviderPasswordToggle(button) {
     }
 }
 
-// 数据加载函数（需要从主模块导入）
-let loadInitialData;
-let saveConfiguration;
+// 重载配置回调
 let reloadConfig;
 
 // 当前服务模式（由 provider-manager.js 设置）
@@ -370,11 +320,9 @@ async function handleReloadConfig() {
     
     showToast(t('common.info'), t('header.reload.requesting'), 'info');
     
-    // 先刷新基础数据
-    if (loadInitialData) {
-        loadInitialData();
-    }
-    
+    // 刷新提供商列表（如果已初始化）
+    window.loadProviders?.();
+
     // 如果reloadConfig函数可用，则也刷新配置
     if (reloadConfig) {
         await reloadConfig();
@@ -417,11 +365,6 @@ async function handleRestartService() {
             showToast(t('common.info'), result.hint, 'warning');
         }
     }
-}
-
-export function setDataLoaders(dataLoader, configSaver) {
-    loadInitialData = dataLoader;
-    saveConfiguration = configSaver;
 }
 
 export function setReloadConfig(configReloader) {
