@@ -7,10 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- 最低浏览器要求提升至 Chrome/Edge 105+、Firefox 121+、Safari 16.4+（CSS 对齐修正使用 `:has()`），并同步 README 与重构文档。
+- 登录页、`potluck`、`potluck-user`、`model-usage-stats` 的内联 CSS 抽离到 `static/ui/styles/pages/`。
+- 移除死组件 `CodeBlock` / `Field`、未使用的认证/provider helper、死事件与 76 条未引用 locale key；删除可确认无对应 DOM 的旧 CSS 选择器与未使用变量。
+
 ### Fixed
 
 - 修复 WebUI 弹窗关闭按钮显示 `&times;`、登录页页脚显示 `&copy;` 的问题（htm 文本节点不解析 HTML 实体，改用 `×` / `©` 字面量）。
 - 修复 Kiro 授权弹窗与 OAuth 路径提示把 `<strong>` / `<code>` 标签显示为字面量的问题，静态 i18n 富文本改用 `dangerouslySetInnerHTML` 渲染。
+- 修复 Modal 重新渲染导致输入框丢失焦点、叠加 Modal 按 ESC 关闭全部弹窗的问题，并补充焦点陷阱与滚动锁栈。
+- 修复 Playground 提供商变更后缓存不刷新、主题无法跟随系统、主界面标题/描述不随语言切换的问题。
+- 补全 `--font-mono`、`--warning-border-light`、`--neutral-shadow-10`、`--danger-10` 与 `modalSlideIn`，并将 Playground 全局 keyframes 改为 `pg-*` 前缀避免覆盖 Header 动画。
+
+### Verification
+
+- `npm test`：**70 suites / 834 tests 全绿**。
+- WebUI E2E：**32/32 通过**。
+- `npm run verify`、`typecheck:webui`、`vendor:webui:check` 通过。
 
 ## [v5.2.0] - 2026-10-29
 

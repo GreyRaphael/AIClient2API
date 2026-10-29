@@ -300,7 +300,7 @@ After the server starts, open your browser and visit:
 
 > **Default Password**: `admin123` (can be changed in the console or by modifying the `pwd` file after login)
 >
-> **Browser requirement**: the no-build console uses native ES modules and import maps — Chrome/Edge 89+, Firefox 108+, Safari 16.4+.
+> **Browser requirement**: the no-build console uses native ES modules, import maps and `:has()` — Chrome/Edge 105+, Firefox 121+, Safari 16.4+.
 
 #### 3. Visual Configuration (Recommended)
 Go to the **"Configuration"** page, you can:

@@ -93,7 +93,7 @@
 ```
 - `@ui/` 前缀别名让深层目录不必写 `../../..`。
 - import map 必须出现在任何 `<script type="module">` 之前。
-- 现代浏览器要求：Chrome/Edge 89+、Firefox 108+、Safari 16.4+。管理控制台属于运维工具，可接受；需在 README 注明最低浏览器版本。
+- 现代浏览器要求：Chrome/Edge 105+、Firefox 121+、Safari 16.4+（对齐 CSS 使用 `:has()`）。管理控制台属于运维工具，可接受；需在 README 注明最低浏览器版本。
 
 ---
 
@@ -454,7 +454,7 @@ sections/providers/
 | 4 | 文本资源缓存 `no-store` → `no-cache + ETag` | **同意** |
 | 5 | Font Awesome | **图标子集**，减小体积 |
 | 6 | 新代码目录 | **`static/ui/`** |
-| 7 | 最低浏览器 | **Chrome/Edge 89+、Firefox 108+、Safari 16.4+** |
+| 7 | 最低浏览器 | **Chrome/Edge 105+、Firefox 121+、Safari 16.4+（`:has()`）** |
 
 ## 14. 实施进度
 
@@ -528,7 +528,10 @@ sections/providers/
 
 - **Kiro AWS 凭据导入已补齐**：新增 `sections/providers/auth/KiroAwsImportModal.js`，支持 AWS SSO cache JSON 文件合并、JSON 粘贴、单条提交与批量 SSE 进度；补齐重复凭据提示、字段校验与脱敏预览，原 §14.2 的 `aws-import` 缺口关闭。
 - **富文本链接策略加固**：`ui/lib/sanitize.js` 新增 `isSafeHref()`，拒绝 `//host`、`/\host` 等协议相对/反斜杠绕过，并补充危险协议、事件属性与嵌套标签测试；真实浏览器 E2E 覆盖清洗结果。
-- **测试更新**：`npm test` 70 suites / 838 tests，WebUI E2E 26/26，`typecheck:webui` 与 `vendor:webui:check` 通过；Font Awesome 子集更新为 145 icons。
+- **交互与生命周期修复**：Modal 使用 `onClose` ref + 只依赖 `open` 的 effect，修复输入丢焦点；新增 Modal 栈、ESC 只关闭栈顶、滚动锁与焦点陷阱。Playground 改为订阅 `provider` / `provider_update` 刷新缓存；主题初始化不再提前持久化，恢复跟随系统；主界面标题/描述随语言 signal 更新。
+- **清理与 CSS 债务**：删除 `CodeBlock` / `Field`、未使用 auth/provider helper、死事件、76 条 locale key 与旧 CSS 选择器；补齐 4 个 CSS 变量、`modalSlideIn`，将 Playground keyframes 改为 `pg-*`；4 个独立页的内联 CSS 抽离到 `static/ui/styles/pages/`。
+- **浏览器要求**：Chrome/Edge 105+、Firefox 121+、Safari 16.4+（`:has()`）。
+- **测试更新**：`npm test` 70 suites / 834 tests，WebUI E2E 32/32，`npm run verify`、`typecheck:webui` 与 `vendor:webui:check` 通过；Font Awesome 子集 145 icons。
 
 ## 附录 A：迁移前后对照示例（日志页）
 
