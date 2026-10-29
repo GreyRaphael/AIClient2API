@@ -93,6 +93,31 @@ test.describe('console shell', () => {
         await expect(page.locator('#guide')).toContainText('常见问题');
     });
 
+    test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
+        await page.goto('/#plugins');
+        await expect(page.locator('section#plugins.active')).toBeVisible();
+        await expect(page.locator('#pluginsList .plugin-card').first()).toBeVisible();
+        const pluginCount = await page.locator('#pluginsList .plugin-card').count();
+        expect(pluginCount).toBeGreaterThanOrEqual(3);
+        await expect(page.locator('#totalPlugins')).toHaveText(String(pluginCount));
+        await expect(page.locator('.tab-item[data-tab="market"]')).toBeVisible();
+        expect(await page.evaluate(() => typeof window.togglePlugin)).toBe('undefined');
+
+        const enabledBefore = Number(await page.locator('#enabledPlugins').textContent());
+        const card = page.locator('#pluginsList .plugin-card').first();
+        const name = (await card.locator('h3').textContent())?.trim();
+        await card.locator('.toggle-switch').click();
+        await expect(page.locator('#toastContainer')).toContainText(`插件 ${name}`);
+        await expect.poll(async () => Number(await page.locator('#enabledPlugins').textContent()))
+            .not.toBe(enabledBefore);
+
+        // 恢复原状态
+        await card.locator('.toggle-switch').click();
+        await expect.poll(async () => Number(await page.locator('#enabledPlugins').textContent()))
+            .toBe(enabledBefore);
+        expect(problems).toEqual([]);
+    });
+
     test('日志页：SSE 日志、自动滚动开关与清空', async ({ authedPage: page, problems }) => {
         await page.goto('/#logs');
         await expect(page.locator('section#logs.active')).toBeVisible();

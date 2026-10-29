@@ -79,11 +79,6 @@ import {
 } from './image-zoom.js';
 
 import {
-    initPluginManager,
-    togglePlugin
-} from './plugin-manager.js';
-
-import {
     CustomModelsManager
 } from './custom-models-manager.js';
 
@@ -155,7 +150,6 @@ async function initApp() {
     window.refreshUsage = refreshUsage;
 
     // 插件管理相关全局函数
-    window.togglePlugin = togglePlugin;
 
     // 初始化自定义模型管理
     window.customModelsManager = new CustomModelsManager();
@@ -167,7 +161,6 @@ async function initApp() {
     initUploadConfigManager(); // 初始化配置管理功能
     initUsageManager(); // 初始化用量管理功能
     initImageZoom(); // 初始化图片放大功能
-    initPluginManager(); // 初始化插件管理功能
     initPlaygroundManager(); // 初始化 Playground
 
     // 加载初始数据（外壳在 legacyAppReady 后触发当前页面的数据加载）
