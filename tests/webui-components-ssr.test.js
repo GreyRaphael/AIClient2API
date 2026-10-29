@@ -8,7 +8,6 @@ import { Spinner } from '@ui/components/Spinner.js';
 import { EmptyState } from '@ui/components/EmptyState.js';
 import { Switch } from '@ui/components/Switch.js';
 import { CopyButton } from '@ui/components/CopyButton.js';
-import { CodeBlock } from '@ui/components/CodeBlock.js';
 import { toasts } from '@ui/store/toast.js';
 import { sanitizeHtml } from '@ui/lib/sanitize.js';
 import { Modal } from '@ui/components/Modal.js';
@@ -78,10 +77,9 @@ describe('UI 组件 SSR 冒烟', () => {
         expect(markup).toContain('确认导入');
     });
 
-    test('CopyButton / CodeBlock 保留文本与按钮结构', () => {
+    test('CopyButton 保留文本与按钮结构', () => {
         const copy = render(html`<${CopyButton} value="abc" />`);
         expect(copy).toContain('btn btn-secondary btn-sm');
         expect(copy).toContain('fas fa-copy');
-        expect(render(html`<${CodeBlock} text="a < b" />`)).toContain('a &lt; b');
     });
 });

@@ -2,7 +2,7 @@
  * Kiro AWS SSO 凭据的合并、校验与脱敏（纯函数，供 UI 与单测复用）。
  */
 
-export const AWS_REQUIRED_FIELDS = ['clientId', 'clientSecret', 'accessToken', 'refreshToken'];
+const AWS_REQUIRED_FIELDS = ['clientId', 'clientSecret', 'accessToken', 'refreshToken'];
 
 /**
  * @typedef {{ name: string, content: any }} AwsCredentialFile

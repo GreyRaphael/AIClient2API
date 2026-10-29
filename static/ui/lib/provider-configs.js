@@ -4,8 +4,6 @@
  */
 import { getBaseProviderConfigs } from './provider-registry.js';
 
-export { getBaseProviderConfigs };
-
 /**
  * @param {string[]} [supportedProviders]
  * @returns {Array<Record<string, any>>}

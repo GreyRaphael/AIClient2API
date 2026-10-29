@@ -1,4 +1,4 @@
-/** 全局 Toast 队列（唯一容器，旧 utils.showToast 也转发到这里）。 */
+/** 全局 Toast 队列（唯一容器）。 */
 import { signal } from '@preact/signals';
 
 let nextId = 0;

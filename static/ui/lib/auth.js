@@ -64,33 +64,3 @@ export function redirectToLogin() {
         window.location.href = '/login.html';
     }
 }
-
-export async function logout() {
-    clearToken();
-    redirectToLogin();
-}
-
-/**
- * 登录页使用：调用 /api/login 并保存 token。
- * @param {string} password
- * @param {boolean} [rememberMe]
- * @returns {Promise<{success: boolean, message?: string}>}
- */
-export async function login(password, rememberMe = false) {
-    try {
-        const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password, rememberMe })
-        });
-        const data = await response.json();
-        if (data.success) {
-            saveToken(data.token, rememberMe);
-            return { success: true };
-        }
-        return { success: false, message: data.message };
-    } catch (error) {
-        console.error('登录错误:', error);
-        return { success: false };
-    }
-}

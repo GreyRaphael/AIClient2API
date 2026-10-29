@@ -20,7 +20,6 @@ const PROVIDER_DEFINITIONS = [
         displayName: 'Gemini Antigravity',
         oauth: true,
         credPathKey: 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH',
-        oauthCredPath: '~/.antigravity/oauth_creds.json',
         filePatterns: ['configs/antigravity/', '/antigravity/', '/.antigravity/'],
         uploadDir: 'antigravity',
         shortName: 'antigravity'
@@ -35,7 +34,6 @@ const PROVIDER_DEFINITIONS = [
         displayName: 'Claude Kiro OAuth',
         oauth: true,
         credPathKey: 'KIRO_OAUTH_CREDS_FILE_PATH',
-        oauthCredPath: '~/.aws/sso/cache/kiro-auth-token.json',
         filePatterns: ['configs/kiro/', '/kiro/', 'kiro-auth-token'],
         uploadDir: 'kiro',
         shortName: 'kiro-oauth'
@@ -85,7 +83,6 @@ const PROVIDER_DEFINITIONS = [
         displayName: 'Zed OAuth',
         oauth: true,
         credPathKey: 'ZED_OAUTH_CREDS_FILE_PATH',
-        oauthCredPath: 'configs/zed/',
         filePatterns: ['configs/zed/', '/zed/', '/.zed/'],
         uploadDir: 'zed',
         shortName: 'zed'
@@ -100,7 +97,6 @@ const PROVIDER_DEFINITIONS = [
         displayName: 'Trae',
         oauth: true,
         credPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
-        oauthCredPath: 'configs/trae/',
         filePatterns: ['configs/trae/', '/trae/', '/.trae/'],
         uploadDir: 'trae',
         shortName: 'trae',
@@ -117,7 +113,6 @@ const PROVIDER_DEFINITIONS = [
         displayName: 'Trae',
         oauth: true,
         credPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
-        oauthCredPath: 'configs/trae/',
         filePatterns: ['configs/trae/', '/trae/', '/.trae/'],
         uploadDir: 'trae',
         shortName: 'trae',
@@ -199,14 +194,6 @@ export function isOAuthProvider(providerId) {
 }
 
 /**
- * 获取支持 OAuth 的 provider 类型列表。
- * @returns {string[]}
- */
-export function getOAuthProviderIds() {
-    return PROVIDER_DEFINITIONS.filter(item => item.oauth).map(item => item.id);
-}
-
-/**
  * 获取支持“添加分组”的 provider 类型列表。
  * @returns {string[]}
  */
@@ -222,15 +209,6 @@ export function getGroupableProviderIds() {
  */
 export function getProviderUploadDir(providerId, fallback = 'antigravity') {
     return findProviderDefinition(providerId)?.uploadDir || fallback;
-}
-
-/**
- * 获取 provider 授权文件提示路径。
- * @param {string} providerId
- * @returns {string}
- */
-export function getProviderAuthFilePath(providerId) {
-    return findProviderDefinition(providerId)?.oauthCredPath || '';
 }
 
 /**
