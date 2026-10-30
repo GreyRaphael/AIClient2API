@@ -7,10 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v6.0.0] - 2026-10-30
+
+### Breaking Changes
+
+- **移除 Fallback 机制**：删除 `providerFallbackChain`（跨类型回退链）与 `modelFallbackMapping`（跨协议模型映射）两项配置及其全部后端逻辑，同时移除 `MODEL_FALLBACK_ENABLED` 开关。`ProviderPoolManager` 现在只在请求指定的 provider 类型内选择节点，不再跨类型回退。
+- **未知名模型改为直接报错**：随 `MODEL_FALLBACK_ENABLED` 移除，Kiro / Codex / Antigravity 遇到不在可用列表中的模型名时一律抛出错误，不再静默回退到默认模型。此前模型名拼写错误会被掩盖并实际调用另一个模型计费。
+- **移除 System Prompt 配置**：删除 `SYSTEM_PROMPT_FILE_PATH` / `SYSTEM_PROMPT_MODE` / `SYSTEM_PROMPT_REPLACEMENTS` 三项配置与配置页对应 UI（文件路径、append/overwrite 模式、多行编辑框、替换规则表）。请求不再被注入内置系统提示词。
+- **仓库归属切换**：项目以 `GreyRaphael/AIClient2API` 为准，README / FUNDING / docker-compose / 内置文档示例全部改指向本仓库与 `greyraphael/aiclient-2-api` 镜像。
+- 升级后请删除 `configs/config.json` 中的 `providerFallbackChain`、`modelFallbackMapping`、`MODEL_FALLBACK_ENABLED`、`SYSTEM_PROMPT_*` 字段（残留字段会被忽略，不影响启动，但不再产生任何效果）。
+
+### Removed
+
+- 删除 `configs/fetch_system_prompt.txt` 的运行时写回行为：此前**每个请求**都会把该请求的 system prompt 覆盖写入这个文件，属于持续磁盘写入副作用。
+- 删除仪表盘版本下拉框（此前存在三个缺陷：已是最新时下拉框为空白、`(当前)` 标记恒不出现、"检查更新"会覆盖已选版本）。更新面板现在只有两个按钮：**检查更新**（有更新则提示版本号）与 **立即更新**（有更新时才出现），只支持更新到 GitHub 最新版本，不再支持选择或降级到任意历史版本。
+- 删除仪表盘二维码图片（`wechat` / `sponsor` / `x.com` / `coffee`），改为同尺寸内联 SVG 占位框，位置与尺寸保持不变。
+- 删除「成为赞助商」卡片（仅用于解释上方微信二维码的用法）、3 个不可见的 `.qr-description` 节点、孤儿资源 `static/ip2node.png`。
+- 删除仪表盘「可用模型列表」的 `<details>` 折叠包装（默认永远展开，折叠无实际意义），改为静态面板；同时删除 `section-access.css` 中从仪表盘迁移后遗留的孤儿折叠样式。
+
 ### Changed
 
-- **简化仪表盘更新面板**：彻底删除版本下拉框（此前存在三个缺陷：已是最新时下拉框为空白、`(当前)` 标记恒不出现、"检查更新"会覆盖已选版本）。现在只有两个按钮：**检查更新**（有更新则提示版本号）与 **立即更新**（有更新时才出现），点击即更新到 GitHub 最新版本，不再支持选择/降级到任意历史版本。
-- 移除随之失效的 3 条 locale key（`dashboard.update.downgrade` / `.latest` / `.current`，中英各 3 条）。
+- **自定义模型列表默认按第一列（ID）升序排序**，不再依赖接口返回顺序；表头点击仍为升序 → 降序 → 不排序三态循环。
+- 配置页「高级配置」分组精简为仅剩「提供商池配置文件路径」与「后台登录密码」。
+- 清理死 locale key 与孤儿样式：中英词典由 772 条收敛至 743 条（两侧始终对齐）。
+
+### Fixed
+
+- 修复设置自动更新后跳过的配置项：`SYSTEM_PROMPT_MODE` 与 `SYSTEM_PROMPT_REPLACEMENTS` 在 UI 保存路径中被写入但缺少对应读取校验的问题（随相关功能整体移除而消失）。
+- 修复 `provider-pool-manager` 中 `acquireSlotWithFallback` / `selectProviderWithFallback` 在无 healthy 节点时仍可能返回跨类型结果的问题（现统一返回 `null`）。
+
+### Verification
+
+- `npm test`：**72 suites / 853 tests 全绿**。
+- WebUI E2E：**38/38 通过**。
+- `npm run verify`（typecheck / plugins / strict / any / imports / cycles / coverage / runtime smoke）、`typecheck:webui`、`vendor:webui:check` 全部通过。
 
 ## [v5.3.0] - 2026-10-30
 
