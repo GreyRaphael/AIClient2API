@@ -23,13 +23,15 @@ describe('UI 组件 SSR 冒烟', () => {
         expect(markup).toContain('连接中');
     });
 
-    test('Sidebar 渲染 11 个导航项并标记 active', () => {
+    test('Sidebar 渲染 10 个导航项并标记 active', () => {
         const markup = render(html`<${Sidebar} current="dashboard" />`);
-        expect(markup.match(/class="nav-item/g)?.length).toBe(11);
+        expect(markup.match(/class="nav-item/g)?.length).toBe(10);
         expect(markup).toContain('href="#dashboard"');
         expect(markup).toContain('class="nav-item active"');
         expect(markup).toContain('仪表盘');
         expect(markup).toContain('data-section="logs"');
+        // 使用指南页已彻底删除
+        expect(markup).not.toContain('data-section="guide"');
     });
 
     test('ToastHost 渲染 store 队列', () => {

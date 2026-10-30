@@ -4,7 +4,7 @@ export const E2E_PASSWORD = 'e2e-pass';
 
 /** 管理控制台的全部页面（hash 路由），顺序与侧边栏一致 */
 export const SECTIONS = [
-    'dashboard', 'access', 'guide', 'config', 'providers',
+    'dashboard', 'access', 'config', 'providers',
     'custom-models', 'upload-config', 'usage', 'plugins', 'playground', 'logs'
 ];
 

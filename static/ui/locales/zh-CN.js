@@ -28,7 +28,6 @@ export default {
     'nav.main': '主导航',
     'nav.dashboard': '仪表盘',
     'nav.access': '快速接入',
-    'nav.guide': '使用指南',
     'nav.config': '配置管理',
     'nav.providers': '提供商池管理',
     'nav.upload': '凭据文件管理',
@@ -774,34 +773,6 @@ export default {
     'models.copied': '已复制',
     'models.refreshCapabilities': '强制刷新模型能力（绕过 TTL）',
     'models.clickToCopy': '点击复制模型信息',
-
-    // Guide
-    'guide.title': '使用指南',
-    'guide.docsHint': '配置字段、Provider Pool、Fallback 与协议转换的完整说明请查阅：',
-    'guide.docsLink': '项目 README',
-    'guide.intro.title': '项目简介',
-    'guide.intro.desc': 'AIClient2API 是一个突破客户端限制的 API 代理服务，将 Gemini、Antigravity、Codex、Kiro 等原本仅限客户端内使用的免费大模型，转换为可供任何应用调用的标准 OpenAI 兼容接口。',
-    'guide.faq.title': '常见问题',
-    'guide.faq.q1': 'Q: 请求返回 404 错误怎么办？',
-    'guide.faq.a1': 'A: 检查接口路径是否正确。某些客户端会自动在 Base URL 后追加路径，导致路径重复。请查看控制台中的实际请求 URL，移除多余的路径部分。',
-    'guide.faq.q2': 'Q: 请求返回 429 错误怎么办？',
-    'guide.faq.a2': 'A: 429 表示请求频率过高。建议配置多个账号到提供商池，启用轮询机制；或配置 Fallback 链实现跨类型降级。',
-    'guide.faq.q3': 'Q: OAuth 授权失败怎么办？',
-    'guide.faq.a3': 'A: 确保 OAuth 回调端口可访问（Antigravity: 8086, Codex: 1455, Kiro: 19876-19880）。Docker 用户需确保已正确映射这些端口。',
-    'guide.faq.q5': 'Q: 流式响应中断怎么办？',
-    'guide.faq.a5': 'A: 检查网络稳定性，增加客户端请求超时时间。如使用代理，确保代理支持长连接。',
-    'guide.faq.q6': 'Q: 请求返回 "No available and healthy providers" 错误怎么办？',
-    'guide.faq.a6': 'A: 这表示对应类型的提供商都不可用。请在"提供商池"页面检查提供商健康状态，确认 OAuth 凭据未过期，或配置 Fallback 链实现自动切换到备用提供商。',
-    'guide.faq.q7': 'Q: 请求返回 403 Forbidden 错误怎么办？',
-    'guide.faq.a7': 'A: 403 表示访问被拒绝。首先检查"提供商池"页面中节点状态，如果节点健康检查正常，可以忽略此报错。其他可能原因包括：账号权限不足、API Key 权限受限、地区访问限制、凭据已失效等。',
-    'guide.faq.q8': 'Q: 为什么要开启“启用 OAuth 令牌自动刷新”？',
-    'guide.faq.a8': 'A: OAuth 令牌通常有有效期（如 1 小时）。开启后，系统会在后台自动刷新即将过期的令牌，确保 24/7 稳定服务，避免因令牌过期导致的请求失败。',
-    'guide.faq.q9': 'Q: “预加载模型提供商”未开启对 Token 保持有什么影响？',
-    'guide.faq.a9': 'A: 系统仅会对已预加载的提供商执行自动刷新。如果某提供商未预加载，其 Token 将不会在后台自动刷新，长时间不使用可能导致 Token 过期。建议将常用提供商加入预加载列表。',
-
-    // Guide - Flow
-
-    // Tutorial
 
     // Common
     'common.confirm': '确定',

@@ -11,7 +11,7 @@
 - **技术栈**：Preact 11 + htm + `@preact/signals`，浏览器原生 ES Module + import map，无需 Vite/Webpack/JSX 编译。
 - **目录统一**：新代码全部位于 `static/ui/`，第三方依赖入库到 `static/vendor/`，Font Awesome 使用本地子集（145 icons）。
 - **页面迁移**：
-  - 控制台 11 个页面：dashboard / access / guide / config / providers / custom-models / upload-config / usage / plugins / playground / logs。
+  - 控制台 10 个页面：dashboard / access / config / providers / custom-models / upload-config / usage / plugins / playground / logs（使用指南页已移除）。
   - 独立页面：login、potluck、potluck-user、model-usage-stats。
 - **基础能力统一**：`Modal` / `ConfirmDialog` / `Pagination` / `Toast`、`useApi` / `useEvent` / `useInterval`、统一 API 客户端与 SSE 连接。
 - **i18n**：拆分为 `locales/zh-CN.js` 与 `locales/en-US.js`，`en-US` 按需加载；移除 `data-i18n` 全页扫描与 `MutationObserver`。
@@ -38,11 +38,11 @@
 
 ## 🧹 兼容性与已知说明
 
-- Hash 路由保持不变：`#dashboard`、`#access`、`#guide`、`#config`、`#providers`、`#custom-models`、`#upload-config`、`#usage`、`#plugins`、`#playground`、`#logs`。
+- Hash 路由：`#dashboard`、`#access`、`#config`、`#providers`、`#custom-models`、`#upload-config`、`#usage`、`#plugins`、`#playground`、`#logs`；已移除 `#guide`（旧书签会回落仪表盘）。
 - `localStorage` 键保持不变：`authToken`、`authTokenExpiry`、`language`、`theme`。
 - 插件 `staticPaths` 保持不变：`potluck.html`、`potluck-user.html`、`model-usage-stats.html`。
 - 后端 `/api/*` 接口与鉴权协议未改动，无需迁移配置。
-- 最低浏览器版本：Chrome / Edge 89+、Firefox 108+、Safari 16.4+。
+- 最低浏览器版本：Chrome / Edge 105+、Firefox 121+、Safari 16.4+。
 - 有意保留的取舍：CSS 未按页面合并重写；三个插件独立页仍保持中文文案；`upload-config` 保留 20 条/页的前端分页。
 
 ## 🧪 验证结果

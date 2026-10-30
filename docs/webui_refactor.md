@@ -40,7 +40,7 @@
 
 ### 必须保持不变的"契约"
 - `static/app/provider-manager-utils.js`、`static/app/provider-registry.js` 被 Jest 直接 `import`，且 `provider-registry` 与后端 `src/providers/provider-registry.ts` 有 parity 测试。→ 这两个文件保持**纯 ESM、无 DOM 副作用**，迁移时仅 `git mv` 并同步改测试 import 路径。
-- Hash 路由 `#dashboard / #access / #guide / #config / #providers / #custom-models / #upload-config / #usage / #plugins / #playground / #logs`（用户书签、文档可能引用）。
+- Hash 路由 `#dashboard / #access / #config / #providers / #custom-models / #upload-config / #usage / #plugins / #playground / #logs`（用户书签、文档可能引用）。旧的 `#guide` 已在“使用指南页彻底删除”中下线，访问会回落仪表盘。
 - `localStorage` 键：`authToken`、`authTokenExpiry`、`language`、主题键（见 `theme-switcher.js`）。
 - 插件 `staticPaths`（`src/plugins/api-potluck`、`model-usage-stats`）指向 `static/potluck*.html`、`static/model-usage-stats.html`，文件路径不能变。
 
@@ -141,7 +141,7 @@ static/
 │   ├── layout/
 │   │   ├── Header.js  Sidebar.js  LegacySection.js   # 过渡适配器，Phase 6 删除
 │   ├── sections/              # 每个页面一个目录/文件
-│   │   ├── logs.js  plugins.js  guide.js  access/  dashboard/
+│   │   ├── logs.js  plugins.js  access/  dashboard/
 │   │   ├── config/  upload-config/  usage/  custom-models/  playground/
 │   │   └── providers/         # 最重：见 §7.4
 │   └── locales/
@@ -301,7 +301,6 @@ export function LegacySection({ id, src, active, onActivate }) {
 | Section | 旧代码（行） | 新结构 | 难度 | 设计要点 |
 |---|---|---|---|---|
 | `logs` | `event-stream.js` 日志部分 + `event-handlers.js` 清空/下载/自动滚动 + html 7 | `sections/logs.js` + `store/logs.js` | ⭐ | `entries` 封顶；`useEffect` 控制自动滚动；清空走 `/api/system/clear-log`，下载用现有接口；日志消息直接作为文本节点渲染（自动转义，无需 `escapeHtml`） |
-| `guide` | html 59 | `sections/guide.js` | ⭐ | 纯展示；含 `data-i18n-html` 的富文本用 `dangerouslySetInnerHTML`（仅字典内容） |
 | `plugins` | `plugin-manager.js` 443 + html 112 | `sections/plugins.js` | ⭐⭐ | 列表 + 开关 + 上传（`postForm`）；`togglePlugin` 的 `window` 挂载随之删除 |
 | `access` | `access-manager.js` 625 + `routing-examples.js` 294 + html 153 | `sections/access/` | ⭐⭐ | API Key 展示/复制/生成（`generateApiKey`）、接入示例按当前 `location.origin` 生成；`CodeBlock` + `CopyButton` 复用 |
 | `dashboard` | `provider-manager.js` 中 `loadSystemInfo/Update/Restart/时间显示`（约 600 行）+ html 244 | `sections/dashboard/`：`SystemInfo`、`ProviderStatusOverview`、`UpdatePanel`、`Sponsors`、`RoutingExamples` | ⭐⭐ | `useInterval` 取代 `setInterval`（时间 5s、系统信息 10s）；更新/降级/需重启提示改用 `ConfirmDialog`；`dashboard.update.*` 文案已齐全 |
@@ -368,10 +367,10 @@ sections/providers/
 ### Phase 1 — 外壳 + 适配器（≈2 天）
 - 实现 `App/Header/Sidebar/StatusBadge/LanguageSwitcher/ThemeToggle`、`router`、`LegacySection`、`Toast`（并让 `utils.showToast` 转发）、`store/events`。
 - `index.html` 精简为外壳；11 个 section 全部以 `LegacySection` 挂载；`component-loader.js` 缩减为 `loadComponentHtml`；删除 `navigation.js`、`language-switcher.js`、`theme-switcher.js`。
-- **验收（手动清单）**：11 个页面可切换且 `#hash` 直达有效；中英切换、明暗主题切换正常；SSE 状态徽标随断开/重连变化；重启/重载/登出可用；移动端菜单可用；刷新后停留在当前 hash；所有旧功能与迁移前一致。
+- **验收（手动清单）**：10 个页面可切换且 `#hash` 直达有效；中英切换、明暗主题切换正常；SSE 状态徽标随断开/重连变化；重启/重载/登出可用；移动端菜单可用；刷新后停留在当前 hash；所有旧功能与迁移前一致。
 
 ### Phase 2 — 简单页面（≈2–3 天）
-`logs` → `guide` → `plugins` → `access`。同步建立并沉淀 `Field/Switch/CodeBlock/CopyButton/Spinner` 等原子组件，验证 `useApi/useEvent` 模式。
+`logs` → `plugins` → `access`。同步建立并沉淀 `Field/Switch/CodeBlock/CopyButton/Spinner` 等原子组件，验证 `useApi/useEvent` 模式。
 - **验收**：各页面功能对等；对应旧 manager 文件与 html 片段删除；新增组件 SSR 冒烟测试；i18n key 对等测试上线。
 
 ### Phase 3 — 中等页面（≈5–7 天）
@@ -413,7 +412,7 @@ sections/providers/
    - `webui-importmap`：解析 `index.html` 的 import map，断言每个目标文件存在、版本与 `package.json` 一致、`vendor` 无 `.map`。
    - `services`/`store` 纯逻辑（provider 请求拼装、批量导入解析、日志封顶、`useApi` 去重）。
 3. **手动回归清单**：每个 Phase 的"验收"项即为清单；建议整理为 `docs/webui_regression_checklist.md` 并随迁移更新。
-4. **E2E（已决策引入 Playwright）**：`@playwright/test` 作为 devDependency，配置见 `playwright.config.js`；不进入 `npm test`，单独 `npm run test:webui:e2e`。测试启动一个使用临时配置/临时目录的服务实例（不触碰用户真实 `configs/`），覆盖：登录 → 切换 11 个页面 → 无 console error / 无失败请求 → 中英与明暗切换 → SSE 状态徽标 → 各已迁移页面的关键交互。随每个 Phase 增量补充。
+4. **E2E（已决策引入 Playwright）**：`@playwright/test` 作为 devDependency，配置见 `playwright.config.js`；不进入 `npm test`，单独 `npm run test:webui:e2e`。测试启动一个使用临时配置/临时目录的服务实例（不触碰用户真实 `configs/`），覆盖：登录 → 切换 10 个页面 → 无 console error / 无失败请求 → 中英与明暗切换 → SSE 状态徽标 → 各已迁移页面的关键交互。随每个 Phase 增量补充。
 5. **CI 门槛**：`npm test` + `npm run typecheck`（现有）；`typecheck:webui` 先 warn 后 enforce。
 
 ---
@@ -485,7 +484,6 @@ sections/providers/
 - **Phase 2（已完成）**
   - 新增原子组件 `Spinner/EmptyState/Switch/CopyButton/CodeBlock/Field` 与 hooks `useApi/useEvent/useInterval`；`provider-registry`、`provider-manager-utils` 提前迁入 `ui/lib/`。
   - `logs`：`store/logs.js`（2000 条封顶、autoScroll）+ `sections/logs.js`；旧日志 DOM/状态/绑定全部删除。
-  - `guide`：`sections/guide.js` 纯展示，FAQ 中英切换由 signal 驱动。
   - `plugins`：列表/开关/卸载、市场/安装/更新、付费弹窗与 ZIP 上传；`sanitize.js` 清洗插件描述富文本；`plugin_update` 自动刷新。
   - `access`：接入信息、默认供应商、客户端片段（Markdown/ENV/JSON）、端点复制与 curl。
 - **Phase 3（已完成）**

@@ -28,7 +28,6 @@ export default {
     'nav.main': 'Main Navigation',
     'nav.dashboard': 'Dashboard',
     'nav.access': 'Quick Access',
-    'nav.guide': 'User Guide',
     'nav.config': 'Configuration',
     'nav.providers': 'Provider Pools',
     'nav.upload': 'Credential Files',
@@ -774,34 +773,6 @@ export default {
     'models.copied': 'Copied',
     'models.refreshCapabilities': 'Force refresh model capabilities (bypass TTL)',
     'models.clickToCopy': 'Click to copy model info',
-
-    // Guide
-    'guide.title': 'User Guide',
-    'guide.docsHint': 'Full configuration, provider pool, fallback and protocol conversion docs:',
-    'guide.docsLink': 'Project README',
-    'guide.intro.title': 'Introduction',
-    'guide.intro.desc': 'AIClient2API is an API proxy service that breaks client restrictions, converting free large models like Gemini, Antigravity, Codex, and Kiro into standard OpenAI-compatible interfaces that any application can call.',
-    'guide.faq.title': 'FAQ',
-    'guide.faq.q1': 'Q: What to do if request returns 404 error?',
-    'guide.faq.a1': 'A: Check if the API path is correct. Some clients automatically append paths to Base URL, causing duplication. Check the actual request URL in the console and remove redundant path parts.',
-    'guide.faq.q2': 'Q: What to do if request returns 429 error?',
-    'guide.faq.a2': 'A: 429 means request rate is too high. Configure multiple accounts in the provider pool with polling; or configure Fallback chain for cross-type degradation.',
-    'guide.faq.q3': 'Q: What to do if OAuth authorization fails?',
-    'guide.faq.a3': 'A: Ensure OAuth callback ports are accessible (Antigravity: 8086, Codex: 1455, Kiro: 19876-19880). Docker users need to map these ports correctly.',
-    'guide.faq.q5': 'Q: What to do if streaming response is interrupted?',
-    'guide.faq.a5': 'A: Check network stability, increase client request timeout. If using proxy, ensure it supports long connections.',
-    'guide.faq.q6': 'Q: What to do if request returns "No available and healthy providers" error?',
-    'guide.faq.a6': 'A: This means all providers of the corresponding type are unavailable. Check provider health status in "Provider Pools" page, confirm OAuth credentials are not expired, or configure Fallback chain for automatic switching to backup providers.',
-    'guide.faq.q7': 'Q: What to do if request returns 403 Forbidden error?',
-    'guide.faq.a7': 'A: 403 means access denied. First check node status in "Provider Pools" page. If node health check is normal, you can ignore this error. Other possible causes include: insufficient account permissions, limited API Key permissions, regional access restrictions, expired credentials, etc.',
-    'guide.faq.q8': 'Q: Why should I enable "OAuth Token Auto-Refresh"?',
-    'guide.faq.a8': 'A: OAuth tokens usually have an expiration (e.g., 1 hour). When enabled, the system automatically refreshes tokens in the background, ensuring 24/7 stable service and avoiding request failures due to expired tokens.',
-    'guide.faq.q9': 'Q: What is the impact of not enabling "Preload Model Providers" on token maintenance?',
-    'guide.faq.a9': 'A: The system only performs auto-refresh for pre-initialized providers. If a provider is not pre-initialized, its token will not be automatically refreshed in the background, which may lead to expiration if not used for a long time. It is recommended to add frequently used providers to the pre-initialized list.',
-
-    // Guide - Flow
-
-    // Tutorial
 
     // Common
     'common.togglePassword': 'Show/Hide Password',

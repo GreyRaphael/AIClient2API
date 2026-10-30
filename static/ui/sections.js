@@ -15,7 +15,6 @@
 export const SECTIONS = [
     { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'fa-tachometer-alt', load: () => import('./sections/dashboard/index.js') },
     { id: 'access', labelKey: 'nav.access', icon: 'fa-key', load: () => import('./sections/access/index.js') },
-    { id: 'guide', labelKey: 'nav.guide', icon: 'fa-book', load: () => import('./sections/guide.js') },
     { id: 'config', labelKey: 'nav.config', icon: 'fa-cog', load: () => import('./sections/config/index.js') },
     { id: 'providers', labelKey: 'nav.providers', icon: 'fa-network-wired', load: () => import('./sections/providers/index.js') },
     { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', load: () => import('./sections/custom-models/index.js') },

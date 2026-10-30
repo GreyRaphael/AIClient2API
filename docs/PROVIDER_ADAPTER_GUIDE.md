@@ -14,7 +14,6 @@
     *   `static/app/modal.js`：配置字段显示顺序。
     *   `static/app/utils.js`：定义配置字段元数据。
     *   `static/components/section-config.html`：配置按钮。
-    *   `static/components/section-guide.html`：使用指南。
     *   `static/app/routing-examples.js`：路由调用示例。
 6.  **系统级映射（必做）**：在 OAuth 处理器、凭据关联工具、用量统计等模块中建立映射。
 
@@ -178,10 +177,6 @@ provider 代码里添加模型名判断。只有无法用能力键表达的行�
 
 ### 3.7 路由调用示例 ([`static/app/routing-examples.js`](../static/app/routing-examples.js))
 在 `routingConfigs` 数组中添加该提供商的路径定义，并在 `generateCurlExample` 中处理协议转换逻辑说明。
-
-### 3.8 指南与教程 ([`static/components/section-guide.html`](../static/components/section-guide.html))
-*   在"支持的模型提供商"中添加新提供商的介绍和支持情况（Badge）。
-*   在"客户端配置指南"中补充该提供商的调用路径提示。
 
 ---
 
