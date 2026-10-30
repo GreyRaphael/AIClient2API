@@ -1,6 +1,10 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
-import { AntigravityApiService, getAntigravityClientVersion } from '../src/providers/gemini/antigravity-core.ts';
+import {
+    AntigravityApiService,
+    getAntigravityClientVersion,
+    parseAntigravityUserAgentVersion
+} from '../src/providers/gemini/antigravity-core.ts';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import {
     CAPABILITY_SOURCE,
@@ -274,5 +278,53 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
             ANTIGRAVITY_CLIENT_VERSION: '3.1.4',
             USER_AGENT: 'antigravity/cli/2.0.0 darwin/arm64'
         })).toBe('3.1.4');
+    });
+
+    test('10. ide_version 始终是纯版本号，且与实际发出的 User-Agent 一致', () => {
+        // 默认 UA 形如 antigravity/cli/1.4.7，历史实现会把 cli/ 前缀一起塞进 ide_version
+        const defaults = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        expect(defaults.clientVersion).toBe('1.4.7');
+        expect(defaults.clientVersion).not.toContain('cli/');
+
+        const configured = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '1.9.9'
+        });
+        expect(configured.clientVersion).toBe('1.9.9');
+
+        // 旧写法（不带 cli/ 的整段 UA）同样只取纯版本号
+        const legacy = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            USER_AGENT: 'antigravity/2.0.0 darwin/arm64'
+        });
+        expect(legacy.userAgent).toBe('antigravity/2.0.0 darwin/arm64');
+        expect(legacy.clientVersion).toBe('2.0.0');
+
+        // UA 与版本字段同时存在时，ide_version 必须跟随实际发出的 UA（保持一致）
+        const both = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '3.1.4',
+            USER_AGENT: 'antigravity/cli/2.0.0 darwin/arm64'
+        });
+        expect(both.userAgent).toBe('antigravity/cli/2.0.0 darwin/arm64');
+        expect(both.clientVersion).toBe('2.0.0');
+
+        // UA 完全不含版本信息时才回退到配置值
+        const noVersionInUa = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '4.0.0',
+            USER_AGENT: 'Mozilla/5.0'
+        });
+        expect(noVersionInUa.userAgent).toBe('Mozilla/5.0');
+        expect(noVersionInUa.clientVersion).toBe('4.0.0');
+    });
+
+    test('11. parseAntigravityUserAgentVersion 剥掉 cli/ 前缀且兼容两种写法', () => {
+        expect(parseAntigravityUserAgentVersion('antigravity/cli/1.4.7 linux/amd64')).toBe('1.4.7');
+        expect(parseAntigravityUserAgentVersion('antigravity/1.4.7')).toBe('1.4.7');
+        expect(parseAntigravityUserAgentVersion('Antigravity/CLI/9.9.9 win32')).toBe('9.9.9');
+        expect(parseAntigravityUserAgentVersion('Mozilla/5.0')).toBeNull();
+        expect(parseAntigravityUserAgentVersion(undefined)).toBeNull();
+        expect(parseAntigravityUserAgentVersion(null)).toBeNull();
     });
 });

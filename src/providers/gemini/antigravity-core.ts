@@ -87,11 +87,22 @@ export function getAntigravityClientVersion(config: AntigravityServiceConfig | n
     if (configured) return configured;
 
     for (const agent of [config?.USER_AGENT, config?.ANTIGRAVITY_USER_AGENT]) {
-        // 兼容 `antigravity/cli/1.4.7 linux/amd64` 与 `antigravity/1.4.7` 两种写法
-        const matched = String(agent ?? '').match(/antigravity\/(?:cli\/)?([^\s]+)/i);
-        if (matched?.[1]) return matched[1];
+        const parsed = parseAntigravityUserAgentVersion(agent);
+        if (parsed) return parsed;
     }
     return DEFAULT_ANTIGRAVITY_CLIENT_VERSION;
+}
+
+/**
+ * 从 User-Agent 中解析客户端版本号，兼容 `antigravity/cli/1.4.7 linux/amd64`
+ * 与 `antigravity/1.4.7` 两种写法，并且始终剥掉 `cli/` 前缀
+ * （上游 ide_version 只接受纯版本号，历史实现会漏出 `cli/1.4.7`）。
+ * @param {unknown} userAgent
+ * @returns {string|null}
+ */
+export function parseAntigravityUserAgentVersion(userAgent: unknown): string | null {
+    const matched = String(userAgent ?? '').match(/antigravity\/(?:cli\/)?([^\s]+)/i);
+    return matched?.[1] ?? null;
 }
 const REFRESH_SKEW = 3000; // 3000秒（50分钟）提前刷新Token
 
@@ -1012,6 +1023,8 @@ export class AntigravityApiService {
     host: string | undefined;
     oauthCredsFilePath: string | undefined;
     userAgent: string;
+    /** 用于 onboarding 的 ide_version / 上游客户端版本号（纯版本，不含 cli/ 前缀） */
+    clientVersion: string;
     projectId: string | undefined;
     uuid: string | null;
     baseURLs: string[];
@@ -1045,6 +1058,10 @@ export class AntigravityApiService {
         // 显式指定的 USER_AGENT 优先；否则按客户端版本重建（未配置版本时用内置默认值）。
         this.userAgent = config.USER_AGENT || config.ANTIGRAVITY_USER_AGENT
             || `antigravity/cli/${getAntigravityClientVersion(config)} linux/amd64`;
+        // ide_version 必须与实际发出的 User-Agent 保持一致，且只能是纯版本号：
+        // 走 UA 解析（会剥掉 cli/ 前缀）；UA 不含版本信息时才回退到配置/内置默认值。
+        this.clientVersion = parseAntigravityUserAgentVersion(this.userAgent)
+            || getAntigravityClientVersion(config);
         this.projectId = config.PROJECT_ID;
         this.uuid = config.uuid || null; // 保存 uuid 用于缓存管理
 
@@ -1328,7 +1345,7 @@ export class AntigravityApiService {
                 tier_id: baseTier,
                 metadata: {
                     ide_type: 'ANTIGRAVITY',
-                    ide_version: this.userAgent.match(/antigravity\/([^ ]+)/)?.[1] || getAntigravityClientVersion(this.config),
+                    ide_version: this.clientVersion,
                     ide_name: 'antigravity'
                 },
             };
