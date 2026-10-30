@@ -55,6 +55,9 @@ function isSensitiveField(key: string): boolean {
     return isSensitive && !isPath;
 }
 
+/** 明文响应禁止任何层级的缓存，避免密钥被浏览器/代理留档 */
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate, private', Pragma: 'no-cache' };
+
 // 安全净化：移除用户输入字段中的危险内容，并可选地过滤敏感 API 密钥
 function sanitizeProviderData(provider: ProviderConfig, maskSensitive = false): ProviderConfig {
     const sanitized: ProviderConfig = { ...provider };
@@ -123,21 +126,29 @@ export async function handleRevealProviderSecret(
         logger.warn('[UI API] Failed to load provider pools:', getErrorMessage(error));
     }
 
-    const provider = (providerPools[providerType] || []).find((p) => p.uuid === providerUuid);
+    // providerType 来自 URL：JSON.parse 出的 pools 继承 Object.prototype，
+    // 直接用 pools['__proto__'] 会拿到对象而不是数组，导致 .find 抛错。
+    const providers = Object.prototype.hasOwnProperty.call(providerPools, providerType)
+        ? providerPools[providerType]
+        : undefined;
+    const provider = Array.isArray(providers)
+        ? providers.find((p) => p.uuid === providerUuid)
+        : undefined;
     if (!provider) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.writeHead(404, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
         res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
         return true;
     }
 
     const value = provider[field];
     if (!isSensitiveField(field) || typeof value !== 'string') {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: `Not a revealable secret field: ${field}` } }));
+        // 不回显调用方可控的 field，避免错误信息被当作注入点
+        res.writeHead(400, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
+        res.end(JSON.stringify({ error: { message: 'Not a revealable secret field' } }));
         return true;
     }
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
     res.end(JSON.stringify({ field, value }));
     return true;
 }

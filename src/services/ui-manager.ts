@@ -53,6 +53,23 @@ function isInsideStaticRoot(filePath: string, staticRoot: string): boolean {
 }
 
 /**
+ * 路径参数里是否含有非法的百分号转义（如 %E0%A4%A）。
+ * 路由里大量使用 decodeURIComponent()，遇到非法转义会抛 URIError；
+ * 由于调用方没有 try/catch，异常会让请求永远得不到响应（连接挂起）。
+ * 因此在这里一次性拦截，统一回 400。
+ * @param {string} pathParam
+ * @returns {boolean}
+ */
+function hasMalformedPercentEncoding(pathParam: string): boolean {
+    try {
+        decodeURIComponent(pathParam);
+        return false;
+    } catch {
+        return true;
+    }
+}
+
+/**
  * Serve static files for the UI
  * @param {string} pathParam - The request path
  * @param {import('node:http').ServerResponse} res - The HTTP response object
@@ -149,6 +166,13 @@ export async function handleUIApiRequests(
             }));
             return true;
         }
+    }
+
+    // 非法百分号转义会让后续 decodeURIComponent() 抛 URIError，先统一拒绝
+    if (hasMalformedPercentEncoding(pathParam)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Malformed percent-encoding in request path' } }));
+        return true;
     }
 
     // 文件上传API

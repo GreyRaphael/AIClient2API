@@ -134,8 +134,11 @@ export async function handleGetConfig(req: IncomingMessage, res: ServerResponse,
 /** 允许通过“眼睛”按钮回读明文的配置字段白名单（其余字段一律拒绝） */
 const REVEALABLE_CONFIG_FIELDS = new Set(['REQUIRED_API_KEY']);
 
+/** 明文响应禁止任何层级的缓存，避免密钥被浏览器/代理留档 */
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate, private', Pragma: 'no-cache' };
+
 /**
- * 获取脱敏系卖字段的明文（供前端“眼睛”按钮真正展示所配值）
+ * 获取脱敏敏感字段的明文（供前端“眼睛”按钮真正展示所配值）
  * 仅返回白名单内的单个字段，避免把整份敏感配置一次性下发。
  */
 export async function handleRevealSecret(
@@ -146,18 +149,24 @@ export async function handleRevealSecret(
     try {
         const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
         const field = url.searchParams.get('field') || '';
-        const value = currentConfig[field];
-        if (!REVEALABLE_CONFIG_FIELDS.has(field) || typeof value !== 'string') {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: `Unknown secret field: ${field}` } }));
+        // 先校验白名单，再取值：避免任何未授权字段被读入局部变量
+        if (!REVEALABLE_CONFIG_FIELDS.has(field)) {
+            res.writeHead(400, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
+            res.end(JSON.stringify({ error: { message: 'Unknown secret field' } }));
             return true;
         }
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        const value = currentConfig[field];
+        if (typeof value !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
+            res.end(JSON.stringify({ error: { message: 'Unknown secret field' } }));
+            return true;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
         res.end(JSON.stringify({ field, value }));
         return true;
     } catch (error: unknown) {
         logger.error('[UI API] Failed to reveal secret:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.writeHead(500, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
         res.end(JSON.stringify({ error: { message: 'Failed to reveal secret: ' + getErrorMessage(error) } }));
         return true;
     }

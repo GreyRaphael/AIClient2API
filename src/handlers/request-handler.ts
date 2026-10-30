@@ -117,8 +117,19 @@ export function createRequestHandler(
                     if (pluginRouteHandled) return;
 
                     // 处理 UI API 请求（即使 UI_ENABLED 为 false，API 也保持可用）
-                    const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, providerPoolManager);
-                    if (uiHandled) return;
+                    // 必须 try/catch：UI 处理链里有 decodeURIComponent 与动态字段取值，
+                    // 抛错时若不在这里兜住，rejection 会逃逸到 unhandledRejection，
+                    // 而响应对象从未写回，客户端只能等到超时（连接挂起）。
+                    try {
+                        const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, providerPoolManager);
+                        if (uiHandled) return;
+                    } catch (error) {
+                        logger.error(`[Server] UI API error: ${getErrorMessage(error)}`);
+                        if (!res.headersSent) {
+                            handleError(res, { status: 500, message: 'UI API request failed' }, currentConfig.MODEL_PROVIDER, null, req);
+                        }
+                        return;
+                    }
 
                     // logger.info(`\n${new Date().toLocaleString()}`);
                     logger.info(`[Server] Received request: ${req.method} http://${req.headers.host}${req.url}`);
