@@ -40,8 +40,6 @@ export default {
     // Sponsors
     'sponsors.title': 'Project Sponsors',
     'sponsors.subtitle': 'Thanks to the following partners for supporting the project. Listed in sponsorship order.',
-    'sponsors.becomeTitle': 'Become a Sponsor',
-    'sponsors.becomeDesc': 'If you are interested in sponsoring this project, please use the WeChat QR code to the right of the system information above (please indicate: Sponsorship).',
     'sponsors.packyDesc': 'PackyCode is a reliable and efficient API relay service provider for Claude Code, Codex, Gemini, and more. AIClient2API users receive a special offer: <a href="https://www.packyapi.com/register?aff=AIClient2API" target="_blank" rel="noopener noreferrer">register through this link</a> and enter the <strong>AIClient2API</strong> promo code when topping up to get <strong>10% off</strong>.',
     'sponsors.vmcardDesc': '<strong>VMCard | Enterprise Payment Cards for AI Businesses</strong> is built for AI account vendors, AI API providers, and teams managing bulk subscriptions. It supports seamless GPT / Claude payments, dedicated U.S. Visa BINs, API-based bulk card issuance, and highly competitive settlement exchange rates for stable, high-volume payment needs. <a href="https://vmcardio.com/zh/register?code=902506" target="_blank" rel="noopener noreferrer">Register through this link</a>.',
     
@@ -66,13 +64,11 @@ export default {
     'dashboard.cpuUsage': 'CPU Usage',
     'dashboard.providerStatus': 'Provider Nodes Status',
     'dashboard.advancedInfo': 'Available Models List',
-    'dashboard.expandMore': 'Expand More',
     'dashboard.serviceMode': 'Service Mode',
     'dashboard.serviceMode.worker': 'Worker Mode',
     'dashboard.serviceMode.standalone': 'Standalone Mode',
     'dashboard.serviceMode.canRestart': 'Auto-restart supported',
     'dashboard.processPid': 'Process PID',
-    'dashboard.routing.description': 'Access different AI model providers through different path routes, supporting flexible model switching',
     'dashboard.routing.oauth': 'Limit Breakthrough',
     'dashboard.routing.official': 'Official/Third-party API',
     'dashboard.routing.experimental': 'Limit Breakthrough/Experimental',
@@ -89,13 +85,9 @@ export default {
     'dashboard.contact.sponsorAlt': 'Sponsorship QR code',
 
     'dashboard.contact.wechat': 'Scan to Join Group',
-    'dashboard.contact.wechatDesc': 'Add WeChat for more technical support and communication',
     'dashboard.contact.x': 'Follow on X.com',
-    'dashboard.contact.xDesc': 'Follow us on X for latest updates',
     'dashboard.contact.sponsor': 'Scan to Support',
-    'dashboard.contact.sponsorDesc': 'Your support is the driving force for the project\'s continuous development',
     'dashboard.contact.coffee': 'Buy me a coffee',
-    'dashboard.contact.coffeeDesc': 'If you like this project, buy me a coffee!',
 
     // Access
     'access.title': 'Quick Access',
@@ -202,7 +194,6 @@ export default {
     'oauth.kiro.awsImportAllFailed': 'Import failed! {count} credentials failed to import',
     'oauth.kiro.refreshTokensLabel': 'RefreshToken List',
     'oauth.kiro.refreshTokensPlaceholder': 'Enter one refreshToken per line\nExample:\naorAxxxxxxxx\naorAyyyyyyyy\naorAzzzzzzzz',
-    'oauth.kiro.importing': 'Importing, please wait...',
     'oauth.kiro.importingProgress': 'Importing {current}/{total}...',
     'oauth.kiro.importPartial': 'Partial success: {success} succeeded, {failed} failed',
     'oauth.gemini.selectMethod': 'Select Auth Method',
@@ -416,7 +407,6 @@ export default {
     'providers.title': 'Provider Pool Management',
     'providers.addGroup': 'Add Group',
     'providers.addGroup.title': 'Add New Configuration Group',
-    'providers.addGroup.suffix': 'Suffix Name',
     'providers.addGroup.desc': 'Create a new group with a suffix for this provider, e.g. openai-custom-dev.',
     'providers.addGroup.suffixPlaceholder': 'e.g., kimi, glm, minimax',
     'providers.addGroup.success': 'Configuration group created, please add accounts',

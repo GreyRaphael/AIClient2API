@@ -305,9 +305,6 @@
     text-align: center;
 }
 
-.dashboard-overview-row .dashboard-contact .qr-description {
-    display: none;
-}
 
 /* Contact and Sponsor Section */
 .contact-grid {
@@ -409,12 +406,6 @@
     transform: scale(1);
 }
 
-.qr-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin: 0;
-    line-height: 1.5;
-}
 
 /* Contact section styling for dashboard */
 .contact-section {
@@ -460,7 +451,7 @@
     }
 }
 
-/* Collapsible Dashboard Details */
+/* 可用模型列表面板（始终展开） */
 .dashboard-details {
     background: var(--bg-primary);
     border-radius: var(--radius-xl);
@@ -471,80 +462,32 @@
     transition: var(--transition);
 }
 
-.dashboard-details:hover {
-    border-color: var(--primary-30);
-    box-shadow: var(--shadow-md);
-}
 
-.dashboard-details[open] {
-    box-shadow: var(--shadow-md);
-}
 
-.dashboard-summary {
-    list-style: none;
-    padding: 0.875rem 1.25rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    background: var(--bg-primary);
-    user-select: none;
-    transition: var(--transition);
-}
 
-.dashboard-summary::-webkit-details-marker {
-    display: none;
-}
 
-.dashboard-summary:hover {
-    background: var(--primary-10);
-}
 
-.summary-content {
+
+.dashboard-models-header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    min-width: 0;
-    color: var(--text-primary);
+    padding: 0.875rem 1.25rem;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dashboard-models-header h3 {
+    margin: 0;
     font-size: 0.95rem;
     font-weight: 600;
+    color: var(--text-primary);
 }
 
-.summary-content > i:first-child {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 2rem;
-    width: 2rem;
-    height: 2rem;
-    border-radius: var(--radius-md);
-    background: var(--primary-10);
-    color: var(--primary-color);
-    font-size: 0.95rem;
-}
 
-.expand-hint {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    font-weight: 400;
-    margin-left: 0.5rem;
-    opacity: 0.7;
-}
 
-.caret-icon {
-    color: var(--text-tertiary);
-    transition: transform 0.3s ease;
-    font-size: 0.9rem;
-}
 
-.dashboard-details[open] .caret-icon {
-    transform: rotate(180deg);
-}
 
-.dashboard-details[open] .expand-hint {
-    display: none;
-}
 
 .dashboard-models-panel {
     margin-top: 0;
@@ -552,6 +495,11 @@
     border-top: none;
     background: transparent;
     box-shadow: none;
+}
+
+/* 面板内部不再需要 models-section 的默认上边距（原先靠内联样式压掉） */
+.dashboard-models-panel .models-section {
+    margin-top: 0;
 }
 
 /* ========================================

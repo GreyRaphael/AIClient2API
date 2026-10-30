@@ -33,22 +33,18 @@ export default function DashboardSection() {
 
             <${ProviderStatusPanel} providersData=${providersApi.data} loading=${providersApi.loading} />
 
-            <details class="dashboard-details" open>
-                <summary class="dashboard-summary">
-                    <div class="summary-content">
-                        <i class="fas fa-cube"></i>
-                        <span>${t('dashboard.advancedInfo')}</span>
-                        <span class="expand-hint">${t('dashboard.expandMore')}</span>
-                    </div>
-                    <i class="fas fa-chevron-down caret-icon"></i>
-                </summary>
+            <section class="dashboard-details" aria-label=${t('dashboard.advancedInfo')}>
+                <div class="dashboard-models-header">
+                    <i class="fas fa-cube"></i>
+                    <h3>${t('dashboard.advancedInfo')}</h3>
+                </div>
 
-                <div class="dashboard-models-panel" style="margin-top: 0.5rem; border-top: none;">
-                    <div class="models-section" style="margin-top: 0;">
+                <div class="dashboard-models-panel">
+                    <div class="models-section">
                         <${ModelsPanel} supportedProviders=${supportedProviders} />
                     </div>
                 </div>
-            </details>
+            </section>
 
             <${DashboardSponsors} />
         </section>`;

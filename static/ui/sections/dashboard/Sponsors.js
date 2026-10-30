@@ -10,29 +10,25 @@ export function DashboardContact() {
             image: 'static/x.com.png',
             alt: 'X.com',
             icon: 'fab fa-x-twitter',
-            title: t('dashboard.contact.x'),
-            desc: t('dashboard.contact.xDesc')
+            title: t('dashboard.contact.x')
         }
         : {
             image: 'static/wechat.png',
             alt: t('dashboard.contact.wechatAlt'),
             icon: 'fab fa-weixin',
-            title: t('dashboard.contact.wechat'),
-            desc: t('dashboard.contact.wechatDesc')
+            title: t('dashboard.contact.wechat')
         };
 
     const support = isEnglish
         ? {
             image: 'static/coffee.png',
             alt: 'Buy me a coffee',
-            title: t('dashboard.contact.coffee'),
-            desc: t('dashboard.contact.coffeeDesc')
+            title: t('dashboard.contact.coffee')
         }
         : {
             image: 'static/sponsor.png',
             alt: t('dashboard.contact.sponsorAlt'),
-            title: t('dashboard.contact.sponsor'),
-            desc: t('dashboard.contact.sponsorDesc')
+            title: t('dashboard.contact.sponsor')
         };
 
     return html`
@@ -43,14 +39,12 @@ export function DashboardContact() {
                     <div class="qr-container">
                         <img src=${contact.image} alt=${contact.alt} class="qr-code clickable-qr" />
                     </div>
-                    <p class="qr-description">${contact.desc}</p>
                 </div>
                 <div class="contact-card" id="sponsor-card">
                     <h3><i class="fas fa-heart"></i> <span>${support.title}</span></h3>
                     <div class="qr-container">
                         <img src=${support.image} alt=${support.alt} class="qr-code clickable-qr" />
                     </div>
-                    <p class="qr-description">${support.desc}</p>
                 </div>
             </div>
         </div>`;
@@ -91,16 +85,6 @@ export function DashboardSponsors() {
                             <p dangerouslySetInnerHTML=${{ __html: t(sponsor.descKey) }}></p>
                         </div>
                     </div>`)}
-
-                <div class="sponsor-card become-sponsor">
-                    <div class="sponsor-logo">
-                        <i class="fas fa-handshake"></i>
-                    </div>
-                    <div class="sponsor-content">
-                        <h3><strong>${t('sponsors.becomeTitle')}</strong></h3>
-                        <p>${t('sponsors.becomeDesc')}</p>
-                    </div>
-                </div>
             </div>
         </section>`;
 }
