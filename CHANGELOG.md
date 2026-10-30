@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 登录页、`potluck`、`potluck-user`、`model-usage-stats` 的内联 CSS 抽离到 `static/ui/styles/pages/`。
 - 移除死组件 `CodeBlock` / `Field`、未使用的认证/provider helper、死事件与 76 条未引用 locale key；删除可确认无对应 DOM 的旧 CSS 选择器与未使用变量。
 - **仪表盘**：删除“服务器时间”“操作系统”卡片；取消“更多系统信息”折叠，7 张卡片直接平铺（桌面端上排 3 个 / 下排 4 个，12 栏栅格），文字居中且运行时间不再断行。
-- **快速接入**：页头改为标题/刷新按钮 + 副标题独立成行；彻底删除“客户端配置片段”卡片（含 `access/snippets.js`、23 条 locale key 与相关 CSS）。
+- **快速接入**：页头改为标题/刷新按钮 + 副标题独立成行；彻底删除“客户端配置片段”卡片（含 `access/snippets.js`、每语种 22 条 locale key 与相关 CSS）。
 - **使用指南**：彻底删除页面（`sections/guide.js`、`section-guide.css`、`nav.guide`/`guide.*` 文案与 `#guide` 路由项），旧书签回落仪表盘。
 - 新增按需回读接口 `GET /api/config/secret?field=REQUIRED_API_KEY` 与 `GET /api/providers/:type/:uuid/secret?field=...`（各自带字段白名单）。
 - 抽取 `hooks/useSecretReveal.js` 统一“眼睛”状态机（配置页 / 提供商节点）；快速接入页因 `/access-info` 本就下发明文 Key，改为直接切换 `type`，去掉多余的一次回读请求。
@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复 Playground 提供商变更后缓存不刷新、主题无法跟随系统、主界面标题/描述不随语言切换的问题。
 - 补全 `--font-mono`、`--warning-border-light`、`--neutral-shadow-10`、`--danger-10` 与 `modalSlideIn`，并将 Playground 全局 keyframes 改为 `pg-*` 前缀避免覆盖 Header 动画。
 - **修复提供商配置弹窗在“编辑 / 新增”态下右上角 `×` 点击无效**：此前 `tryClose` 遇到未保存状态直接 return，必须先保存或取消才能关闭；现在会先丢弃草稿再关闭（ESC、遮罩同）。
-- 修复提供商字段声明里 27 条从未被读取的 `label` 死数据（渲染实际用的是 `getFieldLabel`），并把 `CODEX_EMAIL` / `ZED_EMAIL` / `ZED_OAUTH_CREDS_FILE_PATH` 补进标签表——此前它们在表单上直接显示裸字段名。
+- 修复提供商字段声明里 25 条从未被读取的 `label` 死数据（渲染实际用的是 `getFieldLabel`），并把 `CODEX_EMAIL` / `ZED_EMAIL` / `ZED_OAUTH_CREDS_FILE_PATH` 补进标签表——此前它们在表单上直接显示裸字段名。
 - 修复“眼睛”按钮点了没反应：此前服务端只下发脱敏占位符，切换 `type` 后依旧显示 `******`。现在点击时才按需回读明文（配置页 API 密钥与提供商节点密钥；快速接入页用的是本就明文的 `/access-info` Key）。
 
 ### Verification

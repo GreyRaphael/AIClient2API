@@ -9,7 +9,7 @@
 ## 🎨 WebUI 无构建重构
 
 - **技术栈**：Preact 11 + htm + `@preact/signals`，浏览器原生 ES Module + import map，无需 Vite/Webpack/JSX 编译。
-- **目录统一**：新代码全部位于 `static/ui/`，第三方依赖入库到 `static/vendor/`，Font Awesome 使用本地子集（145 icons）。
+- **目录统一**：新代码全部位于 `static/ui/`，第三方依赖入库到 `static/vendor/`，Font Awesome 使用本地子集（139 icons）。
 - **页面迁移**：
   - 控制台 10 个页面：dashboard / access / config / providers / custom-models / upload-config / usage / plugins / playground / logs（使用指南页已移除）。
   - 独立页面：login、potluck、potluck-user、model-usage-stats。
@@ -55,9 +55,9 @@
 | `npm run typecheck` | **通过** |
 | `npm run typecheck:webui` | **通过** |
 | `npm run vendor:webui:check` | **通过** |
-| Font Awesome 子集 | **145 icons** |
+| Font Awesome 子集 | **139 icons** |
 
-E2E 覆盖登录、11 个控制台页面、中英/明暗切换、SSE 状态、Provider 节点 CRUD、授权弹窗、Kiro AWS 单条/批量导入、Playground 流式对话、插件页、日志页、登出，以及 4 个独立页面。
+E2E 覆盖登录、10 个控制台页面、中英/明暗切换、SSE 状态、Provider 节点 CRUD、授权弹窗、Kiro AWS 单条/批量导入、Playground 流式对话、插件页、日志页、登出，以及 4 个独立页面。
 
 ## 📦 升级建议
 

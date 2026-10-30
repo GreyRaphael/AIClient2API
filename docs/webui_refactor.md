@@ -485,7 +485,7 @@ sections/providers/
   - 新增原子组件 `Spinner/EmptyState/Switch/CopyButton/CodeBlock/Field` 与 hooks `useApi/useEvent/useInterval`；`provider-registry`、`provider-manager-utils` 提前迁入 `ui/lib/`。
   - `logs`：`store/logs.js`（2000 条封顶、autoScroll）+ `sections/logs.js`；旧日志 DOM/状态/绑定全部删除。
   - `plugins`：列表/开关/卸载、市场/安装/更新、付费弹窗与 ZIP 上传；`sanitize.js` 清洗插件描述富文本；`plugin_update` 自动刷新。
-  - `access`：接入信息、默认供应商、客户端片段（Markdown/ENV/JSON）、端点复制与 curl。
+  - `access`：接入信息、默认供应商、端点复制与 curl（客户端配置片段卡片已在后续提交中移除）。
 - **Phase 3（已完成）**
   - 新增 `Modal/ConfirmDialog/Pagination` 原语；原生 `confirm` 全部替换为 `confirmDialog()`。
   - `dashboard`：系统信息/运行时间、更新检查与降级、提供商状态概览、模型列表、赞助商。
@@ -529,7 +529,7 @@ sections/providers/
 - **交互与生命周期修复**：Modal 使用 `onClose` ref + 只依赖 `open` 的 effect，修复输入丢焦点；新增 Modal 栈、ESC 只关闭栈顶、滚动锁与焦点陷阱。Playground 改为订阅 `provider` / `provider_update` 刷新缓存；主题初始化不再提前持久化，恢复跟随系统；主界面标题/描述随语言 signal 更新。
 - **清理与 CSS 债务**：删除 `CodeBlock` / `Field`、未使用 auth/provider helper、死事件、76 条 locale key 与旧 CSS 选择器；补齐 4 个 CSS 变量、`modalSlideIn`，将 Playground keyframes 改为 `pg-*`；4 个独立页的内联 CSS 抽离到 `static/ui/styles/pages/`。
 - **浏览器要求**：Chrome/Edge 105+、Firefox 121+、Safari 16.4+（`:has()`）。
-- **测试更新**：`npm test` 70 suites / 834 tests，WebUI E2E 32/32，`npm run verify`、`typecheck:webui` 与 `vendor:webui:check` 通过；Font Awesome 子集 145 icons。
+- **测试更新**：`npm test` 71 suites / 839 tests，WebUI E2E 34/34，`npm run verify`、`typecheck:webui` 与 `vendor:webui:check` 通过；Font Awesome 子集 139 icons。
 
 ## 附录 A：迁移前后对照示例（日志页）
 
