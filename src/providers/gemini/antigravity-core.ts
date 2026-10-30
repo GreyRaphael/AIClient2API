@@ -41,6 +41,7 @@ interface AntigravityServiceConfig extends Record<string, any> {
     REQUEST_BASE_DELAY?: number;
     ANTIGRAVITY_BASE_URL?: string;
     ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS?: number;
+    ANTIGRAVITY_CLIENT_VERSION?: string;
 }
 
 interface AntigravityErrorLike {
@@ -71,7 +72,27 @@ const ANTIGRAVITY_BASE_URL_PROD = 'https://cloudcode-pa.googleapis.com';
 const ANTIGRAVITY_API_VERSION = 'v1internal';
 const OAUTH_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
 const OAUTH_CLIENT_SECRET = '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';
-const DEFAULT_USER_AGENT = 'antigravity/cli/1.4.7 linux/amd64';
+const DEFAULT_ANTIGRAVITY_CLIENT_VERSION = '1.4.7';
+
+/**
+ * 解析节点配置的客户端版本号。
+ * 优先 ANTIGRAVITY_CLIENT_VERSION（WebUI 输入），
+ * 其次从 USER_AGENT / ANTIGRAVITY_USER_AGENT 中取 antigravity/<version>，
+ * 都未设置时用 DEFAULT_ANTIGRAVITY_CLIENT_VERSION。
+ * @param {AntigravityServiceConfig} [config]
+ * @returns {string}
+ */
+export function getAntigravityClientVersion(config: AntigravityServiceConfig | null = null): string {
+    const configured = String(config?.ANTIGRAVITY_CLIENT_VERSION ?? '').trim();
+    if (configured) return configured;
+
+    for (const agent of [config?.USER_AGENT, config?.ANTIGRAVITY_USER_AGENT]) {
+        // 兼容 `antigravity/cli/1.4.7 linux/amd64` 与 `antigravity/1.4.7` 两种写法
+        const matched = String(agent ?? '').match(/antigravity\/(?:cli\/)?([^\s]+)/i);
+        if (matched?.[1]) return matched[1];
+    }
+    return DEFAULT_ANTIGRAVITY_CLIENT_VERSION;
+}
 const REFRESH_SKEW = 3000; // 3000秒（50分钟）提前刷新Token
 
 // Thinking 配置相关常量
@@ -1021,7 +1042,9 @@ export class AntigravityApiService {
         this.config = config;
         this.host = config.HOST;
         this.oauthCredsFilePath = config.ANTIGRAVITY_OAUTH_CREDS_FILE_PATH;
-        this.userAgent = config.USER_AGENT || config.ANTIGRAVITY_USER_AGENT || DEFAULT_USER_AGENT;
+        // 显式指定的 USER_AGENT 优先；否则按客户端版本重建（未配置版本时用内置默认值）。
+        this.userAgent = config.USER_AGENT || config.ANTIGRAVITY_USER_AGENT
+            || `antigravity/cli/${getAntigravityClientVersion(config)} linux/amd64`;
         this.projectId = config.PROJECT_ID;
         this.uuid = config.uuid || null; // 保存 uuid 用于缓存管理
 
@@ -1305,7 +1328,7 @@ export class AntigravityApiService {
                 tier_id: baseTier,
                 metadata: {
                     ide_type: 'ANTIGRAVITY',
-                    ide_version: this.userAgent.match(/antigravity\/([^ ]+)/)?.[1] || '',
+                    ide_version: this.userAgent.match(/antigravity\/([^ ]+)/)?.[1] || getAntigravityClientVersion(this.config),
                     ide_name: 'antigravity'
                 },
             };

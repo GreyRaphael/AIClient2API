@@ -8,9 +8,9 @@ function getFieldLabel(key) {
         'checkHealth': t('modal.provider.healthCheckLabel'),
         'concurrencyLimit': t('modal.provider.concurrencyLimit') + ' ' + t('config.optional'),
         'queueLimit': t('modal.provider.queueLimit') + ' ' + t('config.optional'),
-        'OPENAI_API_KEY': 'OpenAI API Key',
+        'OPENAI_API_KEY': `OpenAI ${t('modal.provider.field.apiKey')}`,
         'OPENAI_BASE_URL': 'OpenAI Base URL',
-        'CLAUDE_API_KEY': 'Claude API Key',
+        'CLAUDE_API_KEY': `Claude ${t('modal.provider.field.apiKey')}`,
         'CLAUDE_BASE_URL': 'Claude Base URL',
         'PROJECT_ID': t('modal.provider.field.projectId'),
         'KIRO_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
@@ -21,8 +21,14 @@ function getFieldLabel(key) {
         'KIRO_REFRESH_IDC_URL': t('modal.provider.field.refreshIdcUrl'),
         'ANTIGRAVITY_BASE_URL_DAILY': t('modal.provider.field.dailyBaseUrl'),
         'ANTIGRAVITY_BASE_URL_AUTOPUSH': t('modal.provider.field.autopushBaseUrl'),
+        'ANTIGRAVITY_CLIENT_VERSION': t('modal.provider.field.antigravityClientVersion'),
         'CODEX_BASE_URL': t('modal.provider.field.codexBaseUrl'),
         'CODEX_VERSION': t('modal.provider.field.codexVersion'),
+        'CODEX_EMAIL': t('modal.provider.field.email'),
+        'ZED_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
+        'ZED_EMAIL': t('modal.provider.field.email'),
+        'ZED_BASE_URL': t('modal.provider.field.zedBaseUrl'),
+        'ZED_VERSION': t('modal.provider.field.zedVersion'),
         'TRAE_CHANNEL_MODE': '通道模式 (Channel Mode)',
         'TRAE_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
         'TRAE_BASE_URL': 'Trae Base URL',
@@ -42,13 +48,11 @@ function getProviderTypeFields(providerType) {
         'openai-custom': [
             {
                 id: 'OPENAI_API_KEY',
-                label: t('modal.provider.field.apiKey'),
                 type: 'password',
                 placeholder: 'sk-...'
             },
             {
                 id: 'OPENAI_BASE_URL',
-                label: 'OpenAI Base URL',
                 type: 'text',
                 placeholder: 'https://api.openai.com/v1'
             }
@@ -56,13 +60,11 @@ function getProviderTypeFields(providerType) {
         'openaiResponses-custom': [
             {
                 id: 'OPENAI_API_KEY',
-                label: t('modal.provider.field.apiKey'),
                 type: 'password',
                 placeholder: 'sk-...'
             },
             {
                 id: 'OPENAI_BASE_URL',
-                label: 'OpenAI Base URL',
                 type: 'text',
                 placeholder: 'https://api.openai.com/v1'
             }
@@ -70,13 +72,11 @@ function getProviderTypeFields(providerType) {
         'claude-custom': [
             {
                 id: 'CLAUDE_API_KEY',
-                label: 'Claude API Key',
                 type: 'password',
                 placeholder: 'sk-ant-...'
             },
             {
                 id: 'CLAUDE_BASE_URL',
-                label: 'Claude Base URL',
                 type: 'text',
                 placeholder: 'https://api.anthropic.com/v1'
             }
@@ -84,25 +84,21 @@ function getProviderTypeFields(providerType) {
         'claude-kiro-oauth': [
             {
                 id: 'KIRO_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
                 type: 'text',
                 placeholder: t('modal.provider.field.oauthPath.kiro.placeholder')
             },
             {
                 id: 'KIRO_BASE_URL',
-                label: `${t('modal.provider.field.baseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://q.{{region}}.amazonaws.com/generateAssistantResponse'
             },
             {
                 id: 'KIRO_REFRESH_URL',
-                label: `${t('modal.provider.field.refreshUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken'
             },
             {
                 id: 'KIRO_REFRESH_IDC_URL',
-                label: `${t('modal.provider.field.refreshIdcUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://oidc.{{region}}.amazonaws.com/token'
             }
@@ -110,51 +106,48 @@ function getProviderTypeFields(providerType) {
         'gemini-antigravity': [
             {
                 id: 'PROJECT_ID',
-                label: `${t('modal.provider.field.projectId')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: t('modal.provider.field.projectId.optional.placeholder')
             },
             {
                 id: 'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
                 type: 'text',
                 placeholder: t('modal.provider.field.oauthPath.antigravity.placeholder')
             },
             {
                 id: 'ANTIGRAVITY_BASE_URL_DAILY',
-                label: `${t('modal.provider.field.dailyBaseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://daily-cloudcode-pa.sandbox.googleapis.com'
             },
             {
                 id: 'ANTIGRAVITY_BASE_URL_AUTOPUSH',
-                label: `${t('modal.provider.field.autopushBaseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://autopush-cloudcode-pa.sandbox.googleapis.com'
+            },
+            {
+                id: 'ANTIGRAVITY_CLIENT_VERSION',
+                type: 'text',
+                placeholder: t('modal.provider.field.antigravityClientVersion.placeholder')
             }
         ],
         'openai-codex-oauth': [
             {
                 id: 'CODEX_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
                 type: 'text',
                 placeholder: t('modal.provider.field.oauthPath.codex.placeholder')
             },
             {
                 id: 'CODEX_EMAIL',
-                label: `${t('modal.provider.field.email')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'email',
                 placeholder: t('modal.provider.field.email.placeholder')
             },
             {
                 id: 'CODEX_BASE_URL',
-                label: `${t('modal.provider.field.codexBaseUrl')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://api.openai.com/v1/codex'
             },
             {
                 id: 'CODEX_VERSION',
-                label: `${t('modal.provider.field.codexVersion')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: t('modal.provider.field.codexVersion.placeholder')
             }
@@ -162,33 +155,33 @@ function getProviderTypeFields(providerType) {
         'zed': [
             {
                 id: 'ZED_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath'),
                 type: 'text',
                 placeholder: 'configs/zed/..._oauth_creds.json'
             },
             {
                 id: 'ZED_EMAIL',
-                label: `${t('modal.provider.field.email')} <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'email',
                 placeholder: 'user@example.com'
             },
             {
                 id: 'ZED_BASE_URL',
-                label: `Zed Base URL <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://cloud.zed.dev'
+            },
+            {
+                id: 'ZED_VERSION',
+                type: 'text',
+                placeholder: t('modal.provider.field.zedVersion.placeholder')
             }
         ],
         'trae': [
             {
                 id: 'TRAE_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
                 type: 'text',
                 placeholder: 'configs/trae/..._oauth_creds.json'
             },
             {
                 id: 'TRAE_BASE_URL',
-                label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://api.enterprise.trae.cn'
             }
@@ -196,13 +189,11 @@ function getProviderTypeFields(providerType) {
         'trae-chat_v3': [
             {
                 id: 'TRAE_OAUTH_CREDS_FILE_PATH',
-                label: t('modal.provider.field.oauthPath') || 'OAuth凭据文件路径',
                 type: 'text',
                 placeholder: 'configs/trae/..._oauth_creds.json'
             },
             {
                 id: 'TRAE_BASE_URL',
-                label: `Trae Base URL <span class="optional-tag">${t('config.optional')}</span>`,
                 type: 'text',
                 placeholder: 'https://trae-api-cn.mchost.guru'
             }

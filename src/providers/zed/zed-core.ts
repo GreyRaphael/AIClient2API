@@ -25,6 +25,7 @@ import { normalizeSupportEfforts } from '../reasoning-effort.ts';
 interface ZedServiceConfig extends ProviderConfig {
     ZED_OAUTH_CREDS_FILE_PATH?: string;
     ZED_SYSTEM_ID?: string;
+    ZED_VERSION?: string;
     ZED_MODEL_METADATA_CACHE_PATH?: string | null;
     [key: string]: unknown;
 }
@@ -169,6 +170,16 @@ export function getZedVersionFromSystem() {
 }
 
 /**
+ * 解析节点配置的 Zed 客户端版本号。
+ * 优先 ZED_VERSION（WebUI 输入），未设置时用 ZED_FALLBACK_VERSION。
+ * @param {{ZED_VERSION?: string}|null} [config]
+ * @returns {string}
+ */
+export function getZedVersion(config: { ZED_VERSION?: string } | null = null): string {
+    return String(config?.ZED_VERSION ?? '').trim() || getZedVersionFromSystem();
+}
+
+/**
  * 根据模型元数据或模型名推断 Zed 上游 provider 类型
  * @param {string} model
  * @param {ZedModelRegistry} [registry] 可选运行时元数据注册表
@@ -207,7 +218,7 @@ export class ZedApiService {
         this.accessToken = null;
         this.systemId = config.ZED_SYSTEM_ID || null;
         // 优先使用节点配置的客户端版本；否则使用内置的最新版本。
-        this.version = String(config.ZED_VERSION || '').trim() || getZedVersionFromSystem();
+        this.version = getZedVersion(config);
         this.jwtToken = null;
         this.jwtExpiresAt = 0;
         this.isInitialized = false;

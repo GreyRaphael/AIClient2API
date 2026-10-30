@@ -73,7 +73,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
             defaultCheckModel: 'gemini-3.8-flash-high',
             displayName: 'Gemini Antigravity',
             needsProjectId: true,
-            urlKeys: ['ANTIGRAVITY_BASE_URL_DAILY', 'ANTIGRAVITY_BASE_URL_AUTOPUSH']
+            urlKeys: ['ANTIGRAVITY_BASE_URL_DAILY', 'ANTIGRAVITY_BASE_URL_AUTOPUSH', 'ANTIGRAVITY_CLIENT_VERSION']
         }
     },
     {
@@ -198,7 +198,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
             defaultCheckModel: 'claude-sonnet-4-5',
             displayName: 'Zed OAuth',
             needsProjectId: false,
-            urlKeys: ['ZED_BASE_URL']
+            urlKeys: ['ZED_BASE_URL', 'ZED_VERSION']
         }
     },
     {

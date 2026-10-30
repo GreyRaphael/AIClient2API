@@ -1,6 +1,6 @@
 jest.mock('open', () => ({ default: jest.fn() }));
 
-import { AntigravityApiService } from '../src/providers/gemini/antigravity-core.ts';
+import { AntigravityApiService, getAntigravityClientVersion } from '../src/providers/gemini/antigravity-core.ts';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import {
     CAPABILITY_SOURCE,
@@ -253,5 +253,26 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         expect(res2.actualModelName).toBe('gpt-6.1-sol-medium');
         expect(res2.payload.request?.generationConfig?.thinkingConfig?.thinkingLevel).toBe('medium');
         expect(res2.payload.request?.generationConfig?.thinkingConfig?.includeThoughts).toBe(true);
+    });
+
+    test('9. 客户端版本：节点配置优先，留空时回退内置默认值，并影响 User-Agent 与 ide_version', () => {
+        const defaults = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        expect(defaults.userAgent).toBe('antigravity/cli/1.4.7 linux/amd64');
+        expect(getAntigravityClientVersion({})).toBe('1.4.7');
+
+        const configured = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '1.9.9'
+        });
+        expect(configured.userAgent).toBe('antigravity/cli/1.9.9 linux/amd64');
+        expect(getAntigravityClientVersion({ ANTIGRAVITY_CLIENT_VERSION: '1.9.9' })).toBe('1.9.9');
+
+        // 旧的整段 User-Agent 配置仍然兼容
+        expect(getAntigravityClientVersion({ USER_AGENT: 'antigravity/cli/2.0.0 darwin/arm64' })).toBe('2.0.0');
+        // 同时配置时显式版本字段优先
+        expect(getAntigravityClientVersion({
+            ANTIGRAVITY_CLIENT_VERSION: '3.1.4',
+            USER_AGENT: 'antigravity/cli/2.0.0 darwin/arm64'
+        })).toBe('3.1.4');
     });
 });

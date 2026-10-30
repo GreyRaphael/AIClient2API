@@ -352,6 +352,39 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('提供商配置：Antigravity / Zed / Codex 均提供客户端版本输入框', async ({ authedPage: page, problems }) => {
+        const cases = [
+            ['gemini-antigravity', 'ANTIGRAVITY_CLIENT_VERSION'],
+            ['zed', 'ZED_VERSION'],
+            ['openai-codex-oauth', 'CODEX_VERSION']
+        ];
+
+        for (const [providerType, fieldKey] of cases) {
+            await page.goto('/#providers');
+            await page.locator(`#providersList .provider-item[data-provider-type="${providerType}"]`).click();
+            await page.locator('.provider-summary-actions .btn-success').click();
+
+            const input = page.locator(`#new-${fieldKey}`);
+            await expect(input).toBeVisible();
+            await expect(input).toHaveValue('');
+
+            const name = `Ver-${providerType}`;
+            await page.locator('#new-customName').fill(name);
+            await input.fill('9.9.9');
+            await page.locator('.add-provider-form .btn-success').click();
+            await expect(page.locator('#toastContainer')).toContainText('添加成功');
+
+            const node = page.locator('.provider-item-detail', { hasText: name });
+            await node.locator('.provider-item-header').click();
+            await expect(node.locator(`[data-field="${fieldKey}"] input`)).toHaveValue('9.9.9');
+
+            await page.locator('.provider-modal .modal-close').click();
+            await expect(page.locator('.provider-modal')).toHaveCount(0);
+        }
+
+        expect(problems).toEqual([]);
+    });
+
     test('提供商页：节点新增、编辑、停用与删除', async ({ authedPage: page, problems }) => {
         await page.goto('/#providers');
         await expect(page.locator('section#providers.active')).toBeVisible();
