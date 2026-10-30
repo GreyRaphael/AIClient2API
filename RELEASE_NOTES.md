@@ -1,8 +1,8 @@
-# AIClient-2-API 发布说明 (v5.2.0)
+# AIClient-2-API 发布说明 (v5.3.0)
 
-> **v5.2.0** 是 v5.1.0 之后的 WebUI 无构建重构版本。
+> **v5.3.0** 是 v5.2.0 之后的安全加固与 WebUI 精修版本，**建议所有 v5.2.0 用户升级**。
 >
-> 管理控制台全部迁移到 Preact 11 + htm + signals，仍然保持“零构建、零 CDN、离线可用”；同时补齐 Kiro AWS 账号导入，并加固插件富文本链接清洗。后端 API、Hash 路由、localStorage 键与插件静态路径保持兼容。
+> 本版本修复了一个可无密码读取全部明文密钥的鉴权绕过，以及 UI 请求可能永久挂起、明文密钥被写入可编辑缓冲等问题；同时新增按需回读明文的接口、Antigravity / Zed 客户端版本字段，并下掉使用指南页与客户端配置片段卡片。后端 API、Hash 路由、localStorage 键与插件静态路径保持兼容。
 
 ---
 
@@ -29,6 +29,16 @@
 
 ## 🛡️ 安全与稳定性
 
+- **鉴权绕过修复（重要）**：`verifyToken` 此前直接以 `tokens[token]` 从 JSON.parse 结果取值，
+  `Authorization: Bearer __proto__` / `constructor` / `toString` 会命中 `Object.prototype` 成员
+  （真值、无 `expiryTime`，而 `Date.now() > undefined` 为假），从而无密码通过鉴权，可读取
+  `/api/config/secret`、`/api/providers/:type/:uuid/secret` 的全部明文密钥并可增删提供商节点。
+  现在 token store 归一化为无原型对象，并要求自身属性命中 + 过期时间为有限数字。
+- **请求挂起修复**：UI 路由处理链未包 `try/catch`，非法百分号转义（`%E0%A4%A`）或
+  `providerType=__proto__` 触发的异常会逃逸到 `unhandledRejection`，响应永不写回、客户端等到超时。
+  现在统一兜住并回 500，非法百分号转义前置拒绝为 400。
+- **明文回读加固**：两个回读接口仅返回白名单字段、响应带 `no-store` 禁止缓存、错误信息不回显调用方字段；
+  前端仅编辑态可回读，展开期间输入框强制只读，避免明文被写入草稿缓冲后随保存落盘（会损坏凭据）。
 - `sanitizeHtml()` 链接策略改为按 URL 协议校验：
   - 允许 `http(s)`、`mailto`、站内路径与锚点；
   - 拒绝 `//host`、`/\host`、`javascript:`、`data:`、`vbscript:` 等绕过方式；
@@ -49,8 +59,8 @@
 
 | 项目 | 结果 |
 |---|---|
-| `npm test` | **70 suites / 838 tests 全绿** |
-| WebUI E2E | **26/26 通过** |
+| `npm test` | **72 suites / 852 tests 全绿** |
+| WebUI E2E | **36/36 通过** |
 | `npm run verify` | **通过**（typecheck / plugins / strict / any / imports / cycles / coverage / runtime smoke） |
 | `npm run typecheck` | **通过** |
 | `npm run typecheck:webui` | **通过** |

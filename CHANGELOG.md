@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v5.3.0] - 2026-10-30
+
+### Added
+
+- 新增按需回读明文的两个接口：`GET /api/config/secret?field=REQUIRED_API_KEY` 与 `GET /api/providers/:type/:uuid/secret?field=...`，各自维护字段白名单，且响应带 `no-store` 禁止缓存。
+- 提供商节点新增 `ANTIGRAVITY_CLIENT_VERSION` / `ZED_VERSION` 客户端版本输入（与既有 `CODEX_VERSION` 对齐）：留空使用内置默认版本，填写后用于 User-Agent、`ide_version` / `X-Zed-Version` 及上游 model_list 拉取。
+
 ### Changed
 
 - 最低浏览器要求提升至 Chrome/Edge 105+、Firefox 121+、Safari 16.4+（CSS 对齐修正使用 `:has()`），并同步 README 与重构文档。
@@ -15,12 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **仪表盘**：删除“服务器时间”“操作系统”卡片；取消“更多系统信息”折叠，7 张卡片直接平铺（桌面端上排 3 个 / 下排 4 个，12 栏栅格），文字居中且运行时间不再断行。
 - **快速接入**：页头改为标题/刷新按钮 + 副标题独立成行；彻底删除“客户端配置片段”卡片（含 `access/snippets.js`、每语种 22 条 locale key 与相关 CSS）。
 - **使用指南**：彻底删除页面（`sections/guide.js`、`section-guide.css`、`nav.guide`/`guide.*` 文案与 `#guide` 路由项），旧书签回落仪表盘。
-- 新增按需回读接口 `GET /api/config/secret?field=REQUIRED_API_KEY` 与 `GET /api/providers/:type/:uuid/secret?field=...`（各自带字段白名单）。
 - 抽取 `hooks/useSecretReveal.js` 统一“眼睛”状态机（配置页 / 提供商节点）；快速接入页因 `/access-info` 本就下发明文 Key，改为直接切换 `type`，去掉多余的一次回读请求。
-- 提供商节点新增 `ANTIGRAVITY_CLIENT_VERSION` / `ZED_VERSION` 客户端版本输入（与既有 `CODEX_VERSION` 对齐）：留空用内置默认版本，填写则用于 User-Agent、`ide_version` / `X-Zed-Version` 及上游 model_list 拉取。
 
 ### Fixed
 
+- **修复鉴权绕过**：`verifyToken` 直接以 `tokens[token]` 取值，`__proto__` / `constructor` / `toString` 等原型链成员会被当成合法 token（真值且无 `expiryTime`，`Date.now() > undefined` 为假），可无密码读取全部明文密钥；同时 `expiryTime` 缺失或非数字的记录也被当成“永不过期”。现在 token store 归一化为无原型对象，并要求自身属性命中且过期时间为有限数字。
+- **修复请求挂起**：`handleUIApiRequests` 未包 try/catch，UI 路由内抛错（非法百分号转义 `%E0%A4%A`、`providerType=__proto__`）会让 rejection 逃逸且响应永不写回，客户端只能等到超时。现在统一兜住并回 500，非法百分号转义前置拒绝为 400。
+- **修复“眼睛”按钮回读的明文进入可编辑缓冲**：非编辑态也可回读、明文进入草稿缓冲，键入一个字符后保存会写入 `明文+字符`（`filterMaskedData` 已不再识别为掩码）。现在仅编辑态允许回读，明文展开期间强制只读。
+- **修复“生成新 Key”后仍显示旧明文**：回读缓存未随表单值失效，输入框显示旧 Key 而表单已是新 Key。现在缓存与取值绑定，值变化当次渲染即失效。
+- 修复仪表盘系统信息栅格用视口宽度断点、而面板实际宽度受右侧固定 440px 卡片挤压导致的数值溢出被裁切（1025–1299px 区间最多外溢 39px）；改为按面板宽度做容器查询。
 - 修复 WebUI 弹窗关闭按钮显示 `&times;`、登录页页脚显示 `&copy;` 的问题（htm 文本节点不解析 HTML 实体，改用 `×` / `©` 字面量）。
 - 修复 Kiro 授权弹窗与 OAuth 路径提示把 `<strong>` / `<code>` 标签显示为字面量的问题，静态 i18n 富文本改用 `dangerouslySetInnerHTML` 渲染。
 - 修复 Modal 重新渲染导致输入框丢失焦点、叠加 Modal 按 ESC 关闭全部弹窗的问题，并补充焦点陷阱与滚动锁栈。
@@ -32,9 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Verification
 
-- `npm test`：**71 suites / 839 tests 全绿**。
-- WebUI E2E：**34/34 通过**。
-- `npm run verify`、`typecheck:webui`、`vendor:webui:check` 通过。
+- `npm test`：**72 suites / 852 tests 全绿**。
+- WebUI E2E：**36/36 通过**。
+- `npm run verify`（typecheck / plugins / strict / any / imports / cycles / coverage / runtime smoke）、`typecheck:webui`、`vendor:webui:check` 全部通过。
 
 ## [v5.2.0] - 2026-10-29
 
