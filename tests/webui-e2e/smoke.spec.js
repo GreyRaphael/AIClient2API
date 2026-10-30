@@ -212,6 +212,58 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('配置页：回读明文后“生成新 Key”不得再显示旧明文', async ({ authedPage: page, problems }) => {
+        await page.goto('/#config');
+        await expect(page.locator('section#config.active')).toBeVisible();
+
+        const input = page.locator('#apiKey');
+        await expect(input).toHaveValue('******');
+
+        await page.locator('.password-toggle').first().click();
+        await expect(input).toHaveValue('e2e-api-key');
+
+        // 回读出的明文不允许被直接编辑（否则会被当成新值保存）
+        await expect(input).toHaveJSProperty('readOnly', true);
+
+        // 生成新 Key：表单值变了，输入框必须立刻显示新 Key，而不是缓存的旧明文
+        await page.locator('#generateApiKey').click();
+        await expect(input).toHaveValue(/^sk-[0-9a-f]{32}$/);
+        await expect(input).not.toHaveValue('e2e-api-key');
+
+        // 页面上显示的必须与服务端真正保存的一致
+        await page.locator('#saveConfig').click();
+        await expect(page.locator('#toastContainer')).toContainText('配置已保存');
+        const shown = await input.inputValue();
+        const revealed = await page.evaluate(async () => {
+            const token = localStorage.getItem('authToken');
+            const res = await fetch('/api/config/secret?field=REQUIRED_API_KEY', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            return (await res.json()).value;
+        });
+        expect(shown).toBe(revealed);
+
+        // 关键：本用例通过了会改写 REQUIRED_API_KEY，必须还原，
+        // 否则后续用例（/v1/models 用固定 e2e-api-key 鉴权）会 401 连锁失败。
+        await page.evaluate(async () => {
+            const token = localStorage.getItem('authToken');
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ REQUIRED_API_KEY: 'e2e-api-key' })
+            });
+        });
+        const restored = await page.evaluate(async () => {
+            const token = localStorage.getItem('authToken');
+            const res = await fetch('/api/config/secret?field=REQUIRED_API_KEY', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            return (await res.json()).value;
+        });
+        expect(restored).toBe('e2e-api-key');
+        expect(problems).toEqual([]);
+    });
+
     test('用量页：支持提供商、卡片渲染与刷新', async ({ authedPage: page, problems }) => {
         const usagePayload = {
             timestamp: new Date().toISOString(),
@@ -349,6 +401,62 @@ test.describe('console shell', () => {
         await expect(node.locator('.btn-save')).toBeVisible();
         await page.locator('.provider-modal .modal-close').click();
         await expect(page.locator('.provider-modal')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
+    test('提供商节点密钥：仅编辑态可回读，展开期间不可编辑', async ({ authedPage: page, problems }) => {
+        await page.goto('/#providers');
+        await page.locator('#providersList .provider-item[data-provider-type="openai-custom"]').click();
+        await page.locator('.provider-summary-actions .btn-success').click();
+        await page.locator('#new-customName').fill('RevealGuard');
+        await page.locator('#new-OPENAI_API_KEY').fill('sk-reveal-guard-1234');
+        await page.locator('#new-OPENAI_BASE_URL').fill('https://example.com/v1');
+        await page.locator('.add-provider-form .btn-success').click();
+        await expect(page.locator('#toastContainer')).toContainText('添加成功');
+
+        const node = page.locator('.provider-item-detail', { hasText: 'RevealGuard' });
+        await node.locator('.provider-item-header').click();
+
+        const field = node.locator('[data-field="OPENAI_API_KEY"]');
+        const input = field.locator('input');
+
+        // 非编辑态：只有占位符，没有“眼睛”，不可能拿到明文
+        await expect(input).toHaveValue('••••••••');
+        await expect(input).toHaveAttribute('type', 'password');
+        await expect(field.locator('.password-toggle')).toHaveCount(0);
+
+        // 进入编辑态：先看到的是脱敏值
+        await node.locator('.btn-edit').click();
+        await expect(input).toHaveValue('sk-r****1234');
+        await expect(field.locator('.password-toggle')).toHaveCount(1);
+
+        // 展开后显示明文，且强制只读（防止明文被编辑后保存成新密钥）
+        await field.locator('.password-toggle').click();
+        await expect(input).toHaveValue('sk-reveal-guard-1234');
+        await expect(input).toHaveJSProperty('readOnly', true);
+
+        // 收起后恢复脱敏值并可继续编辑
+        await field.locator('.password-toggle').click();
+        await expect(input).toHaveValue('sk-r****1234');
+        await expect(input).toHaveJSProperty('readOnly', false);
+
+        // 保存脱敏值不会覆盖真实密钥
+        await node.locator('.btn-save').click();
+        await expect(page.locator('#toastContainer')).toContainText('成功');
+        await page.locator('.provider-modal .modal-close').click();
+        await expect(page.locator('.provider-modal')).toHaveCount(0);
+
+        const stored = await page.evaluate(async () => {
+            const token = localStorage.getItem('authToken');
+            const list = await (await fetch('/api/providers/openai-custom', { headers: { Authorization: `Bearer ${token}` } })).json();
+            const target = (list.providers || []).find((item) => item.customName === 'RevealGuard');
+            if (!target) return null;
+            const res = await fetch(`/api/providers/openai-custom/${target.uuid}/secret?field=OPENAI_API_KEY`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            return (await res.json()).value;
+        });
+        expect(stored).toBe('sk-reveal-guard-1234');
         expect(problems).toEqual([]);
     });
 

@@ -125,6 +125,8 @@ export default function ConfigSection() {
         const bytes = new Uint8Array(16);
         crypto.getRandomValues(bytes);
         const key = `sk-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+        // 先写入新值：useSecretReveal 监听 value 变化会自动丢弃已回读的旧明文，
+        // 否则输入框会继续显示旧 Key 而表单里已经是新 Key。
         setField('REQUIRED_API_KEY', key);
         const copied = await copyToClipboard(key);
         toast.success(t('common.success'), copied

@@ -23,21 +23,44 @@ const PROVIDERS_PER_PAGE = 5;
 
 /**
  * 密码字段：服务端只下发打码值，点击“眼睛”时才按需回读明文。
+ *
+ * 两条安全约束：
+ * 1. 只有编辑态才允许回读/展开明文；非编辑态退回只读占位符 `••••••••`，不渲染“眼睛”。
+ *    否则明文会进入表单草稿缓冲，保存时把脱敏值换成明文（甚至明文 + 1 个字符）。
+ * 2. 明文展开期间输入框强制只读；用户必须先收起（收起会恢复脱敏值）才能继续输入。
+ *
  * @param {{id?: string, value: any, editing: boolean, onChange: (value: string) => void, onReveal?: () => Promise<string|null>}} props
  */
 function PasswordField({ id, value, editing, onChange, onReveal }) {
-    const { visible, shown, toggle, reset } = useSecretReveal({ value, reveal: onReveal });
+    const { visible, shown, toggle, reset, hide } = useSecretReveal({
+        value,
+        // 非编辑态根本不提供回读函数，hook 不可能拿到明文
+        reveal: editing ? onReveal : undefined
+    });
+
+    // 退出编辑态时丢弃已回读的明文（组件不卸载，缓存不能留到下次编辑）
+    useEffect(() => {
+        if (!editing) hide();
+    }, [editing, hide]);
+
+    if (!editing) {
+        return html`
+            <div class="password-input-wrapper">
+                <input id=${id} type="password" value=${value ? '••••••••' : ''} readonly />
+            </div>`;
+    }
 
     return html`
         <div class="password-input-wrapper">
             <input id=${id} type=${visible ? 'text' : 'password'} value=${shown}
-                readonly=${!editing}
+                readonly=${visible}
                 onInput=${(event) => {
                     reset();
                     onChange(event.currentTarget.value);
                 }} />
             <button type="button" class="password-toggle" title=${t('common.togglePassword')}
-                aria-label=${t('common.togglePassword')} onClick=${() => void toggle()}>
+                aria-label=${t('common.togglePassword')}
+                onClick=${() => void (visible ? hide() : toggle())}>
                 <i class=${visible ? 'fas fa-eye-slash' : 'fas fa-eye'}></i>
             </button>
         </div>`;

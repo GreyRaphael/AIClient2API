@@ -99,6 +99,7 @@ function PasswordInput({ id, value, onChange, extra, reveal }) {
             <div class="input-with-toggle">
                 <input id=${id} type=${visible ? 'text' : 'password'} class="form-control"
                     value=${shown} autocomplete="off"
+                    readonly=${visible}
                     onInput=${(event) => {
                         reset();
                         onChange(event.currentTarget.value);

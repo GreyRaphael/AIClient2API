@@ -1,11 +1,44 @@
 /**
- * “眼睛”按钮的客户端逻辑：脱敏占位符只在首次展开时回读，回读结果缓存，
- * 用户手动编辑后缓存失效。这里用 SSR + 极简 fake 渲染验证 hook 的状态机语义。
+ * “眼睛”按钮相关的纯逻辑与 provider 字段声明校验。
+ *
+ * 说明：hook 的状态机（首次展开时回读明文、展开期间复用缓存、收起/编辑后失效）
+ * 依赖 DOM 环境，而 jest 这里是 `testEnvironment: 'node'`，无法渲染 Preact hook，
+ * 因此那部分行为由浏览器 e2e 用例覆盖（展开/收起、回读明文、编辑态只读等）。
+ * 本文件只覆盖 useSecretReveal 里可单测的纯函数，以及 provider 字段声明。
  */
 jest.mock('open', () => ({ default: jest.fn() }));
 
 import { describe, test, expect, jest } from '@jest/globals';
+import { looksMasked, resolveShownValue } from '@ui/hooks/useSecretReveal.js';
 import { getProviderTypeFields, getFieldLabel } from '@ui/lib/provider-fields.js';
+
+describe('useSecretReveal 纯函数', () => {
+    test('looksMasked 只把服务端打码占位符识别为脱敏值', () => {
+        for (const masked of ['******', 'sk-a****z', '••••', '••••••••']) {
+            expect(looksMasked(masked)).toBe(true);
+        }
+        for (const plain of ['sk-original-secret-123', 'e2e-api-key', '']) {
+            expect(looksMasked(plain)).toBe(false);
+        }
+        expect(looksMasked(null)).toBe(false);
+        expect(looksMasked(undefined)).toBe(false);
+    });
+
+    test('revealed 为 null 时回退到 value', () => {
+        expect(resolveShownValue({ revealed: null, value: '******' })).toBe('******');
+        expect(resolveShownValue({ revealed: null, value: 'sk-a****z' })).toBe('sk-a****z');
+    });
+
+    test('空字符串是合法明文，必须优先于 value', () => {
+        expect(resolveShownValue({ revealed: '', value: '******' })).toBe('');
+    });
+
+    test('value 为 null/undefined 时返回空字符串', () => {
+        expect(resolveShownValue({ revealed: null, value: undefined })).toBe('');
+        expect(resolveShownValue({ revealed: null, value: null })).toBe('');
+        expect(resolveShownValue({ revealed: '', value: undefined })).toBe('');
+    });
+});
 
 describe('provider 字段声明', () => {
     test('字段声明只保留 id/type/placeholder，不再有未被读取的 label', () => {
