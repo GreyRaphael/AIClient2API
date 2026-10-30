@@ -458,8 +458,8 @@
         justify-content: flex-start;
     }
 
+    /* 栅格改由 .system-info-panel 的容器查询按面板宽度决定，这里不再用视口断点覆盖 */
     .info-grid {
-        grid-template-columns: repeat(2, 1fr) !important;
         gap: 0.75rem;
     }
 
@@ -1248,7 +1248,6 @@
     }
 
     .info-grid {
-        grid-template-columns: 1fr !important;
         gap: 0.625rem;
     }
 

@@ -1141,6 +1141,11 @@
     overflow: hidden;
 }
 
+/* 系统信息面板按自身宽度（而非视口）决定卡片栅格 */
+.system-info-panel {
+    container-type: inline-size;
+}
+
 /* 面板顶部细微渐变高光 */
 .system-info-panel::before,
 .provider-status-panel::before {
@@ -1161,14 +1166,16 @@
     letter-spacing: -0.01em;
 }
 
-/* 系统信息：每一项做成小卡片（文字居中，卡片按宽度自动换行，避免值被挤断行） */
+/* 系统信息：每一项做成小卡片（文字居中，数值单行不折行） */
 .info-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.75rem;
 }
 
-/* 桌面：12 栏 —— 上排 3 个（各 4 栏）、下排 4 个（各 3 栏） */
-@media (min-width: 1025px) {
+/* 12 栏 —— 上排 3 个（各 4 栏）、下排 4 个（各 3 栏）。
+ * 用容器查询而不是视口宽度：面板宽度受右侧固定 440px 联系人卡挤压，
+ * 1025–1299px 视口下面板只有 237–462px，按视口切 12 栏会把数值挤到卡片外。 */
+@container (min-width: 470px) {
     .info-grid {
         grid-template-columns: repeat(12, minmax(0, 1fr));
     }
@@ -1249,13 +1256,7 @@
     box-shadow: 0 0 0 2px var(--bg-primary), 0 0 6px var(--danger-color);
 }
 
-@media (max-width: 1024px) {
-    .info-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (max-width: 480px) {
+@container (max-width: 299px) {
     .info-grid {
         grid-template-columns: 1fr;
     }
