@@ -123,29 +123,72 @@ function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }
 
+/** token store 中单条记录的形态（只关心过期时间等字段） */
+interface TokenRecord {
+    expiryTime?: number;
+    [key: string]: unknown;
+}
+
+/** token store 文件结构：token 字符串 -> 记录 */
+interface TokenStore {
+    tokens: Record<string, TokenRecord>;
+}
+
+/**
+ * token 键名是否为本对象自身属性。
+ * JSON.parse 产物继承 Object.prototype，tokens['__proto__'] / 'constructor' / 'toString'
+ * 会取到原型链成员（真值且无 expiryTime），直接取值会造成鉴权绕过。
+ * @param {string} token
+ * @param {Record<string, unknown>} tokens
+ * @returns {boolean}
+ */
+function isOwnToken(token: string, tokens: Record<string, unknown> = {}): boolean {
+    return typeof token === 'string'
+        && token.length > 0
+        && Object.prototype.hasOwnProperty.call(tokens, token);
+}
+
+/**
+ * 将 JSON.parse 得到的 token store 归一化为无原型对象，
+ * 使 tokens 上不再存在任何可被冒用的继承成员。
+ * @param {unknown} parsed
+ * @returns {TokenStore}
+ */
+function normalizeTokenStore(parsed: unknown): TokenStore {
+    const tokens: Record<string, TokenRecord> = Object.create(null);
+    const source = parsed && typeof parsed === 'object' && (parsed as { tokens?: unknown }).tokens;
+    if (source && typeof source === 'object') {
+        for (const key of Object.keys(source)) {
+            tokens[key] = (source as Record<string, TokenRecord>)[key];
+        }
+    }
+    return { tokens };
+}
+
 /**
  * 读取token存储文件
  */
-async function readTokenStore(): Promise<{ tokens: Record<string, DynamicPayload> }> {
+async function readTokenStore(): Promise<TokenStore> {
     try {
         if (existsSync(TOKEN_STORE_FILE)) {
             const content = await fs.readFile(TOKEN_STORE_FILE, 'utf8');
-            return JSON.parse(content);
+            return normalizeTokenStore(JSON.parse(content));
         } else {
             // 如果文件不存在，创建一个默认的token store
-            await writeTokenStore({ tokens: {} });
-            return { tokens: {} };
+            const empty = normalizeTokenStore({ tokens: {} });
+            await writeTokenStore(empty);
+            return empty;
         }
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Token Store] Failed to read token store file:', error);
-        return { tokens: {} };
+        return normalizeTokenStore({ tokens: {} });
     }
 }
 
 /**
  * 写入token存储文件
  */
-async function writeTokenStore(tokenStore: { tokens: Record<string, DynamicPayload> }): Promise<void> {
+async function writeTokenStore(tokenStore: TokenStore): Promise<void> {
     try {
         await atomicWriteFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), { encoding: 'utf8', mode: 0o600 });
     } catch (caught) { const error = caught as DynamicPayload;
@@ -157,14 +200,33 @@ async function writeTokenStore(tokenStore: { tokens: Record<string, DynamicPaylo
  * 验证简单token
  */
 export async function verifyToken(token: string): Promise<DynamicPayload | null> {
+    // 防御原型链上的同名成员（__proto__ / constructor / toString 等）：
+    // 直接 tokens[token] 取值会把 Object.prototype 的成员当成合法 token，
+    // 而它们的 expiryTime 为 undefined，Date.now() > undefined === false，从而绕过鉴权。
+    if (typeof token !== 'string' || token.length === 0) {
+        return null;
+    }
+
     const tokenStore = await readTokenStore();
+    if (!isOwnToken(token, tokenStore.tokens)) {
+        return null;
+    }
+
     const tokenInfo = tokenStore.tokens[token];
-    if (!tokenInfo) {
+    if (!tokenInfo || typeof tokenInfo !== 'object') {
+        return null;
+    }
+
+    // 过期时间必须是有限的数字：缺失/非数字一律视为无效 token。
+    // 历史实现用 `Date.now() > undefined === false` 放行了这类记录，正是绕过点之一。
+    const expiryTime = tokenInfo.expiryTime;
+    if (typeof expiryTime !== 'number' || !Number.isFinite(expiryTime)) {
+        await deleteToken(token);
         return null;
     }
 
     // 检查是否过期
-    if (Date.now() > tokenInfo.expiryTime) {
+    if (Date.now() > expiryTime) {
         await deleteToken(token);
         return null;
     }
@@ -186,7 +248,7 @@ async function saveToken(token: string, tokenInfo: DynamicPayload): Promise<void
  */
 async function deleteToken(token: string): Promise<void> {
     const tokenStore = await readTokenStore();
-    if (tokenStore.tokens[token]) {
+    if (isOwnToken(token, tokenStore.tokens)) {
         delete tokenStore.tokens[token];
         await writeTokenStore(tokenStore);
     }
@@ -280,8 +342,10 @@ export async function cleanupExpiredTokens() {
     const now = Date.now();
     let hasChanges = false;
 
-    for (const token in tokenStore.tokens) {
-        if (now > tokenStore.tokens[token].expiryTime) {
+    for (const token of Object.keys(tokenStore.tokens)) {
+        const expiryTime = tokenStore.tokens[token].expiryTime;
+        // 缺失或非数字的过期时间视为无效记录，一并清理
+        if (typeof expiryTime !== 'number' || !Number.isFinite(expiryTime) || now > expiryTime) {
             delete tokenStore.tokens[token];
             hasChanges = true;
         }
