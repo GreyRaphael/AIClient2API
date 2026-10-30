@@ -118,14 +118,20 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
-    test('快速接入页：信息展示、供应商过滤、片段格式与复制', async ({ authedPage: page, problems }) => {
+    test('快速接入页：信息展示、供应商过滤与复制（无客户端片段卡片）', async ({ authedPage: page, problems }) => {
         await page.goto('/#access');
         await expect(page.locator('section#access.active')).toBeVisible();
+
+        // 副标题单独成行；客户端配置片段卡片已彻底删除
+        await expect(page.locator('#access .access-subtitle')).toContainText('方便直接复制给客户端');
+        await expect(page.locator('.access-snippet-card')).toHaveCount(0);
+        await expect(page.locator('#accessSnippetProvider')).toHaveCount(0);
 
         // 空提供商池时默认只显示已配置供应商 → 空态
         await expect(page.locator('#accessProvidersTable .access-empty'))
             .toContainText('当前没有已配置节点的供应商');
 
+        await expect(keyInput).toHaveValue('e2e-api-key');
         const keyInput = page.locator('#accessApiKeyField');
         await expect(keyInput).toHaveAttribute('type', 'password');
         await expect(keyInput).toHaveValue('e2e-api-key');
@@ -138,13 +144,6 @@ test.describe('console shell', () => {
         await page.locator('#accessConfiguredOnly').uncheck();
         await expect(page.locator('.access-provider-card').first()).toBeVisible();
         expect(await page.locator('.access-provider-card').count()).toBeGreaterThan(5);
-
-        await expect(page.locator('#accessCherrySnippet')).toContainText('AIClient2API');
-        await page.locator('.access-format-btn[data-format="env"]').click();
-        await expect(page.locator('#accessNextChatSnippet')).toContainText('NEXTCHAT_OPENAI_BASE_URL');
-        await page.locator('.access-format-btn[data-format="json"]').click();
-        await expect(page.locator('#accessNextChatSnippet')).toContainText('"client": "NextChat"');
-        await page.locator('.access-format-btn[data-format="markdown"]').click();
 
         await page.locator('#copyAccessApiKey').click();
         await expect(page.locator('#toastContainer')).toContainText('内容已复制到剪贴板');

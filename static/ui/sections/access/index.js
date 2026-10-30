@@ -1,6 +1,6 @@
 /**
  * 快速接入页面（Phase 2 迁移）。
- * API Key / 管理台地址 / 默认供应商、客户端配置片段、供应商端点与 curl 示例。
+ * API Key / 管理台地址 / 默认供应商、供应商端点与 curl 示例。
  */
 import { html, useEffect, useMemo, useState } from '../../html.js';
 import { t } from '../../lib/i18n.js';
@@ -14,22 +14,12 @@ import { CopyButton } from '../../components/CopyButton.js';
 import { Spinner } from '../../components/Spinner.js';
 import { EmptyState } from '../../components/EmptyState.js';
 import { toast } from '../../store/toast.js';
-import {
-    buildCherryStudioSnippet,
-    buildNextChatSnippet,
-    buildClineSnippet,
-    getClientBaseUrl
-} from './snippets.js';
-
-const FORMATS = ['markdown', 'env', 'json'];
 
 export default function AccessSection() {
     const { data, loading, error, reload } = useApi(
         ({ signal }) => api.get('/access-info', {}, { signal }),
         []
     );
-    const [format, setFormat] = useState('markdown');
-    const [selectedProvider, setSelectedProvider] = useState('');
     const [configuredOnly, setConfiguredOnly] = useState(true);
     const [showKey, setShowKey] = useState(false);
 
@@ -62,32 +52,8 @@ export default function AccessSection() {
 
     const configuredProviders = providers.filter((provider) => provider.totalNodes > 0);
     const visibleProviders = configuredOnly ? configuredProviders : providers;
-    const snippetProviders = configuredProviders.length > 0 ? configuredProviders : providers;
-
-    const preferredProviderId = snippetProviders.find((provider) => defaultProviders.includes(provider.id))?.id
-        || snippetProviders[0]?.id
-        || '';
-    const activeProviderId = snippetProviders.some((provider) => provider.id === selectedProvider)
-        ? selectedProvider
-        : preferredProviderId;
 
     const providerName = (provider) => configMap.get(provider.id)?.name || provider.id;
-
-    const selected = providers.find((provider) => provider.id === activeProviderId);
-    let snippets = null;
-    if (selected) {
-        const name = providerName(selected);
-        const route = resolveRouteInfo(selected.id, name);
-        const baseUrl = getClientBaseUrl(route.paths?.openai || route.paths?.claude, origin);
-        const model = getProviderDefaultModel(selected.id);
-        snippets = {
-            cherry: buildCherryStudioSnippet(name, baseUrl, apiKey, model, format),
-            nextchat: buildNextChatSnippet(baseUrl, apiKey, model, format),
-            cline: buildClineSnippet(name, baseUrl, apiKey, model, format)
-        };
-    }
-
-    const emptySnippet = t('access.empty.providers');
 
     const endpointRow = (labelKey, path, protocol, provider) => {
         const fullUrl = path ? `${origin}${path}` : '';
@@ -164,30 +130,17 @@ export default function AccessSection() {
             </article>`;
     };
 
-    const renderSnippetCard = (key, icon, title, descKey, codeId, text) => html`
-        <article class="access-snippet-card" key=${key}>
-            <div class="access-snippet-head">
-                <div>
-                    <h4><i class=${`fas ${icon}`}></i> ${title}</h4>
-                    <p class="access-snippet-desc">${t(descKey)}</p>
-                </div>
-                <${CopyButton} value=${text} title=${t('access.actions.copySnippet')}
-                    className="btn btn-secondary btn-sm access-snippet-copy-btn" />
-            </div>
-            <pre><code id=${codeId}>${text}</code></pre>
-        </article>`;
-
     return html`
         <section id="access" class="section active" aria-labelledby="access-title">
             <div class="access-header">
-                <div>
+                <div class="access-header-main">
                     <h2 id="access-title">${t('access.title')}</h2>
-                    <p class="access-subtitle">${t('access.subtitle')}</p>
+                    <button id="refreshAccessInfo" class="btn btn-outline btn-sm" type="button" onClick=${reload}>
+                        <i class="fas fa-sync-alt"></i>
+                        <span>${t('common.refresh')}</span>
+                    </button>
                 </div>
-                <button id="refreshAccessInfo" class="btn btn-outline btn-sm" type="button" onClick=${reload}>
-                    <i class="fas fa-sync-alt"></i>
-                    <span>${t('common.refresh')}</span>
-                </button>
+                <p class="access-subtitle">${t('access.subtitle')}</p>
             </div>
 
             <div class="access-grid">
@@ -205,8 +158,8 @@ export default function AccessSection() {
                                         class="form-control" readonly value=${apiKey}
                                         placeholder=${t('access.empty.key')} />
                                     <button type="button" class="password-toggle" id="toggleAccessApiKey"
-                                        aria-label=${t('common.togglePassword')}
-                                        onClick=${() => setShowKey(!showKey)}>
+                                        aria-label=${t('common.togglePassword')} title=${t('common.togglePassword')}
+                                        onClick=${() => setShowKey((current) => !current)}>
                                         <i class=${showKey ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true"></i>
                                     </button>
                                 </div>
@@ -264,44 +217,6 @@ export default function AccessSection() {
                     <p class="access-panel-note">${t('access.quickStart.note')}</p>
                 </section>
             </div>
-
-            <section class="access-panel access-panel-full">
-                <div class="access-panel-header">
-                    <h3><i class="fas fa-window-restore"></i> <span>${t('access.snippets.title')}</span></h3>
-                </div>
-                <p class="access-panel-subtitle">${t('access.snippets.subtitle')}</p>
-                <div class="access-snippet-toolbar">
-                    <div class="access-snippet-provider">
-                        <label for="accessSnippetProvider">${t('access.snippets.provider')}</label>
-                        <select id="accessSnippetProvider" class="form-control" value=${activeProviderId}
-                            onChange=${(event) => setSelectedProvider(event.currentTarget.value)}>
-                            ${snippetProviders.map((provider) => html`
-                                <option value=${provider.id} key=${provider.id}>
-                                    ${providerName(provider)} (${provider.id})
-                                </option>`)}
-                        </select>
-                    </div>
-                    <div class="access-snippet-format" aria-label=${t('access.snippets.formatLabel')}>
-                        <span class="access-snippet-format-label">${t('access.snippets.format')}</span>
-                        <div class="access-segmented-control" role="tablist">
-                            ${FORMATS.map((value) => html`
-                                <button type="button" class=${`access-format-btn ${format === value ? 'active' : ''}`}
-                                    data-format=${value} key=${value}
-                                    onClick=${() => setFormat(value)}>
-                                    ${t(`access.snippets.format.${value}`)}
-                                </button>`)}
-                        </div>
-                    </div>
-                </div>
-                <div class="access-snippet-grid">
-                    ${renderSnippetCard('cherry', 'fa-gem', 'Cherry Studio', 'access.snippets.cherryDesc',
-                        'accessCherrySnippet', snippets?.cherry || emptySnippet)}
-                    ${renderSnippetCard('nextchat', 'fa-comment-alt', 'NextChat', 'access.snippets.nextchatDesc',
-                        'accessNextChatSnippet', snippets?.nextchat || emptySnippet)}
-                    ${renderSnippetCard('cline', 'fa-terminal', 'Cline', 'access.snippets.clineDesc',
-                        'accessClineSnippet', snippets?.cline || emptySnippet)}
-                </div>
-            </section>
 
             <section class="access-panel access-panel-full">
                 <div class="access-panel-header">
