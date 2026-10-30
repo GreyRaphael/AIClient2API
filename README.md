@@ -10,33 +10,13 @@
 
 <div align="center">
 
-<table align="center">
-  <thead>
-    <tr>
-      <th align="center">Docker Downloads > 100k</th>
-      <th align="center">Ranked #2 on Trendshift</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center" valign="middle">
-        <img src="https://docker-card.justlikemaki.workers.dev/justlikemaki/aiclient-2-api?layout=compact&theme=github" alt="AIClient2API" style="width: 100%; max-width: 520px; height: 320px;object-fit: contain;" />
-      </td>
-      <td align="center" valign="middle">
-        <a href="https://trendshift.io/repositories/15832" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15832" alt="justlovemaki%2FAIClient-2-API | Trendshift" style="width: 360px; height: 120px;"/></a>
-      </td>
-    </tr>
-  </tbody>
-</table>
-
-[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/justlovemaki/AIClient-2-API)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Node.js](https://img.shields.io/badge/Node.js-≥22.18.0-green.svg)](https://nodejs.org/)
-[![Docker](https://img.shields.io/badge/docker-≥20.0.0-blue.svg)](https://hub.docker.com/r/justlikemaki/aiclient-2-api)
-[![GitHub stars](https://img.shields.io/github/stars/justlovemaki/AIClient-2-API.svg?style=flat&label=Star)](https://github.com/justlovemaki/AIClient-2-API/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/justlovemaki/AIClient-2-API.svg)](https://github.com/justlovemaki/AIClient-2-API/issues)
+[![Docker](https://img.shields.io/badge/docker-≥20.0.0-blue.svg)](https://hub.docker.com/r/greyraphael/aiclient-2-api)
+[![GitHub stars](https://img.shields.io/github/stars/GreyRaphael/AIClient2API.svg?style=flat&label=Star)](https://github.com/GreyRaphael/AIClient2API/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/GreyRaphael/AIClient2API.svg)](https://github.com/GreyRaphael/AIClient2API/issues)
 
-[中文](./README-ZH.md) | [**👉 English**](./README.md) | [**📚 Documentation**](https://aiproxy.justlikemaki.vip/en/)
+[中文](./README-ZH.md) | [**👉 English**](./README.md) | [**📚 Documentation**](./docs/)
 
 </div>
 
@@ -166,7 +146,7 @@
 > > - **2026.01.03** - Added theme switching functionality and optimized provider pool initialization, removed the fallback strategy of using provider default configuration
 > - **2025.12.30** - Added main process management and automatic update functionality
 > - **2025.12.25** - Unified configuration management: All configs centralized to `configs/` directory. Docker users need to update mount path to `-v "local_path:/app/configs"`
-> - **2025.12.11** - Automatically built Docker images are now available on Docker Hub: [justlikemaki/aiclient-2-api](https://hub.docker.com/r/justlikemaki/aiclient-2-api)
+> - **2025.12.11** - Automatically built Docker images are now available on Docker Hub: [greyraphael/aiclient-2-api](https://hub.docker.com/r/greyraphael/aiclient-2-api)
 > - **2025.11.30** - Added Antigravity protocol support, enabling access to Gemini Pro, Claude Sonnet, and other models via Google internal interfaces
 > - **2025.11.11** - Added Web UI management console, supporting real-time configuration management and health status monitoring
 > - **2025.11.06** - Added support for Gemini Preview, enhanced model compatibility and performance optimization
@@ -191,7 +171,7 @@
 >
 > - **Remote Deployment**:
 >   ```text
->   Please load and learn the Skill in https://raw.githubusercontent.com/justlovemaki/AIClient2API/main/docs/skills/aiclient-cli-usage.md (Service Address: your actual domain or IP, Login Password: your actual password) to master all usage of AIClient2API.
+>   Please load and learn the Skill in https://raw.githubusercontent.com/GreyRaphael/AIClient2API/main/docs/skills/aiclient-cli-usage.md (Service Address: your actual domain or IP, Login Password: your actual password) to master all usage of AIClient2API.
 >   ```
 > - **Local Mode**:
 >   If you are running the AI agent directly in your local environment, just send:
@@ -228,7 +208,7 @@
 
 - [💡 Core Advantages](#-core-advantages)
 - [🚀 Quick Start](#-quick-start)
-  - [🐳 Docker Deployment](https://hub.docker.com/r/justlikemaki/aiclient-2-api)
+  - [🐳 Docker Deployment](https://hub.docker.com/r/greyraphael/aiclient-2-api)
   - [📋 Core Features](#-core-features)
 - [🔐 Authorization Configuration Guide](#-authorization-configuration-guide)
 - [📁 Authorization File Storage Paths](#-authorization-file-storage-paths)
@@ -251,7 +231,7 @@ The most recommended way to use AIClient2API is to start it through an automated
 #### 🐳 Docker Quick Start (Recommended)
 
 ```bash
-docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "your_path/configs:/app/configs" -v "your_path/plugins:/app/src/plugins-user" --name aiclient2api justlikemaki/aiclient-2-api
+docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "your_path/configs:/app/configs" -v "your_path/plugins:/app/src/plugins-user" --name aiclient2api greyraphael/aiclient-2-api
 ```
 
 **Parameter Description**:
@@ -273,7 +253,7 @@ docker compose up -d
 ```
 
 To build from source instead of using the pre-built image, edit `docker-compose.yml`:
-1. Comment out the `image: justlikemaki/aiclient-2-api:latest` line
+1. Comment out the `image: greyraphael/aiclient-2-api:latest` line
 2. Uncomment the `build:` section
 3. Run `docker compose up -d --build`
 
@@ -682,7 +662,7 @@ Or modify the port configuration in `configs/config.json` to use a different por
 - **Check Logs**: `docker logs aiclient2api` to view error messages
 - **Check Mount Path**: Ensure the local path in the `-v` parameter exists and has read/write permissions
 - **Check Port Conflicts**: Ensure all mapped ports are not occupied on the host
-- **Re-pull Image**: `docker pull justlikemaki/aiclient-2-api:latest`
+- **Re-pull Image**: `docker pull greyraphael/aiclient-2-api:latest`
 
 ### 4. Credential File Not Recognized
 
@@ -821,7 +801,7 @@ This project follows the [**GNU General Public License v3 (GPLv3)**](https://www
 
 Thanks to all the developers who contributed to the AIClient2API project:
 
-[![Contributors](https://contrib.rocks/image?repo=justlovemaki/AIClient-2-API)](https://github.com/justlovemaki/AIClient-2-API/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=GreyRaphael/AIClient2API)](https://github.com/GreyRaphael/AIClient2API/graphs/contributors)
 
 ---
 

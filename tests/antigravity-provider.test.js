@@ -119,17 +119,20 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         expect(thinkingCfg.thinkingBudget).toBeUndefined(); // 不应被篡改为 -1 budget
     });
 
-    test('3. Fallback model in buildAntigravityPayload defaults to active gemini-3.8-flash-high or node first model', () => {
+    test('3. Unknown models are rejected instead of silently falling back', () => {
+        // MODEL_FALLBACK_ENABLED 已被移除：未知名模型不再静默回退到默认模型，而是直接报错。
         const service = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
-        
-        // 场景 A: 没有 availableModels 时兜底为 gemini-3.8-flash-high
-        const { payload: p1 } = service.buildAntigravityPayload(null, { contents: [] });
-        expect(p1.model).toBe('gemini-3.8-flash-high');
 
-        // 场景 B: 有 availableModels 时兜底为其第一个
+        expect(() => service.buildAntigravityPayload(null, { contents: [] }))
+            .toThrow('[Antigravity] 模型不存在: null');
+
         service.availableModels = ['custom-model-1', 'custom-model-2'];
-        const { payload: p2 } = service.buildAntigravityPayload(null, { contents: [] });
-        expect(p2.model).toBe('custom-model-1');
+        expect(() => service.buildAntigravityPayload('definitely-not-a-model', { contents: [] }))
+            .toThrow('[Antigravity] 模型不存在: definitely-not-a-model');
+
+        // 已知模型仍然正常工作
+        const { payload } = service.buildAntigravityPayload('gemini-3.8-flash-high', { contents: [] });
+        expect(payload.model).toBe('gemini-3.8-flash-high');
     });
 
     test('4. ProviderPoolManager active models aggregation respects node health and disabled state', () => {

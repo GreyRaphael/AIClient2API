@@ -302,8 +302,6 @@ async function startServer() {
         if (uniqueProviders.length > 1) {
             logger.info(`  Additional Model Providers: ${uniqueProviders.slice(1).join(', ')}`);
         }
-        logger.info(`  System Prompt File: ${CONFIG.SYSTEM_PROMPT_FILE_PATH || 'Default'}`);
-        logger.info(`  System Prompt Mode: ${CONFIG.SYSTEM_PROMPT_MODE}`);
         logger.info(`  Host: ${CONFIG.HOST}`);
         logger.info(`  Port: ${CONFIG.SERVER_PORT}`);
         logger.info(`  Required API Key: ${CONFIG.REQUIRED_API_KEY ? CONFIG.REQUIRED_API_KEY.slice(0, 4) + '****' : '(none)'}`);

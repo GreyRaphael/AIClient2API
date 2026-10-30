@@ -1,9 +1,5 @@
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
-import logger from '../../utils/logger.ts';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
-import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
-import { applySystemPromptReplacements } from '../../converters/utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
@@ -47,33 +43,7 @@ class ClaudeStrategy extends ProviderStrategy {
         return '';
     }
 
-    async applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload): Promise<DynamicPayload> {
-        if (!config.SYSTEM_PROMPT_FILE_PATH) {
-            return requestBody;
-        }
 
-        const filePromptContent = config.SYSTEM_PROMPT_CONTENT;
-        if (!filePromptContent || filePromptContent.trim() === '') {
-            return requestBody;
-        }
-
-        const existingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.CLAUDE);
-
-        const newSystemText = config.SYSTEM_PROMPT_MODE === 'append' && existingSystemText
-            ? `${existingSystemText}\n${filePromptContent}`
-            : filePromptContent;
-
-        // Apply system prompt replacements
-        requestBody.system = applySystemPromptReplacements(newSystemText, config.SYSTEM_PROMPT_REPLACEMENTS);
-        logger.info(`[System Prompt] Applied system prompt from ${config.SYSTEM_PROMPT_FILE_PATH} in '${config.SYSTEM_PROMPT_MODE}' mode for provider 'claude'.`);
-
-        return requestBody;
-    }
-
-    async manageSystemPrompt(requestBody: DynamicPayload): Promise<void> {
-        const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.CLAUDE);
-        await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.CLAUDE);
-    }
 }
 
 export { ClaudeStrategy };

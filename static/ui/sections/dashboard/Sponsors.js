@@ -2,32 +2,46 @@
 import { html } from '../../html.js';
 import { t, lang } from '../../lib/i18n.js';
 
+const QrPlaceholder = () => html`
+    <svg class="qr-placeholder" viewBox="0 0 100 100" role="img" aria-label=${t('dashboard.contact.placeholder')}>
+        <rect x="0" y="0" width="100" height="100" rx="6" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-dasharray="6 5" opacity="0.35" />
+        <g fill="none" stroke="currentColor" stroke-width="3" opacity="0.5">
+            <rect x="18" y="18" width="20" height="20" rx="3" />
+            <rect x="62" y="18" width="20" height="20" rx="3" />
+            <rect x="18" y="62" width="20" height="20" rx="3" />
+        </g>
+        <g fill="currentColor" opacity="0.35">
+            <rect x="23" y="23" width="10" height="10" rx="1.5" />
+            <rect x="67" y="23" width="10" height="10" rx="1.5" />
+            <rect x="23" y="67" width="10" height="10" rx="1.5" />
+        </g>
+        <g fill="currentColor" opacity="0.28">
+            <rect x="46" y="46" width="6" height="6" /><rect x="56" y="46" width="6" height="6" />
+            <rect x="46" y="56" width="6" height="6" /><rect x="66" y="56" width="6" height="6" />
+            <rect x="76" y="66" width="6" height="6" /><rect x="56" y="76" width="6" height="6" />
+            <rect x="46" y="76" width="6" height="6" /><rect x="76" y="46" width="6" height="6" />
+        </g>
+    </svg>`;
+
 export function DashboardContact() {
     const isEnglish = lang.value === 'en-US';
 
     const contact = isEnglish
         ? {
-            image: 'static/x.com.png',
-            alt: 'X.com',
             icon: 'fab fa-x-twitter',
             title: t('dashboard.contact.x')
         }
         : {
-            image: 'static/wechat.png',
-            alt: t('dashboard.contact.wechatAlt'),
             icon: 'fab fa-weixin',
             title: t('dashboard.contact.wechat')
         };
 
     const support = isEnglish
         ? {
-            image: 'static/coffee.png',
-            alt: 'Buy me a coffee',
             title: t('dashboard.contact.coffee')
         }
         : {
-            image: 'static/sponsor.png',
-            alt: t('dashboard.contact.sponsorAlt'),
             title: t('dashboard.contact.sponsor')
         };
 
@@ -37,13 +51,13 @@ export function DashboardContact() {
                 <div class="contact-card">
                     <h3><i class=${contact.icon}></i> <span>${contact.title}</span></h3>
                     <div class="qr-container">
-                        <img src=${contact.image} alt=${contact.alt} class="qr-code clickable-qr" />
+                        <${QrPlaceholder} />
                     </div>
                 </div>
                 <div class="contact-card" id="sponsor-card">
                     <h3><i class="fas fa-heart"></i> <span>${support.title}</span></h3>
                     <div class="qr-container">
-                        <img src=${support.image} alt=${support.alt} class="qr-code clickable-qr" />
+                        <${QrPlaceholder} />
                     </div>
                 </div>
             </div>

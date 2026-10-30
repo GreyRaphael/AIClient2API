@@ -145,23 +145,16 @@ describe('ProviderPoolManager fallback and refresh characterization', () => {
         manager = null;
     });
 
-    test('activates a same-protocol fallback when the primary pool is unavailable', async () => {
+    test('does not cross provider types when the primary pool is unavailable', async () => {
+        // 跨类型 fallback 链已移除：主池不可用时不再回退到同协议的其他 provider 类型
         manager = createManagerForPools({
             'claude-kiro-oauth': [makeNode('primary', { isHealthy: false })],
             'claude-custom': [makeNode('fallback')]
-        }, {
-            globalConfig: {
-                providerFallbackChain: { 'claude-kiro-oauth': ['claude-custom'] }
-            }
         });
 
         const selected = await manager.selectProviderWithFallback('claude-kiro-oauth');
 
-        expect(selected).toMatchObject({
-            actualProviderType: 'claude-custom',
-            isFallback: true,
-            config: { uuid: 'fallback' }
-        });
+        expect(selected).toBeNull();
     });
 
     test('deduplicates buffered refreshes and preserves an upgraded force flag', () => {

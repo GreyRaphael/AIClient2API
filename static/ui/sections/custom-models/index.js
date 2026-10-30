@@ -53,7 +53,8 @@ export default function CustomModelsSection() {
     const [models, setModels] = useState(/** @type {any[]} */ ([]));
     const [providers, setProviders] = useState(/** @type {any[]} */ ([]));
     const [loading, setLoading] = useState(true);
-    const [sort, setSort] = useState(/** @type {{field: string|null, order: string|null}} */ ({ field: null, order: null }));
+    // 默认按第一列（ID）升序展示，便于稳定浏览
+    const [sort, setSort] = useState(/** @type {{field: string|null, order: string|null}} */ ({ field: 'id', order: 'asc' }));
     const [modalOpen, setModalOpen] = useState(false);
     const [editingId, setEditingId] = useState('');
     const [form, setForm] = useState(/** @type {any} */ (null));

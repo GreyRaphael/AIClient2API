@@ -1,9 +1,5 @@
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
-import logger from '../../utils/logger.ts';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
-import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
-import { applySystemPromptReplacements } from '../../converters/utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
@@ -49,44 +45,7 @@ class OpenAIStrategy extends ProviderStrategy {
         return '';
     }
 
-    async applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload): Promise<DynamicPayload> {
-        if (!config.SYSTEM_PROMPT_FILE_PATH) {
-            return requestBody;
-        }
 
-        const filePromptContent = config.SYSTEM_PROMPT_CONTENT;
-        if (!filePromptContent || filePromptContent.trim() === '') {
-            return requestBody;
-        }
-
-        const existingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI);
-
-        const newSystemText = config.SYSTEM_PROMPT_MODE === 'append' && existingSystemText
-            ? `${existingSystemText}\n${filePromptContent}`
-            : filePromptContent;
-
-        // Apply system prompt replacements
-        const finalSystemText = applySystemPromptReplacements(newSystemText, config.SYSTEM_PROMPT_REPLACEMENTS);
-
-        if (!requestBody.messages) {
-            requestBody.messages = [];
-        }
-        const systemMessageIndex = requestBody.messages.findIndex((m: DynamicPayload) => m.role === 'system' || m.role === 'developer');
-        if (systemMessageIndex !== -1) {
-            requestBody.messages[systemMessageIndex].content = finalSystemText;
-        } else {
-            requestBody.messages.unshift({ role: 'system', content: finalSystemText });
-        }
-        logger.info(`[System Prompt] Applied system prompt from ${config.SYSTEM_PROMPT_FILE_PATH} in '${config.SYSTEM_PROMPT_MODE}' mode for provider 'openai'.`);
-
-        return requestBody;
-    }
-
-    async manageSystemPrompt(requestBody: DynamicPayload): Promise<void> {
-        //logger.info('[System Prompt] Managing system prompt for provider "openai".', requestBody);
-        const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI);
-        await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.OPENAI);
-    }
 }
 
 export { OpenAIStrategy };

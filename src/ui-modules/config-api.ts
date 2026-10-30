@@ -2,7 +2,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
 
-import { existsSync, readFileSync } from 'fs';
 import logger from '../utils/logger.ts';
 import path from 'path';
 import crypto from 'crypto';
@@ -64,29 +63,16 @@ export async function reloadConfig(providerPoolManager: ProviderPoolManager | nu
  * 获取配置
  */
 export async function handleGetConfig(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
-    let systemPrompt = '';
-
-    if (currentConfig.SYSTEM_PROMPT_FILE_PATH && existsSync(currentConfig.SYSTEM_PROMPT_FILE_PATH)) {
-        try {
-            systemPrompt = readFileSync(currentConfig.SYSTEM_PROMPT_FILE_PATH, 'utf-8');
-        } catch (caught) { const e = caught as DynamicPayload;
-            logger.warn('[UI API] Failed to read system prompt file:', e.message);
-        }
-    }
-
     // 白名单过滤：只返回前端需要的字段，避免泄露凭据路径、内部状态等敏感信息
     const safeConfig = {
         HOST: currentConfig.HOST,
         SERVER_PORT: currentConfig.SERVER_PORT,
         MODEL_PROVIDER: currentConfig.MODEL_PROVIDER,
         DEFAULT_MODEL_PROVIDERS: currentConfig.DEFAULT_MODEL_PROVIDERS,
-        SYSTEM_PROMPT_FILE_PATH: currentConfig.SYSTEM_PROMPT_FILE_PATH,
-        SYSTEM_PROMPT_MODE: currentConfig.SYSTEM_PROMPT_MODE,
         PROMPT_LOG_BASE_NAME: currentConfig.PROMPT_LOG_BASE_NAME,
         PROMPT_LOG_MODE: currentConfig.PROMPT_LOG_MODE,
         REQUEST_MAX_RETRIES: currentConfig.REQUEST_MAX_RETRIES,
         REQUEST_BASE_DELAY: currentConfig.REQUEST_BASE_DELAY,
-        MODEL_FALLBACK_ENABLED: currentConfig.MODEL_FALLBACK_ENABLED !== false,
         CREDENTIAL_SWITCH_MAX_RETRIES: currentConfig.CREDENTIAL_SWITCH_MAX_RETRIES,
         EMPTY_RESPONSE_MAX_RETRIES: currentConfig.EMPTY_RESPONSE_MAX_RETRIES,
         EMPTY_RESPONSE_RETRY_DELAY_MS: currentConfig.EMPTY_RESPONSE_RETRY_DELAY_MS,
@@ -101,11 +87,8 @@ export async function handleGetConfig(req: IncomingMessage, res: ServerResponse,
         TRUSTED_PROXY_IPS: currentConfig.TRUSTED_PROXY_IPS,
         PROVIDER_POOLS_FILE_PATH: currentConfig.PROVIDER_POOLS_FILE_PATH,
         MAX_ERROR_COUNT: currentConfig.MAX_ERROR_COUNT,
-        SYSTEM_PROMPT_REPLACEMENTS: currentConfig.SYSTEM_PROMPT_REPLACEMENTS,
         WARMUP_TARGET: currentConfig.WARMUP_TARGET,
         REFRESH_CONCURRENCY_PER_PROVIDER: currentConfig.REFRESH_CONCURRENCY_PER_PROVIDER,
-        providerFallbackChain: currentConfig.providerFallbackChain,
-        modelFallbackMapping: currentConfig.modelFallbackMapping,
         PROXY_URL: currentConfig.PROXY_URL,
         PROXY_ENABLED_PROVIDERS: currentConfig.PROXY_ENABLED_PROVIDERS,
         TLS_SIDECAR_ENABLED: currentConfig.TLS_SIDECAR_ENABLED,
@@ -123,7 +106,6 @@ export async function handleGetConfig(req: IncomingMessage, res: ServerResponse,
         SCHEDULED_HEALTH_CHECK: currentConfig.SCHEDULED_HEALTH_CHECK,
         // 脱敏：只返回是否设置了 API Key，不返回原文
         REQUIRED_API_KEY: currentConfig.REQUIRED_API_KEY ? '******' : '',
-        systemPrompt,
         isDefaultPassword: await validateCredentials('admin123'),
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -207,34 +189,6 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
             if (Number.isInteger(port) && port >= NETWORK.MIN_PORT && port <= NETWORK.MAX_PORT) currentConfig.SERVER_PORT = port;
         }
         if (newConfig.MODEL_PROVIDER !== undefined) currentConfig.MODEL_PROVIDER = newConfig.MODEL_PROVIDER;
-        if (newConfig.SYSTEM_PROMPT_FILE_PATH !== undefined) {
-            const p = String(newConfig.SYSTEM_PROMPT_FILE_PATH);
-            // 防止路径遍历：解析后的绝对路径必须在工作目录内
-            const resolved = path.resolve(process.cwd(), p);
-            const cwd = process.cwd();
-
-            // 使用 path.relative 和 path.isAbsolute 进行更严格的校验
-            const relativePath = path.relative(cwd, resolved);
-            const isInsideCwd = !path.isAbsolute(relativePath) && !relativePath.startsWith('..') && relativePath !== '..';
-
-            // Windows 大小写不敏感兼容：仅在 Windows 平台统一转换为小写比较
-            const isWindows = process.platform === 'win32';
-            const normalizedResolved = (isWindows ? resolved.toLowerCase() : resolved).replace(/\\/g, '/');
-            const normalizedCwd = (isWindows ? cwd.toLowerCase() : cwd).replace(/\\/g, '/');
-            const startsWithCwd = normalizedResolved.startsWith(normalizedCwd + '/') || normalizedResolved === normalizedCwd;
-
-            if (isInsideCwd && startsWithCwd) {
-                currentConfig.SYSTEM_PROMPT_FILE_PATH = p;
-            } else {
-                logger.warn(`[UI API] Rejected SYSTEM_PROMPT_FILE_PATH traversal attempt: ${p}`);
-            }
-        }
-        if (newConfig.SYSTEM_PROMPT_MODE !== undefined) currentConfig.SYSTEM_PROMPT_MODE = newConfig.SYSTEM_PROMPT_MODE;
-        if (newConfig.SYSTEM_PROMPT_REPLACEMENTS !== undefined) {
-            if (Array.isArray(newConfig.SYSTEM_PROMPT_REPLACEMENTS)) {
-                currentConfig.SYSTEM_PROMPT_REPLACEMENTS = newConfig.SYSTEM_PROMPT_REPLACEMENTS;
-            }
-        }
         if (newConfig.PROMPT_LOG_BASE_NAME !== undefined) currentConfig.PROMPT_LOG_BASE_NAME = newConfig.PROMPT_LOG_BASE_NAME;
         if (newConfig.PROMPT_LOG_MODE !== undefined) currentConfig.PROMPT_LOG_MODE = newConfig.PROMPT_LOG_MODE;
         if (newConfig.REQUEST_MAX_RETRIES !== undefined) {
@@ -242,7 +196,6 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
             if (Number.isInteger(v) && v >= 0 && v <= RETRY.MAX_RETRIES) currentConfig.REQUEST_MAX_RETRIES = v;
         }
         if (newConfig.REQUEST_BASE_DELAY !== undefined) currentConfig.REQUEST_BASE_DELAY = newConfig.REQUEST_BASE_DELAY;
-        if (newConfig.MODEL_FALLBACK_ENABLED !== undefined) currentConfig.MODEL_FALLBACK_ENABLED = parseBooleanConfig(newConfig.MODEL_FALLBACK_ENABLED);
         if (newConfig.CREDENTIAL_SWITCH_MAX_RETRIES !== undefined) currentConfig.CREDENTIAL_SWITCH_MAX_RETRIES = newConfig.CREDENTIAL_SWITCH_MAX_RETRIES;
         if (newConfig.EMPTY_RESPONSE_MAX_RETRIES !== undefined) {
             const v = Number(newConfig.EMPTY_RESPONSE_MAX_RETRIES);
@@ -285,8 +238,6 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
         if (newConfig.MAX_ERROR_COUNT !== undefined) currentConfig.MAX_ERROR_COUNT = newConfig.MAX_ERROR_COUNT;
         if (newConfig.WARMUP_TARGET !== undefined) currentConfig.WARMUP_TARGET = newConfig.WARMUP_TARGET;
         if (newConfig.REFRESH_CONCURRENCY_PER_PROVIDER !== undefined) currentConfig.REFRESH_CONCURRENCY_PER_PROVIDER = newConfig.REFRESH_CONCURRENCY_PER_PROVIDER;
-        if (newConfig.providerFallbackChain !== undefined) currentConfig.providerFallbackChain = newConfig.providerFallbackChain;
-        if (newConfig.modelFallbackMapping !== undefined) currentConfig.modelFallbackMapping = newConfig.modelFallbackMapping;
 
         // Proxy settings
         if (newConfig.PROXY_URL !== undefined) currentConfig.PROXY_URL = newConfig.PROXY_URL;
@@ -372,27 +323,6 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
             }
         }
 
-        // Handle system prompt update
-        if (newConfig.systemPrompt !== undefined) {
-            const promptPath = currentConfig.SYSTEM_PROMPT_FILE_PATH || 'configs/input_system_prompt.txt';
-            try {
-                const relativePath = path.relative(process.cwd(), promptPath);
-                await atomicWriteFile(promptPath, newConfig.systemPrompt, 'utf-8');
-
-                // 广播更新事件
-                broadcastEvent('config_update', {
-                    action: 'update',
-                    filePath: relativePath,
-                    type: 'system_prompt',
-                    timestamp: new Date().toISOString()
-                });
-
-                logger.info('[UI API] System prompt updated');
-            } catch (caught) { const e = caught as DynamicPayload;
-                logger.warn('[UI API] Failed to write system prompt:', e.message);
-            }
-        }
-
         // Update config.json file
         try {
             const configPath = 'configs/config.json';
@@ -403,9 +333,6 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
                 SERVER_PORT: currentConfig.SERVER_PORT,
                 HOST: currentConfig.HOST,
                 MODEL_PROVIDER: currentConfig.MODEL_PROVIDER,
-                SYSTEM_PROMPT_FILE_PATH: currentConfig.SYSTEM_PROMPT_FILE_PATH,
-                SYSTEM_PROMPT_MODE: currentConfig.SYSTEM_PROMPT_MODE,
-                SYSTEM_PROMPT_REPLACEMENTS: currentConfig.SYSTEM_PROMPT_REPLACEMENTS,
                 PROMPT_LOG_BASE_NAME: currentConfig.PROMPT_LOG_BASE_NAME,
                 PROMPT_LOG_MODE: currentConfig.PROMPT_LOG_MODE,
                 REQUEST_MAX_RETRIES: currentConfig.REQUEST_MAX_RETRIES,
@@ -426,8 +353,6 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
                 MAX_ERROR_COUNT: currentConfig.MAX_ERROR_COUNT,
                 WARMUP_TARGET: currentConfig.WARMUP_TARGET,
                 REFRESH_CONCURRENCY_PER_PROVIDER: currentConfig.REFRESH_CONCURRENCY_PER_PROVIDER,
-                providerFallbackChain: currentConfig.providerFallbackChain,
-                modelFallbackMapping: currentConfig.modelFallbackMapping,
                 PROXY_URL: currentConfig.PROXY_URL,
                 PROXY_ENABLED_PROVIDERS: currentConfig.PROXY_ENABLED_PROVIDERS,
                 LOG_ENABLED: currentConfig.LOG_ENABLED,

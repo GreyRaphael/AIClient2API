@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import { getServiceAdapter, getRegisteredProviders, invalidateServiceAdapter } from './adapter.ts';
 import logger from '../utils/logger.ts';
-import { MODEL_PROVIDER, getProtocolPrefix } from '../utils/common.ts';
 import { convertData } from '../convert/convert.ts';
 
 import {
@@ -10,7 +9,7 @@ import {
 } from './model-capability.ts';
 import { getDefaultHealthCheckModels, getProviderDefinition } from './provider-registry.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
-import { ENDPOINT_TYPE } from '../utils/common.ts';
+import { ENDPOINT_TYPE, MODEL_PROVIDER } from '../utils/common.ts';
 import type { ProviderConfig, ProviderPools, ProviderStatus, ProviderStatusMap, ProviderPoolOptions, ProviderPoolGlobalConfig, RefreshQueueState, RefreshBufferEntry } from './provider-types.ts';
 import { calculateNodeScore } from './provider-pool-scoring.ts';
 import { ProviderPoolPersistence } from './provider-pool-persistence.ts';
@@ -32,8 +31,6 @@ export class ProviderPoolManager {
     logLevel: string;
     saveDebounceTime: number;
     persistence: ProviderPoolPersistence;
-    fallbackChain: Record<string, string[]>;
-    modelFallbackMapping: Record<string, unknown>;
     _selectionLocks: Record<string, Promise<void>>;
     _isSelecting: Record<string, boolean>;
     refreshConcurrency: { global: number; perProvider: number };
@@ -71,12 +68,6 @@ export class ProviderPoolManager {
             getFilePath: () => this.globalConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json',
             log: (level, message) => this._log(level, message)
         }, this.saveDebounceTime);
-
-        // Fallback 链配置
-        this.fallbackChain = options.globalConfig?.providerFallbackChain || {};
-
-        // Model Fallback 映射配置
-        this.modelFallbackMapping = options.globalConfig?.modelFallbackMapping || {};
 
         // 并发控制：每个 providerType 的选择锁
         // 用于确保 selectProvider 的排序 and 更新操作是原子的
@@ -792,285 +783,40 @@ export class ProviderPoolManager {
     /**
      * 获取一个可用的提供商插槽，支持 Fallback 机制
      */
+    /**
+     * 获取一个可用的提供商插槽（并发受限时使用）。
+     * 跨类型 fallback 链与模型 fallback 映射已移除，只从当前 provider 类型内选节点。
+     */
     async acquireSlotWithFallback(providerType: string, requestedModel: string | null = null, options: Record<string, any> = {}) {
         if (!providerType || typeof providerType !== 'string') {
             this._log('error', `Invalid providerType: ${providerType}`);
             return null;
         }
 
-        const triedTypes = new Set();
-        const typesToTry = [providerType];
-
-        const fallbackTypes = this.fallbackChain[providerType] || [];
-        if (Array.isArray(fallbackTypes)) {
-            typesToTry.push(...fallbackTypes);
+        const selectedConfig = await this.acquireSlot(providerType, requestedModel, options);
+        if (!selectedConfig) {
+            this._log('warn', `None available provider found for ${providerType} (Model: ${requestedModel})`);
+            return null;
         }
-
-        for (const currentType of typesToTry) {
-            if (triedTypes.has(currentType)) continue;
-            triedTypes.add(currentType);
-
-            if (!this.providerStatus[currentType] || this.providerStatus[currentType].length === 0) {
-                continue;
-            }
-
-            if (currentType !== providerType && requestedModel) {
-                const primaryProtocol = getProtocolPrefix(providerType);
-                const fallbackProtocol = getProtocolPrefix(currentType);
-                if (primaryProtocol !== fallbackProtocol) continue;
-
-                if (!this._providerTypeSupportsModel(currentType, requestedModel, options)) continue;
-            }
-
-            // 尝试获取插槽
-            try {
-                const selectedConfig = await this.acquireSlot(currentType, requestedModel, options);
-                if (selectedConfig) {
-                    if (currentType !== providerType) {
-                        this._log('info', `Fallback Slot activated (Chain): ${providerType} -> ${currentType} (node: ${this._getDisplayName(selectedConfig)})`);
-                    }
-                    return {
-                        config: selectedConfig,
-                        actualProviderType: currentType,
-                        isFallback: currentType !== providerType
-                    };
-                }
-            } catch (err) {
-                if ((err as { status?: number }).status === 429) {
-                    // 如果是因为 429 (并发/队列满)，尝试下一个 Fallback
-                    this._log('info', `Type ${currentType} busy (429), trying next fallback...`);
-                    continue;
-                }
-                throw err; // 其他错误抛出
-            }
-        }
-
-        // Model Fallback Mapping
-        if (requestedModel && this.modelFallbackMapping && this.modelFallbackMapping[requestedModel]) {
-            const mapping = this.modelFallbackMapping[requestedModel] as { targetProviderType?: string; targetModel?: string } | undefined;
-            const targetProviderType = mapping?.targetProviderType;
-            const targetModel = mapping?.targetModel;
-
-            if (targetProviderType && targetModel) {
-                if (this.providerStatus[targetProviderType] && this.providerStatus[targetProviderType].length > 0) {
-                    try {
-                        const selectedConfig = await this.acquireSlot(targetProviderType, targetModel, options);
-                        if (selectedConfig) {
-                            return {
-                                config: selectedConfig,
-                                actualProviderType: targetProviderType,
-                                isFallback: true,
-                                actualModel: targetModel
-                            };
-                        }
-                    } catch (err) {
-                        // 如果目标类型繁忙，尝试它的 fallback chain
-                        const targetFallbackTypes = this.fallbackChain[targetProviderType] || [];
-                        for (const fallbackType of targetFallbackTypes) {
-                             const targetProtocol = getProtocolPrefix(targetProviderType);
-                             const fallbackProtocol = getProtocolPrefix(fallbackType);
-                             if (targetProtocol !== fallbackProtocol) continue;
-
-                             if (!this._providerTypeSupportsModel(fallbackType, targetModel, options)) continue;
-
-                             try {
-                                const fallbackSelectedConfig = await this.acquireSlot(fallbackType, targetModel, options);
-                                if (fallbackSelectedConfig) {
-                                    return {
-                                        config: fallbackSelectedConfig,
-                                        actualProviderType: fallbackType,
-                                        isFallback: true,
-                                        actualModel: targetModel
-                                    };
-                                }
-                             } catch (e) {
-                                 continue;
-                             }
-                        }
-                    }
-                }
-            }
-        }
-
-        return null;
+        return { config: selectedConfig, actualProviderType: providerType, isFallback: false };
     }
 
     /**
-     * Selects a provider from the pool with fallback support.
-     * When the primary provider type has no healthy providers, it will try fallback types.
-     * @param {string} providerType - The primary type of provider to select.
-     * @param {string} [requestedModel] - Optional. The model name to filter providers by.
-     * @param {Object} [options] - Optional. Additional options.
-     * @param {boolean} [options.skipUsageCount] - Optional. If true, skip incrementing usage count.
-     * @returns {object|null} An object containing the selected provider's configuration and the actual provider type used, or null if no healthy provider is found.
-     */
-    /**
-     * Selects a provider from the pool with fallback support.
-     * When the primary provider type has no healthy providers, it will try fallback types.
-     *
-     * 注意：此方法现在返回 Promise，因为内部调用的 selectProvider 是异步的。
-     *
-     * @param {string} providerType - The primary type of provider to select.
-     * @param {string} [requestedModel] - Optional. The model name to filter providers by.
-     * @param {Object} [options] - Optional. Additional options.
-     * @param {boolean} [options.skipUsageCount] - Optional. If true, skip incrementing usage count.
-     * @returns {Promise<object|null>} An object containing the selected provider's configuration and the actual provider type used, or null if no healthy provider is found.
+     * 从池中选择一个提供商（带并发锁）。
+     * 跨类型 fallback 链与模型 fallback 映射已移除，只从当前 provider 类型内选节点。
      */
     async selectProviderWithFallback(providerType: string, requestedModel: string | null = null, options: Record<string, any> = {}) {
-        // 参数校验
         if (!providerType || typeof providerType !== 'string') {
             this._log('error', `Invalid providerType: ${providerType}`);
             return null;
         }
 
-        // ==========================
-        // 优先级 1: Provider Fallback Chain (同协议/兼容协议的回退)
-        // ==========================
-
-        // 记录尝试过的类型，避免循环
-        const triedTypes = new Set();
-        const typesToTry = [providerType];
-
-        const fallbackTypes = this.fallbackChain[providerType] || [];
-        if (Array.isArray(fallbackTypes)) {
-            typesToTry.push(...fallbackTypes);
+        const selectedConfig = await this.selectProvider(providerType, requestedModel, options);
+        if (!selectedConfig) {
+            this._log('warn', `None available provider found for ${providerType} (Model: ${requestedModel})`);
+            return null;
         }
-
-        for (const currentType of typesToTry) {
-            // 避免重复尝试
-            if (triedTypes.has(currentType)) {
-                continue;
-            }
-            triedTypes.add(currentType);
-
-            // 检查该类型是否有配置的池
-            if (!this.providerStatus[currentType] || this.providerStatus[currentType].length === 0) {
-                this._log('debug', `No provider pool configured for type: ${currentType}`);
-                continue;
-            }
-
-            // 如果是 fallback 类型，需要检查模型兼容性
-            if (currentType !== providerType && requestedModel) {
-                // 检查协议前缀是否兼容
-                const primaryProtocol = getProtocolPrefix(providerType);
-                const fallbackProtocol = getProtocolPrefix(currentType);
-
-                if (primaryProtocol !== fallbackProtocol) {
-                    this._log('debug', `Skipping fallback type ${currentType}: protocol mismatch (${primaryProtocol} vs ${fallbackProtocol})`);
-                    continue;
-                }
-
-                // 检查 fallback 类型是否支持请求的模型
-                if (!this._providerTypeSupportsModel(currentType, requestedModel, options)) {
-                    this._log('debug', `Skipping fallback type ${currentType}: model ${requestedModel} not supported`);
-                    continue;
-                }
-            }
-
-            // 尝试从当前类型选择提供商（现在是异步的）
-            const selectedConfig = await this.selectProvider(currentType, requestedModel, options);
-
-            if (selectedConfig) {
-                if (currentType !== providerType) {
-                    this._log('info', `Fallback activated (Chain): ${providerType} -> ${currentType} (node: ${this._getDisplayName(selectedConfig)})`);
-                }
-                return {
-                    config: selectedConfig,
-                    actualProviderType: currentType,
-                    isFallback: currentType !== providerType
-                };
-            }
-        }
-
-        // ==========================
-        // 优先级 2: Model Fallback Mapping (跨协议/特定模型的回退)
-        // ==========================
-
-        if (requestedModel && this.modelFallbackMapping && this.modelFallbackMapping[requestedModel]) {
-            const mapping = this.modelFallbackMapping[requestedModel] as { targetProviderType?: string; targetModel?: string } | undefined;
-            const targetProviderType = mapping?.targetProviderType;
-            const targetModel = mapping?.targetModel;
-
-            if (targetProviderType && targetModel) {
-                this._log('info', `Trying Model Fallback Mapping for ${requestedModel}: -> ${targetProviderType} (${targetModel})`);
-
-                // 递归调用 selectProviderWithFallback，但这次针对目标提供商类型
-                // 注意：这里我们直接尝试从目标提供商池中选择，因为如果再次递归可能会导致死循环或逻辑复杂化
-                // 简单起见，我们直接尝试选择目标提供商
-
-                // 检查目标类型是否有配置的池
-                if (this.providerStatus[targetProviderType] && this.providerStatus[targetProviderType].length > 0) {
-                    // 尝试从目标类型选择提供商（使用转换后的模型名，现在是异步的）
-                    const selectedConfig = await this.selectProvider(targetProviderType, targetModel, options);
-
-                    if (selectedConfig) {
-                        this._log('info', `Fallback activated (Model Mapping): ${providerType} (${requestedModel}) -> ${targetProviderType} (${targetModel}) (node: ${this._getDisplayName(selectedConfig)})`);
-                        return {
-                            config: selectedConfig,
-                            actualProviderType: targetProviderType,
-                            isFallback: true,
-                            actualModel: targetModel // 返回实际使用的模型名，供上层进行请求转换
-                        };
-                    } else {
-                        // 如果目标类型的主池也不可用，尝试目标类型的 fallback chain
-                        // 例如 claude-kiro-oauth (mapped) -> claude-custom (chain)
-                        // 这需要我们小心处理，避免无限递归。
-                        // 我们可以手动检查目标类型的 fallback chain
-
-                        const targetFallbackTypes = this.fallbackChain[targetProviderType] || [];
-                        for (const fallbackType of targetFallbackTypes) {
-                             // 检查协议兼容性 (目标类型 vs 它的 fallback)
-                             const targetProtocol = getProtocolPrefix(targetProviderType);
-                             const fallbackProtocol = getProtocolPrefix(fallbackType);
-
-                             if (targetProtocol !== fallbackProtocol) continue;
-
-                             // 检查模型支持
-                             if (!this._providerTypeSupportsModel(fallbackType, targetModel, options)) continue;
-
-                             const fallbackSelectedConfig = await this.selectProvider(fallbackType, targetModel, options);
-                             if (fallbackSelectedConfig) {
-                                 this._log('info', `Fallback activated (Model Mapping -> Chain): ${providerType} (${requestedModel}) -> ${targetProviderType} -> ${fallbackType} (${targetModel}) (node: ${this._getDisplayName(fallbackSelectedConfig)})`);
-                                 return {
-                                     config: fallbackSelectedConfig,
-                                     actualProviderType: fallbackType,
-                                     isFallback: true,
-                                     actualModel: targetModel
-                                 };
-                             }
-                        }
-                    }
-                } else {
-                    this._log('warn', `Model Fallback target provider ${targetProviderType} not configured or empty.`);
-                }
-            }
-        }
-
-        this._log('warn', `None available provider found for ${providerType} (Model: ${requestedModel}) after checking fallback chain and model mapping.`);
-        return null;
-    }
-
-    /**
-     * Gets the fallback chain for a given provider type.
-     * @param {string} providerType - The provider type to get fallback chain for.
-     * @returns {Array<string>} The fallback chain array, or empty array if not configured.
-     */
-    getFallbackChain(providerType: string) {
-        return this.fallbackChain[providerType] || [];
-    }
-
-    /**
-     * Sets or updates the fallback chain for a provider type.
-     * @param {string} providerType - The provider type to set fallback chain for.
-     * @param {Array<string>} fallbackTypes - Array of fallback provider types.
-     */
-    setFallbackChain(providerType: string, fallbackTypes: string[]) {
-        if (!Array.isArray(fallbackTypes)) {
-            this._log('error', `Invalid fallbackTypes: must be an array`);
-            return;
-        }
-        this.fallbackChain[providerType] = fallbackTypes;
-        this._log('info', `Updated fallback chain for ${providerType}: ${fallbackTypes.join(' -> ')}`);
+        return { config: selectedConfig, actualProviderType: providerType, isFallback: false };
     }
 
     /**

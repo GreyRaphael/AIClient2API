@@ -35,17 +35,10 @@ export const FIELD_DEFS = {
     MAX_ERROR_COUNT: number('maxErrorCount', 'config.advanced.maxErrorCount', { min: 1, max: 20 }),
     EMPTY_RESPONSE_MAX_RETRIES: number('emptyResponseMaxRetries', 'config.advanced.emptyResponseMaxRetries', { min: 1, max: 20 }),
     EMPTY_RESPONSE_RETRY_DELAY_MS: number('emptyResponseRetryDelayMs', 'config.advanced.emptyResponseRetryDelayMs', { min: 0, step: 100 }),
-    MODEL_FALLBACK_ENABLED: toggle('modelFallbackEnabled', 'config.advanced.modelFallbackEnabled'),
     RATE_LIMIT_COOLDOWN_ENABLED: toggle('rateLimitCooldownEnabled', 'config.advanced.rateLimitCooldownEnabled'),
     RATE_LIMIT_COOLDOWN_MS: number('rateLimitCooldownMs', 'config.advanced.rateLimitCooldownMs', { min: 0, step: 1000 }),
     WARMUP_TARGET: number('warmupTarget', 'config.advanced.warmupTarget', { min: 0, max: 100 }),
     REFRESH_CONCURRENCY_PER_PROVIDER: number('refreshConcurrencyPerProvider', 'config.advanced.refreshConcurrencyPerProvider', { min: 1, max: 10 }),
-    providerFallbackChain: textarea('providerFallbackChain', 'config.advanced.fallbackChain', {
-        placeholderKey: 'config.advanced.fallbackChainPlaceholder'
-    }),
-    modelFallbackMapping: textarea('modelFallbackMapping', 'config.advanced.modelFallbackMapping', {
-        placeholderKey: 'config.advanced.modelFallbackMappingPlaceholder'
-    }),
 
     CRON_NEAR_MINUTES: number('cronNearMinutes', 'config.advanced.cronInterval', { min: 1, max: 60 }),
     CRON_REFRESH_TOKEN: toggle('cronRefreshToken', 'config.advanced.cronEnabled'),
@@ -71,9 +64,6 @@ export const FIELD_DEFS = {
     PROMPT_LOG_BASE_NAME: text('promptLogBaseName', 'config.advanced.promptLogBaseName'),
 
     PROVIDER_POOLS_FILE_PATH: text('providerPoolsFilePath', 'config.advanced.poolFilePath'),
-    SYSTEM_PROMPT_FILE_PATH: text('systemPromptFilePath', 'config.advanced.systemPromptFile'),
-    SYSTEM_PROMPT_MODE: select('systemPromptMode', 'config.advanced.systemPromptMode', 'config.advanced.systemPromptMode', ['append', 'overwrite']),
-    systemPrompt: textarea('systemPrompt', 'config.advanced.systemPrompt'),
     adminPassword: {
         type: 'password',
         id: 'adminPassword',

@@ -2039,15 +2039,8 @@ export class AntigravityApiService {
     buildAntigravityPayload(model: string, requestBody: DynamicPayload): DynamicPayload {
         let selectedModel = normalizeAntigravityModelId(model);
         if (!this.availableModels.includes(selectedModel) && !isKnownAntigravityModel(selectedModel)) {
-            if (this.config.MODEL_FALLBACK_ENABLED === false) {
-                throw new Error(`[Antigravity] 模型不存在: ${model}`);
-            }
-            const fallbackModel = (Array.isArray(this.availableModels) && this.availableModels.length > 0)
-                ? this.availableModels[0]
-                : 'gemini-3.8-flash-high';
-            logger.warn(`[Antigravity] Model '${model}' not found. Using default model: '${fallbackModel}'`);
-            selectedModel = fallbackModel;
-            requestBody.model = selectedModel;
+            // 未知名模型不再静默回退，直接报错
+            throw new Error(`[Antigravity] 模型不存在: ${model}`);
         }
 
         const actualModelName = resolveAntigravityUpstreamModel(selectedModel);

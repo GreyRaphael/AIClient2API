@@ -5,12 +5,6 @@
  */
 export function buildForm(data = {}) {
     const health = data.SCHEDULED_HEALTH_CHECK || {};
-    const fallbackChain = data.providerFallbackChain && typeof data.providerFallbackChain === 'object'
-        ? JSON.stringify(data.providerFallbackChain, null, 2)
-        : '';
-    const fallbackMapping = data.modelFallbackMapping && typeof data.modelFallbackMapping === 'object'
-        ? JSON.stringify(data.modelFallbackMapping, null, 2)
-        : '';
 
     const modelProviders = Array.isArray(data.DEFAULT_MODEL_PROVIDERS)
         ? data.DEFAULT_MODEL_PROVIDERS.slice()
@@ -33,13 +27,10 @@ export function buildForm(data = {}) {
             MAX_ERROR_COUNT: data.MAX_ERROR_COUNT || 10,
             EMPTY_RESPONSE_MAX_RETRIES: data.EMPTY_RESPONSE_MAX_RETRIES ?? 5,
             EMPTY_RESPONSE_RETRY_DELAY_MS: data.EMPTY_RESPONSE_RETRY_DELAY_MS ?? 500,
-            MODEL_FALLBACK_ENABLED: data.MODEL_FALLBACK_ENABLED !== false,
             RATE_LIMIT_COOLDOWN_ENABLED: !!data.RATE_LIMIT_COOLDOWN_ENABLED,
             RATE_LIMIT_COOLDOWN_MS: data.RATE_LIMIT_COOLDOWN_MS ?? 30000,
             WARMUP_TARGET: data.WARMUP_TARGET || 0,
             REFRESH_CONCURRENCY_PER_PROVIDER: data.REFRESH_CONCURRENCY_PER_PROVIDER || 1,
-            providerFallbackChain: fallbackChain,
-            modelFallbackMapping: fallbackMapping,
             CRON_NEAR_MINUTES: data.CRON_NEAR_MINUTES || 1,
             CRON_REFRESH_TOKEN: !!data.CRON_REFRESH_TOKEN,
             LOGIN_EXPIRY: data.LOGIN_EXPIRY || 3600,
@@ -57,12 +48,6 @@ export function buildForm(data = {}) {
             PROMPT_LOG_MODE: data.PROMPT_LOG_MODE || 'none',
             PROMPT_LOG_BASE_NAME: data.PROMPT_LOG_BASE_NAME || 'prompt_log',
             PROVIDER_POOLS_FILE_PATH: data.PROVIDER_POOLS_FILE_PATH || '',
-            SYSTEM_PROMPT_FILE_PATH: data.SYSTEM_PROMPT_FILE_PATH || 'configs/input_system_prompt.txt',
-            SYSTEM_PROMPT_MODE: data.SYSTEM_PROMPT_MODE || 'append',
-            systemPrompt: data.systemPrompt || '',
-            SYSTEM_PROMPT_REPLACEMENTS: Array.isArray(data.SYSTEM_PROMPT_REPLACEMENTS)
-                ? data.SYSTEM_PROMPT_REPLACEMENTS.map((row) => ({ old: row.old || '', new: row.new || '' }))
-                : [],
             adminPassword: ''
         },
         selections: {
@@ -77,20 +62,6 @@ export function buildForm(data = {}) {
 }
 
 /**
- * @param {string} value
- * @param {string} errorKey
- */
-function parseJson(value, errorKey) {
-    const trimmed = String(value || '').trim();
-    if (!trimmed) return {};
-    try {
-        return JSON.parse(trimmed);
-    } catch {
-        throw new Error(errorKey);
-    }
-}
-
-/**
  * @param {any} form
  * @param {{modelProviders: string[], proxyProviders: string[], tlsProviders: string[], healthProviders: string[]}} selections
  */
@@ -100,8 +71,6 @@ export function buildPayload(form, selections) {
     }
 
     const int = (key) => Number.parseInt(String(form[key]), 10);
-    const fallbackChain = parseJson(form.providerFallbackChain, 'config.advanced.fallbackChainInvalid');
-    const fallbackMapping = parseJson(form.modelFallbackMapping, 'config.advanced.modelFallbackMappingInvalid');
 
     const rawInterval = Number.parseInt(String(form.SCHEDULED_HEALTH_CHECK_INTERVAL), 10);
     const interval = Number.isNaN(rawInterval)
@@ -113,17 +82,10 @@ export function buildPayload(form, selections) {
         HOST: form.HOST || '127.0.0.1',
         SERVER_PORT: int('SERVER_PORT') || 3000,
         MODEL_PROVIDER: selections.modelProviders.join(','),
-        systemPrompt: form.systemPrompt || '',
-        SYSTEM_PROMPT_FILE_PATH: form.SYSTEM_PROMPT_FILE_PATH || 'configs/input_system_prompt.txt',
-        SYSTEM_PROMPT_MODE: form.SYSTEM_PROMPT_MODE || 'append',
-        SYSTEM_PROMPT_REPLACEMENTS: (form.SYSTEM_PROMPT_REPLACEMENTS || [])
-            .filter((row) => row.old)
-            .map((row) => ({ old: row.old, new: row.new || '' })),
         PROMPT_LOG_BASE_NAME: form.PROMPT_LOG_BASE_NAME || '',
         PROMPT_LOG_MODE: form.PROMPT_LOG_MODE || '',
         REQUEST_MAX_RETRIES: int('REQUEST_MAX_RETRIES') || 3,
         REQUEST_BASE_DELAY: int('REQUEST_BASE_DELAY') || 1000,
-        MODEL_FALLBACK_ENABLED: form.MODEL_FALLBACK_ENABLED !== false,
         CREDENTIAL_SWITCH_MAX_RETRIES: int('CREDENTIAL_SWITCH_MAX_RETRIES') || 5,
         EMPTY_RESPONSE_MAX_RETRIES: int('EMPTY_RESPONSE_MAX_RETRIES') || 5,
         EMPTY_RESPONSE_RETRY_DELAY_MS: int('EMPTY_RESPONSE_RETRY_DELAY_MS') ?? 500,
@@ -136,8 +98,6 @@ export function buildPayload(form, selections) {
         MAX_ERROR_COUNT: int('MAX_ERROR_COUNT') || 10,
         WARMUP_TARGET: int('WARMUP_TARGET') || 0,
         REFRESH_CONCURRENCY_PER_PROVIDER: int('REFRESH_CONCURRENCY_PER_PROVIDER') || 1,
-        providerFallbackChain: fallbackChain,
-        modelFallbackMapping: fallbackMapping,
         PROXY_URL: String(form.PROXY_URL || '').trim() || null,
         PROXY_ENABLED_PROVIDERS: selections.proxyProviders.slice(),
         LOG_ENABLED: form.LOG_ENABLED !== false,

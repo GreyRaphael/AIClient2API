@@ -18,6 +18,18 @@ describe('custom models helpers', () => {
         expect(state).toEqual({ field: null, order: null });
     });
 
+    test('默认按第一列（id）升序，而不是依赖后端返回顺序', () => {
+        // 页面初始 sort 状态为 { field: 'id', order: 'asc' }，
+        // 因此乱序输入也必须按 id 数字感知升序输出
+        const models = [
+            { id: 'model-10', alias: 'b' },
+            { id: 'model-2', alias: 'a' },
+            { id: 'model-1', alias: 'c' }
+        ];
+        expect(sortModels(models, { field: 'id', order: 'asc' }).map((m) => m.id))
+            .toEqual(['model-1', 'model-2', 'model-10']);
+    });
+
     test('按 id/alias 数字感知排序', () => {
         const models = [
             { id: 'model-10', alias: 'b' },

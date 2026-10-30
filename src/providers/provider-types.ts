@@ -51,8 +51,6 @@ export type ProviderPools = Record<string, ProviderConfig[]>;
 export type ProviderStatusMap = Record<string, ProviderStatus[]>;
 
 export interface ProviderPoolGlobalConfig {
-    providerFallbackChain?: Record<string, string[]>;
-    modelFallbackMapping?: Record<string, unknown>;
     REFRESH_CONCURRENCY_GLOBAL?: number;
     REFRESH_CONCURRENCY_PER_PROVIDER?: number;
     WARMUP_TARGET?: number;
@@ -96,6 +94,5 @@ export interface GlobalConfigLike {
     PROVIDER_POOLS_FILE_PATH?: string;
     providerPools?: ProviderPools;
     MAX_ERROR_COUNT?: number;
-    providerFallbackChain?: Record<string, string[]>;
     [key: string]: unknown;
 }

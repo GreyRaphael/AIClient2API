@@ -1699,10 +1699,6 @@ export async function handleContentGenerationRequest(
         }
     }
     
-    // 3. Apply system prompt from file if configured.
-    processedRequestBody = await _applySystemPromptFromFile(CONFIG, processedRequestBody, toProvider, model);
-    await _manageSystemPrompt(processedRequestBody, toProvider, model);
-
     // 4. Log the incoming prompt (after potential conversion to the backend's format).
     const promptText = extractPromptText(processedRequestBody, toProvider, model);
     
@@ -1759,16 +1755,6 @@ export async function handleContentGenerationRequest(
 function _extractModelAndStreamInfo(req: IncomingMessage, requestBody: DynamicPayload, fromProvider: string): { model: string; isStream: boolean } {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(fromProvider));
     return strategy.extractModelAndStreamInfo(req, requestBody);
-}
-
-async function _applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload, toProvider: string, model?: string): Promise<DynamicPayload> {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(toProvider, model));
-    return strategy.applySystemPromptFromFile(config, requestBody);
-}
-
-async function _manageSystemPrompt(requestBody: DynamicPayload, provider: string, model?: string): Promise<void> {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider, model));
-    await strategy.manageSystemPrompt(requestBody);
 }
 
 // Helper functions for content extraction and conversion (from convert.js, but needed here)

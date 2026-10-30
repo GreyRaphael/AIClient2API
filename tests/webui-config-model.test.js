@@ -2,26 +2,24 @@ import { describe, test, expect } from '@jest/globals';
 import { buildForm, buildPayload } from '@ui/sections/config/config-model.js';
 
 describe('config form model', () => {
-    test('buildForm 填充默认值与 JSON 文本', () => {
+    test('buildForm 填充默认值', () => {
         const built = buildForm({
             SERVER_PORT: 3999,
             MODEL_PROVIDER: 'gemini-antigravity,openai-custom',
-            providerFallbackChain: { a: ['b'] },
             SCHEDULED_HEALTH_CHECK: { enabled: false, startupRun: false, interval: 300000, providerTypes: ['zed'] }
         });
         expect(built.fields.SERVER_PORT).toBe(3999);
         expect(built.fields.HOST).toBe('127.0.0.1');
-        expect(built.fields.providerFallbackChain).toContain('"a"');
         expect(built.selections.modelProviders).toEqual(['gemini-antigravity', 'openai-custom']);
         expect(built.selections.healthProviders).toEqual(['zed']);
         expect(built.fields.SCHEDULED_HEALTH_CHECK_ENABLED).toBe(false);
         expect(built.fields.SCHEDULED_HEALTH_CHECK_INTERVAL).toBe(300000);
     });
 
-    test('buildPayload 组装数组、JSON 与数值', () => {
+    test('buildPayload 组装数组与数值', () => {
         const built = buildForm({ MODEL_PROVIDER: 'gemini-antigravity' });
         const payload = buildPayload(
-            { ...built.fields, providerFallbackChain: '{"a":["b"]}', PROXY_URL: '  http://p  ' },
+            { ...built.fields, PROXY_URL: '  http://p  ' },
             {
                 modelProviders: ['gemini-antigravity', 'zed'],
                 proxyProviders: ['zed'],
@@ -30,20 +28,17 @@ describe('config form model', () => {
             }
         );
         expect(payload.MODEL_PROVIDER).toBe('gemini-antigravity,zed');
-        expect(payload.providerFallbackChain).toEqual({ a: ['b'] });
-        expect(payload.modelFallbackMapping).toEqual({});
         expect(payload.PROXY_URL).toBe('http://p');
+        // fallback 相关字段已从配置模型移除
+        expect(payload).not.toHaveProperty('providerFallbackChain');
+        expect(payload).not.toHaveProperty('modelFallbackMapping');
+        expect(payload).not.toHaveProperty('MODEL_FALLBACK_ENABLED');
         expect(payload.PROXY_ENABLED_PROVIDERS).toEqual(['zed']);
         expect(payload.SCHEDULED_HEALTH_CHECK.providerTypes).toEqual(['zed']);
     });
 
-    test('非法 JSON 与空 provider 选择会抛错', () => {
+    test('空 provider 选择会抛错', () => {
         const built = buildForm({ MODEL_PROVIDER: 'gemini-antigravity' });
-        expect(() => buildPayload(
-            { ...built.fields, providerFallbackChain: '{bad' },
-            { modelProviders: ['x'], proxyProviders: [], tlsProviders: [], healthProviders: [] }
-        )).toThrow('config.advanced.fallbackChainInvalid');
-
         expect(() => buildPayload(built.fields, {
             modelProviders: [],
             proxyProviders: [],

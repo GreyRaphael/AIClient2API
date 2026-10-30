@@ -473,12 +473,8 @@ export class CodexApiService {
             } catch {}
         }
         if (!supportedModels.includes(selectedModel)) {
-            if (this.config.MODEL_FALLBACK_ENABLED === false) {
-                throw new Error(`[Codex] 模型不存在: ${selectedModel}`);
-            }
-            const defaultModel = supportedModels[0] || 'gpt-5.5';
-            logger.warn(`[Codex] Model '${selectedModel}' not found in supported list. Falling back to default: '${defaultModel}'`);
-            selectedModel = defaultModel;
+            // 未知名模型不再静默回退，直接报错
+            throw new Error(`[Codex] 模型不存在: ${selectedModel}`);
         }
 
         // 临时存储 monitorRequestId
@@ -558,12 +554,8 @@ export class CodexApiService {
             } catch {}
         }
         if (!supportedModels.includes(selectedModel)) {
-            if (this.config.MODEL_FALLBACK_ENABLED === false) {
-                throw new Error(`[Codex] 模型不存在: ${selectedModel}`);
-            }
-            const defaultModel = supportedModels[0] || 'gpt-5.5';
-            logger.warn(`[Codex] Model '${selectedModel}' not found in supported list. Falling back to default: '${defaultModel}'`);
-            selectedModel = defaultModel;
+            // 未知名模型不再静默回退，直接报错
+            throw new Error(`[Codex] 模型不存在: ${selectedModel}`);
         }
 
         // 临时存储 monitorRequestId

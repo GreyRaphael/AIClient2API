@@ -10,33 +10,13 @@
 
 <div align="center">
 
-<table align="center">
-  <thead>
-    <tr>
-      <th align="center">镜像下载量超100k</th>
-      <th align="center">trendshift.io上过榜2</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center" valign="middle">
-        <img src="https://docker-card.justlikemaki.workers.dev/justlikemaki/aiclient-2-api?layout=compact&theme=github" alt="AIClient2API" style="width: 100%; max-width: 520px; height: 320px;object-fit: contain;" />
-      </td>
-      <td align="center" valign="middle">
-        <a href="https://trendshift.io/repositories/15832" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15832" alt="justlovemaki%2FAIClient-2-API | Trendshift" style="width: 360px; height: 120px;"/></a>
-      </td>
-    </tr>
-  </tbody>
-</table>
-
-[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/justlovemaki/AIClient-2-API)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Node.js](https://img.shields.io/badge/Node.js-≥22.18.0-green.svg)](https://nodejs.org/)
-[![Docker](https://img.shields.io/badge/docker-≥20.0.0-blue.svg)](https://hub.docker.com/r/justlikemaki/aiclient-2-api)
-[![GitHub stars](https://img.shields.io/github/stars/justlovemaki/AIClient-2-API.svg?style=flat&label=Star)](https://github.com/justlovemaki/AIClient-2-API/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/justlovemaki/AIClient-2-API.svg)](https://github.com/justlovemaki/AIClient-2-API/issues)
+[![Docker](https://img.shields.io/badge/docker-≥20.0.0-blue.svg)](https://hub.docker.com/r/greyraphael/aiclient-2-api)
+[![GitHub stars](https://img.shields.io/github/stars/GreyRaphael/AIClient2API.svg?style=flat&label=Star)](https://github.com/GreyRaphael/AIClient2API/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/GreyRaphael/AIClient2API.svg)](https://github.com/GreyRaphael/AIClient2API/issues)
 
-[**👉 中文**](./README-ZH.md) | [English](./README.md) | [**📚 完整文档**](https://aiproxy.justlikemaki.vip/zh/)
+[**👉 中文**](./README-ZH.md) | [English](./README.md) | [**📚 完整文档**](./docs/)
 
 </div>
 
@@ -166,7 +146,7 @@
 > > - **2026.01.03** - 新增主题切换功能并优化提供商池初始化，移除使用提供商默认配置的降级策略
 > - **2025.12.30** - 添加主进程管理和自动更新功能
 > - **2025.12.25** - 配置文件统一管理：所有配置集中到 `configs/` 目录，Docker 用户需更新挂载路径为 `-v "本地路径:/app/configs"`
-> - **2025.12.11** - Docker 镜像自动构建并发布到 Docker Hub: [justlikemaki/aiclient-2-api](https://hub.docker.com/r/justlikemaki/aiclient-2-api)
+> - **2025.12.11** - Docker 镜像自动构建并发布到 Docker Hub: [greyraphael/aiclient-2-api](https://hub.docker.com/r/greyraphael/aiclient-2-api)
 > - **2025.11.30** - 新增 Antigravity 协议支持，支持通过 Google 内部接口访问 Gemini Pro、Claude Sonnet 等模型
 > - **2025.11.11** - 新增 Web UI 管理控制台，支持实时配置管理和健康状态监控
 > - **2025.11.06** - 新增对 Gemini 预览版的支持，增强模型兼容性和性能优化
@@ -190,7 +170,7 @@
 >
 > - **远程部署**：
 >   ```text
->   请加载并学习 https://raw.githubusercontent.com/justlovemaki/AIClient2API/main/docs/skills/aiclient-cli-usage.md 中的 Skill（服务地址为你的实际域名或 IP，登录密码为你的实际密码），以掌握 AIClient2API 的所有用法。
+>   请加载并学习 https://raw.githubusercontent.com/GreyRaphael/AIClient2API/main/docs/skills/aiclient-cli-usage.md 中的 Skill（服务地址为你的实际域名或 IP，登录密码为你的实际密码），以掌握 AIClient2API 的所有用法。
 >   ```
 > - **本地模式**：
 >   如果你在本地环境直接运行 AI 代理，可以直接发送：
@@ -227,7 +207,7 @@
 
 - [💡 核心优势](#-核心优势)
 - [🚀 快速启动](#-快速启动)
-  - [🐳 Docker 部署](https://hub.docker.com/r/justlikemaki/aiclient-2-api)
+  - [🐳 Docker 部署](https://hub.docker.com/r/greyraphael/aiclient-2-api)
   - [📋 核心功能](#-核心功能)
 - [🔐 授权配置指南](#-授权配置指南)
 - [📁 授权文件存储路径](#-授权文件存储路径)
@@ -250,7 +230,7 @@
 #### 🐳 Docker 快捷启动 (推荐)
 
 ```bash
-docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "指定路径/configs:/app/configs" -v "指定路径/plugins:/app/src/plugins-user" --name aiclient2api justlikemaki/aiclient-2-api
+docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "指定路径/configs:/app/configs" -v "指定路径/plugins:/app/src/plugins-user" --name aiclient2api greyraphael/aiclient-2-api
 ```
 
 **参数说明**：
@@ -272,7 +252,7 @@ docker compose up -d
 ```
 
 如需从源码构建而非使用预构建镜像，请编辑 `docker-compose.yml`：
-1. 注释掉 `image: justlikemaki/aiclient-2-api:latest` 行
+1. 注释掉 `image: greyraphael/aiclient-2-api:latest` 行
 2. 取消 `build:` 部分的注释
 3. 运行 `docker compose up -d --build`
 
@@ -681,7 +661,7 @@ kill -9 <PID>
 - **检查日志**：`docker logs aiclient2api` 查看错误信息
 - **检查挂载路径**：确保 `-v` 参数中的本地路径存在且有读写权限
 - **检查端口冲突**：确保所有映射的端口在宿主机上未被占用
-- **重新拉取镜像**：`docker pull justlikemaki/aiclient-2-api:latest`
+- **重新拉取镜像**：`docker pull greyraphael/aiclient-2-api:latest`
 
 ### 4. 凭据文件无法识别
 
@@ -844,7 +824,7 @@ OAuth 令牌（如 Gemini, Antigravity, Codex）通常有一定的有效期（�
 
 感谢以下所有为 AIClient2API 项目做出贡献的开发者：
 
-[![Contributors](https://contrib.rocks/image?repo=justlovemaki/AIClient-2-API)](https://github.com/justlovemaki/AIClient-2-API/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=GreyRaphael/AIClient2API)](https://github.com/GreyRaphael/AIClient2API/graphs/contributors)
 
 ---
 

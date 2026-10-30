@@ -1,7 +1,7 @@
 
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
-import { DEFAULT_REQUEST_BODY_MAX_BYTES, INPUT_SYSTEM_PROMPT_FILE } from '../utils/protocol.ts';
+import { DEFAULT_REQUEST_BODY_MAX_BYTES } from '../utils/protocol.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import logger from '../utils/logger.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
@@ -222,8 +222,6 @@ export async function initializeConfig(
         SERVER_PORT: 3000,
         HOST: '0.0.0.0',
         MODEL_PROVIDER: MODEL_PROVIDER.ANTIGRAVITY,
-        SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE, // Default value
-        SYSTEM_PROMPT_MODE: 'append',
         PROXY_URL: null, // HTTP/HTTPS/SOCKS5 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
         PROXY_ENABLED_PROVIDERS: [], // 启用代理的提供商列表，如 ['gemini-antigravity', 'claude-kiro-oauth']
         PROMPT_LOG_BASE_NAME: "prompt_log",
@@ -253,7 +251,6 @@ export async function initializeConfig(
         PROVIDER_POOLS_FILE_PATH: null, // 新增号池配置文件路径
         MAX_ERROR_COUNT: 10, // 提供商最大错误次数
         CUSTOM_MODELS_FILE_PATH: null, // 自定义模型配置文件路径
-        SYSTEM_PROMPT_REPLACEMENTS: [], // 系统提示词内容替换规则，例如: [{"old": "AI", "new": "Bot"}, {"old": "OpenAI", "new": "Gemini"}]
         SCHEDULED_HEALTH_CHECK: {
             enabled: false,
             interval: 600000,
@@ -262,7 +259,6 @@ export async function initializeConfig(
         providerFallbackChain: {}, // 跨类型 Fallback 链配置
         providerPools: {}, // 运行时加载的号池配置
         customModels: [], // 运行时加载的自定义模型配置
-        SYSTEM_PROMPT_CONTENT: '', // 运行时加载的系统提示词内容
         LOG_ENABLED: true,
         LOG_OUTPUT_MODE: "all",
         LOG_LEVEL: "info",
@@ -303,8 +299,6 @@ export async function initializeConfig(
         { flag: '--log-prompts',          configKey: 'PROMPT_LOG_MODE',        type: 'enum', validValues: ['console', 'file'] },
         { flag: '--port',                 configKey: 'SERVER_PORT',            type: 'int' },
         { flag: '--model-provider',       configKey: 'MODEL_PROVIDER',         type: 'string' },
-        { flag: '--system-prompt-file',   configKey: 'SYSTEM_PROMPT_FILE_PATH', type: 'string' },
-        { flag: '--system-prompt-mode',   configKey: 'SYSTEM_PROMPT_MODE',     type: 'enum', validValues: ['overwrite', 'append'] },
         { flag: '--host',                 configKey: 'HOST',                   type: 'string' },
         { flag: '--prompt-log-base-name', configKey: 'PROMPT_LOG_BASE_NAME',   type: 'string' },
         { flag: '--request-max-retries',  configKey: 'REQUEST_MAX_RETRIES',    type: 'int' },
@@ -387,11 +381,6 @@ export async function initializeConfig(
     normalizePreserveReasoningItemConfig(currentConfig);
     normalizeConfiguredProviders(currentConfig);
 
-    if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {
-        currentConfig.SYSTEM_PROMPT_FILE_PATH = INPUT_SYSTEM_PROMPT_FILE;
-    }
-    currentConfig['SYSTEM_PROMPT_CONTENT'] = await getSystemPromptFileContent(currentConfig.SYSTEM_PROMPT_FILE_PATH);
-
     // 加载号池配置
     if (!currentConfig.PROVIDER_POOLS_FILE_PATH) {
         currentConfig.PROVIDER_POOLS_FILE_PATH = 'configs/provider_pools.json';
@@ -455,36 +444,6 @@ export async function initializeConfig(
     logger.cleanupOldLogs();
 
     return CONFIG;
-}
-
-/**
- * Gets system prompt content from the specified file path.
- * @param {string} filePath - Path to the system prompt file.
- * @returns {Promise<string|null>} File content, or null if the file does not exist, is empty, or an error occurs.
- */
-export async function getSystemPromptFileContent(filePath: string): Promise<string | null> {
-    try {
-        await pfs.access(filePath, pfs.constants.F_OK);
-    } catch (caught) { const error = caught as DynamicPayload;
-        if (error.code === 'ENOENT') {
-            logger.warn(`[System Prompt] Specified system prompt file not found: ${filePath}`);
-        } else {
-            logger.error(`[System Prompt] Error accessing system prompt file ${filePath}: ${error.message}`);
-        }
-        return null;
-    }
-
-    try {
-        const content = await pfs.readFile(filePath, 'utf8');
-        if (!content.trim()) {
-            return null;
-        }
-        logger.info(`[System Prompt] Loaded system prompt from ${filePath}`);
-        return content;
-    } catch (caught) { const error = caught as DynamicPayload;
-        logger.error(`[System Prompt] Error reading system prompt file ${filePath}: ${error.message}`);
-        return null;
-    }
 }
 
 export { ALL_MODEL_PROVIDERS };

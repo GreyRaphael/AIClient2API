@@ -35,7 +35,6 @@ export async function initApiService(config: Record<string, any>, isReady = fals
         providerPoolManager = new ProviderPoolManager(config.providerPools || {}, {
             globalConfig: config,
             maxErrorCount: config.MAX_ERROR_COUNT ?? 10,
-            providerFallbackChain: config.providerFallbackChain || {},
         });
         setProviderPoolManager(providerPoolManager);
         logger.info('[Initialization] ProviderPoolManager initialized.');
@@ -263,18 +262,19 @@ export async function getApiServiceWithFallback(
         }
         
         if (selectedResult) {
-            const { config: selectedProviderConfig, actualProviderType: selectedType, isFallback: fallbackUsed, actualModel: fallbackModel } = selectedResult;
-            
+            const { config: selectedProviderConfig, actualProviderType: selectedType, isFallback: fallbackUsed } = selectedResult;
+
             // 合并选中的提供者配置到当前请求的 config 中
             serviceConfig = deepmerge(config, selectedProviderConfig);
             delete serviceConfig.providerPools;
-            
+
             actualProviderType = selectedType;
             isFallback = fallbackUsed;
             selectedUuid = selectedProviderConfig.uuid;
-            actualModel = fallbackModel || actualModelName;
-            
-            // 如果发生了 fallback，需要更新 MODEL_PROVIDER
+            // 跨类型 fallback 已移除，选中的 provider 只能来自请求的 provider 类型，
+            // 因此不存在"落到了别的 provider 上、需要换用目标模型"的情况。
+            actualModel = actualModelName;
+
             if (isFallback) {
                 serviceConfig.MODEL_PROVIDER = actualProviderType;
             }

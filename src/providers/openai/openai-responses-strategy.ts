@@ -1,9 +1,5 @@
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
-import logger from '../../utils/logger.ts';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
-import { extractSystemPromptFromRequestBody } from '../../utils/protocol.ts';
-import { applySystemPromptReplacements } from '../../converters/utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
@@ -59,50 +55,7 @@ class ResponsesAPIStrategy extends ProviderStrategy {
         return '';
     }
 
-    async applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload): Promise<DynamicPayload> {
-        if (!config.SYSTEM_PROMPT_FILE_PATH) {
-            return requestBody;
-        }
 
-        const filePromptContent = config.SYSTEM_PROMPT_CONTENT;
-        if (filePromptContent === null) {
-            return requestBody;
-        }
-
-        const existingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
-
-        const newSystemText = config.SYSTEM_PROMPT_MODE === 'append' && existingSystemText
-            ? `${existingSystemText}\n${filePromptContent}`
-            : filePromptContent;
-
-        // Apply system prompt replacements
-        const finalSystemText = applySystemPromptReplacements(newSystemText, config.SYSTEM_PROMPT_REPLACEMENTS);
-
-        // In Responses API, system instructions are typically passed in 'instructions' field
-        // or in the input array with role: 'system'
-        if (requestBody.instructions !== undefined || !Array.isArray(requestBody.input)) {
-            requestBody.instructions = finalSystemText;
-        } else {
-            const systemMessageIndex = requestBody.input.findIndex((m: DynamicPayload) =>
-                m.role === 'system' || m.role === 'developer' || m.type === 'system' || m.type === 'developer'
-            );
-
-            if (systemMessageIndex !== -1) {
-                requestBody.input[systemMessageIndex].content = finalSystemText;
-            } else {
-                requestBody.input.unshift({ role: 'system', content: finalSystemText });
-            }
-        }
-
-        logger.info(`[System Prompt] Applied system prompt from ${config.SYSTEM_PROMPT_FILE_PATH} in '${config.SYSTEM_PROMPT_MODE}' mode for provider 'responses'.`);
-
-        return requestBody;
-    }
-
-    async manageSystemPrompt(requestBody: DynamicPayload): Promise<void> {
-        const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
-        await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.OPENAI);
-    }
 }
 
 export { ResponsesAPIStrategy };

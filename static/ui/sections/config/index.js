@@ -134,21 +134,6 @@ export default function ConfigSection() {
             : t('config.apiKey.generated'));
     };
 
-    const updateReplacement = (index, key, value) => {
-        const rows = form.SYSTEM_PROMPT_REPLACEMENTS.map((row, rowIndex) => (
-            rowIndex === index ? { ...row, [key]: value } : row
-        ));
-        setField('SYSTEM_PROMPT_REPLACEMENTS', rows);
-    };
-
-    const addReplacement = () => {
-        setField('SYSTEM_PROMPT_REPLACEMENTS', [...form.SYSTEM_PROMPT_REPLACEMENTS, { old: '', new: '' }]);
-    };
-
-    const removeReplacement = (index) => {
-        setField('SYSTEM_PROMPT_REPLACEMENTS', form.SYSTEM_PROMPT_REPLACEMENTS.filter((_, rowIndex) => rowIndex !== index));
-    };
-
     const saveConfiguration = async () => {
         setSaving(true);
         try {
@@ -248,7 +233,6 @@ export default function ConfigSection() {
                         <div class="config-row">${field('REQUEST_MAX_RETRIES')}${field('REQUEST_BASE_DELAY')}</div>
                         <div class="form-row">${field('CREDENTIAL_SWITCH_MAX_RETRIES')}${field('MAX_ERROR_COUNT')}</div>
                         <div class="form-row">${field('EMPTY_RESPONSE_MAX_RETRIES')}${field('EMPTY_RESPONSE_RETRY_DELAY_MS')}</div>
-                        <div class="form-row">${field('MODEL_FALLBACK_ENABLED')}</div>
                         <hr />
                         <div class="config-inline-heading">
                             <span>${t('config.advanced.rateLimitCooldownTitle')}</span>
@@ -257,8 +241,6 @@ export default function ConfigSection() {
                         <div class="form-row">${field('RATE_LIMIT_COOLDOWN_ENABLED')}${field('RATE_LIMIT_COOLDOWN_MS')}</div>
                         <hr />
                         <div class="form-row">${field('WARMUP_TARGET')}${field('REFRESH_CONCURRENCY_PER_PROVIDER')}</div>
-                        ${field('providerFallbackChain')}
-                        ${field('modelFallbackMapping')}
                     </div>
 
                     <div class="config-group-section">
@@ -299,32 +281,6 @@ export default function ConfigSection() {
                     <div class="config-group-section">
                         <h3><i class="fas fa-cogs"></i> <span>${t('config.advanced.title')}</span></h3>
                         ${field('PROVIDER_POOLS_FILE_PATH')}
-                        <div class="form-row">${field('SYSTEM_PROMPT_FILE_PATH')}${field('SYSTEM_PROMPT_MODE')}</div>
-                        ${field('systemPrompt')}
-                        <div class="form-group">
-                            <label>${t('config.advanced.systemPromptReplacements')}</label>
-                            <div id="systemPromptReplacementsContainer" class="replacements-container">
-                                ${form.SYSTEM_PROMPT_REPLACEMENTS.map((row, index) => html`
-                                    <div class="replacement-row" key=${index}>
-                                        <input type="text" class="form-control replacement-old"
-                                            placeholder=${t('config.advanced.replacement.old')} value=${row.old}
-                                            onInput=${(event) => updateReplacement(index, 'old', event.currentTarget.value)} />
-                                        <input type="text" class="form-control replacement-new"
-                                            placeholder=${t('config.advanced.replacement.new')} value=${row.new}
-                                            onInput=${(event) => updateReplacement(index, 'new', event.currentTarget.value)} />
-                                        <button type="button" class="remove-replacement-btn"
-                                            title=${t('config.advanced.replacement.remove')}
-                                            onClick=${() => removeReplacement(index)}>
-                                            <i class="fas fa-trash-alt"></i>
-                                        </button>
-                                    </div>`)}
-                            </div>
-                            <button type="button" id="addReplacementBtn" class="btn btn-sm btn-outline-primary mt-2"
-                                onClick=${addReplacement}>
-                                <i class="fas fa-plus"></i> <span>${t('config.advanced.replacement.add')}</span>
-                            </button>
-                            <small class="form-text">${t('config.advanced.systemPromptReplacementsNote')}</small>
-                        </div>
                         ${field('adminPassword')}
                     </div>
 

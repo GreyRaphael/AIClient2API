@@ -254,11 +254,11 @@ test.describe('console shell', () => {
         await page.locator('#resetConfig').click();
         await expect(page.locator('#apiKey')).toHaveValue('******');
 
-        await page.locator('#providerFallbackChain').fill('{bad');
-        await page.locator('#saveConfig').click();
-        await expect(page.locator('#toastContainer')).toContainText('格式无效');
+        // fallback 配置（JSON 文本框 + 开关）已整体移除
+        await expect(page.locator('#providerFallbackChain')).toHaveCount(0);
+        await expect(page.locator('#modelFallbackMapping')).toHaveCount(0);
+        await expect(page.locator('#modelFallbackEnabled')).toHaveCount(0);
 
-        await page.locator('#providerFallbackChain').fill('');
         await page.locator('#saveConfig').click();
         await expect(page.locator('#toastContainer')).toContainText('配置已保存');
 

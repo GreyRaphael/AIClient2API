@@ -1,8 +1,5 @@
 import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
-import logger from '../../utils/logger.ts';
-import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
-import { applySystemPromptReplacements } from '../../converters/utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
@@ -61,73 +58,7 @@ class CodexResponsesAPIStrategy extends ProviderStrategy {
         return '';
     }
 
-    async applySystemPromptFromFile(config: DynamicPayload, requestBody: DynamicPayload): Promise<DynamicPayload> {
-        if (!config.SYSTEM_PROMPT_FILE_PATH) {
-            return requestBody;
-        }
 
-        const filePromptContent = config.SYSTEM_PROMPT_CONTENT;
-        if (filePromptContent === null) {
-            return requestBody;
-        }
-
-        // Apply system prompt replacements
-        const finalSystemText = applySystemPromptReplacements(filePromptContent, config.SYSTEM_PROMPT_REPLACEMENTS);
-
-        // In Responses API, system instructions are typically passed in 'instructions' field
-        // or in the input array with role: 'developer'
-        requestBody.instructions = requestBody.instructions || finalSystemText;
-
-        // If using instructions field is not desired, append to input array instead
-        if (!requestBody.instructions || config.SYSTEM_PROMPT_MODE === 'append') {
-            if (typeof requestBody.input === 'string') {
-                // Convert to array format to add system message
-                requestBody.input = [
-                    { type: 'message', role: 'developer', content: finalSystemText },
-                    { type: 'message', role: 'user', content: requestBody.input }
-                ];
-            } else if (Array.isArray(requestBody.input)) {
-                // Check if system message already exists
-                const systemMessageIndex = requestBody.input.findIndex((m: DynamicPayload) =>
-                    m.role === 'developer' || (m.type && m.type === 'developer')
-                );
-
-                if (systemMessageIndex !== -1) {
-                    requestBody.input[systemMessageIndex].content = finalSystemText;
-                } else {
-                    requestBody.input.unshift({ type: 'message', role: 'developer', content: finalSystemText });
-                }
-            } else {
-                // If input is not defined, initialize with system message
-                requestBody.input = [{ type: 'message', role: 'developer', content: finalSystemText }];
-            }
-        } else if (requestBody.instructions) {
-            // If system prompt mode is not append, then replace the instructions
-            requestBody.instructions = finalSystemText;
-        }
-
-        logger.info(`[System Prompt] Applied system prompt from ${config.SYSTEM_PROMPT_FILE_PATH} in '${config.SYSTEM_PROMPT_MODE}' mode for provider 'responses'.`);
-
-        return requestBody;
-    }
-
-    async manageSystemPrompt(requestBody: DynamicPayload): Promise<void> {
-        // For Responses API, we may extract instructions or system messages from input
-        let incomingSystemText = '';
-
-        if (requestBody.instructions) {
-            incomingSystemText = requestBody.instructions;
-        } else if (Array.isArray(requestBody.input)) {
-            const systemMessage = requestBody.input.find((item: DynamicPayload) =>
-                item.role === 'developer' || (item.type && item.type === 'developer')
-            );
-            if (systemMessage && systemMessage.content) {
-                incomingSystemText = systemMessage.content;
-            }
-        }
-
-        await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.OPENAI);
-    }
 }
 
 export { CodexResponsesAPIStrategy };

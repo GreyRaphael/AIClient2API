@@ -247,11 +247,8 @@ function resolveKiroModel(model: string, config: DynamicPayload = {}): string {
         return model;
     }
 
-    if (config.MODEL_FALLBACK_ENABLED === false) {
-        throw new Error(`[Kiro] 模型不存在: ${model}`);
-    }
-
-    return model;
+    // 未知名模型不再静默回退，直接报错，便于用户发现模型名拼写错误
+    throw new Error(`[Kiro] 模型不存在: ${model}`);
 }
 
 const KIRO_AUTH_TOKEN_FILE = "kiro-auth-token.json";
