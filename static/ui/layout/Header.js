@@ -86,7 +86,7 @@ export function Header() {
         <header class="header">
             <div class="header-content">
                 <h1>
-                    <img src="https://src.hex2077.dev/logo/favicon.ico" class="header-logo" alt="Logo" />
+                    <img src="/assets/logo.svg" class="header-logo" alt="AIClient2API" />
                     <span class="header-title">${t('header.title')}</span>
                 </h1>
                 <button class="mobile-menu-toggle" id="mobileMenuToggle"

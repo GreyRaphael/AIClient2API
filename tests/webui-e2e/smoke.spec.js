@@ -18,6 +18,14 @@ test.describe('login', () => {
         expect(problems.filter((p) => !p.includes('/api/login'))).toEqual([]);
     });
 
+    test('登录页头像使用本地 SVG 且加载成功', async ({ page }) => {
+        await page.goto('/login.html');
+        const avatar = page.locator('.logo img');
+        await expect(avatar).toHaveAttribute('src', '/assets/user-avatar.svg');
+        // naturalWidth 为 0 说明资源没取到（例如路径错误或非图片）
+        await expect.poll(() => avatar.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
+    });
+
     test('未登录访问控制台会跳转到登录页', async ({ page }) => {
         await page.goto('/');
         await page.waitForURL(/login\.html/);
@@ -25,6 +33,23 @@ test.describe('login', () => {
 });
 
 test.describe('console shell', () => {
+    test('Header 品牌图使用本地 SVG，不再引用远程图片', async ({ authedPage: page, problems }) => {
+        await page.goto('/#dashboard');
+        await expect(page.locator('section#dashboard.active')).toBeVisible();
+
+        const logo = page.locator('.header-logo');
+        await expect(logo).toHaveAttribute('src', '/assets/logo.svg');
+        await expect.poll(() => logo.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
+
+        // 页面里不应再出现指向远程图床的图片
+        const remoteImages = await page.evaluate(() => [...document.querySelectorAll('img')]
+            .map((img) => img.getAttribute('src') || '')
+            .filter((src) => /^https?:\/\//i.test(src)));
+        expect(remoteImages).toEqual([]);
+
+        expect(problems).toEqual([]);
+    });
+
     test('11 个页面均可通过侧边栏与 hash 访问，且无报错', async ({ authedPage: page, problems }) => {
         await page.goto('/#dashboard');
         await expect(page.locator('section#dashboard.active')).toBeVisible();

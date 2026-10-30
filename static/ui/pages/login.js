@@ -66,8 +66,7 @@ function LoginPage() {
         </div>
         <div class="login-container">
             <div class="logo">
-                <img src="https://src.hex2077.dev/logo/favicon.ico" alt="Logo"
-                    onError=${(event) => { event.currentTarget.style.display = 'none'; }} />
+                <img src="/assets/user-avatar.svg" alt="User avatar" />
                 <h1>AIClient2API</h1>
                 <p>${t('login.heading')}</p>
             </div>
