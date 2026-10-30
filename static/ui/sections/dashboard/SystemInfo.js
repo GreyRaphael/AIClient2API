@@ -8,7 +8,6 @@ import { serviceMode } from '../../store/system.js';
 import { toast } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
 import { formatUptime } from '../../lib/format.js';
-import { compareVersions } from '../../lib/provider-manager-utils.js';
 
 export function SystemInfoPanel() {
     const { data } = useApi(async ({ signal }) => {
@@ -20,7 +19,6 @@ export function SystemInfoPanel() {
     }, []);
     const [now, setNow] = useState(() => Date.now());
     const [updateInfo, setUpdateInfo] = useState(/** @type {any} */ (null));
-    const [selectedVersion, setSelectedVersion] = useState('');
     const [checking, setChecking] = useState(false);
     const [updating, setUpdating] = useState(false);
 
@@ -47,13 +45,11 @@ export function SystemInfoPanel() {
             const info = await api.get('/check-update');
             setUpdateInfo(info);
             if (info.hasUpdate) {
-                setSelectedVersion(info.latestVersion || info.localVersion || '');
                 if (!silent) {
                     toast.info(t('common.info'), t('dashboard.update.hasUpdate', { version: info.latestVersion }));
                 }
-            } else {
-                setSelectedVersion(info.localVersion || '');
-                if (!silent) toast.success(t('common.info'), t('dashboard.update.upToDate'));
+            } else if (!silent) {
+                toast.success(t('common.info'), t('dashboard.update.upToDate'));
             }
         } catch (error) {
             if (!silent) {
@@ -72,11 +68,9 @@ export function SystemInfoPanel() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [system?.appVersion]);
 
-    const localVersion = updateInfo?.localVersion || system?.appVersion || '';
-    const versions = updateInfo?.availableVersions || [];
-    const hasVersions = versions.length > 0;
-    const isDowngrade = selectedVersion && localVersion
-        && compareVersions(selectedVersion, localVersion) < 0;
+    // 只关心一件事：GitHub 上有没有比当前更新的版本
+    const hasUpdate = Boolean(updateInfo?.hasUpdate);
+    const latestVersion = updateInfo?.latestVersion || '';
 
     const restartAfterUpdate = async () => {
         try {
@@ -104,14 +98,15 @@ export function SystemInfoPanel() {
     const performUpdate = async () => {
         const confirmed = await confirmDialog({
             title: t('dashboard.update.perform'),
-            message: t('dashboard.update.confirmMsg', { version: selectedVersion })
+            message: t('dashboard.update.confirmMsg', { version: latestVersion || '--' })
         });
         if (!confirmed) return;
 
         setUpdating(true);
         toast.info(t('common.info'), t('dashboard.update.updating'));
         try {
-            const result = await api.post('/update', { version: selectedVersion });
+            // 不传 version：后端 performUpdate(null) 即「更新到最新版本」
+            const result = await api.post('/update', {});
             if (result?.success) {
                 if (result.updated) {
                     toast.success(t('common.success'), t('dashboard.update.success'));
@@ -136,30 +131,16 @@ export function SystemInfoPanel() {
             <div class="system-info-header">
                 <h3>${t('dashboard.systemInfo')}</h3>
                 <div class="update-controls">
-                    ${hasVersions ? html`
-                        <div id="versionSelectWrapper" style="margin-right: 8px;">
-                            <select id="versionSelect" class="form-control select-sm"
-                                style="height: 32px; padding: 0 8px; font-size: 13px; min-width: 120px;"
-                                value=${selectedVersion}
-                                onChange=${(event) => setSelectedVersion(event.currentTarget.value)}>
-                                ${versions.map((version) => html`
-                                    <option value=${version} key=${version}>
-                                        ${version}${version === updateInfo.latestVersion ? ` (${t('dashboard.update.latest')})` : ''}${version === localVersion ? ` (${t('dashboard.update.current')})` : ''}
-                                    </option>`)}
-                            </select>
-                        </div>` : null}
                     <button id="checkUpdateBtn" class="btn btn-outline btn-sm" title=${t('dashboard.update.checkTitle')}
-                        disabled=${checking} onClick=${() => void runCheckUpdate(false)}>
+                        disabled=${checking || updating} onClick=${() => void runCheckUpdate(false)}>
                         <i class=${`fas ${checking ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
                         <span>${checking ? t('dashboard.update.checking') : t('dashboard.update.check')}</span>
                     </button>
-                    ${hasVersions ? html`
+                    ${hasUpdate ? html`
                         <button id="performUpdateBtn" class="btn btn-primary btn-sm" title=${t('dashboard.update.performTitle')}
-                            disabled=${updating} onClick=${() => void performUpdate()}>
+                            disabled=${updating || checking} onClick=${() => void performUpdate()}>
                             <i class=${`fas ${updating ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
-                            <span>${updating
-                                ? t('dashboard.update.updating')
-                                : isDowngrade ? t('dashboard.update.downgrade') : t('dashboard.update.perform')}</span>
+                            <span>${updating ? t('dashboard.update.updating') : t('dashboard.update.perform')}</span>
                         </button>` : null}
                 </div>
             </div>

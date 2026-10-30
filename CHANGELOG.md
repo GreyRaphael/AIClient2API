@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **简化仪表盘更新面板**：彻底删除版本下拉框（此前存在三个缺陷：已是最新时下拉框为空白、`(当前)` 标记恒不出现、"检查更新"会覆盖已选版本）。现在只有两个按钮：**检查更新**（有更新则提示版本号）与 **立即更新**（有更新时才出现），点击即更新到 GitHub 最新版本，不再支持选择/降级到任意历史版本。
+- 移除随之失效的 3 条 locale key（`dashboard.update.downgrade` / `.latest` / `.current`，中英各 3 条）。
+
 ## [v5.3.0] - 2026-10-30
 
 ### Added

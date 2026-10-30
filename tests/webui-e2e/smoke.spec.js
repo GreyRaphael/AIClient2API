@@ -116,6 +116,9 @@ test.describe('console shell', () => {
         await expect(page.locator('#cpuUsage')).not.toHaveText('--');
         await expect(page.locator('#processPid')).not.toHaveText('--');
         await expect(page.locator('#checkUpdateBtn')).toBeVisible();
+        // 版本下拉框已彻底移除：只保留「检查更新」与「立即更新」
+        await expect(page.locator('#versionSelect')).toHaveCount(0);
+        await expect(page.locator('#versionSelectWrapper')).toHaveCount(0);
 
         // 7 张卡片全部平铺展示，不再有“更多系统信息”折叠
         await expect(page.locator('.system-info-panel .info-grid .info-item')).toHaveCount(7);
@@ -124,6 +127,78 @@ test.describe('console shell', () => {
 
         await expect(page.locator('#sponsors')).toContainText('项目赞助商');
         await expect(page.locator('.models-toolbar').or(page.locator('.models-empty'))).toBeVisible();
+        expect(problems).toEqual([]);
+    });
+
+
+    test('仪表盘：更新面板只有「检查更新」和「立即更新」，有更新才出现更新按钮', async ({ authedPage: page, problems }) => {
+        // 稳定复现有更新的状态，同时断言请求体不再带 version（改为更新到最新）
+        let updateBody = null;
+        await page.route('**/api/check-update', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                hasUpdate: true,
+                localVersion: '5.0.0',
+                latestVersion: 'v9.9.9',
+                availableVersions: ['v9.9.9', 'v8.0.0'],
+                updateMethod: 'git'
+            })
+        }));
+        await page.route('**/api/update', async (route) => {
+            updateBody = route.request().postDataJSON();
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, updated: false, message: 'stubbed' })
+            });
+        });
+
+        await page.goto('/#dashboard');
+        await expect(page.locator('section#dashboard.active')).toBeVisible();
+
+        // 下拉框不存在
+        await expect(page.locator('#versionSelect')).toHaveCount(0);
+
+        // 有更新时：版本卡片上出现新版本徽标，且出现「立即更新」
+        await expect(page.locator('#updateBadge')).toBeVisible();
+        await expect(page.locator('#latestVersionText')).toHaveText('v9.9.9');
+        const updateBtn = page.locator('#performUpdateBtn');
+        await expect(updateBtn).toBeVisible();
+        await expect(updateBtn).toContainText('立即更新');
+
+        // 点击后走确认弹窗，确认即提交（请求体不带 version）
+        await updateBtn.click();
+        await expect(page.locator('.confirm-dialog')).toBeVisible();
+        await page.locator('.confirm-dialog .btn-primary').click();
+        await expect.poll(() => updateBody).not.toBeNull();
+        expect(updateBody).toEqual({});
+
+        expect(problems).toEqual([]);
+    });
+
+    test('仪表盘：已是最新时只显示「检查更新」，不显示更新按钮', async ({ authedPage: page, problems }) => {
+        await page.route('**/api/check-update', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                hasUpdate: false,
+                localVersion: '5.3.0',
+                latestVersion: 'v5.3.0',
+                availableVersions: ['v5.3.0', 'v5.2.0'],
+                updateMethod: 'git'
+            })
+        }));
+
+        await page.goto('/#dashboard');
+        await expect(page.locator('section#dashboard.active')).toBeVisible();
+        await expect(page.locator('#checkUpdateBtn')).toBeVisible();
+
+        // 无更新：没有下拉框、没有更新按钮、徽标隐藏
+        await expect(page.locator('#versionSelect')).toHaveCount(0);
+        await expect(page.locator('#performUpdateBtn')).toHaveCount(0);
+        await expect(page.locator('#updateBadge')).toBeHidden();
+
         expect(problems).toEqual([]);
     });
 
