@@ -37,6 +37,24 @@ function isProviderConfig(value: unknown): value is ProviderConfig {
 // 文件级互斥锁：防止并发读写导致数据丢失
 // 安全净化：移除用户输入字段中的危险内容（script、事件处理器、javascript:协议等），
 // 存储原始文本。HTML 转义统一由前端 escHtml() 负责，避免双编码问题。
+/**
+ * 判断字段名是否为脱敏字段。
+ * 打码（sanitizeProviderData）与“眼睛”回读（handleRevealProviderSecret）必须共用这份规则，
+ * 否则会出现“打了码却不允许回读”或更危险的“未打码却能回读”。
+ */
+function isSensitiveField(key: string): boolean {
+    // 排除已知非敏感字段
+    if (key === 'uuid' || key === 'customName' || key === 'isHealthy' || key === 'isDisabled' || key === 'needsRefresh') return false;
+    // 模型能力元数据不是敏感信息，避免 "modelsSource" 被 SSO 规则误判打码
+    if (key.startsWith('models')) return false;
+
+    // 识别敏感字段：包含 KEY, TOKEN, SSO, SECRET, PASSWORD, CLEARANCE, BM, STATSIG_ID 等关键词
+    // 同时排除包含 PATH, URL, DIR, ENDPOINT 等关键词的路径/地址字段
+    const isSensitive = /API_KEY|TOKEN|SSO|SECRET|PASSWORD|CLEARANCE|ACCESS_KEY|credentials|BM|STATSIG_ID/i.test(key);
+    const isPath = /PATH|URL|DIR|ENDPOINT|REGION/i.test(key);
+    return isSensitive && !isPath;
+}
+
 // 安全净化：移除用户输入字段中的危险内容，并可选地过滤敏感 API 密钥
 function sanitizeProviderData(provider: ProviderConfig, maskSensitive = false): ProviderConfig {
     const sanitized: ProviderConfig = { ...provider };
@@ -44,26 +62,16 @@ function sanitizeProviderData(provider: ProviderConfig, maskSensitive = false): 
     // 1. 过滤敏感字段（API Keys, Tokens 等）
     if (maskSensitive) {
         for (const key in sanitized) {
-            // 排除已知非敏感字段
-            if (key === 'uuid' || key === 'customName' || key === 'isHealthy' || key === 'isDisabled' || key === 'needsRefresh') continue;
-            // 模型能力元数据不是敏感信息，避免 "modelsSource" 被 SSO 规则误判打码
-            if (key.startsWith('models')) continue;
+            if (!isSensitiveField(key)) continue;
 
             const val = sanitized[key];
             if (typeof val !== 'string' || !val) continue;
 
-            // 识别敏感字段：包含 KEY, TOKEN, SSO, SECRET, PASSWORD, CLEARANCE, BM, STATSIG_ID 等关键词
-            // 同时排除包含 PATH, URL, DIR, ENDPOINT 等关键词的路径/地址字段
-            const isSensitive = /API_KEY|TOKEN|SSO|SECRET|PASSWORD|CLEARANCE|ACCESS_KEY|credentials|BM|STATSIG_ID/i.test(key);
-            const isPath = /PATH|URL|DIR|ENDPOINT|REGION/i.test(key);
-
-            if (isSensitive && !isPath) {
-                // 对密钥进行脱敏显示（只保留前 4 位和后 4 位）
-                if (val.length > 10) {
-                    sanitized[key] = val.substring(0, 4) + '****' + val.substring(val.length - 4);
-                } else {
-                    sanitized[key] = '********';
-                }
+            // 对密钥进行脱敏显示（只保留前 4 位和后 4 位）
+            if (val.length > 10) {
+                sanitized[key] = val.substring(0, 4) + '****' + val.substring(val.length - 4);
+            } else {
+                sanitized[key] = '********';
             }
         }
     }
@@ -91,6 +99,47 @@ function sanitizeProviderPools(pools: ProviderPools, maskSensitive = false): Pro
             : providers;
     }
     return sanitized;
+}
+
+/**
+ * 返回单个提供商节点的敏感字段明文（供前端“眼睛”按钮真正展示所配值）。
+ * 只返回一个字段，不整份下发。
+ */
+export async function handleRevealProviderSecret(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: GlobalConfigLike,
+    providerPoolManager: ProviderPoolManager | null,
+    providerType: string,
+    providerUuid: string
+): Promise<boolean> {
+    const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+    const field = url.searchParams.get('field') || '';
+
+    let providerPools: ProviderPools = {};
+    try {
+        providerPools = loadProviderPools(currentConfig, providerPoolManager);
+    } catch (error: unknown) {
+        logger.warn('[UI API] Failed to load provider pools:', getErrorMessage(error));
+    }
+
+    const provider = (providerPools[providerType] || []).find((p) => p.uuid === providerUuid);
+    if (!provider) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
+        return true;
+    }
+
+    const value = provider[field];
+    if (!isSensitiveField(field) || typeof value !== 'string') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: `Not a revealable secret field: ${field}` } }));
+        return true;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ field, value }));
+    return true;
 }
 
 /**

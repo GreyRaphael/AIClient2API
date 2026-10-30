@@ -6,6 +6,7 @@ import { isOAuthProvider, getProviderUploadDir } from '../../lib/provider-regist
 import { getFieldLabel } from '../../lib/provider-fields.js';
 import { toast } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
+import { useSecretReveal } from '../../hooks/useSecretReveal.js';
 import { Modal } from '../../components/Modal.js';
 import { Pagination } from '../../components/Pagination.js';
 import { Spinner } from '../../components/Spinner.js';
@@ -21,18 +22,22 @@ import {
 const PROVIDERS_PER_PAGE = 5;
 
 /**
- * @param {{id?: string, value: any, editing: boolean, onChange: (value: string) => void}} props
+ * 密码字段：服务端只下发打码值，点击“眼睛”时才按需回读明文。
+ * @param {{id?: string, value: any, editing: boolean, onChange: (value: string) => void, onReveal?: () => Promise<string|null>}} props
  */
-function PasswordField({ id, value, editing, onChange }) {
-    const [visible, setVisible] = useState(false);
-    if (!editing) {
-        return html`<input type="password" id=${id} readonly value=${value ? '••••••••' : ''} />`;
-    }
+function PasswordField({ id, value, editing, onChange, onReveal }) {
+    const { visible, shown, toggle, reset } = useSecretReveal({ value, reveal: onReveal });
+
     return html`
         <div class="password-input-wrapper">
-            <input id=${id} type=${visible ? 'text' : 'password'} value=${value ?? ''}
-                onInput=${(event) => onChange(event.currentTarget.value)} />
-            <button type="button" class="password-toggle" onClick=${() => setVisible(!visible)}>
+            <input id=${id} type=${visible ? 'text' : 'password'} value=${shown}
+                readonly=${!editing}
+                onInput=${(event) => {
+                    reset();
+                    onChange(event.currentTarget.value);
+                }} />
+            <button type="button" class="password-toggle" title=${t('common.togglePassword')}
+                aria-label=${t('common.togglePassword')} onClick=${() => void toggle()}>
                 <i class=${visible ? 'fas fa-eye-slash' : 'fas fa-eye'}></i>
             </button>
         </div>`;
@@ -47,10 +52,11 @@ function PasswordField({ id, value, editing, onChange }) {
  *   onChange: (value: any) => void,
  *   onUpload?: () => void,
  *   uploading?: boolean,
- *   id?: string
+ *   id?: string,
+ *   onRevealSecret?: (fieldKey: string) => Promise<string|null>
  * }} props
  */
-function ProviderField({ fieldKey, definition, value, editing, onChange, onUpload, uploading, id }) {
+function ProviderField({ fieldKey, definition, value, editing, onChange, onUpload, uploading, id, onRevealSecret }) {
     const label = getFieldLabel(fieldKey);
     const isPassword = fieldKey.toLowerCase().includes('key') || fieldKey.toLowerCase().includes('password');
     const isOAuthPath = fieldKey.includes('OAUTH_CREDS_FILE_PATH');
@@ -72,7 +78,8 @@ function ProviderField({ fieldKey, definition, value, editing, onChange, onUploa
                     <option value=${option.value} key=${option.value}>${option.label}</option>`)}
             </select>`;
     } else if (isPassword) {
-        control = html`<${PasswordField} id=${id} value=${value} editing=${editing} onChange=${onChange} />`;
+        control = html`<${PasswordField} id=${id} value=${value} editing=${editing} onChange=${onChange}
+            onReveal=${onRevealSecret ? () => onRevealSecret(fieldKey) : undefined} />`;
     } else if (isOAuthPath) {
         control = html`
             <div class="file-input-group">
@@ -572,6 +579,13 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
         const renderField = (key) => html`
             <${ProviderField} key=${key} fieldKey=${key} id=${`${node.uuid}-${key}`}
                 definition=${fieldDefinitions.get(key)}
+                onRevealSecret=${async (secretField) => {
+                    const result = await api.get(
+                        `/providers/${encodeURIComponent(providerType)}/${node.uuid}/secret`,
+                        { field: secretField }
+                    );
+                    return result?.value ?? null;
+                }}
                 value=${values[key]}
                 editing=${editing}
                 onChange=${(value) => {

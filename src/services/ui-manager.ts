@@ -166,6 +166,21 @@ export async function handleUIApiRequests(
         return await configApi.handleGetConfig(req, res, currentConfig);
     }
 
+    // Reveal a single masked secret from the config (eye button)
+    if (method === 'GET' && pathParam === '/api/config/secret') {
+        return await configApi.handleRevealSecret(req, res, currentConfig);
+    }
+
+    // Reveal a single masked secret of a provider node (eye button)
+    const revealProviderSecretMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/secret$/);
+    if (method === 'GET' && revealProviderSecretMatch) {
+        const providerType = decodeURIComponent(revealProviderSecretMatch[1]);
+        const providerUuid = decodeURIComponent(revealProviderSecretMatch[2]);
+        return await providerApi.handleRevealProviderSecret(
+            req, res, currentConfig, providerPoolManager, providerType, providerUuid
+        );
+    }
+
     // Get access overview information for the simplified connection page
     if (method === 'GET' && pathParam === '/api/access-info') {
         return await accessApi.handleGetAccessInfo(req, res, currentConfig, providerPoolManager);

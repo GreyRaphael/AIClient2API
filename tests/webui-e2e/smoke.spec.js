@@ -140,12 +140,12 @@ test.describe('console shell', () => {
         await expect(page.locator('#accessProvidersTable .access-empty'))
             .toContainText('当前没有已配置节点的供应商');
 
-        await expect(keyInput).toHaveValue('e2e-api-key');
         const keyInput = page.locator('#accessApiKeyField');
         await expect(keyInput).toHaveAttribute('type', 'password');
         await expect(keyInput).toHaveValue('e2e-api-key');
         await page.locator('#toggleAccessApiKey').click();
         await expect(keyInput).toHaveAttribute('type', 'text');
+        await expect(keyInput).toHaveValue('e2e-api-key');
 
         const origin = await page.evaluate(() => location.origin);
         await expect(page.locator('#accessBaseUrlField')).toHaveValue(origin);
@@ -190,6 +190,25 @@ test.describe('console shell', () => {
         await page.locator('#configOpenQuickAccess').click();
         await expect(page).toHaveURL(/#access$/);
         await expect(page.locator('section#access.active')).toBeVisible();
+        expect(problems).toEqual([]);
+    });
+
+    test('配置页：API 密钥“眼睛”按钮回读明文', async ({ authedPage: page, problems }) => {
+        await page.goto('/#config');
+        await expect(page.locator('section#config.active')).toBeVisible();
+
+        const input = page.locator('#apiKey');
+        const toggle = page.locator('.password-toggle').first();
+        await expect(input).toHaveValue('******');
+        await expect(input).toHaveAttribute('type', 'password');
+
+        await toggle.click();
+        await expect(input).toHaveAttribute('type', 'text');
+        await expect(input).toHaveValue('e2e-api-key');
+
+        await toggle.click();
+        await expect(input).toHaveAttribute('type', 'password');
+        await expect(input).toHaveValue('e2e-api-key');
         expect(problems).toEqual([]);
     });
 

@@ -1,7 +1,8 @@
 /** 配置页字段声明与渲染组件（数据驱动，替代 423 行手写 HTML）。 */
-import { html, useState } from '../../html.js';
+import { html } from '../../html.js';
 import { t } from '../../lib/i18n.js';
 import { Switch } from '../../components/Switch.js';
+import { useSecretReveal } from '../../hooks/useSecretReveal.js';
 
 const select = (id, labelKey, labelPrefix, options, extra = {}) => ({
     type: 'select', id, labelKey, labelPrefix, options, ...extra
@@ -82,18 +83,28 @@ export const FIELD_DEFS = {
 };
 
 /**
- * @param {{id: string, value: any, onChange: (value: any) => void, extra?: any}} props
+ * @param {{
+ *   id: string,
+ *   value: any,
+ *   onChange: (value: any) => void,
+ *   extra?: any,
+ *   reveal?: () => Promise<string|null>
+ * }} props
  */
-function PasswordInput({ id, value, onChange, extra }) {
-    const [visible, setVisible] = useState(false);
+function PasswordInput({ id, value, onChange, extra, reveal }) {
+    const { visible, shown, toggle, reset } = useSecretReveal({ value, reveal });
+
     return html`
         <div class="password-input-wrapper">
             <div class="input-with-toggle">
                 <input id=${id} type=${visible ? 'text' : 'password'} class="form-control"
-                    value=${value} autocomplete="off"
-                    onInput=${(event) => onChange(event.currentTarget.value)} />
+                    value=${shown} autocomplete="off"
+                    onInput=${(event) => {
+                        reset();
+                        onChange(event.currentTarget.value);
+                    }} />
                 <button type="button" class="password-toggle" aria-label=${t('common.togglePassword')}
-                    onClick=${() => setVisible(!visible)}>
+                    title=${t('common.togglePassword')} onClick=${() => void toggle()}>
                     <i class=${visible ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true"></i>
                 </button>
             </div>
@@ -101,7 +112,16 @@ function PasswordInput({ id, value, onChange, extra }) {
         </div>`;
 }
 
-export function ConfigField({ def, value, onChange, extra }) {
+/**
+ * @param {{
+ *   def: any,
+ *   value: any,
+ *   onChange: (value: any) => void,
+ *   extra?: any,
+ *   reveal?: () => Promise<string|null>
+ * }} props
+ */
+export function ConfigField({ def, value, onChange, extra, reveal }) {
     if (!def) return null;
 
     if (def.type === 'toggle') {
@@ -127,7 +147,7 @@ export function ConfigField({ def, value, onChange, extra }) {
                 value=${value}
                 onInput=${(event) => onChange(event.currentTarget.value)}></textarea>`;
     } else if (def.type === 'password') {
-        control = html`<${PasswordInput} id=${def.id} value=${value} onChange=${onChange} extra=${extra} />`;
+        control = html`<${PasswordInput} id=${def.id} value=${value} onChange=${onChange} extra=${extra} reveal=${reveal} />`;
     } else {
         control = html`
             <input id=${def.id} class="form-control" type=${def.type === 'number' ? 'number' : 'text'}

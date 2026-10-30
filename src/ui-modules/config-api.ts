@@ -13,6 +13,7 @@ import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
+import { getErrorMessage } from '../utils/error.ts';
 import { validateCredentials } from './auth.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
@@ -128,6 +129,38 @@ export async function handleGetConfig(req: IncomingMessage, res: ServerResponse,
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(safeConfig));
     return true;
+}
+
+/** 允许通过“眼睛”按钮回读明文的配置字段白名单（其余字段一律拒绝） */
+const REVEALABLE_CONFIG_FIELDS = new Set(['REQUIRED_API_KEY']);
+
+/**
+ * 获取脱敏系卖字段的明文（供前端“眼睛”按钮真正展示所配值）
+ * 仅返回白名单内的单个字段，避免把整份敏感配置一次性下发。
+ */
+export async function handleRevealSecret(
+    req: IncomingMessage,
+    res: ServerResponse,
+    currentConfig: Record<string, unknown>
+): Promise<boolean> {
+    try {
+        const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+        const field = url.searchParams.get('field') || '';
+        const value = currentConfig[field];
+        if (!REVEALABLE_CONFIG_FIELDS.has(field) || typeof value !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: `Unknown secret field: ${field}` } }));
+            return true;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ field, value }));
+        return true;
+    } catch (error: unknown) {
+        logger.error('[UI API] Failed to reveal secret:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Failed to reveal secret: ' + getErrorMessage(error) } }));
+        return true;
+    }
 }
 
 /**

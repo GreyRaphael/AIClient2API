@@ -30,6 +30,8 @@ export default function AccessSection() {
     }, [error]);
 
     const origin = typeof window === 'undefined' ? '' : window.location.origin;
+    // /access-info 本身就返回明文 Key（该页面用于快速分发给客户端），
+    // 因此这里不需要“回读明文”，切换 input type 即可。
     const apiKey = data?.apiKey || '';
     const defaultProviders = data?.defaultProviders || [];
 

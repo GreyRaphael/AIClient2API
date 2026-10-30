@@ -116,7 +116,10 @@ export default function ConfigSection() {
 
     const field = (key, extra) => html`
         <${ConfigField} def=${FIELD_DEFS[key]} value=${form[key]}
-            onChange=${(value) => setField(key, value)} extra=${extra} />`;
+            onChange=${(value) => setField(key, value)} extra=${extra}
+            reveal=${key === 'REQUIRED_API_KEY'
+                ? async () => (await api.get('/config/secret', { field: key }))?.value
+                : undefined} />`;
 
     const generateApiKey = async () => {
         const bytes = new Uint8Array(16);
