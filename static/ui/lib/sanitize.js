@@ -10,7 +10,10 @@ const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 
 /**
  * 判断链接是否安全：
- *  - 允许 http(s)、mailto、站内绝对路径（但拒绝 `//host` 与 `/\host`）和锚点；
+ *  - 允许 http(s)、mailto、锚点；
+ *  - 允许站内绝对路径（拒绝 `//host` 与 `/\host` 这类协议相对写法）；
+ *  - 允许站内相对路径（如插件声明的 `potluck.html`）：不得以协议相对形式开头、
+ *    不得包含反斜杠，且不允许 `..` 路径穿越；
  *  - 其余协议（javascript:、data:、vbscript: 等）一律拒绝。
  *
  * @param {string|undefined|null} href
@@ -20,12 +23,28 @@ export function isSafeHref(href) {
     const value = String(href ?? '').trim();
     if (!value) return false;
     if (value.startsWith('#')) return true;
-    if (value.startsWith('/')) return !/^\/[/\\]/.test(value);
-    try {
-        return SAFE_PROTOCOLS.has(new URL(value).protocol);
-    } catch {
-        return false;
+
+    // 协议相对（//host）与反斜杠变体一律拒绝，避免被解析成外部主机
+    if (/^[\/\\]/.test(value)) {
+        if (/^\/[/\\]/.test(value)) return false;
+        // 落在站内的绝对路径
+        return !value.includes('\\');
     }
+
+    // 含协议头的地址只放行白名单协议
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) {
+        try {
+            return SAFE_PROTOCOLS.has(new URL(value).protocol);
+        } catch {
+            return false;
+        }
+    }
+
+    // 站内相对路径：禁止反斜杠与上跳目录
+    if (value.includes('\\')) return false;
+    const segments = value.split('/');
+    if (segments.includes('..')) return false;
+    return true;
 }
 
 /** @param {Node} node */

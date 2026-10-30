@@ -851,6 +851,40 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('插件页：描述中的插件页面链接可点击跳转（potluck / model-usage-stats）', async ({ authedPage: page, problems }) => {
+        await page.goto('/#plugins');
+        await expect(page.locator('section#plugins.active')).toBeVisible();
+        await expect(page.locator('#pluginsList .plugin-card').first()).toBeVisible();
+
+        // 插件描述是富文本，用相对路径指向插件自身的独立页面。
+        // sanitizeHtml 曾把相对路径 href 整个删掉，导致这些入口退化成不可点击的纯文本。
+        const potluck = page.locator('#pluginsList .plugin-description a', { hasText: 'potluck.html' }).first();
+        await expect(potluck).toHaveAttribute('href', 'potluck.html');
+        await expect(potluck).toHaveAttribute('target', '_blank');
+        await expect(potluck).toHaveAttribute('rel', /noopener/);
+
+        const stats = page.locator('#pluginsList .plugin-description a', { hasText: 'model-usage-stats.html' }).first();
+        await expect(stats).toHaveAttribute('href', 'model-usage-stats.html');
+
+        // 所有插件描述里的站内链接都不应被清洗成无 href 的裸 <a>
+        const hrefsMissing = await page.evaluate(() => [...document.querySelectorAll('#pluginsList .plugin-description a')]
+            .filter((a) => !a.getAttribute('href'))
+            .map((a) => a.textContent.trim()));
+        expect(hrefsMissing).toEqual([]);
+
+        // 实际点击验证能打开插件页面
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            potluck.click()
+        ]);
+        await popup.waitForLoadState('domcontentloaded');
+        expect(popup.url()).toContain('potluck.html');
+        await expect(popup.locator('body')).toContainText(/大锅饭|Potluck/i);
+        await popup.close();
+
+        expect(problems).toEqual([]);
+    });
+
     test('日志页：SSE 日志、自动滚动开关与清空', async ({ authedPage: page, problems }) => {
         await page.goto('/#logs');
         await expect(page.locator('section#logs.active')).toBeVisible();
