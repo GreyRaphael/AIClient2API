@@ -48,7 +48,6 @@ export default {
     // Dashboard
     'dashboard.title': '系统概览',
     'dashboard.uptime': '运行时间',
-    'dashboard.moreSystemInfo': '更多系统信息',
     'dashboard.systemInfo': '系统信息',
     'dashboard.version': '版本号',
     'dashboard.update.check': '检查更新',
@@ -66,7 +65,6 @@ export default {
     'dashboard.update.failed': '更新失败: {error}',
     'dashboard.update.confirmMsg': '确定要更新到版本 {version} 吗？更新期间服务可能会短暂不可用。',
     'dashboard.nodeVersion': 'Node.js版本',
-    'dashboard.serverTime': '服务器时间',
     'dashboard.memoryUsage': '内存使用',
     'dashboard.cpuUsage': 'CPU 使用',
     'dashboard.providerStatus': '提供商节点状态',
@@ -77,7 +75,6 @@ export default {
     'dashboard.serviceMode.standalone': '独立模式',
     'dashboard.serviceMode.canRestart': '支持自动重启',
     'dashboard.processPid': '进程 PID',
-    'dashboard.platform': '操作系统',
     'dashboard.routing.description': '通过不同路径路由访问不同的AI模型提供商，支持灵活的模型切换',
     'dashboard.routing.oauth': '突破限制',
     'dashboard.routing.official': '官方API/三方',

@@ -105,14 +105,23 @@ test.describe('console shell', () => {
             .toHaveAttribute('content', 'AIClient2API Management Console - Unified management of AI service providers');
     });
 
-    test('仪表盘：系统信息、模型列表与赞助商', async ({ authedPage: page, problems }) => {
+    test('仪表盘：系统信息（上排 3 个 + 下排 4 个，无折叠）、模型列表与赞助商', async ({ authedPage: page, problems }) => {
         await page.goto('/#dashboard');
         await expect(page.locator('section#dashboard.active')).toBeVisible();
         await expect(page.locator('#appVersion')).not.toHaveText('--');
         await expect(page.locator('#nodeVersion')).not.toHaveText('--');
         await expect(page.locator('#uptime')).not.toHaveText('--');
         await expect(page.locator('#serviceMode')).toContainText(/独立模式|子进程模式/);
+        await expect(page.locator('#memoryUsage')).not.toHaveText('--');
+        await expect(page.locator('#cpuUsage')).not.toHaveText('--');
+        await expect(page.locator('#processPid')).not.toHaveText('--');
         await expect(page.locator('#checkUpdateBtn')).toBeVisible();
+
+        // 7 张卡片全部平铺展示，不再有“更多系统信息”折叠
+        await expect(page.locator('.system-info-panel .info-grid .info-item')).toHaveCount(7);
+        await expect(page.locator('.system-info-panel details')).toHaveCount(0);
+        await expect(page.locator('.system-info-details')).toHaveCount(0);
+
         await expect(page.locator('#sponsors')).toContainText('项目赞助商');
         await expect(page.locator('.models-toolbar').or(page.locator('.models-empty'))).toBeVisible();
         expect(problems).toEqual([]);

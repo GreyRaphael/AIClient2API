@@ -160,25 +160,9 @@ body .models-toolbar {
     margin-bottom: 0.75rem;
 }
 
-/* 仪表盘：系统信息标签允许换行时，图标与首行对齐 */
-body .info-item .info-label {
-    align-items: flex-start;
-    line-height: 24px;
-}
-
 /* 快速接入：页头按钮与标题垂直对齐 */
-body .access-header > .btn {
-    margin-top: 0.4rem;
+body .access-header-main > .btn {
     flex-shrink: 0;
-}
-
-/* 快速接入：片段卡片标题图标与文字对齐、复制按钮与标题同一行 */
-body .access-snippet-head {
-    align-items: flex-start;
-}
-
-body .access-snippet-head h4 {
-    min-height: 1.75rem;
 }
 
 /* 凭据文件管理：筛选区各控件底部对齐、标签行高一致 */

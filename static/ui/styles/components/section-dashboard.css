@@ -211,63 +211,31 @@
 .info-item .info-label {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
     color: var(--text-secondary);
     font-size: 0.875rem;
     font-weight: 500;
+    line-height: 1.4;
+    text-align: center;
 }
 
 .info-item .info-label i {
     color: var(--primary-color);
-    width: 16px;
     text-align: center;
 }
 
 .info-item .info-value {
     color: var(--text-primary);
-    font-size: 1rem;
     font-weight: 600;
 }
 
 .version-display-wrapper {
     display: flex;
     align-items: center;
-    padding-left: 1.5rem;
     flex-wrap: wrap;
     gap: 0.5rem;
-}
-
-.system-info-details {
-    margin-top: 1rem;
-    padding-top: 0.75rem;
-    border-top: 1px dashed var(--border-color);
-}
-
-.system-info-details summary {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    list-style: none;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    user-select: none;
-}
-
-.system-info-details summary::-webkit-details-marker {
-    display: none;
-}
-
-.system-info-details summary i {
-    transition: transform 0.2s ease;
-}
-
-.system-info-details[open] summary i {
-    transform: rotate(180deg);
-}
-
-.system-info-details .info-grid {
-    margin-top: 1rem;
 }
 
 .status-healthy {
@@ -1193,17 +1161,35 @@
     letter-spacing: -0.01em;
 }
 
-/* 系统信息：每一项做成小卡片 */
+/* 系统信息：每一项做成小卡片（文字居中，卡片按宽度自动换行，避免值被挤断行） */
 .info-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.75rem;
 }
 
+/* 桌面：12 栏 —— 上排 3 个（各 4 栏）、下排 4 个（各 3 栏） */
+@media (min-width: 1025px) {
+    .info-grid {
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .info-grid > .info-item {
+        grid-column: span 3;
+    }
+
+    .info-grid > .info-item:nth-child(-n + 3) {
+        grid-column: span 4;
+    }
+}
+
 .info-item {
-    padding: 0.875rem 1rem;
+    padding: 0.75rem 0.5rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     gap: 0.35rem;
+    align-items: center;
+    text-align: center;
     transition: var(--transition);
 }
 
@@ -1212,6 +1198,7 @@
     background: var(--primary-10);
 }
 
+/* 视觉优化：图标做成小色块、数值单行不折行 */
 .info-item .info-label i {
     width: 24px;
     height: 24px;
@@ -1221,15 +1208,18 @@
     border-radius: var(--radius-sm);
     background: var(--primary-10);
     font-size: 0.75rem;
+    flex-shrink: 0;
 }
 
 .info-item .info-value {
-    font-size: 1.05rem;
+    font-size: 0.95rem;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .version-display-wrapper {
-    padding-left: 2rem;
+    justify-content: center;
+    text-align: center;
 }
 
 /* 提供商状态卡片 */

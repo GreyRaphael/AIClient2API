@@ -48,7 +48,6 @@ export default {
     // Dashboard
     'dashboard.title': 'System Overview',
     'dashboard.uptime': 'Uptime',
-    'dashboard.moreSystemInfo': 'More System Info',
     'dashboard.systemInfo': 'System Information',
     'dashboard.version': 'Version',
     'dashboard.update.check': 'Check Update',
@@ -66,7 +65,6 @@ export default {
     'dashboard.update.failed': 'Update failed: {error}',
     'dashboard.update.confirmMsg': 'Are you sure you want to update to version {version}? Service might be briefly unavailable during update.',
     'dashboard.nodeVersion': 'Node.js Version',
-    'dashboard.serverTime': 'Server Time',
     'dashboard.memoryUsage': 'Memory Usage',
     'dashboard.cpuUsage': 'CPU Usage',
     'dashboard.providerStatus': 'Provider Nodes Status',
@@ -77,7 +75,6 @@ export default {
     'dashboard.serviceMode.standalone': 'Standalone Mode',
     'dashboard.serviceMode.canRestart': 'Auto-restart supported',
     'dashboard.processPid': 'Process PID',
-    'dashboard.platform': 'Platform',
     'dashboard.routing.description': 'Access different AI model providers through different path routes, supporting flexible model switching',
     'dashboard.routing.oauth': 'Limit Breakthrough',
     'dashboard.routing.official': 'Official/Third-party API',

@@ -1,21 +1,14 @@
 /** 系统信息 / 更新面板（Phase 3 迁移）。 */
 import { html, useEffect, useMemo, useState } from '../../html.js';
-import { t, lang } from '../../lib/i18n.js';
+import { t } from '../../lib/i18n.js';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../hooks/useApi.js';
 import { useInterval } from '../../hooks/useInterval.js';
 import { serviceMode } from '../../store/system.js';
 import { toast } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
-import { formatUptime, formatServerTime } from '../../lib/format.js';
+import { formatUptime } from '../../lib/format.js';
 import { compareVersions } from '../../lib/provider-manager-utils.js';
-
-const PLATFORM_NAMES = {
-    win32: 'Windows',
-    darwin: 'macOS',
-    linux: 'Linux',
-    freebsd: 'FreeBSD'
-};
 
 export function SystemInfoPanel() {
     const { data } = useApi(async ({ signal }) => {
@@ -41,16 +34,12 @@ export function SystemInfoPanel() {
     }, [mode]);
 
     const base = useMemo(() => ({
-        serverTime: system?.serverTime ? new Date(system.serverTime).getTime() : null,
         uptime: typeof system?.uptime === 'number' ? system.uptime : null,
         at: Date.now()
     }), [system]);
 
     const elapsedSeconds = Math.max(0, Math.floor((now - base.at) / 1000));
     const uptimeText = base.uptime === null ? '--' : formatUptime(base.uptime + elapsedSeconds);
-    const serverTimeText = base.serverTime === null
-        ? '--'
-        : formatServerTime(new Date(base.serverTime + elapsedSeconds * 1000), lang.value);
 
     const runCheckUpdate = async (silent = false) => {
         setChecking(true);
@@ -203,39 +192,18 @@ export function SystemInfoPanel() {
                                 title=${t('dashboard.serviceMode.canRestart')}></i>` : null}
                     </div>
                 </div>
-            </div>
-
-            <details class="system-info-details">
-                <summary>
-                    <i class="fas fa-chevron-down"></i>
-                    <span>${t('dashboard.moreSystemInfo')}</span>
-                </summary>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <span class="info-label"><i class="fas fa-clock"></i> <span>${t('dashboard.serverTime')}</span></span>
-                        <div class="version-display-wrapper"><span class="info-value" id="serverTime">${serverTimeText}</span></div>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label"><i class="fas fa-desktop"></i> <span>${t('dashboard.platform')}</span></span>
-                        <div class="version-display-wrapper">
-                            <span class="info-value" id="platformInfo">
-                                ${PLATFORM_NAMES[mode?.platform] || mode?.platform || '--'}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label"><i class="fas fa-memory"></i> <span>${t('dashboard.memoryUsage')}</span></span>
-                        <div class="version-display-wrapper"><span class="info-value" id="memoryUsage">${system?.memoryUsage || '--'}</span></div>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label"><i class="fas fa-microchip"></i> <span>${t('dashboard.cpuUsage')}</span></span>
-                        <div class="version-display-wrapper"><span class="info-value" id="cpuUsage">${system?.cpuUsage || '--'}</span></div>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label"><i class="fas fa-microchip"></i> <span>${t('dashboard.processPid')}</span></span>
-                        <div class="version-display-wrapper"><span class="info-value" id="processPid">${mode?.pid || '--'}</span></div>
-                    </div>
+                <div class="info-item">
+                    <span class="info-label"><i class="fas fa-memory"></i> <span>${t('dashboard.memoryUsage')}</span></span>
+                    <div class="version-display-wrapper"><span class="info-value" id="memoryUsage">${system?.memoryUsage || '--'}</span></div>
                 </div>
-            </details>
+                <div class="info-item">
+                    <span class="info-label"><i class="fas fa-microchip"></i> <span>${t('dashboard.cpuUsage')}</span></span>
+                    <div class="version-display-wrapper"><span class="info-value" id="cpuUsage">${system?.cpuUsage || '--'}</span></div>
+                </div>
+                <div class="info-item">
+                    <span class="info-label"><i class="fas fa-microchip"></i> <span>${t('dashboard.processPid')}</span></span>
+                    <div class="version-display-wrapper"><span class="info-value" id="processPid">${mode?.pid || '--'}</span></div>
+                </div>
+            </div>
         </div>`;
 }
