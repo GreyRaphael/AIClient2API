@@ -75,13 +75,15 @@ E2E 覆盖登录、10 个控制台页面、中英/明暗切换、SSE 状态、Pr
 
   ```bash
   git fetch --tags
-  git checkout v5.2.0
+  git checkout v5.3.0
   npm install
   npm start
   ```
 
-- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `5.2.0` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
+- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `5.3.0` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
+
+- **升级后建议立即更换管理员密码与 `REQUIRED_API_KEY`**：v5.2.0 及更早版本存在鉴权绕过（`Bearer __proto__` 等可直接通过），若服务曾暴露在公网，历史密钥应视为已泄露。
 
 - 升级后请重启服务并硬刷新 WebUI，以加载新的 `static/ui/` 模块与本地 Font Awesome 子集。
 
-- 从 v5.1.0 升级无需修改配置；已有 Provider 池、插件配置与自定义模型配置继续可用。
+- 从 v5.2.0 升级无需修改配置；已有 Provider 池、插件配置与自定义模型配置继续可用。
