@@ -305,6 +305,34 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('提供商配置弹窗：编辑态下右上角 × 仍可直接关闭', async ({ authedPage: page, problems }) => {
+        await page.goto('/#providers');
+        await page.locator('#providersList .provider-item[data-provider-type="openai-custom"]').click();
+        await expect(page.locator('.provider-modal')).toBeVisible();
+
+        // 新增态
+        await page.locator('.provider-summary-actions .btn-success').click();
+        await expect(page.locator('.add-provider-form')).toBeVisible();
+        await page.locator('.provider-modal .modal-close').click();
+        await expect(page.locator('.provider-modal')).toHaveCount(0);
+
+        // 编辑态：展开某个节点并点“编辑”
+        await page.locator('#providersList .provider-item[data-provider-type="openai-custom"]').click();
+        await page.locator('.provider-summary-actions .btn-success').click();
+        await page.locator('#new-customName').fill('CloseCheck');
+        await page.locator('#new-OPENAI_API_KEY').fill('sk-close-check');
+        await page.locator('#new-OPENAI_BASE_URL').fill('https://example.com/v1');
+        await page.locator('.add-provider-form .btn-success').click();
+        await expect(page.locator('#toastContainer')).toContainText('添加成功');
+
+        const node = page.locator('.provider-item-detail', { hasText: 'CloseCheck' });
+        await node.locator('.btn-edit').click();
+        await expect(node.locator('.btn-save')).toBeVisible();
+        await page.locator('.provider-modal .modal-close').click();
+        await expect(page.locator('.provider-modal')).toHaveCount(0);
+        expect(problems).toEqual([]);
+    });
+
     test('提供商页：节点新增、编辑、停用与删除', async ({ authedPage: page, problems }) => {
         await page.goto('/#providers');
         await expect(page.locator('section#providers.active')).toBeVisible();

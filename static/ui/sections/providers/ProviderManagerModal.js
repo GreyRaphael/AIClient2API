@@ -539,8 +539,14 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
         }
     };
 
+    // 关闭弹窗：先丢弃未保存的编辑/新增状态，再关闭。
+    // 此前在编辑/新增态下直接 return，导致右上角 × 点了没反应，必须先保存或取消才能关闭。
     const tryClose = () => {
-        if (editingId || addMode) return;
+        if (editingId) cancelEdit();
+        if (addMode) {
+            setAddMode(false);
+            setAddValues({});
+        }
         onClose();
     };
 
