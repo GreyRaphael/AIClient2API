@@ -111,11 +111,12 @@
   </tr>
   <tr>
     <td width="25%" align="center" valign="middle">
-      <img src="static/wechat.png" alt="Sponsor Contact" width="150">
+      <img src="static/assets/qr-placeholder.svg" alt="QR code placeholder" width="150">
     </td>
     <td width="75%" align="left" valign="middle">
       <strong>成为赞助商</strong><br>
-      如果您有意赞助本项目，请扫描左侧微信二维码（添加时请注明来意：<strong>赞助</strong>）。
+      如果您有意赞助本项目，欢迎联系我们（添加时请注明来意：<strong>赞助</strong>）。<br>
+      <sub>左侧为二维码占位图 —— 将 <code>static/assets/qr-placeholder.svg</code> 替换为你自己的二维码即可恢复扫码。</sub>
     </td>
   </tr>
 </table>

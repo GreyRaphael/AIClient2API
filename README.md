@@ -111,11 +111,12 @@
   </tr>
   <tr>
     <td width="25%" align="center" valign="middle">
-      <img src="static/wechat.png" alt="Sponsor Contact" width="150">
+      <img src="static/assets/qr-placeholder.svg" alt="QR code placeholder" width="150">
     </td>
     <td width="75%" align="left" valign="middle">
       <strong>Become a Sponsor</strong><br>
-      If you would like to sponsor this project, please scan the WeChat QR code on the left (Please state your intent: <strong>Sponsorship</strong>).
+      If you would like to sponsor this project, please get in touch (please state your intent: <strong>Sponsorship</strong>).<br>
+      <sub>The QR slot on the left is a placeholder — swap <code>static/assets/qr-placeholder.svg</code> for your own QR image to enable scanning.</sub>
     </td>
   </tr>
 </table>

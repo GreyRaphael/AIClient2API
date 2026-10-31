@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="QR code placeholder">
+  <style>
+    .frame { stroke: #cbd5e1; }
+    .finder { stroke: #94a3b8; }
+    .finder-dot { fill: #94a3b8; }
+    .module { fill: #cbd5e1; }
+    @media (prefers-color-scheme: dark) {
+      .frame { stroke: #334155; }
+      .finder { stroke: #64748b; }
+      .finder-dot { fill: #64748b; }
+      .module { fill: #334155; }
+    }
+  </style>
+  <rect x="1" y="1" width="98" height="98" rx="6" fill="none" stroke-width="2"
+    stroke-dasharray="6 5" class="frame" />
+  <g fill="none" stroke-width="3" class="finder">
+    <rect x="18" y="18" width="20" height="20" rx="3" />
+    <rect x="62" y="18" width="20" height="20" rx="3" />
+    <rect x="18" y="62" width="20" height="20" rx="3" />
+  </g>
+  <g class="finder-dot">
+    <rect x="23" y="23" width="10" height="10" rx="1.5" />
+    <rect x="67" y="23" width="10" height="10" rx="1.5" />
+    <rect x="23" y="67" width="10" height="10" rx="1.5" />
+  </g>
+  <g class="module">
+    <rect x="46" y="46" width="6" height="6" /><rect x="56" y="46" width="6" height="6" />
+    <rect x="46" y="56" width="6" height="6" /><rect x="66" y="56" width="6" height="6" />
+    <rect x="76" y="66" width="6" height="6" /><rect x="56" y="76" width="6" height="6" />
+    <rect x="46" y="76" width="6" height="6" /><rect x="76" y="46" width="6" height="6" />
+  </g>
+</svg>
