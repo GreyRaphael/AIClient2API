@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src/img/logo-mid.webp" alt="logo"  style="width: 128px; height: 128px;margin-bottom: 3px;">
+<img src="static/assets/logo.svg" alt="logo" style="width: 128px; height: 128px; margin-bottom: 3px;">
 
 # AIClient2API（A2）🚀
 
