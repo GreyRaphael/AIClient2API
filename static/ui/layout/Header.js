@@ -102,14 +102,6 @@ export function Header() {
                         <span class="github-label">${t('header.githubStar')}</span>
                         <i class="fas fa-star github-star-icon" aria-hidden="true"></i>
                     </a>
-                    <a href="https://space.bilibili.com/3546828630919792/upload/video" target="_blank"
-                        rel="noopener noreferrer" class="kiro-video-link" title=${t('header.videoTutorial')}>
-                        <i class="fas fa-video"></i> <span>${t('header.videoTutorial')}</span>
-                    </a>
-                    <a href="https://a001.hex2077.dev/" target="_blank" rel="noopener noreferrer"
-                        class="kiro-buy-link" title=${t('header.shop')}>
-                        <i class="fas fa-shopping-cart"></i> <span>${t('header.shop')}</span>
-                    </a>
                     <${StatusBadge} />
                     <button id="themeToggleBtn" class="theme-toggle" aria-label=${t('header.themeToggle')}
                         title=${t('header.themeToggle')} onClick=${() => toggleTheme()}>

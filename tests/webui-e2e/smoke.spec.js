@@ -50,6 +50,23 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
+    test('Header 不再出现原作者的视频教程与小卖部入口', async ({ authedPage: page, problems }) => {
+        await page.goto('/#dashboard');
+        await expect(page.locator('section#dashboard.active')).toBeVisible();
+
+        // 两个推广链接已移除（B 站视频教程 / 第三方小卖部），连同其 DOM 与文案
+        await expect(page.locator('.kiro-video-link')).toHaveCount(0);
+        await expect(page.locator('.kiro-buy-link')).toHaveCount(0);
+        await expect(page.locator('.header-controls a[href*="bilibili"]')).toHaveCount(0);
+        await expect(page.locator('.header-controls a[href*="hex2077"]')).toHaveCount(0);
+
+        const headerText = await page.locator('.header-controls').innerText();
+        expect(headerText).not.toContain('视频教程');
+        expect(headerText).not.toContain('小卖部');
+
+        expect(problems).toEqual([]);
+    });
+
     test('11 个页面均可通过侧边栏与 hash 访问，且无报错', async ({ authedPage: page, problems }) => {
         await page.goto('/#dashboard');
         await expect(page.locator('section#dashboard.active')).toBeVisible();

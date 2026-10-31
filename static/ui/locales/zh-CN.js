@@ -7,8 +7,6 @@ export default {
     'header.github': '在 GitHub 上给项目点个 Star',
     'header.githubStar': '点个 Star',
     'header.menu': '菜单',
-    'header.videoTutorial': '视频教程',
-    'header.shop': '小卖部',
     'header.themeToggle': '切换主题',
     'header.status.connecting': '连接中...',
     'header.status.connected': '已连接',
