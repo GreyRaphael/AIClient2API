@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v6.0.1] - 2026-10-31
+
+### Fixed
+
+- **插件页的插件入口链接恢复可点击**：插件描述里用相对路径指向自身页面（如 `<a href="potluck.html">`），而 `sanitizeHtml` 的链接白名单只接受 `/` 开头的绝对路径与 `http(s)`/`mailto`，相对路径被判定为不安全并移除了 `href`——包含 `potluck.html`、`potluck-user.html`、`model-usage-stats.html` 的三个入口因此退化成不可点击的纯文本。现在同源相对路径可通过校验（仍拒绝协议相对 `//host`、`/\host`、反斜杠与 `..` 路径穿越），危险协议照旧拒绝。
+- **登录页头像与主界面左上角 Logo 改由本地 SVG 提供**：此前这两处（以及两个入口 HTML 的 favicon）都在引用原作者服务器上的远程图片 `https://src.hex2077.dev/logo/favicon.ico`，服务断网或对方关站时图标会直接加载失败。现在新增 `static/assets/logo.svg`（三路上游汇聚为单一输出）与 `static/assets/user-avatar.svg`，均使用主题渐变配色，favicon 同步指向 logo.svg。
+
+### Changed
+
+- **Header 移除原作者的两个推广入口**：B 站「视频教程」与第三方「小卖部」链接及其文案、样式全部删除，头部控件由 8 个精简为 6 个（点 Star、连接状态、主题、语言、登出、重载）。
+- **README 品牌资源清理**：头部图标由原作者卡通插画 `logo-mid.webp` 换为 `static/assets/logo.svg`；赞助商区块的微信二维码图片换为同尺寸的 `static/assets/qr-placeholder.svg`（带 `prefers-color-scheme` 深色适配），并修正「请扫描左侧二维码」的过时文案；删除已无引用的 `logo-mid.webp`、`logo-mid0.webp`、`web.png`、`wechat.png`。
+- Font Awesome 子集由 139 个图标收敛为 137 个（`fa-video` 随推广链接移除而失效）。
+- locale 词典由 743 条收敛至 741 条（中英始终保持对齐）。
+
+### Verification
+
+- `npm test`：**72 suites / 854 tests 全绿**。
+- WebUI E2E：**42/42 通过**。
+- `npm run verify`（typecheck / plugins / strict / any / imports / cycles / coverage / runtime smoke）、`typecheck:webui`、`vendor:webui:check` 全部通过。
+
 ## [v6.0.0] - 2026-10-30
 
 ### Breaking Changes

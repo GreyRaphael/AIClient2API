@@ -1,51 +1,67 @@
-# AIClient-2-API 发布说明 (v6.0.0)
+# AIClient-2-API 发布说明 (v6.0.1)
 
-> **v6.0.0** 是 v5.3.0 之后的**不兼容清理版本**：移除了 Fallback 机制与 System Prompt 配置两块功能，并把未知名模型的处理从「静默回退」改为「直接报错」，**升级前请阅读下方 Breaking Changes**。
+> **v6.0.1** 是 v6.0.0 之后的**修复版本，建议所有 v6.0.0 用户升级**。
 >
-> 同时本版本将项目归属统一为本仓库（`GreyRaphael/AIClient2API`），删除了仪表盘若干冗余元素（版本下拉框、二维码图片、赞助商引导卡片、无意义的折叠包装），并让自定义模型列表默认按 ID 升序展示。后端 API 路径、Hash 路由、`localStorage` 键与插件静态路径保持兼容。
+> 本版本修好了三处会让界面「看着正常、实际不能用」的问题：插件页里 `potluck` / `model-usage-stats` 等入口链接点不动、登录页与左上角 Logo 依赖原作者服务器、以及 README 里的品牌图片仍是原作者素材。**无破坏性变更，无需修改配置**。
 
 ---
 
-## ⚠️ Breaking Changes（升级前必读）
+## 🐞 本次修复
 
-### 移除 Fallback 机制
+### 插件页的插件入口链接恢复了
 
-`providerFallbackChain`（跨类型回退链）、`modelFallbackMapping`（跨协议模型映射）与 `MODEL_FALLBACK_ENABLED` 开关已全部删除。
+插件描述里用相对路径指向自己的页面：
 
-- `ProviderPoolManager` 只在请求指定的 provider 类型内选节点，不再跨类型回退；
-- `acquireSlotWithFallback` / `selectProviderWithFallback` 保留方法名（调用方无需改动），但**恒返回 `isFallback: false`**，无可用节点时返回 `null`。
-
-### 未知名模型现在直接报错
-
-随开关移除，Kiro / Codex / Antigravity 遇到不在可用列表中的模型名会**抛出错误**，不再静默回退到默认模型。
-
-此前模型名拼写错误会被静默吞掉，请求实际打到另一个模型上并计费——现在会立刻失败并暴露问题。如果你的客户端依赖过「写错名字也能跑通」的行为，需要修正模型名。
-
-### 移除 System Prompt 配置
-
-`SYSTEM_PROMPT_FILE_PATH`、`SYSTEM_PROMPT_MODE`、`SYSTEM_PROMPT_REPLACEMENTS` 及配置页对应 UI（文件路径、append/overwrite、多行编辑框、替换规则表）已删除。
-
-- 请求不再被注入内置系统提示词；
-- 附带移除一个真实副作用：此前**每个请求**都会把该请求的 system prompt 覆盖写入 `configs/fetch_system_prompt.txt`，属于持续磁盘写入。
-
-### 仓库归属切换
-
-项目以 `GreyRaphael/AIClient2API` 为准：README、FUNDING、`docker/docker-compose.yml` 与内置文档示例均已改指向本仓库与 `greyraphael/aiclient-2-api` 镜像。上游专属资源（Trendshift 徽标、原文档站）已移除。
-
-### 升级操作
-
-```bash
-# 1) 备份配置
-cp configs/config.json configs/config.json.bak
-
-# 2) 删除已失效字段（残留会被忽略，不影响启动，但不再生效）
-#    providerFallbackChain / modelFallbackMapping / MODEL_FALLBACK_ENABLED
-#    SYSTEM_PROMPT_FILE_PATH / SYSTEM_PROMPT_MODE / SYSTEM_PROMPT_REPLACEMENTS
-
-# 3) 更新代码后重启
-git fetch --tags && git checkout v6.0.0
-npm install && npm start
+```html
+API 大锅饭 - Key 管理和用量统计插件<br>管理端：<a href="potluck.html">potluck.html</a>
 ```
+
+但 `sanitizeHtml` 的链接白名单只认三种：`#` 锚点、`/` 开头的绝对路径、`http(s)` / `mailto`。其余一律交给 `new URL(value)` 判断，而 `new URL('potluck.html')` 没有 base 时会**直接抛错**，于是落到 `catch { return false }`，`href` 被整个移除。
+
+结果是：页面上的 `potluck.html`、`potluck-user.html`、`model-usage-stats.html` 三处文字还带着链接样式，**但点了没反应**——看着像链接，其实已经不是链接了。
+
+修复方式不是给 `URL` 打补丁，而是显式处理同源相对路径，仍然拒绝这三类危险写法：
+
+- 协议相对地址（`//evil.example`、`/\evil.example`）
+- 含反斜杠的路径（Windows 风格绕过）
+- 含 `..` 的路径穿越
+
+`javascript:` / `data:` / `vbscript:` 等危险协议照旧拒绝。允许与拒绝两个方向都补了单元测试。
+
+### 品牌图片不再依赖原作者服务器
+
+登录页头像、主界面左上角 Logo、以及两个入口 HTML 的 favicon，此前都在引用：
+
+```
+https://src.hex2077.dev/logo/favicon.ico
+```
+
+这是原作者自己服务器上的文件。也就是说：**对方关站、或你的部署环境没有外网，这些图标就直接加载失败**（favicon 更是在浏览器标签页上空白）。
+
+现在改为仓库内的本地 SVG：
+
+| 文件 | 用途 |
+|---|---|
+| `static/assets/logo.svg` | 主界面左上角 Logo、favicon |
+| `static/assets/user-avatar.svg` | 登录页头像 |
+| `static/assets/qr-placeholder.svg` | README 赞助商二维码占位 |
+
+`logo.svg` 的图形是**三路上游汇聚为单一输出**——正好对应项目在做的事：把 Antigravity / Codex / Kiro 等多个仅客户端可用的 API，统一成一个 OpenAI 兼容接口。配色沿用主题渐变（`#059669 → #6366f1`），缩到 24px 的 Header 尺寸依然清晰。
+
+### README 品牌素材清理
+
+- 头部图标：原作者卡通插画 `logo-mid.webp` → 新的 `logo.svg`
+- 赞助商二维码：真实微信二维码图片 `wechat.png` → `qr-placeholder.svg`（虚线占位框，自带深色模式配色，GitHub 深色主题下不会看不见）
+- 修正了「请扫描左侧微信二维码」的过时文案（左侧现在是占位图）
+- 删除已无引用的 `logo-mid.webp`、`logo-mid0.webp`、`web.png`、`wechat.png`
+
+## 🧹 顺手精简
+
+- **Header 去掉两个原作者推广入口**：B 站「视频教程」与第三方「小卖部」，头部控件从 8 个减到 6 个（点 Star、连接状态、主题、语言、登出、重载），两套渐变胶囊按钮样式一并删除。
+- **Font Awesome 子集**：139 → 137 个图标（`fa-video` 随推广链接失效），woff2 体积同步减小。
+- **locale 词典**：743 → 741 条，中英始终保持逐条对齐。
+
+---
 
 ## 🎨 WebUI 无构建重构
 
@@ -109,13 +125,13 @@ npm install && npm start
 
 | 项目 | 结果 |
 |---|---|
-| `npm test` | **72 suites / 853 tests 全绿** |
-| WebUI E2E | **38/38 通过** |
+| `npm test` | **72 suites / 854 tests 全绿** |
+| WebUI E2E | **42/42 通过** |
 | `npm run verify` | **通过**（typecheck / plugins / strict / any / imports / cycles / coverage / runtime smoke） |
 | `npm run typecheck` | **通过** |
 | `npm run typecheck:webui` | **通过** |
 | `npm run vendor:webui:check` | **通过** |
-| Font Awesome 子集 | **139 icons** |
+| Font Awesome 子集 | **137 icons** |
 
 E2E 覆盖登录、10 个控制台页面、中英/明暗切换、SSE 状态、Provider 节点 CRUD、授权弹窗、Kiro AWS 单条/批量导入、Playground 流式对话、插件页、日志页、登出，以及 4 个独立页面。
 
@@ -125,16 +141,16 @@ E2E 覆盖登录、10 个控制台页面、中英/明暗切换、SSE 状态、Pr
 
   ```bash
   git fetch --tags
-  git checkout v6.0.0
+  git checkout v6.0.1
   npm install
   npm start
   ```
 
-- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `6.0.0` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
+- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `6.0.1` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
 
 - **若你仍在使用 v5.2.0 或更早版本**：那些版本存在鉴权绕过（`Bearer __proto__` 等可直接通过），升级后请立即更换管理员密码与 `REQUIRED_API_KEY`，历史密钥应视为已泄露。
 
 - 升级后请重启服务并硬刷新 WebUI，以加载新的 `static/ui/` 模块与本地 Font Awesome 子集。
 
-- 从 v5.3.0 升级：删除上文列出的 6 个失效配置字段即可，Provider 池、插件配置与自定义模型配置继续可用。
-- **请确认模型名拼写**：未知名模型现在会直接报错（此前会静默回退），受影响的自定义模型配置需修正。
+- **从 v6.0.0 升级到 v6.0.1 无需任何操作**：本版本只修界面与品牌资源，不涉及配置、数据库或接口变更。升级后硬刷新一次浏览器即可看到新 Logo 与可点击的插件入口。
+- 若你此前在 `configs/config.json` 里配过 `SYSTEM_PROMPT_FILE_PATH` / `SYSTEM_PROMPT_MODE` / `SYSTEM_PROMPT_REPLACEMENTS`，请在 v6.0.0 或更早版本时期按 v6.0.0 的说明清理这些字段——v6.0.1 不会读取它们，残留也不影响启动。
