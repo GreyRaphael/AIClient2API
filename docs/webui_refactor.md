@@ -664,6 +664,60 @@ section 直接丢样式，需先抽成共享层（像 P1 给插件页做的 `plu
 **最终验证**：`npm test` 76 suites / 878 tests、typecheck 与 typecheck:webui、
 全量 WebUI E2E 53/53（含计算样式契约 8/8）、stylelint 0 error 全部通过。
 
+### 14.7 系统信息面板精简与共享表单层（后续跟进）
+
+**系统信息：去掉 CPU，改为 3 × 2**
+
+面板原有 7 项，用 12 栏做「上排 3 个（各 4 栏）+ 下排 4 个（各 3 栏）」。
+去掉「CPU 使用」后剩 6 项，正好 3 列 × 2 行，于是：
+
+```
+上排：运行时间 / Node.js 版本 / 版本号
+下排：内存使用 / 运行模式 / 进程 PID
+```
+
+CSS 相应简化为 `repeat(3, minmax(0, 1fr))`，删掉 `nth-child(-n+3)` 那套特例；
+散落两处的「超窄面板单列」容器查询合并成一处，放在所有列定义之后靠位置胜出。
+列数由容器查询决定：≥470px 三列、默认两列、<299px 单列。
+
+CPU 相关的死代码一并清掉，避免"DOM 没了但接口还在算"：`/api/system` 不再采样，
+`getCpuUsagePercent` 失去唯一调用方，两份 locale 的 `dashboard.cpuUsage` 也删了。
+
+`tests/ui-dashboard-system-info.test.js`（5 条）锁住与布局无关的结构：项数与顺序、
+CPU 从 DOM/接口/locale 三处彻底移除、容器查询的三档断点。
+
+**共享表单层：把跨 section 的原子类收敛到 shared.css**
+
+P2 阶段识别出 17 个跨 section 共享的原子类，其中表单那一组的问题最典型：
+`.form-group` / `.form-row` / `.form-group label` / `.form-control::placeholder`
+在 section-config.css 与 section-providers.css 里各有一份**逐字节相同**的副本。
+
+收敛方案是"上收到 shared.css"而非"删掉多余副本"——因为后者依赖
+`SECTION_STYLES` 里"谁加载谁"的隐式约定，前者则是显式的：shared.css 在
+所有 section 之前且每页都加载，不存在加载不到的可能。各 section 只保留差异覆盖
+（例如 custom-models 的 `.form-row` 更紧凑，就只写 `gap` 与 `margin-bottom`）。
+
+**两个被顺带修掉的真实缺陷**
+
+1. `base.css` 里 `.form-control` 定义了两次：535 行完整定义（底色 `--bg-secondary`），
+   947 行又覆盖 `background: var(--bg-primary)`。后者是叠加副作用，不是设计意图，
+   已合并为一处并恢复 `--bg-secondary`。
+2. `upload-config` 页从未定义自己的输入框尺寸，一直在用 providers 泄漏过来的
+   （2px 边框 / 8px 圆角）。providers 一旦作用域化就会掉样式，因此显式声明了它需要的尺寸。
+
+**一处有意的外观变化**
+
+config 页的输入框同样借用了 providers 的尺寸。泄漏消除后回到 base.css 的通用尺寸
+（1px 边框 / 12px 圆角 / 14.4px），与 access 等页面风格统一。这是按"美观与简洁平衡"
+做的取舍——为了保留旧外观而堆 `:where()` 技巧反而不如统一。
+
+`tests/ui-css-scoping.test.js` 从 3 条扩到 5 条：原子类必须有唯一权威定义
+（shared.css 或 base.css）、各 section 不得重复定义已上收的原子类、
+已作用域化的 section 不得再有裸类、mobile.css 同名规则必须同前缀、共享原子类不得被误加前缀。
+
+**最终验证**：`npm test` 77 suites / 885 tests、typecheck、全量 E2E 53/53、
+计算样式契约 8/8、stylelint 0 error（重复选择器警告 54 → 50）。
+
 ## 附录 A：迁移前后对照示例（日志页）
 
 旧（`event-stream.js`，节选）：
