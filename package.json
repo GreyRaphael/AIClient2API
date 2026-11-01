@@ -79,6 +79,8 @@
     "typecheck:webui": "tsc -p tsconfig.webui.json --noEmit",
     "test:webui:e2e": "playwright test -c tests/webui-e2e/playwright.config.js",
     "lint:css": "stylelint \"static/**/*.css\"",
-    "lint:css:fix": "stylelint --fix \"static/**/*.css\""
+    "lint:css:fix": "stylelint --fix \"static/**/*.css\"",
+    "test:webui:contract": "playwright test -c tests/webui-e2e/playwright.config.js -g 计算样式契约",
+    "test:webui:contract:update": "UPDATE_STYLE_CONTRACT=1 playwright test -c tests/webui-e2e/playwright.config.js -g 计算样式契约"
   }
 }
