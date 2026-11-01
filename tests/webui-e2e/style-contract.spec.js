@@ -25,6 +25,21 @@ function loadBaseline() {
     return JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
 }
 
+/**
+ * 有界等待：尽量等到这些选择器都出现，但任何单个失败都不抛错。
+ * 目的只是消除"异步渲染没跟上"的假阴性，不改变"元素确实不存在"的语义。
+ */
+async function waitForSelectors(page, selectors, timeout) {
+    // 在一个浏览器 round-trip 里轮询全部选择器，直到都出现或超时。
+    // 逐个 await waitForSelector 会在"元素本就该不存在"时白白吃满超时
+    // （某些 section 的组合选择器在空数据下永远不出现），把整个 spec 拖到十几分钟。
+    await page.waitForFunction(
+        (sels) => sels.every((sel) => document.querySelector(sel)),
+        selectors,
+        { timeout, polling: 100 }
+    ).catch(() => {});
+}
+
 async function measure(page, targets) {
     return page.evaluate((spec) => {
         const out = {};
@@ -39,6 +54,9 @@ async function measure(page, targets) {
         return out;
     }, targets);
 }
+
+// 这个 spec 要跑 10 个 section × 每次有界等待，默认 30s 不够（尤其窄视口 + 慢机器）
+test.describe.configure({ timeout: 90_000 });
 
 test.describe('计算样式契约', () => {
     for (const vp of VIEWPORTS) {
@@ -59,10 +77,27 @@ test.describe('计算样式契约', () => {
 
                 for (const section of SECTIONS) {
                     await page.evaluate((s) => { window.location.hash = '#' + s; }, section);
-                    await page.waitForTimeout(450);
 
+                    // 各 section 的内容是通过 fetch 异步加载的，慢机器/窄视口下渲染会晚到。
+                    // 只等固定时长会偶发"元素还没出现"，被误判成"元素消失"。
+                    // 因此逐个等本 section 要断言的选择器出现后再采样（元素本就可能不存在，
+                    // 例如空数据时列表不渲染，这类只做有界等待，不阻塞）。
                     const key = comboKey(vp, theme, section);
                     const spec = selectorsFor(section);
+                    // 只等"基线里确实存在"的选择器：其余在空数据下永远不渲染，
+                    // 对它们做有界等待等于每次白等满超时（曾把整个 spec 拖到 11 分钟）。
+                    const expectedSelectors = UPDATE
+                        ? Object.keys(spec)
+                        : Object.keys(baseline[key] || {});
+                    await waitForSelectors(page, expectedSelectors, 5000);
+                    // 等 CSS 过渡结束再过一遍：侧边栏 active 态、按钮 hover 都有 transition，
+                    // 在动画中途采样会读到 545.5 这种非整数 font-weight 的中间值，
+                    // 被误判成样式回归。这里只等位移/过渡自然收敛，不做人为延时。
+                    await page.waitForFunction(
+                        () => document.getAnimations().every((a) => a.playState !== 'running'),
+                        undefined,
+                        { timeout: 3000, polling: 100 }
+                    ).catch(() => {});
                     const actual = await measure(page, spec);
 
                     // 记录基线（剔除不稳定属性与不存在的元素）

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'fs';
+import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import path from 'path';
@@ -47,6 +48,69 @@ const REVALIDATE_EXTENSIONS = ['.html', '.css', '.js', '.mjs', '.json'];
 
 /** static/vendor/ 下的第三方文件目录名带版本号，内容不可变，可强缓存 */
 const IMMUTABLE_PREFIX = '/vendor/';
+
+/**
+ * 值得压缩的文本类型。无构建步骤的前端把 CSS/JS 以源码形式直出，
+ * 压缩比通常有 4~8 倍，是这条链路上性价比最高的优化。
+ * 图片/字体本身就是压缩格式，再压一次只会浪费 CPU。
+ */
+const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.css', '.js', '.mjs', '.json', '.svg', '.map']);
+
+/** 小于这个体积不值得压缩（握手与解压开销大于收益） */
+const COMPRESSION_MIN_BYTES = 1024;
+
+/** 压缩结果缓存：key = 文件路径 + mtime + size，文件一改自动失效 */
+interface CompressedAsset { mtimeMs: number; size: number; body: Buffer }
+const compressionCache = new Map<string, { br?: CompressedAsset; gzip?: CompressedAsset }>();
+
+/** 按 q 值挑出客户端更偏好的编码；返回实际要用的编码或 null */
+function negotiateEncoding(acceptEncoding: string | undefined): 'br' | 'gzip' | null {
+    if (!acceptEncoding) return null;
+    const q: Record<string, number> = {};
+    for (const part of acceptEncoding.split(',')) {
+        const [rawName, ...params] = part.trim().split(';');
+        const name = rawName.trim().toLowerCase();
+        if (!name) continue;
+        let weight = 1;
+        for (const param of params) {
+            const m = /^\s*q=([0-9.]+)\s*$/i.exec(param);
+            if (m) weight = Number(m[1]);
+        }
+        q[name] = weight;
+    }
+    // 通配符 * 表示"其余编码都接受"，按最低优先级处理
+    const wildcard = q['*'] ?? 0;
+    const score = (name: string) => (name in q ? q[name] : wildcard);
+    const br = score('br');
+    const gz = score('gzip');
+    if (br > 0 && br >= gz) return 'br';
+    if (gz > 0) return 'gzip';
+    return null;
+}
+
+/** 取得（必要时生成）压缩后的内容；命中缓存时零 CPU 开销 */
+function compressedBody(filePath: string, stat: { mtimeMs: number; size: number }, encoding: 'br' | 'gzip'): Buffer {
+    const cached = compressionCache.get(filePath);
+    const slot = cached?.[encoding];
+    if (slot && slot.mtimeMs === stat.mtimeMs && slot.size === stat.size) {
+        return slot.body;
+    }
+    const raw = readFileSync(filePath);
+    const body = encoding === 'br'
+        ? brotliCompressSync(raw, {
+            params: {
+                // 静态资源用固定质量 11 太慢；9 已接近最优压缩比，且可缓存
+                [zlibConstants.BROTLI_PARAM_QUALITY]: 9,
+                [zlibConstants.BROTLI_PARAM_SIZE_HINT]: raw.length
+            }
+        })
+        : gzipSync(raw, { level: 9 });
+
+    const entry = cached ?? {};
+    entry[encoding] = { mtimeMs: stat.mtimeMs, size: stat.size, body };
+    compressionCache.set(filePath, entry);
+    return body;
+}
 
 function isInsideStaticRoot(filePath: string, staticRoot: string): boolean {
     return filePath === staticRoot || filePath.startsWith(staticRoot + path.sep);
@@ -99,13 +163,23 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse, r
         const contentType = STATIC_CONTENT_TYPES[ext] || 'text/plain';
         const stat = statSync(filePath);
 
+        // 文本资源按客户端能力压缩。无构建步骤的前端把 CSS/JS 源码直出，
+        // 一次首屏要拉 200+ KB 的文本，压缩后通常只剩 1/5。
+        const encoding = COMPRESSIBLE_EXTENSIONS.has(ext) && stat.size >= COMPRESSION_MIN_BYTES
+            ? negotiateEncoding(req?.headers['accept-encoding'] as string | undefined)
+            : null;
+
         const headers: Record<string, string> = { 'Content-Type': contentType };
+
         if (pathParam.startsWith(IMMUTABLE_PREFIX)) {
             headers['Cache-Control'] = 'public, max-age=31536000, immutable';
         } else if (REVALIDATE_EXTENSIONS.includes(ext)) {
             // 无构建步骤的前端：文本资源总是再验证，更新后立即生效；未变化时走 304，避免重复下载大量模块。
             headers['Cache-Control'] = 'no-cache';
-            headers['ETag'] = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+            // ETag 必须带上编码：同一个文件 br 与 gzip 的表示不同，
+            // 共用 ETag 会让缓存把两种表示混为一谈。
+            const tagBasis = `${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}`;
+            headers['ETag'] = `W/"${tagBasis}${encoding ? '-' + encoding : ''}"`;
             if (req && req.headers['if-none-match'] === headers['ETag']) {
                 res.writeHead(304, headers);
                 res.end();
@@ -113,6 +187,18 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse, r
             }
         }
 
+        if (encoding) {
+            const body = compressedBody(filePath, stat, encoding);
+            headers['Content-Encoding'] = encoding;
+            headers['Vary'] = 'Accept-Encoding';
+            headers['Content-Length'] = String(body.length);
+            res.writeHead(200, headers);
+            res.end(body);
+            return true;
+        }
+
+        // 未压缩时也带上 Vary，避免中间缓存把压缩版与原始版串味
+        if (COMPRESSIBLE_EXTENSIONS.has(ext)) headers['Vary'] = 'Accept-Encoding';
         res.writeHead(200, headers);
         res.end(readFileSync(filePath));
         return true;
