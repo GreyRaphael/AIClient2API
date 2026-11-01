@@ -593,6 +593,77 @@ CSS 重构最大的风险是"改完一处，另一处悄悄崩"。P1 先建安�
 **验证**：`npm test` 73 suites / 859 tests、typecheck 与 typecheck:webui、
 smoke E2E 39/39、计算样式契约 8/8、stylelint 0 error 全部通过。
 
+### 14.6 CSS 分层重构（P2 阶段：令牌化、压缩、按需加载）
+
+**1. 颜色令牌化**
+
+组件/页面 CSS 里原有 196 处十六进制颜色字面量，大量直接抄了 base.css 已定义的令牌值。
+替换时有一条必须遵守的边界：**不能动 `[data-theme="dark"]` 块里的颜色**。那里写的是
+"暗色下的具体值"，换成令牌会让语义反转（如 `#e0f2fe` 在暗色块里是字色，
+而 `--info-bg-light` 在暗色下已是深色）。最终 58 处改为令牌、26 处冗余 `var()` fallback
+删除，字面量 196 → 115。
+
+`tests/ui-css-tokens.test.js` 锁住三条：所有 `var()` 引用的令牌都在 `:root` 定义、
+不存在带写死 fallback 的 `var()`、`--danger-hover` 两套主题都有定义。
+
+**2. 静态资源压缩（本次最大收益）**
+
+项目没有构建步骤，CSS/JS 以源码直出，而服务端此前完全没压缩。在 `serveStaticFiles`
+里按 `Accept-Encoding` 协商 br/gzip：
+
+- 只压文本类型且 ≥ 1 KB（图片/字体本身已压缩）；
+- 解析 q 值选编码；压缩结果按 (路径, mtime, size) 缓存，稳态零 CPU；
+- **ETag 带编码后缀** —— br 与 gzip 是不同表示，共用 ETag 会造成"只支持 gzip 的
+  客户端命中 304 后拿到 br 缓存"的错配；
+- 补 `Vary: Accept-Encoding`。
+
+实测（1440×900 首屏，CDP 统计真实传输）：样式表 236.8 → 53.0 KB、脚本 186.7 → 75.5 KB、
+首屏合计 665.1 → 368.1 KB（省 45%）。
+
+**3. 按需加载 section 样式**
+
+复用已有的 section 懒加载机制，切换页面时才插入对应 CSS。插入位置是这个改动里最容易
+踩坑的地方，约定顺序是：
+
+```
+base → shared → 外壳组件 → section(动态) → mobile.css → alignment.css
+```
+
+插到 mobile.css 之后 → 组件规则反过来压掉移动端媒体查询（实测踩到：390px 下 dashboard
+的 `.info-item` padding 期望 10px 8px、实际 12px 8px，被契约测试发现）。所以以
+mobile.css 为插入锚点。另外组件必须**等样式就位再挂载**，否则模块先到、样式后到，
+首屏会闪一下。
+
+跨 section 的样式依赖（access/plugins 用到 config.css 里的表单原子类）在
+`SECTION_STYLES` 里显式声明，是从实际 DOM 反查的。
+
+实测：进入任一 section 的 CSS 从 53.0 KB 降到 26.9~28.6 KB（文件名 17 份 → 9 份）。
+
+**4. `!important` 清理**
+
+47 → 38。删掉的 9 处都是"同块内更晚位置或更高特异性本就能胜出"的冗余。
+保留的 38 处逐条核对后确认必要，典型原因：`prefers-reduced-motion` 的无障碍标准写法、
+`@media print`、对抗 JS 写入的内联 style、以及 model-usage-stats.css 把媒体查询写在
+文件开头（基础定义在 191/324 行之后）导致的结构性需求。
+
+**5. 作用域化：交付流程与试点，而非全量**
+
+实测统计：10 个组件 CSS 有 367 个全局裸类，其中 288 个只在单 section 内使用，
+另外 17 个是真正的跨 section 共享组件（`.form-control`/`.form-group`/`.form-row`/
+`.provider-name`/`.badge` 等，被 2~7 个 section 同时使用）。后者单独加前缀会让其他
+section 直接丢样式，需先抽成共享层（像 P1 给插件页做的 `plugin-shared.css`）。
+
+因此本阶段交付 **验证过的流程 + logs 完整试点 + 三层护栏**，而不是一次改 288 处的高风险
+大改。核心教训：**作用域化必须组件 CSS 与 mobile.css 成对修改**，加前缀把特异性从
+(0,1,0) 抬到 (1,1,0)，只改一侧会压掉响应式规则（实测踩到：tablet 暗色下
+`.logs-container` 的 border-radius 期望 12px、实际 8px）。
+
+`tests/ui-css-scoping.test.js` 锁住：已作用域化的 section 不得再有裸类、mobile.css 同名
+规则必须同前缀、共享原子类不得被误加前缀。
+
+**最终验证**：`npm test` 76 suites / 878 tests、typecheck 与 typecheck:webui、
+全量 WebUI E2E 53/53（含计算样式契约 8/8）、stylelint 0 error 全部通过。
+
 ## 附录 A：迁移前后对照示例（日志页）
 
 旧（`event-stream.js`，节选）：
