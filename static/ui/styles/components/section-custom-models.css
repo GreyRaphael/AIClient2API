@@ -451,9 +451,9 @@
     position: absolute;
     cursor: pointer;
     inset: 0;
-    background-color: var(--bg-tertiary, #e2e8f0);
-    border: 1px solid var(--border-color, #cbd5e1);
-    transition: var(--transition, all 0.25s ease);
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    transition: var(--transition);
     border-radius: 22px;
 }
 
@@ -464,15 +464,15 @@
     width: 16px;
     left: 2px;
     bottom: 2px;
-    background-color: #fff;
-    transition: var(--transition, all 0.25s ease);
+    background-color: var(--white);
+    transition: var(--transition);
     border-radius: 50%;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .custom-model-status-cell input:checked + .toggle-slider {
-    background-color: var(--primary-color, #3b82f6);
-    border-color: var(--primary-color, #3b82f6);
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
 }
 
 .custom-model-status-cell input:checked + .toggle-slider:before {

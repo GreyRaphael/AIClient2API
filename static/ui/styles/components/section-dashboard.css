@@ -141,11 +141,11 @@
 }
 
 .node-dot.healthy {
-    background-color: #10b981;
+    background-color: var(--success-color);
 }
 
 .node-dot.unhealthy {
-    background-color: #ef4444;
+    background-color: var(--danger-color);
 }
 
 .node-dot.disabled {

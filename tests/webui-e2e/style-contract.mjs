@@ -53,7 +53,7 @@ export const TARGETS = {
     atoms: [
         ['.btn', ['padding', 'font-size', 'border-radius', 'border-width']],
         ['.btn-primary', ['background-color', 'color', 'border-color']],
-        ['.form-control', ['padding', 'font-size', 'border-radius', 'border-width', 'background-color']],
+        ['.form-control', ['padding', 'font-size', 'border-radius', 'border-width', 'background-color', 'color', 'border-color']],
         ['.stat-card', ['padding', 'border-radius', 'background-color', 'border-width']]
     ],
     dashboard: [
@@ -70,11 +70,18 @@ export const TARGETS = {
     ],
     usage: [
         ['#usage .usage-cards-grid', ['display', 'gap']],
-        ['#usage .stat-card', ['padding', 'border-radius', 'background-color']]
+        ['#usage .stat-card', ['padding', 'border-radius', 'background-color']],
+        // 令牌化重点：这些原本是硬编码的十六进制色
+        // （.collapsed-plan-badge 只在折叠态渲染，默认展开时不出现，故改用实际存在的元素）
+        ['#usage .badge.badge-healthy', ['background-color', 'color']],
+        ['#usage .instance-status-badges', ['display', 'gap']]
     ],
     'upload-config': [
         ['#upload-config .config-list-header', ['padding', 'background-color', 'font-size', 'display']],
-        ['#upload-config .config-item', ['padding', 'border-radius', 'border-width']]
+        ['#upload-config .config-item', ['padding', 'border-radius', 'border-width']],
+        // 令牌化重点：该文件的硬编码色最多（83 处）
+        ['#upload-config .config-status-indicator.used', ['background-color', 'color']],
+        ['#upload-config .config-status-indicator.unused', ['background-color', 'color']]
     ],
     playground: [
         ['#playground.pg-workspace', ['display', 'flex-direction', 'background-color']],

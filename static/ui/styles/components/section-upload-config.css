@@ -169,14 +169,14 @@
     flex-shrink: 0;
 }
 
-.config-item-icon-wrapper.oauth { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
-.config-item-icon-wrapper.api-key { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+.config-item-icon-wrapper.oauth { background: rgba(59, 130, 246, 0.1); color: var(--info-color); }
+.config-item-icon-wrapper.api-key { background: rgba(16, 185, 129, 0.1); color: var(--success-color); }
 .config-item-icon-wrapper.provider-pool { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; }
-.config-item-icon-wrapper.system-prompt { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+.config-item-icon-wrapper.system-prompt { background: rgba(245, 158, 11, 0.1); color: var(--warning-color); }
 .config-item-icon-wrapper.plugins { background: rgba(236, 72, 153, 0.1); color: #ec4899; }
-.config-item-icon-wrapper.usage { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+.config-item-icon-wrapper.usage { background: rgba(59, 130, 246, 0.1); color: var(--info-color); }
 .config-item-icon-wrapper.config { background: rgba(107, 114, 128, 0.1); color: #6b7280; }
-.config-item-icon-wrapper.database { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+.config-item-icon-wrapper.database { background: rgba(16, 185, 129, 0.1); color: var(--success-color); }
 .config-item-icon-wrapper.other { background: rgba(107, 114, 128, 0.1); color: #6b7280; }
 
 .config-item-title-area {
@@ -215,7 +215,7 @@
 
 .tag-kiro-oauth { background: rgba(236, 72, 153, 0.1); color: #ec4899; border: 1px solid rgba(236, 72, 153, 0.2); }
 .tag-antigravity { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.2); }
-.tag-codex-oauth { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.2); }
+.tag-codex-oauth { background: rgba(245, 158, 11, 0.1); color: var(--warning-color); border: 1px solid rgba(245, 158, 11, 0.2); }
 
 .config-item-path-line {
     font-size: 0.75rem;
@@ -281,12 +281,12 @@
 
 .config-status-indicator.used {
     background: rgba(16, 185, 129, 0.1);
-    color: #10b981;
+    color: var(--success-color);
 }
 
 .config-status-indicator.unused {
     background: rgba(245, 158, 11, 0.1);
-    color: #f59e0b;
+    color: var(--warning-color);
 }
 
 .linked-nodes-tags {
@@ -300,7 +300,7 @@
 
 .node-tag {
     font-size: 0.65rem;
-    color: #3b82f6;
+    color: var(--info-color);
     background: rgba(59, 130, 246, 0.08);
     padding: 0.15rem 0.45rem;
     border-radius: 4px;
@@ -316,23 +316,23 @@
 }
 
 .node-tag.status-healthy {
-    color: #10b981;
+    color: var(--success-color);
     background: rgba(16, 185, 129, 0.08);
     border-color: rgba(16, 185, 129, 0.15);
 }
 
 .node-tag.status-healthy i {
-    color: #10b981;
+    color: var(--success-color);
 }
 
 .node-tag.status-unhealthy {
-    color: #ef4444;
+    color: var(--danger-color);
     background: rgba(239, 68, 68, 0.08);
     border-color: rgba(239, 68, 68, 0.15);
 }
 
 .node-tag.status-unhealthy i {
-    color: #ef4444;
+    color: var(--danger-color);
 }
 
 .node-tag.status-disabled {
@@ -347,7 +347,7 @@
 
 .node-tag i {
     font-size: 0.6rem;
-    color: #3b82f6;
+    color: var(--info-color);
 }
 
 .btn-quick-link-main {
@@ -472,8 +472,8 @@
     overflow-wrap: break-word;
 }
 
-.config-detail-value.status-text-used { color: #10b981; font-weight: 600; }
-.config-detail-value.status-text-unused { color: #f59e0b; font-weight: 600; }
+.config-detail-value.status-text-used { color: var(--success-color); font-weight: 600; }
+.config-detail-value.status-text-unused { color: var(--warning-color); font-weight: 600; }
 
 .config-item-actions {
     display: flex;
@@ -485,8 +485,8 @@
 
 .btn-view { background: var(--primary-color); color: white; }
 .btn-view:hover { background: var(--btn-primary-hover); }
-.btn-download { background: #10b981; color: white; }
-.btn-download:hover { background: #059669; }
+.btn-download { background: var(--success-color); color: white; }
+.btn-download:hover { background: var(--primary-color); }
 .btn-delete-small { background: var(--danger-color); color: white; }
 
 .config-item-manager.expanded {
@@ -612,13 +612,13 @@
 
 .node-status-tag.healthy {
     background: rgba(16, 185, 129, 0.1);
-    color: #10b981;
+    color: var(--success-color);
     border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
 .node-status-tag.unhealthy {
     background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
+    color: var(--danger-color);
     border: 1px solid rgba(239, 68, 68, 0.2);
 }
 

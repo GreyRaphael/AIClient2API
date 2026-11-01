@@ -3,7 +3,14 @@
     "block-no-empty": true,
     "color-hex-length": "short",
     "color-no-invalid-hex": true,
-    "declaration-block-no-duplicate-properties": [true, { "ignore": ["consecutive-duplicates-with-different-syntaxes"] }],
+    "declaration-block-no-duplicate-properties": [
+      true,
+      {
+        "ignore": [
+          "consecutive-duplicates-with-different-syntaxes"
+        ]
+      }
+    ],
     "declaration-block-no-redundant-longhand-properties": true,
     "declaration-block-no-shorthand-property-overrides": true,
     "font-family-no-duplicate-names": true,
@@ -21,8 +28,14 @@
     "shorthand-property-no-redundant-values": true,
     "string-no-newline": true,
     "unit-no-unknown": true,
-
-    "no-duplicate-selectors": [true, { "severity": "warning" }]
+    "no-duplicate-selectors": [
+      true,
+      {
+        "severity": "warning"
+      }
+    ]
   },
-  "ignoreFiles": ["static/vendor/**"]
+  "ignoreFiles": [
+    "static/vendor/**"
+  ]
 }

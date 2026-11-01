@@ -101,7 +101,7 @@ body {
       align-items: center;
       justify-content: center;
       background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
-      color: #fff;
+      color: var(--white);
       box-shadow: var(--shadow-md);
     }
 
@@ -310,7 +310,7 @@ body {
       position: fixed;
       padding: 6px 10px;
       background: rgba(0, 0, 0, 0.9);
-      color: #fff;
+      color: var(--white);
       font-size: 11px;
       border-radius: 4px;
       pointer-events: none;
@@ -497,7 +497,7 @@ body {
 
     .hero-main {
       background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
-      color: #fff;
+      color: var(--white);
       position: relative;
       overflow: hidden;
     }
@@ -506,7 +506,7 @@ body {
     .hero-main .eyebrow,
     .hero-main .copy,
     .hero-main .tag {
-      color: #fff;
+      color: var(--white);
     }
 
     .hero-main .eyebrow,

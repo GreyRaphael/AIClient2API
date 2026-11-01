@@ -72,7 +72,7 @@
         .stat-card.purple .value > span:first-child { color: var(--indigo-500); }
         .stat-card.green .value > span:first-child { color: var(--success-color); }
         
-        .stat-card.orange .value { color: #f59e0b; font-size: 1.25rem; margin-top: 0.5rem; }
+        .stat-card.orange .value { color: var(--warning-color); font-size: 1.25rem; margin-top: 0.5rem; }
 
         /* 分布统计样式 */
         

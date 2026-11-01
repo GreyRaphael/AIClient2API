@@ -866,7 +866,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.25rem 0.75rem;
-    background: #eff6ff;
+    background: var(--info-bg-lighter);
     color: #1d4ed8;
     border: none;
     border-radius: 9999px;
@@ -878,7 +878,7 @@
 }
 
 .provider-register-btn:hover {
-    background: #2563eb;
+    background: var(--info-color-dark);
     color: white;
     transform: translateY(-1px);
     text-decoration: none;
@@ -890,8 +890,8 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.25rem 0.75rem;
-    background: #ecfdf5; /* 绿色系背景 */
-    color: #065f46;      /* 绿色系文字 */
+    background: var(--success-bg-light); /* 绿色系背景 */
+    color: var(--success-text);      /* 绿色系文字 */
     border: none;
     border-radius: 9999px;
     font-size: 0.75rem;
@@ -901,7 +901,7 @@
 }
 
 .add-group-btn:hover {
-    background: #10b981;
+    background: var(--success-color);
     color: white;
     transform: translateY(-1px);
 }

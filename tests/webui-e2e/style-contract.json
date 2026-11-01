@@ -243,6 +243,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(209, 250, 229)",
+      "color": "rgb(6, 95, 70)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "mobile-390__light__upload-config": {
@@ -325,13 +333,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(241, 245, 249)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(245, 158, 11)"
     }
   },
   "mobile-390__light__playground": {
@@ -631,7 +645,9 @@
       "font-size": "16px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -720,7 +736,9 @@
       "font-size": "16px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -823,7 +841,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#config .form-group": {
       "margin-bottom": "10px"
@@ -1083,6 +1103,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(6, 78, 59)",
+      "color": "rgb(110, 231, 183)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "mobile-390__dark__upload-config": {
@@ -1165,13 +1193,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(51, 65, 85)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(251, 191, 36)"
     }
   },
   "mobile-390__dark__playground": {
@@ -1471,7 +1505,9 @@
       "font-size": "16px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -1560,7 +1596,9 @@
       "font-size": "16px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -1663,7 +1701,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#config .form-group": {
       "margin-bottom": "10px"
@@ -1923,6 +1963,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(209, 250, 229)",
+      "color": "rgb(6, 95, 70)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "tablet-768__light__upload-config": {
@@ -2005,13 +2053,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(241, 245, 249)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(245, 158, 11)"
     }
   },
   "tablet-768__light__playground": {
@@ -2311,7 +2365,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -2400,7 +2456,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -2503,7 +2561,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#config .form-group": {
       "margin-bottom": "12px"
@@ -2763,6 +2823,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(6, 78, 59)",
+      "color": "rgb(110, 231, 183)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "tablet-768__dark__upload-config": {
@@ -2845,13 +2913,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(51, 65, 85)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(251, 191, 36)"
     }
   },
   "tablet-768__dark__playground": {
@@ -3151,7 +3225,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -3240,7 +3316,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -3343,7 +3421,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#config .form-group": {
       "margin-bottom": "12px"
@@ -3603,6 +3683,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(209, 250, 229)",
+      "color": "rgb(6, 95, 70)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "laptop-1024__light__upload-config": {
@@ -3685,13 +3773,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(241, 245, 249)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(245, 158, 11)"
     }
   },
   "laptop-1024__light__playground": {
@@ -3991,7 +4085,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -4080,7 +4176,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -4183,7 +4281,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#config .form-group": {
       "margin-bottom": "16px"
@@ -4443,6 +4543,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(6, 78, 59)",
+      "color": "rgb(110, 231, 183)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "laptop-1024__dark__upload-config": {
@@ -4525,13 +4633,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(51, 65, 85)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(251, 191, 36)"
     }
   },
   "laptop-1024__dark__playground": {
@@ -4831,7 +4945,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -4920,7 +5036,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -5023,7 +5141,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#config .form-group": {
       "margin-bottom": "16px"
@@ -5283,6 +5403,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(209, 250, 229)",
+      "color": "rgb(6, 95, 70)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "desktop-1440__light__upload-config": {
@@ -5365,13 +5493,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(241, 245, 249)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(245, 158, 11)"
     }
   },
   "desktop-1440__light__playground": {
@@ -5671,7 +5805,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -5760,7 +5896,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(226, 232, 240)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -5863,7 +6001,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(248, 250, 252)"
+      "background-color": "rgb(248, 250, 252)",
+      "color": "rgb(15, 23, 42)",
+      "border-color": "rgb(233, 236, 239)"
     },
     "#config .form-group": {
       "margin-bottom": "16px"
@@ -6123,6 +6263,14 @@
     "#usage .usage-cards-grid": {
       "display": "grid",
       "gap": "16px"
+    },
+    "#usage .badge.badge-healthy": {
+      "background-color": "rgb(6, 78, 59)",
+      "color": "rgb(110, 231, 183)"
+    },
+    "#usage .instance-status-badges": {
+      "display": "flex",
+      "gap": "8px"
     }
   },
   "desktop-1440__dark__upload-config": {
@@ -6205,13 +6353,19 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
       "background-color": "rgb(51, 65, 85)",
       "font-size": "16px",
       "display": "flex"
+    },
+    "#upload-config .config-status-indicator.unused": {
+      "background-color": "rgba(245, 158, 11, 0.1)",
+      "color": "rgb(251, 191, 36)"
     }
   },
   "desktop-1440__dark__playground": {
@@ -6511,7 +6665,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#access .access-grid": {
       "display": "grid",
@@ -6600,7 +6756,9 @@
       "font-size": "14.4px",
       "border-radius": "12px",
       "border-width": "1px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#plugins .plugin-card": {
       "padding": "13.6px 16px",
@@ -6703,7 +6861,9 @@
       "font-size": "14px",
       "border-radius": "8px",
       "border-width": "2px",
-      "background-color": "rgb(30, 41, 59)"
+      "background-color": "rgb(30, 41, 59)",
+      "color": "rgb(248, 250, 252)",
+      "border-color": "rgb(51, 65, 85)"
     },
     "#config .form-group": {
       "margin-bottom": "16px"

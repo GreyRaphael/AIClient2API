@@ -16,8 +16,8 @@
         .login-container {
             position: relative;
             overflow: hidden;
-            background: var(--bg-glass-strong, #fff);
-            border: 1px solid var(--border-color, #e2e8f0);
+            background: var(--bg-glass-strong);
+            border: 1px solid var(--border-color);
             border-radius: 20px;
             box-shadow: 0 24px 60px -20px rgba(15, 23, 42, 0.25), 0 4px 12px rgba(15, 23, 42, 0.05);
             backdrop-filter: blur(16px);
@@ -35,7 +35,7 @@
             right: 0;
             top: 0;
             height: 4px;
-            background: var(--gradient-accent, linear-gradient(135deg, #059669, #6366f1));
+            background: var(--gradient-accent);
         }
 
         @keyframes login-fade-in {
@@ -59,20 +59,20 @@
             height: 80px;
             border-radius: 50%;
             margin-bottom: 15px;
-            box-shadow: 0 0 0 4px var(--bg-primary, #fff), 0 0 0 6px var(--primary-20, rgba(5, 150, 105, 0.2));
+            box-shadow: 0 0 0 4px var(--bg-primary), 0 0 0 6px var(--primary-20);
         }
 
         .logo h1 {
             font-size: 26px;
             font-weight: 800;
             letter-spacing: -0.02em;
-            color: var(--text-primary, #333);
+            color: var(--text-primary);
             margin-bottom: 5px;
         }
 
         .logo p {
             font-size: 14px;
-            color: var(--text-secondary, #666);
+            color: var(--text-secondary);
         }
 
         .form-group {
@@ -82,7 +82,7 @@
         .form-group label {
             display: block;
             margin-bottom: 8px;
-            color: var(--text-primary, #333);
+            color: var(--text-primary);
             font-size: 14px;
             font-weight: 600;
         }
@@ -90,27 +90,27 @@
         .form-group input {
             width: 100%;
             padding: 12px 15px;
-            border: 1px solid var(--border-color, #e1e8ed);
+            border: 1px solid var(--border-color);
             border-radius: 10px;
-            background: var(--bg-secondary, #fff);
-            color: var(--text-primary, #333);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
             font-size: 14px;
             transition: all 0.2s ease;
             outline: none;
         }
 
         .form-group input:hover {
-            border-color: var(--border-hover, #cbd5e1);
+            border-color: var(--border-hover);
         }
 
         .form-group input:focus {
-            border-color: var(--primary-color, #059669);
-            background: var(--bg-primary, #fff);
-            box-shadow: 0 0 0 3px var(--primary-20, rgba(5, 150, 105, 0.2));
+            border-color: var(--primary-color);
+            background: var(--bg-primary);
+            box-shadow: 0 0 0 3px var(--primary-20);
         }
 
         .form-group input::placeholder {
-            color: var(--text-tertiary, #aaa);
+            color: var(--text-tertiary);
         }
 
         .error-message {
@@ -134,7 +134,7 @@
         .login-button {
             width: 100%;
             padding: 12px;
-            background: var(--gradient-primary, linear-gradient(135deg, #059669 0%, #10b981 100%));
+            background: var(--gradient-primary);
             color: white;
             border: none;
             border-radius: 10px;
@@ -165,12 +165,12 @@
             text-align: center;
             margin-top: 30px;
             padding-top: 20px;
-            border-top: 1px solid var(--border-color, #e1e8ed);
+            border-top: 1px solid var(--border-color);
         }
 
         .footer p {
             font-size: 13px;
-            color: var(--text-tertiary, #999);
+            color: var(--text-tertiary);
         }
 
         .loading {
