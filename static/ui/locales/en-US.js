@@ -59,7 +59,6 @@ export default {
     'dashboard.update.confirmMsg': 'Are you sure you want to update to version {version}? Service might be briefly unavailable during update.',
     'dashboard.nodeVersion': 'Node.js Version',
     'dashboard.memoryUsage': 'Memory Usage',
-    'dashboard.cpuUsage': 'CPU Usage',
     'dashboard.providerStatus': 'Provider Nodes Status',
     'dashboard.advancedInfo': 'Available Models List',
     'dashboard.serviceMode': 'Service Mode',

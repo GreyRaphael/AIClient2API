@@ -59,7 +59,6 @@ export default {
     'dashboard.update.confirmMsg': '确定要更新到版本 {version} 吗？更新期间服务可能会短暂不可用。',
     'dashboard.nodeVersion': 'Node.js版本',
     'dashboard.memoryUsage': '内存使用',
-    'dashboard.cpuUsage': 'CPU 使用',
     'dashboard.providerStatus': '提供商节点状态',
     'dashboard.advancedInfo': '可用模型列表',
     'dashboard.serviceMode': '运行模式',

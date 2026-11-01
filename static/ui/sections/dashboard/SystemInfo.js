@@ -147,6 +147,14 @@ export function SystemInfoPanel() {
 
             <div class="info-grid">
                 <div class="info-item">
+                    <span class="info-label"><i class="fas fa-clock"></i> <span>${t('dashboard.uptime')}</span></span>
+                    <div class="version-display-wrapper"><span class="info-value" id="uptime">${uptimeText}</span></div>
+                </div>
+                <div class="info-item">
+                    <span class="info-label"><i class="fas fa-code"></i> <span>${t('dashboard.nodeVersion')}</span></span>
+                    <div class="version-display-wrapper"><span class="info-value" id="nodeVersion">${system?.nodeVersion || '--'}</span></div>
+                </div>
+                <div class="info-item">
                     <span class="info-label"><i class="fas fa-tag"></i> <span>${t('dashboard.version')}</span></span>
                     <div class="version-display-wrapper">
                         <span class="info-value" id="appVersion">${system?.appVersion ? `v${system.appVersion}` : '--'}</span>
@@ -157,12 +165,8 @@ export function SystemInfoPanel() {
                     </div>
                 </div>
                 <div class="info-item">
-                    <span class="info-label"><i class="fas fa-code"></i> <span>${t('dashboard.nodeVersion')}</span></span>
-                    <div class="version-display-wrapper"><span class="info-value" id="nodeVersion">${system?.nodeVersion || '--'}</span></div>
-                </div>
-                <div class="info-item">
-                    <span class="info-label"><i class="fas fa-clock"></i> <span>${t('dashboard.uptime')}</span></span>
-                    <div class="version-display-wrapper"><span class="info-value" id="uptime">${uptimeText}</span></div>
+                    <span class="info-label"><i class="fas fa-memory"></i> <span>${t('dashboard.memoryUsage')}</span></span>
+                    <div class="version-display-wrapper"><span class="info-value" id="memoryUsage">${system?.memoryUsage || '--'}</span></div>
                 </div>
                 <div class="info-item">
                     <span class="info-label"><i class="fas fa-cogs"></i> <span>${t('dashboard.serviceMode')}</span></span>
@@ -172,14 +176,6 @@ export function SystemInfoPanel() {
                             <i class="fas fa-check-circle" style="color: #10b981; margin-left: 4px;"
                                 title=${t('dashboard.serviceMode.canRestart')}></i>` : null}
                     </div>
-                </div>
-                <div class="info-item">
-                    <span class="info-label"><i class="fas fa-memory"></i> <span>${t('dashboard.memoryUsage')}</span></span>
-                    <div class="version-display-wrapper"><span class="info-value" id="memoryUsage">${system?.memoryUsage || '--'}</span></div>
-                </div>
-                <div class="info-item">
-                    <span class="info-label"><i class="fas fa-microchip"></i> <span>${t('dashboard.cpuUsage')}</span></span>
-                    <div class="version-display-wrapper"><span class="info-value" id="cpuUsage">${system?.cpuUsage || '--'}</span></div>
                 </div>
                 <div class="info-item">
                     <span class="info-label"><i class="fas fa-microchip"></i> <span>${t('dashboard.processPid')}</span></span>

@@ -58,6 +58,9 @@ export const TARGETS = {
     ],
     dashboard: [
         ['#dashboard .dashboard-overview-row', ['display', 'gap']],
+        // 系统信息固定 6 项（上排 运行时间/Node.js版本/版本号，下排 内存使用/运行模式/PID）。
+        // 这里同时锁 gap 与 info-item 的样式；列数是容器查询决定的、随面板宽度变化，
+        // 因此用单独的结构断言（tests/ui-dashboard-system-info.test.js）而不是计算样式。
         ['#dashboard .info-grid', ['display', 'gap']],
         ['#dashboard .info-item', ['padding', 'border-radius', 'background-color']],
         ['#dashboard .info-value', ['font-size', 'font-weight', 'color']],

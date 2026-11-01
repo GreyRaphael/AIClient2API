@@ -4,7 +4,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { existsSync, readFileSync, createReadStream } from 'fs';
 import logger from '../utils/logger.ts';
 import path from 'path';
-import { getCpuUsagePercent } from './system-monitor.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
@@ -24,27 +23,12 @@ export async function handleGetSystem(req: IncomingMessage, res: ServerResponse)
         logger.warn('[UI API] Failed to read VERSION file:', error.message);
     }
 
-    // 计算 CPU 使用率
-    let cpuUsage = '0.0%';
-    const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
-
-    if (IS_WORKER_PROCESS) {
-        // 如果是子进程，尝试从主进程获取状态来确定 PID，或者使用当前 PID (如果要求统计子进程自己的话)
-        // 根据任务描述 "CPU 使用率应该是统计子进程的PID的使用率"
-        // 这里的 system-api.js 可能运行在子进程中，直接统计 process.pid 即可
-        cpuUsage = getCpuUsagePercent(process.pid);
-    } else {
-        // 独立运行模式下统计系统整体 CPU
-        cpuUsage = getCpuUsagePercent();
-    }
-
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         appVersion: appVersion,
         nodeVersion: process.version,
         serverTime: new Date().toISOString(),
         memoryUsage: `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
-        cpuUsage: cpuUsage,
         uptime: process.uptime()
     }));
     return true;

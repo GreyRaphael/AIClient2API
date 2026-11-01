@@ -1107,20 +1107,12 @@
     gap: 0.75rem;
 }
 
-/* 12 栏 —— 上排 3 个（各 4 栏）、下排 4 个（各 3 栏）。
+/* 6 项 = 3 列 x 2 行，直接三等分即可，不再需要区分首行/其余行。
  * 用容器查询而不是视口宽度：面板宽度受右侧固定 440px 联系人卡挤压，
- * 1025–1299px 视口下面板只有 237–462px，按视口切 12 栏会把数值挤到卡片外。 */
+ * 1025–1299px 视口下面板只有 237–462px，按视口切列会把数值挤到卡片外。 */
 @container (min-width: 470px) {
     .info-grid {
-        grid-template-columns: repeat(12, minmax(0, 1fr));
-    }
-
-    .info-grid > .info-item {
-        grid-column: span 3;
-    }
-
-    .info-grid > .info-item:nth-child(-n + 3) {
-        grid-column: span 4;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
@@ -1191,6 +1183,8 @@
     box-shadow: 0 0 0 2px var(--bg-primary), 0 0 6px var(--danger-color);
 }
 
+/* 超窄面板（如手机竖屏）：退化为单列。放在所有 .info-grid 列定义之后，
+ * 同特异性下由"更晚位置"胜出，不需要 !important。 */
 @container (max-width: 299px) {
     .info-grid {
         grid-template-columns: 1fr;

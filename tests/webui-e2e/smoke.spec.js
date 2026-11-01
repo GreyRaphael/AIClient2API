@@ -147,7 +147,7 @@ test.describe('console shell', () => {
             .toHaveAttribute('content', 'AIClient2API Management Console - Unified management of AI service providers');
     });
 
-    test('仪表盘：系统信息（上排 3 个 + 下排 4 个，无折叠）、模型列表与赞助商', async ({ authedPage: page, problems }) => {
+    test('仪表盘：系统信息（3 列 x 2 行，无折叠、无 CPU）、模型列表与赞助商', async ({ authedPage: page, problems }) => {
         await page.goto('/#dashboard');
         await expect(page.locator('section#dashboard.active')).toBeVisible();
         await expect(page.locator('#appVersion')).not.toHaveText('--');
@@ -155,15 +155,20 @@ test.describe('console shell', () => {
         await expect(page.locator('#uptime')).not.toHaveText('--');
         await expect(page.locator('#serviceMode')).toContainText(/独立模式|子进程模式/);
         await expect(page.locator('#memoryUsage')).not.toHaveText('--');
-        await expect(page.locator('#cpuUsage')).not.toHaveText('--');
         await expect(page.locator('#processPid')).not.toHaveText('--');
         await expect(page.locator('#checkUpdateBtn')).toBeVisible();
         // 版本下拉框已彻底移除：只保留「检查更新」与「立即更新」
         await expect(page.locator('#versionSelect')).toHaveCount(0);
         await expect(page.locator('#versionSelectWrapper')).toHaveCount(0);
 
-        // 7 张卡片全部平铺展示，不再有“更多系统信息”折叠
-        await expect(page.locator('.system-info-panel .info-grid .info-item')).toHaveCount(7);
+        // 6 张卡片平铺展示（CPU 使用已移除），不再有“更多系统信息”折叠
+        const infoItems = page.locator('.system-info-panel .info-grid .info-item');
+        await expect(infoItems).toHaveCount(6);
+        await expect(page.locator('#cpuUsage')).toHaveCount(0);
+
+        // 上排：运行时间 / Node.js 版本 / 版本号；下排：内存使用 / 运行模式 / PID
+        const orderedIds = await infoItems.evaluateAll((els) => els.map((el) => el.querySelector('.info-value')?.id || ''));
+        expect(orderedIds).toEqual(['uptime', 'nodeVersion', 'appVersion', 'memoryUsage', 'serviceMode', 'processPid']);
         await expect(page.locator('.system-info-panel details')).toHaveCount(0);
         await expect(page.locator('.system-info-details')).toHaveCount(0);
 
