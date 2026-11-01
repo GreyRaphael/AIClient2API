@@ -135,6 +135,8 @@
 
 /* 空状态 */
 .table-empty-state {
+    /* 必须 !important：.custom-models-table td 的特异性 (0,1,1) 更高，
+       否则空表状态会被压成 1.25rem 的单元格内边距。 */
     padding: 4rem 0 !important;
     text-align: center;
 }

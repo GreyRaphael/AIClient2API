@@ -334,8 +334,8 @@
     }
 
     .nav-item.active {
-        background: var(--primary-color) !important;
-        color: white !important;
+        background: var(--primary-color);
+        color: white;
         box-shadow: 0 2px 8px var(--primary-30);
     }
 

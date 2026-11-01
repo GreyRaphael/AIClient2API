@@ -652,24 +652,24 @@
     .pg-workspace .pg-side-nav,
     .pg-workspace .pg-chat-column,
     .pg-workspace .pg-config-panel {
-        display: none !important;
+        display: none;
     }
 
     .pg-workspace.active-tab-chat .pg-chat-column {
-        display: flex !important;
+        display: flex;
     }
 
     .pg-workspace.active-tab-settings .pg-side-nav {
-        display: flex !important;
-        width: 100% !important;
-        border-right: none !important;
+        display: flex;
+        width: 100%;
+        border-right: none;
         background: var(--bg-primary) !important;
     }
 
     .pg-workspace.active-tab-parameters .pg-config-panel {
-        display: flex !important;
-        width: 100% !important;
-        border-left: none !important;
+        display: flex;
+        width: 100%;
+        border-left: none;
         background: var(--bg-primary) !important;
     }
 
