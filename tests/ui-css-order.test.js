@@ -25,19 +25,40 @@ const indexOf = (list, needle) => list.findIndex((href) => href.endsWith(needle)
 const PAGES = ['index.html', 'login.html', 'potluck.html', 'potluck-user.html', 'model-usage-stats.html'];
 
 describe('样式表分层顺序', () => {
-    test('控制台：mobile.css 必须排在所有组件样式之后', () => {
+    test('控制台：HTML 内联的组件样式都必须早于 mobile.css', () => {
         const order = stylesheetOrder('index.html');
         const mobile = indexOf(order, 'ui/styles/mobile.css');
         expect(mobile).toBeGreaterThan(-1);
 
-        // 所有 components/ 下的样式都必须早于 mobile.css，否则移动端媒体查询会被覆盖
+        // 所有静态引用的 components/ 样式都必须早于 mobile.css，
+        // 否则移动端媒体查询会被同特异性的组件规则覆盖。
+        // 注意：各 section 的样式已改为按需动态插入（ui/lib/section-styles.js），
+        // 不再出现在 HTML 里，它们由下面的"动态插入位置"用例单独守护。
         const components = order
             .map((href, index) => ({ href, index }))
             .filter(({ href }) => href.includes('ui/styles/components/'));
-        expect(components.length).toBeGreaterThan(10);
+        expect(components.length).toBeGreaterThan(0);
         for (const { href, index } of components) {
             expect({ href, afterMobile: index > mobile }).toEqual({ href, afterMobile: false });
         }
+    });
+
+    test('控制台：只剩外壳组件样式是静态引用，section 样式改为按需加载', () => {
+        const order = stylesheetOrder('index.html');
+        const staticSectionCss = order.filter((href) => /section-[\w-]+\.css$/.test(href));
+        // 如果又把 section 样式写回 index.html，说明有人误改回静态加载
+        expect(staticSectionCss).toEqual([]);
+    });
+
+    test('按需加载的 section 样式必须插在 mobile.css 之前', () => {
+        // 这条约定由 ui/lib/section-styles.js 的 layerAnchor() 实现：
+        //   base -> shared -> 外壳 -> section(动态) -> mobile -> alignment
+        // 一旦插到 mobile 之后，390px 下 dashboard 的移动端样式会整体失效（实际踩过）。
+        const src = readFileSync(path.join(process.cwd(), 'static/ui/lib/section-styles.js'), 'utf8');
+        const anchorFn = src.slice(src.indexOf('function layerAnchor'), src.indexOf('function insertLink'));
+        expect(anchorFn).toContain('mobile.css');
+        // mobile.css 必须排在 alignment.css 之前查询（优先作为锚点）
+        expect(anchorFn.indexOf('mobile.css')).toBeLessThan(anchorFn.indexOf('alignment.css'));
     });
 
     test('控制台：base.css 最先，shared.css 紧随其后', () => {

@@ -4,6 +4,7 @@ import { route } from './lib/router.js';
 import { Header } from './layout/Header.js';
 import { Sidebar } from './layout/Sidebar.js';
 import { SECTIONS } from './sections.js';
+import { loadSectionStyles } from './lib/section-styles.js';
 
 const SECTION_IDS = new Set(SECTIONS.map((section) => section.id));
 
@@ -22,8 +23,14 @@ function LazySection({ section, active }) {
     useEffect(() => {
         if (!active || Component) return undefined;
         let alive = true;
-        section.load()
-            .then((mod) => {
+        // 样式与模块并行取，但**必须等样式就位再挂载组件**：
+        // 只等模块会出现"模块先到、样式后到"，组件已按未套样式完成布局，
+        // 首帧会闪一下（移动端更明显，因为媒体查询整体没生效）。
+        Promise.all([
+            loadSectionStyles(section.id).catch(() => {}),
+            section.load()
+        ])
+            .then(([, mod]) => {
                 if (alive) setComponent(() => mod.default);
             })
             .catch((error) => {
