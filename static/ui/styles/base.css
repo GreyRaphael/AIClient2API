@@ -529,6 +529,10 @@ body {
 .toast.success { border-left: 4px solid var(--success-color); }
 .toast.error { border-left: 4px solid var(--danger-color); }
 
+/* 表单控件：合并了本文件另一处重复的 .form-control 声明
+ * （那里只写了 background/hover/focus，与这里的声明并列在同一份文件里，
+ * 属于重复选择器）。合并时以这里的基础声明为准 —— 输入框底色是 --bg-secondary，
+ * 另一处把 background 改成 --bg-primary 是后来叠加的副作用，不是设计意图。 */
 .form-control {
     width: 100%;
     padding: 0.75rem 1rem;
@@ -538,6 +542,10 @@ body {
     transition: var(--transition);
     background: var(--bg-secondary);
     color: var(--text-primary);
+}
+
+.form-control:hover {
+    border-color: var(--border-hover);
 }
 
 .form-control:focus {
@@ -943,19 +951,6 @@ body {
     box-shadow: none;
 }
 
-/* 表单控件 */
-.form-control {
-    background: var(--bg-primary);
-}
-
-.form-control:hover {
-    border-color: var(--border-hover);
-}
-
-.form-control:focus {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px var(--primary-20);
-}
 
 /* Toast 通知 */
 .toast {

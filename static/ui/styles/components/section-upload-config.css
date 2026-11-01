@@ -27,9 +27,22 @@
     align-items: center;
 }
 
+/* 凭据管理的搜索框比通用表单更紧凑（2px 边框、8px 圆角、14px 字号）。
+ * 此前这几个值是从 section-providers.css 泄漏过来的（两个文件都定义 .form-control），
+ * 属于跨页污染：providers 一旦作用域化，这里就会掉样式。改为自己显式声明。 */
 .search-input-group .form-control {
     flex: 1;
+    padding: 12px;
     padding-right: 3rem;
+    border: 2px solid var(--neutral-200);
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.search-input-group .form-control:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-10);
 }
 
 .search-input-group .btn {

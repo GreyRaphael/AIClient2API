@@ -1297,68 +1297,37 @@
     text-align: center;
 }
 
-.form-group {
-    margin-bottom: 1.5rem;
-}
-
-.form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-}
-
-
-.form-control {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    font-size: 0.9rem;
-    transition: var(--transition);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-}
-
-.form-control:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    background: var(--bg-primary);
-    box-shadow: 0 0 0 4px var(--primary-10);
-}
-
 .form-control::placeholder {
     color: var(--text-tertiary);
 }
 
 /* 复选框样式 */
-.form-group input[type="checkbox"] {
+/* 提供商池特有的紧凑表单样式（标签 13px/500、输入框 2px 边框、8px 圆角）。
+ *
+ * 这些原先是全局裸类：因为 config / upload-config 会按需加载本文件，
+ * 它们的 .form-group 会被这里覆盖成 providers 的尺寸 —— 跨页污染。
+ * 收敛到 #providers 作用域后，各页面只受自己声明的样式影响。 */
+#providers .form-group input[type="checkbox"] {
     width: 1rem;
     height: 1rem;
     accent-color: var(--primary-color);
     cursor: pointer;
 }
 
-.form-group {
+#providers .form-group {
     display: flex;
     flex-direction: column;
 }
 
-.form-group label {
+#providers .form-group label {
     font-size: 13px;
     color: var(--neutral-600);
     margin-bottom: 8px;
     font-weight: 500;
 }
 
-.form-group input, .form-group select {
+#providers .form-group input,
+#providers .form-group select {
     padding: 12px;
     border: 2px solid var(--neutral-200);
     border-radius: 8px;
@@ -1366,7 +1335,8 @@
     transition: all 0.3s ease;
 }
 
-.form-group input:focus, .form-group select:focus {
+#providers .form-group input:focus,
+#providers .form-group select:focus {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px var(--primary-10);

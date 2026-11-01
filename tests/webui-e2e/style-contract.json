@@ -837,13 +837,13 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
-      "font-size": "14px",
+      "padding": "10px 48px 10px 14px",
+      "font-size": "16px",
       "border-radius": "8px",
-      "border-width": "2px",
+      "border-width": "1px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#config .form-group": {
       "margin-bottom": "10px"
@@ -851,7 +851,7 @@
     "#config .form-group label": {
       "font-size": "12px",
       "font-weight": "500",
-      "color": "rgb(15, 23, 42)"
+      "color": "rgb(71, 85, 105)"
     },
     "#config .config-panel": {
       "padding": "12px",
@@ -1697,10 +1697,10 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
-      "font-size": "14px",
+      "padding": "10px 48px 10px 14px",
+      "font-size": "16px",
       "border-radius": "8px",
-      "border-width": "2px",
+      "border-width": "1px",
       "background-color": "rgb(30, 41, 59)",
       "color": "rgb(248, 250, 252)",
       "border-color": "rgb(51, 65, 85)"
@@ -1711,7 +1711,7 @@
     "#config .form-group label": {
       "font-size": "12px",
       "font-weight": "500",
-      "color": "rgb(248, 250, 252)"
+      "color": "rgb(203, 213, 225)"
     },
     "#config .config-panel": {
       "padding": "12px",
@@ -2557,13 +2557,13 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
+      "padding": "10px 48px 10px 14px",
       "font-size": "14px",
       "border-radius": "8px",
-      "border-width": "2px",
+      "border-width": "1px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#config .form-group": {
       "margin-bottom": "12px"
@@ -2571,7 +2571,7 @@
     "#config .form-group label": {
       "font-size": "13px",
       "font-weight": "500",
-      "color": "rgb(15, 23, 42)"
+      "color": "rgb(71, 85, 105)"
     },
     "#config .config-panel": {
       "padding": "16px",
@@ -3417,10 +3417,10 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
+      "padding": "10px 48px 10px 14px",
       "font-size": "14px",
       "border-radius": "8px",
-      "border-width": "2px",
+      "border-width": "1px",
       "background-color": "rgb(30, 41, 59)",
       "color": "rgb(248, 250, 252)",
       "border-color": "rgb(51, 65, 85)"
@@ -3431,7 +3431,7 @@
     "#config .form-group label": {
       "font-size": "13px",
       "font-weight": "500",
-      "color": "rgb(248, 250, 252)"
+      "color": "rgb(203, 213, 225)"
     },
     "#config .config-panel": {
       "padding": "16px",
@@ -4277,21 +4277,21 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
-      "font-size": "14px",
-      "border-radius": "8px",
-      "border-width": "2px",
+      "padding": "12px 48px 12px 16px",
+      "font-size": "14.4px",
+      "border-radius": "12px",
+      "border-width": "1px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#config .form-group": {
-      "margin-bottom": "24px"
+      "margin-bottom": "16px"
     },
     "#config .form-group label": {
-      "font-size": "14.4px",
+      "font-size": "13.6px",
       "font-weight": "600",
-      "color": "rgb(15, 23, 42)"
+      "color": "rgb(71, 85, 105)"
     },
     "#config .config-panel": {
       "padding": "32px",
@@ -5137,21 +5137,21 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
-      "font-size": "14px",
-      "border-radius": "8px",
-      "border-width": "2px",
+      "padding": "12px 48px 12px 16px",
+      "font-size": "14.4px",
+      "border-radius": "12px",
+      "border-width": "1px",
       "background-color": "rgb(30, 41, 59)",
       "color": "rgb(248, 250, 252)",
       "border-color": "rgb(51, 65, 85)"
     },
     "#config .form-group": {
-      "margin-bottom": "24px"
+      "margin-bottom": "16px"
     },
     "#config .form-group label": {
-      "font-size": "14.4px",
+      "font-size": "13.6px",
       "font-weight": "600",
-      "color": "rgb(248, 250, 252)"
+      "color": "rgb(203, 213, 225)"
     },
     "#config .config-panel": {
       "padding": "32px",
@@ -5997,21 +5997,21 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
-      "font-size": "14px",
-      "border-radius": "8px",
-      "border-width": "2px",
+      "padding": "12px 48px 12px 16px",
+      "font-size": "14.4px",
+      "border-radius": "12px",
+      "border-width": "1px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#config .form-group": {
-      "margin-bottom": "24px"
+      "margin-bottom": "16px"
     },
     "#config .form-group label": {
-      "font-size": "14.4px",
+      "font-size": "13.6px",
       "font-weight": "600",
-      "color": "rgb(15, 23, 42)"
+      "color": "rgb(71, 85, 105)"
     },
     "#config .config-panel": {
       "padding": "32px",
@@ -6857,21 +6857,21 @@
       "border-width": "1px"
     },
     ".form-control": {
-      "padding": "12px 48px 12px 12px",
-      "font-size": "14px",
-      "border-radius": "8px",
-      "border-width": "2px",
+      "padding": "12px 48px 12px 16px",
+      "font-size": "14.4px",
+      "border-radius": "12px",
+      "border-width": "1px",
       "background-color": "rgb(30, 41, 59)",
       "color": "rgb(248, 250, 252)",
       "border-color": "rgb(51, 65, 85)"
     },
     "#config .form-group": {
-      "margin-bottom": "24px"
+      "margin-bottom": "16px"
     },
     "#config .form-group label": {
-      "font-size": "14.4px",
+      "font-size": "13.6px",
       "font-weight": "600",
-      "color": "rgb(248, 250, 252)"
+      "color": "rgb(203, 213, 225)"
     },
     "#config .config-panel": {
       "padding": "32px",

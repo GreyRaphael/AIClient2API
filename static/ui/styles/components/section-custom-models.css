@@ -399,10 +399,8 @@
     color: var(--danger-color);
 }
 
-/* 表单行优化 */
+/* 表单行优化：基础定义在 shared.css，自定义模型表单更紧凑，只写差异 */
 .form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 1rem;
     margin-bottom: 1rem;
 }

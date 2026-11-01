@@ -155,3 +155,59 @@
     color: var(--danger-color);
     transform: rotate(90deg);
 }
+
+
+/* --------------------------------------------------------------------------
+   3. 表单原子类（跨 section 共享）
+   .form-group / .form-row / .form-group label / .form-control::placeholder
+   原先在 section-config.css 与 section-providers.css 里各有一份**逐字节相同**
+   的副本。两份都要维护，改一处忘另一处就不同步；按需加载时还要靠
+   SECTION_STYLES 里显式声明"config 依赖 providers 的样式"来兜底。
+
+   放在这里作为唯一权威定义（shared.css 对所有控制台页面加载，不会丢样式）。
+   section 里若有差异（例如 custom-models 的 .form-row 更紧凑），
+   在自己的文件里**只写差异**覆盖即可 —— shared.css 在本层之前，自然被覆盖。
+   -------------------------------------------------------------------------- */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.form-control::placeholder {
+    color: var(--text-tertiary);
+}
+
+/* 表单动作区与密码框：同样被多个 section 复用（config / providers / access），
+ * 从 section-config.css 上收为共享定义。 */
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    justify-content: flex-end;
+}
+
+.password-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.input-with-toggle {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+}

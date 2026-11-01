@@ -28,7 +28,14 @@ const SCOPED = {
     logs: '#logs'
 };
 
-/** 跨 section 共享、必须保持全局的原子类（作用域化会破坏其他页面） */
+/**
+ * 跨 section 共享的原子类：不允许被单个 section 作用域化，否则其他页面会丢样式。
+ *
+ * 其中表单那一组（form-group / form-row / form-control / form-actions /
+ * password-input-wrapper / input-with-toggle / form-group label）的**权威定义**
+ * 已收敛到 shared.css —— 之前它们在 config 与 providers 里各有一份逐字节相同的
+ * 副本，按需加载时还要靠 SECTION_STYLES 显式声明"谁依赖谁"来兜底。
+ */
 const SHARED_ATOMS = new Set([
     'form-control', 'form-group', 'form-row', 'form-actions', 'form-text',
     'password-input-wrapper', 'password-toggle', 'input-with-toggle',
@@ -37,6 +44,18 @@ const SHARED_ATOMS = new Set([
     'stat-card', 'stats-grid', 'card', 'modal', 'modal-content', 'modal-header',
     'toggle-switch', 'toggle-slider'
 ]);
+
+/** 权威定义收敛到 shared.css 的原子类（各 section 只允许写差异覆盖） */
+const SHARED_SOURCE_CLASSES = new Set([
+    'form-group', 'form-row', 'form-actions',
+    'password-input-wrapper', 'input-with-toggle'
+]);
+
+/**
+ * 权威定义在 base.css 的原子类 —— base.css 比 shared.css 更早、且所有页面都加载，
+ * 因此表单基础控件放这里也满足"唯一来源"。
+ */
+const BASE_SOURCE_CLASSES = new Set(['form-control']);
 
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length));
 
@@ -95,6 +114,38 @@ describe('CSS 作用域化', () => {
             }
         }
         expect(offenders).toEqual([]);
+    });
+
+    test('表单原子类有唯一的权威定义（shared.css 或 base.css）', () => {
+        const shared = readFileSync(path.join(STYLES, 'shared.css'), 'utf8');
+        const base = readFileSync(path.join(STYLES, 'base.css'), 'utf8');
+        const hasRule = (text, cls) => new RegExp('(^|\\n)\\.' + cls + '\\s*\\{').test(text);
+
+        const missing = [
+            ...[...SHARED_SOURCE_CLASSES].filter((cls) => !hasRule(shared, cls)),
+            ...[...BASE_SOURCE_CLASSES].filter((cls) => !hasRule(base, cls))
+        ];
+        expect(missing).toEqual([]);
+    });
+
+    test('各 section 不再重复定义已收敛到 shared.css 的原子类', () => {
+        const offenders = [];
+        for (const section of ['config', 'providers', 'custom-models', 'access', 'upload-config', 'usage', 'dashboard', 'plugins', 'playground']) {
+            const file = path.join(STYLES, 'components', `section-${section}.css`);
+            if (!existsSync(file)) continue;
+            for (const sel of selectors(readFileSync(file, 'utf8'))) {
+                const bare = /^\.([A-Za-z_][-\w]*)$/.exec(sel);
+                if (!bare) continue;
+                if (!SHARED_SOURCE_CLASSES.has(bare[1]) && !BASE_SOURCE_CLASSES.has(bare[1])) continue;
+                offenders.push(`section-${section}.css: ${sel}`);
+            }
+        }
+        // custom-models 的 .form-row/.form-group 是刻意的差异覆盖，白名单放行
+        const allowed = new Set([
+            'section-custom-models.css: .form-row',
+            'section-custom-models.css: .form-group'
+        ]);
+        expect(offenders.filter((o) => !allowed.has(o))).toEqual([]);
     });
 
     test('跨 section 共享的原子类没有被误加前缀', () => {
