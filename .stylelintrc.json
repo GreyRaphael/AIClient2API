@@ -22,6 +22,7 @@
     "string-no-newline": true,
     "unit-no-unknown": true,
 
-    "no-duplicate-selectors": null
-  }
+    "no-duplicate-selectors": [true, { "severity": "warning" }]
+  },
+  "ignoreFiles": ["static/vendor/**"]
 }
