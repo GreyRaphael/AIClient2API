@@ -292,11 +292,6 @@
     margin: 0.5rem 0;
 }
 
-.dashboard-overview-row .dashboard-contact .qr-code {
-    width: 190px;
-    height: 190px;
-    padding: 0.35rem;
-}
 
 /* 二维码占位（图片已移除，保留原有占位尺寸与边框观感） */
 .dashboard-overview-row .dashboard-contact .qr-placeholder {
@@ -363,21 +358,7 @@
     justify-content: center;
 }
 
-.qr-code {
-    width: 200px;
-    height: 200px;
-    object-fit: contain;
-    border: 4px solid var(--border-color);
-    border-radius: 0.5rem;
-    padding: 0.5rem;
-    background: white;
-    transition: var(--transition);
-}
 
-.qr-code:hover {
-    border-color: var(--primary-color);
-    transform: scale(1.05);
-}
 
 .clickable-qr {
     cursor: zoom-in;
@@ -457,10 +438,6 @@
         gap: 0.75rem;
     }
 
-    .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 190px;
-        height: 190px;
-    }
 
     .dashboard-overview-row .dashboard-contact .qr-placeholder {
 
@@ -1009,10 +986,6 @@
         gap: 0.75rem;
     }
 
-    .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 190px;
-        height: 190px;
-    }
 
     .dashboard-overview-row .dashboard-contact .qr-placeholder {
 
@@ -1031,10 +1004,6 @@
     .contact-card {
         padding: 1.5rem;
     }
-    .qr-code {
-        width: 180px;
-        height: 180px;
-    }
     .dashboard-overview-row .dashboard-contact .contact-grid {
         grid-template-columns: repeat(2, 220px);
         justify-content: center;
@@ -1043,10 +1012,6 @@
     .dashboard-overview-row .dashboard-contact .contact-card {
         padding: 0.8rem 0.5rem;
     }
-    .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 190px;
-        height: 190px;
-    }
     .dashboard-overview-row .dashboard-contact .qr-placeholder {
         width: 190px;
         height: 190px;
@@ -1054,10 +1019,6 @@
 }
 
 @media (max-width: 480px) {
-    .qr-code {
-        width: 150px;
-        height: 150px;
-    }
     .dashboard-overview-row .dashboard-contact .contact-grid {
         grid-template-columns: repeat(2, 160px);
         justify-content: center;
@@ -1065,10 +1026,6 @@
     }
     .dashboard-overview-row .dashboard-contact .contact-card {
         padding: 0.6rem 0.4rem;
-    }
-    .dashboard-overview-row .dashboard-contact .qr-code {
-        width: 140px;
-        height: 140px;
     }
     .dashboard-overview-row .dashboard-contact .qr-placeholder {
         width: 140px;
@@ -1103,9 +1060,6 @@
     background: var(--bg-primary);
 }
 
-[data-theme="dark"] .qr-code {
-    background: white;
-}
 
 [data-theme="dark"] .image-zoom-overlay {
     background: var(--neutral-shadow-95);

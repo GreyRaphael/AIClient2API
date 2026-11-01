@@ -878,12 +878,6 @@
         margin: 1rem 0;
     }
 
-    .qr-code {
-        width: 150px;
-        height: 150px;
-        border-width: 2px;
-        padding: 0.375rem;
-    }
 
 
     /* Config Stats 移动端优化 */
@@ -1287,12 +1281,6 @@
         margin: 0.75rem 0;
     }
 
-    .qr-code {
-        width: 120px;
-        height: 120px;
-        border-width: 2px;
-        padding: 0.25rem;
-    }
 
 
     /* Provider Stats 进一步优化 */
