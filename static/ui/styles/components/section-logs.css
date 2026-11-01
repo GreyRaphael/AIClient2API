@@ -1,11 +1,11 @@
 /* 日志 */
-.logs-controls {
+#logs .logs-controls {
     display: flex;
     gap: 1rem;
     margin-bottom: 1rem;
 }
 
-.logs-container {
+#logs .logs-container {
     background: var(--code-bg);
     color: var(--code-text);
     padding: 1.5rem;
@@ -17,40 +17,31 @@
     box-shadow: var(--shadow-md);
 }
 
-.log-entry {
+#logs .log-entry {
     margin-bottom: 0.5rem;
     padding: 0.25rem 0;
 }
 
-.log-time {
+#logs .log-time {
     color: var(--log-time);
 }
 
-.log-level-info {
+#logs .log-level-info {
     color: var(--log-info);
 }
 
-.log-level-error {
+#logs .log-level-error {
     color: var(--log-error);
 }
 
-.log-level-warn {
+#logs .log-level-warn {
     color: var(--log-warn);
 }
 
-.info-label {
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-}
 
-.info-value {
-    color: var(--text-primary);
-    font-weight: 500;
-    font-size: 0.875rem;
-}
 
 /* 暗黑主题适配 */
-[data-theme="dark"] .logs-container {
+[data-theme="dark"] #logs .logs-container {
     background: var(--code-bg);
     color: var(--code-text);
 }
