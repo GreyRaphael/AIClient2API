@@ -35,7 +35,7 @@ body {
         }
         .navbar-brand .badge {
             background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
-            color: #ffffff;
+            color: #fff;
             font-size: 11px;
             padding: 2px 8px;
             border-radius: var(--radius-full);

@@ -450,10 +450,7 @@
 .custom-model-status-cell .toggle-slider {
     position: absolute;
     cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background-color: var(--bg-tertiary, #e2e8f0);
     border: 1px solid var(--border-color, #cbd5e1);
     transition: var(--transition, all 0.25s ease);
@@ -467,7 +464,7 @@
     width: 16px;
     left: 2px;
     bottom: 2px;
-    background-color: #ffffff;
+    background-color: #fff;
     transition: var(--transition, all 0.25s ease);
     border-radius: 50%;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);

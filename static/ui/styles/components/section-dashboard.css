@@ -894,10 +894,7 @@
 .model-item.copied::after {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background: var(--success-color);
     opacity: 0.1;
     animation: copyFlash 0.3s ease-out;

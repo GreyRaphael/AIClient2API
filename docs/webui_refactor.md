@@ -531,6 +531,29 @@ sections/providers/
 - **浏览器要求**：Chrome/Edge 105+、Firefox 121+、Safari 16.4+（`:has()`）。
 - **测试更新**：`npm test` 71 suites / 839 tests，WebUI E2E 34/34，`npm run verify`、`typecheck:webui` 与 `vendor:webui:check` 通过；Font Awesome 子集 139 icons。
 
+### 14.4 CSS 分层重构（P0 阶段）
+
+迁移只搬了文件、没动层叠，遗留了一个真实缺陷：`mobile.css`（纯 `@media` 层）在 `index.html`
+里排在组件样式**之前**，于是每个移动端媒体查询都被后面**同等特异性**的组件规则整体覆盖。
+390×844 实测 `.header-content` 的 `padding` 是桌面的 `12px 32px` 而不是预期的 `8px 12px`，
+`.header h1` 是 `20px` 而不是 `14px`——属性级统计显示 `mobile.css` 里 290 条声明有 **170 条失效**。
+
+P0 只做零风险的层叠修正，不重写任何规则：
+
+- `index.html`：`mobile.css` 移到全部 `components/*.css` 之后（桌面端实测无任何变化，移动端恢复设计意图）。
+- `login.html`：`base.css` 提到 `login.css` 之前（原顺序让页面样式被基础层反压）。
+- `model-usage-stats.html`：`mobile.css` 移到页面样式之后。
+- 补上 `--danger-hover` 令牌（亮/暗各一份），并移除 `section-playground.css` 里对应的内联 fallback；
+  至此 `var()` 的"未定义令牌"数量归零。
+- 新增 `tests/ui-css-order.test.js` 把分层顺序固化为测试（mobile.css 必须在组件之后、
+  base.css 必须在页面样式之前、所有引用的样式表都存在）。
+- 接入 `stylelint`（`npm run lint:css`，只覆盖能确定性判定的规则），并纳入 `npm run verify`
+  与 CI；同时用 `--fix` 收掉了 22 处历史小问题（`#ffffff`→`#fff`、`top/left/right/bottom:0`→`inset:0`、
+  `padding: 1.5rem 1.5rem`→`padding: 1.5rem`）。
+
+`no-duplicate-selectors` 暂设为 `null`：现有 57 处重复选择器需要逐个确认层叠意图，
+留到 P1 合并重复规则时一起开启，避免为了过 lint 而改变渲染结果。
+
 ## 附录 A：迁移前后对照示例（日志页）
 
 旧（`event-stream.js`，节选）：

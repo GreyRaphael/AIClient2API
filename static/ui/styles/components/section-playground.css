@@ -78,7 +78,7 @@
 .pg-workspace .pg-indicator.active .dot::after {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    inset: 0;
     background: currentColor;
     border-radius: 50%;
     animation: pg-pulse 2s infinite;
@@ -399,7 +399,7 @@
 }
 
 .pg-workspace .pg-stop-pill:hover {
-    background: var(--danger-hover, #dc2626);
+    background: var(--danger-hover);
     transform: scale(1.05);
 }
 
@@ -525,10 +525,7 @@
 .pg-workspace .pg-switch-slider {
     position: absolute;
     cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background-color: var(--bg-tertiary);
     transition: .4s;
     border-radius: 34px;
@@ -677,7 +674,7 @@
     }
 
     .pg-workspace .pg-input-boundary { padding: 1rem 1.5rem 1.5rem; }
-    .pg-workspace .pg-messages-wrapper { padding: 1.5rem 1.5rem; }
+    .pg-workspace .pg-messages-wrapper { padding: 1.5rem; }
 
     .pg-workspace .pg-mobile-start-chat-btn {
         display: flex !important;

@@ -525,7 +525,7 @@
 }
 
 .add-provider-form h4 {
-    margin: 0 0 20px 0;
+    margin: 0 0 20px;
     color: var(--neutral-700);
     font-size: 18px;
     font-weight: 600;
@@ -914,7 +914,7 @@
     border-left: 4px solid var(--primary-color);
 }
 
-.auth-instructions h4 { margin: 0 0 1rem 0; font-size: 1rem; font-weight: 600; }
+.auth-instructions h4 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; }
 .auth-instructions ol { margin: 0 0 1rem 1.5rem; padding: 0; }
 .auth-instructions li { margin-bottom: 0.5rem; font-size: 0.875rem; line-height: 1.5; }
 

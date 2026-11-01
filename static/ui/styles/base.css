@@ -9,12 +9,13 @@
     --secondary-color: #10b981;
     --success-color: #10b981;
     --danger-color: #ef4444;
+    --danger-hover: #dc2626;
     --danger-10: rgba(239, 68, 68, 0.1);
     --warning-color: #f59e0b;
     --info-color: #3b82f6;
 
     /* 背景色 */
-    --bg-primary: #ffffff;
+    --bg-primary: #fff;
     --bg-secondary: #f8fafc;
     --bg-tertiary: #f1f5f9;
     --bg-glass: rgba(255, 255, 255, 0.8);
@@ -95,7 +96,7 @@
     
     
     /* 基础颜色 */
-    --white: #ffffff;
+    --white: #fff;
     
     /* 遮罩背景 */
     --overlay-bg: rgba(0, 0, 0, 0.6);
@@ -185,6 +186,7 @@
     --secondary-color: #34d399;
     --success-color: #34d399;
     --danger-color: #f87171;
+    --danger-hover: #ef4444;
     --danger-10: rgba(248, 113, 113, 0.1);
     --warning-color: #fbbf24;
     --info-color: #60a5fa;
@@ -228,7 +230,7 @@
     --danger-70: rgba(248, 113, 113, 0.7);
     
     /* 基础颜色 */
-    --white: #ffffff;
+    --white: #fff;
     
     /* 遮罩背景 */
     --overlay-bg: rgba(0, 0, 0, 0.8);
@@ -410,7 +412,7 @@ body {
 
 .btn-primary {
     background: var(--primary-color);
-    color: #ffffff;
+    color: #fff;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 

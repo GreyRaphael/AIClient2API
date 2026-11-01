@@ -50,6 +50,9 @@ jobs:
       - name: 运行时循环依赖检查
         run: npm run check:cycles
 
+      - name: CSS 静态检查
+        run: npm run lint:css
+
       - name: 类型债务指标
         run: npm run metrics:types
 

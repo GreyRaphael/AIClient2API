@@ -177,7 +177,7 @@
             display: inline-block;
             width: 16px;
             height: 16px;
-            border: 2px solid #ffffff;
+            border: 2px solid #fff;
             border-radius: 50%;
             border-top-color: transparent;
             animation: login-spin 0.8s linear infinite;
