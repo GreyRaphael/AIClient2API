@@ -1,13 +1,13 @@
 /** API 大锅饭 - 管理端 Key 管理页（Phase 5 迁移）。 */
-import { html, render, useEffect, useMemo, useState } from '../html.js';
-import { initTheme, toggleTheme } from '../lib/theme.js';
+import { html, useEffect, useMemo, useState } from '../html.js';
+import { toggleTheme } from '../lib/theme.js';
 import { getToken } from '../lib/auth.js';
 import { copyToClipboard } from '../lib/clipboard.js';
 import { confirmDialog } from '../store/confirm.js';
 import { toast } from '../store/toast.js';
-import { ToastHost } from '../components/Toast.js';
-import { ConfirmDialogHost } from '../components/ConfirmDialog.js';
 import { Modal } from '../components/Modal.js';
+import { mountPage } from '../lib/page-boot.js';
+import { requestWithCredential } from '../lib/credential-api.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
 import { DistributionList } from '../components/DistributionList.js';
 import {
@@ -20,16 +20,20 @@ import {
 
 const API_BASE = '/api/potluck';
 
+/**
+ * 管理端请求：走 session token（Bearer）。
+ * 请求/解析/401 已收敛到 lib/credential-api.js，这里只保留本页特有的一条行为：
+ * 401 时返回 null，让调用方静默降级（插件被禁用时页面不该整块报错）。
+ * @param {string} url
+ * @param {{method?: string, body?: any, headers?: Record<string,string>}} [options]
+ */
 async function apiRequest(url, options = {}) {
-    const token = getToken();
-    const headers = { 'Content-Type': 'application/json', ...options.headers };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetch(url, { ...options, headers });
-    if (response.status === 401) {
-        window.location.href = '/login.html';
-        return null;
+    try {
+        return await requestWithCredential(url, getToken() || '', options);
+    } catch (error) {
+        if (String(error.message).startsWith('未授权')) return null;
+        throw error;
     }
-    return response.json();
 }
 
 function PotluckAdminPage() {
@@ -507,14 +511,4 @@ function PotluckAdminPage() {
         <//>`;
 }
 
-async function boot() {
-    initTheme();
-    const page = document.getElementById('page');
-    render(html`<${PotluckAdminPage} />`, page);
-    const toastRoot = document.getElementById('toastContainer');
-    if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
-    const confirmRoot = document.getElementById('confirm-root');
-    if (confirmRoot) render(html`<${ConfirmDialogHost} />`, confirmRoot);
-}
-
-void boot();
+void mountPage(PotluckAdminPage);

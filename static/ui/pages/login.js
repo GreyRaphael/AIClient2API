@@ -1,10 +1,9 @@
 /** 登录页（Phase 5 迁移）。 */
-import { html, render, useEffect, useRef, useState } from '../html.js';
+import { html, useEffect, useRef, useState } from '../html.js';
 import { initLanguage, lang, t } from '../lib/i18n.js';
-import { initTheme } from '../lib/theme.js';
 import { getToken, saveToken } from '../lib/auth.js';
 import { LanguageSwitcher } from '../components/LanguageSwitcher.js';
-import { ToastHost } from '../components/Toast.js';
+import { mountPage } from '../lib/page-boot.js';
 
 function LoginPage() {
     const [password, setPassword] = useState('');
@@ -94,14 +93,8 @@ function LoginPage() {
         </div>`;
 }
 
-async function boot() {
-    initTheme();
-    await initLanguage();
-
-    const page = document.getElementById('page');
-    render(html`<${LoginPage} />`, page);
-    const toastRoot = document.getElementById('toastContainer');
-    if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
-}
-
-void boot();
+void mountPage(LoginPage, {
+    // 登录页原本没有 confirm-root（也不需要确认弹窗）；容器这次补上了，
+    // 保持四个独立页的挂载方式一致，省掉一个"这页为什么不一样"的口径。
+    beforeRender: () => initLanguage()
+});

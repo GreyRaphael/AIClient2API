@@ -1,11 +1,11 @@
 /** API 大锅饭 - 用户用量页（Phase 5 迁移）。 */
-import { html, render, useEffect, useRef, useState } from '../html.js';
-import { initTheme, toggleTheme } from '../lib/theme.js';
+import { html, useEffect, useRef, useState } from '../html.js';
+import { toggleTheme } from '../lib/theme.js';
 import { copyToClipboard } from '../lib/clipboard.js';
 import { toast } from '../store/toast.js';
-import { ToastHost } from '../components/Toast.js';
-import { ConfirmDialogHost } from '../components/ConfirmDialog.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
+import { mountPage } from '../lib/page-boot.js';
+import { requestWithCredential } from '../lib/credential-api.js';
 import { DistributionList } from '../components/DistributionList.js';
 import {
     aggregateUsage,
@@ -37,14 +37,9 @@ function PotluckUserPage() {
 
         setLoading(true);
         try {
-            const response = await fetch(`${API_BASE}/usage`, {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${key}` }
-            });
-            const payload = await response.json();
-            if (!response.ok || !payload.success) {
-                throw new Error(payload.error?.message || '登录失败');
-            }
+            // 用户手势触发的登录：401 不该跳转（用户本来就在填 Key），onUnauthorized 置空
+            const payload = await requestWithCredential(`${API_BASE}/usage`, key, { onUnauthorized: () => {} });
+            if (!payload.success) throw new Error(payload.error?.message || '登录失败');
             if (remember) localStorage.setItem(STORAGE_KEY, key);
             else localStorage.removeItem(STORAGE_KEY);
             setApiKey(key);
@@ -232,14 +227,4 @@ function PotluckUserPage() {
     `;
 }
 
-async function boot() {
-    initTheme();
-    const page = document.getElementById('page');
-    render(html`<${PotluckUserPage} />`, page);
-    const toastRoot = document.getElementById('toastContainer');
-    if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
-    const confirmRoot = document.getElementById('confirm-root');
-    if (confirmRoot) render(html`<${ConfirmDialogHost} />`, confirmRoot);
-}
-
-void boot();
+void mountPage(PotluckUserPage);

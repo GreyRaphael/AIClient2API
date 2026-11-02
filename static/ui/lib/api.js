@@ -30,12 +30,17 @@ export class ApiClient {
         this.inflightGetRequests = new Map();
     }
 
-    /** @returns {Record<string, string>} */
-    getAuthHeaders() {
+    /**
+     * @param {{json?: boolean}} [options] json=false 时不写 Content-Type（FormData / 流）
+     * @returns {Record<string, string>}
+     */
+    getAuthHeaders(options = {}) {
         const token = getToken();
-        return token
-            ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-            : { 'Content-Type': 'application/json' };
+        /** @type {Record<string, string>} */
+        const headers = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+        if (options.json !== false) headers['Content-Type'] = 'application/json';
+        return headers;
     }
 
     handleUnauthorized() {
@@ -44,45 +49,78 @@ export class ApiClient {
     }
 
     /**
+     * 唯一的请求出口：鉴权头、401 处理、错误翻译、响应解码都在这里做一次。
+     *
+     * 历史上 `request()` 只处理 JSON，于是 `getBlob` / `getBlobFile` / `postForm`
+     * 各自复制了一份「取 token → 401 → 报错」的逻辑（三份逐字重复），
+     * 且 `get/post/put/delete` 在把 options 传给本方法时**丢掉了 options.headers**。
+     *
      * @param {string} endpoint 以 / 开头的 API 路径（不含 /api 前缀）
-     * @param {RequestInit} [options]
+     * @param {RequestInit & { raw?: 'blob'|'response', json?: boolean, form?: FormData, errorKey?: string }} [options]
+     *   - `raw: 'blob'` 返回 Blob，`raw: 'response'` 返回 Response（调用方自己解析）；
+     *   - `form` 传入 FormData 时不设置 Content-Type（交给浏览器加 boundary）。
      * @returns {Promise<any>}
      */
     async request(endpoint, options = {}) {
-        const url = `/api${endpoint}`;
-        const headers = { ...this.getAuthHeaders(), ...(options.headers || {}) };
-        const response = await fetch(url, { ...options, headers });
+        const { raw, json, form, errorKey = 'common.requestFailed', headers: extraHeaders, ...init } = options;
+        // FormData 必须让浏览器自己写 Content-Type（含 boundary），否则 multer 解析失败
+        const baseHeaders = form ? this.getAuthHeaders({ json: false }) : this.getAuthHeaders();
+        const headers = { ...baseHeaders, ...(extraHeaders || {}) };
+        const body = form ?? init.body;
+        const response = await fetch(`/api${endpoint}`, { ...init, headers, body });
 
         if (response.status === 401) {
             this.handleUnauthorized();
             throw new Error(t('common.unauthorized'));
         }
 
-        const contentType = response.headers.get('content-type') || '';
-        const data = contentType.includes('application/json')
-            ? await response.json()
-            : await response.text();
-
-        if (!response.ok) {
-            let errorMessage = '';
-            if (data && typeof data === 'object') {
-                const code = data.error?.messageCode || data.messageCode;
-                if (code) {
-                    const params = data.error?.messageParams || data.messageParams;
-                    const translated = t(code, params);
-                    if (translated !== code) errorMessage = translated;
-                }
-                if (!errorMessage) {
-                    errorMessage = data.error?.message || data.message || '';
-                }
-            }
-            if (!errorMessage) {
-                errorMessage = `${t('common.requestFailed')} (${t('common.status')}: ${response.status})`;
-            }
-            throw new ApiError(errorMessage, response.status, data);
+        // 调用方要自己消费流（SSE / 大文件）或只要原始响应
+        if (raw === 'response') return response;
+        if (raw === 'blob') {
+            if (!response.ok) throw this.buildError(null, response.status, errorKey);
+            return response.blob();
         }
 
+        const data = await this.decode(response, json !== false);
+
+        if (!response.ok) throw this.buildError(data, response.status, errorKey);
         return data;
+    }
+
+    /**
+     * 按内容类型解码响应体。
+     * @param {Response} response
+     * @param {boolean} preferJson
+     * @returns {Promise<any>}
+     */
+    async decode(response, preferJson) {
+        const contentType = response.headers.get('content-type') || '';
+        if (preferJson && contentType.includes('application/json')) return response.json();
+        return response.text();
+    }
+
+    /**
+     * 构造带 i18n 文案的 ApiError。
+     * @param {any} data 已解码的响应体
+     * @param {number} status
+     * @param {string} fallbackKey i18n key
+     * @returns {ApiError}
+     */
+    buildError(data, status, fallbackKey) {
+        let errorMessage = '';
+        if (data && typeof data === 'object') {
+            const code = data.error?.messageCode || data.messageCode;
+            if (code) {
+                const params = data.error?.messageParams || data.messageParams;
+                const translated = t(code, params);
+                if (translated !== code) errorMessage = translated;
+            }
+            if (!errorMessage) errorMessage = data.error?.message || data.message || '';
+        }
+        if (!errorMessage) {
+            errorMessage = `${t(fallbackKey)} (${t('common.status')}: ${status})`;
+        }
+        return new ApiError(errorMessage, status, data);
     }
 
     /**
@@ -101,7 +139,7 @@ export class ApiClient {
             return this.inflightGetRequests.get(requestKey);
         }
 
-        const requestPromise = this.request(url, { method: 'GET', signal: options.signal })
+        const requestPromise = this.request(url, { method: 'GET', signal: options.signal, headers: options.headers })
             .finally(() => {
                 this.inflightGetRequests.delete(requestKey);
             });
@@ -110,15 +148,19 @@ export class ApiClient {
     }
 
     async post(endpoint, data = {}, options = {}) {
-        return this.request(endpoint, { method: 'POST', body: JSON.stringify(data), signal: options.signal });
+        return this.request(endpoint, {
+            method: 'POST', body: JSON.stringify(data), signal: options.signal, headers: options.headers
+        });
     }
 
     async put(endpoint, data = {}, options = {}) {
-        return this.request(endpoint, { method: 'PUT', body: JSON.stringify(data), signal: options.signal });
+        return this.request(endpoint, {
+            method: 'PUT', body: JSON.stringify(data), signal: options.signal, headers: options.headers
+        });
     }
 
     async delete(endpoint, options = {}) {
-        return this.request(endpoint, { method: 'DELETE', signal: options.signal });
+        return this.request(endpoint, { method: 'DELETE', signal: options.signal, headers: options.headers });
     }
 
     /**
@@ -128,18 +170,7 @@ export class ApiClient {
      * @returns {Promise<Blob>}
      */
     async getBlob(endpoint, options = {}) {
-        const token = getToken();
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const response = await fetch(`/api${endpoint}`, { headers, signal: options.signal });
-
-        if (response.status === 401) {
-            this.handleUnauthorized();
-            throw new Error(t('common.unauthorized'));
-        }
-        if (!response.ok) {
-            throw new ApiError(`${t('common.requestFailed')} (${t('common.status')}: ${response.status})`, response.status);
-        }
-        return response.blob();
+        return this.request(endpoint, { method: 'GET', raw: 'blob', signal: options.signal, headers: options.headers });
     }
 
     /**
@@ -149,18 +180,10 @@ export class ApiClient {
      * @returns {Promise<{blob: Blob, filename: string|null}>}
      */
     async getBlobFile(endpoint, options = {}) {
-        const token = getToken();
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const response = await fetch(`/api${endpoint}`, { headers, signal: options.signal });
-
-        if (response.status === 401) {
-            this.handleUnauthorized();
-            throw new Error(t('common.unauthorized'));
-        }
-        if (!response.ok) {
-            throw new ApiError(`${t('common.requestFailed')} (${t('common.status')}: ${response.status})`, response.status);
-        }
-
+        const response = await this.request(endpoint, {
+            method: 'GET', raw: 'response', signal: options.signal, headers: options.headers
+        });
+        if (!response.ok) throw this.buildError(null, response.status, 'common.requestFailed');
         const disposition = response.headers.get('Content-Disposition') || '';
         const match = /filename="?([^";]+)"?/.exec(disposition);
         return { blob: await response.blob(), filename: match ? match[1] : null };
@@ -173,31 +196,15 @@ export class ApiClient {
      * @param {RequestOptions} [options]
      */
     async postForm(endpoint, formData, options = {}) {
-        const token = getToken();
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const response = await fetch(`/api${endpoint}`, {
+        // 上传失败的兜底文案用 common.uploadFailed（与普通请求区分）
+        return this.request(endpoint, {
             method: 'POST',
-            headers,
-            body: formData,
-            signal: options.signal
+            form: formData,
+            json: false,
+            errorKey: 'common.uploadFailed',
+            signal: options.signal,
+            headers: options.headers
         });
-
-        if (response.status === 401) {
-            this.handleUnauthorized();
-            throw new Error(t('common.unauthorized'));
-        }
-
-        const contentType = response.headers.get('content-type') || '';
-        const data = contentType.includes('application/json')
-            ? await response.json()
-            : await response.text();
-
-        if (!response.ok) {
-            const errorMessage = (data && typeof data === 'object' && (data.error?.message || data.message))
-                || `${t('common.uploadFailed')} (${t('common.status')}: ${response.status})`;
-            throw new ApiError(errorMessage, response.status, data);
-        }
-        return data;
     }
 }
 

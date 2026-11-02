@@ -1,11 +1,11 @@
 /** 模型用量统计独立页（Phase 5 迁移）。 */
-import { html, render, useEffect, useMemo, useState } from '../html.js';
-import { initTheme, toggleTheme } from '../lib/theme.js';
+import { html, useEffect, useMemo, useState } from '../html.js';
+import { toggleTheme } from '../lib/theme.js';
 import { confirmDialog } from '../store/confirm.js';
 import { toast } from '../store/toast.js';
-import { ToastHost } from '../components/Toast.js';
-import { ConfirmDialogHost } from '../components/ConfirmDialog.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
+import { mountPage } from '../lib/page-boot.js';
+import { requestWithCredential } from '../lib/credential-api.js';
 import {
     flattenModelUsage,
     formatNumber,
@@ -17,30 +17,25 @@ import {
 const API_BASE = '/api/model-usage-stats';
 const STORAGE_KEY = 'model_usage_stats_auth';
 
-async function requestWithCredential(url, credential, options = {}) {
+/**
+ * 本页请求：凭证同时写 Authorization 与 x-api-key（后端两种都认），
+ * 且 401 不跳登录页 —— 这里是用户手动填的凭证，直接提示即可。
+ * 请求/解析已收敛到 lib/credential-api.js，只保留 PLUGIN_DISABLED 的业务特判。
+ */
+async function requestStats(url, credential, options = {}) {
     if (!credential) throw new Error('请先输入访问凭证。');
-    const response = await fetch(url, {
-        ...options,
-        headers: {
-            ...(options.headers || {}),
-            Authorization: `Bearer ${credential}`,
-            'x-api-key': credential
-        }
-    });
-    const text = await response.text();
-    let payload = null;
     try {
-        payload = text ? JSON.parse(text) : null;
-    } catch {
-        throw new Error(`接口返回了非 JSON 内容: ${text || '(empty)'}`);
-    }
-    if (!response.ok) {
-        if (payload?.error?.code === 'PLUGIN_DISABLED') {
+        return await requestWithCredential(url, credential, {
+            ...options,
+            auth: 'dual',
+            onUnauthorized: () => {}
+        });
+    } catch (error) {
+        if (String(error.message).includes('PLUGIN_DISABLED')) {
             throw new Error('插件未启用：请先在插件管理中启用 model-usage-stats。');
         }
-        throw new Error(payload?.error?.message || payload?.message || `请求失败 (${response.status})`);
+        throw error;
     }
-    return payload;
 }
 
 function Bars({ items, getValue, getLabel }) {
@@ -86,7 +81,7 @@ function ModelUsageStatsPage() {
             if (!value) throw new Error('请先输入访问凭证。');
             if (value) localStorage.setItem(STORAGE_KEY, JSON.stringify({ value }));
             setStatusMessage('正在加载统计数据...');
-            const payload = await requestWithCredential(API_BASE, value);
+            const payload = await requestStats(API_BASE, value);
             const nextData = payload?.data || payload;
             setData(nextData);
             setRows(flattenModelUsage(nextData));
@@ -161,7 +156,7 @@ function ModelUsageStatsPage() {
         if (!confirmed) return;
         try {
             setStatusMessage(tokensOnly ? '正在重置 Token 统计...' : '正在重置统计数据...');
-            const payload = await requestWithCredential(`${API_BASE}/${tokensOnly ? 'reset-tokens' : 'reset'}`, credential, { method: 'POST' });
+            const payload = await requestStats(`${API_BASE}/${tokensOnly ? 'reset-tokens' : 'reset'}`, credential, { method: 'POST' });
             const nextData = payload?.data || payload;
             setData(nextData);
             setRows(flattenModelUsage(nextData));
@@ -380,14 +375,4 @@ function ModelUsageStatsPage() {
         </main>`;
 }
 
-async function boot() {
-    initTheme();
-    const page = document.getElementById('page');
-    render(html`<${ModelUsageStatsPage} />`, page);
-    const toastRoot = document.getElementById('toastContainer');
-    if (toastRoot) render(html`<${ToastHost} />`, toastRoot);
-    const confirmRoot = document.getElementById('confirm-root');
-    if (confirmRoot) render(html`<${ConfirmDialogHost} />`, confirmRoot);
-}
-
-void boot();
+void mountPage(ModelUsageStatsPage);
