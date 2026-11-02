@@ -235,6 +235,338 @@ function extractSSEData(line: string): string | null {
     return trimmedLine;
 }
 
+/* ============================================================================
+ * 0-Hop 直通辅助：标准 Responses 请求体归一 + 超长工具名映射
+ *
+ * 背景：当下游是 `/v1/responses` 时，管道不再经 CodexConverter（needsConversion=false），
+ * CodexConverter.requestStates 不会被填充，因此工具名缩短映射必须由 CodexApiService 自己持有：
+ * - `prepareRequestBody` 生成缩短映射（>64 字符 -> mcp__ 前缀/哈希后缀），绑定在请求体的
+ *   不可枚举属性 `_codexToolNameMap` 上（不会被 axios 序列化到上游）；
+ * - `parseSSEStream` / `parseNonStreamResponse` 用其中的反向映射还原原始工具名。
+ *
+ * 1-Hop 路径（chat/claude 下游）工具名已由 CodexConverter 缩短过（<=64），
+ * 这里再次缩短是幂等空操作，不会出现双重缩短 / 双重还原。
+ * ========================================================================== */
+
+/** Codex（OpenAI function call）工具名长度上限 */
+const CODEX_TOOL_NAME_LIMIT = 64;
+
+/** 绑定在请求体上的工具名映射属性名（不可枚举） */
+const CODEX_TOOL_NAME_MAP_KEY = '_codexToolNameMap';
+
+interface CodexToolNameMaps {
+    /** 原始名 -> 缩短名 */
+    toolNameMap: Map<string, string>;
+    /** 缩短名 -> 原始名 */
+    reverseToolNameMap: Map<string, string>;
+}
+
+/**
+ * 缩短单个工具名（与 CodexConverter.shortenToolName 保持完全一致的算法）。
+ * @param {string} name
+ * @returns {string}
+ */
+export function shortenCodexToolName(name: string): string {
+    if (typeof name !== 'string' || name.length <= CODEX_TOOL_NAME_LIMIT) return name;
+    if (name.startsWith('mcp__')) {
+        const idx = name.lastIndexOf('__');
+        if (idx > 0) {
+            const candidate = 'mcp__' + name.slice(idx + 2);
+            return candidate.length > CODEX_TOOL_NAME_LIMIT
+                ? candidate.slice(0, CODEX_TOOL_NAME_LIMIT)
+                : candidate;
+        }
+    }
+    const suffix = '_' + crypto.createHash('sha256').update(name).digest('hex').slice(0, 16);
+    return name.slice(0, CODEX_TOOL_NAME_LIMIT - suffix.length) + suffix;
+}
+
+/**
+ * 读取工具定义里的原始名字（兼容 Responses 扁平形状与 Chat 嵌套形状）。
+ * @param {Object} tool
+ * @returns {string}
+ */
+function readCodexToolName(tool: unknown): string {
+    const record = asRecord(tool);
+    if (typeof record.name === 'string' && record.name) return record.name;
+    const fn = asRecord(record.function);
+    return typeof fn.name === 'string' ? fn.name : '';
+}
+
+/**
+ * 构建工具名缩短映射（同名冲突时追加 _1/_2 后缀，与 CodexConverter 对齐）。
+ * @param {Array} tools
+ * @returns {{toolNameMap: Map<string,string>, reverseToolNameMap: Map<string,string>}}
+ */
+export function buildCodexToolNameMaps(tools: unknown): CodexToolNameMaps {
+    const toolNameMap = new Map<string, string>();
+    const reverseToolNameMap = new Map<string, string>();
+    if (!Array.isArray(tools)) return { toolNameMap, reverseToolNameMap };
+
+    const names: string[] = [];
+    for (const tool of tools) {
+        const name = readCodexToolName(tool);
+        if (name) names.push(name);
+    }
+    if (names.length === 0) return { toolNameMap, reverseToolNameMap };
+
+    const used = new Set<string>();
+    for (const name of names) {
+        let candidate = shortenCodexToolName(name);
+        let unique = candidate;
+        if (used.has(unique)) {
+            for (let i = 1; ; i++) {
+                const suffix = '_' + i;
+                const allowed = CODEX_TOOL_NAME_LIMIT - suffix.length;
+                unique = candidate.slice(0, Math.max(0, allowed)) + suffix;
+                if (!used.has(unique)) break;
+            }
+        }
+        used.add(unique);
+        toolNameMap.set(name, unique);
+        reverseToolNameMap.set(unique, name);
+    }
+
+    return { toolNameMap, reverseToolNameMap };
+}
+
+/**
+ * 把缩短后的工具名写回请求体（兼容 Chat 嵌套形状与 Responses 扁平形状，以及 tool_choice）。
+ *
+ * @param {Object} body - 待发送给上游的请求体（会被原地改写）
+ * @param {Map<string,string>} toolNameMap - 原始名 -> 缩短名
+ */
+function applyCodexToolNameShorts(body: Record<string, unknown>, toolNameMap: Map<string, string>): void {
+    if (toolNameMap.size === 0) return;
+
+    if (Array.isArray(body.tools)) {
+        body.tools = body.tools.map((tool) => {
+            if (!isRecord(tool)) return tool;
+            const fn = asRecord(tool.function);
+            if (typeof fn.name === 'string' && toolNameMap.has(fn.name)) {
+                return { ...tool, function: { ...fn, name: toolNameMap.get(fn.name) } };
+            }
+            if (typeof tool.name === 'string' && toolNameMap.has(tool.name)) {
+                return { ...tool, name: toolNameMap.get(tool.name) };
+            }
+            return tool;
+        });
+    }
+
+    const toolChoice = body.tool_choice;
+    if (isRecord(toolChoice)) {
+        const choice = { ...toolChoice };
+        const fn = asRecord(choice.function);
+        if (typeof fn.name === 'string' && toolNameMap.has(fn.name)) {
+            choice.function = { ...fn, name: toolNameMap.get(fn.name) };
+        } else if (typeof choice.name === 'string' && toolNameMap.has(choice.name)) {
+            choice.name = toolNameMap.get(choice.name);
+        }
+        body.tool_choice = choice;
+    }
+}
+
+/** 读取请求体上绑定的工具名反向映射（非枚举，不会被序列化到上游）。 */
+function getCodexReverseToolNameMap(body: unknown): Map<string, string> | null {
+    const maps = isRecord(body) ? (body as Record<string, unknown>)[CODEX_TOOL_NAME_MAP_KEY] : null;
+    return isRecord(maps) && maps.reverseToolNameMap instanceof Map
+        ? maps.reverseToolNameMap as Map<string, string>
+        : null;
+}
+
+/**
+ * 把反向工具名映射绑定到请求体（不可枚举）。
+ * @param {Object} body
+ * @param {Object} maps
+ */
+function attachCodexToolNameMaps(body: Record<string, unknown>, maps: CodexToolNameMaps): void {
+    Object.defineProperty(body, CODEX_TOOL_NAME_MAP_KEY, {
+        value: maps,
+        enumerable: false,
+        configurable: true,
+        writable: true
+    });
+}
+
+/** 还原单个工具名。 */
+function restoreCodexToolName(name: unknown, reverse: Map<string, string> | null): unknown {
+    if (!reverse || typeof name !== 'string') return name;
+    return reverse.get(name) || name;
+}
+
+/**
+ * 补全 function_call / custom_tool_call 输出项的 id（独立 fc_*）与 call_id，
+ * 并还原被缩短的工具名。下游 Responses 客户端依赖这两个字段回传 function_call_output。
+ */
+function normalizeCodexToolCallItem(item: unknown, reverse: Map<string, string> | null): unknown {
+    if (!isRecord(item)) return item;
+    const type = item.type;
+    if (type !== 'function_call' && type !== 'custom_tool_call') return item;
+
+    const restoredName = restoreCodexToolName(item.name, reverse);
+    const rawCallId = item.call_id || item.id;
+    const callId = typeof rawCallId === 'string' && rawCallId
+        ? rawCallId
+        : `call_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const itemId = typeof item.id === 'string' && item.id !== callId
+        ? item.id
+        : (callId.startsWith('fc_') ? callId : `fc_${callId}`);
+
+    return {
+        ...item,
+        id: itemId,
+        call_id: callId,
+        name: restoredName
+    };
+}
+
+/**
+ * 就地修正一个 Responses 事件里的工具名 / 工具项 id。
+ * 覆盖 `response.output_item.*`（item）与 `response.completed|incomplete`（response.output）。
+ */
+function patchCodexEventToolNames(event: unknown, reverse: Map<string, string> | null): unknown {
+    if (!reverse || !isRecord(event)) return event;
+    const type = event.type;
+
+    if (type === 'response.output_item.added' || type === 'response.output_item.done') {
+        return { ...event, item: normalizeCodexToolCallItem(event.item, reverse) };
+    }
+
+    if (type === 'response.completed' || type === 'response.incomplete') {
+        const response = asRecord(event.response);
+        const output = response.output;
+        if (!Array.isArray(output)) return event;
+        const nextOutput = output.map((item) => normalizeCodexToolCallItem(item, reverse));
+        return { ...event, response: { ...response, output: nextOutput } };
+    }
+
+    return event;
+}
+
+/**
+ * 归一标准 Responses 请求体（0-Hop 直通入口）。
+ *
+ * 与旧 `OpenAIResponsesConverter -> CodexConverter.toOpenAIResponsesToCodexRequest`
+ * 后的语义保持一致，但收敛到 Provider 层一步完成：
+ * - `input` 字符串 -> `[{type:'message', role:'user', content:[{type:'input_text', text}]}]`；
+ * - `input` 数组项补齐 `type:'message'`，`role:'system'` 归一为 `'developer'`；
+ * - `text.format` 字符串归一为对象（`'json_object'` 直接移除）；
+ * - 删除 Codex 不支持的 `temperature` / `top_p` / `user`。
+ *
+ * 幂等：1-Hop 路径上组合器已做过同样清洗，重复执行无副作用。
+ *
+ * @param {Object} body - 已浅拷贝的请求体（原地改写）
+ */
+export function normalizeCodexResponsesBody(body: Record<string, unknown>): void {
+    // 1) input 归一
+    if (typeof body.input === 'string') {
+        body.input = [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: body.input }]
+        }];
+    }
+    if (Array.isArray(body.input)) {
+        body.input = body.input.map((rawItem) => {
+            if (!isRecord(rawItem)) return rawItem;
+            let item: Record<string, unknown> = { ...rawItem };
+            if (!item.type && item.role) {
+                item.type = 'message';
+            }
+            if (item.type === 'message' && item.role === 'system') {
+                item = { ...item, role: 'developer' };
+            }
+            return item;
+        });
+    }
+
+    // 2) text.format 归一（Responses 标准允许字符串简写，Codex 只接受对象）
+    if (isRecord(body.text)) {
+        const text: Record<string, unknown> = { ...body.text };
+        if (typeof text.format === 'string') {
+            const format = text.format;
+            if (format === 'json_object') {
+                delete text.format;
+            } else {
+                text.format = { type: format };
+            }
+        }
+        if (Object.keys(text).length === 0) {
+            delete body.text;
+        } else {
+            body.text = text;
+        }
+    }
+
+    // 3) Codex 不支持的采样字段
+    delete body.temperature;
+    delete body.top_p;
+    delete body.user;
+}
+
+/**
+ * 把 `{type:'response.completed', response:{…}}` 事件转成「双形态兼容」对象。
+ *
+ * - 可枚举自有字段：标准 Responses 响应体（0-Hop 直通时 `JSON.stringify` 只输出这些）；
+ * - 不可枚举 `type` / `response`：保持 CodexConverter 的 1-Hop 解包契约。
+ *
+ * @param {Object} completedEvent - 已 patch 完成的 completed/incomplete 事件
+ * @param {string} [model] - 响应缺省模型名
+ * @returns {Object}
+ */
+export function toCodexDualShapeResponse(
+    completedEvent: Record<string, unknown>,
+    model?: string
+): Record<string, unknown> {
+    const upstreamResponse = asRecord(completedEvent.response);
+    const status = typeof upstreamResponse.status === 'string'
+        ? upstreamResponse.status
+        : (completedEvent.type === 'response.incomplete' ? 'incomplete' : 'completed');
+
+    const standardResponse: Record<string, unknown> = {
+        ...upstreamResponse,
+        id: typeof upstreamResponse.id === 'string' && upstreamResponse.id
+            ? upstreamResponse.id
+            : `resp_${crypto.randomUUID().replace(/-/g, '')}`,
+        object: 'response',
+        created_at: typeof upstreamResponse.created_at === 'number'
+            ? upstreamResponse.created_at
+            : Math.floor(Date.now() / 1000),
+        model: typeof upstreamResponse.model === 'string' && upstreamResponse.model
+            ? upstreamResponse.model
+            : (model || 'unknown'),
+        status,
+        output: Array.isArray(upstreamResponse.output) ? upstreamResponse.output : [],
+        incomplete_details: upstreamResponse.incomplete_details ?? null
+    };
+    if (!isRecord(standardResponse.usage)) {
+        standardResponse.usage = {
+            input_tokens: 0,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 0,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 0
+        };
+    }
+
+    // 兼容壳：不可枚举 -> 不进入 0-Hop 出站 JSON，但 1-Hop Converter 仍可读取。
+    // `response` 用浅拷贝而非自引用，避免任何 JSON.stringify / 深拷贝工具陷入循环。
+    Object.defineProperty(standardResponse, 'type', {
+        value: completedEvent.type || 'response.completed',
+        enumerable: false,
+        configurable: true,
+        writable: true
+    });
+    Object.defineProperty(standardResponse, 'response', {
+        value: { ...standardResponse },
+        enumerable: false,
+        configurable: true,
+        writable: true
+    });
+
+    return standardResponse;
+}
+
 /**
  * 解析 Codex OAuth AccessToken 中的元数据（如订阅类型 chatgpt_plan_type、accountId 等）
  * @param {string} token
@@ -512,7 +844,7 @@ export class CodexApiService {
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
-            return this.parseNonStreamResponse(response.data) as T;
+            return this.parseNonStreamResponse(response.data, getCodexReverseToolNameMap(body), selectedModel) as T;
         } catch (rawError) {
             const error = asCodexError(rawError);
             if (error.response?.status === 401) {
@@ -593,7 +925,7 @@ export class CodexApiService {
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
-            yield* this.parseSSEStream(response.data);
+            yield* this.parseSSEStream(response.data, getCodexReverseToolNameMap(body));
         } catch (rawError) {
             const error = asCodexError(rawError);
             if (error.response?.status === 401) {
@@ -691,6 +1023,11 @@ export class CodexApiService {
         delete cleanedBody.safety_identifier;
         delete cleanedBody.stream_options;
 
+        // 0-Hop 直通入口：下游 /v1/responses 的标准 Responses 请求体不再经 CodexConverter，
+        // 方言清洗（input 字符串包装、type:'message' 补齐、system->developer、text.format 归一、
+        // 删除 temperature/top_p/user）全部收敛到这里；1-Hop 路径下这些操作幂等无副作用。
+        normalizeCodexResponsesBody(cleanedBody);
+
         // Codex 接受顶层 instructions，但拒绝 input 中的 system/developer 消息。
         normalizeCodexInstructions(cleanedBody);
 
@@ -725,15 +1062,19 @@ export class CodexApiService {
             }
             logger.info(`[Codex] Image model detected: ${upstreamModel} with image_generation tool${imageToolConfig.size ? `, size=${imageToolConfig.size}` : ''}`);
         } else {
-            // 普通 Codex 模型默认补充 web_search 工具
+            // 普通 Codex 模型默认补充 web_search 工具。
+            // 重建数组后再 push：0-Hop 直通时 requestBody 就是下游客户端请求体（浅拷贝共享 tools
+            // 数组引用），原地 push 会污染 originalRequestBody，影响后续插件钩子与重试。
             if (!cleanedBody.tools) {
                 cleanedBody.tools = [];
             }
             if (Array.isArray(cleanedBody.tools)) {
-                const hasWebSearch = cleanedBody.tools.some((t) => isRecord(t) && t.type === 'web_search');
+                const tools = [...cleanedBody.tools];
+                const hasWebSearch = tools.some((t) => isRecord(t) && t.type === 'web_search');
                 if (!hasWebSearch) {
-                    cleanedBody.tools.push({type: 'web_search'});
+                    tools.push({type: 'web_search'});
                 }
+                cleanedBody.tools = tools;
             }
         }
 
@@ -810,6 +1151,15 @@ export class CodexApiService {
             delete reasoningPayload.effort;
         }
 
+        // 超长工具名缩短（>64 字符会被上游拒绝）：0-Hop 时管道不跑 CodexConverter，
+        // 因此缩短 + 反向还原都由 Provider 自己负责。映射绑定在返回体的不可枚举属性上，
+        // 由 parseSSEStream / parseNonStreamResponse 取出用于还原。
+        // 1-Hop 路径下工具名已由 CodexConverter 缩短（<=64），此处为幂等空操作。
+        const toolNameMaps = buildCodexToolNameMaps(cleanedBody.tools);
+        if (toolNameMaps.toolNameMap.size > 0) {
+            applyCodexToolNameShorts(cleanedBody, toolNameMaps.toolNameMap);
+        }
+
         // 注意：requestBody 已经去除了 metadata
         const result: Record<string, unknown> = {
             ...cleanedBody,
@@ -853,6 +1203,9 @@ export class CodexApiService {
                 logger.error('[Codex] Error calling onInternalRequestConverted hook:', getErrorMessage(e));
             }
         }
+
+        // 绑定工具名反向映射（不可枚举：不会被 axios/JSON 序列化发往上游）
+        attachCodexToolNameMaps(result, toolNameMaps);
 
         return result;
     }
@@ -1041,8 +1394,15 @@ export class CodexApiService {
 
     /**
      * 解析 SSE 流
+     *
+     * @param {AsyncIterable} stream - 上游 SSE 字节流
+     * @param {Map<string,string>|null} [reverseToolNameMap] - 缩短名 -> 原始名（0-Hop 直通时由
+     *   prepareRequestBody 提供；1-Hop 时为空，工具名还原由 CodexConverter 负责）
      */
-    async* parseSSEStream(stream: AsyncIterable<Buffer | string>): AsyncGenerator<unknown> {
+    async* parseSSEStream(
+        stream: AsyncIterable<Buffer | string>,
+        reverseToolNameMap: Map<string, string> | null = null
+    ): AsyncGenerator<unknown> {
         let buffer = '';
         const outputItemsByIndex = new Map();
         const outputItemsFallback: unknown[] = [];
@@ -1067,6 +1427,11 @@ export class CodexApiService {
                             const error = terminalError;
                             throw error;
                         }
+
+                        // 0-Hop：还原被缩短的工具名并补全 function_call 的 id/call_id。
+                        // 必须在收集 output_item.done 之前完成，否则 completed 事件里的
+                        // output 会从收集缓存回填未还原的原始 item。
+                        parsed = patchCodexEventToolNames(parsed, reverseToolNameMap);
 
                         if (parsed.type === 'response.output_item.done') {
                             this.collectCodexOutputItemDone(parsed, outputItemsByIndex, outputItemsFallback);
@@ -1102,6 +1467,8 @@ export class CodexApiService {
                         throw error;
                     }
 
+                    parsed = patchCodexEventToolNames(parsed, reverseToolNameMap);
+
                     if (parsed.type === 'response.output_item.done') {
                         this.collectCodexOutputItemDone(parsed, outputItemsByIndex, outputItemsFallback);
                     } else if (parsed.type === 'response.completed') {
@@ -1122,8 +1489,26 @@ export class CodexApiService {
 
     /**
      * 解析非流式响应
+     *
+     * 返回一个「双形态兼容」对象：
+     * - **可枚举自有字段** = 标准 OpenAI Responses 响应体（id/object/created_at/model/status/
+     *   output/usage/incomplete_details …）。下游为 `/v1/responses` 时管道 0-Hop 直通，
+     *   `JSON.stringify` 只会输出这些字段，客户端拿到的就是干净的 Responses 响应；
+     * - **不可枚举 `type` / `response`** = `{type:'response.completed', response:{…}}` 兼容壳。
+     *   下游为 chat/claude（1-Hop）时 `CodexConverter.toOpenAIResponse` / `toClaudeResponse`
+     *   依靠 `root.type` 与 `root.response` 解包，非枚举属性同样可读取，
+     *   且不会被 `JSON.stringify` 带到 0-Hop 的出站响应里。
+     *
+     * @param {string|Buffer|unknown} data - 上游 SSE 文本
+     * @param {Map<string,string>|null} [reverseToolNameMap] - 缩短名 -> 原始名（0-Hop 直通时由
+     *   prepareRequestBody 提供；1-Hop 时为空，工具名还原由 CodexConverter 负责）
+     * @param {string} [model] - 响应缺省模型名
      */
-    parseNonStreamResponse(data: unknown): unknown {
+    parseNonStreamResponse(
+        data: unknown,
+        reverseToolNameMap: Map<string, string> | null = null,
+        model?: string
+    ): unknown {
         // 确保 data 是字符串
         const responseText = typeof data === 'string' ? data : String(data);
 
@@ -1153,6 +1538,8 @@ export class CodexApiService {
 
             try {
                 let parsed = JSON.parse(jsonData);
+                // 0-Hop：还原被缩短的工具名并补全 function_call 的 id/call_id
+                parsed = patchCodexEventToolNames(parsed, reverseToolNameMap);
                 switch (parsed.type) {
                     case 'error':
                     case 'response.failed': {
@@ -1266,7 +1653,9 @@ export class CodexApiService {
             }
         }
 
-        return completedEvent;
+        // 0-Hop 直通：把完成的 response 拆成「标准 Responses 响应体 + 兼容壳」双形态。
+        // 不再额外做 CodexConverter 那套全量重建（字段原样保留，避免丢字段）。
+        return toCodexDualShapeResponse(completedEvent, model);
     }
 
     /**

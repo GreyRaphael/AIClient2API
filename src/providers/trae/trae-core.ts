@@ -5,6 +5,11 @@ import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
+import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
+import { ResponsesSseEmitter } from '../../converters/responses-sse-emitter.ts';
+import { AnthropicSseEmitter } from '../../converters/anthropic-sse-emitter.ts';
+import { anthropicUsageFromInclusiveInput } from '../../converters/utils.ts';
+import { isSignatureVaultEnabled } from '../../converters/signature-vault.ts';
 import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.ts';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.ts';
@@ -209,6 +214,827 @@ export function resolveMaxStandardEffort(options: unknown[]): string {
         }
     }
     return maxLevel ? mapTraeLevelToStandardEffort(maxLevel) : DEFAULT_TRAE_REASONING_EFFORT;
+}
+
+/* ============================================================================
+ * 三协议 1-Hop 请求归一
+ *
+ * 管道对 `trae` / `trae-chat_v3` 不再调用 convertData（needsConversion=false），
+ * 因此 `prepareRequestBody` 会直接收到下游三种标准请求体之一：
+ * - `openai`：标准 Chat Completions 请求（messages / tools[].function）
+ * - `openaiResponses`：标准 Responses 请求（instructions / input / tools[].name）
+ * - `claude`：标准 Messages 请求（system / messages content blocks / tools[].input_schema）
+ *
+ * 这里一步把它们转成 Trae 私有的 `messages` / `tools`，不再经过中间 OpenAI 协议层。
+ * 目标下游协议由管道注入的不可枚举属性 `_downstreamProtocol` 指示，缺省 `'openai'`。
+ * ========================================================================== */
+
+/** 读取管道注入的下游协议（不可枚举属性，缺失时默认 openai）。 */
+export function readDownstreamProtocol(requestBody: DynamicPayload | null | undefined): string {
+    const value = requestBody?._downstreamProtocol;
+    if (value === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) return MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
+    if (value === MODEL_PROTOCOL_PREFIX.CLAUDE) return MODEL_PROTOCOL_PREFIX.CLAUDE;
+    return MODEL_PROTOCOL_PREFIX.OPENAI;
+}
+
+/** 把任意 content 值转成 Trae 的 `[{type:'text', text}]` 元素（保留已是标准块的对象）。 */
+function toTraeTextBlocks(value: unknown): DynamicPayload[] {
+    if (value === null || value === undefined) return [];
+    if (typeof value === 'string') {
+        return value ? [{ type: 'text', text: value }] : [];
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return [{ type: 'text', text: String(value) }];
+    }
+    if (Array.isArray(value)) {
+        const blocks: DynamicPayload[] = [];
+        for (const part of value) {
+            blocks.push(...toTraeTextBlocks(part));
+        }
+        return blocks;
+    }
+    if (typeof value === 'object') {
+        const record = value as DynamicPayload;
+        // Responses 的 input_text / output_text 与 Chat 的 text 统一归为 Trae 文本块
+        if (record.type === 'text' || record.type === 'input_text' || record.type === 'output_text') {
+            const text = typeof record.text === 'string' ? record.text : JSON.stringify(record.text ?? '');
+            return text ? [{ type: 'text', text }] : [];
+        }
+        // 已经是 Trae/OpenAI 图片块：原样保留（上游接受 image_url 结构）
+        if (record.type === 'image_url' || record.type === 'image' || record.type === 'input_image') {
+            if (record.type === 'input_image' && typeof record.image_url === 'string') {
+                return [{ type: 'image_url', image_url: { url: record.image_url } }];
+            }
+            return [record];
+        }
+        try {
+            return [{ type: 'text', text: JSON.stringify(record) }];
+        } catch {
+            return [{ type: 'text', text: String(record) }];
+        }
+    }
+    return [{ type: 'text', text: String(value) }];
+}
+
+/** 从 Anthropic image source 转 OpenAI/Trae 图片块。 */
+function claudeImageBlockToTrae(source: unknown): DynamicPayload | null {
+    if (!source || typeof source !== 'object') return null;
+    const src = source as DynamicPayload;
+    if (src.type === 'base64' && typeof src.data === 'string') {
+        const mediaType = typeof src.media_type === 'string' ? src.media_type : 'image/jpeg';
+        return { type: 'image_url', image_url: { url: `data:${mediaType};base64,${src.data}` } };
+    }
+    if (src.type === 'url' && typeof src.url === 'string') {
+        return { type: 'image_url', image_url: { url: src.url } };
+    }
+    return null;
+}
+
+/**
+ * Responses `tools` -> Trae tools（上游要求 `function.parameters` 为 JSON 字符串）。
+ * 输入既可能是扁平 `{type:'function', name, parameters}`（Responses），
+ * 也可能是嵌套 `{type:'function', function:{...}}`（Chat），两者都兼容。
+ */
+function convertResponsesToolsToTrae(tools: unknown): DynamicPayload[] {
+    if (!Array.isArray(tools)) return [];
+    const converted: DynamicPayload[] = [];
+    for (const rawTool of tools) {
+        if (!rawTool || typeof rawTool !== 'object') continue;
+        const tool = rawTool as DynamicPayload;
+        const fn = (tool.function && typeof tool.function === 'object') ? tool.function as DynamicPayload : tool;
+        const name = fn.name || tool.name;
+        if (!name) continue;
+        const parameters = fn.parameters || fn.input_schema || tool.parameters || { type: 'object', properties: {} };
+        let serialized: string;
+        try {
+            serialized = typeof parameters === 'string' ? parameters : JSON.stringify(parameters);
+        } catch {
+            serialized = '{"type":"object","properties":{}}';
+        }
+        converted.push({
+            type: 'function',
+            function: {
+                name,
+                description: fn.description || tool.description || '',
+                parameters: serialized
+            }
+        });
+    }
+    return converted;
+}
+
+/**
+ * 把 Responses 的 `input` + `instructions` 一步转成 Trae messages。
+ *
+ * @param {Object} requestBody - 标准 Responses 请求体
+ * @returns {Array} Trae messages（content 为 `[{type:'text'|'image_url'}]`，工具调用为 `tool_calls[].function_call`）
+ */
+export function responsesRequestToTraeMessages(requestBody: DynamicPayload): DynamicPayload[] {
+    const messages: DynamicPayload[] = [];
+
+    const pushMessage = (role: string, content: DynamicPayload[], extra: DynamicPayload = {}): void => {
+        const msg: DynamicPayload = { role, content };
+        if (Array.isArray(extra.tool_calls) && extra.tool_calls.length > 0) {
+            msg.tool_calls = extra.tool_calls;
+        }
+        messages.push(msg);
+    };
+
+    const instructions = typeof requestBody?.instructions === 'string' ? requestBody.instructions.trim() : '';
+    if (instructions) {
+        pushMessage('system', [{ type: 'text', text: instructions }]);
+    }
+
+    const hasTrailingToolCalls = (): DynamicPayload | null => {
+        const last = messages[messages.length - 1];
+        return last && last.role === 'assistant' ? last : null;
+    };
+
+    const appendToolCall = (call: DynamicPayload): void => {
+        const last = hasTrailingToolCalls();
+        if (last) {
+            if (!Array.isArray(last.tool_calls)) last.tool_calls = [];
+            last.tool_calls.push(call);
+            if (!last.content || last.content.length === 0) last.content = [];
+            return;
+        }
+        const msg: DynamicPayload = { role: 'assistant', content: [], tool_calls: [call] };
+        messages.push(msg);
+    };
+
+    const input = requestBody?.input;
+    const items: DynamicPayload[] = typeof input === 'string'
+        ? [{ type: 'message', role: 'user', content: input }]
+        : (Array.isArray(input) ? input as DynamicPayload[] : []);
+
+    for (const rawItem of items) {
+        if (!rawItem || typeof rawItem !== 'object') continue;
+        const item = rawItem;
+        const type = item.type || (item.role ? 'message' : '');
+
+        switch (type) {
+            case 'message':
+            case 'input_message': {
+                const role = item.role === 'system' || item.role === 'developer' ? 'system' : (item.role || 'user');
+                pushMessage(role, toTraeTextBlocks(item.content));
+                break;
+            }
+            case 'function_call':
+            case 'custom_tool_call': {
+                const args = type === 'custom_tool_call'
+                    ? (typeof item.input === 'string' ? JSON.stringify({ input: item.input }) : JSON.stringify({ input: item.input ?? '' }))
+                    : (typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {}));
+                appendToolCall({
+                    id: item.call_id || item.id || `call_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
+                    type: 'function',
+                    function_call: { name: item.name || '', arguments: args }
+                });
+                break;
+            }
+            case 'function_call_output':
+            case 'custom_tool_call_output': {
+                pushMessage('tool', toTraeTextBlocks(
+                    typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')
+                ), {});
+                const last = messages[messages.length - 1];
+                if (last) last.tool_call_id = item.call_id || item.id;
+                break;
+            }
+            case 'reasoning': {
+                // Trae 上游不接受历史 reasoning 回传，丢弃（与 OpenAI Chat 转换一致）
+                break;
+            }
+            default: {
+                // 未知 item（如 item_reference）：无法还原，直接跳过而不是污染 messages
+                break;
+            }
+        }
+    }
+
+    if (messages.length === 0) {
+        pushMessage('user', []);
+    }
+    return messages;
+}
+
+/**
+ * 把 Claude Messages 请求（system / messages / tools）一步转成 Trae messages。
+ *
+ * @param {Object} requestBody - 标准 Anthropic Messages 请求体
+ * @returns {{messages: Array, tools: Array}}
+ */
+export function claudeRequestToTraeMessages(requestBody: DynamicPayload): { messages: DynamicPayload[]; tools: DynamicPayload[] } {
+    const messages: DynamicPayload[] = [];
+    const claudeSystem = requestBody?.system;
+    const systemBlocks = Array.isArray(claudeSystem) ? claudeSystem : (typeof claudeSystem === 'string' ? [claudeSystem] : []);
+    const systemText = systemBlocks
+        .map((block: DynamicPayload | string) => typeof block === 'string' ? block : (block?.text || ''))
+        .filter(Boolean)
+        .join('\n');
+    if (systemText) {
+        messages.push({ role: 'system', content: [{ type: 'text', text: systemText }] });
+    }
+
+    const rawMessages = Array.isArray(requestBody?.messages) ? requestBody.messages : [];
+    for (const rawMsg of rawMessages) {
+        if (!rawMsg || typeof rawMsg !== 'object') continue;
+        const role = rawMsg.role === 'assistant' ? 'assistant' : 'user';
+        const content = Array.isArray(rawMsg.content) ? rawMsg.content : toTraeTextBlocks(rawMsg.content);
+
+        const textBlocks: DynamicPayload[] = [];
+        const toolCalls: DynamicPayload[] = [];
+        const toolResults: DynamicPayload[] = [];
+
+        for (const block of content) {
+            if (!block || typeof block !== 'object') {
+                textBlocks.push(...toTraeTextBlocks(block));
+                continue;
+            }
+            switch (block.type) {
+                case 'text':
+                    if (block.text) textBlocks.push({ type: 'text', text: block.text });
+                    break;
+                case 'thinking':
+                case 'redacted_thinking':
+                    // 思考块不回传上游
+                    break;
+                case 'image': {
+                    const imageBlock = claudeImageBlockToTrae(block.source);
+                    if (imageBlock) textBlocks.push(imageBlock);
+                    break;
+                }
+                case 'tool_use':
+                    toolCalls.push({
+                        id: block.id || `call_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
+                        type: 'function',
+                        function_call: {
+                            name: block.name || '',
+                            arguments: typeof block.input === 'string' ? block.input : JSON.stringify(block.input ?? {})
+                        }
+                    });
+                    break;
+                case 'tool_result': {
+                    const resultContent = typeof block.content === 'string'
+                        ? block.content
+                        : (Array.isArray(block.content)
+                            ? block.content.map((c: DynamicPayload | string) => typeof c === 'string' ? c : (c?.text || '')).join('')
+                            : JSON.stringify(block.content ?? ''));
+                    toolResults.push({
+                        role: 'tool',
+                        tool_call_id: block.tool_use_id,
+                        content: toTraeTextBlocks(resultContent)
+                    });
+                    break;
+                }
+                default:
+                    textBlocks.push(...toTraeTextBlocks(block));
+                    break;
+            }
+        }
+
+        // Claude 把 tool_result 放在 user 消息里，Trae 需要独立的 tool 角色消息
+        if (toolResults.length > 0) {
+            messages.push(...toolResults);
+            if (textBlocks.length > 0) {
+                messages.push({ role, content: textBlocks });
+            }
+            continue;
+        }
+
+        const msg: DynamicPayload = { role, content: textBlocks };
+        if (toolCalls.length > 0) {
+            msg.tool_calls = toolCalls;
+        }
+        messages.push(msg);
+    }
+
+    if (messages.length === 0) {
+        messages.push({ role: 'user', content: [] });
+    }
+
+    return { messages, tools: convertResponsesToolsToTrae(requestBody?.tools) };
+}
+
+/**
+ * 归一 tool_choice 为 Trae 上游接受的形状（字符串 / 工具名）。
+ * 兼容 Chat（`{type:'function', function:{name}}`）与 Responses（`{type:'function', name}`）。
+ */
+function normalizeTraeToolChoice(toolChoice: unknown): string | undefined {
+    if (toolChoice === null || toolChoice === undefined) return undefined;
+    if (typeof toolChoice === 'string') return toolChoice;
+    if (typeof toolChoice !== 'object') return undefined;
+    const choice = toolChoice as DynamicPayload;
+    if (choice.type === 'auto') return 'auto';
+    if (choice.type === 'none') return 'none';
+    if (choice.type === 'required') return 'required';
+    // Responses 的 `required` 也可能写成对象
+    if (choice.type === 'any') return 'required';
+    const name = choice.name || choice.function?.name;
+    return typeof name === 'string' && name ? name : undefined;
+}
+
+/**
+ * Trae 流式增量事件（上游私有协议已解析为统一语义）
+ */
+interface TraeDeltaPayload {
+    /** 首个增量携带 'assistant'，其余为 null */
+    role?: string | null;
+    content?: string;
+    reasoning?: string;
+    toolCalls?: DynamicPayload[] | null;
+}
+
+interface TraeDonePayload {
+    finishReason: string;
+    usage: DynamicPayload | null;
+    hasToolCalls: boolean;
+}
+
+interface TraeStreamRenderer {
+    onContentDelta(payload: TraeDeltaPayload): DynamicPayload[];
+    onLateUsage(usage: DynamicPayload): DynamicPayload[];
+    onDone(payload: TraeDonePayload): DynamicPayload[];
+}
+
+/** 把 OpenAI chat usage 转成 Responses usage（含明细字段，语义与管道统计一致）。 */
+function toResponsesUsage(usage: DynamicPayload | null): {
+    input_tokens: number;
+    input_tokens_details: { cached_tokens: number };
+    output_tokens: number;
+    output_tokens_details: { reasoning_tokens: number };
+    total_tokens: number;
+} {
+    const inputTokens = Number(usage?.prompt_tokens) || 0;
+    const outputTokens = Number(usage?.completion_tokens) || 0;
+    const cachedTokens = Number(usage?.prompt_tokens_details?.cached_tokens ?? usage?.cached_tokens) || 0;
+    const reasoningTokens = Number(usage?.completion_tokens_details?.reasoning_tokens) || 0;
+    return {
+        input_tokens: inputTokens,
+        input_tokens_details: { cached_tokens: cachedTokens },
+        output_tokens: outputTokens,
+        output_tokens_details: { reasoning_tokens: reasoningTokens },
+        total_tokens: Number(usage?.total_tokens) || (inputTokens + outputTokens)
+    };
+}
+
+/** 把 OpenAI chat usage 转成 Anthropic usage（input 为包含缓存的总量语义）。 */
+function toAnthropicUsage(usage: DynamicPayload | null): DynamicPayload {
+    const promptTokens = Number(usage?.prompt_tokens) || 0;
+    const cachedTokens = Number(usage?.prompt_tokens_details?.cached_tokens ?? usage?.cached_tokens) || 0;
+    const outputTokens = Number(usage?.completion_tokens) || 0;
+    return anthropicUsageFromInclusiveInput({
+        inputTokens: promptTokens,
+        cachedTokens,
+        outputTokens
+    });
+}
+
+/** 映射 OpenAI Chat finish_reason -> Anthropic stop_reason。 */
+function chatFinishReasonToAnthropic(finishReason: string, hasToolCalls: boolean): string {
+    if (hasToolCalls) return 'tool_use';
+    switch (finishReason) {
+        case 'length':
+            return 'max_tokens';
+        case 'content_filter':
+            return 'refusal';
+        case 'tool_calls':
+        case 'function_call':
+            return 'tool_use';
+        default:
+            return 'end_turn';
+    }
+}
+
+/**
+ * 创建 Trae 流式渲染器。
+ *
+ * - `openai`：逐帧产出 `chat.completion.chunk`（与改造前完全一致，含 role 首帧 /
+ *   reasoning_content / tool_calls / 带 usage 的 done 帧）；
+ * - `openaiResponses`：产出标准 Responses SSE 事件（response.created / in_progress /
+ *   output_text.delta / reasoning_summary_text.delta / output_item.done / completed）；
+ * - `claude`：产出标准 Anthropic Messages SSE 事件（message_start / content_block_* /
+ *   message_delta / message_stop）。
+ */
+function createTraeStreamRenderer({
+    protocol,
+    model,
+    chatId,
+    created
+}: {
+    protocol: string;
+    model: string;
+    chatId: string;
+    created: number;
+}): TraeStreamRenderer {
+    if (protocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
+        return createTraeResponsesRenderer({ model, chatId, created });
+    }
+    if (protocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
+        return createTraeClaudeRenderer({ model, chatId });
+    }
+    return createTraeOpenAIRenderer({ model, chatId, created });
+}
+
+/** 缺省 openai 渲染器：输出与改造前逐字节一致的 chat.completion.chunk 序列。 */
+function createTraeOpenAIRenderer({
+    model,
+    chatId,
+    created
+}: {
+    model: string;
+    chatId: string;
+    created: number;
+}): TraeStreamRenderer {
+    return {
+        onContentDelta({ role, content, reasoning, toolCalls }: TraeDeltaPayload): DynamicPayload[] {
+            if (!content && !reasoning && !toolCalls) return [];
+            const delta: DynamicPayload = {};
+            if (role) delta.role = role;
+            if (content) delta.content = content;
+            if (reasoning) delta.reasoning_content = reasoning;
+            if (toolCalls) delta.tool_calls = toolCalls;
+            return [{
+                id: `chatcmpl-${chatId}`,
+                object: 'chat.completion.chunk',
+                created,
+                model,
+                choices: [{
+                    index: 0,
+                    delta,
+                    finish_reason: null
+                }]
+            }];
+        },
+        onLateUsage(usage: DynamicPayload): DynamicPayload[] {
+            return [{
+                id: `chatcmpl-${chatId}`,
+                object: 'chat.completion.chunk',
+                created,
+                model,
+                choices: [],
+                usage
+            }];
+        },
+        onDone({ finishReason, usage }: TraeDonePayload): DynamicPayload[] {
+            const doneChunk: DynamicPayload = {
+                id: `chatcmpl-${chatId}`,
+                object: 'chat.completion.chunk',
+                created,
+                model,
+                choices: [{
+                    index: 0,
+                    delta: {},
+                    finish_reason: finishReason
+                }]
+            };
+            if (usage) doneChunk.usage = usage;
+            return [doneChunk];
+        }
+    };
+}
+
+/** Responses 渲染器：直接产出标准 Responses SSE 事件。 */
+function createTraeResponsesRenderer({
+    model,
+    chatId,
+    created
+}: {
+    model: string;
+    chatId: string;
+    created: number;
+}): TraeStreamRenderer {
+    let emitter: ResponsesSseEmitter | null = null;
+    // itemId -> tool index，用于把上游 tool_calls 的增量正确路由到 emitter
+    const toolIndexByItemOrCallId = new Map<string, string | number>();
+
+    const ensureEmitter = (): ResponsesSseEmitter => {
+        if (!emitter) {
+            emitter = new ResponsesSseEmitter({
+                responseId: `resp_${chatId.replace(/-/g, '')}`,
+                model,
+                createdAt: created
+            });
+        }
+        return emitter;
+    };
+
+    return {
+        onContentDelta({ role, content, reasoning, toolCalls }: TraeDeltaPayload): DynamicPayload[] {
+            const events: DynamicPayload[] = [];
+            const active = ensureEmitter();
+
+            if (role) {
+                events.push(...active.start());
+            }
+            if (reasoning) {
+                events.push(...active.reasoningDelta(reasoning));
+            }
+            if (content) {
+                events.push(...active.textDelta(content));
+            }
+            if (toolCalls) {
+                for (const tc of toolCalls) {
+                    const key = String(tc.index ?? 0);
+                    const callId = tc.id || `call_${chatId}_${key}`;
+                    const name = tc.function?.name || '';
+                    const args = tc.function?.arguments;
+                    if (!toolIndexByItemOrCallId.has(key)) {
+                        toolIndexByItemOrCallId.set(key, key);
+                    }
+                    events.push(...active.toolCallStart(callId, name, { index: key }));
+                    if (typeof args === 'string' && args.length > 0) {
+                        events.push(...active.toolCallArgsDelta(key, args));
+                    }
+                }
+            } else if (events.length === 0) {
+                // 空增量：仍要保证流已启动
+                events.push(...active.ensureStarted());
+            }
+            return events;
+        },
+        onLateUsage(): DynamicPayload[] {
+            // usage 在 response.completed 里统一给出，无需补帧
+            return [];
+        },
+        onDone({ finishReason, usage, hasToolCalls }: TraeDonePayload): DynamicPayload[] {
+            const active = ensureEmitter();
+            const incomplete = finishReason === 'length';
+            return active.complete(toResponsesUsage(usage), {
+                status: incomplete ? 'incomplete' : 'completed',
+                ...(incomplete ? { incompleteDetails: { reason: 'max_output_tokens' } } : {})
+            }).map((event) => event as DynamicPayload);
+        }
+    };
+}
+
+/** Claude 渲染器：直接产出标准 Anthropic Messages SSE 事件。 */
+function createTraeClaudeRenderer({
+    model,
+    chatId
+}: {
+    model: string;
+    chatId: string;
+}): TraeStreamRenderer {
+    const emitter = new AnthropicSseEmitter({
+        model,
+        messageId: `msg_${chatId.replace(/-/g, '')}`,
+        blockMode: 'multi',
+        sessionKey: chatId,
+        mintSignatures: isSignatureVaultEnabled()
+    });
+    let reasoningIndex: number | null = null;
+    let textIndex: number | null = null;
+    const toolBlocks = new Map<string, DynamicPayload>();
+
+    return {
+        onContentDelta({ content, reasoning, toolCalls }: TraeDeltaPayload): DynamicPayload[] {
+            const events: DynamicPayload[] = [];
+            events.push(...emitter.ensureStarted());
+
+            if (reasoning) {
+                if (reasoningIndex === null) {
+                    const opened = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
+                    reasoningIndex = opened.index;
+                    events.push(...opened.events);
+                }
+                events.push(emitter.deltaAt(reasoningIndex, { type: 'thinking_delta', thinking: reasoning }));
+            }
+
+            if (content) {
+                if (reasoningIndex !== null) {
+                    events.push(...emitter.closeBlockAt(reasoningIndex));
+                    reasoningIndex = null;
+                }
+                if (textIndex === null) {
+                    const opened = emitter.openBlock('text', { type: 'text', text: '' });
+                    textIndex = opened.index;
+                    events.push(...opened.events);
+                }
+                events.push(emitter.deltaAt(textIndex, { type: 'text_delta', text: content }));
+            }
+
+            if (toolCalls) {
+                if (reasoningIndex !== null) {
+                    events.push(...emitter.closeBlockAt(reasoningIndex));
+                    reasoningIndex = null;
+                }
+                if (textIndex !== null) {
+                    events.push(...emitter.closeBlockAt(textIndex));
+                    textIndex = null;
+                }
+                for (const tc of toolCalls) {
+                    const key = String(tc.index ?? 0);
+                    if (!toolBlocks.has(key)) {
+                        const opened = emitter.openBlock('tool_use', {
+                            type: 'tool_use',
+                            id: tc.id || `call_${chatId}_${key}`,
+                            name: tc.function?.name || '',
+                            input: {}
+                        });
+                        toolBlocks.set(key, { index: opened.index, sentArgs: '' });
+                        events.push(...opened.events);
+                    }
+                    const block = toolBlocks.get(key);
+                    const args = tc.function?.arguments;
+                    if (block && typeof args === 'string' && args.length > 0) {
+                        // 上游可能给累积快照也可能给纯增量：前缀相同则只发 diff
+                        let deltaJson = args;
+                        if (block.sentArgs && args === block.sentArgs) {
+                            deltaJson = '';
+                        } else if (block.sentArgs && args.startsWith(block.sentArgs)) {
+                            deltaJson = args.slice(block.sentArgs.length);
+                            block.sentArgs = args;
+                        } else {
+                            block.sentArgs += args;
+                        }
+                        if (deltaJson.length > 0) {
+                            events.push(emitter.deltaAt(block.index, {
+                                type: 'input_json_delta',
+                                partial_json: deltaJson
+                            }));
+                        }
+                    }
+                }
+            }
+
+            return events;
+        },
+        onLateUsage(): DynamicPayload[] {
+            return [];
+        },
+        onDone({ finishReason, usage, hasToolCalls }: TraeDonePayload): DynamicPayload[] {
+            return emitter.finish({
+                stopReason: chatFinishReasonToAnthropic(finishReason, hasToolCalls),
+                usage: toAnthropicUsage(usage)
+            });
+        }
+    };
+}
+
+/**
+ * 组装缺省 `openai` 协议的 chat.completion 对象（与改造前逐字段一致）。
+ */
+function buildTraeOpenAIResponse({
+    model,
+    created,
+    content,
+    reasoning,
+    finishReason,
+    toolCalls,
+    usage
+}: {
+    model: string;
+    created: number;
+    content: string;
+    reasoning: string;
+    finishReason: string;
+    toolCalls: DynamicPayload[];
+    usage: DynamicPayload | null;
+}): DynamicPayload {
+    const message: DynamicPayload = {
+        role: 'assistant',
+        content: content || (toolCalls.length > 0 ? null : ''),
+        ...(reasoning ? { reasoning_content: reasoning } : {})
+    };
+    if (toolCalls.length > 0) {
+        message.tool_calls = toolCalls;
+    }
+
+    return {
+        id: `chatcmpl-${randomUUID()}`,
+        object: 'chat.completion',
+        created,
+        model,
+        choices: [{
+            index: 0,
+            message,
+            finish_reason: finishReason
+        }],
+        usage: usage || {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0
+        }
+    };
+}
+
+/**
+ * 组装标准 OpenAI Responses 响应体（非流式 1-Hop 直出）。
+ */
+function buildTraeResponsesResponse({
+    model,
+    created,
+    content,
+    reasoning,
+    finishReason,
+    toolCalls,
+    usage
+}: {
+    model: string;
+    created: number;
+    content: string;
+    reasoning: string;
+    finishReason: string;
+    toolCalls: DynamicPayload[];
+    usage: DynamicPayload | null;
+}): DynamicPayload {
+    const output: DynamicPayload[] = [];
+
+    if (reasoning) {
+        output.push({
+            id: `rs_${randomUUID().replace(/-/g, '')}`,
+            type: 'reasoning',
+            status: 'completed',
+            summary: [{ type: 'summary_text', text: reasoning }]
+        });
+    }
+    if (content) {
+        output.push({
+            id: `msg_${randomUUID().replace(/-/g, '')}`,
+            type: 'message',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text: content, annotations: [] }]
+        });
+    }
+    for (const tc of toolCalls) {
+        const callId = tc.id || `call_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+        output.push({
+            id: callId.startsWith('fc_') ? callId : `fc_${callId}`,
+            call_id: callId,
+            type: 'function_call',
+            name: tc.function?.name || '',
+            arguments: tc.function?.arguments || '{}',
+            status: 'completed'
+        });
+    }
+
+    const incomplete = finishReason === 'length';
+    return {
+        id: `resp_${randomUUID().replace(/-/g, '')}`,
+        object: 'response',
+        created_at: created,
+        model,
+        status: incomplete ? 'incomplete' : 'completed',
+        incomplete_details: incomplete ? { reason: 'max_output_tokens' } : null,
+        output,
+        usage: toResponsesUsage(usage)
+    };
+}
+
+/**
+ * 组装标准 Anthropic Messages 响应体（非流式 1-Hop 直出）。
+ */
+function buildTraeClaudeResponse({
+    model,
+    content,
+    reasoning,
+    finishReason,
+    toolCalls,
+    usage
+}: {
+    model: string;
+    content: string;
+    reasoning: string;
+    finishReason: string;
+    toolCalls: DynamicPayload[];
+    usage: DynamicPayload | null;
+}): DynamicPayload {
+    const contentBlocks: DynamicPayload[] = [];
+    if (reasoning) {
+        contentBlocks.push({ type: 'thinking', thinking: reasoning });
+    }
+    if (content) {
+        contentBlocks.push({ type: 'text', text: content });
+    }
+    for (const tc of toolCalls) {
+        let parsedInput: DynamicPayload = {};
+        const rawArgs = tc.function?.arguments;
+        if (typeof rawArgs === 'string' && rawArgs.trim()) {
+            try {
+                parsedInput = JSON.parse(rawArgs);
+            } catch {
+                parsedInput = { _raw_arguments: rawArgs };
+            }
+        }
+        contentBlocks.push({
+            type: 'tool_use',
+            id: tc.id || `call_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
+            name: tc.function?.name || '',
+            input: parsedInput
+        });
+    }
+
+    return {
+        id: `msg_${randomUUID().replace(/-/g, '')}`,
+        type: 'message',
+        role: 'assistant',
+        model,
+        content: contentBlocks,
+        stop_reason: chatFinishReasonToAnthropic(finishReason, toolCalls.length > 0),
+        stop_sequence: null,
+        usage: toAnthropicUsage(usage)
+    };
 }
 
 /**
@@ -602,10 +1428,19 @@ export class TraeApiService {
     }
 
     /**
-     * 改写 OpenAI 请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 solo_work_lite / chat_v3)
+     * 改写下游请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 solo_work_lite / chat_v3)
+     *
+     * 三协议 1-Hop：管道对 trae / trae-chat_v3 跳过 convertData，这里直接消化下游
+     * `openai` / `openaiResponses` / `claude` 三种标准请求体（由不可枚举属性
+     * `_downstreamProtocol` 指示，缺省 `'openai'`），一步转成 Trae 私有 messages / tools。
+     *
+     * 性能：入口不再做 `JSON.parse(JSON.stringify(...))` 全量深拷贝（计划 4.4），
+     * 改为顶层浅拷贝；messages / tools 在下方都是新建对象，不会污染入参。
      */
     prepareRequestBody(model: unknown, requestBody: DynamicPayload): DynamicPayload {
-        const payload = JSON.parse(JSON.stringify(requestBody || {}));
+        // 不可枚举属性不会被展开，必须先读出来
+        const downstreamProtocol = readDownstreamProtocol(requestBody);
+        const payload: DynamicPayload = { ...(requestBody || {}) };
         const targetModel = this.normalizeModelName(model || payload.model || DEFAULT_MODEL);
         const channel = this.getChannelConfig();
         const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');
@@ -684,6 +1519,40 @@ export class TraeApiService {
                 supported: null,
                 provider: 'trae'
             });
+        }
+
+        // ---- 三协议 1-Hop 入参归一（在统一的 messages/tools 规范化之前完成）----
+        if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
+            // Responses：instructions + input -> Trae messages；扁平 tools -> Trae tools
+            payload.messages = responsesRequestToTraeMessages(requestBody);
+            const responsesTools = convertResponsesToolsToTrae(requestBody?.tools);
+            if (responsesTools.length > 0) payload.tools = responsesTools;
+            else delete payload.tools;
+            // Responses 专有字段已经转成 messages/tools，不再透传给 Trae 上游
+            delete payload.input;
+            delete payload.instructions;
+            delete payload.text;
+            delete payload.reasoning;
+            // Responses 的 tool_choice 形状与 Chat 不同，统一归一为 Trae 接受的字符串/名称
+            payload.tool_choice = normalizeTraeToolChoice(requestBody?.tool_choice);
+            if (payload.tool_choice === undefined) delete payload.tool_choice;
+        } else if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
+            // Claude：system + messages content blocks -> Trae messages；input_schema -> parameters 字符串
+            const claudeConverted = claudeRequestToTraeMessages(requestBody);
+            payload.messages = claudeConverted.messages;
+            if (claudeConverted.tools.length > 0) payload.tools = claudeConverted.tools;
+            else delete payload.tools;
+            const claudeToolChoice = requestBody?.tool_choice;
+            if (claudeToolChoice && typeof claudeToolChoice === 'object') {
+                const choice = claudeToolChoice as DynamicPayload;
+                if (choice.type === 'auto') payload.tool_choice = 'auto';
+                else if (choice.type === 'any') payload.tool_choice = 'required';
+                else if (choice.type === 'none') payload.tool_choice = 'none';
+                else if (choice.type === 'tool' && choice.name) payload.tool_choice = choice.name;
+                else delete payload.tool_choice;
+            }
+            // Claude 的 max_tokens -> Trae 不单独传递
+            delete payload.max_tokens;
         }
 
         if (Array.isArray(payload.messages)) {
@@ -848,9 +1717,21 @@ export class TraeApiService {
 
     /**
      * 流式生成内容
-     * 解析 Trae 的专有 SSE 事件并实时转码为 OpenAI 兼容的 chunk
+     * 解析 Trae 的专有 SSE 事件并按下游协议（`_downstreamProtocol`）直接产出。
+     *
+     * 三协议 1-Hop：上游 Trae 私有事件 -> 下游协议事件，不再经中间 OpenAI 协议层。
+     * 缺省 `'openai'` 路径的输出与改造前逐字节一致（tests/trae-provider.test.js 兼容）。
+     *
+     * @param {string} model
+     * @param {Object} requestBody
+     * @param {string} [protocolOverride] - 仅内部使用（generateContent 聚合时强制按 openai 产出）
      */
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    async *generateContentStream(
+        model: string,
+        requestBody: DynamicPayload,
+        protocolOverride?: string
+    ): AsyncGenerator<DynamicPayload, void, unknown> {
+        const downstreamProtocol = protocolOverride || readDownstreamProtocol(requestBody);
         const channel = this.getChannelConfig();
         const payload = this.prepareRequestBody(model, requestBody);
         const headers = await this.buildHeaders(true);
@@ -905,6 +1786,14 @@ export class TraeApiService {
         let tokenUsage: DynamicPayload | null = null;
         let hasYieldedDone = false;
 
+        // 下游协议渲染器：缺省 openai 与改造前行为完全一致
+        const renderer = createTraeStreamRenderer({
+            protocol: downstreamProtocol,
+            model,
+            chatId,
+            created
+        });
+
         for await (const chunk of response.data) {
             buffer += chunk.toString('utf-8');
             const lines = buffer.split(/\r?\n/);
@@ -958,95 +1847,64 @@ export class TraeApiService {
                             hasSeenToolCalls = true;
                         }
 
-                        if (contentDelta || reasoningDelta || toolCalls) {
-                            const delta: DynamicPayload = {};
-                            if (isFirst) {
-                                delta.role = 'assistant';
-                                isFirst = false;
-                            }
-                            if (contentDelta) delta.content = contentDelta;
-                            if (reasoningDelta) delta.reasoning_content = reasoningDelta;
-                            if (toolCalls) delta.tool_calls = toolCalls;
-
-                            yield {
-                                id: `chatcmpl-${chatId}`,
-                                object: 'chat.completion.chunk',
-                                created,
-                                model,
-                                choices: [{
-                                    index: 0,
-                                    delta,
-                                    finish_reason: null
-                                }]
-                            };
-                        }
+                        const events = renderer.onContentDelta({
+                            role: isFirst ? 'assistant' : null,
+                            content: contentDelta || '',
+                            reasoning: reasoningDelta || '',
+                            toolCalls
+                        });
+                        if (events.length > 0) isFirst = false;
+                        for (const event of events) yield event;
                     } else if (currentEvent === 'token_usage') {
                         tokenUsage = this._formatTokenUsage(dataObj);
-                        // 如果极少数情况下 done 先于 token_usage 到达，补发一个包含 usage 的 chunk
+                        // 极少数情况下 done 先于 token_usage 到达：补发携带 usage 的收尾事件
                         if (hasYieldedDone && tokenUsage) {
-                            yield {
-                                id: `chatcmpl-${chatId}`,
-                                object: 'chat.completion.chunk',
-                                created,
-                                model,
-                                choices: [],
-                                usage: tokenUsage
-                            };
+                            for (const event of renderer.onLateUsage(tokenUsage)) yield event;
                         }
                     } else if (currentEvent === 'done') {
                         let finalFinishReason = dataObj.finish_reason || 'stop';
                         if (hasSeenToolCalls && (!finalFinishReason || finalFinishReason === 'stop')) {
                             finalFinishReason = 'tool_calls';
                         }
-                        const doneChunk: DynamicPayload = {
-                            id: `chatcmpl-${chatId}`,
-                            object: 'chat.completion.chunk',
-                            created,
-                            model,
-                            choices: [{
-                                index: 0,
-                                delta: {},
-                                finish_reason: finalFinishReason
-                            }]
-                        };
-                        if (tokenUsage) {
-                            doneChunk.usage = tokenUsage;
-                        }
                         hasYieldedDone = true;
-                        yield doneChunk;
+                        for (const event of renderer.onDone({
+                            finishReason: finalFinishReason,
+                            usage: tokenUsage,
+                            hasToolCalls: hasSeenToolCalls
+                        })) yield event;
                     }
                 }
             }
         }
 
-        // 容错：若上游异常断流未输出 done，发送终止 chunk 确保流闭合
+        // 容错：若上游异常断流未输出 done，发送终止事件确保流闭合
         if (!hasYieldedDone) {
-            yield {
-                id: `chatcmpl-${chatId}`,
-                object: 'chat.completion.chunk',
-                created,
-                model,
-                choices: [{
-                    index: 0,
-                    delta: {},
-                    finish_reason: hasSeenToolCalls ? 'tool_calls' : 'stop'
-                }],
-                ...(tokenUsage ? { usage: tokenUsage } : {})
-            };
+            for (const event of renderer.onDone({
+                finishReason: hasSeenToolCalls ? 'tool_calls' : 'stop',
+                usage: tokenUsage,
+                hasToolCalls: hasSeenToolCalls
+            })) yield event;
         }
     }
 
     /**
      * 非流式生成内容
-     * 内部聚合流式增量生成标准 OpenAI 回复对象
+     *
+     * 先按 `openai` 协议聚合上游流式增量（内部统一表示），再按 `_downstreamProtocol`
+     * 一步组装成下游协议响应体（1-Hop，不再经中间 OpenAI 协议层再造一次）。
+     *
+     * 缺省 `'openai'` 路径的返回对象与改造前完全一致。
      */
     async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+        const downstreamProtocol = readDownstreamProtocol(requestBody);
+        const created = Math.floor(Date.now() / 1000);
         let fullContent = '';
         let fullReasoning = '';
         let finishReason = 'stop';
         let latestUsage: DynamicPayload | null = null;
         const toolCallsMap = new Map<number, DynamicPayload>();
-        const stream = this.generateContentStream(model, requestBody);
+        // 始终按 openai 协议消费内部流事件（不受下游协议影响），再按需组装
+        const stream = this.generateContentStream(model, requestBody, MODEL_PROTOCOL_PREFIX.OPENAI);
 
         for await (const chunk of stream) {
             if (chunk.usage) {
@@ -1077,7 +1935,9 @@ export class TraeApiService {
                         const existing = toolCallsMap.get(idx);
                         if (!existing) continue;
                         if (tc.id) existing.id = tc.id;
-                        if (tc.function?.name) existing.function.name += tc.function.name;
+                        // Bug #5：上游多帧重复带出同名函数时，累加会把名字拼成重复串（如 get_weatherget_weather）。
+                        // 函数名只在首次为空时赋值；arguments 才是需要跨帧累加的部分。
+                        if (tc.function?.name && !existing.function.name) existing.function.name = tc.function.name;
                         if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
                     }
                 }
@@ -1092,31 +1952,23 @@ export class TraeApiService {
             finishReason = 'tool_calls';
         }
 
-        const message: DynamicPayload = {
-            role: 'assistant',
-            content: fullContent || (aggregatedToolCalls.length > 0 ? null : ''),
-            ...(fullReasoning ? { reasoning_content: fullReasoning } : {})
-        };
-        if (aggregatedToolCalls.length > 0) {
-            message.tool_calls = aggregatedToolCalls;
-        }
-
-        return {
-            id: `chatcmpl-${randomUUID()}`,
-            object: 'chat.completion',
-            created: Math.floor(Date.now() / 1000),
+        const openaiResponse = buildTraeOpenAIResponse({
             model,
-            choices: [{
-                index: 0,
-                message,
-                finish_reason: finishReason
-            }],
-            usage: latestUsage || {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0
-            }
-        };
+            created,
+            content: fullContent,
+            reasoning: fullReasoning,
+            finishReason,
+            toolCalls: aggregatedToolCalls,
+            usage: latestUsage
+        });
+
+        if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
+            return buildTraeResponsesResponse({ model, created, content: fullContent, reasoning: fullReasoning, finishReason, toolCalls: aggregatedToolCalls, usage: latestUsage });
+        }
+        if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
+            return buildTraeClaudeResponse({ model, content: fullContent, reasoning: fullReasoning, finishReason, toolCalls: aggregatedToolCalls, usage: latestUsage });
+        }
+        return openaiResponse;
     }
 
     /**
