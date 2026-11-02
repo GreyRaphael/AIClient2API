@@ -2,7 +2,7 @@
 import { html } from '../../html.js';
 import { t } from '../../lib/i18n.js';
 import { Switch } from '../../components/Switch.js';
-import { useSecretReveal } from '../../hooks/useSecretReveal.js';
+import { PasswordInput } from '../../components/PasswordInput.js';
 
 const select = (id, labelKey, labelPrefix, options, extra = {}) => ({
     type: 'select', id, labelKey, labelPrefix, options, ...extra
@@ -74,37 +74,6 @@ export const FIELD_DEFS = {
 
 /**
  * @param {{
- *   id: string,
- *   value: any,
- *   onChange: (value: any) => void,
- *   extra?: any,
- *   reveal?: () => Promise<string|null>
- * }} props
- */
-function PasswordInput({ id, value, onChange, extra, reveal }) {
-    const { visible, shown, toggle, reset } = useSecretReveal({ value, reveal });
-
-    return html`
-        <div class="password-input-wrapper">
-            <div class="input-with-toggle">
-                <input id=${id} type=${visible ? 'text' : 'password'} class="form-control"
-                    value=${shown} autocomplete="off"
-                    readonly=${visible}
-                    onInput=${(event) => {
-                        reset();
-                        onChange(event.currentTarget.value);
-                    }} />
-                <button type="button" class="password-toggle" aria-label=${t('common.togglePassword')}
-                    title=${t('common.togglePassword')} onClick=${() => void toggle()}>
-                    <i class=${visible ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true"></i>
-                </button>
-            </div>
-            ${extra || null}
-        </div>`;
-}
-
-/**
- * @param {{
  *   def: any,
  *   value: any,
  *   onChange: (value: any) => void,
@@ -138,7 +107,8 @@ export function ConfigField({ def, value, onChange, extra, reveal }) {
                 value=${value}
                 onInput=${(event) => onChange(event.currentTarget.value)}></textarea>`;
     } else if (def.type === 'password') {
-        control = html`<${PasswordInput} id=${def.id} value=${value} onChange=${onChange} extra=${extra} reveal=${reveal} />`;
+        control = html`<${PasswordInput} id=${def.id} value=${value} onChange=${onChange}
+            inputClassName="form-control" withToggleWrapper=${true} extra=${extra} reveal=${reveal} />`;
     } else {
         control = html`
             <input id=${def.id} class="form-control" type=${def.type === 'number' ? 'number' : 'text'}

@@ -11,6 +11,7 @@ import { toast, toastError } from '../store/toast.js';
 import { Spinner } from '../components/Spinner.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Switch } from '../components/Switch.js';
+import { Modal } from '../components/Modal.js';
 import { useEvent } from '../hooks/useEvent.js';
 import { confirmDialog } from '../store/confirm.js';
 
@@ -346,47 +347,39 @@ export default function PluginsSection() {
                 </div>
             </div>
 
-            <div id="paymentModal" class=${`modal ${paying ? 'show' : ''}`}>
-                <div class="modal-content" style="max-width: 450px">
-                    <div class="modal-header">
-                        <h2 id="paymentTitle">
-                            ${paying ? t('plugins.payment.titleWithName', { name: paying.name }) : t('plugins.payment.title')}
-                        </h2>
-                        <button class="modal-close" id="closePaymentModal" onClick=${() => setPaying(null)}>×</button>
+            <${Modal} id="paymentModal" open=${!!paying}
+                title=${paying ? t('plugins.payment.titleWithName', { name: paying.name }) : t('plugins.payment.title')}
+                onClose=${() => setPaying(null)} width="450px">
+                <div style="text-align: center; margin-bottom: 1.5rem">
+                    <div id="paymentPrice" style="font-size: 2rem; font-weight: 700; color: var(--primary-color); margin-bottom: 0.5rem">
+                        ${paying?.price || t('plugins.payment.paidPlugin')}
                     </div>
-                    <div class="modal-body">
-                        <div style="text-align: center; margin-bottom: 1.5rem">
-                            <div id="paymentPrice" style="font-size: 2rem; font-weight: 700; color: var(--primary-color); margin-bottom: 0.5rem">
-                                ${paying?.price || t('plugins.payment.paidPlugin')}
-                            </div>
-                            <div id="paymentDesc" style="color: var(--text-secondary); font-size: 0.875rem">
-                                ${paying?.description || ''}
-                            </div>
-                        </div>
-
-                        <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; background: var(--bg-secondary); padding: 1.5rem; border-radius: 0.5rem">
-                            ${paying?.qrCode ? html`
-                                <img id="paymentQR" src=${paying.qrCode} alt="QR Code"
-                                    style="width: 200px; height: 200px; border: 1px solid var(--border-color); padding: 5px; background: white" />` : null}
-                            ${paying?.qrCode ? html`
-                                <div id="paymentQRHint" style="font-size: 0.875rem; color: var(--text-primary)">
-                                    ${t('plugins.payment.scanToPay')}
-                                </div>` : null}
-                            <a id="paymentLink" href=${paying?.paymentUrl || '#'} target="_blank"
-                                class="btn btn-secondary" style="width: 100%">${t('plugins.payment.goPage')}</a>
-                        </div>
-
-                        <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem">
-                            <p style="font-size: 0.875rem; margin-bottom: 1rem">${t('plugins.payment.uploadGuide')}</p>
-                            <button class="btn btn-primary" style="width: 100%" id="triggerUploadBtn"
-                                onClick=${() => fileInput.current?.click()}>
-                                <i class="fas fa-upload"></i> <span>${t('plugins.payment.uploadBtn')}</span>
-                            </button>
-                            <input type="file" id="pluginFileInput" accept=".zip" style="display: none"
-                                ref=${fileInput} onChange=${handleFile} />
-                        </div>
+                    <div id="paymentDesc" style="color: var(--text-secondary); font-size: 0.875rem">
+                        ${paying?.description || ''}
                     </div>
                 </div>
-            </div>
+
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; background: var(--bg-secondary); padding: 1.5rem; border-radius: 0.5rem">
+                    ${paying?.qrCode ? html`
+                        <img id="paymentQR" src=${paying.qrCode} alt="QR Code"
+                            style="width: 200px; height: 200px; border: 1px solid var(--border-color); padding: 5px; background: white" />` : null}
+                    ${paying?.qrCode ? html`
+                        <div id="paymentQRHint" style="font-size: 0.875rem; color: var(--text-primary)">
+                            ${t('plugins.payment.scanToPay')}
+                        </div>` : null}
+                    <a id="paymentLink" href=${paying?.paymentUrl || '#'} target="_blank"
+                        class="btn btn-secondary" style="width: 100%">${t('plugins.payment.goPage')}</a>
+                </div>
+
+                <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem">
+                    <p style="font-size: 0.875rem; margin-bottom: 1rem">${t('plugins.payment.uploadGuide')}</p>
+                    <button class="btn btn-primary" style="width: 100%" id="triggerUploadBtn"
+                        onClick=${() => fileInput.current?.click()}>
+                        <i class="fas fa-upload"></i> <span>${t('plugins.payment.uploadBtn')}</span>
+                    </button>
+                    <input type="file" id="pluginFileInput" accept=".zip" style="display: none"
+                        ref=${fileInput} onChange=${handleFile} />
+                </div>
+            <//>
         </section>`;
 }

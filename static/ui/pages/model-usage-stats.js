@@ -3,14 +3,14 @@ import { html, useEffect, useMemo, useState } from '../html.js';
 import { toggleTheme } from '../lib/theme.js';
 import { confirmDialog } from '../store/confirm.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
+import { DistributionList } from '../components/DistributionList.js';
 import { mountPage } from '../lib/page-boot.js';
 import { requestWithCredential } from '../lib/credential-api.js';
 import {
     flattenModelUsage,
     formatNumber,
     formatTokenCompact,
-    formatRelativeTime,
-    topWithOther
+    formatRelativeTime
 } from '../lib/stats.js';
 
 const API_BASE = '/api/model-usage-stats';
@@ -37,31 +37,11 @@ async function requestStats(url, credential, options = {}) {
     }
 }
 
-function Bars({ items, getValue, getLabel }) {
-    if (!items.length) {
-        return html`<div class="mini-box">
-            <div class="mini-label">暂无数据</div>
-            <div class="mini-value" style="font-size:14px">等待统计写入</div>
-        </div>`;
-    }
-    const max = Math.max(...items.map(getValue), 1);
-    return html`
-        <div class="bars">
-            ${items.map((item, index) => {
-                const value = Number(getValue(item) || 0);
-                return html`
-                    <div class="bar" key=${index}>
-                        <div class="bar-head">
-                            <div class="bar-name" title=${getLabel(item)}>${getLabel(item)}</div>
-                            <div class="bar-value">${formatTokenCompact(value)}</div>
-                        </div>
-                        <div class="track">
-                            <div class="fill" style=${`width:${Math.max(value / max * 100, 2)}%;${item.isOther ? 'background:var(--text-tertiary);' : ''}`}></div>
-                        </div>
-                    </div>`;
-            })}
-        </div>`;
-}
+const emptyDist = html`
+    <div class="mini-box">
+        <div class="mini-label">暂无数据</div>
+        <div class="mini-value" style="font-size:14px">等待统计写入</div>
+    </div>`;
 
 function ModelUsageStatsPage() {
     const [credential, setCredential] = useState('');
@@ -134,15 +114,12 @@ function ModelUsageStatsPage() {
             totalTokens: Number(provider.summary?.totalTokens || 0)
         }))
         .sort((a, b) => b.totalTokens - a.totalTokens);
-    const providerBars = topWithOther(
-        Object.fromEntries(providersRaw.map((provider) => [provider.name, provider.totalTokens])),
-        3
-    ).map((item) => ({ name: item.name, totalTokens: item.count, isOther: item.isOther }));
-
-    const modelBars = topWithOther(
-        Object.fromEntries(rows.map((row) => [`${row.provider} / ${row.model}`, Number(row.totalTokens || 0)])),
-        3
-    ).map((item) => ({ name: item.name, totalTokens: item.count, isOther: item.isOther }));
+    const providerTotals = Object.fromEntries(
+        providersRaw.map((provider) => [provider.name, provider.totalTokens])
+    );
+    const modelTotals = Object.fromEntries(
+        rows.map((row) => [`${row.provider} / ${row.model}`, Number(row.totalTokens || 0)])
+    );
 
     const resetData = async (tokensOnly) => {
         const confirmed = await confirmDialog({
@@ -276,11 +253,11 @@ function ModelUsageStatsPage() {
                 </div>
                 <div class="panel">
                     <h2 class="section-title" style="font-size: 16px;"><i class="fas fa-sitemap"></i>Provider 分布</h2>
-                    <${Bars} items=${providerBars} getValue=${(item) => item.totalTokens} getLabel=${(item) => item.name} />
+                    <${DistributionList} data=${providerTotals} formatValue=${formatTokenCompact} empty=${emptyDist} />
                 </div>
                 <div class="panel">
                     <h2 class="section-title" style="font-size: 16px;"><i class="fas fa-fire"></i>Top Models</h2>
-                    <${Bars} items=${modelBars} getValue=${(item) => item.totalTokens} getLabel=${(item) => item.name} />
+                    <${DistributionList} data=${modelTotals} formatValue=${formatTokenCompact} empty=${emptyDist} />
                 </div>
             </section>
 

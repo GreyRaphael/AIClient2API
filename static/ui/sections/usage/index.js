@@ -1,7 +1,7 @@
 /** 用量查询页面（Phase 3 迁移）。 */
 import { html, useEffect, useState } from '../../html.js';
 import { t, lang } from '../../lib/i18n.js';
-import { api } from '../../lib/api.js';
+import { api, downloadBlob } from '../../lib/api.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { getProviderIcon } from '../../lib/provider-registry.js';
 import { navigate } from '../../lib/router.js';
@@ -332,14 +332,7 @@ export default function UsageSection() {
     const downloadConfig = async (path) => {
         try {
             const blob = await api.getBlob(`/upload-configs/download/${encodeURIComponent(path)}`);
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = path.split(/[/\\]/).pop();
-            document.body.appendChild(anchor);
-            anchor.click();
-            URL.revokeObjectURL(url);
-            anchor.remove();
+            downloadBlob(blob, path.split(/[/\\]/).pop() || 'config.json');
             toast.success(t('common.success'), t('usage.card.downloadSuccess'));
         } catch (downloadError) {
             toastError(`${t('usage.card.downloadFailed')}: ${downloadError.message}`);

@@ -208,4 +208,20 @@ export class ApiClient {
     }
 }
 
+/**
+ * 触发浏览器下载 Blob。
+ * @param {Blob} blob
+ * @param {string} filename
+ */
+export function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    URL.revokeObjectURL(url);
+    anchor.remove();
+}
+
 export const api = new ApiClient();

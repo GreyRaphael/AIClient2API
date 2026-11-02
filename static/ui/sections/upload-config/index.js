@@ -1,7 +1,7 @@
 /** 凭据文件管理页面（Phase 3 迁移）。 */
 import { html, useEffect, useMemo, useState } from '../../html.js';
 import { t, lang } from '../../lib/i18n.js';
-import { api } from '../../lib/api.js';
+import { api, downloadBlob } from '../../lib/api.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { detectProviderFromPath } from '../../lib/provider-registry.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
@@ -88,14 +88,7 @@ export default function UploadConfigSection() {
     const downloadFile = async (path) => {
         try {
             const blob = await api.getBlob(`/upload-configs/download/${encodeURIComponent(path)}`);
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = path.split(/[/\\]/).pop();
-            document.body.appendChild(anchor);
-            anchor.click();
-            URL.revokeObjectURL(url);
-            anchor.remove();
+            downloadBlob(blob, path.split(/[/\\]/).pop() || 'config.json');
             toast.success(t('common.success'), t('usage.card.downloadSuccess'));
         } catch (error) {
             toastError(`${t('usage.card.downloadFailed')}: ${error.message}`);
@@ -106,14 +99,7 @@ export default function UploadConfigSection() {
         try {
             toast.info(t('common.info'), t('common.loading'));
             const { blob, filename } = await api.getBlobFile('/upload-configs/download-all');
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = filename || `configs_backup_${new Date().toISOString().slice(0, 10)}.zip`;
-            document.body.appendChild(anchor);
-            anchor.click();
-            URL.revokeObjectURL(url);
-            anchor.remove();
+            downloadBlob(blob, filename || `configs_backup_${new Date().toISOString().slice(0, 10)}.zip`);
             toast.success(t('common.success'), t('common.success'));
         } catch (error) {
             toastError(`${t('common.error')}: ${error.message}`);

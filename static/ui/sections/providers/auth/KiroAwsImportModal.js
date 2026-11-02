@@ -10,7 +10,7 @@
 import { html, useRef, useState } from '../../../html.js';
 import { t } from '../../../lib/i18n.js';
 import { api, ApiError } from '../../../lib/api.js';
-import { streamSse } from '../../../lib/sse.js';
+import { streamBatchImport } from '../../../lib/sse.js';
 import {
     mergeAwsCredentialFiles,
     normalizeAwsCredentials,
@@ -161,45 +161,14 @@ export function KiroAwsImportModal({ onClose, onCompleted }) {
         resetProgress();
     };
 
-    const readResponseError = async (response) => {
-        const text = await response.text();
-        if (!text) return `HTTP ${response.status}`;
-        try {
-            const data = JSON.parse(text);
-            const value = data?.error?.message || data?.error || data?.message;
-            if (typeof value === 'string') return value;
-            if (value) return JSON.stringify(value);
-            return `HTTP ${response.status}`;
-        } catch {
-            return text;
-        }
-    };
-
     const submitBatch = async (credentials) => {
         setProgress({ current: 0, total: credentials.length });
-        const response = await fetch(`/api${IMPORT_ENDPOINT}`, {
-            method: 'POST',
-            headers: api.getAuthHeaders(),
-            body: JSON.stringify({ credentials })
-        });
-
-        if (response.status === 401) {
-            api.handleUnauthorized();
-            throw new Error(t('common.unauthorized'));
-        }
-        if (!response.ok) {
-            throw new Error(await readResponseError(response));
-        }
-
-        let completed = false;
-        await streamSse(response, (eventName, payload) => {
-            if (eventName === 'progress') {
-                setProgress((current) => ({
-                    current: payload?.index ?? ((current?.current || 0) + 1),
-                    total: payload?.total ?? current?.total ?? credentials.length
-                }));
-            } else if (eventName === 'complete') {
-                completed = true;
+        await streamBatchImport(IMPORT_ENDPOINT, { credentials }, {
+            total: credentials.length,
+            onProgress: setProgress,
+            defaultError: t('oauth.kiro.awsImportFailed'),
+            requireComplete: true,
+            onComplete: (payload) => {
                 setResult(payload);
                 const successCount = payload?.successCount || 0;
                 const failedCount = payload?.failedCount || 0;
@@ -208,12 +177,8 @@ export function KiroAwsImportModal({ onClose, onCompleted }) {
                     failedCount > 0 ? t('common.warning') : t('common.success'),
                     `${t('common.success')}: ${successCount} / ${payload?.total || credentials.length}`
                 );
-            } else if (eventName === 'error') {
-                throw new Error(payload?.error || t('oauth.kiro.awsImportFailed'));
             }
         });
-
-        if (!completed) throw new Error(t('oauth.kiro.awsImportFailed'));
     };
 
     const submitSingle = async (credential) => {

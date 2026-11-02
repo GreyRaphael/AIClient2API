@@ -11,7 +11,7 @@ import { toast, toastError } from '../../../store/toast.js';
 import { useEvent } from '../../../hooks/useEvent.js';
 import { Modal } from '../../../components/Modal.js';
 import { CopyButton } from '../../../components/CopyButton.js';
-import { streamSse } from '../../../lib/sse.js';
+import { streamBatchImport } from '../../../lib/sse.js';
 import { KiroAwsImportModal } from './KiroAwsImportModal.js';
 
 const AUTH_METHODS = {
@@ -205,20 +205,9 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
         setBusy(true);
         setResult(null);
         try {
-            const response = await fetch(`/api${batchConfig.endpoint}`, {
-                method: 'POST',
-                headers: api.getAuthHeaders(),
-                body: JSON.stringify(body)
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            await streamSse(response, (eventName, payload) => {
-                if (eventName === 'progress') {
-                    setProgress((current) => ({
-                        current: payload?.index ?? ((current?.current || 0) + 1),
-                        total: payload?.total ?? current?.total ?? 0
-                    }));
-                } else if (eventName === 'complete') {
+            await streamBatchImport(batchConfig.endpoint, body, {
+                onProgress: setProgress,
+                onComplete: (payload) => {
                     setResult(payload);
                     const failed = payload?.failedCount || 0;
                     toast[failed > 0 ? 'warning' : 'success'](
@@ -226,8 +215,6 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                         `${t('common.success')}: ${payload?.successCount || 0} / ${payload?.total || 0}`
                     );
                     onCompleted?.();
-                } else if (eventName === 'error') {
-                    throw new Error(payload?.error || t('common.error'));
                 }
             });
         } catch (error) {
@@ -256,25 +243,13 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
         setResult(null);
         setProgress({ current: 0, total: stats.valid });
         try {
-            const response = await fetch('/api/codex/import-external-credentials', {
-                method: 'POST',
-                headers: api.getAuthHeaders(),
-                body: JSON.stringify({ source: externalSource, payload })
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            await streamSse(response, (eventName, eventPayload) => {
-                if (eventName === 'progress') {
-                    setProgress((current) => ({
-                        current: eventPayload?.index ?? ((current?.current || 0) + 1),
-                        total: eventPayload?.total ?? current?.total ?? 0
-                    }));
-                } else if (eventName === 'complete') {
+            await streamBatchImport('/codex/import-external-credentials', { source: externalSource, payload }, {
+                total: stats.valid,
+                onProgress: setProgress,
+                onComplete: (eventPayload) => {
                     setResult(eventPayload);
                     toast.success(t('common.success'), `${eventPayload?.successCount || 0} / ${eventPayload?.total || 0}`);
                     onCompleted?.();
-                } else if (eventName === 'error') {
-                    throw new Error(eventPayload?.error || t('common.error'));
                 }
             });
         } catch (error) {
@@ -299,8 +274,35 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
     if (step === 'batch') title = batchConfig ? t(batchConfig.labelKey) : t('oauth.modal.title');
     if (step === 'external') title = externalMeta?.title || t('oauth.modal.title');
 
+    const footer = html`
+        <button class="btn btn-secondary" onClick=${onClose}>${t('modal.provider.cancel')}</button>
+        ${step === 'zed' ? html`
+            <button class="btn btn-primary" disabled=${busy}
+                onClick=${() => void generate({ email: email.trim() || 'user@example.com' })}>
+                <i class="fas fa-external-link-alt"></i> 生成授权链接
+            </button>` : null}
+        ${step === 'trae' ? html`
+            <button class="btn btn-secondary" disabled=${busy}
+                onClick=${() => void generate({ host: trae.host })}>
+                <i class="fas fa-external-link-alt"></i> 打开网页授权
+            </button>
+            <button class="btn btn-primary" disabled=${busy || !trae.token.trim()}
+                onClick=${() => void generate({ token: trae.token.trim(), host: trae.host, customName: trae.name.trim() })}>
+                <i class="fas fa-check"></i> 登录并保存授权
+            </button>` : null}
+        ${step === 'batch' ? html`
+            <button class="btn btn-primary" disabled=${busy} onClick=${() => void submitBatch()}>
+                <i class=${`fas ${busy ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i>
+                ${t('oauth.codex.startImport')}
+            </button>` : null}
+        ${step === 'external' ? html`
+            <button class="btn btn-primary" disabled=${busy} onClick=${() => void submitExternal()}>
+                <i class=${`fas ${busy ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i>
+                ${t('oauth.codex.startImport')}
+            </button>` : null}`;
+
     return html`
-        <${Modal} open=${true} title=${title} onClose=${onClose} width="640px">
+        <${Modal} open=${true} title=${title} onClose=${onClose} width="640px" footer=${footer}>
             ${step === 'method' ? html`
                 <h4>${t('oauth.modal.provider')}: ${providerType}</h4>
                 <div class="auth-method-options" style="display:flex;flex-direction:column;gap:12px;">
@@ -344,7 +346,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
             ${step === 'auth-url' && authData ? html`
                 <div class="auth-info">
                     <p><strong>${t('oauth.modal.provider')}</strong> ${authData.authInfo?.provider || providerType}</p>
-                    <div style="margin:12px 0;padding:12px;background:var(--warning-bg);border:1px solid var(--warning-border-light);border-radius:8px;">
+                    <div style="margin:12px 0;padding:12px;background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:8px;">
                         <strong>${t('oauth.modal.requiredPort')}</strong>
                         <code style="margin-left:8px;">${authData.authInfo?.callbackPort || authData.authInfo?.port || location.port || '3000'}</code>
                         <p style="margin:8px 0 0;font-size:0.85rem;">${t('oauth.modal.portNote')}</p>
@@ -432,33 +434,5 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                     <div style="margin-top:12px;padding:12px;background:var(--success-bg);border-radius:8px;">
                         success: ${result.successCount || 0} / ${result.total || 0}
                     </div>` : null}` : null}
-
-            <${'div'} class="modal-footer" style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
-                <button class="btn btn-secondary" onClick=${onClose}>${t('modal.provider.cancel')}</button>
-                ${step === 'zed' ? html`
-                    <button class="btn btn-primary" disabled=${busy}
-                        onClick=${() => void generate({ email: email.trim() || 'user@example.com' })}>
-                        <i class="fas fa-external-link-alt"></i> 生成授权链接
-                    </button>` : null}
-                ${step === 'trae' ? html`
-                    <button class="btn btn-secondary" disabled=${busy}
-                        onClick=${() => void generate({ host: trae.host })}>
-                        <i class="fas fa-external-link-alt"></i> 打开网页授权
-                    </button>
-                    <button class="btn btn-primary" disabled=${busy || !trae.token.trim()}
-                        onClick=${() => void generate({ token: trae.token.trim(), host: trae.host, customName: trae.name.trim() })}>
-                        <i class="fas fa-check"></i> 登录并保存授权
-                    </button>` : null}
-                ${step === 'batch' ? html`
-                    <button class="btn btn-primary" disabled=${busy} onClick=${() => void submitBatch()}>
-                        <i class=${`fas ${busy ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i>
-                        ${t('oauth.codex.startImport')}
-                    </button>` : null}
-                ${step === 'external' ? html`
-                    <button class="btn btn-primary" disabled=${busy} onClick=${() => void submitExternal()}>
-                        <i class=${`fas ${busy ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i>
-                        ${t('oauth.codex.startImport')}
-                    </button>` : null}
-            </div>
         <//>`;
 }
