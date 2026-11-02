@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+WebUI「美观与简洁」的第二轮优化。**无破坏性变更、无配置迁移、公开 API 零改动**。
+以「不必过度追求 UI 保持原样」为前提，把省下来的地方从"像素完全不变"换成
+"更统一 + 更少代码"，并把每一处视觉变化都落进计算样式契约的 diff 里。
+
+### Added
+
+- `--space-1..--space-20`（2px 网格）与 `--text-xs..--text-2xl`（7 档）设计尺度令牌。
+- `scripts/webui-html-shell.mjs` + `scripts/gen-webui-html-head.mjs`：5 份 HTML 的
+  import map 与主题引导脚本的单一真源；`npm run gen:webui-html:check` 纳入 `verify`。
+- `lib/page-boot.js`：4 个独立页共用的启动器（收敛 4 份逐字重复的 `boot()`）。
+- `lib/credential-api.js`：插件页的凭证请求封装（保留 `auth: 'bearer'|'dual'` 差异）。
+- `hooks/useResource.js`：带加载/错误/重载三态的取数 hook。
+- `store/toast.js#toastError`：69 处「标题恒为错误」的统一入口。
+- 新增护栏测试：`ui-static-assets`、`webui-html-shell`、`ui-design-scale`、
+  `webui-api-client`、`webui-page-boot`、`webui-no-hardcoded-color`、`ui-mobile-scope`。
+
+### Changed
+
+- **首屏传输量 312.4 KB → 101.6 KB（-67.5%）**：`vmcard.png`（216 KB / 1280×420，
+  实际只渲染 100×33 px）与 `packycode.png` 改为 360 宽 webp（4.3 KB / 4.0 KB）。
+- 5 张只被 README 引用的图（305 KB）移到 `docs/assets/sponsors/`；`static/` 1.8 MB → 1.3 MB。
+- **字号从 39 种有效取值收敛到 7 档**（密集 UI 10–18px）；圆角全部走 `--radius-*`；
+  gap 走 2px 网格；px/rem 写法统一。82 条字号变化最大偏移 0.85px。
+- **mobile.css 拆分**：103 条只服务单一 section 的响应式规则迁入各自 section 文件，
+  29.6 KB → 19.2 KB（br 3.9 → 3.1 KB）。
+
+### Fixed
+
+- **控制台首屏在系统深色下闪白**：`index.html` 的主题引导脚本漏了
+  `prefers-color-scheme` 回退分支（其余 4 份 HTML 都有）。copy-paste 漂移所致。
+- **`lib/api.js` 的 `get/post/put/delete` 丢弃 `options.headers`**：
+  `RequestOptions` 类型里声明了 headers，只有 `request()` 真正合并。
+- **JS 内联样式里 7 处硬编码颜色**（`#10b981`/`#ef4444`/`#9ca3af`/`#94a3b8`/`#fff`）：
+  颜色令牌化此前只扫 CSS，暗色主题下这些不可控。
+- **移动端 Header 菜单的脆弱耦合**：JS 写内联 `display`、CSS 用 11 条
+  `[style*="display: flex"]` 子串匹配去捞——内联样式一旦被格式化就整块失效。
+  改为 `.is-open` 类，顺带去掉 2 条 `!important`。
+
+### Removed
+
+- `base.css` 里「统一卡片圆角」聚合规则（死代码：CSSOM 置空后 6 个 section 的
+  computed style 零变化）与 3 个被更晚同名规则完全覆盖的早期副本。
+- `potluck.css` 中与 `plugin-shared.css` 逐字节相同的 47 条规则
+  （两个文件被同一页面同时加载，属真实冗余）。
+- `lib/section-styles.js#__resetSectionStyles`（无引用）。
+
 ## [v6.1.0] - 2026-11-02
 
 WebUI 样式体系的整体重构。**无破坏性变更、无配置迁移、公开 API 零改动**，

@@ -718,6 +718,128 @@ config 页的输入框同样借用了 providers 的尺寸。泄漏消除后回�
 **最终验证**：`npm test` 77 suites / 885 tests、typecheck、全量 E2E 53/53、
 计算样式契约 8/8、stylelint 0 error（重复选择器警告 54 → 50）。
 
+### 14.8 美观与简洁的再平衡（2026-11 第二轮）
+
+§14.4–14.7 把 CSS 的**正确性**修完了（层叠、死代码、令牌、压缩、按需加载）。
+这一轮换了个问法：**在"不过度追求 UI 保持原样"的前提下，还有多少空间？**
+答案主要不在 CSS 分层里，而在三处此前没人量过的地方。
+
+#### 1. 首屏 70% 的字节是两个赞助商 logo
+
+在隔离实例上抓 dashboard 首屏真实传输：图片 **219.9 KB / 312.4 KB（70.4%）**，
+JS 55.8、CSS 23.2、字体 11.5。
+
+`static/vmcard.png` 单文件 215,943 B、1280×420，而它在页面上只渲染 100×33 px
+（移动端 140×46）；全站没有任何 `loading="lazy"`。转成 360 宽 webp 后 4.3 KB。
+
+| | 改前 | 改后 |
+|---|---|---|
+| vmcard | 215.9 KB png | 4.3 KB webp |
+| packycode | 8.3 KB png | 4.0 KB webp |
+| **首屏合计** | **312.4 KB** | **101.6 KB（-67.5%）** |
+
+另把 5 张**只被 README 引用、应用从不加载**的图（合计 305 KB）移到
+`docs/assets/sponsors/`，`static/` 1.8 MB → 1.3 MB。
+护栏：`tests/ui-static-assets.test.js`（应用引用的图不得超 60 KB、`static/` 不得有无引用图）。
+
+#### 2. 5 份手抄的 HTML 外壳已经漂移过
+
+5 份 HTML 各内联一份 import map（12 行，**5 份 md5 全等**）与主题引导脚本，
+而 `index.html` 那份**漏了 `prefers-color-scheme` 回退**——系统深色 + 从未手动
+切过主题的用户，控制台首帧会闪一次浅色（login / model-usage-stats 不会）。
+用 Playwright 拦掉模块脚本可复现：`data-theme=null`、body 背景 `rgb(248,250,252)`。
+
+无构建步骤下 import map 不能用外链（规范的 `src` 属性已被移除），所以正解不是
+"合并成一个文件"，而是**单一真源 + 生成/校验脚本**：
+
+- `scripts/webui-html-shell.mjs`：真源（import map 从 `package.json` 读版本、主题脚本）；
+- `scripts/gen-webui-html-head.mjs`：`npm run gen:webui-html` / `:check`，纳入 `verify`。
+  生成器幂等，并把主题脚本**强制挪到所有样式表之前**（login.html 原本写在 `base.css` 之后）。
+- `tests/webui-html-shell.test.js`（6 条）守住一致性、位置与幂等。
+
+第一版生成器把缩进叠加了（替换区间从 `<` 而不是行首开始），跑一次多 4 个空格 ——
+幂等测试当场抓住。
+
+#### 3. 尺度是"调"出来的，不是"推"出来的
+
+| 维度 | 收敛前 | 收敛后 |
+|---|---|---|
+| 有效字号（密集 UI，10–18px） | 39 种取值 | **7 档**（10/11/12/13/14/16/18） |
+| 圆角字面量 | 18 种，大量 `8px`/`0.5rem` 混写 | 全部走 `--radius-*` |
+| gap 取值 | 22 种（含 4.8/5.6/7.2 等） | **2px 网格** |
+| 单位写法 | px 与 rem 混用 | 统一 rem |
+
+**零视觉变化的部分先做**：91 处圆角 → 令牌、112 处 font-size 与 373 处
+gap/padding/margin 的 px → 等值 rem。**会变的只有 0.4~0.85px**：
+82 条字号吸附，最大偏移 0.85px。
+
+新增 `--space-1..--space-20` 与 `--text-xs..--text-2xl`。这些 token 的意义不是
+"每处间距都要用 token"（一次性取值天然存在，硬套只会让模板更难读），
+而是给重复档位一个权威名字、整体调密度时只改一处。
+
+`tests/ui-design-scale.test.js`（4 条）写出来后当场抓出 3 个漏掉的边缘值。
+
+**计算样式契约重新生成，其 diff 就是这次的全部视觉变更**：
+变化属性 = `{font-size: 72, line-height: 12}`，其余 0；
+元素数 1272 → 1272，断言数 4176 → 4176（零元素丢失）。
+
+#### 4. JS 侧：先修 bug，再谈收敛
+
+- **`lib/api.js` 的 `get/post/put/delete` 丢弃 `options.headers`**——`RequestOptions`
+  类型里声明了 headers，只有 `request()` 真的合并。这个模块此前**零测试**。
+  同时把 `getBlob` / `getBlobFile` / `postForm` 三份逐字重复的
+  「取 token → 401 → 报错」收进 `request()` 的 `raw`/`form`/`errorKey` 选项。
+  新增 `tests/webui-api-client.test.js`（9 条）。
+- **4 个独立页的 `boot()` 归一化后 md5 完全相同**（login 只差一句 initLanguage）。
+  收敛到 `lib/page-boot.js#mountPage`，差异变成显式选项。
+- **4 处 fetch 各自的鉴权/解析/401** 收敛到 `lib/credential-api.js`，
+  但保留 `auth: 'bearer'|'dual'` 区分（三页鉴权方式真的不同），
+  并明确**不替代** `lib/api.js`（后者 401 要清 token 跳登录页，插件页语义不同）。
+- **69 处 `toast.error(t('common.error'), …)`** 收敛为 `toastError(detail)`。
+- **JS 内联样式里 7 处硬编码颜色**（`#10b981`/`#ef4444`/`#9ca3af`/`#94a3b8`/`#fff`）
+  是真实主题缺陷——颜色令牌化当初只扫了 CSS。已换令牌并加
+  `tests/webui-no-hardcoded-color.test.js`。
+- `useResource` 收敛 2 个典型手写 loader（custom-models / upload-config）；
+  与 `useApi` 的分工写进注释：一个由调用方渲染错误，一个用 toast 告知。
+
+#### 5. mobile.css 拆分：靠逐元素快照而不是截图
+
+mobile.css 曾 1444 行 / 29.6 KB，其中 40% 规则的选择器**每个类名都只属单一 section**。
+迁走 103 条（providers 71 / dashboard 22 / upload-config 4 / logs 3 / config 3），
+29.6 KB → 19.2 KB（br 3.9 → 3.1 KB）。
+
+验证方式：**全元素计算样式快照**——3 视口 × 10 section，遍历整棵 DOM，
+逐元素记 17 项属性。结果：**确定性属性差异 0**；唯一 4 处 width 抖动（0.89px）
+经基线对照确认是噪声（同版本连跑两次就有 12 处同类抖动）。
+
+第一版迁移脚本没处理**多行选择器**，切碎后产出非法 CSS，stylelint 当场拦下
+（`Unknown word .sidebar-nav`）——它在这里不只是风格检查，是语法安全网。
+
+护栏：`tests/ui-mobile-scope.test.js`（4 条）。
+
+#### 6. 明确判定"不做"的
+
+| 不做 | 依据 |
+|---|---|
+| 合并 3 个插件页 | 最长相同片段仅 boot 7 行；趋势面板相似度 0.60；抽完 `plugin-shared.css` 后两个 CSS **逐字节重复 0 条** |
+| 删 `alignment.css` | 39 条里 21 条跨 2–8 个文件定义，逐份复制需 **128 份副本**替代 39 条；它只占首屏 br 2.5 KB（11.3%） |
+| 合并 `.btn-small` 与 `.btn-sm` | `.btn-small` 是独立按钮类型（自带 9 个配色变体），不是 `.btn` 的尺寸修饰符 |
+| 把 `/v1/*` 直连塞进 `lib/api.js` | 用户自填 key + `model-provider` 头，与后台 session Bearer 是两套鉴权；且 `request()` 会先 `json()` 把 SSE 流读掉 |
+| 全量替换 146 处 inline style | 110 种里 88 种只出现一次；只有 8 处必须动态、约 35 处可换工具类 |
+| 手工合并 token 重复值 | 唯一安全的是 `--btn-primary-hover` → `--primary-hover`；`--white` vs `--bg-primary` 合并会让暗色文字变白 |
+
+#### 本轮提交
+
+| commit | 内容 |
+|---|---|
+| `3716272` | 图片 webp 化、主题闪白修复、删 base.css 死块、potluck 去重、`.is-open`、HTML 外壳生成器 |
+| `bc1c7d2` | api.js headers 修复 + page-boot + credential-api |
+| `3bfc2f7` | 设计尺度收敛（字号/圆角/间距）+ 契约重生成 |
+| `25fe9f4` | toastError / useResource / JS 内联颜色令牌化 |
+| `49697c0` | mobile.css 分区拆分 |
+
+---
+
 ## 附录 A：迁移前后对照示例（日志页）
 
 旧（`event-stream.js`，节选）：
