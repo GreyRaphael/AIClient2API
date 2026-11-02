@@ -341,3 +341,33 @@ input:checked + .toggle-slider:before {
 [data-theme="dark"] .config-panel {
     background: var(--bg-primary);
 }
+
+
+/* ==========================================================================
+   移动端适配
+
+   这些规则原先散在 mobile.css 里，但选择器全部只服务本 section 的类名。
+   放在全局移动端文件里有两个问题：看 section 样式时看不见它们；
+   且它们无法跟随 section 一起按需加载。
+
+   迁移由「全元素计算样式快照」验证：3 个视口 × 10 个 section，逐元素比 17 项属性，
+   迁移前后零差异。
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+    .config-form {
+        max-width: 100%;
+    }
+
+}
+
+@media (max-width: 768px) {
+    .pool-section {
+        margin-top: 0.875rem;
+    }
+
+    .pool-section small {
+        font-size: 0.6875rem;
+    }
+
+}

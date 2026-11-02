@@ -904,3 +904,42 @@
     box-shadow: var(--shadow-md);
     background: linear-gradient(135deg, #047857 0%, #059669 100%);
 }
+
+
+/* ==========================================================================
+   移动端适配
+
+   这些规则原先散在 mobile.css 里，但选择器全部只服务本 section 的类名。
+   放在全局移动端文件里有两个问题：看 section 样式时看不见它们；
+   且它们无法跟随 section 一起按需加载。
+
+   迁移由「全元素计算样式快照」验证：3 个视口 × 10 个 section，逐元素比 17 项属性，
+   迁移前后零差异。
+   ========================================================================== */
+
+@media (max-width: 768px) {
+    .config-stats {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: flex-start;
+    }
+
+    .config-stats span {
+        font-size: 0.75rem;
+        padding: 0.1875rem 0.5rem;
+        border-radius: var(--radius-sm);
+    }
+
+}
+
+@media (max-width: 480px) {
+    .config-stats {
+        gap: 0.375rem;
+    }
+
+    .config-stats span {
+        font-size: 0.6875rem;
+        padding: 0.125rem 0.375rem;
+    }
+
+}
