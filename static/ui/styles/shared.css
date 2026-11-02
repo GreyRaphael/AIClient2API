@@ -62,7 +62,6 @@
    2. 模态框基础结构
    各业务只保留尺寸/配色差异，通用定位、布局与主题色在此统一维护。
    -------------------------------------------------------------------------- */
-.modal,
 .modal-overlay {
     position: fixed;
     inset: 0;
@@ -71,18 +70,9 @@
     justify-content: center;
     background: var(--overlay-bg);
     z-index: 1000;
-}
-
-.modal-overlay {
     animation: fadeIn 0.3s ease;
 }
 
-.modal {
-    z-index: 2000;
-    backdrop-filter: blur(4px);
-}
-
-.modal.show,
 .modal-overlay.show {
     display: flex;
     opacity: 1;
@@ -118,6 +108,13 @@
     background: var(--bg-secondary);
 }
 
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
 .modal-body {
     padding: 1.5rem;
     flex: 1;
@@ -151,7 +148,7 @@
 }
 
 .modal-close:hover {
-    background: var(--neutral-200);
+    background: var(--bg-tertiary);
     color: var(--danger-color);
     transform: rotate(90deg);
 }
@@ -160,13 +157,8 @@
 /* --------------------------------------------------------------------------
    3. 表单原子类（跨 section 共享）
    .form-group / .form-row / .form-group label / .form-control::placeholder
-   原先在 section-config.css 与 section-providers.css 里各有一份**逐字节相同**
-   的副本。两份都要维护，改一处忘另一处就不同步；按需加载时还要靠
-   SECTION_STYLES 里显式声明"config 依赖 providers 的样式"来兜底。
-
-   放在这里作为唯一权威定义（shared.css 对所有控制台页面加载，不会丢样式）。
-   section 里若有差异（例如 custom-models 的 .form-row 更紧凑），
-   在自己的文件里**只写差异**覆盖即可 —— shared.css 在本层之前，自然被覆盖。
+   以及密码框（.password-input-wrapper / .password-toggle）与开关（.toggle-switch / .toggle-slider）
+   在此作为唯一权威定义（shared.css 对所有控制台页面加载，不会丢样式）。
    -------------------------------------------------------------------------- */
 .form-group {
     margin-bottom: 1.5rem;
@@ -190,8 +182,6 @@
     color: var(--text-tertiary);
 }
 
-/* 表单动作区与密码框：同样被多个 section 复用（config / providers / access），
- * 从 section-config.css 上收为共享定义。 */
 .form-actions {
     display: flex;
     gap: 1rem;
@@ -210,4 +200,84 @@
     flex: 1;
     display: flex;
     align-items: center;
+}
+
+.password-input-wrapper .form-control {
+    padding-right: 3rem;
+}
+
+.password-input-wrapper input[type="password"],
+.password-input-wrapper input[type="text"] {
+    flex: 1;
+    padding-right: 3rem;
+}
+
+.password-toggle {
+    position: absolute;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem;
+    color: var(--text-secondary);
+    transition: var(--transition);
+    z-index: 1;
+    width: auto;
+    flex-shrink: 0;
+}
+
+.password-toggle:hover {
+    color: var(--primary-color);
+}
+
+.password-toggle i {
+    font-size: 1rem;
+    width: 1rem;
+    text-align: center;
+}
+
+/* 切换开关（Switch 组件） */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    transition: var(--transition);
+    border-radius: 24px;
+}
+
+.toggle-slider::before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 2px;
+    background-color: var(--bg-primary);
+    transition: var(--transition);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px var(--neutral-shadow-30);
+}
+
+input:checked + .toggle-slider {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+input:checked + .toggle-slider::before {
+    transform: translateX(24px);
 }

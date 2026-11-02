@@ -13,6 +13,10 @@
     flex-wrap: wrap;
 }
 
+.access-header-main > .btn {
+    flex-shrink: 0;
+}
+
 .access-subtitle {
     margin: 0;
     color: var(--text-secondary);

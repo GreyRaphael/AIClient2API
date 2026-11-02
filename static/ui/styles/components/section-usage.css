@@ -487,13 +487,13 @@
 }
 
 .collapsed-plan-badge.plan-free { background: var(--bg-tertiary); color: var(--text-tertiary); }
-.collapsed-plan-badge.plan-plus { background: var(--info-bg-light); color: var(--info-text-dark); border-color: var(--info-hover); }
+.collapsed-plan-badge.plan-plus { background: var(--info-bg); color: var(--info-text); border-color: var(--info-hover); }
 .collapsed-plan-badge.plan-pro { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-bg-light); }
 .collapsed-plan-badge.plan-pro-plus { background: #f3f0ff; color: #6b21a8; border-color: #d8b4fe; }
 .collapsed-plan-badge.plan-team { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
 .collapsed-plan-badge.plan-ultra { background: #fff1f2; color: #9f1239; border-color: #fecdd3; }
 .collapsed-plan-badge.plan-basic { background: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--border-color); }
-.collapsed-plan-badge.plan-super { background: var(--info-bg-light); color: var(--info-text-dark); border-color: var(--info-hover); }
+.collapsed-plan-badge.plan-super { background: var(--info-bg); color: var(--info-text); border-color: var(--info-hover); }
 .collapsed-plan-badge.plan-heavy { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
 .collapsed-plan-badge.plan-standard { background: var(--success-bg-light); color: var(--primary-color); border-color: var(--success-bg); }
 .collapsed-plan-badge.plan-default { background: var(--bg-secondary); color: var(--text-secondary); }
@@ -542,12 +542,4 @@
     .usage-instance-header { padding: 0.5rem 0.75rem; }
     .usage-instance-content { padding: 0.5rem; }
 }
-
-/* 暗黑主题适配 */
-[data-theme="dark"] .usage-error-message { background: var(--danger-bg); color: var(--danger-text); }
-[data-theme="dark"] .usage-section { background: var(--bg-secondary); border-color: var(--border-color); }
-[data-theme="dark"] .total-usage { background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%); border-color: var(--primary-color); }
-[data-theme="dark"] .usage-breakdown-compact { background: var(--bg-secondary); border-color: var(--border-color); }
-
-[data-theme="dark"] .pagination-container { background: var(--bg-tertiary); }
 

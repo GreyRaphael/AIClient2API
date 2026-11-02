@@ -1,26 +1,39 @@
-/* System Info Panel in Dashboard */
-.system-info-panel {
-    background: var(--bg-primary);
-    padding: 1.25rem;
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
-    margin-top: 1rem;
-}
-
-.system-info-panel h3 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-}
-
-/* Provider Status Panel */
+/* System Info & Provider Status Panels in Dashboard */
+.system-info-panel,
 .provider-status-panel {
     background: var(--bg-primary);
-    padding: 1.25rem;
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
+    padding: 1.5rem;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
     margin-top: 1rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.system-info-panel {
+    container-type: inline-size;
+}
+
+.system-info-panel::before,
+.provider-status-panel::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 3px;
+    background: var(--gradient-accent);
+    opacity: 0.85;
+}
+
+.system-info-panel h3,
+.provider-status-panel h3 {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+    letter-spacing: -0.01em;
 }
 
 .provider-status-grid {
@@ -31,10 +44,11 @@
 }
 
 .provider-status-card {
-    background: var(--bg-secondary);
-    padding: 0.55rem 0.7rem;
-    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    padding: 0.65rem 0.8rem;
+    border-radius: var(--radius-lg);
     border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
@@ -42,8 +56,8 @@
 }
 
 .provider-status-card:hover {
-    border-color: var(--primary-color);
-    box-shadow: var(--shadow-sm);
+    border-color: var(--primary-30);
+    box-shadow: var(--shadow-md);
     transform: translateY(-2px);
 }
 
@@ -133,6 +147,7 @@
     border-radius: 50%;
     cursor: help;
     transition: transform 0.15s ease;
+    box-shadow: 0 0 0 2px var(--bg-primary);
 }
 
 .node-dot:hover {
@@ -142,14 +157,16 @@
 
 .node-dot.healthy {
     background-color: var(--success-color);
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 6px var(--success-color);
 }
 
 .node-dot.unhealthy {
     background-color: var(--danger-color);
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 6px var(--danger-color);
 }
 
 .node-dot.disabled {
-    background-color: #9ca3af;
+    background-color: var(--text-tertiary);
 }
 
 .status-loading {
@@ -198,14 +215,38 @@
 
 .info-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+@container (min-width: 470px) {
+    .info-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@container (max-width: 299px) {
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .info-item {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    padding: 0.75rem 0.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    gap: 0.375rem;
+    align-items: center;
+    text-align: center;
+    transition: var(--transition);
+}
+
+.info-item:hover {
+    border-color: var(--primary-30);
+    background: var(--primary-10);
 }
 
 .info-item .info-label {
@@ -223,17 +264,31 @@
 
 .info-item .info-label i {
     color: var(--primary-color);
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: var(--primary-10);
+    font-size: 0.75rem;
+    flex-shrink: 0;
     text-align: center;
 }
 
 .info-item .info-value {
     color: var(--text-primary);
     font-weight: 600;
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .version-display-wrapper {
     display: flex;
     align-items: center;
+    justify-content: center;
+    text-align: center;
     flex-wrap: wrap;
     gap: 0.5rem;
 }
@@ -421,33 +476,6 @@
     color: var(--primary-color);
 }
 
-/* 响应式调整 */
-@media (max-width: 1024px) {
-    .dashboard-overview-row {
-        flex-direction: column;
-    }
-
-    .dashboard-overview-row .dashboard-contact {
-        flex: none;
-        width: 100%;
-    }
-
-    .dashboard-overview-row .dashboard-contact .contact-grid {
-        grid-template-columns: repeat(2, 220px);
-        justify-content: center;
-        gap: 0.75rem;
-    }
-
-
-    .dashboard-overview-row .dashboard-contact .qr-placeholder {
-
-        width: 190px;
-
-        height: 190px;
-
-    }
-}
-
 /* 可用模型列表面板（始终展开） */
 .dashboard-details {
     background: var(--bg-primary);
@@ -458,12 +486,6 @@
     box-shadow: var(--shadow-sm);
     transition: var(--transition);
 }
-
-
-
-
-
-
 
 .dashboard-models-header {
     display: flex;
@@ -481,14 +503,9 @@
     color: var(--text-primary);
 }
 
-
-
-
-
-
 .dashboard-models-panel {
     margin-top: 0;
-    padding-top: 0;
+    padding: 0 1.25rem 1.25rem;
     border-top: none;
     background: transparent;
     box-shadow: none;
@@ -515,7 +532,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
 }
 
 .models-hint {
@@ -822,7 +839,7 @@
 }
 
 .model-param-flag.effort {
-    background: var(--info-bg-light);
+    background: var(--info-bg);
     color: var(--info-text);
     border: 1px solid var(--info-border);
 }
@@ -908,67 +925,14 @@
     font-size: 0.875rem;
 }
 
-@media (max-width: 768px) {
-    .provider-models-content {
-        grid-template-columns: 1fr;
-    }
-
-    .provider-models-header {
-        padding: 0.5rem 1rem;
-    }
-
-    .provider-models-title h3 {
-        font-size: 0.875rem;
-    }
-
-    .provider-models-content {
-        padding: 0.875rem 1rem;
-    }
-
-    .model-item {
-        padding: 0.6rem 0.8rem;
-    }
-}
-
-@media (max-width: 480px) {
-    .model-item-params {
-        flex-wrap: wrap;
-        row-gap: 0.375rem;
-    }
-
-    .model-param-id {
-        flex: 1 0 100%;
-        min-width: 0;
-    }
-}
-
 /* 暗黑主题适配 */
-[data-theme="dark"] .provider-models-group {
-    background: var(--bg-primary);
-    border-color: var(--border-color);
+[data-theme="dark"] .image-zoom-overlay {
+    background: var(--neutral-shadow-95);
 }
 
-[data-theme="dark"] .provider-models-header {
-    background: var(--bg-secondary);
-}
-
-[data-theme="dark"] .provider-models-header:hover {
-    background: var(--primary-10);
-}
-
-[data-theme="dark"] .model-item {
-    background: var(--bg-secondary);
-    border-color: var(--border-color);
-}
-
-[data-theme="dark"] .model-item:hover {
-    background: var(--primary-10);
-    border-color: var(--primary-30);
-}
-
-[data-theme="dark"] .models-container {
-    background: transparent;
-}
+/* ==========================================================================
+   移动端适配
+   ========================================================================== */
 
 @media (max-width: 1024px) {
     .dashboard-overview-row {
@@ -986,224 +950,23 @@
         gap: 0.75rem;
     }
 
-
-    .dashboard-overview-row .dashboard-contact .qr-placeholder {
-
-        width: 190px;
-
-        height: 190px;
-
-    }
-}
-
-@media (max-width: 768px) {
-    .contact-grid {
-        grid-template-columns: 1fr;
-        gap: 1.5rem;
-    }
-    .contact-card {
-        padding: 1.5rem;
-    }
-    .dashboard-overview-row .dashboard-contact .contact-grid {
-        grid-template-columns: repeat(2, 220px);
-        justify-content: center;
-        gap: 0.75rem;
-    }
-    .dashboard-overview-row .dashboard-contact .contact-card {
-        padding: 0.8rem 0.5rem;
-    }
     .dashboard-overview-row .dashboard-contact .qr-placeholder {
         width: 190px;
         height: 190px;
     }
 }
 
-@media (max-width: 480px) {
-    .dashboard-overview-row .dashboard-contact .contact-grid {
-        grid-template-columns: repeat(2, 160px);
-        justify-content: center;
-        gap: 0.5rem;
-    }
-    .dashboard-overview-row .dashboard-contact .contact-card {
-        padding: 0.6rem 0.4rem;
-    }
-    .dashboard-overview-row .dashboard-contact .qr-placeholder {
-        width: 140px;
-        height: 140px;
-    }
-    .dashboard-overview-row .dashboard-contact .contact-card h3 {
-        font-size: 0.75rem;
-    }
-    .contact-card {
-        padding: 1rem;
-    }
-}
-
-/* 暗黑主题适配 */
-[data-theme="dark"] .status-healthy {
-    background: var(--success-bg);
-    color: var(--success-text);
-}
-
-[data-theme="dark"] .status-unhealthy {
-    background: var(--danger-bg);
-    color: var(--danger-text);
-}
-
-[data-theme="dark"] .update-badge {
-    background: var(--warning-bg);
-    color: var(--warning-text);
-    border-color: var(--warning-border);
-}
-
-[data-theme="dark"] .contact-card {
-    background: var(--bg-primary);
-}
-
-
-[data-theme="dark"] .image-zoom-overlay {
-    background: var(--neutral-shadow-95);
-}
-
-/* ===== 视觉优化 ===== */
-.system-info-panel,
-.provider-status-panel {
-    padding: 1.5rem;
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--border-color);
-    box-shadow: var(--shadow-sm);
-    position: relative;
-    overflow: hidden;
-}
-
-/* 系统信息面板按自身宽度（而非视口）决定卡片栅格 */
-.system-info-panel {
-    container-type: inline-size;
-}
-
-/* 面板顶部细微渐变高光 */
-.system-info-panel::before,
-.provider-status-panel::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 3px;
-    background: var(--gradient-accent);
-    opacity: 0.85;
-}
-
-.system-info-panel h3,
-.provider-status-panel h3 {
-    font-size: 1.125rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-}
-
-/* 系统信息：每一项做成小卡片（文字居中，数值单行不折行） */
-.info-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-}
-
-/* 6 项 = 3 列 x 2 行，直接三等分即可，不再需要区分首行/其余行。
- * 用容器查询而不是视口宽度：面板宽度受右侧固定 440px 联系人卡挤压，
- * 1025–1299px 视口下面板只有 237–462px，按视口切列会把数值挤到卡片外。 */
-@container (min-width: 470px) {
-    .info-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-}
-
-.info-item {
-    padding: 0.75rem 0.5rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    gap: 0.375rem;
-    align-items: center;
-    text-align: center;
-    transition: var(--transition);
-}
-
-.info-item:hover {
-    border-color: var(--primary-30);
-    background: var(--primary-10);
-}
-
-/* 视觉优化：图标做成小色块、数值单行不折行 */
-.info-item .info-label i {
-    width: 24px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-sm);
-    background: var(--primary-10);
-    font-size: 0.75rem;
-    flex-shrink: 0;
-}
-
-.info-item .info-value {
-    font-size: 1rem;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-.version-display-wrapper {
-    justify-content: center;
-    text-align: center;
-}
-
-/* 提供商状态卡片 */
-.provider-status-card {
-    background: var(--bg-primary);
-    border-radius: var(--radius-lg);
-    padding: 0.65rem 0.8rem;
-    box-shadow: var(--shadow-sm);
-}
-
-.provider-status-card:hover {
-    border-color: var(--primary-30);
-    box-shadow: var(--shadow-md);
-}
-
-.node-dot {
-    box-shadow: 0 0 0 2px var(--bg-primary);
-}
-
-.node-dot.healthy {
-    background-color: var(--success-color);
-    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 6px var(--success-color);
-}
-
-.node-dot.unhealthy {
-    background-color: var(--danger-color);
-    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 6px var(--danger-color);
-}
-
-/* 超窄面板（如手机竖屏）：退化为单列。放在所有 .info-grid 列定义之后，
- * 同特异性下由"更晚位置"胜出，不需要 !important。 */
-@container (max-width: 299px) {
-    .info-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-
-/* ==========================================================================
-   移动端适配
-
-   这些规则原先散在 mobile.css 里，但选择器全部只服务本 section 的类名。
-   放在全局移动端文件里有两个问题：看 section 样式时看不见它们；
-   且它们无法跟随 section 一起按需加载。
-
-   迁移由「全元素计算样式快照」验证：3 个视口 × 10 个 section，逐元素比 17 项属性，
-   迁移前后零差异。
-   ========================================================================== */
-
 @media (max-width: 768px) {
+    .system-info-panel {
+        padding: 1.25rem;
+        border-radius: var(--radius-md);
+        margin-bottom: 1rem;
+    }
+
+    .system-info-panel h3 {
+        font-size: 1rem;
+    }
+
     .system-info-header {
         flex-direction: column;
         align-items: flex-start;
@@ -1213,6 +976,18 @@
     .update-controls {
         width: 100%;
         justify-content: flex-start;
+    }
+
+    .info-grid {
+        gap: 0.625rem;
+    }
+
+    .info-item {
+        padding: 0.875rem;
+        border-radius: var(--radius-md);
+        gap: 0.5rem;
+        align-items: center;
+        text-align: center;
     }
 
     .info-label {
@@ -1245,6 +1020,23 @@
         margin-left: 0.5rem;
     }
 
+    .provider-models-header {
+        padding: 0.5rem 1rem;
+    }
+
+    .provider-models-title h3 {
+        font-size: 0.875rem;
+    }
+
+    .provider-models-content {
+        grid-template-columns: 1fr;
+        padding: 0.875rem 1rem;
+    }
+
+    .model-item {
+        padding: 0.6rem 0.8rem;
+    }
+
     .contact-grid {
         grid-template-columns: 1fr !important;
         gap: 1rem;
@@ -1270,11 +1062,33 @@
         margin: 1rem 0;
     }
 
+    .dashboard-overview-row .dashboard-contact .contact-grid {
+        grid-template-columns: repeat(2, 220px);
+        justify-content: center;
+        gap: 0.75rem;
+    }
+
+    .dashboard-overview-row .dashboard-contact .contact-card {
+        padding: 0.8rem 0.5rem;
+    }
+
+    .dashboard-overview-row .dashboard-contact .qr-placeholder {
+        width: 190px;
+        height: 190px;
+    }
 }
 
 @media (max-width: 480px) {
+    .system-info-panel {
+        padding: 1rem;
+    }
+
     .system-info-header {
         gap: 0.625rem;
+    }
+
+    .info-item {
+        padding: 0.75rem;
     }
 
     .info-label {
@@ -1293,6 +1107,16 @@
     .update-badge {
         font-size: 0.6875rem;
         padding: 0.125rem 0.375rem;
+    }
+
+    .model-item-params {
+        flex-wrap: wrap;
+        row-gap: 0.375rem;
+    }
+
+    .model-param-id {
+        flex: 1 0 100%;
+        min-width: 0;
     }
 
     .contact-grid {
@@ -1316,4 +1140,22 @@
         margin: 0.75rem 0;
     }
 
+    .dashboard-overview-row .dashboard-contact .contact-grid {
+        grid-template-columns: repeat(2, 160px);
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .dashboard-overview-row .dashboard-contact .contact-card {
+        padding: 0.6rem 0.4rem;
+    }
+
+    .dashboard-overview-row .dashboard-contact .qr-placeholder {
+        width: 140px;
+        height: 140px;
+    }
+
+    .dashboard-overview-row .dashboard-contact .contact-card h3 {
+        font-size: 0.75rem;
+    }
 }

@@ -62,9 +62,9 @@ describe('CSS 令牌完整性', () => {
     const darkTokens = parseTokens(tokenBlock(baseCss, '[data-theme="dark"] {'));
 
     test('亮色与暗色两套令牌块都能解析', () => {
-        expect(lightTokens.size).toBeGreaterThan(100);
+        expect(lightTokens.size).toBeGreaterThan(75);
         // 暗色块不需要重复定义每个令牌，但应有足够数量覆盖语义色
-        expect(darkTokens.size).toBeGreaterThan(80);
+        expect(darkTokens.size).toBeGreaterThan(45);
         expect(darkTokens.has('--bg-primary')).toBe(true);
         expect(darkTokens.has('--text-primary')).toBe(true);
     });

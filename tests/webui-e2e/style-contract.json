@@ -78,7 +78,7 @@
       "gap": "10px"
     },
     "#dashboard .info-item": {
-      "padding": "10px 8px",
+      "padding": "12px",
       "border-radius": "8px",
       "background-color": "rgb(248, 250, 252)"
     },
@@ -93,8 +93,8 @@
       "background-color": "rgb(255, 255, 255)"
     },
     "#dashboard .system-info-panel": {
-      "padding": "14px",
-      "border-radius": "12px",
+      "padding": "16px",
+      "border-radius": "8px",
       "background-color": "rgb(255, 255, 255)"
     }
   },
@@ -156,7 +156,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "19.6px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",
@@ -164,7 +164,7 @@
     },
     ".provider-header-right": {
       "flex-wrap": "wrap",
-      "justify-content": "flex-end"
+      "justify-content": "flex-start"
     },
     ".stat-card": {
       "padding": "9.6px 11.2px",
@@ -317,7 +317,7 @@
       "margin-bottom": "0px"
     },
     ".config-list-header": {
-      "align-items": "center"
+      "align-items": "flex-start"
     },
     ".config-stats": {
       "align-items": "center"
@@ -335,7 +335,7 @@
       "border-width": "2px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
@@ -548,7 +548,7 @@
       "margin-bottom": "16px"
     },
     ".btn": {
-      "padding": "10px 16px",
+      "padding": "6px 12px",
       "font-size": "12px",
       "border-radius": "8px",
       "border-width": "1px"
@@ -854,8 +854,8 @@
       "color": "rgb(71, 85, 105)"
     },
     "#config .config-panel": {
-      "padding": "12px",
-      "border-radius": "12px",
+      "padding": "16px",
+      "border-radius": "8px",
       "background-color": "rgb(255, 255, 255)"
     }
   },
@@ -938,7 +938,7 @@
       "gap": "10px"
     },
     "#dashboard .info-item": {
-      "padding": "10px 8px",
+      "padding": "12px",
       "border-radius": "8px",
       "background-color": "rgb(30, 41, 59)"
     },
@@ -953,8 +953,8 @@
       "background-color": "rgb(15, 23, 42)"
     },
     "#dashboard .system-info-panel": {
-      "padding": "14px",
-      "border-radius": "12px",
+      "padding": "16px",
+      "border-radius": "8px",
       "background-color": "rgb(15, 23, 42)"
     }
   },
@@ -1016,7 +1016,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "19.6px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",
@@ -1024,7 +1024,7 @@
     },
     ".provider-header-right": {
       "flex-wrap": "wrap",
-      "justify-content": "flex-end"
+      "justify-content": "flex-start"
     },
     ".stat-card": {
       "padding": "9.6px 11.2px",
@@ -1177,7 +1177,7 @@
       "margin-bottom": "0px"
     },
     ".config-list-header": {
-      "align-items": "center"
+      "align-items": "flex-start"
     },
     ".config-stats": {
       "align-items": "center"
@@ -1408,7 +1408,7 @@
       "margin-bottom": "16px"
     },
     ".btn": {
-      "padding": "10px 16px",
+      "padding": "6px 12px",
       "font-size": "12px",
       "border-radius": "8px",
       "border-width": "1px"
@@ -1714,8 +1714,8 @@
       "color": "rgb(203, 213, 225)"
     },
     "#config .config-panel": {
-      "padding": "12px",
-      "border-radius": "12px",
+      "padding": "16px",
+      "border-radius": "8px",
       "background-color": "rgb(15, 23, 42)"
     }
   },
@@ -1795,10 +1795,10 @@
     },
     "#dashboard .info-grid": {
       "display": "grid",
-      "gap": "12px"
+      "gap": "10px"
     },
     "#dashboard .info-item": {
-      "padding": "12px 8px",
+      "padding": "14px",
       "border-radius": "8px",
       "background-color": "rgb(248, 250, 252)"
     },
@@ -1813,8 +1813,8 @@
       "background-color": "rgb(255, 255, 255)"
     },
     "#dashboard .system-info-panel": {
-      "padding": "16px",
-      "border-radius": "12px",
+      "padding": "20px",
+      "border-radius": "8px",
       "background-color": "rgb(255, 255, 255)"
     }
   },
@@ -1876,7 +1876,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "22.4px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",
@@ -1884,7 +1884,7 @@
     },
     ".provider-header-right": {
       "flex-wrap": "wrap",
-      "justify-content": "flex-end"
+      "justify-content": "flex-start"
     },
     ".stat-card": {
       "padding": "9.6px 11.2px",
@@ -2037,7 +2037,7 @@
       "margin-bottom": "0px"
     },
     ".config-list-header": {
-      "align-items": "center"
+      "align-items": "flex-start"
     },
     ".config-stats": {
       "align-items": "center"
@@ -2055,7 +2055,7 @@
       "border-width": "2px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
@@ -2268,7 +2268,7 @@
       "margin-bottom": "16px"
     },
     ".btn": {
-      "padding": "10px 16px",
+      "padding": "6px 12px",
       "font-size": "12px",
       "border-radius": "8px",
       "border-width": "1px"
@@ -2574,8 +2574,8 @@
       "color": "rgb(71, 85, 105)"
     },
     "#config .config-panel": {
-      "padding": "16px",
-      "border-radius": "12px",
+      "padding": "20px",
+      "border-radius": "8px",
       "background-color": "rgb(255, 255, 255)"
     }
   },
@@ -2655,10 +2655,10 @@
     },
     "#dashboard .info-grid": {
       "display": "grid",
-      "gap": "12px"
+      "gap": "10px"
     },
     "#dashboard .info-item": {
-      "padding": "12px 8px",
+      "padding": "14px",
       "border-radius": "8px",
       "background-color": "rgb(30, 41, 59)"
     },
@@ -2673,8 +2673,8 @@
       "background-color": "rgb(15, 23, 42)"
     },
     "#dashboard .system-info-panel": {
-      "padding": "16px",
-      "border-radius": "12px",
+      "padding": "20px",
+      "border-radius": "8px",
       "background-color": "rgb(15, 23, 42)"
     }
   },
@@ -2736,7 +2736,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "22.4px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",
@@ -2744,7 +2744,7 @@
     },
     ".provider-header-right": {
       "flex-wrap": "wrap",
-      "justify-content": "flex-end"
+      "justify-content": "flex-start"
     },
     ".stat-card": {
       "padding": "9.6px 11.2px",
@@ -2897,7 +2897,7 @@
       "margin-bottom": "0px"
     },
     ".config-list-header": {
-      "align-items": "center"
+      "align-items": "flex-start"
     },
     ".config-stats": {
       "align-items": "center"
@@ -3128,7 +3128,7 @@
       "margin-bottom": "16px"
     },
     ".btn": {
-      "padding": "10px 16px",
+      "padding": "6px 12px",
       "font-size": "12px",
       "border-radius": "8px",
       "border-width": "1px"
@@ -3434,8 +3434,8 @@
       "color": "rgb(203, 213, 225)"
     },
     "#config .config-panel": {
-      "padding": "16px",
-      "border-radius": "12px",
+      "padding": "20px",
+      "border-radius": "8px",
       "background-color": "rgb(15, 23, 42)"
     }
   },
@@ -3596,7 +3596,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "22.4px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",
@@ -3775,7 +3775,7 @@
       "border-width": "2px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
@@ -4456,7 +4456,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "22.4px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",
@@ -5316,7 +5316,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "22.4px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",
@@ -5495,7 +5495,7 @@
       "border-width": "2px",
       "background-color": "rgb(248, 250, 252)",
       "color": "rgb(15, 23, 42)",
-      "border-color": "rgb(233, 236, 239)"
+      "border-color": "rgb(226, 232, 240)"
     },
     "#upload-config .config-list-header": {
       "padding": "16px 24px",
@@ -6176,7 +6176,7 @@
     },
     ".provider-header .provider-name": {
       "margin-bottom": "0px",
-      "line-height": "22.4px"
+      "line-height": "25.2px"
     },
     ".provider-header .provider-type-text": {
       "margin-left": "-8px",

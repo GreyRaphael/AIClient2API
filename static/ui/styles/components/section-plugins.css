@@ -54,21 +54,6 @@
     overflow: hidden;
 }
 
-/* 支付弹窗：仅保留与共享 modal 的差异 */
-#paymentModal .modal-content {
-    transform: translateY(20px);
-}
-
-#paymentModal.show .modal-content {
-    transform: translateY(0);
-}
-
-#paymentModal .modal-header h2 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
-}
-
 .btn-install {
     width: 100%;
     margin-top: auto;
@@ -129,6 +114,7 @@
 
 .plugins-inline-stats {
     display: flex;
+    align-items: center;
     gap: 1rem;
     margin-right: auto;
     font-size: 0.8125rem;

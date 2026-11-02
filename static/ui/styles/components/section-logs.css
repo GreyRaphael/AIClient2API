@@ -38,24 +38,8 @@
     color: var(--log-warn);
 }
 
-
-
-/* 暗黑主题适配 */
-[data-theme="dark"] #logs .logs-container {
-    background: var(--code-bg);
-    color: var(--code-text);
-}
-
-
 /* ==========================================================================
    移动端适配
-
-   这些规则原先散在 mobile.css 里，但选择器全部只服务本 section 的类名。
-   放在全局移动端文件里有两个问题：看 section 样式时看不见它们；
-   且它们无法跟随 section 一起按需加载。
-
-   迁移由「全元素计算样式快照」验证：3 个视口 × 10 个 section，逐元素比 17 项属性，
-   迁移前后零差异。
    ========================================================================== */
 
 @media (max-width: 768px) {
@@ -65,6 +49,21 @@
         margin-bottom: 0.75rem;
     }
 
+    #logs .logs-controls button {
+        flex: 1;
+        min-width: 100px;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    #logs .logs-container {
+        height: calc(100vh - 280px);
+        min-height: 300px;
+        padding: 0.625rem;
+        border-radius: var(--radius-lg);
+        font-size: 0.6875rem;
+    }
+
     #logs .log-entry {
         padding: 0.375rem;
         margin-bottom: 0.25rem;
@@ -72,13 +71,24 @@
         line-height: 1.4;
         border-radius: var(--radius-sm);
     }
-
 }
 
 @media (max-width: 480px) {
+    #logs .logs-container {
+        height: calc(100vh - 260px);
+        padding: 0.5rem;
+        font-size: 0.625rem;
+    }
+
     #logs .log-entry {
         padding: 0.3125rem;
         font-size: 0.625rem;
     }
+}
 
+@media (max-width: 768px) and (orientation: landscape) {
+    #logs .logs-container {
+        height: calc(100vh - 200px);
+        min-height: 200px;
+    }
 }

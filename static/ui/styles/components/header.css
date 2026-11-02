@@ -4,6 +4,7 @@
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border-color);
+    box-shadow: 0 1px 0 var(--border-color), 0 8px 24px -16px rgba(15, 23, 42, 0.18);
     position: sticky;
     top: 0;
     z-index: 100;
@@ -34,6 +35,15 @@
     margin-right: 0.5rem;
     border-radius: 50%;
     object-fit: contain;
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--primary-20);
+}
+
+.header h1 .header-title {
+    background: var(--gradient-accent);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
 }
 
 .header h1 i {
@@ -42,7 +52,7 @@
 
 .header-controls {
     display: flex;
-    gap: 1rem;
+    gap: 0.625rem;
     align-items: center;
 }
 
@@ -59,22 +69,25 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 1rem;
-    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
     border-radius: var(--radius-full);
     font-size: 0.75rem;
     font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-transform: none;
 }
 
 .status-badge i {
     color: var(--success-color);
     animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     font-size: 0.625rem;
+    filter: drop-shadow(0 0 4px var(--success-color));
 }
 
 .status-badge.error i {
     color: var(--danger-color);
+    filter: drop-shadow(0 0 4px var(--danger-color));
 }
 
 .logout-btn {
@@ -117,6 +130,7 @@
     color: var(--white);
     border: 1px solid #24292f;
     border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
     font-size: 0.8125rem;
     font-weight: 700;
@@ -155,52 +169,6 @@
 
 .github-link:hover .github-star-icon {
     transform: rotate(12deg) scale(1.15);
-}
-
-/* 暗黑主题适配 */
-[data-theme="dark"] .header {
-    background: var(--bg-glass);
-}
-
-/* ===== 视觉优化 ===== */
-.header {
-    box-shadow: 0 1px 0 var(--border-color), 0 8px 24px -16px rgba(15, 23, 42, 0.18);
-}
-
-.header h1 .header-logo {
-    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--primary-20);
-}
-
-.header h1 .header-title {
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-}
-
-.header-controls {
-    gap: 0.625rem;
-}
-
-/* 状态徽标：连接状态更直观 */
-.status-badge {
-    border: 1px solid var(--border-color);
-    background: var(--bg-primary);
-    text-transform: none;
-    letter-spacing: 0.02em;
-}
-
-.status-badge i {
-    filter: drop-shadow(0 0 4px var(--success-color));
-}
-
-.status-badge.error i {
-    filter: drop-shadow(0 0 4px var(--danger-color));
-}
-
-.github-link {
-    box-shadow: var(--shadow-sm);
 }
 
 /* 中等宽度下收起文字标签，避免头部拥挤 */

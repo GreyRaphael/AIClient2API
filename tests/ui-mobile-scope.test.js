@@ -44,7 +44,7 @@ describe('mobile.css 作用域', () => {
     ]);
 
     test('文件体积受控（迁移前 29.6 KB）', () => {
-        expect(statSync(MOBILE).size).toBeLessThan(24 * 1024);
+        expect(statSync(MOBILE).size).toBeLessThan(18 * 1024);
     });
 
     test('不再包含只服务单一 section 的规则', () => {
@@ -53,10 +53,9 @@ describe('mobile.css 作用域', () => {
         for (const m of css.matchAll(/([^{}@\/][^{}]*)\{/g)) {
             const sel = m[1].trim();
             const cls = [...sel.matchAll(/\.([a-zA-Z_][\w-]*)/g)].map((x) => x[1]);
-            if (!cls.length) continue;
-            // 跨 section 共享的原子类由 shared/base 定义，允许留在全局移动端层
-            if (cls.some((c) => globalClasses.has(c))) continue;
-            const owners = Object.entries(sections).filter(([, set]) => cls.every((c) => set.has(c)));
+            const nonGlobalCls = cls.filter((c) => !globalClasses.has(c));
+            if (!nonGlobalCls.length) continue;
+            const owners = Object.entries(sections).filter(([, set]) => nonGlobalCls.every((c) => set.has(c)));
             if (owners.length === 1) offenders.push(`${sel} (只属于 ${owners[0][0]})`);
         }
         expect(offenders).toEqual([]);

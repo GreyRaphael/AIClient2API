@@ -48,7 +48,8 @@ const SHARED_ATOMS = new Set([
 /** 权威定义收敛到 shared.css 的原子类（各 section 只允许写差异覆盖） */
 const SHARED_SOURCE_CLASSES = new Set([
     'form-group', 'form-row', 'form-actions',
-    'password-input-wrapper', 'input-with-toggle'
+    'password-input-wrapper', 'input-with-toggle', 'password-toggle',
+    'toggle-switch', 'toggle-slider'
 ]);
 
 /**

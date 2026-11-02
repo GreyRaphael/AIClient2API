@@ -482,10 +482,16 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 0.75rem;
     margin-bottom: 0.75rem;
     font-size: 0.875rem;
     color: var(--text-secondary);
     font-weight: 600;
+}
+
+.pg-workspace .slider-info > span:first-child {
+    flex: 1;
+    min-width: 0;
 }
 
 .pg-workspace .pg-select-inline {

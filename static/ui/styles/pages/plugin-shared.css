@@ -1,17 +1,10 @@
 /* ==========================================================================
-   大锅饭插件页共享样式（potluck.html / potluck-user.html）
+   独立插件页共享样式（potluck.html / potluck-user.html / model-usage-stats.html）
    ==========================================================================
 
-   两个页面原本各自内联了一份完全相同的样式（日历热力图、统计卡片、导航栏、
-   主题切换等）。内联 CSS 抽离到 pages/ 时这些重复也被原样带了过来，
-   于是同一个类在 potluck.css 和 potluck-user.css 里各写一遍 —— 改一处忘另一处
-   就会两边不一致。
-
-   这里收拢两个页面逐字节相同的 55 条规则（含 3 个响应式断点）。
-   两个页面独立加载本文件，因此不影响 index.html 的层叠。
-   页面各自的差异样式仍留在 potluck.css / potluck-user.css。
-
-   新增公共样式时改这里；只影响单个页面的样式留在各自文件。
+   三个独立插件页共享通用布局底座、顶栏（.navbar）、统计卡片（.stat-card）、
+   分布条（DistributionList: .distribution-*）与日历热力图（StatsCalendar: .calendar-*）。
+   页面各自的差异样式仍留在 potluck.css / potluck-user.css / model-usage-stats.css。
    ========================================================================== */
 
 body {
@@ -50,37 +43,6 @@ body {
     border-radius: var(--radius-full);
     font-weight: 600;
 }
-
-.theme-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    padding: 0;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 1.125rem;
-    transition: var(--transition);
-}
-
-.theme-toggle:hover {
-    background: var(--bg-secondary);
-    border-color: var(--primary-color);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-
-.theme-toggle .fa-sun { display: none; }
-
-.theme-toggle .fa-moon { display: inline-block; }
-
-[data-theme="dark"] .theme-toggle .fa-sun { display: inline-block; }
-
-[data-theme="dark"] .theme-toggle .fa-moon { display: none; }
 
 .section-title {
     font-size: 1.5rem;
@@ -153,6 +115,10 @@ body {
 .dist-name {
     color: var(--text-primary);
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 70%;
 }
 
 .dist-count {
@@ -230,19 +196,12 @@ body {
 .calendar-tooltip { position: fixed; padding: 0.375rem 0.625rem; background: rgba(0,0,0,0.9); color: var(--white); font-size: 0.6875rem; border-radius: 4px; pointer-events: none; z-index: 1000; display: none; box-shadow: 0 3px 10px rgba(0,0,0,0.3); white-space: pre-line; line-height: 1.4; }
 
 @media (max-width: 768px) {
-
-.navbar-inner { padding: 0 1rem; }
-
-.main-container { padding: 1.25rem 1rem; }
-
-.stats-grid { grid-template-columns: 1fr; }
-
+    .navbar-inner { padding: 0 1rem; }
+    .main-container { padding: 1.25rem 1rem; }
+    .stats-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {
-
-.stat-card .value { font-size: 1.5rem; }
-
-.navbar-brand .badge { display: none; }
-
+    .stat-card .value { font-size: 1.5rem; }
+    .navbar-brand .badge { display: none; }
 }

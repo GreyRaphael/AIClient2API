@@ -20,25 +20,13 @@
 /**
  * section -> 需要加载的样式文件（相对 static 根）。
  *
- * 多数 section 只有一份 section-<id>.css，但有两类例外必须显式列出：
- *  - dashboard 有一个内部子组件（赞助商区块）单独一份；
- *  - access / plugins / config 之间有共享的表单原子样式（.password-input-wrapper、
- *    .toggle-slider 等），这些类在多个组件的 CSS 里各写了一份。这是 P2-2
- *    作用域化之前的历史遗留：只要一个 section 用到了别的 section 定义的原子类，
- *    就必须把那份样式也一起加载，否则会出现"样式缺失"。
- *
- * 这几个额外依赖是从实际 DOM 反查出来的（不是猜测）：
- *   access 的密码框 .password-input-wrapper 样式定义在 section-config.css
- *   plugins / custom-models 的开关 .toggle-slider 样式定义在 section-config.css
+ * 多数 section 只有一份 section-<id>.css（由 stylesFor(sectionId) 按约定拼出）；
+ * 仅 dashboard 额外拥有一个内部子组件（赞助商区块 section-sponsors.css）。
+ * 跨 section 共享的表单原子（.form-group / .password-input-wrapper / .password-toggle /
+ * .toggle-switch / .toggle-slider 等）已全部上收到 shared.css，无需再跨 section 引用。
  */
 const SECTION_STYLES = {
-    dashboard: ['/ui/styles/components/section-dashboard.css', '/ui/styles/components/section-sponsors.css'],
-    access: ['/ui/styles/components/section-access.css', '/ui/styles/components/section-config.css'],
-    plugins: ['/ui/styles/components/section-plugins.css', '/ui/styles/components/section-config.css'],
-    config: ['/ui/styles/components/section-config.css'],
-    'custom-models': ['/ui/styles/components/section-custom-models.css', '/ui/styles/components/section-config.css'],
-    providers: ['/ui/styles/components/section-providers.css', '/ui/styles/components/section-config.css'],
-    'upload-config': ['/ui/styles/components/section-upload-config.css', '/ui/styles/components/section-config.css']
+    dashboard: ['/ui/styles/components/section-dashboard.css', '/ui/styles/components/section-sponsors.css']
 };
 
 /** @param {string} sectionId */
