@@ -22,6 +22,52 @@ import type {
 } from '../../../types/protocols/common.js';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
+/**
+ * 请求级工具名映射状态（`requestStates` 的条目形状）。
+ * 显式声明形状，避免 `_peekReqState` / `_getReqState` 用宽泛的
+ * `Record<string, any>` 掩盖字段名拼写错误。
+ */
+interface CodexRequestState {
+    toolNameMap: Map<string, string>;
+    reverseToolNameMap: Map<string, string>;
+}
+
+/** Codex output item 的 content 片段（响应侧只需区分 type 与 text）。 */
+interface CodexOutputContentPart {
+    type?: string;
+    text?: unknown;
+    [key: string]: unknown;
+}
+
+/** 流式工具调用跟踪项：增量参数协议下每个工具一条。 */
+interface CodexStreamToolCallState {
+    /** tool_calls[].index，跨 chunk 稳定 */
+    index: number;
+    /** tool_calls[].id，取 call_id 或 item.id */
+    id: string;
+    /** 上游返回的工具名（可能是缩短名，下发前要还原） */
+    name: string;
+    /** 是否已通过 function_call_arguments.delta 增量下发过参数 */
+    argumentsSent: boolean;
+}
+
+/** 流式事件中用于定位工具调用的字段（不同 Codex 版本给法不同）。 */
+interface CodexStreamEventRef {
+    output_index?: number | null;
+    item_id?: string;
+    item?: CodexStreamToolItem;
+    [key: string]: unknown;
+}
+
+/** 流式事件里的 output item（function_call / custom_tool_call 的最小公共形状）。 */
+interface CodexStreamToolItem {
+    id?: string;
+    call_id?: string;
+    name?: string;
+    type?: string;
+    [key: string]: unknown;
+}
+
 
 /**
  * 提取并规范化 reasoning effort：
@@ -79,12 +125,12 @@ export class CodexConverter extends BaseConverter {
      * 普通请求凭空创建状态项并驻留到 TTL 到期。
      * @param {string|null|undefined} requestId
      */
-    _peekReqState(requestId: string | null | undefined): DynamicPayload | undefined {
+    _peekReqState(requestId: string | null | undefined): CodexRequestState | undefined {
         const id = requestId || 'default';
         return this.requestStates.get(id);
     }
 
-    _getReqState(requestId: string | null | undefined): DynamicPayload {
+    _getReqState(requestId: string | null | undefined): CodexRequestState {
         const id = requestId || 'default';
         if (!this.requestStates.has(id)) {
             this.requestStates.set(id, {
@@ -921,9 +967,9 @@ export class CodexConverter extends BaseConverter {
                 case 'message':
                     if (Array.isArray(item.content)) {
                         // 同一 message 内的多个 output_text 片段要拼接，不能只取第一个。
-                        const textParts = item.content
-                            .filter((c: DynamicPayload) => c?.type === 'output_text')
-                            .map((c: DynamicPayload) => typeof c.text === 'string' ? c.text : '')
+                        const textParts = (item.content as CodexOutputContentPart[])
+                            .filter(c => c?.type === 'output_text')
+                            .map(c => typeof c.text === 'string' ? c.text : '')
                             .filter(Boolean);
                         if (textParts.length > 0) appendContent(textParts.join(''));
                     }
@@ -1026,9 +1072,9 @@ export class CodexConverter extends BaseConverter {
                     let contentText = '';
                     if (Array.isArray(item.content)) {
                         // 一个 message 内的多个 output_text 片段必须拼接；只取首个会截断多段输出。
-                        contentText = item.content
-                            .filter((c: DynamicPayload) => c?.type === 'output_text')
-                            .map((c: DynamicPayload) => typeof c.text === 'string' ? c.text : '')
+                        contentText = (item.content as CodexOutputContentPart[])
+                            .filter(c => c?.type === 'output_text')
+                            .map(c => typeof c.text === 'string' ? c.text : '')
                             .filter(Boolean)
                             .join('');
                     }
@@ -1160,9 +1206,9 @@ export class CodexConverter extends BaseConverter {
                     let contentText = '';
                     if (Array.isArray(item.content)) {
                         // 一个 message 内的多个 output_text 片段必须拼接；只取首个会截断多段输出。
-                        contentText = item.content
-                            .filter((c: DynamicPayload) => c?.type === 'output_text')
-                            .map((c: DynamicPayload) => typeof c.text === 'string' ? c.text : '')
+                        contentText = (item.content as CodexOutputContentPart[])
+                            .filter(c => c?.type === 'output_text')
+                            .map(c => typeof c.text === 'string' ? c.text : '')
                             .filter(Boolean)
                             .join('');
                     }
@@ -1268,16 +1314,17 @@ export class CodexConverter extends BaseConverter {
         });
 
         // 解析当前事件对应的工具跟踪 key（Codex 不同版本分别用 output_index / item_id / item.id）
-        const resolveToolKey = (payload: DynamicPayload): string => {
+        const resolveToolKey = (payload: CodexStreamEventRef): string => {
             const index = payload.output_index;
             if (index !== undefined && index !== null) return `idx:${index}`;
             const direct = payload.item_id || payload.item?.id || payload.item?.call_id;
             if (direct) return `id:${direct}`;
             return 'default';
         };
-        const trackToolCall = (payload: DynamicPayload, item: DynamicPayload): DynamicPayload => {
+        const trackToolCall = (payload: CodexStreamEventRef, item: CodexStreamToolItem): CodexStreamToolCallState => {
+            const streamToolCalls: Map<string, CodexStreamToolCallState> = state.streamToolCalls;
             const key = resolveToolKey(payload);
-            let tracked = state.streamToolCalls.get(key);
+            let tracked = streamToolCalls.get(key);
             if (!tracked) {
                 tracked = {
                     index: state.functionCallIndex++,
@@ -1285,7 +1332,7 @@ export class CodexConverter extends BaseConverter {
                     name: item?.name || '',
                     argumentsSent: false
                 };
-                state.streamToolCalls.set(key, tracked);
+                streamToolCalls.set(key, tracked);
             }
             // 记录 id/call_id 反查，便于 function_call_arguments.delta 只有 item_id 时命中
             if (tracked.id) state.streamToolKeys.set(`id:${tracked.id}`, key);
@@ -1293,7 +1340,7 @@ export class CodexConverter extends BaseConverter {
             if (item?.call_id) state.streamToolKeys.set(`id:${item.call_id}`, key);
             return tracked;
         };
-        const buildToolDeltaChunk = (tracked: DynamicPayload, argumentsValue: string): DynamicPayload => {
+        const buildToolDeltaChunk = (tracked: CodexStreamToolCallState, argumentsValue: string): DynamicPayload => {
             const template = buildTemplate();
             template.choices[0].delta = {
                 role: 'assistant',

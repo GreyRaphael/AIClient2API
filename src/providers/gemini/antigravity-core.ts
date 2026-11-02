@@ -24,9 +24,74 @@ import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
+import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import { stripRequestedReasoningEffort } from '../reasoning-effort.ts';
 import { getErrorMessage } from '../../utils/error.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
+
+/**
+ * Antigravity SSE 帧的具名形状。
+ *
+ * 之前这些位置一律用 `DynamicPayload`（= `Record<string, any>`），把 SSE 帧、
+ * usageMetadata、content part 的真实结构完全擦除。这里给出可校验的最小形状，
+ * 并保留 `[key: string]: unknown` 索引签名，既能容纳上游未来新增字段，
+ * 又不至于让任何字段访问都退化为 `any`。
+ */
+export interface AntigravityUsageMetadata {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+    cachedContentTokenCount?: number;
+    thoughtsTokenCount?: number;
+    [key: string]: unknown;
+}
+
+/** content.parts 里的单个 part（text / thought / functionCall / inlineData）。 */
+export interface AntigravityContentPart {
+    text?: string;
+    thought?: boolean;
+    thoughtSignature?: string;
+    thought_signature?: string;
+    functionCall?: { id?: string; name?: string; args?: unknown; [key: string]: unknown };
+    functionResponse?: { id?: string; name?: string; response?: unknown; [key: string]: unknown };
+    inlineData?: { mimeType?: string; data?: string; [key: string]: unknown };
+    inline_data?: { mime_type?: string; data?: string; [key: string]: unknown };
+    [key: string]: unknown;
+}
+
+/** candidates 里的单个候选。 */
+export interface AntigravityCandidate {
+    content?: { role?: string; parts?: AntigravityContentPart[]; [key: string]: unknown };
+    finishReason?: string;
+    finishMessage?: string;
+    index?: number;
+    [key: string]: unknown;
+}
+
+/** `streamGenerateContent`（SSE）产出的单帧，或非流式合并用的中间帧。 */
+export interface AntigravityStreamFrame {
+    candidates?: AntigravityCandidate[];
+    usageMetadata?: AntigravityUsageMetadata;
+    responseId?: string;
+    modelVersion?: string;
+    traceId?: string;
+    /** 部分帧把真正的 Gemini 响应包在 `response` 里 */
+    response?: AntigravityStreamFrame;
+    [key: string]: unknown;
+}
+
+/** `convertStreamToNonStream` 的合并结果。 */
+export interface AntigravityNonStreamResult {
+    response: AntigravityStreamFrame;
+    traceId: string;
+}
+
+/** 模型路由解析结果（模型校验 + 上游模型名 + 能力声明），不产生任何拷贝。 */
+interface AntigravityRoute {
+    selectedModel: string;
+    actualModelName: string;
+    capabilities: ProviderCapabilities;
+}
 
 
 interface AntigravityServiceConfig extends Record<string, any> {
@@ -723,7 +788,7 @@ function geminiToAntigravityInPlace(modelName: string, template: DynamicPayload,
  * @param {Object} data - 已解析的 SSE 帧
  * @returns {Object} 同一个对象（原地清洗）
  */
-function stripIntermediateUsageMetadata(data: DynamicPayload): DynamicPayload {
+function stripIntermediateUsageMetadata(data: AntigravityStreamFrame): AntigravityStreamFrame {
     if (!data || typeof data !== 'object') return data;
 
     const hasFinishReason = data?.response?.candidates?.[0]?.finishReason ||
@@ -753,17 +818,17 @@ function stripIntermediateUsageMetadata(data: DynamicPayload): DynamicPayload {
  * @param {Buffer|string|Array<Object>} stream - 流式响应数据或已解析帧数组
  * @returns {Object} 合并后的非流式响应
  */
-export function convertStreamToNonStream(stream: Buffer | string | DynamicPayload[]): DynamicPayload {
+export function convertStreamToNonStream(stream: Buffer | string | AntigravityStreamFrame[]): AntigravityNonStreamResult {
     // 帧来源统一成「已解析对象」的迭代器：字符串走逐行 parse，数组直接迭代。
     // 这样合并逻辑只写一份，且每帧只被解析一次。
-    let frameIterator: Iterator<DynamicPayload>;
+    let frameIterator: Iterator<AntigravityStreamFrame>;
     if (Array.isArray(stream)) {
         frameIterator = stream[Symbol.iterator]();
     } else {
         const lines = stream.toString().split('\n');
         let lineIndex = 0;
         frameIterator = {
-            next(): IteratorResult<DynamicPayload> {
+            next(): IteratorResult<AntigravityStreamFrame> {
                 while (lineIndex < lines.length) {
                     const trimmed = lines[lineIndex++].trim();
                     if (!trimmed) continue;
@@ -774,20 +839,20 @@ export function convertStreamToNonStream(stream: Buffer | string | DynamicPayloa
                         continue;
                     }
                 }
-                return { value: undefined as unknown as DynamicPayload, done: true };
+                return { value: undefined as unknown as AntigravityStreamFrame, done: true };
             }
         };
     }
 
     // 只保留最后一个 daemon 响应节点对象引用，避免每帧 JSON.stringify 重建整棵模板。
-    let lastResponseNode: DynamicPayload | null = null;
+    let lastResponseNode: AntigravityStreamFrame | null = null;
     let traceId = '';
     let finishReason = '';
     let modelVersion = '';
     let responseId = '';
     let role = '';
-    let usageRaw: DynamicPayload | null = null;
-    const parts: DynamicPayload[] = [];
+    let usageRaw: AntigravityUsageMetadata | null = null;
+    const parts: AntigravityContentPart[] = [];
 
     // 用于合并连续的 text 和 thought 部分
     let pendingKind = '';
@@ -804,7 +869,7 @@ export function convertStreamToNonStream(stream: Buffer | string | DynamicPayloa
             }
         } else if (pendingKind === 'thought') {
             if (text.trim() || pendingThoughtSig) {
-                const part: DynamicPayload = { thought: true, text: text };
+                const part: AntigravityContentPart = { thought: true, text: text };
                 if (pendingThoughtSig) {
                     part.thoughtSignature = pendingThoughtSig;
                 }
@@ -817,7 +882,7 @@ export function convertStreamToNonStream(stream: Buffer | string | DynamicPayloa
         pendingThoughtSig = '';
     };
 
-    const normalizePart = (part: DynamicPayload) => {
+    const normalizePart = (part: AntigravityContentPart): AntigravityContentPart => {
         const m = { ...part };
         // 处理 thoughtSignature / thought_signature
         const sig = part.thoughtSignature || part.thought_signature;
@@ -914,11 +979,11 @@ export function convertStreamToNonStream(stream: Buffer | string | DynamicPayloa
     // -> [0] -> content 各复制一层），再逐个覆盖 parts/role/finishReason/usage 等字段。
     // 语义与旧实现（每帧 JSON 序列化整棵模板，末尾再 parse 回来）完全等价，
     // 但不再每帧做一次全量 JSON 往返，也不会把调用方传入的帧对象改脏。
-    const result: DynamicPayload = lastResponseNode
+    const result: AntigravityStreamFrame = lastResponseNode
         ? {
             ...lastResponseNode,
             candidates: Array.isArray(lastResponseNode.candidates)
-                ? lastResponseNode.candidates.map((candidate: DynamicPayload) => (
+                ? lastResponseNode.candidates.map(candidate => (
                     candidate && typeof candidate === 'object' ? { ...candidate } : candidate
                 ))
                 : lastResponseNode.candidates
@@ -975,7 +1040,7 @@ export function convertStreamToNonStream(stream: Buffer | string | DynamicPayloa
  * @param {Object} antigravityResponse - Antigravity 响应
  * @returns {Object|null} Gemini 格式响应
  */
-function toGeminiApiResponse(antigravityResponse: DynamicPayload): DynamicPayload | null {
+function toGeminiApiResponse(antigravityResponse: AntigravityStreamFrame | null | undefined): DynamicPayload | null {
     if (!antigravityResponse) return null;
 
     const compliantResponse: DynamicPayload = {
@@ -1958,7 +2023,7 @@ export class AntigravityApiService {
         // 唯一一次 JSON.parse：解析后立即对象级清洗 usageMetadata。
         // 旧实现先按行 filterSSEUsageMetadata（parse -> stringify 拼回字符串），
         // 再在 yield 前二次 parse，每帧两次 JSON 往返。
-        const parseStreamFrame = (text: string, label: string): DynamicPayload | null => {
+        const parseStreamFrame = (text: string, label: string): AntigravityStreamFrame | null => {
             try {
                 return stripIntermediateUsageMetadata(JSON.parse(text));
             } catch (e) {
@@ -2091,7 +2156,7 @@ export class AntigravityApiService {
      *   传入可避免重复解析与重复日志——`generateContentStream` 必须先解析路由
      *   才能在建包前判定是否回退，随后复用同一份路由建包。
      */
-    buildAntigravityPayload(model: string, requestBody: DynamicPayload, route: DynamicPayload | null = null): DynamicPayload {
+    buildAntigravityPayload(model: string, requestBody: DynamicPayload, route: AntigravityRoute | null = null): DynamicPayload {
         const { selectedModel, actualModelName, capabilities } = route || this._resolveAntigravityRoute(model);
 
         if (stripAntigravityReasoningEffort(requestBody)) {
@@ -2128,7 +2193,7 @@ export class AntigravityApiService {
      * 这一步不产生任何深拷贝，因此可以在构建 payload **之前**调用，
      * 让「是否需要非流式回退」这类只依赖能力/模型名的判定尽早完成。
      */
-    _resolveAntigravityRoute(model: string): DynamicPayload {
+    _resolveAntigravityRoute(model: string): AntigravityRoute {
         const selectedModel = normalizeAntigravityModelId(model);
         if (!this.availableModels.includes(selectedModel) && !isKnownAntigravityModel(selectedModel)) {
             // 未知名模型不再静默回退，直接报错
@@ -2175,7 +2240,7 @@ export class AntigravityApiService {
             return await this.executeClaudeNonStream(payload);
         }
 
-        const response = await this.callApi<DynamicPayload>('generateContent', payload);
+        const response = await this.callApi<{ response?: AntigravityStreamFrame }>('generateContent', payload);
         return toGeminiApiResponse(response.response) || {};
     }
 
@@ -2198,7 +2263,7 @@ export class AntigravityApiService {
     async executeClaudeNonStream(payload: DynamicPayload): Promise<DynamicPayload> {
         // 直接收集已解析的帧对象：旧实现把每帧 JSON.stringify 后 join 成字符串，
         // convertStreamToNonStream 再 split + 逐行 JSON.parse，白白多一轮全量往返。
-        const frames: DynamicPayload[] = [];
+        const frames: AntigravityStreamFrame[] = [];
 
         try {
             const stream = this.streamApi('streamGenerateContent', payload);
@@ -2275,7 +2340,7 @@ export class AntigravityApiService {
     _shouldFallbackToNonStream(
         selectedModel: string,
         actualModelName: string,
-        capabilities: DynamicPayload | null
+        capabilities: ProviderCapabilities | null
     ): boolean {
         if (capabilities?.supportsStreamingThoughts !== false) return false;
         if (!getConfigToggle('GEMINI_STREAM_THOUGHTS_FALLBACK', true)) return false;
