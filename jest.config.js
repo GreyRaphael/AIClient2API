@@ -18,7 +18,6 @@ export default {
   },
   testPathIgnorePatterns: [
     '/node_modules/',
-    'api-integration\\.test\\.js',
     '/tests/e2e/'
   ],
   testMatch: [

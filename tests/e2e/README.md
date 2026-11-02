@@ -21,7 +21,8 @@ npm run test:e2e
 | `AICLIENT_E2E_BASE` | `http://127.0.0.1:3000/auto` | 网关 base URL，需包含 `/auto` 前缀 |
 | `AICLIENT_API_KEY` | 读取 `configs/config.json` | 覆盖 API key |
 | `AICLIENT_CONFIG_PATH` | `configs/config.json` | 指定配置文件路径 |
-| `AICLIENT_E2E_MODELS` | 从 `/auto/v1/models` 动态获取全部模型 | `all`/`*` 等同于默认；也可传逗号分隔的模型列表，只跑指定模型 |
+| `AICLIENT_E2E_MODELS` | 7 Provider × 10 代表性模型（见下节） | 传逗号分隔的模型列表可精确覆盖默认收敛集；`all`/`*` 等同于全量（兼容旧用法） |
+| `AICLIENT_E2E_ALL_MODELS` | 未设置（默认收敛） | 设为 `1`/`true` 恢复收敛前的全量模型扫描（当前 46 个模型，请求量会显著上升） |
 | `AICLIENT_E2E_MODELS_FILE` | 系统临时目录 `aiclient-e2e-models.json` | 模型列表缓存文件路径；一般无需设置 |
 | `AICLIENT_E2E_IMAGE_NEGATIVE_TIMEOUT_MS` | `30000` | `support_images=false` 模型的图片请求超时；超时按“未识图”计为通过 |
 | `AICLIENT_E2E_IMAGE_GAP_MS` | `1500` | 图片矩阵请求间隔，降低上游限流概率 |
@@ -29,16 +30,40 @@ npm run test:e2e
 示例：
 
 ```bash
-# 默认：启动 globalSetup，从 /auto/v1/models 拉取当前全部模型
+# 默认：启动 globalSetup，从 /auto/v1/models 拉取并筛选 10 个代表性模型
 AICLIENT_E2E_BASE=http://127.0.0.1:3200/auto npm run test:e2e
 
-# 指定单个/少量模型（不访问 /auto/v1/models 的模型列表）
+# 恢复收敛前的全量模型扫描（请求量显著上升，发布前全量回归用）
+AICLIENT_E2E_BASE=http://127.0.0.1:3200/auto AICLIENT_E2E_ALL_MODELS=1 npm run test:e2e
+
+# 指定单个/少量模型（不访问 /auto/v1/models 的模型列表，优先级最高）
 AICLIENT_E2E_BASE=http://127.0.0.1:3200/auto \
 AICLIENT_E2E_MODELS=openai-custom:glm-5.3,gemini-antigravity:gemini-3.8-flash-high \
 npm run test:e2e
 ```
 
 > `npm run test:e2e` 通过 Jest `globalSetup` 抓取模型列表。若直接运行 `jest tests/e2e`，请带上 `--globalSetup=./tests/e2e/global-setup.js`，否则会提示模型列表不存在。
+
+## 默认的代表性模型集（7 Provider × 10 模型）
+
+默认不再跑 `/auto/v1/models` 返回的全部模型，而是收敛到下列代表性模型（定义在 `tests/e2e/representative-models.js`，由 `model-selection.js` 再导出）：
+
+| Provider | 代表模型 | 覆盖的协议/方言 |
+|---|---|---|
+| `gemini-antigravity` | `gemini-antigravity:claude-sonnet-5-5-medium` | Gemini 上游 → Claude 协议 |
+| `gemini-antigravity` | `gemini-antigravity:gemini-3.8-flash-medium` | Gemini 原生 + thinking 回退 |
+| `openai-codex-oauth` | `openai-codex-oauth:gpt-6-luna` | Codex OAuth 0-Hop / Responses 原生 |
+| `openai-custom` | `openai-custom:deepseek-v4.1-flash` | OpenAI Chat 原生 |
+| `openaiResponses-custom` | `openaiResponses-custom:deepseek-v4-flash` | Responses 原生上游 |
+| `trae-chat_v3` | `trae-chat_v3:deepseek-v4.1-flash` | Trae chat_v3 方言 |
+| `trae` | `trae:DeepSeek-V4.1-Flash-1017` | Trae 原方言（模型名大小写混合） |
+| `zed` | `zed:claude-haiku-5-5` | Zed Claude 通道 |
+| `zed` | `zed:gemini-3.8-flash` | Zed Gemini 通道（120s 级长尾） |
+| `zed` | `zed:gpt-6-luna` | Zed GPT 通道 |
+
+- 匹配逻辑同时兼容 `/auto/v1/models` 返回 `provider:model` 与纯 `model` id（纯 id 时 provider 取 `owned_by`），并容忍模型名大小写差异；匹配不到的单个模型会以 `[E2E] ... will be skipped` warning 跳过。
+- **若 10 个代表模型一个都匹配不到，globalSetup 直接报错**，不会静默跑 0 个用例。
+- opt-in 用例（生图）额外依赖 `gemini-antigravity:gemini-3.1-flash-image`，同样由 globalSetup 带入。
 
 ## 覆盖范围
 
@@ -67,7 +92,7 @@ npm run test:e2e
 
 用例文件：`tests/e2e/image-input.e2e.test.js`
 
-- 取样：`/auto/v1/models` 中 5 个核心 Provider（`gemini-antigravity` / `openai-codex-oauth` / `zed` / `trae` / `trae-chat_v3`）的模型，按 provider 前缀动态选择，不硬编码数量。
+- 取样：本次模型集（默认即上文 10 个代表性模型）中 5 个核心 Provider（`gemini-antigravity` / `openai-codex-oauth` / `zed` / `trae` / `trae-chat_v3`）的模型，按 provider 前缀动态选择，不硬编码数量。
 - 排除生图模型：`gemini-3.1-flash-image` 的 text-to-image / image-to-image 能力需要独立的图片生成测试，不进入本输入矩阵。
 - 覆盖：每个模型分别请求 Chat / Responses / Messages 三种非流式图片输入。
 - 测试图：320×160，左红/右蓝、中央数字 `42`、左下绿圆；通过 `support_images` 作为预期判据。
@@ -141,7 +166,8 @@ npm run test:e2e:providers
 
 ## 注意
 
-- 模型数量以 `/auto/v1/models` 为准，不在测试代码中硬编码。每个模型执行 11 次核心请求；当前配置为 20 个模型时约 220 次核心请求，另有 6 项通用定向契约。图片输入矩阵再对 5 个核心 Provider 的非生图模型各执行 3 次请求（当前 13 个模型 → 39 次，`gemini-3.1-flash-image` 单独测试）。4 项 provider 方言 canary 仅在 `test:e2e:providers` 中运行。
+- 模型列表以 `/auto/v1/models` 为准，不在测试代码中硬编码。默认收敛到 7 Provider × 10 代表性模型：每个模型执行 11 次核心请求（约 110 次），另有 6 项通用定向契约。
+- 图片输入矩阵在代表性模型中再对 `gemini-antigravity` / `openai-codex-oauth` / `zed` / `trae` / `trae-chat_v3` 的非生图模型各执行 3 次请求（默认 9 个模型 → 27 次，`gemini-3.1-flash-image` 单独测试）。4 项 provider 方言 canary 仅在 `test:e2e:providers` 中运行。
 - 建议使用独立实例端口，避免影响主实例。
 - 默认串行执行（`--runInBand`），避免并发触发上游限流。
-- 发布前建议至少跑一次默认全量矩阵；仅本地快速回归时可传 `AICLIENT_E2E_MODELS=...` 子集。
+- 发布前建议用 `AICLIENT_E2E_ALL_MODELS=1` 至少跑一次全量矩阵；日常回归用默认收敛集，或用 `AICLIENT_E2E_MODELS=...` 指定子集。

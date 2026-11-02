@@ -1,4 +1,23 @@
 import { test } from '@jest/globals';
+import {
+    DEFAULT_REPRESENTATIVE_E2E_MODELS,
+    REPRESENTATIVE_E2E_PROVIDERS,
+    AUXILIARY_E2E_MODELS,
+    normalizeModelEntry,
+    selectRepresentativeModels,
+    groupRepresentativeModelsByProvider
+} from './representative-models.js';
+
+// 代表性模型集由 representative-models.js 定义（该模块无 @jest/globals 依赖，
+// 可被 Jest globalSetup 直接 import）。这里统一再导出，测试文件只依赖本模块。
+export {
+    DEFAULT_REPRESENTATIVE_E2E_MODELS,
+    REPRESENTATIVE_E2E_PROVIDERS,
+    AUXILIARY_E2E_MODELS,
+    normalizeModelEntry,
+    selectRepresentativeModels,
+    groupRepresentativeModelsByProvider
+};
 
 export const MODEL_TIMEOUT_MS = Number(process.env.AICLIENT_E2E_MODEL_TIMEOUT_MS) || 300000;
 export const LONG_TAIL_MODEL_TIMEOUT_MS = Math.max(MODEL_TIMEOUT_MS, 600000);

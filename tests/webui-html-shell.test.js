@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect } from '@jest/globals';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { HTML_PAGES, STATIC_ROOT as SHELL_STATIC_ROOT, importMapImports } from '../scripts/webui-html-shell.mjs';
 
@@ -85,5 +85,39 @@ describe('WebUI HTML 外壳', () => {
             // 再跑一次必须还是同样的结果（防缩进叠加这类 bug）
             expect(patchHtml(once)).toBe(once);
         }
+    });
+
+    /**
+     * 以下两条从 tests/webui-ui-importmap.test.js 收编。
+     *
+     * 那份测试的 importmap / vendor 同步 / login.html 复用等断言已被
+     * `gen:webui-html:check`、`vendor:webui:check` 与本文件的 import map 用例覆盖，
+     * 但「modulepreload 目标存在」与「vendor 不含 sourcemap」没有替代守护，
+     * 因此删除那份测试前把这两条单独补在这里，避免构建产物卫生回退。
+     */
+    test('modulepreload 目标真实存在', () => {
+        for (const page of HTML_PAGES) {
+            const html = readFileSync(path.join(STATIC_ROOT, page), 'utf8');
+            const targets = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map((m) => m[1]);
+            for (const target of targets) {
+                expect(existsSync(path.join(STATIC_ROOT, target.replace(/^\//, '')))).toBe(true);
+            }
+        }
+    });
+
+    test('vendor 目录不含 sourcemap 文件', () => {
+        const vendorRoot = path.join(STATIC_ROOT, 'vendor');
+        if (!existsSync(vendorRoot)) return;
+        const stack = [vendorRoot];
+        const maps = [];
+        while (stack.length > 0) {
+            const dir = stack.pop();
+            for (const entry of readdirSync(dir, { withFileTypes: true })) {
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) stack.push(full);
+                else if (entry.name.endsWith('.map')) maps.push(path.relative(STATIC_ROOT, full));
+            }
+        }
+        expect(maps).toEqual([]);
     });
 });

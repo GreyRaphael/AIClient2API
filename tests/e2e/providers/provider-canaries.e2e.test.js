@@ -23,9 +23,45 @@ import {
 const BASE_URL = resolveBaseUrl();
 const MODELS = resolveModels();
 const { pickModel } = createModelSelection(MODELS);
-const ZED_GEMINI_MODEL = pickModel('zed', model => model.includes(':gemini-'));
-const ZED_CLAUDE_MODEL = pickModel('zed', model => model.includes(':claude-'));
-const GEMINI_MODEL = pickModel('gemini-antigravity', model => model.includes(':gemini-'));
+
+/**
+ * 每个 Provider 的方言 canary 期望（与 `DEFAULT_REPRESENTATIVE_E2E_MODELS` 的 7 个
+ * 代表性 Provider 对齐）。`preferred` 是该 Provider 的代表模型——当其出现在本次
+ * 模型集里时优先精确使用；否则回退到按特征动态挑选，保证
+ * `AICLIENT_E2E_ALL_MODELS=1` / 显式 `AICLIENT_E2E_MODELS` 时仍能跑。
+ */
+export const PROVIDER_CANARIES = {
+    'zed': {
+        dialect: 'zed-gemini-tool-history',
+        preferred: 'zed:gemini-3.8-flash',
+        pick: () => pickModel('zed', model => model.includes(':gemini-'))
+    },
+    'zed-claude': {
+        dialect: 'zed-claude-tool-id-sanitize',
+        preferred: 'zed:claude-haiku-5-5',
+        pick: () => pickModel('zed', model => model.includes(':claude-'))
+    },
+    'gemini-antigravity': {
+        dialect: 'gemini-thinking-fallback',
+        preferred: 'gemini-antigravity:gemini-3.8-flash-medium',
+        pick: () => pickModel('gemini-antigravity', model => model.includes(':gemini-'))
+    }
+};
+
+/**
+ * 解析 canary 目标模型：优先用代表性模型，其次动态挑选。
+ * @param {keyof typeof PROVIDER_CANARIES} key
+ * @returns {string|null}
+ */
+function resolveCanaryModel(key) {
+    const canary = PROVIDER_CANARIES[key];
+    if (canary.preferred && MODELS.includes(canary.preferred)) return canary.preferred;
+    return canary.pick();
+}
+
+const ZED_GEMINI_MODEL = resolveCanaryModel('zed');
+const ZED_CLAUDE_MODEL = resolveCanaryModel('zed-claude');
+const GEMINI_MODEL = resolveCanaryModel('gemini-antigravity');
 
 let apiKey;
 
