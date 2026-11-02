@@ -1,7 +1,7 @@
 /* 用量查询页面样式 */
 .usage-panel {
     background: var(--bg-primary);
-    border-radius: 0.5rem;
+    border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
     padding: 1.5rem;
 }
@@ -28,7 +28,7 @@
     padding: 0.75rem 1rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
+    border-radius: var(--radius-md);
     margin-bottom: 1.5rem;
     font-size: 0.875rem;
     color: var(--text-secondary);
@@ -60,7 +60,7 @@
 .usage-error {
     color: var(--danger-color);
     background: var(--danger-bg-light);
-    border-radius: 0.5rem;
+    border-radius: var(--radius-md);
     border: 1px solid var(--danger-bg);
 }
 
@@ -68,7 +68,7 @@
 .usage-provider-group {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
+    border-radius: var(--radius-md);
     margin-bottom: 1rem;
     overflow: hidden;
 }
@@ -110,7 +110,7 @@
     background: var(--bg-primary);
     color: var(--text-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 0.375rem;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     font-size: 0.875rem;
     transition: var(--transition);
@@ -184,7 +184,7 @@
 .usage-instance-card {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
+    border-radius: var(--radius-md);
     overflow: hidden;
     transition: var(--transition);
     display: flex;
@@ -216,7 +216,7 @@
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    font-size: 0.7rem;
+    font-size: 0.6875rem;
     color: var(--primary-color);
     font-weight: 600;
     text-transform: uppercase;
@@ -254,7 +254,7 @@
 }
 
 .user-email {
-    font-size: 0.7rem; color: var(--text-secondary);
+    font-size: 0.6875rem; color: var(--text-secondary);
     display: flex; align-items: center; gap: 0.25rem;
     max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -310,7 +310,7 @@
     width: 24px;
     min-width: 24px;
     padding: 0;
-    font-size: 0.7rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     position: relative;
     overflow: visible;
@@ -324,10 +324,10 @@
     top: 50%;
     transform: translateY(-50%) translateX(4px);
     padding: 0.35rem 0.5rem;
-    border-radius: 0.375rem;
+    border-radius: var(--radius-sm);
     background: rgba(15, 23, 42, 0.96);
     color: var(--white);
-    font-size: 0.7rem;
+    font-size: 0.6875rem;
     font-weight: 500;
     line-height: 1;
     white-space: nowrap;
@@ -402,7 +402,7 @@
 
 .usage-error-message {
     display: flex; align-items: center; gap: 0.5rem; color: var(--danger-color);
-    padding: 0.75rem; background: var(--danger-bg-light); border-radius: 0.375rem; font-size: 0.75rem;
+    padding: 0.75rem; background: var(--danger-bg-light); border-radius: var(--radius-sm); font-size: 0.75rem;
 }
 
 .usage-details {
@@ -410,7 +410,7 @@
 }
 
 .usage-section {
-    background: var(--bg-secondary); padding: 0.75rem; border-radius: 0.375rem; border: 1px solid var(--border-color);
+    background: var(--bg-secondary); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);
 }
 
 .usage-section h4 {
@@ -433,7 +433,7 @@
 
 .total-usage { background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%); border: 1px solid var(--border-color); }
 .total-usage-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
-.total-label { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.375rem; }
+.total-label { font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.375rem; }
 .total-value { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); font-family: monospace; }
 
 .total-footer {
@@ -444,7 +444,7 @@
 }
 
 .total-reset-info {
-    font-size: 0.65rem;
+    font-size: 0.625rem;
     color: var(--text-tertiary);
     font-style: italic;
     display: flex;
@@ -452,10 +452,10 @@
     gap: 0.25rem;
 }
 
-.usage-breakdown-compact { background: var(--bg-secondary); padding: 0.5rem; border-radius: 0.375rem; border: 1px solid var(--border-color); }
+.usage-breakdown-compact { background: var(--bg-secondary); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); }
 .breakdown-item-compact { padding: 0.5rem; background: var(--bg-primary); border-radius: 0.25rem; margin-bottom: 0.5rem; border: 1px solid var(--border-color); }
 
-.breakdown-header-compact { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.375rem; font-size: 0.7rem; }
+.breakdown-header-compact { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.375rem; font-size: 0.6875rem; }
 .breakdown-header-compact .breakdown-usage { color: var(--text-secondary); font-family: monospace; }
 
 .progress-bar-small { height: 0.25rem; background: var(--bg-tertiary); border-radius: 9999px; overflow: hidden; margin-bottom: 0.375rem; }
@@ -466,7 +466,7 @@
 .progress-bar.warning .progress-fill, .progress-bar-small.warning .progress-fill { background: var(--warning-color); }
 .progress-bar.danger .progress-fill, .progress-bar-small.danger .progress-fill { background: var(--danger-color); }
 
-.extra-usage-info { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; font-size: 0.6rem; padding: 0.375rem; border-radius: 0.25rem; margin-top: 0.375rem; }
+.extra-usage-info { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; font-size: 0.625rem; padding: 0.375rem; border-radius: 0.25rem; margin-top: 0.375rem; }
 
 .usage-card-collapsed-summary {
     display: flex; flex-direction: column; padding: 0.5rem 0.75rem; cursor: pointer; user-select: none;
@@ -475,9 +475,9 @@
 }
 
 .collapsed-summary-row { display: flex; align-items: center; gap: 0.5rem; }
-.collapsed-name { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.collapsed-name { font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .collapsed-plan-badge {
-    font-size: 0.65rem;
+    font-size: 0.625rem;
     padding: 0.125rem 0.375rem;
     border-radius: 4px;
     white-space: nowrap;
@@ -518,9 +518,9 @@
 .collapsed-progress-bar.normal .progress-fill, .collapsed-progress-bar.healthy .progress-fill { background: var(--success-color); }
 .collapsed-progress-bar.warning .progress-fill { background: var(--warning-color); }
 .collapsed-progress-bar.danger .progress-fill { background: var(--danger-color); }
-.collapsed-percent { font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); min-width: 36px; }
+.collapsed-percent { font-size: 0.6875rem; font-weight: 600; color: var(--text-secondary); min-width: 36px; }
 
-.usage-toggle-icon { font-size: 0.6rem; color: var(--text-secondary); transition: transform 0.3s ease; flex-shrink: 0; }
+.usage-toggle-icon { font-size: 0.625rem; color: var(--text-secondary); transition: transform 0.3s ease; flex-shrink: 0; }
 .usage-instance-card:not(.collapsed) .usage-toggle-icon { transform: rotate(90deg); }
 
 .usage-instance-card.collapsed .usage-card-expanded-content { display: none; }
@@ -529,8 +529,8 @@
 /* 分页控件样式 */
 .pagination-container {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px; background: var(--bg-tertiary); border-radius: 8px;
-    margin: 12px 0; flex-wrap: wrap; gap: 12px;
+    padding: 0.75rem 1rem; background: var(--bg-tertiary); border-radius: var(--radius-md);
+    margin: 0.75rem 0; flex-wrap: wrap; gap: 0.75rem;
 }
 
 /* 响应式调整 */
@@ -538,7 +538,7 @@
 @media (max-width: 1024px) { .usage-cards-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 768px) {
     .usage-cards-grid { grid-template-columns: 1fr; }
-    .pagination-container { flex-direction: column; align-items: stretch; gap: 10px; }
+    .pagination-container { flex-direction: column; align-items: stretch; gap: 0.625rem; }
     .usage-instance-header { padding: 0.5rem 0.75rem; }
     .usage-instance-content { padding: 0.5rem; }
 }

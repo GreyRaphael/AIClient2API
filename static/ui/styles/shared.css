@@ -183,7 +183,7 @@
     margin-bottom: 0.5rem;
     font-weight: 600;
     color: var(--text-primary);
-    font-size: 0.9rem;
+    font-size: 0.875rem;
 }
 
 .form-control::placeholder {

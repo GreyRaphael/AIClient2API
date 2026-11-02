@@ -70,7 +70,7 @@
 .status-badge i {
     color: var(--success-color);
     animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-    font-size: 0.6rem;
+    font-size: 0.625rem;
 }
 
 .status-badge.error i {
@@ -103,14 +103,14 @@
 }
 
 .logout-btn i {
-    font-size: 14px;
+    font-size: 0.875rem;
 }
 
 .github-link {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
+    gap: 0.5rem;
     min-height: 40px;
     padding: 0.5rem 0.8rem;
     background: #24292f;

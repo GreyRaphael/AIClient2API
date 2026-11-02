@@ -16,7 +16,7 @@
 .sponsors-subtitle {
     margin: 0 0 1rem;
     color: var(--text-secondary);
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
 .sponsors-container {
@@ -76,7 +76,7 @@
 .sponsor-content p {
     margin: 0;
     color: var(--text-secondary);
-    font-size: 0.825rem;
+    font-size: 0.8125rem;
     line-height: 1.55;
 }
 

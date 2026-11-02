@@ -5,7 +5,7 @@
         .navbar-inner {
             max-width: 1000px;
             margin: 0 auto;
-            padding: 0 24px;
+            padding: 0 1.5rem;
             height: 64px;
             display: flex;
             align-items: center;
@@ -17,11 +17,11 @@
         .navbar-user {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 0.75rem;
         }
         .navbar-user .welcome {
             color: var(--text-secondary);
-            font-size: 14px;
+            font-size: 0.875rem;
         }
         .navbar-user .welcome strong { color: var(--text-primary); }
         
@@ -37,7 +37,7 @@
         .main-container {
             max-width: 1000px;
             margin: 0 auto;
-            padding: 30px 24px;
+            padding: 1.875rem 1.5rem;
         }
 
         /* 区块标题 */
@@ -59,9 +59,9 @@
         
         .stat-card.orange::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
         .stat-card .label {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--text-secondary);
-            margin-bottom: 10px;
+            margin-bottom: 0.625rem;
         }
         
         .stat-card .value .dim {
@@ -90,29 +90,29 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 24px;
+            padding: 1.5rem;
         }
         .login-box {
             background: var(--bg-primary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-xl);
-            padding: 40px;
+            padding: 2.5rem;
             width: 100%;
             max-width: 400px;
             box-shadow: var(--shadow-lg);
         }
         .login-box h2 {
-            font-size: 24px;
+            font-size: 1.5rem;
             font-weight: 700;
             color: var(--text-primary);
             text-align: center;
-            margin-bottom: 8px;
+            margin-bottom: 0.5rem;
         }
         .login-box .subtitle {
             text-align: center;
             color: var(--text-secondary);
-            font-size: 14px;
-            margin-bottom: 30px;
+            font-size: 0.875rem;
+            margin-bottom: 1.875rem;
         }
         
         
@@ -121,9 +121,9 @@
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-lg);
-            padding: 12px 16px;
+            padding: 0.75rem 1rem;
             color: var(--text-primary);
-            font-size: 14px;
+            font-size: 0.875rem;
             font-family: 'JetBrains Mono', monospace;
             transition: var(--transition);
         }
@@ -136,8 +136,8 @@
         .form-checkbox {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 13px;
+            gap: 0.5rem;
+            font-size: 0.8125rem;
             color: var(--text-secondary);
             cursor: pointer;
         }
@@ -152,8 +152,8 @@
             background: var(--bg-primary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-xl);
-            padding: 24px;
-            margin-bottom: 24px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
             box-shadow: var(--shadow-sm);
         }
         .apikey-display input {
@@ -161,12 +161,12 @@
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-lg);
-            padding: 14px 16px;
+            padding: 0.875rem 1rem;
             color: var(--success-color);
-            font-size: 14px;
+            font-size: 0.875rem;
             font-family: 'JetBrains Mono', monospace;
             text-align: center;
-            margin-bottom: 16px;
+            margin-bottom: 1rem;
             transition: var(--transition);
         }
         .apikey-display input:focus {
@@ -179,16 +179,16 @@
             background: var(--info-bg-lighter);
             border: 1px solid var(--info-border);
             border-radius: var(--radius-lg);
-            padding: 14px 16px;
-            margin-top: 20px;
+            padding: 0.875rem 1rem;
+            margin-top: 1.25rem;
         }
         .info-box p {
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--info-text);
             margin: 0;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 0.5rem;
         }
         
 
@@ -198,7 +198,7 @@
             .navbar-user .welcome { display: none; }
             
             
-            .login-box { padding: 24px; }
+            .login-box { padding: 1.5rem; }
         }
         @media (max-width: 480px) {
             

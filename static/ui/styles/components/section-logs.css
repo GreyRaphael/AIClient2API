@@ -9,7 +9,7 @@
     background: var(--code-bg);
     color: var(--code-text);
     padding: 1.5rem;
-    border-radius: 0.5rem;
+    border-radius: var(--radius-md);
     height: 800px;
     overflow-y: auto;
     font-family: 'Courier New', monospace;
