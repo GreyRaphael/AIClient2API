@@ -6,7 +6,7 @@ import { useApi } from '../../hooks/useApi.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { findProviderDefinition, getProviderName, getProviderIcon } from '../../lib/provider-registry.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { Spinner } from '../../components/Spinner.js';
 import { EmptyState } from '../../components/EmptyState.js';
 import { buildModelMetadataText, getModelParamBadges } from './models-utils.js';
@@ -67,7 +67,7 @@ export function ModelsPanel({ supportedProviders }) {
             await api.post('/provider-models/refresh');
             reload();
         } catch (error) {
-            toast.error(t('common.error'), error.message);
+            toastError(error.message);
         } finally {
             setRefreshing(false);
         }
@@ -76,7 +76,7 @@ export function ModelsPanel({ supportedProviders }) {
     const copyModel = async (providerType, modelName, metadata) => {
         const copied = await copyToClipboard(buildModelMetadataText(providerType, modelName, metadata));
         if (!copied) {
-            toast.error(t('common.error'), t('common.copy.failed'));
+            toastError(t('common.copy.failed'));
             return;
         }
         const key = `${providerType}::${modelName}`;

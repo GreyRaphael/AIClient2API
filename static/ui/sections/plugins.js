@@ -7,7 +7,7 @@ import { t } from '../lib/i18n.js';
 import { api } from '../lib/api.js';
 import { compareVersions } from '../lib/provider-manager-utils.js';
 import { sanitizeHtml } from '../lib/sanitize.js';
-import { toast } from '../store/toast.js';
+import { toast, toastError } from '../store/toast.js';
 import { Spinner } from '../components/Spinner.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Switch } from '../components/Switch.js';
@@ -75,7 +75,7 @@ export default function PluginsSection() {
             const response = await api.get('/plugins');
             setPlugins(response?.plugins || []);
         } catch (error) {
-            toast.error(t('common.error'), t('plugins.load.failed'));
+            toastError(t('plugins.load.failed'));
         } finally {
             setPluginsLoading(false);
         }
@@ -88,7 +88,7 @@ export default function PluginsSection() {
             setMarket(response?.plugins || []);
             if (url) toast.success(t('common.success'), t('plugins.market.remoteUpdated'));
         } catch (error) {
-            toast.error(t('common.error'), t('plugins.market.loadFailed', { error: error.message }));
+            toastError(t('plugins.market.loadFailed', { error: error.message }));
             setMarket([]);
         } finally {
             setMarketLoading(false);
@@ -131,7 +131,7 @@ export default function PluginsSection() {
             toast.info(t('common.info'), t('plugins.restart.required'));
             await loadPlugins();
         } catch (error) {
-            toast.error(t('common.error'), t('plugins.toggle.failed'));
+            toastError(t('plugins.toggle.failed'));
             await loadPlugins();
         }
     };
@@ -152,7 +152,7 @@ export default function PluginsSection() {
             toast.info(t('common.info'), t('plugins.uninstall.restart'));
             await loadPlugins();
         } catch (error) {
-            toast.error(t('common.error'), t('plugins.uninstall.failed', { error: error.message }));
+            toastError(t('plugins.uninstall.failed', { error: error.message }));
         }
     };
 
@@ -163,7 +163,7 @@ export default function PluginsSection() {
             toast.success(t('common.success'), t('plugins.install.success', { name: plugin.name }));
             await loadPlugins();
         } catch (error) {
-            toast.error(t('common.error'), t('plugins.install.failed', { error: error.message }));
+            toastError(t('plugins.install.failed', { error: error.message }));
         } finally {
             setInstallingId('');
         }
@@ -188,7 +188,7 @@ export default function PluginsSection() {
             setPaying(null);
             await loadPlugins();
         } catch (error) {
-            toast.error(t('common.error'), error.message);
+            toastError(error.message);
         }
     };
 

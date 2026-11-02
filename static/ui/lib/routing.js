@@ -4,7 +4,7 @@
  */
 import { t } from './i18n.js';
 import { copyToClipboard } from './clipboard.js';
-import { toast } from '../store/toast.js';
+import { toast, toastError } from '../store/toast.js';
 
 /** @returns {Array<Record<string, any>>} */
 export function getAvailableRoutes() {
@@ -273,13 +273,13 @@ export function buildCurlCommand(provider, options = {}) {
 export async function copyCurlExample(provider, options = {}) {
     const command = buildCurlCommand(provider, options);
     if (!command) {
-        toast.error(t('common.error'), t('common.error'));
+        toastError(t('common.error'));
         return;
     }
     const copied = await copyToClipboard(command);
     if (copied) {
         toast.success(t('common.success'), t('common.copy.success'));
     } else {
-        toast.error(t('common.error'), t('common.copy.failed'));
+        toastError(t('common.copy.failed'));
     }
 }

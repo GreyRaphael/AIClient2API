@@ -2,7 +2,7 @@
 import { html, useEffect, useRef } from '../html.js';
 import { t } from '../lib/i18n.js';
 import { api } from '../lib/api.js';
-import { toast } from '../store/toast.js';
+import { toast, toastError } from '../store/toast.js';
 import { confirmDialog } from '../store/confirm.js';
 import { entries, autoScroll, clearEntries } from '../store/logs.js';
 
@@ -37,7 +37,7 @@ export default function LogsSection() {
             clearEntries();
             toast.success(t('logs.clear.success.title'), t('logs.clear.success.msg'), 5000);
         } catch (error) {
-            toast.error(t('common.error'), `${t('logs.clear.failed')}: ${error.message}`);
+            toastError(`${t('logs.clear.failed')}: ${error.message}`);
         }
     };
 
@@ -54,7 +54,7 @@ export default function LogsSection() {
             anchor.remove();
             toast.success(t('common.success'), t('common.downloadSuccess'));
         } catch (error) {
-            toast.error(t('common.error'), `${t('common.downloadFailed')}: ${error.message}`);
+            toastError(`${t('common.downloadFailed')}: ${error.message}`);
         }
     };
 

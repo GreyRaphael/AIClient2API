@@ -82,11 +82,11 @@ export function ProviderStatusPanel({ providersData, loading }) {
                             </div>
 
                             <div class="provider-nodes-summary">
-                                <span style="color: #10b981;"><i class="fas fa-check"></i> ${healthyCount}</span>
-                                <span style=${`color: #ef4444; ${unhealthyCount === 0 ? 'opacity: 0.3;' : ''}`}>
+                                <span style="color: var(--success-color);"><i class="fas fa-check"></i> ${healthyCount}</span>
+                                <span style=${`color: var(--danger-color); ${unhealthyCount === 0 ? 'opacity: 0.3;' : ''}`}>
                                     <i class="fas fa-times"></i> ${unhealthyCount}
                                 </span>
-                                <span style=${`color: #9ca3af; ${disabledCount === 0 ? 'opacity: 0.3;' : ''}`}>
+                                <span style=${`color: var(--text-tertiary); ${disabledCount === 0 ? 'opacity: 0.3;' : ''}`}>
                                     <i class="fas fa-minus-circle"></i> ${disabledCount}
                                 </span>
                             </div>

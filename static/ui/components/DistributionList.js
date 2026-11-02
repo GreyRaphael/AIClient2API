@@ -30,7 +30,7 @@ export function DistributionList({ data, total, limit = 3, otherLabel = '其他'
                             <span class="dist-count">${formatNumber(item.count)} 次 (${percent}%)</span>
                         </div>
                         <div class="dist-bar">
-                            <div class="dist-fill" style=${`width: ${percent}%;${item.isOther ? ' background: #94a3b8;' : ''}`}></div>
+                            <div class="dist-fill" style=${`width: ${percent}%;${item.isOther ? ' background: var(--text-tertiary);' : ''}`}></div>
                         </div>
                     </div>`;
             })}

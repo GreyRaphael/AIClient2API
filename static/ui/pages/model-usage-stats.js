@@ -2,7 +2,6 @@
 import { html, useEffect, useMemo, useState } from '../html.js';
 import { toggleTheme } from '../lib/theme.js';
 import { confirmDialog } from '../store/confirm.js';
-import { toast } from '../store/toast.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
 import { mountPage } from '../lib/page-boot.js';
 import { requestWithCredential } from '../lib/credential-api.js';
@@ -57,7 +56,7 @@ function Bars({ items, getValue, getLabel }) {
                             <div class="bar-value">${formatTokenCompact(value)}</div>
                         </div>
                         <div class="track">
-                            <div class="fill" style=${`width:${Math.max(value / max * 100, 2)}%;${item.isOther ? 'background:#94a3b8;' : ''}`}></div>
+                            <div class="fill" style=${`width:${Math.max(value / max * 100, 2)}%;${item.isOther ? 'background:var(--text-tertiary);' : ''}`}></div>
                         </div>
                     </div>`;
             })}

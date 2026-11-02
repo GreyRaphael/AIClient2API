@@ -7,7 +7,7 @@ import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import { navigate } from '../../lib/router.js';
 import { clearToken, redirectToLogin } from '../../lib/auth.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { Spinner } from '../../components/Spinner.js';
 import { ConfigField, FIELD_DEFS } from './fields.js';
 import { buildForm, buildPayload } from './config-model.js';
@@ -169,7 +169,7 @@ export default function ConfigSection() {
             const message = String(saveError.message || '').startsWith('config.')
                 ? t(saveError.message)
                 : `${t('common.error')}: ${saveError.message}`;
-            toast.error(t('common.error'), message);
+            toastError(message);
         } finally {
             setSaving(false);
         }

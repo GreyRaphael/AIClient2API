@@ -7,7 +7,7 @@ import {
     getCodexExternalImportMeta,
     getCodexExternalImportStats
 } from '../../../lib/provider-manager-utils.js';
-import { toast } from '../../../store/toast.js';
+import { toast, toastError } from '../../../store/toast.js';
 import { useEvent } from '../../../hooks/useEvent.js';
 import { Modal } from '../../../components/Modal.js';
 import { CopyButton } from '../../../components/CopyButton.js';
@@ -128,10 +128,10 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                 onCompleted?.();
                 onClose();
             } else {
-                toast.error(t('common.error'), response?.error?.message || t('modal.provider.auth.failed'));
+                toastError(response?.error?.message || t('modal.provider.auth.failed'));
             }
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.auth.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.auth.failed')}: ${error.message}`);
         } finally {
             setBusy(false);
         }
@@ -178,7 +178,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
             onCompleted?.();
             onClose();
         } catch (error) {
-            toast.error(t('common.error'), error.message || t('oauth.error.process'));
+            toastError(error.message || t('oauth.error.process'));
         } finally {
             setBusy(false);
         }
@@ -196,7 +196,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
             }
             setProgress({ current: 0, total: count });
         } catch (error) {
-            toast.error(t('common.error'), /Unexpected|JSON/i.test(error.message || '')
+            toastError(/Unexpected|JSON/i.test(error.message || '')
                 ? t('oauth.codex.noTokens')
                 : error.message);
             return;
@@ -231,7 +231,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                 }
             });
         } catch (error) {
-            toast.error(t('common.error'), error.message);
+            toastError(error.message);
         } finally {
             setBusy(false);
         }
@@ -242,7 +242,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
         try {
             payload = JSON.parse(String(batchText || '').trim());
         } catch {
-            toast.error(t('common.error'), t('oauth.codex.noTokens'));
+            toastError(t('oauth.codex.noTokens'));
             return;
         }
 
@@ -278,7 +278,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                 }
             });
         } catch (error) {
-            toast.error(t('common.error'), error.message);
+            toastError(error.message);
         } finally {
             setBusy(false);
         }

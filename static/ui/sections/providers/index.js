@@ -7,7 +7,7 @@ import { useEvent } from '../../hooks/useEvent.js';
 import { useInterval } from '../../hooks/useInterval.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { isOAuthProvider, getGroupableProviderIds } from '../../lib/provider-registry.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { Modal } from '../../components/Modal.js';
 import { Spinner } from '../../components/Spinner.js';
 import { ProviderManagerModal } from './ProviderManagerModal.js';
@@ -126,7 +126,7 @@ export default function ProvidersSection() {
             await reload();
             setTimeout(() => setManagerType(newType), 500);
         } catch (error) {
-            toast.error(t('common.error'), `${t('providers.addGroup.error')}: ${error.message}`);
+            toastError(`${t('providers.addGroup.error')}: ${error.message}`);
         }
     };
 

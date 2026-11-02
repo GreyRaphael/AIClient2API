@@ -5,9 +5,10 @@ import { api } from '../../lib/api.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { detectProviderFromPath } from '../../lib/provider-registry.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
 import { useEvent } from '../../hooks/useEvent.js';
+import { useResource } from '../../hooks/useResource.js';
 import { Modal } from '../../components/Modal.js';
 import { CopyButton } from '../../components/CopyButton.js';
 import { Spinner } from '../../components/Spinner.js';
@@ -29,9 +30,21 @@ import {
 const PAGE_SIZE = 20;
 
 export default function UploadConfigSection() {
-    const [configs, setConfigs] = useState(/** @type {any[]} */ ([]));
-    const [providers, setProviders] = useState(/** @type {any[]} */ ([]));
-    const [loading, setLoading] = useState(true);
+    // 加载逻辑走 useResource（原先 24 行：setLoading + Promise.all + try/catch + finally）
+    const resource = useResource(async (signal) => {
+        const [list, providersData] = await Promise.all([
+            api.get('/upload-configs', {}, { signal }),
+            api.get('/providers', {}, { signal }).catch(() => ({ supportedProviders: [] }))
+        ]);
+        return {
+            configs: sortConfigs(Array.isArray(list) ? list : []),
+            providers: getProviderConfigs(providersData?.supportedProviders || [])
+                .filter((config) => config.visible !== false && config.defaultPath)
+        };
+    }, { onError: (error) => toastError(error) });
+    const configs = resource.data?.configs ?? [];
+    const providers = resource.data?.providers ?? [];
+    const loading = resource.loading;
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
@@ -42,30 +55,8 @@ export default function UploadConfigSection() {
     const [deleteTarget, setDeleteTarget] = useState(/** @type {any} */ (null));
     const [busyPath, setBusyPath] = useState('');
 
-    const load = async () => {
-        setLoading(true);
-        try {
-            const [list, providersData] = await Promise.all([
-                api.get('/upload-configs'),
-                api.get('/providers').catch(() => ({ supportedProviders: [] }))
-            ]);
-            setConfigs(sortConfigs(Array.isArray(list) ? list : []));
-            setProviders(getProviderConfigs(providersData?.supportedProviders || [])
-                .filter((config) => config.visible !== false && config.defaultPath));
-        } catch (error) {
-            toast.error(t('common.error'), `${t('common.error')}: ${error.message}`);
-            setConfigs([]);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        void load();
-    }, []);
-
     useEvent('config_update', () => {
-        void load();
+        void resource.reload();
     });
 
     useEffect(() => {
@@ -107,7 +98,7 @@ export default function UploadConfigSection() {
             anchor.remove();
             toast.success(t('common.success'), t('usage.card.downloadSuccess'));
         } catch (error) {
-            toast.error(t('common.error'), `${t('usage.card.downloadFailed')}: ${error.message}`);
+            toastError(`${t('usage.card.downloadFailed')}: ${error.message}`);
         }
     };
 
@@ -125,7 +116,7 @@ export default function UploadConfigSection() {
             anchor.remove();
             toast.success(t('common.success'), t('common.success'));
         } catch (error) {
-            toast.error(t('common.error'), `${t('common.error')}: ${error.message}`);
+            toastError(`${t('common.error')}: ${error.message}`);
         }
     };
 
@@ -133,7 +124,7 @@ export default function UploadConfigSection() {
         try {
             setViewFile(await api.get(`/upload-configs/view/${encodeURIComponent(path)}`));
         } catch (error) {
-            toast.error(t('common.error'), `${t('upload.action.view.failed')}: ${error.message}`);
+            toastError(`${t('upload.action.view.failed')}: ${error.message}`);
         }
     };
 
@@ -144,9 +135,9 @@ export default function UploadConfigSection() {
             const result = await api.delete(`/upload-configs/delete/${encodeURIComponent(deleteTarget.path)}`);
             toast.success(t('common.success'), result?.message || t('common.success'));
             setDeleteTarget(null);
-            await load();
+            await resource.reload();
         } catch (error) {
-            toast.error(t('common.error'), `${t('upload.action.delete.failed')}: ${error.message}`);
+            toastError(`${t('upload.action.delete.failed')}: ${error.message}`);
         } finally {
             setBusyPath('');
         }
@@ -162,25 +153,25 @@ export default function UploadConfigSection() {
         try {
             await api.post(`/upload-configs/force-expire/${encodeURIComponent(path)}`);
             toast.success(t('common.success'), t('upload.forceExpire.success'));
-            await load();
+            await resource.reload();
         } catch (error) {
-            toast.error(t('common.error'), `${t('upload.action.forceExpire.failed')}: ${error.message}`);
+            toastError(`${t('upload.action.forceExpire.failed')}: ${error.message}`);
         }
     };
 
     const quickLink = async (path) => {
         const providerInfo = detectProviderFromPath(path);
         if (!providerInfo) {
-            toast.error(t('common.error'), t('upload.link.failed.identify'));
+            toastError(t('upload.link.failed.identify'));
             return;
         }
         toast.info(t('common.info'), t('upload.link.processing', { name: providerInfo.displayName }));
         try {
             const result = await api.post('/quick-link-provider', { filePath: path });
             toast.success(t('common.success'), result?.message || t('upload.link.success'));
-            await load();
+            await resource.reload();
         } catch (error) {
-            toast.error(t('common.error'), `${t('upload.link.failed')}: ${error.message}`);
+            toastError(`${t('upload.link.failed')}: ${error.message}`);
         }
     };
 
@@ -210,7 +201,7 @@ export default function UploadConfigSection() {
             const result = await api.post('/quick-link-provider', {
                 filePaths: candidates.map((config) => config.path)
             });
-            await load();
+            await resource.reload();
             if (result?.failCount === 0) {
                 toast.success(t('common.success'), t('upload.batchLink.success', { count: result.successCount }));
             } else {
@@ -220,8 +211,8 @@ export default function UploadConfigSection() {
                 }));
             }
         } catch (error) {
-            toast.error(t('common.error'), `${t('upload.batchLink.failed')}: ${error.message}`);
-            await load();
+            toastError(`${t('upload.batchLink.failed')}: ${error.message}`);
+            await resource.reload();
         }
     };
 
@@ -243,7 +234,7 @@ export default function UploadConfigSection() {
             const result = await api.delete('/upload-configs/delete-unbound');
             if (result?.deletedCount > 0) {
                 toast.success(t('common.success'), t('upload.deleteUnbound.success', { count: result.deletedCount }));
-                await load();
+                await resource.reload();
             } else {
                 toast.info(t('common.info'), t('upload.deleteUnbound.none'));
             }
@@ -254,14 +245,14 @@ export default function UploadConfigSection() {
                 }));
             }
         } catch (error) {
-            toast.error(t('common.error'), `${t('upload.deleteUnbound.failed')}: ${error.message}`);
+            toastError(`${t('upload.deleteUnbound.failed')}: ${error.message}`);
         }
     };
 
     const copyPath = async (path) => {
         const copied = await copyToClipboard(path);
         if (copied) toast.success(t('common.success'), t('common.copy.success'));
-        else toast.error(t('common.error'), t('common.copy.failed'));
+        else toastError(t('common.copy.failed'));
     };
 
     const renderUsageInfo = (config) => {
@@ -461,7 +452,7 @@ export default function UploadConfigSection() {
                                     onInput=${(event) => setSearch(event.currentTarget.value)} />
                                 <button type="button" class="btn btn-outline" id="searchConfigBtn"
                                     title=${t('common.search')} aria-label=${t('common.search')}
-                                    onClick=${() => void load()}>
+                                    onClick=${() => void resource.reload()}>
                                     <i class="fas fa-search"></i>
                                 </button>
                             </div>
@@ -504,7 +495,7 @@ export default function UploadConfigSection() {
                                 <i class="fas fa-trash-alt"></i> <span>${t('upload.deleteUnbound')}</span>
                             </button>
                             <button class="btn-refresh" id="refreshConfigList" aria-label=${t('upload.refresh')}
-                                onClick=${() => void load()}>
+                                onClick=${() => void resource.reload()}>
                                 <i class="fas fa-sync-alt"></i> <span>${t('upload.refresh')}</span>
                             </button>
                             <button class="btn-download" id="downloadAllConfigs" aria-label=${t('upload.downloadAll')}

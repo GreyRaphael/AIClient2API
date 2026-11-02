@@ -2,7 +2,7 @@
 import { html, useEffect, useRef, useState } from '../../html.js';
 import { t } from '../../lib/i18n.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import {
     pgMessages,
     pgStreaming,
@@ -35,7 +35,7 @@ function PgMessageView({ message, streaming, index, onRetry }) {
         const textToCopy = message.content || bubbleRef.current?.innerText || '';
         const success = await copyToClipboard(String(textToCopy));
         if (success) toast.success(t('common.success'), t('common.copy.success'));
-        else toast.error(t('common.error'), t('common.copy.failed'));
+        else toastError(t('common.copy.failed'));
     };
 
     return html`

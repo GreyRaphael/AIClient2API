@@ -10,7 +10,7 @@ import { theme, toggleTheme } from '../lib/theme.js';
 import { serviceMode } from '../store/system.js';
 import { api } from '../lib/api.js';
 import { clearToken, redirectToLogin } from '../lib/auth.js';
-import { toast } from '../store/toast.js';
+import { toast, toastError } from '../store/toast.js';
 import { confirmDialog } from '../store/confirm.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import { LanguageSwitcher } from '../components/LanguageSwitcher.js';
@@ -60,13 +60,13 @@ export function Header() {
                     }, 2000);
                 }
             } else {
-                toast.error(t('common.error'), result?.message || result?.error?.message || t('header.restart.failed'));
+                toastError(result?.message || result?.error?.message || t('header.restart.failed'));
                 if (result?.mode === 'standalone') {
                     toast.warning(t('common.info'), result.hint);
                 }
             }
         } catch (error) {
-            toast.error(t('common.error'), `${t('header.restart.failed')}: ${error.message}`);
+            toastError(`${t('header.restart.failed')}: ${error.message}`);
         }
     };
 

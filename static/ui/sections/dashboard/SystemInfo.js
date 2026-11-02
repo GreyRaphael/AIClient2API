@@ -5,7 +5,7 @@ import { api } from '../../lib/api.js';
 import { useApi } from '../../hooks/useApi.js';
 import { useInterval } from '../../hooks/useInterval.js';
 import { serviceMode } from '../../store/system.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
 import { formatUptime } from '../../lib/format.js';
 
@@ -53,7 +53,7 @@ export function SystemInfoPanel() {
             }
         } catch (error) {
             if (!silent) {
-                toast.error(t('common.error'), t('dashboard.update.failed', { error: error.message }));
+                toastError(t('dashboard.update.failed', { error: error.message }));
             }
         } finally {
             setChecking(false);
@@ -85,13 +85,13 @@ export function SystemInfoPanel() {
                     }, 2000);
                 }
             } else {
-                toast.error(t('common.error'), result?.message || result?.error?.message || t('header.restart.failed'));
+                toastError(result?.message || result?.error?.message || t('header.restart.failed'));
                 if (result?.mode === 'standalone') {
                     toast.warning(t('common.info'), result.hint);
                 }
             }
         } catch (error) {
-            toast.error(t('common.error'), `${t('header.restart.failed')}: ${error.message}`);
+            toastError(`${t('header.restart.failed')}: ${error.message}`);
         }
     };
 
@@ -116,7 +116,7 @@ export function SystemInfoPanel() {
                 }
             }
         } catch (error) {
-            toast.error(t('common.error'), t('dashboard.update.failed', { error: error.message }));
+            toastError(t('dashboard.update.failed', { error: error.message }));
         } finally {
             setUpdating(false);
         }
@@ -173,7 +173,7 @@ export function SystemInfoPanel() {
                     <div class="version-display-wrapper">
                         <span class="info-value" id="serviceMode">${modeText}</span>
                         ${mode?.canAutoRestart ? html`
-                            <i class="fas fa-check-circle" style="color: #10b981; margin-left: 4px;"
+                            <i class="fas fa-check-circle" style="color: var(--success-color); margin-left: 4px;"
                                 title=${t('dashboard.serviceMode.canRestart')}></i>` : null}
                     </div>
                 </div>

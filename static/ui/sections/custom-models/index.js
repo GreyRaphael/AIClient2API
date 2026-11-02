@@ -1,9 +1,10 @@
 /** 自定义模型管理页面（Phase 3 迁移）。 */
-import { html, useEffect, useState } from '../../html.js';
+import { html, useState } from '../../html.js';
+import { useResource } from '../../hooks/useResource.js';
 import { t } from '../../lib/i18n.js';
 import { api } from '../../lib/api.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
 import { Modal } from '../../components/Modal.js';
 import { Switch } from '../../components/Switch.js';
@@ -50,35 +51,27 @@ function emptyForm(providers) {
 }
 
 export default function CustomModelsSection() {
-    const [models, setModels] = useState(/** @type {any[]} */ ([]));
-    const [providers, setProviders] = useState(/** @type {any[]} */ ([]));
-    const [loading, setLoading] = useState(true);
+    // 数据加载走 useResource：请求 / 加载态 / 报错 / 重载 一次说清，
+    // 不再手写 setLoading(true) + try/catch + finally（原先 18 行）。
+    const resource = useResource(async (signal) => {
+        const [modelsData, providersData] = await Promise.all([
+            api.get('/custom-models', {}, { signal }),
+            api.get('/providers', {}, { signal }).catch(() => ({ supportedProviders: [], providers: {} }))
+        ]);
+        return {
+            models: Array.isArray(modelsData) ? modelsData : [],
+            providers: buildProviderList(providersData?.supportedProviders || [], providersData?.providers || {})
+        };
+    }, { onError: (error) => toastError(error) });
+    const models = resource.data?.models ?? [];
+    const providers = resource.data?.providers ?? [];
+    const loading = resource.loading;
     // 默认按第一列（ID）升序展示，便于稳定浏览
     const [sort, setSort] = useState(/** @type {{field: string|null, order: string|null}} */ ({ field: 'id', order: 'asc' }));
     const [modalOpen, setModalOpen] = useState(false);
     const [editingId, setEditingId] = useState('');
     const [form, setForm] = useState(/** @type {any} */ (null));
     const [saving, setSaving] = useState(false);
-
-    const load = async () => {
-        setLoading(true);
-        try {
-            const [modelsData, providersData] = await Promise.all([
-                api.get('/custom-models'),
-                api.get('/providers').catch(() => ({ supportedProviders: [], providers: {} }))
-            ]);
-            setModels(Array.isArray(modelsData) ? modelsData : []);
-            setProviders(buildProviderList(providersData?.supportedProviders || [], providersData?.providers || {}));
-        } catch (error) {
-            toast.error(t('common.error'), error.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        void load();
-    }, []);
 
     const providerName = (providerId) => {
         if (!providerId) return '-';
@@ -107,7 +100,7 @@ export default function CustomModelsSection() {
     const saveModel = async () => {
         if (!form) return;
         if (!String(form.modelId || '').trim() || !form.customModelProvider || !form.customModelActualProvider) {
-            toast.error(t('common.error'), t('customModels.form.required'));
+            toastError(t('customModels.form.required'));
             return;
         }
 
@@ -121,21 +114,22 @@ export default function CustomModelsSection() {
             }
             closeModal();
             toast.success(t('common.success'), t('customModels.form.saved'));
-            await load();
+            await resource.reload();
         } catch (error) {
-            toast.error(t('common.error'), error.message);
+            toastError(error.message);
         } finally {
             setSaving(false);
         }
     };
 
     const toggleEnabled = async (model, enabled) => {
-        setModels((current) => current.map((item) => (item.id === model.id ? { ...item, enabled } : item)));
         try {
             await api.put(`/custom-models/${encodeURIComponent(model.id)}`, { enabled });
         } catch (error) {
-            toast.error(t('common.error'), `${t('customModels.toggle.failed')}: ${error.message}`);
-            await load();
+            toastError(`${t('customModels.toggle.failed')}: ${error.message}`);
+        } finally {
+            // 无论成败都以前端拿到的服务端状态为准（乐观更新已随 useResource 移除）
+            await resource.reload();
         }
     };
 
@@ -149,9 +143,9 @@ export default function CustomModelsSection() {
         try {
             await api.delete(`/custom-models/${encodeURIComponent(model.id)}`);
             toast.success(t('common.success'), t('customModels.delete.success'));
-            await load();
+            await resource.reload();
         } catch (error) {
-            toast.error(t('common.error'), error.message);
+            toastError(error.message);
         }
     };
 

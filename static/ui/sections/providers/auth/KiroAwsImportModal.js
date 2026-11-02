@@ -17,7 +17,7 @@ import {
     redactAwsCredentials,
     validateAwsCredentials
 } from '../../../lib/aws-credentials.js';
-import { toast } from '../../../store/toast.js';
+import { toast, toastError } from '../../../store/toast.js';
 import { Modal } from '../../../components/Modal.js';
 
 const IMPORT_ENDPOINT = '/kiro/import-aws-credentials';
@@ -117,12 +117,12 @@ export function KiroAwsImportModal({ onClose, onCompleted }) {
             toast.info(t('common.info'), t('oauth.kiro.awsFileReplaced', { filename: replaced.join(', ') }));
         }
         if (rejectedArray) {
-            toast.error(t('common.error'), t('oauth.kiro.awsFileArrayUnsupported'));
+            toastError(t('oauth.kiro.awsFileArrayUnsupported'));
         }
         if (rejected.length > 0) {
             const message = t('oauth.kiro.awsParseError', { filename: rejected.join(', ') });
             if (next.length === 0) setFileError(message);
-            else toast.error(t('common.error'), message);
+            else toastError(message);
         }
     };
 
@@ -248,7 +248,7 @@ export function KiroAwsImportModal({ onClose, onCompleted }) {
                 const existingPath = error.data?.existingPath ? ` (${error.data.existingPath})` : '';
                 toast.warning(t('common.warning'), `${t('oauth.kiro.duplicateCredentials')}${existingPath}`);
             } else {
-                toast.error(t('common.error'), error.message || t('oauth.kiro.awsImportFailed'));
+                toastError(error.message || t('oauth.kiro.awsImportFailed'));
             }
         } finally {
             setBusy(false);

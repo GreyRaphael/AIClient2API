@@ -4,7 +4,7 @@ import { t } from '../../lib/i18n.js';
 import { api } from '../../lib/api.js';
 import { isOAuthProvider, getProviderUploadDir } from '../../lib/provider-registry.js';
 import { getFieldLabel } from '../../lib/provider-fields.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
 import { useSecretReveal } from '../../hooks/useSecretReveal.js';
 import { Modal } from '../../components/Modal.js';
@@ -226,7 +226,7 @@ async function uploadOAuthFile(providerType, fieldKey, onDone) {
         input.remove();
         if (!file) return;
         if (file.size > 5 * 1024 * 1024) {
-            toast.error(t('common.error'), t('common.fileSize'));
+            toastError(t('common.fileSize'));
             return;
         }
         try {
@@ -238,7 +238,7 @@ async function uploadOAuthFile(providerType, fieldKey, onDone) {
             onDone(result.filePath);
             toast.success(t('common.success'), t('common.uploadSuccess'));
         } catch (error) {
-            toast.error(t('common.error'), `${t('common.uploadFailed')}: ${error.message}`);
+            toastError(`${t('common.uploadFailed')}: ${error.message}`);
         }
     };
     input.click();
@@ -282,7 +282,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             });
             setSelections(nextSelections);
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.load.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.load.failed')}: ${error.message}`);
         } finally {
             setLoading(false);
         }
@@ -335,7 +335,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             cancelEdit();
             await refreshAfterMutation();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.save.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.save.failed')}: ${error.message}`);
         } finally {
             setBusyId('');
         }
@@ -354,7 +354,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             toast.success(t('common.success'), t('modal.provider.delete.success'));
             await refreshAfterMutation();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.delete.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.delete.failed')}: ${error.message}`);
         } finally {
             setBusyId('');
         }
@@ -374,7 +374,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             toast.success(t('common.success'), t('common.success'));
             await refreshAfterMutation();
         } catch (error) {
-            toast.error(t('common.error'), `${t('common.error')}: ${error.message}`);
+            toastError(`${t('common.error')}: ${error.message}`);
         } finally {
             setBusyId('');
         }
@@ -397,7 +397,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             await load();
             onChanged();
         } catch (error) {
-            toast.error(t('common.error'), t('modal.provider.healthCheckSingleFailed', { message: error.message }));
+            toastError(t('modal.provider.healthCheckSingleFailed', { message: error.message }));
         } finally {
             setBusyId('');
         }
@@ -419,7 +419,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             }));
             await refreshAfterMutation();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.refreshUuid.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.refreshUuid.failed')}: ${error.message}`);
         } finally {
             setBusyId('');
         }
@@ -439,7 +439,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             await load();
             onChanged();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.resetHealth.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.resetHealth.failed')}: ${error.message}`);
         }
     };
 
@@ -462,7 +462,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             await load();
             onChanged();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.healthCheck')} ${t('common.error')}: ${error.message}`);
+            toastError(`${t('modal.provider.healthCheck')} ${t('common.error')}: ${error.message}`);
         }
     };
 
@@ -483,7 +483,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             toast.success(t('common.success'), t('modal.provider.refreshUnhealthyUuids.success', { count: result.refreshedCount }));
             await refreshAfterMutation();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.refreshUnhealthyUuids.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.refreshUnhealthyUuids.failed')}: ${error.message}`);
         }
     };
 
@@ -505,7 +505,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             toast.success(t('common.success'), t('modal.provider.deleteUnhealthy.success', { count: result.deletedCount }));
             await refreshAfterMutation();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.deleteUnhealthy.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.deleteUnhealthy.failed')}: ${error.message}`);
         }
     };
 
@@ -534,7 +534,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             setAddMode(false);
             await refreshAfterMutation();
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.add.failed')}: ${error.message}`);
+            toastError(`${t('modal.provider.add.failed')}: ${error.message}`);
         }
     };
 
@@ -563,7 +563,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
                 count: (result.models || []).length
             }));
         } catch (error) {
-            toast.error(t('common.error'), `${t('modal.provider.refreshModelsFailed')}: ${error.message}`);
+            toastError(`${t('modal.provider.refreshModelsFailed')}: ${error.message}`);
         } finally {
             setRefreshingModels('');
         }
@@ -833,7 +833,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
                 <div class="view-mode-toggle" style="display: flex; background: var(--bg-secondary); padding: 4px; border-radius: 8px; border: 1px solid var(--border-color);">
                     ${[['list', 'fa-list', t('common.view.list')], ['card', 'fa-th-large', t('common.view.card')]].map(([mode, icon, title]) => html`
                         <button class=${`view-mode-btn ${viewMode === mode ? 'active' : ''}`} data-mode=${mode} title=${title}
-                            style=${`border: none; background: ${viewMode === mode ? 'var(--primary-color)' : 'transparent'}; color: ${viewMode === mode ? '#fff' : 'var(--text-secondary)'}; padding: 6px 10px; border-radius: 6px; cursor: pointer;`}
+                            style=${`border: none; background: ${viewMode === mode ? 'var(--primary-color)' : 'transparent'}; color: ${viewMode === mode ? 'var(--white)' : 'var(--text-secondary)'}; padding: 6px 10px; border-radius: 6px; cursor: pointer;`}
                             onClick=${() => selectViewMode(mode)}>
                             <i class=${`fas ${icon}`}></i>
                         </button>`)}

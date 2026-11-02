@@ -6,6 +6,7 @@ import { html, useEffect, useMemo, useState } from '../../html.js';
 import { t } from '../../lib/i18n.js';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../hooks/useApi.js';
+import { toastError } from '../../store/toast.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { getProviderDefaultModel } from '../../lib/provider-registry.js';
 import { resolveRouteInfo, copyCurlExample } from '../../lib/routing.js';
@@ -13,7 +14,6 @@ import { navigate } from '../../lib/router.js';
 import { CopyButton } from '../../components/CopyButton.js';
 import { Spinner } from '../../components/Spinner.js';
 import { EmptyState } from '../../components/EmptyState.js';
-import { toast } from '../../store/toast.js';
 
 export default function AccessSection() {
     const { data, loading, error, reload } = useApi(
@@ -25,7 +25,7 @@ export default function AccessSection() {
 
     useEffect(() => {
         if (error) {
-            toast.error(t('common.error'), t('access.load.failed', { error: error.message }));
+            toastError(t('access.load.failed', { error: error.message }));
         }
     }, [error]);
 

@@ -5,7 +5,7 @@ import { api } from '../../lib/api.js';
 import { getProviderConfigs } from '../../lib/provider-configs.js';
 import { getProviderIcon } from '../../lib/provider-registry.js';
 import { navigate } from '../../lib/router.js';
-import { toast } from '../../store/toast.js';
+import { toast, toastError } from '../../store/toast.js';
 import { confirmDialog } from '../../store/confirm.js';
 import { Spinner } from '../../components/Spinner.js';
 import {
@@ -275,7 +275,7 @@ export default function UsageSection() {
             await loadUsage(true);
             toast.success(t('common.refresh.success'));
         } catch (refreshError) {
-            toast.error(t('common.error'), refreshError.message || t('common.requestFailed'));
+            toastError(refreshError.message || t('common.requestFailed'));
         } finally {
             setRefreshingAll(false);
         }
@@ -290,7 +290,7 @@ export default function UsageSection() {
             await loadUsage();
             toast.success(t('common.refresh.success'));
         } catch (refreshError) {
-            toast.error(t('common.error'), refreshError.message || t('common.requestFailed'));
+            toastError(refreshError.message || t('common.requestFailed'));
         } finally {
             setRefreshing('');
         }
@@ -303,7 +303,7 @@ export default function UsageSection() {
             await loadUsage();
             toast.success(t('common.refresh.success'));
         } catch (refreshError) {
-            toast.error(t('common.error'), refreshError.message || t('common.requestFailed'));
+            toastError(refreshError.message || t('common.requestFailed'));
         }
     };
 
@@ -323,7 +323,7 @@ export default function UsageSection() {
             await loadUsage();
             toast.success(t('common.success'), t('usage.codex.resetSuccess'));
         } catch (resetError) {
-            toast.error(t('common.error'), resetError.message || t('common.requestFailed'));
+            toastError(resetError.message || t('common.requestFailed'));
         } finally {
             setRefreshing('');
         }
@@ -342,7 +342,7 @@ export default function UsageSection() {
             anchor.remove();
             toast.success(t('common.success'), t('usage.card.downloadSuccess'));
         } catch (downloadError) {
-            toast.error(t('common.error'), `${t('usage.card.downloadFailed')}: ${downloadError.message}`);
+            toastError(`${t('usage.card.downloadFailed')}: ${downloadError.message}`);
         }
     };
 
