@@ -5,7 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v6.1.0] - 2026-11-02
+
+WebUI 样式体系的整体重构。**无破坏性变更、无配置迁移、公开 API 零改动**，
+但 WebUI 首屏传输量降到约一半，并补齐了一整套 CSS 自动化护栏。
+
+### Added
+
+- **计算样式契约**（`tests/webui-e2e/style-contract.spec.js` + `style-contract.json`）：锁定 4 个断点（390/768/1024/1440）× 明暗 2 主题 × 10 个页面、共 80 个组合的关键选择器计算样式。截图比对受字体度量与抗锯齿影响、跨机器不稳定；计算样式跨机器确定，失败信息直接指出「哪个断点/主题/页面 的 哪个选择器 的 哪个属性 期望→实际」。基线随代码一起 review，更新基线时的 diff 就是样式改动清单。
+- **CSS 护栏测试**：`ui-css-order`（样式表分层顺序）、`ui-css-tokens`（令牌完整性：所有 `var()` 的令牌都有定义、无写死 fallback）、`ui-css-scoping`（作用域化约束）、`ui-static-compression`（br/gzip 协商与 ETag 分编码）、`ui-dashboard-system-info`（系统信息面板结构）。
+- **stylelint 接入**（`npm run lint:css`）：只启用在现有代码上能确定性判定的规则，纳入 `npm run verify` 与 CI。
+- 新增 `pages/plugin-shared.css`：收敛 `potluck.html` / `potluck-user.html` 两份逐字节相同的公共样式（55 条规则、3 个响应式断点）。
+
+### Changed
+
+- **静态资源启用 br/gzip 压缩**：项目无构建步骤，CSS/JS 以源码直出，而服务端此前完全没有压缩——单个 32.6 KB 的文件就传 32.6 KB。现在按 `Accept-Encoding` 协商（解析 q 值）、按 (路径, mtime, size) 缓存压缩结果、ETag 带编码后缀避免 br 与 gzip 串味、补 `Vary`。实测首屏样式表 236.8 → 53.0 KB、脚本 186.7 → 75.5 KB，首屏合计 **665.1 → 368.1 KB（省 45%）**。
+- **各页面样式改为按需加载**：`index.html` 原本一次性加载全部 11 份 section CSS（gzip 后约 29 KB，占首屏 CSS 的 63%），大部分首屏用不到。现在复用已有的 section 懒加载机制，切换页面时才插入对应样式，进入任一页面的 CSS 从 53.0 KB 降到 **26.9~28.6 KB**（静态引用文件数 17 → 6）。
+- **颜色令牌化**：组件/页面 CSS 里 196 处十六进制颜色字面量中，58 处改为引用 `base.css` 已定义的语义令牌，并删除 26 处冗余的 `var(--x, <写死值>)` fallback。字面量降到 115 处；全部 1681 处 `var()` 引用零 fallback、零未定义令牌。
+- **插件页样式去重**：`potluck-user.css` 移出与 `potluck.css` 重复的 55 条规则，12.2 KB → 5.8 KB。
+- **表单原子类收敛到 shared 层**：`.form-group` / `.form-row` / `.form-group label` / `.form-control::placeholder` 此前在 `section-config.css` 与 `section-providers.css` 里各有一份逐字节相同的副本，现在统一上收到 `shared.css` 作为唯一权威定义；各 section 只保留差异覆盖。
+- **减少 `!important`**：47 → 38。删除的 9 处都是「同块内更晚位置或更高特异性本就能胜出」的冗余；保留的 38 处逐条核对为必要（无障碍 `prefers-reduced-motion` 标准写法、`@media print`、对抗 JS 写入的内联 style，以及媒体查询前置导致的结构性需求）。
+- **仪表盘系统信息精简**：去掉「CPU 使用」，剩 6 项重排为 3 列 × 2 行——上排「运行时间 / Node.js 版本 / 版本号」，下排「内存使用 / 运行模式 / 进程 PID」。CSS 从「12 栏 + `nth-child(-n+3)` 特例」简化为三等分，散落两处的「超窄面板单列」容器查询合并为一处。列数仍由容器查询按面板实际宽度自适应（≥470px 三列、默认两列、<299px 单列）。
+- **删除死样式**：旧二维码 `<img class="qr-code">` 系列、已下线的系统提示词替换 UI 规则，共约 89 行。
+- **`alignment.css` 去掉 21 处多余的 `body` 前缀**：该文件本就最后加载，靠加载顺序即可胜出；加 `body` 只是把特异性从 (0,1,0) 抬到 (0,1,1)，让后续覆盖更难。
+- locale 词典由 741 条收敛至 740 条（删除 `dashboard.cpuUsage`，中英保持对齐）。
+
+### Fixed
+
+- **移动端样式整体失效**：`mobile.css` 是纯 `@media` 层，却被排在 `index.html` 的组件样式**之前**，导致每条移动端媒体查询都被后面同等特异性的组件规则覆盖。390×844 实测 `.header-content` 的 padding 是桌面的 `12px 32px` 而非预期的 `8px 12px`、`.header h1` 是 `20px` 而非 `14px`——属性级统计显示 `mobile.css` 的 290 条声明里 **170 条失效**。现已调整到全部组件样式之后（桌面端实测计算值完全不变）。
+- **登录页样式层叠反了**：`login.css` 排在 `base.css` 之前，页面样式被基础层反压。
+- **`base.css` 里 `.form-control` 重复定义**：一处定义完整样式（底色 `--bg-secondary`），另一处又覆盖 `background: var(--bg-primary)`。后者是历次修改叠加的副作用而非设计意图，已合并为一处并恢复 `--bg-secondary`。
+- **跨页样式污染**：`upload-config` 与 `config` 页从未定义自己的输入框尺寸，一直在用 `section-providers.css` 泄漏过来的样式（2px 边框 / 8px 圆角）。providers 的紧凑表单样式改用 `#providers` 作用域收敛后，这两页显式声明了各自需要的尺寸。
+- **`--danger-hover` 令牌用了但从未定义**（靠内联 fallback 兜底），现已补齐亮/暗两份定义并移除 fallback。
+- **冗余样式表引用**：`model-usage-stats.html` 的 `mobile.css` 位置不当，已移到页面样式之后。
+
+### Removed
+
+- 删除已无消费方的 CPU 采样：`GET /api/system` 不再返回 `cpuUsage` 字段，也不再每次请求执行 `process.cpuUsage()` / 调用外部命令（这是 WebUI 内部接口，不影响 OpenAI / Claude / Gemini 对外协议）。
+
+### Verification
+
+- `npm test`：**77 suites / 885 tests 全绿**（重构前 72/854）。
+- WebUI E2E：**53/53 通过**（重构前 42），含新增的计算样式契约 8/8 与移动端面板切换 3/3。
+- `npm run verify`（typecheck / plugins / strict / any / imports / cycles / **lint:css** / coverage / runtime smoke）、`typecheck:webui`、`vendor:webui:check` 全部通过。
+- stylelint：0 error（`no-duplicate-selectors` 以 warning 呈现，50 条为已知的结构性分层）。
+- Font Awesome 子集 **137 icons** 不变。
+
 
 ## [v6.0.1] - 2026-10-31
 

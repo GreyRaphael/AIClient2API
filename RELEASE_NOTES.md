@@ -1,139 +1,179 @@
-# AIClient-2-API 发布说明 (v6.0.1)
+# AIClient-2-API 发布说明 (v6.1.0)
 
-> **v6.0.1** 是 v6.0.0 之后的**修复版本，建议所有 v6.0.0 用户升级**。
+> **v6.1.0** 是 v6.0.1 之后的**功能与性能版本，建议所有用户升级**。
 >
-> 本版本修好了三处会让界面「看着正常、实际不能用」的问题：插件页里 `potluck` / `model-usage-stats` 等入口链接点不动、登录页与左上角 Logo 依赖原作者服务器、以及 README 里的品牌图片仍是原作者素材。**无破坏性变更，无需修改配置**。
+> 本版本做了一件用户能直接感知的事：**WebUI 首屏传输量降到约一半**（压缩 + 按需加载），
+> 同时修好了一个让手机端样式整体失效的层叠缺陷。**无破坏性变更、无需修改配置、对外 API 零改动**。
+> 升级后硬刷新一次浏览器即可。
 
 ---
 
-## 🐞 本次修复
+## ⚡ 快了多少
 
-### 插件页的插件入口链接恢复了
+| 指标 | v6.0.1 | v6.1.0 |
+|---|---|---|
+| `index.html` 静态加载的 CSS | 17 个文件 / **217.9 KB** | 6 个文件 / **71.8 KB** |
+| 首屏 CSS 实际传输（br 压缩后） | **236.8 KB** | **26.9 KB** |
+| 首屏 JS 实际传输（br 压缩后） | **186.7 KB** | **75.5 KB** |
+| **首屏总传输** | **665.1 KB** | **344.5 KB（省 45%）** |
 
-插件描述里用相对路径指向自己的页面：
+三件事叠加而成：**服务端压缩**、**样式按需加载**、**样式去重**。
 
-```html
-API 大锅饭 - Key 管理和用量统计插件<br>管理端：<a href="potluck.html">potluck.html</a>
+---
+
+## 🗜️ 一、服务端开始压缩静态资源
+
+项目没有构建步骤，CSS/JS 以源码形式直出。而服务端此前**完全没有压缩**——单个 32.6 KB 的文件就传 32.6 KB。
+
+现在按 `Accept-Encoding` 协商 br / gzip：
+
+- 解析 q 值，客户端的偏好会被尊重；
+- 只压文本类型且 ≥ 1 KB（图片/字体本身已压缩，再压只是浪费 CPU）；
+- 压缩结果按 `(路径, mtime, 大小)` 缓存，文件一改自动失效，稳态零 CPU 开销。
+
+一个容易被忽略但很关键的细节：**ETag 必须带编码后缀**。同一个文件的 br 与 gzip 是不同表示，共用 ETag 会让缓存把两者混为一谈——只支持 gzip 的客户端可能命中 304 后拿到 br 缓存。同时补了 `Vary: Accept-Encoding`。
+
+实测单文件压缩比（br）：`base.css` 24.4 KB → 5.2 KB，`section-providers.css` 32.6 KB → 4.8 KB，`mobile.css` 29.6 KB → 4.5 KB。
+
+## 📦 二、样式改为按需加载
+
+控制台有 10 个页面，但用户一次只看一个。`index.html` 原本一次性加载全部 11 份 section CSS——gzip 后约 29 KB，占首屏 CSS 的 63%，其中大部分首屏根本用不到。
+
+现在复用已有的页面懒加载机制，切换到哪个页面才插入对应的样式：
+
+| 页面 | v6.0.1 首屏 CSS | v6.1.0 |
+|---|---|---|
+| 仪表盘 | 53.0 KB | 26.9 KB |
+| 提供商池 | 53.0 KB | 28.6 KB |
+
+**这里踩过一个坑，值得记录**：插入位置必须落在 `mobile.css` **之前**。控制台的层叠约定是
+
+```
+base → shared → 外壳组件 → 各页面组件 → mobile.css → alignment.css
 ```
 
-但 `sanitizeHtml` 的链接白名单只认三种：`#` 锚点、`/` 开头的绝对路径、`http(s)` / `mailto`。其余一律交给 `new URL(value)` 判断，而 `new URL('potluck.html')` 没有 base 时会**直接抛错**，于是落到 `catch { return false }`，`href` 被整个移除。
+动态插入的样式如果排在 `mobile.css` 之后，组件规则会（同等特异性、更晚）反过来压掉移动端媒体查询——390px 下仪表盘的移动端样式会整体失效。这个错误是被本版本新增的「计算样式契约」测出来的，不是靠肉眼发现的。
 
-结果是：页面上的 `potluck.html`、`potluck-user.html`、`model-usage-stats.html` 三处文字还带着链接样式，**但点了没反应**——看着像链接，其实已经不是链接了。
+另外，组件必须**等样式就位再挂载**。只等 JS 模块会出现「模块先到、样式后到」，组件已按未套样式完成布局，首屏会闪一下。
 
-修复方式不是给 `URL` 打补丁，而是显式处理同源相对路径，仍然拒绝这三类危险写法：
+## 🎨 三、颜色令牌化
 
-- 协议相对地址（`//evil.example`、`/\evil.example`）
-- 含反斜杠的路径（Windows 风格绕过）
-- 含 `..` 的路径穿越
+组件 CSS 里 196 处十六进制颜色字面量，大量直接抄了 `base.css` 已定义好的令牌值（如 `#10b981` 就是 `--success-color`）。写死的值不随主题变化，这正是暗色主题下部分组件颜色不对的根因。
 
-`javascript:` / `data:` / `vbscript:` 等危险协议照旧拒绝。允许与拒绝两个方向都补了单元测试。
+本次 58 处改为引用令牌，并删掉 26 处冗余的 `var(--x, <写死值>)` 兜底——兜底会让令牌改名后静默退回旧值，反而掩盖问题。
 
-### 品牌图片不再依赖原作者服务器
+替换时有一条硬边界：**不能动 `[data-theme="dark"]` 块里的颜色**。那里写的是"暗色下的具体值"，换成令牌会让语义反转（例如 `#e0f2fe` 在暗色块里当字色用，而 `--info-bg-light` 在暗色下已经是深色了）。
 
-登录页头像、主界面左上角 Logo、以及两个入口 HTML 的 favicon，此前都在引用：
+## 🧹 四、样式去重与修正层
+
+- **插件页**：`potluck` / `potluck-user` 两个页面有 55 条规则**逐字节相同**（日历热力图、统计卡片、导航栏、主题切换）。抽到新增的 `plugin-shared.css`，`potluck-user.css` 从 12.2 KB 降到 5.8 KB。原先改一处忘另一处就会两边不一致。
+- **表单原子类**：`.form-group` / `.form-row` / `.form-group label` 在配置页与提供商池里各有一份逐字节相同的副本，现在上收到 `shared.css` 作为唯一权威定义，各页面只保留差异覆盖。
+- **`alignment.css` 去掉 21 处多余的 `body` 前缀**：该文件本就最后加载，靠顺序即可胜出；加 `body` 只是把特异性从 (0,1,0) 抬到 (0,1,1)，让后续覆盖更难。
+
+另外把 `!important` 从 47 降到 38。删掉的 9 处都是"同块内更晚位置或更高特异性本就能胜出"的冗余；**保留的 38 处逐条核对过，都是有实际对抗目标的**——`prefers-reduced-motion` 的无障碍标准写法、`@media print`、对抗 JS 直接写入的内联 style，以及媒体查询前置导致的结构性需求。不是为了过 lint 而盲删。
+
+## 🖥️ 五、仪表盘系统信息精简
+
+去掉「CPU 使用」，剩 6 项重排为 3 列 × 2 行：
 
 ```
-https://src.hex2077.dev/logo/favicon.ico
+上排：运行时间 / Node.js 版本 / 版本号
+下排：内存使用 / 运行模式 / 进程 PID
 ```
 
-这是原作者自己服务器上的文件。也就是说：**对方关站、或你的部署环境没有外网，这些图标就直接加载失败**（favicon 更是在浏览器标签页上空白）。
+CSS 也从「12 栏 + 首行特例」简化为三等分。列数仍按**面板实际宽度**自适应（面板受右侧联系人卡挤压，按视口切列会把数值挤出卡片）：≥470px 三列、默认两列、超窄单列。
 
-现在改为仓库内的本地 SVG：
+顺带清掉了相关的死代码，避免"DOM 没了但接口还在算"：`/api/system` 不再每次请求执行 `process.cpuUsage()` 或调用外部命令。
 
-| 文件 | 用途 |
+---
+
+## 🐞 修掉的问题
+
+### 手机端样式整体失效
+
+这是本版本最重要的修复，也是重构过程中的意外发现。
+
+`mobile.css` 是一个纯 `@media` 层，本该最后加载，却被排在 `index.html` 的组件样式**之前**。结果是每条移动端媒体查询都被后面**同等特异性**的组件规则覆盖。
+
+390×844 实测：
+
+| | 修复前（实际渲染） | 修复后 |
+|---|---|---|
+| `.header-content` padding | **12px 32px**（桌面值） | 8px 12px |
+| `.header h1` 字号 | **20px** | 14px |
+| header 高度 | 65px | 57px |
+
+属性级统计：`mobile.css` 的 290 条声明里 **170 条失效**。桌面端（1440px）实测计算值完全不变，所以这个缺陷一直没被发现。
+
+同类问题还有登录页：`login.css` 排在 `base.css` 之前，页面样式被基础层反压。
+
+### 跨页样式污染
+
+`upload-config` 与 `config` 页从未定义自己的输入框尺寸，一直在「借用」`section-providers.css` 泄漏过来的样式（2px 边框 / 8px 圆角 / 14px 字号）。提供商池的紧凑表单样式改用 `#providers` 作用域收敛后，这两页显式声明了各自需要的尺寸。
+
+**一处外观变化**：`config` 页的输入框因此回到 `base.css` 的通用尺寸（1px 边框 / 12px 圆角），与「快速接入」等页面风格统一。这是有意的取舍——为保留旧外观而堆 `:where()` 之类的技巧，实测反而破坏了其他页面。
+
+### `base.css` 里 `.form-control` 定义了两次
+
+一处定义完整样式（底色 `--bg-secondary`），另一处又覆盖 `background: var(--bg-primary)`。后者是历次修改叠加的副作用而非设计意图，已合并为一处并恢复 `--bg-secondary`。
+
+### `--danger-hover` 用了但从未定义
+
+一直靠内联 fallback 兜底。已补齐亮/暗两份定义并移除 fallback。
+
+---
+
+## 🛡️ 六、新增的自动化护栏
+
+这次重构动了 1.2 万行 CSS、21 个文件。为了不靠肉眼保证正确性，建了一套护栏。
+
+### 计算样式契约（核心）
+
+截图比对受字体度量与抗锯齿影响、**跨机器不稳定**，不适合做 CI 门槛。所以改为锁定关键选择器的**计算样式**：
+
+- 4 个断点（390 / 768 / 1024 / 1440）× 明暗 2 主题 × 10 个页面 = **80 个组合**
+- 约 **1270 条属性断言**
+- 失败信息直接可读：
+
+```
+mobile-390__light__dashboard :: .header-content { padding }
+  期望 8px 12px  →  实际 14.4px
+```
+
+基线存在 `tests/webui-e2e/style-contract.json`，随代码一起 review——**更新基线时的 diff 就是这次样式改动的完整清单**。有效性和灵敏度都验证过：故意改坏一处 padding，10 个页面全部报错；还原后恢复通过。
+
+这套护栏在本版本中至少拦下了 4 次真实回归：错误的规则合并、`mobile.css` 被 section 样式覆盖、作用域化破坏响应式、`config` 样式泄漏。
+
+### 其余护栏
+
+| 测试 | 守护什么 |
 |---|---|
-| `static/assets/logo.svg` | 主界面左上角 Logo、favicon |
-| `static/assets/user-avatar.svg` | 登录页头像 |
-| `static/assets/qr-placeholder.svg` | README 赞助商二维码占位 |
+| `ui-css-order` | 样式表分层顺序（mobile.css 必须在组件之后、base.css 必须在页面样式之前） |
+| `ui-css-tokens` | 令牌完整性：所有 `var()` 的令牌都有定义、无写死 fallback |
+| `ui-css-scoping` | 作用域化约束：已作用域的 section 不得有裸类、共享原子类不得被误加前缀 |
+| `ui-static-compression` | br/gzip 协商、q 值、ETag 分编码、图片不压缩 |
+| `ui-dashboard-system-info` | 系统信息面板的项数与顺序 |
+| `playground-panels` | 移动端三块面板显隐（`!important` 清理后必须有测试兜底） |
 
-`logo.svg` 的图形是**三路上游汇聚为单一输出**——正好对应项目在做的事：把 Antigravity / Codex / Kiro 等多个仅客户端可用的 API，统一成一个 OpenAI 兼容接口。配色沿用主题渐变（`#059669 → #6366f1`），缩到 24px 的 Header 尺寸依然清晰。
-
-### README 品牌素材清理
-
-- 头部图标：原作者卡通插画 `logo-mid.webp` → 新的 `logo.svg`
-- 赞助商二维码：真实微信二维码图片 `wechat.png` → `qr-placeholder.svg`（虚线占位框，自带深色模式配色，GitHub 深色主题下不会看不见）
-- 修正了「请扫描左侧微信二维码」的过时文案（左侧现在是占位图）
-- 删除已无引用的 `logo-mid.webp`、`logo-mid0.webp`、`web.png`、`wechat.png`
-
-## 🧹 顺手精简
-
-- **Header 去掉两个原作者推广入口**：B 站「视频教程」与第三方「小卖部」，头部控件从 8 个减到 6 个（点 Star、连接状态、主题、语言、登出、重载），两套渐变胶囊按钮样式一并删除。
-- **Font Awesome 子集**：139 → 137 个图标（`fa-video` 随推广链接失效），woff2 体积同步减小。
-- **locale 词典**：743 → 741 条，中英始终保持逐条对齐。
+另外接入了 **stylelint**（`npm run lint:css`），纳入 `npm run verify` 与 CI。规则只选在现有代码上能确定性判定的那些；`no-duplicate-selectors` 设为 warning —— 现有 57 组重复选择器里 55 组是**结构性分层**（中间夹着对同属性的覆盖），不是为了过 lint 就该盲目合并的。
 
 ---
-
-## 🎨 WebUI 无构建重构
-
-- **技术栈**：Preact 11 + htm + `@preact/signals`，浏览器原生 ES Module + import map，无需 Vite/Webpack/JSX 编译。
-- **目录统一**：新代码全部位于 `static/ui/`，第三方依赖入库到 `static/vendor/`，Font Awesome 使用本地子集（139 icons）。
-- **页面迁移**：
-  - 控制台 10 个页面：dashboard / access / config / providers / custom-models / upload-config / usage / plugins / playground / logs（使用指南页已移除）。
-  - 独立页面：login、potluck、potluck-user、model-usage-stats。
-- **基础能力统一**：`Modal` / `ConfirmDialog` / `Pagination` / `Toast`、`useApi` / `useEvent` / `useInterval`、统一 API 客户端与 SSE 连接。
-- **i18n**：拆分为 `locales/zh-CN.js` 与 `locales/en-US.js`，`en-US` 按需加载；移除 `data-i18n` 全页扫描与 `MutationObserver`。
-- **清理**：删除旧 `static/app/*.js`、`static/components/*.html`；全站 `window.*` 顶层赋值与内联 `onclick=` 清零。
-- **样式**：CSS 仅移动到 `static/ui/styles/`，未做大规模重写，以降低视觉回归风险。
-
-## 🧹 仪表盘与控制台精简
-
-- **更新面板**：删除版本下拉框（它有三个已确认缺陷：已是最新时下拉框显示空白、`(当前)` 标记永不出现、点击「检查更新」会覆盖用户已选版本）。现在只有两个按钮——**检查更新**（有更新时提示版本号）与 **立即更新**（有更新时才出现），点击即更新到 GitHub 最新版本。**不再支持选择或降级到历史版本**。
-- **二维码占位**：联系方式与赞助卡片的四张二维码图片已删除，改为同尺寸（190×190，含响应式档位）内联 SVG 占位框，位置与尺寸不变，便于后续替换为真实二维码。
-- **赞助商引导卡片**：「成为赞助商」卡片已删除——它只是在解释上方微信二维码的用法，属于自解释冗余。
-- **模型列表**：「可用模型列表」的 `<details>` 折叠包装已删除（默认永远展开、折叠无实际意义），改为静态面板并保留标题。
-- **自定义模型**：列表默认按第一列（ID）升序排序，不再依赖接口返回顺序；表头仍支持升序 → 降序 → 不排序三态循环。
-- 顺带清理：3 个不可见的 `.qr-description` 节点、孤儿图片 `static/ip2node.png`、孤儿 CSS（`.optional-tag`、`.become-sponsor`、迁移遗留的折叠样式）与死 locale key（772 → 743 条，中英对齐）。
-
-## 🔐 Kiro AWS 账号导入
-
-- 恢复旧版 `aws-import` 认证入口。
-- 支持 AWS SSO cache JSON 文件上传与多文件字段合并。
-- 支持直接粘贴单个凭据对象或凭据数组（批量）。
-- 自动校验 `clientId` / `clientSecret` / `accessToken` / `refreshToken`，并补齐 `authMethod: builder-id`。
-- 提供敏感字段脱敏预览、重复凭据提示与批量 SSE 实时进度。
-- 单条与批量均使用 `POST /api/kiro/import-aws-credentials`，成功后自动刷新提供商列表。
-
-## 🛡️ 安全与稳定性
-
-- **鉴权绕过修复（重要）**：`verifyToken` 此前直接以 `tokens[token]` 从 JSON.parse 结果取值，
-  `Authorization: Bearer __proto__` / `constructor` / `toString` 会命中 `Object.prototype` 成员
-  （真值、无 `expiryTime`，而 `Date.now() > undefined` 为假），从而无密码通过鉴权，可读取
-  `/api/config/secret`、`/api/providers/:type/:uuid/secret` 的全部明文密钥并可增删提供商节点。
-  现在 token store 归一化为无原型对象，并要求自身属性命中 + 过期时间为有限数字。
-- **请求挂起修复**：UI 路由处理链未包 `try/catch`，非法百分号转义（`%E0%A4%A`）或
-  `providerType=__proto__` 触发的异常会逃逸到 `unhandledRejection`，响应永不写回、客户端等到超时。
-  现在统一兜住并回 500，非法百分号转义前置拒绝为 400。
-- **明文回读加固**：两个回读接口仅返回白名单字段、响应带 `no-store` 禁止缓存、错误信息不回显调用方字段；
-  前端仅编辑态可回读，展开期间输入框强制只读，避免明文被写入草稿缓冲后随保存落盘（会损坏凭据）。
-- `sanitizeHtml()` 链接策略改为按 URL 协议校验：
-  - 允许 `http(s)`、`mailto`、站内路径与锚点；
-  - 拒绝 `//host`、`/\host`、`javascript:`、`data:`、`vbscript:` 等绕过方式；
-  - 保留白名单标签，移除事件属性与未知属性。
-- OAuth 授权继续使用「自动本地回调 + 手动粘贴回调 URL + `oauth_success`」方案，不依赖跨域子窗口轮询。
-- 插件描述富文本继续使用白名单清洗后注入，链接强制 `target="_blank"` 与 `rel="noopener noreferrer"`。
-
-## 🧹 兼容性与已知说明
-
-- Hash 路由：`#dashboard`、`#access`、`#config`、`#providers`、`#custom-models`、`#upload-config`、`#usage`、`#plugins`、`#playground`、`#logs`；已移除 `#guide`（旧书签会回落仪表盘）。
-- `localStorage` 键保持不变：`authToken`、`authTokenExpiry`、`language`、`theme`。
-- 插件 `staticPaths` 保持不变：`potluck.html`、`potluck-user.html`、`model-usage-stats.html`。
-- 后端 `/api/*` 接口与鉴权协议未改动，无需迁移配置。
-- 最低浏览器版本：Chrome / Edge 105+、Firefox 121+、Safari 16.4+。
-- 有意保留的取舍：CSS 未按页面合并重写；三个插件独立页仍保持中文文案；`upload-config` 保留 20 条/页的前端分页。
 
 ## 🧪 验证结果
 
 | 项目 | 结果 |
 |---|---|
-| `npm test` | **72 suites / 854 tests 全绿** |
-| WebUI E2E | **42/42 通过** |
-| `npm run verify` | **通过**（typecheck / plugins / strict / any / imports / cycles / coverage / runtime smoke） |
-| `npm run typecheck` | **通过** |
+| `npm test` | **77 suites / 885 tests 全绿**（v6.0.1：72 / 854） |
+| WebUI E2E | **53/53 通过**（v6.0.1：42），含计算样式契约 8/8、移动端面板 3/3 |
+| `npm run verify` | **通过**（typecheck / plugins / strict / any / imports / cycles / **lint:css** / coverage / runtime smoke） |
 | `npm run typecheck:webui` | **通过** |
 | `npm run vendor:webui:check` | **通过** |
-| Font Awesome 子集 | **137 icons** |
+| stylelint | **0 error**（50 条已知的结构性分层 warning） |
+| Font Awesome 子集 | **137 icons**（不变） |
 
 E2E 覆盖登录、10 个控制台页面、中英/明暗切换、SSE 状态、Provider 节点 CRUD、授权弹窗、Kiro AWS 单条/批量导入、Playground 流式对话、插件页、日志页、登出，以及 4 个独立页面。
+
+---
 
 ## 📦 升级建议
 
@@ -141,16 +181,19 @@ E2E 覆盖登录、10 个控制台页面、中英/明暗切换、SSE 状态、Pr
 
   ```bash
   git fetch --tags
-  git checkout v6.0.1
+  git checkout v6.1.0
   npm install
   npm start
   ```
 
-- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `6.0.1` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
+- Docker：发布工作流在检测到 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时会构建并推送 `6.1.0` 与 `latest` 镜像；未配置凭据时跳过，可稍后手动运行工作流。
+
+- **从 v6.0.1 升级到 v6.1.0 无需任何操作**：本版本只改 WebUI 样式与静态资源服务方式，不涉及配置、数据库或对外接口变更。
+
+- **升级后请硬刷新一次浏览器**（`Ctrl/Cmd + Shift + R`）。`index.html` 已不再静态引用各页面样式，旧的浏览器缓存可能仍持有旧版 HTML；硬刷新可确保加载新的按需加载逻辑。
+
+- **移动端用户请留意**：本版本修好了移动端样式失效的问题，手机上的界面会比之前**明显更紧凑、更符合设计意图**。这是修复而非退化。
 
 - **若你仍在使用 v5.2.0 或更早版本**：那些版本存在鉴权绕过（`Bearer __proto__` 等可直接通过），升级后请立即更换管理员密码与 `REQUIRED_API_KEY`，历史密钥应视为已泄露。
 
-- 升级后请重启服务并硬刷新 WebUI，以加载新的 `static/ui/` 模块与本地 Font Awesome 子集。
-
-- **从 v6.0.0 升级到 v6.0.1 无需任何操作**：本版本只修界面与品牌资源，不涉及配置、数据库或接口变更。升级后硬刷新一次浏览器即可看到新 Logo 与可点击的插件入口。
-- 若你此前在 `configs/config.json` 里配过 `SYSTEM_PROMPT_FILE_PATH` / `SYSTEM_PROMPT_MODE` / `SYSTEM_PROMPT_REPLACEMENTS`，请在 v6.0.0 或更早版本时期按 v6.0.0 的说明清理这些字段——v6.0.1 不会读取它们，残留也不影响启动。
+- **无破坏性变更**：公开 API（OpenAI / Claude / Gemini 三类协议转换、`/v1/*` 路由）零改动。唯一被删除的是 WebUI 内部接口 `GET /api/system` 响应里的 `cpuUsage` 字段——它只被仪表盘自用，且对应卡片已移除。
