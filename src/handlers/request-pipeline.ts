@@ -10,6 +10,7 @@ import { promises as fs } from 'fs';
 import logger from '../utils/logger.ts';
 import { convertData } from '../convert/convert.ts';
 import { ConverterFactory } from '../converters/ConverterFactory.ts';
+import { clearCustomTools } from '../converters/custom-tool-registry.ts';
 import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
 import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from '../utils/constants.ts';
@@ -369,6 +370,17 @@ export const PRE_CONTENT_BUFFER_MAX_FRAMES = 2000;
 export const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
 
 /**
+ * 解析 payload 的有效协议前缀。
+ *
+ * 默认按 provider 定义解析；`protocolOverride` 用于「上游实际协议 != Provider 声明协议」
+ * 的场景（Codex 的 `/v1/responses` 0-Hop 直通、Trae 按下游协议 1-Hop 直出），
+ * 此时 chunk 形状由下游协议决定，不能再按 Provider 声明协议去取值。
+ */
+function resolvePayloadProtocol(provider: string, model: string | undefined, protocolOverride?: string): string {
+    return protocolOverride || getProtocolPrefix(provider, model);
+}
+
+/**
  * 从上游原生负载中提取终态结束原因。
  *
  * 兼容各协议的完整响应与流式事件形状：
@@ -379,9 +391,11 @@ export const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
  *
  * @param {Object} payload - 上游原生 chunk 或完整响应
  * @param {string} provider - 上游 provider 类型
+ * @param {string} [model] - 模型名（部分 Provider 协议随模型动态变化）
+ * @param {string} [protocolOverride] - 上游实际协议前缀，覆盖 Provider 声明协议
  * @returns {string} 结束原因；无法判定时返回空串
  */
-export function extractTerminalFinishReason(payload: DynamicPayload | null | undefined, provider: string, model?: string): string | null {
+export function extractTerminalFinishReason(payload: DynamicPayload | null | undefined, provider: string, model?: string, protocolOverride?: string): string | null {
     if (!payload || typeof payload !== 'object') return '';
     if (payload.type === 'response.failed' || payload.response?.status === 'failed' || payload.status === 'failed') {
         return 'failed';
@@ -393,7 +407,7 @@ export function extractTerminalFinishReason(payload: DynamicPayload | null | und
         || (typeof payload.model === 'string' ? payload.model : undefined)
         || (typeof payload.response?.model === 'string' ? payload.response.model : undefined)
         || (typeof payload.message?.model === 'string' ? payload.message.model : undefined);
-    switch (getProtocolPrefix(provider, effectiveModel)) {
+    switch (resolvePayloadProtocol(provider, effectiveModel, protocolOverride)) {
         case MODEL_PROTOCOL_PREFIX.GEMINI:
             return payload.candidates?.[0]?.finishReason || '';
         case MODEL_PROTOCOL_PREFIX.OPENAI:
@@ -426,6 +440,88 @@ export function extractTerminalFinishReason(payload: DynamicPayload | null | und
  */
 export function isTerminalEmptyFinishReason(reason: unknown): boolean {
     return Boolean(reason) && TERMINAL_EMPTY_FINISH_REASONS.has(String(reason));
+}
+
+/**
+ * 跨协议桥接计划（决定一次请求实际需要几次协议跳）。
+ *
+ * 默认行为是「声明协议不同就转换 1 跳」。两类 Provider 例外：
+ * - `openai-codex-oauth`：上游本身使用 Responses 规范，`/v1/responses` 下游可以直接
+ *   0-Hop 透传（请求体与响应体都是标准 Responses 形状，方言清洗收敛在 CodexApiService）。
+ * - `trae` / `trae-chat_v3`：上游是字节私有协议，`TraeApiService` 能按下游协议直接构造
+ *   私有请求体并直接产出下游协议事件，因此三端都是 1-Hop（不再经中间 OpenAI 协议层）。
+ */
+export interface BridgePlan {
+    /** 下游（客户端）协议前缀 */
+    clientProtocol: string;
+    /** Provider 定义中声明的原生协议前缀 */
+    declaredNativeProtocol: string;
+    /** 上游服务实际产出 / 接收的协议前缀（直通时可能与声明值不同） */
+    nativeProtocol: string;
+    /** 是否仍需要经过 Converter 转换 */
+    needsConversion: boolean;
+    /** 需要注入给上游服务的「按下游协议直接产出」标记；null 表示不注入 */
+    downstreamProtocol: string | null;
+}
+
+/**
+ * 计算跨协议桥接计划。
+ *
+ * @param fromProvider 下游协议（客户端端点）
+ * @param toProvider 上游 Provider 类型
+ * @param model 模型名（部分 Provider 的协议随模型动态变化，如 zed）
+ */
+export function resolveBridgePlan(fromProvider: string, toProvider: string, model?: string): BridgePlan {
+    const clientProtocol = getProtocolPrefix(fromProvider, model);
+    const declaredNativeProtocol = getProtocolPrefix(toProvider, model);
+    const baseProviderType = getProviderDefinition(toProvider)?.type || toProvider;
+
+    // Codex：/v1/responses → Responses 原生协议，0-Hop 直通
+    if (baseProviderType === MODEL_PROVIDER.CODEX_API
+        && clientProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
+        return {
+            clientProtocol,
+            declaredNativeProtocol,
+            nativeProtocol: MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES,
+            needsConversion: false,
+            downstreamProtocol: null
+        };
+    }
+
+    // Trae：三端均由 TraeApiService 直接产出下游协议，1-Hop
+    if (baseProviderType === MODEL_PROVIDER.TRAE || baseProviderType === MODEL_PROVIDER.TRAE_CHAT_V3) {
+        return {
+            clientProtocol,
+            declaredNativeProtocol,
+            nativeProtocol: clientProtocol,
+            needsConversion: false,
+            downstreamProtocol: clientProtocol
+        };
+    }
+
+    return {
+        clientProtocol,
+        declaredNativeProtocol,
+        nativeProtocol: declaredNativeProtocol,
+        needsConversion: clientProtocol !== declaredNativeProtocol,
+        downstreamProtocol: null
+    };
+}
+
+/**
+ * 把「按下游协议直接产出」的标记注入请求体。
+ *
+ * 使用不可枚举属性：Provider 内部可读取，但 JSON 序列化与 `{...spread}` 都不会把它
+ * 带到上游请求里，避免污染真实上游负载。
+ */
+function injectDownstreamProtocol(requestBody: DynamicPayload, plan: BridgePlan): void {
+    if (!plan.downstreamProtocol) return;
+    Object.defineProperty(requestBody, '_downstreamProtocol', {
+        value: plan.downstreamProtocol,
+        enumerable: false,
+        configurable: true,
+        writable: true
+    });
 }
 
 /**
@@ -467,13 +563,13 @@ function resetConverterStreamState(provider: string, requestId: string | null, m
  * @param {string} toProvider - 上游 provider 类型
  * @returns {boolean} 是否含有有效内容
  */
-export function nativePayloadHasMeaningfulContent(payload: DynamicPayload | null | undefined, toProvider: string, model?: string): boolean {
+export function nativePayloadHasMeaningfulContent(payload: DynamicPayload | null | undefined, toProvider: string, model?: string, protocolOverride?: string): boolean {
     if (!payload || typeof payload !== 'object') return false;
     const effectiveModel = model
         || (typeof payload.model === 'string' ? payload.model : undefined)
         || (typeof payload.response?.model === 'string' ? payload.response.model : undefined)
         || (typeof payload.message?.model === 'string' ? payload.message.model : undefined);
-    switch (getProtocolPrefix(toProvider, effectiveModel)) {
+    switch (resolvePayloadProtocol(toProvider, effectiveModel, protocolOverride)) {
         case MODEL_PROTOCOL_PREFIX.GEMINI: {
             const parts = payload.candidates?.[0]?.content?.parts;
             if (!Array.isArray(parts)) return false;
@@ -652,8 +748,17 @@ export async function handleStreamRequest(
 
     try {
         // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
-        // The service returns a stream in its native format (toProvider).
-        const needsConversion = getProtocolPrefix(fromProvider, model) !== getProtocolPrefix(toProvider, model);
+        // The service returns a stream in its native format.
+        // 桥接计划统一决定「是否需要 Converter」以及「上游是否按下游协议直接产出」：
+        // - Codex + /v1/responses：0-Hop 直通；
+        // - Trae / trae-chat_v3：三端均由 TraeApiService 1-Hop 直接产出下游协议；
+        // - 其余 Provider：声明协议不同就 1 跳转换。
+        const bridgePlan = resolveBridgePlan(fromProvider, toProvider, model);
+        const needsConversion = bridgePlan.needsConversion;
+        // 上游原生协议：直通/直出时等于下游协议，否则等于 Provider 声明协议。
+        // 后续所有「按 chunk 形状取值」的判定都必须用这个协议，而不是 toProvider 的声明协议。
+        const nativeProtocol = bridgePlan.nativeProtocol;
+        injectDownstreamProtocol(requestBody, bridgePlan);
         // Claude / Responses 下游需要 usage，但 OpenAI Chat 流式默认不返回 usage。
         // 仅在跨协议转换到 OpenAI 上游时要求 include_usage；用不可枚举属性传递，
         // 避免内部标记被 JSON 序列化发送到上游。
@@ -693,19 +798,19 @@ export async function handleStreamRequest(
             if (nativeIsError) {
                 sawStreamError = true;
                 sawMeaningfulContent = true;
-            } else if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider, model)) {
+            } else if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider, model, nativeProtocol)) {
                 sawMeaningfulContent = true;
             }
             // 记录上游结束原因（用于空响应诊断与“合法截断不重试”判定）。
             // 各协议词表不同：Gemini finishReason / OpenAI finish_reason /
             // Anthropic stop_reason / Responses incomplete_details.reason。
-            const chunkFinishReason = extractTerminalFinishReason(nativeChunk, toProvider, model);
+            const chunkFinishReason = extractTerminalFinishReason(nativeChunk, toProvider, model, nativeProtocol);
             if (chunkFinishReason) lastFinishReason = chunkFinishReason;
             const nativeCandidate = nativeChunk?.candidates?.[0];
             if (nativeCandidate?.finishMessage) lastFinishMessage = nativeCandidate.finishMessage;
 
             // Extract text for logging purposes
-            const chunkText = extractResponseText(nativeChunk, toProvider, model);
+            const chunkText = extractResponseText(nativeChunk, toProvider, model, nativeProtocol);
             if (chunkText && !Array.isArray(chunkText)) {
                 fullResponseText += chunkText;
             }
@@ -1085,6 +1190,13 @@ export async function handleStreamRequest(
         // 停止首内容前缓冲的心跳定时器
         clearInterval(preContentHeartbeat);
 
+        // 请求级状态治理：释放本次请求登记的 custom tool 与转换器流式状态。
+        // 只在非重试帧清理——重试帧复用同一个 requestId，清早了会让重试丢失
+        // 工具名反向映射 / custom tool 还原能力。
+        if (!isRetry) {
+            clearCustomTools(streamRequestId);
+        }
+
         // 释放并发插槽
         if (providerPoolManager && pooluuid) {
             providerPoolManager.releaseSlot(toProvider, pooluuid);
@@ -1131,8 +1243,12 @@ export async function handleUnaryRequest(
     const responseRequestId = retryContext?.requestId || null;
 
     try{
-        // The service returns the response in its native format (toProvider).
-        const needsConversion = getProtocolPrefix(fromProvider, model) !== getProtocolPrefix(toProvider, model);
+        // The service returns the response in its native format.
+        // 与流式路径共用同一套桥接计划（Codex /v1/responses 0-Hop、Trae 三端 1-Hop）。
+        const bridgePlan = resolveBridgePlan(fromProvider, toProvider, model);
+        const needsConversion = bridgePlan.needsConversion;
+        const nativeProtocol = bridgePlan.nativeProtocol;
+        injectDownstreamProtocol(requestBody, bridgePlan);
         requestBody.model = model;
         // fs.writeFile('oldRequest'+Date.now()+'.json', JSON.stringify(requestBody));
         const nativeResponse = await service.generateContent(model, requestBody);
@@ -1156,8 +1272,8 @@ export async function handleUnaryRequest(
         // 典型如 Antigravity 的 Gemini 3 以 MALFORMED_FUNCTION_CALL（空工具调用）收尾、
         // parts 里只有 thinking。非流式场景下尚未向客户端写入任何字节，
         // 直接抛空响应错误走统一的 isEmptyUpstreamResponse 重试分支。
-        if (!nativePayloadHasMeaningfulContent(nativeResponse, toProvider, model)) {
-            const finishInfo = extractTerminalFinishReason(nativeResponse, toProvider, model) || 'unknown';
+        if (!nativePayloadHasMeaningfulContent(nativeResponse, toProvider, model, nativeProtocol)) {
+            const finishInfo = extractTerminalFinishReason(nativeResponse, toProvider, model, nativeProtocol) || 'unknown';
             const finishMsg = nativeResponse?.candidates?.[0]?.finishMessage;
             if (isTerminalEmptyFinishReason(finishInfo)) {
                 // MAX_TOKENS / SAFETY / length / max_tokens 等终态即使没有正文也是合法结果，不能当作空响应重试；
@@ -1169,7 +1285,7 @@ export async function handleUnaryRequest(
             }
         }
 
-        const responseText = extractResponseText(nativeResponse, toProvider, model);
+        const responseText = extractResponseText(nativeResponse, toProvider, model, nativeProtocol);
 
         // Convert the response back to the client's format (fromProvider), if necessary.
         let clientResponse = nativeResponse;
@@ -1357,6 +1473,11 @@ export async function handleUnaryRequest(
         const statusCode = ensureValidStatusCode(rawStatusCode);
         await handleUnifiedResponse(res, JSON.stringify(errorResponse), false, statusCode);
     } finally {
+        // 请求级状态治理：非流式响应结束后释放 custom tool 登记。
+        // 与流式路径一致，非流式请求不会再有后续帧复用这份登记，必须主动清理，
+        // 否则每次请求的 custom tool 定义会驻留到 30 分钟 TTL 才释放。
+        clearCustomTools(responseRequestId);
+
         // 确保在请求结束或出错时释放插槽
         if (providerPoolManager && pooluuid) {
             providerPoolManager.releaseSlot(toProvider, pooluuid);
@@ -1656,7 +1777,10 @@ export async function handleContentGenerationRequest(
         String(originalRequestBody.extra_body?.anthropic?.thinking?.type || '').trim().toLowerCase() === 'disabled';
 
     // fs.writeFile('originalRequestBody'+Date.now()+'.json', JSON.stringify(originalRequestBody));
-    if (getProtocolPrefix(fromProvider, model) !== getProtocolPrefix(toProvider, model)) {
+    // 请求侧桥接计划（与响应/流式共用）：Codex 的 /v1/responses 0-Hop 直通、
+    // Trae 三端 1-Hop 直出时都不应调用 Converter，由 Provider 直接消化下游协议请求体。
+    const requestBridgePlan = resolveBridgePlan(fromProvider, toProvider, model);
+    if (requestBridgePlan.needsConversion) {
         logger.info(`[Request Convert] Converting request from ${fromProvider} to ${toProvider}`);
         const preConvertBody = processedRequestBody;
         processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId) as DynamicPayload;
@@ -1758,12 +1882,12 @@ function _extractModelAndStreamInfo(req: IncomingMessage, requestBody: DynamicPa
 }
 
 // Helper functions for content extraction and conversion (from convert.js, but needed here)
-export function extractResponseText(response: DynamicPayload, provider: string, model?: string): string {
+export function extractResponseText(response: DynamicPayload, provider: string, model?: string, protocolOverride?: string): string {
     const effectiveModel = model
         || (typeof response?.model === 'string' ? response.model : undefined)
         || (typeof response?.response?.model === 'string' ? response.response.model : undefined)
         || (typeof response?.message?.model === 'string' ? response.message.model : undefined);
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider, effectiveModel));
+    const strategy = ProviderStrategyFactory.getStrategy(resolvePayloadProtocol(provider, effectiveModel, protocolOverride));
     return strategy.extractResponseText(response);
 }
 
