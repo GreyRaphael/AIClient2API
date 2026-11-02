@@ -864,6 +864,10 @@ export class ZedApiService {
     async _aggregateAnthropicContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         let fullText = '';
         let fullThinking = '';
+        // Anthropic 的 extended thinking 块必须带回 signature 才能在多轮对话里复用，
+        // 否则客户端回传 thinking 块时会被上游判定为无效块。流式路径的 delta 序列是
+        // thinking_delta* -> signature_delta，聚合时必须把 signature 一起收集。
+        let thinkingSignature = '';
         const toolCalls = new Map();
         let stopReason = 'end_turn';
         const usage: DynamicPayload = {
@@ -887,6 +891,8 @@ export class ZedApiService {
                     fullText += delta.text || '';
                 } else if (delta.type === 'thinking_delta') {
                     fullThinking += delta.thinking || '';
+                } else if (delta.type === 'signature_delta') {
+                    thinkingSignature += delta.signature || '';
                 } else if (delta.type === 'input_json_delta') {
                     const tc = toolCalls.get(chunk.index);
                     if (tc) {
@@ -924,7 +930,10 @@ export class ZedApiService {
         if (fullThinking) {
             content.push({
                 type: 'thinking',
-                thinking: fullThinking
+                thinking: fullThinking,
+                // 只有真的收到 signature_delta 时才带 signature 字段；
+                // 上游不给签名时保留旧形状，避免下游拿到空签名字段。
+                ...(thinkingSignature ? { signature: thinkingSignature } : {})
             });
         }
         if (fullText) {

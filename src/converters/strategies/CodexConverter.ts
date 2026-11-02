@@ -50,12 +50,38 @@ export class CodexConverter extends BaseConverter {
 
     /**
      * 清理该请求在 Codex 上游响应方向上的流式状态。
-     * 注意：requestStates 保存工具名正反查映射，重试后仍需复用，不能清理。
+     * 注意：requestStates 保存工具名正反查映射，重试后仍需复用，这里不能清理；
+     * 请求级状态由 {@link releaseRequestState} 在请求真正结束后统一释放。
      * @param {string|null|undefined} requestId
      */
     resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.streamSessions.delete(requestId);
+    }
+
+    /**
+     * 释放请求级工具名映射状态。
+     *
+     * 与 {@link resetStreamState} 的区别：本方法在请求**彻底结束**（非流式响应
+     * 转换完成 / 流式响应终态 / 请求 finally 兜底）时调用；流式重试复用同一
+     * requestId 时不能调用，否则重试流无法还原长工具名。
+     * @param {string|null|undefined} requestId
+     */
+    releaseRequestState(requestId: string | null | undefined): void {
+        if (!requestId) return;
+        this.requestStates.delete(requestId);
+        this.streamSessions.delete(requestId);
+    }
+
+    /**
+     * 读取请求级状态，但不创建。
+     * 只读路径（还原工具名 / 读取工具名映射）必须走这里，避免为「没有工具」的
+     * 普通请求凭空创建状态项并驻留到 TTL 到期。
+     * @param {string|null|undefined} requestId
+     */
+    _peekReqState(requestId: string | null | undefined): DynamicPayload | undefined {
+        const id = requestId || 'default';
+        return this.requestStates.get(id);
     }
 
     _getReqState(requestId: string | null | undefined): DynamicPayload {
@@ -72,21 +98,34 @@ export class CodexConverter extends BaseConverter {
     /**
      * 登记外部转换器（如 ClaudeConverter）生成的长工具名 -> 短工具名映射。
      * 响应侧需要同一个 requestId 才能还原原始工具名。
+     *
+     * 与 buildToolNameMap 保持同一约束：只有**确实被缩短**的工具名才需要登记。
+     * 传入的 shortMap 通常包含全部工具名（未缩短的映射到自身），若原样写入，
+     * 每个带工具的请求都会留下一条要等 TTL 才回收的状态项。
      * @param {string|null} requestId
      * @param {Object<string,string>} shortMap - originalName -> shortName
      */
     registerToolNameMap(requestId: string | null | undefined, shortMap: Record<string, string> | null | undefined): void {
-        const state = this._getReqState(requestId);
-        state.toolNameMap.clear();
-        state.reverseToolNameMap.clear();
-        if (!shortMap || typeof shortMap !== 'object') {
+        const toolNameMap = new Map<string, string>();
+        const reverseToolNameMap = new Map<string, string>();
+        if (shortMap && typeof shortMap === 'object') {
+            for (const [originalName, shortName] of Object.entries(shortMap)) {
+                if (!originalName || !shortName) continue;
+                if (originalName === shortName) continue;
+                toolNameMap.set(originalName, shortName);
+                reverseToolNameMap.set(shortName, originalName);
+            }
+        }
+
+        if (toolNameMap.size === 0) {
+            // 没有需要还原的映射：清掉可能残留的旧状态，且不为本次请求创建新条目。
+            this.requestStates.delete(requestId || 'default');
             return;
         }
-        for (const [originalName, shortName] of Object.entries(shortMap)) {
-            if (!originalName || !shortName) continue;
-            state.toolNameMap.set(originalName, shortName);
-            state.reverseToolNameMap.set(shortName, originalName);
-        }
+
+        const state = this._getReqState(requestId);
+        state.toolNameMap = toolNameMap;
+        state.reverseToolNameMap = reverseToolNameMap;
     }
 
     /**
@@ -463,7 +502,8 @@ export class CodexConverter extends BaseConverter {
      */
     convertMessages(messages: DynamicPayload[], requestId: string | null | undefined): DynamicPayload[] {
         const input: DynamicPayload[] = [];
-        const state = this._getReqState(requestId);
+        // 只读映射：这里不创建请求级状态（写入只发生在 buildToolNameMap 真需要缩短时）。
+        const { toolNameMap } = this._getToolNameMaps(requestId);
 
         for (const msg of messages) {
             const role = msg.role;
@@ -490,7 +530,7 @@ export class CodexConverter extends BaseConverter {
                         if (toolCall.type === 'function' || toolCall.function) {
                             const func = toolCall.function || toolCall;
                             const originalName = func.name;
-                            const shortName = state.toolNameMap.get(originalName) || this.shortenToolName(originalName);
+                            const shortName = toolNameMap.get(originalName) || this.shortenToolName(originalName);
                             input.push({
                                 type: 'function_call',
                                 call_id: toolCall.id,
@@ -506,7 +546,7 @@ export class CodexConverter extends BaseConverter {
                     for (const part of msg.content) {
                         if (part.type === 'tool_use') {
                             const originalName = part.name;
-                            const shortName = state.toolNameMap.get(originalName) || this.shortenToolName(originalName);
+                            const shortName = toolNameMap.get(originalName) || this.shortenToolName(originalName);
                             input.push({
                                 type: 'function_call',
                                 call_id: part.id,
@@ -570,12 +610,27 @@ export class CodexConverter extends BaseConverter {
     }
 
     /**
+     * 只读访问工具名映射：不存在时返回空映射，不创建状态项。
+     * 请求侧「没有登记过映射」是常态（大部分请求没有超长工具名 / 没有工具），
+     * 若只读路径也用 _getReqState 会为每个请求凭空创建状态项并驻留到 TTL。
+     */
+    _getToolNameMaps(requestId: string | null | undefined): { toolNameMap: Map<string, string>; reverseToolNameMap: Map<string, string> } {
+        const state = this._peekReqState(requestId);
+        return {
+            toolNameMap: state?.toolNameMap instanceof Map ? state.toolNameMap : new Map(),
+            reverseToolNameMap: state?.reverseToolNameMap instanceof Map ? state.reverseToolNameMap : new Map()
+        };
+    }
+
+    /**
      * 构建工具名称映射
+     *
+     * 仅在确实存在需要缩短的工具名时才写入请求级状态：绝大多数请求的工具名都
+     * 在 64 字符以内，无条件登记会让每次请求都在 sharedRequestStates 里留下一条
+     * 需要等 30 分钟 TTL 才回收的残留项。
      */
     buildToolNameMap(tools: DynamicPayload[], requestId: string | null | undefined): void {
-        const state = this._getReqState(requestId);
-        state.toolNameMap.clear();
-        state.reverseToolNameMap.clear();
+        const previous = this._peekReqState(requestId);
 
         const names: string[] = [];
         for (const t of tools) {
@@ -589,10 +644,19 @@ export class CodexConverter extends BaseConverter {
             }
         }
 
-        if (names.length === 0) return;
+        if (names.length === 0) {
+            // 本次请求没有任何工具：清掉重试场景下可能残留的旧映射，
+            // 否则响应侧会按旧映射把普通工具名还原成早已不存在的长名字。
+            if (previous) {
+                this.requestStates.delete(requestId || 'default');
+            }
+            return;
+        }
 
         const limit = 64;
         const used = new Set<string>();
+        const toolNameMap = new Map<string, string>();
+        const reverseToolNameMap = new Map<string, string>();
 
         const baseCandidate = (n: string): string => {
             if (n.length <= limit) return n;
@@ -622,16 +686,31 @@ export class CodexConverter extends BaseConverter {
                 }
             }
             used.add(uniq);
-            state.toolNameMap.set(n, uniq);
-            state.reverseToolNameMap.set(uniq, n);
+            toolNameMap.set(n, uniq);
+            reverseToolNameMap.set(uniq, n);
         }
+
+        // 所有工具名本来就合法（无需缩短）时不必占用请求级状态。
+        const needsMapping = Array.from(toolNameMap.entries()).some(([original, short]) => original !== short);
+        if (!needsMapping) {
+            // 上一轮登记过映射（重试请求里工具被删掉）时清掉，避免响应侧按旧映射还原。
+            if (previous) {
+                this.requestStates.delete(requestId || 'default');
+            }
+            return;
+        }
+
+        const state = this._getReqState(requestId);
+        state.toolNameMap = toolNameMap;
+        state.reverseToolNameMap = reverseToolNameMap;
     }
 
     /**
      * 转换工具
      */
     convertTools(tools: DynamicPayload[], requestId: string | null | undefined): DynamicPayload[] {
-        const state = this._getReqState(requestId);
+        // 只读映射：请求侧状态只在 buildToolNameMap / registerToolNameMap 真需要时创建。
+        const { toolNameMap } = this._getToolNameMaps(requestId);
         const converted = tools.map((tool: DynamicPayload) => {
             const builtinTool = this.normalizeCodexBuiltinTool(tool);
             if (builtinTool) {
@@ -643,7 +722,7 @@ export class CodexConverter extends BaseConverter {
             if (tool.type === 'custom') {
                 const originalName = tool.name || tool.function?.name;
                 if (!originalName) return tool;
-                const shortName = state.toolNameMap.get(originalName) || this.shortenToolName(originalName);
+                const shortName = toolNameMap.get(originalName) || this.shortenToolName(originalName);
                 return {
                     type: 'custom',
                     name: shortName,
@@ -663,7 +742,7 @@ export class CodexConverter extends BaseConverter {
 
             const func = tool.function || tool;
             const originalName = func.name;
-            const shortName = state.toolNameMap.get(originalName) || this.shortenToolName(originalName);
+            const shortName = toolNameMap.get(originalName) || this.shortenToolName(originalName);
 
             const result = {
                 type: 'function',
@@ -695,9 +774,9 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (toolChoice.type === 'function' || toolChoice.type === 'custom') {
-            const state = this._getReqState(requestId);
+            const { toolNameMap } = this._getToolNameMaps(requestId);
             const name = toolChoice.name || toolChoice.function?.name;
-            const shortName = name ? (state.toolNameMap.get(name) || this.shortenToolName(name)) : '';
+            const shortName = name ? (toolNameMap.get(name) || this.shortenToolName(name)) : '';
             return {
                 type: toolChoice.type,
                 name: shortName
@@ -728,8 +807,9 @@ export class CodexConverter extends BaseConverter {
      * 获取原始工具名称
      */
     getOriginalToolName(shortName: string, requestId: string | null | undefined): string {
-        const state = this._getReqState(requestId);
-        return state.reverseToolNameMap.get(shortName) || shortName;
+        // 只读：未登记映射时直接返回原名，不创建请求级状态项。
+        const { reverseToolNameMap } = this._getToolNameMaps(requestId);
+        return reverseToolNameMap.get(shortName) || shortName;
     }
 
     /**
@@ -806,26 +886,46 @@ export class CodexConverter extends BaseConverter {
         const toolCalls: DynamicPayload[] = [];
         const imageMarkdownParts: string[] = [];
 
+        // 多个 reasoning / message 输出项必须累加拼接，不能互相覆盖：
+        // Codex 上行可能把同一轮正文拆成多个 output item，旧实现用 `=` 覆盖导致只保留最后一段。
+        // 同一 output item 内部的多个 output_text 是同行内联片段，直接首尾相接；
+        // 不同 output item 之间是独立段落，用换行分隔。
+        const appendReasoning = (text: string): void => {
+            if (!text) return;
+            reasoningText = reasoningText ? `${reasoningText}\n${text}` : text;
+        };
+        const appendContent = (text: string): void => {
+            if (!text) return;
+            contentText = contentText ? `${contentText}\n${text}` : text;
+        };
+
         for (const item of output) {
             switch (item.type) {
-                case 'reasoning':
+                case 'reasoning': {
+                    let itemReasoning = '';
                     if (Array.isArray(item.summary)) {
-                        reasoningText = item.summary
+                        itemReasoning = item.summary
                             .map((s: DynamicPayload | string) => typeof s === 'string' ? s : (s?.text || s?.summary_text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
-                    if (!reasoningText && Array.isArray(item.content)) {
-                        reasoningText = item.content
+                    if (!itemReasoning && Array.isArray(item.content)) {
+                        itemReasoning = item.content
                             .map((c: DynamicPayload | string) => typeof c === 'string' ? c : (c?.text || ''))
                             .filter(Boolean)
                             .join('\n');
                     }
+                    appendReasoning(itemReasoning);
                     break;
+                }
                 case 'message':
                     if (Array.isArray(item.content)) {
-                        const contentItem = item.content.find((c: DynamicPayload) => c.type === 'output_text');
-                        if (contentItem?.text) contentText = contentItem.text;
+                        // 同一 message 内的多个 output_text 片段要拼接，不能只取第一个。
+                        const textParts = item.content
+                            .filter((c: DynamicPayload) => c?.type === 'output_text')
+                            .map((c: DynamicPayload) => typeof c.text === 'string' ? c.text : '')
+                            .filter(Boolean);
+                        if (textParts.length > 0) appendContent(textParts.join(''));
                     }
                     break;
                 case 'function_call':
@@ -876,6 +976,10 @@ export class CodexConverter extends BaseConverter {
             openaiResponse.choices[0].native_finish_reason = openaiResponse.choices[0].finish_reason;
         }
 
+        // 非流式响应已是本次请求的终态：工具名反向映射不会再有下一帧用到，
+        // 主动释放，避免 sharedRequestStates 里每条请求都驻留满 30 分钟 TTL。
+        this.releaseRequestState(requestId);
+
         return openaiResponse;
     }
 
@@ -921,8 +1025,12 @@ export class CodexConverter extends BaseConverter {
                 } else if (item.type === 'message') {
                     let contentText = '';
                     if (Array.isArray(item.content)) {
-                        const contentItem = item.content.find((c: DynamicPayload) => c.type === 'output_text');
-                        if (contentItem) contentText = contentItem.text;
+                        // 一个 message 内的多个 output_text 片段必须拼接；只取首个会截断多段输出。
+                        contentText = item.content
+                            .filter((c: DynamicPayload) => c?.type === 'output_text')
+                            .map((c: DynamicPayload) => typeof c.text === 'string' ? c.text : '')
+                            .filter(Boolean)
+                            .join('');
                     }
                     if (contentText) {
                         output.push({
@@ -981,6 +1089,9 @@ export class CodexConverter extends BaseConverter {
 
         const responseStatus = response.status
             || (root.type === 'response.incomplete' ? 'incomplete' : 'completed');
+
+        // 非流式终态：释放请求级工具名映射（同 toOpenAIResponse）。
+        this.releaseRequestState(requestId);
 
         return {
             id: response.id || `resp_${uuidv4().replace(/-/g, '')}`,
@@ -1048,8 +1159,12 @@ export class CodexConverter extends BaseConverter {
                 } else if (item.type === 'message') {
                     let contentText = '';
                     if (Array.isArray(item.content)) {
-                        const contentItem = item.content.find((c: DynamicPayload) => c.type === 'output_text');
-                        if (contentItem) contentText = contentItem.text;
+                        // 一个 message 内的多个 output_text 片段必须拼接；只取首个会截断多段输出。
+                        contentText = item.content
+                            .filter((c: DynamicPayload) => c?.type === 'output_text')
+                            .map((c: DynamicPayload) => typeof c.text === 'string' ? c.text : '')
+                            .filter(Boolean)
+                            .join('');
                     }
                     if (contentText) {
                         content.push({ type: "text", text: contentText });
@@ -1082,6 +1197,9 @@ export class CodexConverter extends BaseConverter {
         if (response.status === 'incomplete' || root.type === 'response.incomplete') {
             stopReason = response.incomplete_details?.reason === 'content_filter' ? 'refusal' : 'max_tokens';
         }
+
+        // 非流式终态：工具名已在上面全部还原，可以安全释放请求级映射。
+        this.releaseRequestState(requestId);
 
         return {
             id: response.id || `msg_${uuidv4().replace(/-/g, '')}`,
@@ -1119,7 +1237,13 @@ export class CodexConverter extends BaseConverter {
                 responseID: chunk.response?.id || `chatcmpl-${Date.now()}`,
                 functionCallIndex: 0,  // 初始值为 0，第一个 function_call 的 index 为 0
                 isFirstChunk: true,  // 标记是否是第一个内容 chunk
-                emittedImageGenerationItems: new Set()
+                emittedImageGenerationItems: new Set(),
+                // 增量工具调用跟踪：key -> { index, id, name, argumentsSent }
+                // Codex 上游对 tool 参数采用 output_item.added + function_call_arguments.delta + done 三段式；
+                // done 只做兜底，已增量下发过参数的工具不能重复整段下发。
+                streamToolCalls: new Map(),
+                // output_index / item_id -> tool 跟踪 key 的反查表
+                streamToolKeys: new Map()
             });
         }
         const state = this.streamSessions.get(stateKey);
@@ -1143,6 +1267,51 @@ export class CodexConverter extends BaseConverter {
             }]
         });
 
+        // 解析当前事件对应的工具跟踪 key（Codex 不同版本分别用 output_index / item_id / item.id）
+        const resolveToolKey = (payload: DynamicPayload): string => {
+            const index = payload.output_index;
+            if (index !== undefined && index !== null) return `idx:${index}`;
+            const direct = payload.item_id || payload.item?.id || payload.item?.call_id;
+            if (direct) return `id:${direct}`;
+            return 'default';
+        };
+        const trackToolCall = (payload: DynamicPayload, item: DynamicPayload): DynamicPayload => {
+            const key = resolveToolKey(payload);
+            let tracked = state.streamToolCalls.get(key);
+            if (!tracked) {
+                tracked = {
+                    index: state.functionCallIndex++,
+                    id: item?.call_id || item?.id || `call_${Date.now()}_${state.functionCallIndex}`,
+                    name: item?.name || '',
+                    argumentsSent: false
+                };
+                state.streamToolCalls.set(key, tracked);
+            }
+            // 记录 id/call_id 反查，便于 function_call_arguments.delta 只有 item_id 时命中
+            if (tracked.id) state.streamToolKeys.set(`id:${tracked.id}`, key);
+            if (item?.id) state.streamToolKeys.set(`id:${item.id}`, key);
+            if (item?.call_id) state.streamToolKeys.set(`id:${item.call_id}`, key);
+            return tracked;
+        };
+        const buildToolDeltaChunk = (tracked: DynamicPayload, argumentsValue: string): DynamicPayload => {
+            const template = buildTemplate();
+            template.choices[0].delta = {
+                role: 'assistant',
+                content: null,
+                reasoning_content: null,
+                tool_calls: [{
+                    index: tracked.index,
+                    id: tracked.id,
+                    type: 'function',
+                    function: {
+                        name: this.getOriginalToolName(tracked.name, requestId),
+                        arguments: argumentsValue
+                    }
+                }]
+            };
+            return template;
+        };
+
         if (type === 'response.created') {
             // 更新状态中的 responseID
             state.responseID = chunk.response.id;
@@ -1152,11 +1321,13 @@ export class CodexConverter extends BaseConverter {
             state.functionCallIndex = 0;
             state.isFirstChunk = true;
             state.emittedImageGenerationItems = new Set();
+            state.streamToolCalls = new Map();
+            state.streamToolKeys = new Map();
             // response.created 不发送 chunk，等待第一个内容 chunk
             return null;
         }
 
-        if (type === 'response.reasoning_summary_text.delta') {
+        if (type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') {
             const results: DynamicPayload[] = [];
             // 如果是第一个内容 chunk，先发送带 role 的 chunk
             if (state.isFirstChunk) {
@@ -1208,17 +1379,68 @@ export class CodexConverter extends BaseConverter {
             return results.length === 1 ? results[0] : results;
         }
 
-        if (type === 'response.output_item.done' && chunk.item?.type === 'function_call') {
-            const currentIndex = state.functionCallIndex;
-            state.functionCallIndex++;  // 递增，为下一个 function_call 准备
+        // Codex 的增量工具调用三段式：
+        //   response.output_item.added            -> 首帧下发 tool_calls[].id / name（arguments 为空串）
+        //   response.function_call_arguments.delta -> 逐段下发 arguments 增量
+        //   response.output_item.done              -> 仅对未流式下发过参数的工具做整段兜底
+        // 旧实现只监听 done，一旦上游改走增量协议，工具调用会被延迟到流末尾才可见，
+        // 且 arguments 增量帧被整体丢弃。
+        if (type === 'response.output_item.added'
+            && (chunk.item?.type === 'function_call' || chunk.item?.type === 'custom_tool_call')) {
+            const tracked = trackToolCall(chunk, chunk.item);
+            if (chunk.item.name) tracked.name = chunk.item.name;
             const template = buildTemplate();
             template.choices[0].delta = {
                 role: 'assistant',
                 content: null,
                 reasoning_content: null,
                 tool_calls: [{
-                    index: currentIndex,
-                    id: chunk.item.call_id,
+                    index: tracked.index,
+                    id: tracked.id,
+                    type: 'function',
+                    function: {
+                        name: this.getOriginalToolName(tracked.name, requestId),
+                        arguments: ''
+                    }
+                }]
+            };
+            return template;
+        }
+
+        if (type === 'response.function_call_arguments.delta') {
+            // 增量参数帧可能只带 item_id / output_index，需要能命中 added 时登记的工具。
+            const directKey = resolveToolKey(chunk);
+            const mappedKey = state.streamToolKeys.get(directKey) || directKey;
+            const tracked = state.streamToolCalls.get(mappedKey);
+            const deltaText = typeof chunk.delta === 'string'
+                ? chunk.delta
+                : (chunk.delta === undefined || chunk.delta === null ? '' : JSON.stringify(chunk.delta));
+            if (!tracked) {
+                // 未收到 added 就开始增量（异常上游）：用当前帧信息补建跟踪项。
+                const created = trackToolCall(chunk, { type: 'function_call', name: chunk.name || '' });
+                created.argumentsSent = true;
+                return buildToolDeltaChunk(created, deltaText);
+            }
+            tracked.argumentsSent = true;
+            return buildToolDeltaChunk(tracked, deltaText);
+        }
+
+        if (type === 'response.output_item.done' && chunk.item?.type === 'function_call') {
+            const tracked = trackToolCall(chunk, chunk.item);
+            if (chunk.item.name && !tracked.name) tracked.name = chunk.item.name;
+            // 已经通过 function_call_arguments.delta 增量下发过参数，不再整段重复发。
+            if (tracked.argumentsSent) {
+                return null;
+            }
+            tracked.argumentsSent = true;
+            const template = buildTemplate();
+            template.choices[0].delta = {
+                role: 'assistant',
+                content: null,
+                reasoning_content: null,
+                tool_calls: [{
+                    index: tracked.index,
+                    id: chunk.item.call_id || tracked.id,
                     type: 'function',
                     function: {
                         name: this.getOriginalToolName(chunk.item.name, requestId),
@@ -1230,16 +1452,19 @@ export class CodexConverter extends BaseConverter {
         }
 
         if (type === 'response.output_item.done' && chunk.item?.type === 'custom_tool_call') {
-            const currentIndex = state.functionCallIndex;
-            state.functionCallIndex++;
+            const tracked = trackToolCall(chunk, chunk.item);
+            if (tracked.argumentsSent) {
+                return null;
+            }
+            tracked.argumentsSent = true;
             const template = buildTemplate();
             template.choices[0].delta = {
                 role: 'assistant',
                 content: null,
                 reasoning_content: null,
                 tool_calls: [{
-                    index: currentIndex,
-                    id: chunk.item.call_id,
+                    index: tracked.index,
+                    id: chunk.item.call_id || tracked.id,
                     type: 'function',
                     function: {
                         name: this.getOriginalToolName(chunk.item.name, requestId),
@@ -1429,7 +1654,10 @@ export class CodexConverter extends BaseConverter {
             return null;
         }
 
-        if (type === 'response.reasoning_summary_text.delta') {
+        // Codex 上游对思考文本有两种 delta 事件：偏好的 reasoning_summary_text.delta
+// 与完整思考正文 reasoning_text.delta。旧实现只监听前者，后者被整体丢弃，
+// 导致客户端只拿到摘要、拿不到完整 thinking 内容。
+        if (type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') {
             const events = emitter.ensureStarted();
             const { events: openEvents } = emitter.openBlock('thinking', { type: 'thinking', thinking: '' });
             events.push(...openEvents, emitter.delta({ type: 'thinking_delta', thinking: chunk.delta }));

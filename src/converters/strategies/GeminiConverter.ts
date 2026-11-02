@@ -39,15 +39,29 @@ function isClaudeCodeToolHeuristicsEnabled() {
 }
 
 /**
+ * 归一化 Gemini inlineData（兼容 camelCase 的 inlineData 与 snake_case 的 inline_data）。
+ * 上游不同网关分别使用两种命名，只认一种会丢掉图片。
+ * @param {any} part
+ * @returns {{mimeType: string, data: string}|null}
+ */
+function normalizeInlineData(part: DynamicPayload): { mimeType: string; data: string } | null {
+    const inline = part?.inlineData || part?.inline_data;
+    if (!inline) return null;
+    const mimeType = inline.mimeType || inline.mime_type || 'image/png';
+    const data = inline.data || '';
+    if (!data) return null;
+    return { mimeType, data };
+}
+
+/**
  * 将 Gemini inlineData 渲染为可被 Chat/Responses 客户端消费的 Markdown data URL。
  * @param {any} part
  * @returns {string}
  */
 function inlineDataToMarkdown(part: DynamicPayload): string {
-    const mimeType = part?.inlineData?.mimeType || 'image/png';
-    const data = part?.inlineData?.data || '';
-    if (!data) return '';
-    return `![image](data:${mimeType};base64,${data})`;
+    const inline = normalizeInlineData(part);
+    if (!inline) return '';
+    return `![image](data:${inline.mimeType};base64,${inline.data})`;
 }
 
 /**
@@ -392,7 +406,7 @@ export class GeminiConverter extends BaseConverter {
                         }
                     });
                 }
-                if (part.inlineData) {
+                if (part.inlineData || part.inline_data) {
                     sawPart = true;
                     const markdown = inlineDataToMarkdown(part);
                     if (markdown) content += markdown;
@@ -472,8 +486,8 @@ export class GeminiConverter extends BaseConverter {
     processGeminiResponseContent(geminiResponse: DynamicPayload): DynamicPayload {
         if (!geminiResponse || !geminiResponse.candidates) return { content: '', reasoning_content: '' };
 
-        const contents: DynamicPayload[] = [];
-        const reasoningContents: DynamicPayload[] = [];
+        const contents: string[] = [];
+        const reasoningContents: string[] = [];
 
         geminiResponse.candidates.forEach((candidate: DynamicPayload) => {
             if (candidate.content && candidate.content.parts) {
@@ -484,6 +498,11 @@ export class GeminiConverter extends BaseConverter {
                         } else {
                             contents.push(part.text);
                         }
+                    } else if (part.inlineData || part.inline_data) {
+                        // 非流式路径同样要还原图片：旧实现只处理 part.text，
+                        // 图片模型（gemini-*-image）的非流式响应会被整段丢弃。
+                        const markdown = inlineDataToMarkdown(part);
+                        if (markdown) contents.push(markdown);
                     }
                 });
             }
@@ -634,14 +653,15 @@ export class GeminiConverter extends BaseConverter {
                     }
 
                     // 图片 / inlineData：Anthropic image block 在 start 中携带完整 source
-                    if (part.inlineData) {
+                    const streamingInline = normalizeInlineData(part);
+                    if (streamingInline) {
                         ensureMessageStart();
                         const { events: openEvents } = emitter.openBlock('image', {
                             type: 'image',
                             source: {
                                 type: 'base64',
-                                media_type: part.inlineData.mimeType || 'image/png',
-                                data: part.inlineData.data || ''
+                                media_type: streamingInline.mimeType,
+                                data: streamingInline.data
                             }
                         });
                         events.push(...openEvents, ...emitter.closeActiveBlock());
@@ -732,15 +752,18 @@ export class GeminiConverter extends BaseConverter {
                                 text: part.text
                             });
                         }
-                    } else if (part.inlineData) {
-                        content.push({
-                            type: 'image',
-                            source: {
-                                type: 'base64',
-                                media_type: part.inlineData.mimeType,
-                                data: part.inlineData.data
-                            }
-                        });
+                    } else if (part.inlineData || part.inline_data) {
+                        const inline = normalizeInlineData(part);
+                        if (inline) {
+                            content.push({
+                                type: 'image',
+                                source: {
+                                    type: 'base64',
+                                    media_type: inline.mimeType,
+                                    data: inline.data
+                                }
+                            });
+                        }
                     } else if (part.functionCall) {
                         hasToolUse = true;
                         // [FIX] 规范化工具名称和参数映射
@@ -986,7 +1009,7 @@ export class GeminiConverter extends BaseConverter {
 
                     // 3. 图片 / inlineData：Responses 没有通用的流式 inline image 事件，
                     // 以 Markdown data URL 形式写入文本输出，至少不静默丢弃。
-                    const inlineParts = parts.filter((part: DynamicPayload) => part && part.inlineData);
+                    const inlineParts = parts.filter((part: DynamicPayload) => part && (part.inlineData || part.inline_data));
                     if (inlineParts.length > 0) {
                         if (emitter.reasoningStarted && !emitter.reasoningDoneFlag) {
                             events.push(...emitter.reasoningDone());

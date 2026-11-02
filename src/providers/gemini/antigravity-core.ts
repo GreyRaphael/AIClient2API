@@ -514,8 +514,24 @@ function ensureToolCallIds(contents: DynamicPayload[]): void {
  * @returns {Object} 转换后的请求体
  */
 export function geminiToAntigravity(modelName: string, payload: DynamicPayload, projectId: string | null, capabilities: DynamicPayload | null = null): DynamicPayload {
-    // 深拷贝请求体,避免修改原始对象
-    let template = JSON.parse(JSON.stringify(payload));
+    // 唯一一次全量结构化拷贝：保证不修改调用方传入的 payload（该函数是导出 API，
+    // 单测会复用同一个 payload 对象连续调用两次，必须无副作用）。
+    const template = JSON.parse(JSON.stringify(payload));
+    return geminiToAntigravityInPlace(modelName, template, projectId, capabilities);
+}
+
+/**
+ * `geminiToAntigravity` 的副作用版本：**原地**改写传入的 template 并返回它。
+ *
+ * 仅供已经持有自己副本的内部调用方（`buildAntigravityPayload`）使用——它自己做过
+ * 一次拷贝，再走导出入口就会发生第二次全量深拷贝（含 Base64 图片时严重阻塞）。
+ * 外部调用方请一律使用 `geminiToAntigravity`。
+ */
+function geminiToAntigravityInPlace(modelName: string, template: DynamicPayload, projectId: string | null, capabilities: DynamicPayload | null = null): DynamicPayload {
+    /**
+     * 注意：入参 template 必须是调用方自己独占的副本，本函数会深度改写它。
+     * 函数体内的逻辑与历史上的 geminiToAntigravity 完全一致，只是不再自己做拷贝。
+     */
     // [FIX tool_use.id] 补全 functionCall/functionResponse 的私有 id(原生 Gemini 协议客户端场景)
     ensureToolCallIds(template.request && template.request.contents);
 
@@ -694,57 +710,77 @@ export function geminiToAntigravity(modelName: string, payload: DynamicPayload, 
     }
 
     // 规范化 Thinking 配置
-    template = normalizeAntigravityThinking(modelName, template, isClaudeModel);
-
-    return template;
+    return normalizeAntigravityThinking(modelName, template, isClaudeModel);
 }
 
 /**
- * 过滤 SSE 中的 usageMetadata（仅在最终块中保留）
- * @param {string} line - SSE 行数据
- * @returns {string} 过滤后的行数据
+ * 对象级清洗：非终态的流式帧要丢掉 usageMetadata，只在终帧（带 finishReason）保留。
+ *
+ * 旧实现对每个 `data:` 行调用 filterSSEUsageMetadata，内部 `JSON.parse` -> 删除
+ * usageMetadata -> `JSON.stringify` 拼回字符串，随后 parseSSEStream 又对拼好的
+ * buffer 再做一次 `JSON.parse`——每帧两次 JSON 往返。改为在唯一一次 JSON.parse
+ * 之后原地删除字段，热路径每帧省掉 1 次 JSON.parse + 1 次 JSON.stringify。
+ * @param {Object} data - 已解析的 SSE 帧
+ * @returns {Object} 同一个对象（原地清洗）
  */
-function filterSSEUsageMetadata(line: string): string {
-    if (!line || typeof line !== 'string') return line;
+function stripIntermediateUsageMetadata(data: DynamicPayload): DynamicPayload {
+    if (!data || typeof data !== 'object') return data;
 
-    // 检查是否是 data: 开头的 SSE 数据
-    if (!line.startsWith('data: ')) return line;
+    const hasFinishReason = data?.response?.candidates?.[0]?.finishReason ||
+                           data?.candidates?.[0]?.finishReason;
 
-    try {
-        const jsonStr = line.slice(6); // 移除 'data: ' 前缀
-        const data = JSON.parse(jsonStr);
-
-        // 检查是否有 finishReason，如果没有则移除 usageMetadata
-        const hasFinishReason = data?.response?.candidates?.[0]?.finishReason ||
-                               data?.candidates?.[0]?.finishReason;
-
-        if (!hasFinishReason) {
-            // 移除 usageMetadata
-            if (data.response) {
-                delete data.response.usageMetadata;
-            }
-            if (data.usageMetadata) {
-                delete data.usageMetadata;
-            }
-            return 'data: ' + JSON.stringify(data);
+    if (!hasFinishReason) {
+        if (data.response && typeof data.response === 'object') {
+            delete data.response.usageMetadata;
         }
-    } catch (e) {
-        // 解析失败，返回原始数据
+        if (data.usageMetadata) {
+            delete data.usageMetadata;
+        }
     }
 
-    return line;
+    return data;
 }
 
 /**
  * 将流式响应转换为非流式响应
  * 用于 Claude 模型的非流式请求（实际上是流式请求然后合并）
- * @param {Buffer|string} stream - 流式响应数据
+ *
+ * 入参既可以是原始 SSE 文本（Buffer/string，逐行 JSON.parse，保留单测兼容），
+ * 也可以是**已解析好的帧对象数组**——`executeClaudeNonStream` 直接传对象数组，
+ * 从而省掉「对象 -> JSON.stringify -> join -> split -> JSON.parse」的往返。
+ * 两种入参走完全相同的合并逻辑，输出结构一致。
+ *
+ * @param {Buffer|string|Array<Object>} stream - 流式响应数据或已解析帧数组
  * @returns {Object} 合并后的非流式响应
  */
-function convertStreamToNonStream(stream: Buffer | string): DynamicPayload {
-    const lines = stream.toString().split('\n');
+export function convertStreamToNonStream(stream: Buffer | string | DynamicPayload[]): DynamicPayload {
+    // 帧来源统一成「已解析对象」的迭代器：字符串走逐行 parse，数组直接迭代。
+    // 这样合并逻辑只写一份，且每帧只被解析一次。
+    let frameIterator: Iterator<DynamicPayload>;
+    if (Array.isArray(stream)) {
+        frameIterator = stream[Symbol.iterator]();
+    } else {
+        const lines = stream.toString().split('\n');
+        let lineIndex = 0;
+        frameIterator = {
+            next(): IteratorResult<DynamicPayload> {
+                while (lineIndex < lines.length) {
+                    const trimmed = lines[lineIndex++].trim();
+                    if (!trimmed) continue;
+                    try {
+                        return { value: JSON.parse(trimmed), done: false };
+                    } catch {
+                        // 解析失败的行直接跳过（与原行为一致）
+                        continue;
+                    }
+                }
+                return { value: undefined as unknown as DynamicPayload, done: true };
+            }
+        };
+    }
 
-    let responseTemplate = '';
+    // 只保留最后一个 daemon 响应节点对象引用，避免每帧 JSON.stringify 重建整棵模板。
+    let lastResponseNode: DynamicPayload | null = null;
     let traceId = '';
     let finishReason = '';
     let modelVersion = '';
@@ -797,16 +833,9 @@ function convertStreamToNonStream(stream: Buffer | string): DynamicPayload {
         return m;
     };
 
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        let data: DynamicPayload;
-        try {
-            data = JSON.parse(trimmed);
-        } catch (e) {
-            continue;
-        }
+    for (let step = frameIterator.next(); !step.done; step = frameIterator.next()) {
+        const data = step.value;
+        if (!data || typeof data !== 'object') continue;
 
         let responseNode = data.response;
         if (!responseNode) {
@@ -816,7 +845,8 @@ function convertStreamToNonStream(stream: Buffer | string): DynamicPayload {
                 continue;
             }
         }
-        responseTemplate = JSON.stringify(responseNode);
+        // 仅保留对象引用：最终合并时做一次浅拷贝，不再每帧 JSON.stringify/parse。
+        lastResponseNode = responseNode;
 
         if (data.traceId) {
             traceId = data.traceId;
@@ -880,12 +910,20 @@ function convertStreamToNonStream(stream: Buffer | string): DynamicPayload {
 
     flushPending();
 
-    // 构建最终响应
-    if (!responseTemplate) {
-        responseTemplate = '{"candidates":[{"content":{"role":"model","parts":[]}}]}';
-    }
-
-    let result = JSON.parse(responseTemplate);
+    // 构建最终响应：只对最后一帧的 response 节点做浅层拷贝（response -> candidates
+    // -> [0] -> content 各复制一层），再逐个覆盖 parts/role/finishReason/usage 等字段。
+    // 语义与旧实现（每帧 JSON 序列化整棵模板，末尾再 parse 回来）完全等价，
+    // 但不再每帧做一次全量 JSON 往返，也不会把调用方传入的帧对象改脏。
+    const result: DynamicPayload = lastResponseNode
+        ? {
+            ...lastResponseNode,
+            candidates: Array.isArray(lastResponseNode.candidates)
+                ? lastResponseNode.candidates.map((candidate: DynamicPayload) => (
+                    candidate && typeof candidate === 'object' ? { ...candidate } : candidate
+                ))
+                : lastResponseNode.candidates
+        }
+        : { candidates: [{ content: { role: 'model', parts: [] } }] };
 
     // 设置 parts
     if (!result.candidates) {
@@ -896,6 +934,8 @@ function convertStreamToNonStream(stream: Buffer | string): DynamicPayload {
     }
     if (!result.candidates[0].content) {
         result.candidates[0].content = { role: 'model', parts: [] };
+    } else {
+        result.candidates[0].content = { ...result.candidates[0].content };
     }
     result.candidates[0].content.parts = parts;
 
@@ -1915,6 +1955,18 @@ export class AntigravityApiService {
             }
             rawLines.push(line);
         };
+        // 唯一一次 JSON.parse：解析后立即对象级清洗 usageMetadata。
+        // 旧实现先按行 filterSSEUsageMetadata（parse -> stringify 拼回字符串），
+        // 再在 yield 前二次 parse，每帧两次 JSON 往返。
+        const parseStreamFrame = (text: string, label: string): DynamicPayload | null => {
+            try {
+                return stripIntermediateUsageMetadata(JSON.parse(text));
+            } catch (e) {
+                logger.error(`[Antigravity Stream] Failed to parse ${label} JSON chunk:`, text, 'Error:', getErrorMessage(e));
+                return null;
+            }
+        };
+
         try {
             armIdleTimer();
             for await (let line of rl) {
@@ -1925,15 +1977,13 @@ export class AntigravityApiService {
                 // 只在尚未产出任何 chunk 时留存原始文本：正常 SSE 流不会为此占用内存
                 if (yieldCount === 0 && trimmedLine) collectRaw(trimmedLine);
                 if (trimmedLine.startsWith('data: ')) {
-                    // 过滤 usageMetadata（仅在最终块中保留）
-                    const processedLine = filterSSEUsageMetadata(trimmedLine);
-                    buffer.push(processedLine.slice(6));
+                    // 原始 JSON 直接入 buffer，usageMetadata 在解析后统一清洗
+                    buffer.push(trimmedLine.slice(6));
                 } else if (trimmedLine === '' && buffer.length > 0) {
-                    try {
-                        yield JSON.parse(buffer.join('\n'));
+                    const frame = parseStreamFrame(buffer.join('\n'), '');
+                    if (frame !== null) {
+                        yield frame;
                         yieldCount++;
-                    } catch (e) {
-                        logger.error('[Antigravity Stream] Failed to parse JSON chunk:', buffer.join('\n'), 'Error:', getErrorMessage(e));
                     }
                     buffer = [];
                 } else if (trimmedLine && !trimmedLine.startsWith(':') && !sseFields.test(trimmedLine) && buffer.length > 0) {
@@ -1971,11 +2021,10 @@ export class AntigravityApiService {
         }
 
         if (buffer.length > 0) {
-            try {
-                yield JSON.parse(buffer.join('\n'));
+            const frame = parseStreamFrame(buffer.join('\n'), 'final');
+            if (frame !== null) {
+                yield frame;
                 yieldCount++;
-            } catch (e) {
-                logger.error('[Antigravity Stream] Failed to parse final JSON chunk:', buffer.join('\n'), 'Error:', getErrorMessage(e));
             }
         }
 
@@ -2036,36 +2085,34 @@ export class AntigravityApiService {
         return requestBody;
     }
 
-    buildAntigravityPayload(model: string, requestBody: DynamicPayload): DynamicPayload {
-        let selectedModel = normalizeAntigravityModelId(model);
-        if (!this.availableModels.includes(selectedModel) && !isKnownAntigravityModel(selectedModel)) {
-            // 未知名模型不再静默回退，直接报错
-            throw new Error(`[Antigravity] 模型不存在: ${model}`);
-        }
-
-        const actualModelName = resolveAntigravityUpstreamModel(selectedModel);
-        logger.info(`[Antigravity] Selected model: ${selectedModel} -> upstream: ${actualModelName}`);
+    /**
+     * 构建 Antigravity 请求体。
+     * @param route - 可选：已解析好的路由（`_resolveAntigravityRoute` 的返回值）。
+     *   传入可避免重复解析与重复日志——`generateContentStream` 必须先解析路由
+     *   才能在建包前判定是否回退，随后复用同一份路由建包。
+     */
+    buildAntigravityPayload(model: string, requestBody: DynamicPayload, route: DynamicPayload | null = null): DynamicPayload {
+        const { selectedModel, actualModelName, capabilities } = route || this._resolveAntigravityRoute(model);
 
         if (stripAntigravityReasoningEffort(requestBody)) {
             logger.debug(`[Antigravity] Stripped downstream reasoning_effort for model '${actualModelName}'`);
         }
 
+        // 唯一一次全量深拷贝：processedRequestBody 是本函数独占的副本，
+        // 直接作为 template 交给 geminiToAntigravityInPlace 原地改写。
+        // 旧实现先 deepCopy(requestBody)，再把 { request: copy } 交给 geminiToAntigravity，
+        // 由后者做第二次全量 deepCopy（含 Base64 图片时是纯浪费）。
         const processedRequestBody = ensureRolesInContents(JSON.parse(JSON.stringify(requestBody)), selectedModel);
-        const capabilities = resolveProviderCapabilities({
-            providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY,
-            model: actualModelName,
-            config: this.config || {}
-        });
-        const payload = geminiToAntigravity(actualModelName, { request: processedRequestBody }, this.projectId ?? null, capabilities);
+        const payload = geminiToAntigravityInPlace(actualModelName, { request: processedRequestBody }, this.projectId ?? null, capabilities);
 
         // 若选中的模型以 -high / -medium / -low 结尾，确保思考级别设置为对应等级
-        const targetSuffix = ['-high', '-medium', '-low'].find((s: string) => selectedModel.endsWith(s) || actualModelName.endsWith(s));
+        const targetSuffix = this._resolveModelThinkingSuffix(selectedModel, actualModelName);
         if (targetSuffix) {
             if (!payload.request) payload.request = {};
             if (!payload.request.generationConfig) payload.request.generationConfig = {};
             if (!payload.request.generationConfig.thinkingConfig) payload.request.generationConfig.thinkingConfig = {};
             if (!payload.request.generationConfig.thinkingConfig.thinkingLevel) {
-                payload.request.generationConfig.thinkingConfig.thinkingLevel = targetSuffix.slice(1);
+                payload.request.generationConfig.thinkingConfig.thinkingLevel = targetSuffix;
             }
             payload.request.generationConfig.thinkingConfig.includeThoughts = true;
         }
@@ -2075,13 +2122,54 @@ export class AntigravityApiService {
         return { payload, selectedModel, actualModelName, capabilities };
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
-        if (!this.isInitialized) await this.initialize();
-        logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
+    /**
+     * 解析模型路由：模型名校验 + 上游模型名 + 能力声明。
+     *
+     * 这一步不产生任何深拷贝，因此可以在构建 payload **之前**调用，
+     * 让「是否需要非流式回退」这类只依赖能力/模型名的判定尽早完成。
+     */
+    _resolveAntigravityRoute(model: string): DynamicPayload {
+        const selectedModel = normalizeAntigravityModelId(model);
+        if (!this.availableModels.includes(selectedModel) && !isKnownAntigravityModel(selectedModel)) {
+            // 未知名模型不再静默回退，直接报错
+            throw new Error(`[Antigravity] 模型不存在: ${model}`);
+        }
 
-        this.prepareRequestMetadata(requestBody);
-        const { payload, selectedModel, actualModelName } = this.buildAntigravityPayload(model, requestBody);
+        const actualModelName = resolveAntigravityUpstreamModel(selectedModel);
+        logger.info(`[Antigravity] Selected model: ${selectedModel} -> upstream: ${actualModelName}`);
 
+        const capabilities = resolveProviderCapabilities({
+            providerType: this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY,
+            model: actualModelName,
+            config: this.config || {}
+        });
+
+        return { selectedModel, actualModelName, capabilities };
+    }
+
+    /**
+     * 模型 ID 中的 -high / -medium / -low 档位（无档位时返回 null）。
+     * 档位固化的模型必然开启思考，可用于在构建 payload 之前判定 thinking 需求。
+     */
+    _resolveModelThinkingSuffix(selectedModel: string, actualModelName: string): string | null {
+        const suffix = ['-high', '-medium', '-low'].find(
+            (s: string) => selectedModel.endsWith(s) || actualModelName.endsWith(s)
+        );
+        return suffix ? suffix.slice(1) : null;
+    }
+
+    /**
+     * 用**已经构建好的** payload 执行非流式请求。
+     *
+     * 抽出来供 `generateContent` 与 `generateContentStream` 的非流式回退共用：
+     * 回退路径不再重新 `buildAntigravityPayload`，因此单次请求只发生一次全量深拷贝
+     * （旧实现是 build -> fallback -> build 共两次，叠加内部重复拷贝最多 4 次）。
+     */
+    async _executeNonStreamWithPayload(
+        payload: DynamicPayload,
+        selectedModel: string,
+        actualModelName: string
+    ): Promise<DynamicPayload> {
         // 对于 Claude / Gemini 3 Pro / 图像模型，使用流式请求然后转换为非流式响应
         if (antigravityModelRequiresStreamForNonStream(actualModelName) || antigravityModelRequiresStreamForNonStream(selectedModel)) {
             return await this.executeClaudeNonStream(payload);
@@ -2091,6 +2179,16 @@ export class AntigravityApiService {
         return toGeminiApiResponse(response.response) || {};
     }
 
+    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+        if (!this.isInitialized) await this.initialize();
+        logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
+
+        this.prepareRequestMetadata(requestBody);
+        const { payload, selectedModel, actualModelName } = this.buildAntigravityPayload(model, requestBody);
+
+        return await this._executeNonStreamWithPayload(payload, selectedModel, actualModelName);
+    }
+
     /**
      * 执行 Claude 非流式请求
      * Claude 模型实际上使用流式请求，然后将结果合并为非流式响应
@@ -2098,19 +2196,20 @@ export class AntigravityApiService {
      * @returns {Promise<Object>} 非流式响应
      */
     async executeClaudeNonStream(payload: DynamicPayload): Promise<DynamicPayload> {
-        const chunks: string[] = [];
+        // 直接收集已解析的帧对象：旧实现把每帧 JSON.stringify 后 join 成字符串，
+        // convertStreamToNonStream 再 split + 逐行 JSON.parse，白白多一轮全量往返。
+        const frames: DynamicPayload[] = [];
 
         try {
             const stream = this.streamApi('streamGenerateContent', payload);
             for await (const chunk of stream) {
                 if (chunk) {
-                    chunks.push(JSON.stringify(chunk));
+                    frames.push(chunk);
                 }
             }
 
             // 将流式响应转换为非流式响应
-            const streamData = chunks.join('\n');
-            const nonStreamResponse = convertStreamToNonStream(streamData);
+            const nonStreamResponse = convertStreamToNonStream(frames);
             return toGeminiApiResponse(nonStreamResponse.response) || {};
         } catch (rawError) {
             const error = asAntigravityError(rawError);
@@ -2124,20 +2223,26 @@ export class AntigravityApiService {
         logger.info(`[Antigravity Auth Token] Time until expiry: ${formatExpiryTime(this.authClient.credentials.expiry_date)}`);
 
         this.prepareRequestMetadata(requestBody);
-        const { payload, actualModelName, capabilities } = this.buildAntigravityPayload(model, requestBody);
 
         // Antigravity 的 streamGenerateContent 不返回 thought 文本，只有非流式
         // generateContent 才带 thought parts。需要 thinking 且上游声明不支持流式思考时，
         // 回退到非流式并在网关侧合成一个完整 chunk，保证 reasoning 不丢失。
-        const includeThoughts = payload?.request?.generationConfig?.thinkingConfig?.includeThoughts === true;
-        const fallbackEnabled = getConfigToggle('GEMINI_STREAM_THOUGHTS_FALLBACK', true);
-        if (fallbackEnabled && includeThoughts && capabilities?.supportsStreamingThoughts === false) {
+        //
+        // 判定必须发生在 buildAntigravityPayload **之前**：回退分支完全不需要流式 payload，
+        // 提前判定可以让回退路径整条省掉一次建包（含全量深拷贝），
+        // 旧实现是 build -> fallback -> generateContent 内再 build，单请求最多 4 次全量深拷贝。
+        const route = this._resolveAntigravityRoute(model);
+        const { selectedModel, actualModelName, capabilities } = route;
+        if (this._shouldFallbackToNonStream(selectedModel, actualModelName, capabilities)) {
             logger.info(`[Antigravity] Streaming response for ${actualModelName} does not expose thought text; falling back to non-stream generateContent.`);
-            const response = await this.generateContent(model, requestBody);
+            // 只建一次包：回退路径直接用它发非流式请求，不再像旧实现那样重新 build 一遍。
+            const { payload } = this.buildAntigravityPayload(model, requestBody, route);
+            const response = await this._executeNonStreamWithPayload(payload, selectedModel, actualModelName);
             if (response) yield response;
             return;
         }
 
+        const { payload } = this.buildAntigravityPayload(model, requestBody, route);
         const stream = this.streamApi('streamGenerateContent', payload);
         for await (const chunk of stream) {
             // 上游可能出现不含 response 字段的帧（错误帧/心跳等），此时 toGeminiApiResponse 返回 null。
@@ -2147,6 +2252,44 @@ export class AntigravityApiService {
             if (!converted) continue;
             yield converted;
         }
+    }
+
+    /**
+     * 判断流式请求是否应回退为非流式。
+     *
+     * 只依赖「模型名 + 能力声明」，不依赖已经构建好的 payload，因此可以在
+     * `buildAntigravityPayload` **之前**调用：回退路径不会再白白构建一份用不到的
+     * 流式 payload（旧实现 build 一次丢弃、generateContent 内部再 build 一次，
+     * 叠加 geminiToAntigravity 的重复深拷贝，单请求最多 4 次全量深拷贝）。
+     *
+     * 与「构建后 payload 中 `includeThoughts === true`」等价，依据如下：
+     * 1. `buildAntigravityPayload` 在建包前调用 `stripAntigravityReasoningEffort`，
+     *    会删除下游传入的 `generationConfig.thinkingConfig`（档位由模型 ID 固化）；
+     * 2. 因此建包后 thinking 配置只剩三个来源：
+     *    - 模型 ID 的 `-high/-medium/-low` 档位：`buildAntigravityPayload` 末尾强制写
+     *      `includeThoughts = true`（优先级最高，会覆盖图像模型的 false）；
+     *    - 图像模型：`geminiToAntigravity` 显式写 `includeThoughts = false`；
+     *    - Claude 5.5 分级模型：`geminiToAntigravity` 固定写 `includeThoughts = true`；
+     *    - 其余模型：thinkingConfig 已被剥离且无人重建，故为 false。
+     */
+    _shouldFallbackToNonStream(
+        selectedModel: string,
+        actualModelName: string,
+        capabilities: DynamicPayload | null
+    ): boolean {
+        if (capabilities?.supportsStreamingThoughts !== false) return false;
+        if (!getConfigToggle('GEMINI_STREAM_THOUGHTS_FALLBACK', true)) return false;
+        return this._payloadWillIncludeThoughts(selectedModel, actualModelName);
+    }
+
+    /** 构建后的 payload 是否会带 `includeThoughts === true`（不产生任何拷贝）。 */
+    _payloadWillIncludeThoughts(selectedModel: string, actualModelName: string): boolean {
+        // 档位固化的模型在 buildAntigravityPayload 末尾强制开启 thinking（最高优先级）
+        if (this._resolveModelThinkingSuffix(selectedModel, actualModelName)) return true;
+        // 图像模型由 geminiToAntigravity 显式关闭 thinking
+        if (isImageModel(actualModelName)) return false;
+        // Claude 5.5 分级模型由 geminiToAntigravity 固定开启 thinking
+        return isClaude55(actualModelName);
     }
 
     isExpiryDateNear() {
