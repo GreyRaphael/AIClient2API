@@ -17,17 +17,18 @@
         }
     }
     </script>
-    <link rel="stylesheet" href="ui/styles/base.css">
     <script>
-        // 与主界面保持一致：提前应用已保存的主题，避免闪烁
+        // 尽早应用主题，避免首屏闪白。本块由 scripts/gen-webui-html-head.mjs 生成，勿手改。
+        // 三条分支缺一不可：手动选择 > 系统偏好 > 静默失败。
         (function () {
             try {
                 var t = localStorage.getItem('theme');
                 if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
                 if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-            } catch (e) {}
+            } catch (e) { /* localStorage 可能被禁用 */ }
         })();
     </script>
+    <link rel="stylesheet" href="ui/styles/base.css">
     <link rel="stylesheet" href="ui/styles/shared.css">
     <link rel="stylesheet" href="ui/styles/pages/login.css">
     <link rel="stylesheet" href="vendor/fontawesome@6.7.2/fa-subset.css">

@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#059669">
     <script>
-        // 提前应用已保存的主题，避免闪烁
+        // 尽早应用主题，避免首屏闪白。本块由 scripts/gen-webui-html-head.mjs 生成，勿手改。
+        // 三条分支缺一不可：手动选择 > 系统偏好 > 静默失败。
         (function () {
             try {
                 var t = localStorage.getItem('theme');
                 if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
                 if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-            } catch (e) {}
+            } catch (e) { /* localStorage 可能被禁用 */ }
         })();
     </script>
 

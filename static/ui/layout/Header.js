@@ -94,8 +94,7 @@ export function Header() {
                     onClick=${(event) => { event.stopPropagation(); setMenuOpen(!menuOpen); }}>
                     <i class=${menuOpen ? 'fas fa-times' : 'fas fa-bars'}></i>
                 </button>
-                <div class="header-controls" id="headerControls"
-                    style=${menuOpen ? 'display: flex;' : 'display: none;'}>
+                <div class=${`header-controls${menuOpen ? ' is-open' : ''}`} id="headerControls">
                     <a href="https://github.com/GreyRaphael/AIClient2API" target="_blank" rel="noopener noreferrer"
                         class="github-link" aria-label=${t('header.github')} title=${t('header.github')}>
                         <i class="fab fa-github" aria-hidden="true"></i>

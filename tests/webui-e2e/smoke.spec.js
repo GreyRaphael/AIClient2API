@@ -1131,3 +1131,43 @@ test.describe('plugin pages', () => {
     });
 });
 
+
+test.describe('mobile header', () => {
+    test('390px 下汉堡菜单可开合，展开后各控件可见', async ({ authedPage: page, problems }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto('/#dashboard');
+        await expect(page.locator('section#dashboard.active')).toBeVisible();
+
+        // 折叠态：菜单按钮可见、控件组隐藏
+        const toggle = page.locator('#mobileMenuToggle');
+        await expect(toggle).toBeVisible();
+        await expect(page.locator('#headerControls')).toBeHidden();
+
+        // 展开：JS 现在只切换 .is-open 类（不再写内联 display），
+        // 移动端样式靠 `.header .header-controls.is-open` 这一组规则接管。
+        await toggle.click();
+        const controls = page.locator('#headerControls');
+        await expect(controls).toBeVisible();
+        await expect(controls).toHaveClass(/is-open/);
+        // 展开后的 key 控件必须真的渲染成可见盒子（曾因样式选择器与内联样式解耦而整块失效）
+        for (const sel of ['#themeToggleBtn', '#logoutBtn', '#restartBtn', '.status-badge']) {
+            await expect(controls.locator(sel)).toBeVisible();
+        }
+
+        // 再点一次收回
+        await toggle.click();
+        await expect(controls).toBeHidden();
+        await expect(controls).not.toHaveClass(/is-open/);
+
+        expect(problems).toEqual([]);
+    });
+
+    test('桌面宽度下控件组始终可见（.is-open 不影响桌面态）', async ({ authedPage: page, problems }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto('/#dashboard');
+        await expect(page.locator('#headerControls')).toBeVisible();
+        // 桌面端不应出现移动端的展开类
+        await expect(page.locator('#headerControls')).not.toHaveClass(/is-open/);
+        expect(problems).toEqual([]);
+    });
+});

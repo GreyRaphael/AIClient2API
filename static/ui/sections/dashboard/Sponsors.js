@@ -67,14 +67,14 @@ export function DashboardContact() {
 const SPONSORS = [
     {
         key: 'packycode',
-        logo: 'static/packycode.png',
+        logo: 'static/packycode.webp',
         href: 'https://www.packyapi.com/register?aff=AIClient2API',
         alt: 'PackyCode Sponsor',
         descKey: 'sponsors.packyDesc'
     },
     {
         key: 'vmcard',
-        logo: 'static/vmcard.png',
+        logo: 'static/vmcard.webp',
         href: 'https://vmcardio.com/zh/register?code=902506',
         alt: 'VMCard Sponsor',
         descKey: 'sponsors.vmcardDesc'

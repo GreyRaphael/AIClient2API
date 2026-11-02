@@ -31,7 +31,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://www.packyapi.com/register?aff=AIClient2API">
-        <img src="static/packycode.png" alt="PackyCode Sponsor" width="180">
+        <img src="static/packycode.webp" alt="PackyCode Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">
@@ -42,7 +42,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://apikey.fun/register?aff=AIClient2API">
-        <img src="static/apikey.fun.png" alt="APIKEY.FUN Sponsor" width="180">
+        <img src="docs/assets/sponsors/apikey.fun.png" alt="APIKEY.FUN Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">
@@ -54,7 +54,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://visioncoder.cn">
-        <img src="static/visioncoder.png" alt="VisionCoder Sponsor" width="180">
+        <img src="docs/assets/sponsors/visioncoder.png" alt="VisionCoder Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">
@@ -66,7 +66,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://www.aicodemirror.com/register?invitecode=5BUE62">
-        <img src="static/aicodemirror.jpg" alt="AICodeMirror Sponsor" width="180">
+        <img src="docs/assets/sponsors/aicodemirror.jpg" alt="AICodeMirror Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">
@@ -79,7 +79,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://poixe.com/i/ebmvga">
-        <img src="static/poixeai.png" alt="Poixe AI Sponsor" width="180">
+        <img src="docs/assets/sponsors/poixeai.png" alt="Poixe AI Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">
@@ -91,7 +91,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://www.lingtrue.com/register?aff=MP34">
-        <img src="static/lingtrueapi.png" alt="LingtrueAPI Sponsor" width="180">
+        <img src="docs/assets/sponsors/lingtrueapi.png" alt="LingtrueAPI Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">
@@ -102,7 +102,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://vmcardio.com/zh/register?code=902506">
-        <img src="static/vmcard.png" alt="VMCard Sponsor" width="180">
+        <img src="static/vmcard.webp" alt="VMCard Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">

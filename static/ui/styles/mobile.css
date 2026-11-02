@@ -150,8 +150,9 @@
         position: relative;
     }
 
-    /* 当通过JS设置display: flex时显示 */
-    .header .header-controls[style*="display: flex"] {
+    /* 展开状态：JS 只切换 .is-open，不再写内联 display
+        （内联样式被格式化就会让这一整组规则失效，曾被这个耦合坑过） */
+    .header .header-controls.is-open {
         display: flex !important;
         animation: slideDown 0.3s ease;
         background: var(--bg-glass);
@@ -168,12 +169,12 @@
     }
 
     /* 统一header-controls内所有元素的大小 */
-    .header .header-controls[style*="display: flex"] > * {
+    .header .header-controls.is-open > * {
         flex: 0 0 auto;
     }
 
     /* 状态徽章 */
-    .header .header-controls[style*="display: flex"] .status-badge {
+    .header .header-controls.is-open .status-badge {
         padding: 0.5rem 0.75rem;
         font-size: 0.75rem;
         border-radius: var(--radius-full);
@@ -183,7 +184,7 @@
     }
 
     /* GitHub Star 引导在展开菜单中保留文字 */
-    .header .header-controls[style*="display: flex"] .github-link {
+    .header .header-controls.is-open .github-link {
         width: auto;
         min-height: 40px;
         padding: 0.5rem 0.75rem;
@@ -194,7 +195,7 @@
     }
 
     /* 主题切换按钮 */
-    .header .header-controls[style*="display: flex"] .theme-toggle {
+    .header .header-controls.is-open .theme-toggle {
         width: 40px;
         height: 40px;
         border-radius: 50%;
@@ -204,7 +205,7 @@
     }
 
     /* 登出按钮 - 与语言切换按钮样式一致 */
-    .header .header-controls[style*="display: flex"] .logout-btn {
+    .header .header-controls.is-open .logout-btn {
         padding: 0.5rem 1rem;
         background: transparent;
         color: var(--text-secondary);
@@ -220,19 +221,19 @@
         transition: var(--transition);
     }
 
-    .header .header-controls[style*="display: flex"] .logout-btn:hover {
+    .header .header-controls.is-open .logout-btn:hover {
         background: var(--bg-tertiary);
         color: var(--primary-color);
         border-color: var(--primary-color);
         transform: translateY(-1px);
     }
 
-    .header .header-controls[style*="display: flex"] .logout-btn span {
+    .header .header-controls.is-open .logout-btn span {
         display: inline;
     }
 
     /* 重启按钮 - 与语言切换按钮样式一致 */
-    .header .header-controls[style*="display: flex"] #restartBtn {
+    .header .header-controls.is-open #restartBtn {
         padding: 0.5rem 1rem;
         background: transparent;
         color: var(--text-secondary);
@@ -248,14 +249,14 @@
         transition: var(--transition);
     }
 
-    .header .header-controls[style*="display: flex"] #restartBtn:hover {
+    .header .header-controls.is-open #restartBtn:hover {
         background: var(--bg-tertiary);
         color: var(--primary-color);
         border-color: var(--primary-color);
         transform: translateY(-1px);
     }
 
-    .header .header-controls[style*="display: flex"] #restartBtn .btn-text {
+    .header .header-controls.is-open #restartBtn .btn-text {
         display: inline;
     }
 

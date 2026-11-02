@@ -8,12 +8,15 @@
     <title>AIClient2API - 管理控制台</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <script>
-        // 尽早应用保存的主题，避免首屏闪白
-        try {
-            if (localStorage.getItem('theme') === 'dark') {
-                document.documentElement.setAttribute('data-theme', 'dark');
-            }
-        } catch (e) { /* ignore */ }
+        // 尽早应用主题，避免首屏闪白。本块由 scripts/gen-webui-html-head.mjs 生成，勿手改。
+        // 三条分支缺一不可：手动选择 > 系统偏好 > 静默失败。
+        (function () {
+            try {
+                var t = localStorage.getItem('theme');
+                if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
+                if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+            } catch (e) { /* localStorage 可能被禁用 */ }
+        })();
     </script>
     <link rel="stylesheet" href="ui/styles/base.css">
     <link rel="stylesheet" href="ui/styles/shared.css?v=20261028-1">

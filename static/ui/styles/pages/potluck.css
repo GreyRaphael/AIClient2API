@@ -1,18 +1,5 @@
-body {
-            background: var(--bg-secondary);
-            min-height: 100vh;
-        }
-
         /* 顶部导航 */
-        .navbar {
-            background: var(--bg-primary);
-            border-bottom: 1px solid var(--border-color);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            box-shadow: var(--shadow-sm);
-        }
-        .navbar-inner {
+                .navbar-inner {
             max-width: 1400px;
             margin: 0 auto;
             padding: 0 24px;
@@ -21,19 +8,7 @@ body {
             align-items: center;
             justify-content: space-between;
         }
-        .navbar-brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-        .navbar-brand .icon {
-            font-size: 28px;
-            color: var(--primary-color);
-        }
-        .navbar-brand .badge {
+                        .navbar-brand .badge {
             background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
             color: var(--white);
             font-size: 11px;
@@ -56,35 +31,8 @@ body {
             gap: 1.5rem;
             margin-bottom: 2rem;
         }
-        .stat-card {
-            background: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-xl);
-            padding: 1.5rem;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-            box-shadow: var(--shadow-sm);
-            transition: var(--transition);
-        }
-        .stat-card:hover {
-            transform: translateY(-4px);
-            box-shadow: var(--shadow-lg);
-            border-color: var(--primary-30);
-        }
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-        }
-        .stat-card.purple::before { background: linear-gradient(90deg, var(--indigo-500), var(--indigo-600)); }
-        .stat-card.green::before { background: linear-gradient(90deg, var(--success-color), var(--primary-light)); }
-        .stat-card.pink::before { background: linear-gradient(90deg, #ec4899, #f472b6); }
-        .stat-card.cyan::before { background: linear-gradient(90deg, var(--info-color), #22d3ee); }
-        .stat-card .label {
+                                                .stat-card.pink::before { background: linear-gradient(90deg, #ec4899, #f472b6); }
+                .stat-card .label {
             font-size: 12px;
             color: var(--text-secondary);
             margin-bottom: 8px;
@@ -97,55 +45,10 @@ body {
         .stat-card.purple .value { color: var(--indigo-500); }
         .stat-card.green .value { color: var(--success-color); }
         .stat-card.pink .value { color: #ec4899; }
-        .stat-card.cyan .value { color: var(--info-color); }
+                /* 分布统计样式 */
+                                                                /* 区块标题 */
 
-        /* 分布统计样式 */
-        .distribution-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .distribution-item {
-            width: 100%;
-        }
-        .dist-info {
-            display: flex;
-            justify-content: space-between;
-            font-size: 13px;
-            margin-bottom: 4px;
-        }
-        .dist-name {
-            color: var(--text-primary);
-            font-weight: 500;
-        }
-        .dist-count {
-            color: var(--text-secondary);
-        }
-        .dist-bar {
-            height: 8px;
-            background: var(--bg-tertiary);
-            border-radius: var(--radius-full);
-            overflow: hidden;
-        }
-        .dist-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary-color), var(--primary-light));
-            border-radius: var(--radius-full);
-        }
-
-        /* 区块标题 */
-
-        .section-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        /* 工具栏 */
+                /* 工具栏 */
         .toolbar {
             display: flex;
             gap: 12px;
@@ -380,15 +283,7 @@ body {
         }
 
         /* 表单 */
-        .form-group { margin-bottom: 20px; }
-        .form-group label {
-            display: block;
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-weight: 500;
-            margin-bottom: 8px;
-        }
-        .form-group input {
+                        .form-group input {
             width: 100%;
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
@@ -431,11 +326,7 @@ body {
             padding: 40px;
             color: var(--text-secondary);
         }
-        .btn {
-            height: 2.5rem;
-        }
-
-        /* 响应式 */
+                /* 响应式 */
         @media (max-width: 1024px) {
             .key-card { gap: 12px; }
             .key-stats { gap: 16px; }
@@ -523,12 +414,7 @@ body {
         }
 
         /* 按钮扩展样式 */
-        .btn-block {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .btn-lg {
+                .btn-lg {
             padding: 0.75rem 1.5rem;
             font-size: 1rem;
         }
@@ -558,34 +444,5 @@ body {
             font-size: 1.125rem;
             transition: var(--transition);
         }
-        .theme-toggle:hover {
-            background: var(--bg-secondary);
-            border-color: var(--primary-color);
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
-        }
-        .theme-toggle .fa-sun { display: none; }
-        .theme-toggle .fa-moon { display: inline-block; }
-        [data-theme="dark"] .theme-toggle .fa-sun { display: inline-block; }
-        [data-theme="dark"] .theme-toggle .fa-moon { display: none; }
-
-        /* Calendar Styles */
-        .calendar-panel { background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius-xl); padding: 20px; margin-bottom: 2rem; box-shadow: var(--shadow-sm); }
-        .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .calendar-legend { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-tertiary); }
-        .calendar-legend .level { width: 10px; height: 10px; border-radius: 2px; }
-        .calendar-wrapper { overflow-x: auto; padding: 25px 0 10px; scrollbar-width: thin; margin-top: -15px; display: flex; justify-content: center; }
-        .calendar-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 11px); gap: 3px; min-width: max-content; padding: 2px; }
-        .calendar-day { width: 11px; height: 11px; border-radius: 2px; background: var(--bg-secondary); position: relative; cursor: pointer; transition: transform 0.1s; }
-        .calendar-day:hover { transform: scale(1.2); z-index: 10; outline: 1px solid var(--primary-color); }
-        .calendar-footer { margin-top: 10px; font-size: 12px; color: var(--text-tertiary); text-align: right; }
-        .calendar-day[data-level="0"] { background: var(--bg-secondary); }
-        .level-1, .calendar-day[data-level="1"] { background: #9be9a8; }
-        .calendar-day[data-level="2"] { background: #40c463; }
-        .calendar-day[data-level="3"] { background: #30a14e; }
-        .level-4, .calendar-day[data-level="4"] { background: #216e39; }
-        [data-theme="dark"] .level-1, [data-theme="dark"] .calendar-day[data-level="1"] { background: #0e4429; }
-        [data-theme="dark"] .calendar-day[data-level="2"] { background: #006d32; }
-        [data-theme="dark"] .calendar-day[data-level="3"] { background: #26a641; }
-        [data-theme="dark"] .level-4, [data-theme="dark"] .calendar-day[data-level="4"] { background: #39d353; }
-        .calendar-tooltip { position: fixed; padding: 6px 10px; background: rgba(0,0,0,0.9); color: var(--white); font-size: 11px; border-radius: 4px; pointer-events: none; z-index: 1000; display: none; box-shadow: 0 3px 10px rgba(0,0,0,0.3); white-space: pre-line; line-height: 1.4; }
+                                                /* Calendar Styles */
+                                                                                                                                                        
