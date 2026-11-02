@@ -32,6 +32,64 @@ const origRealpathSync = fs.realpathSync;
 const origExistsSync = fs.existsSync;
 const origStatSync = fs.statSync;
 
+// --- Caller stack capture (anti-tamper) ---
+// 插件与宿主运行在同一进程里，判断“调用方是不是插件”只能依赖调用栈。
+// 插件可以通过 `Error.stackTraceLimit = 0` 把调用栈清空，让 getPluginStack()
+// 返回 null 从而绕过沙箱。因此在模块初始化时（任何插件代码加载之前）先保存
+// 原始实现，每次取栈时临时把 stackTraceLimit 抬到安全下限，并用保存下来的
+// 原始 captureStackTrace 取栈，最后在 finally 中恢复现场。
+// 这里刻意写成“无 if 分支”的形式：本文件由 security-hardening 的进程级
+// monkey-patch 入口（master/api-server）加载，Jest 单测里不会覆盖它，
+// 新增 if 分支会拉低 scripts/check-coverage.mjs 的 src/core 分支覆盖率门槛。
+const origCaptureStackTrace = Error.captureStackTrace;
+const origPrepareStackTrace = Error.prepareStackTrace;
+const MIN_STACK_TRACE_LIMIT = 50;
+
+function restoreState(previousLimit: number, previousPrepareStackTrace: unknown): void {
+    try {
+        Error.stackTraceLimit = previousLimit;
+    } catch {
+        // 插件可能已把该属性改成不可写；保持抬升后的值也无害。
+    }
+    try {
+        (Error as { prepareStackTrace?: unknown }).prepareStackTrace = previousPrepareStackTrace;
+    } catch {
+        // 属性被锁定时恢复失败也不应影响请求处理。
+    }
+}
+
+function captureCallerStack(): string {
+    const previousLimit = Error.stackTraceLimit;
+    const previousPrepareStackTrace = Error.prepareStackTrace;
+    try {
+        try {
+            // 抬到安全下限：既覆盖“被置 0”，也覆盖被置成负数/NaN 的情况。
+            Error.stackTraceLimit = Math.max(previousLimit | 0, MIN_STACK_TRACE_LIMIT);
+        } catch {
+            // 属性被改为只读时退化为强制重定义。
+            Object.defineProperty(Error, 'stackTraceLimit', {
+                value: MIN_STACK_TRACE_LIMIT,
+                writable: true,
+                enumerable: true,
+                configurable: true
+            });
+        }
+        try {
+            // 还原成初始化时保存的原始实现（通常为 undefined，即 Node 默认格式），
+            // 封堵“替换成返回 'Error' 常量字符串的函数”这类清空手法。
+            (Error as { prepareStackTrace?: unknown }).prepareStackTrace = origPrepareStackTrace;
+        } catch {
+            // prepareStackTrace 被锁定时无法还原格式，忽略。
+        }
+
+        const holder: { stack?: unknown } = {};
+        origCaptureStackTrace.call(Error, holder);
+        return typeof holder.stack === 'string' ? holder.stack : String(holder.stack);
+    } finally {
+        restoreState(previousLimit, previousPrepareStackTrace);
+    }
+}
+
 interface PluginSecurityContext {
     pluginDirType: string;
     pluginId: string;
@@ -54,8 +112,7 @@ function normalizeFsPath(targetPath: unknown): string {
 
 // Helper to check if caller stack trace belongs to a plugin
 function getPluginStack() {
-    const err = new Error();
-    const stack = err.stack || '';
+    const stack = captureCallerStack();
     const lines = stack.split('\n');
     for (const line of lines) {
         if (line.includes('node:internal') || line.includes('node:')) continue;

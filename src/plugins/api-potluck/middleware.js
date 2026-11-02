@@ -4,7 +4,7 @@
  */
 
 import { KEY_PREFIX } from './key-manager.js';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 
 /**
  * 从请求中提取 Potluck API Key

@@ -3,14 +3,14 @@
  * 使用内存缓存 + 写锁 + 定期持久化，解决并发安全问题
  */
 
-import { atomicWriteFile, atomicWriteFileSync } from '../../utils/file-lock.js';
+import { atomicWriteFile, atomicWriteFileSync } from '../../utils/file-lock.ts';
 import { promises as fs } from 'fs';
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { RateManager } from '../../utils/rate-tracker.js';
-import { getBeijingDateString } from '../../utils/common.js';
+import { RateManager } from '../../utils/rate-tracker.ts';
+import { getBeijingDateString } from '../../utils/common.ts';
 
 // 配置文件路径
 const KEYS_STORE_FILE = path.join(process.cwd(), 'configs', 'api-potluck-keys.json');

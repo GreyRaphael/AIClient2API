@@ -1,11 +1,11 @@
-import { atomicWriteFile, atomicWriteFileSync } from '../../utils/file-lock.js';
+import { atomicWriteFile, atomicWriteFileSync } from '../../utils/file-lock.ts';
 import { promises as fs } from 'fs';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import path from 'path';
-import logger from '../../utils/logger.js';
-import { RateManager } from '../../utils/rate-tracker.js';
-import { toNumber, mergeUsage, extractUsage } from '../../utils/usage-normalizer.js';
-import { getBeijingDateString } from '../../utils/common.js';
+import logger from '../../utils/logger.ts';
+import { RateManager } from '../../utils/rate-tracker.ts';
+import { toNumber, mergeUsage, extractUsage } from '../../utils/usage-normalizer.ts';
+import { getBeijingDateString } from '../../utils/common.ts';
 
 const STATS_STORE_FILE = path.join(process.cwd(), 'configs', 'model-usage-stats.json');
 const DEFAULT_CONFIG = {

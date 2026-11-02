@@ -9,7 +9,7 @@
  * 4. URL query: ?key=<key>
  */
 
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 
 /**
  * 检查请求是否已授权

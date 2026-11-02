@@ -1,6 +1,6 @@
-import logger from '../../utils/logger.js';
-import { checkAuth } from '../../ui-modules/auth.js';
-import { isAuthorized } from '../../utils/common.js';
+import logger from '../../utils/logger.ts';
+import { checkAuth } from '../../ui-modules/auth.ts';
+import { isAuthorized } from '../../utils/common.ts';
 import { getStats, resetStats, resetTokenStats } from './stats-manager.js';
 
 function sendJson(res, statusCode, data) {

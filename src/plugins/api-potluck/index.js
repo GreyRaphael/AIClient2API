@@ -31,11 +31,11 @@ import {
     sendPotluckError
 } from './middleware.js';
 
-import logger from '../../utils/logger.js';
+import logger from '../../utils/logger.ts';
 
 import { handlePotluckApiRoutes, handlePotluckUserApiRoutes } from './api-routes.js';
 
-import { mergeUsage, extractUsage } from '../../utils/usage-normalizer.js';
+import { mergeUsage, extractUsage } from '../../utils/usage-normalizer.ts';
 
 const pendingUsage = new Map();
 

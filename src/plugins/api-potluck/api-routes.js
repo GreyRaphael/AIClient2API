@@ -20,8 +20,8 @@ import {
     applyDailyLimitToAllKeys,
     resetAllTokenStats
 } from './key-manager.js';
-import { getRequestBody } from '../../utils/common.js';
-import logger from '../../utils/logger.js';
+import { getRequestBody } from '../../utils/common.ts';
+import logger from '../../utils/logger.ts';
 
 /**
  * 发送 JSON 响应
