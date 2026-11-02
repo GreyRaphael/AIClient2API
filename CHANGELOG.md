@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-WebUI「美观与简洁」的第二轮优化。**无破坏性变更、无配置迁移、公开 API 零改动**。
+## [v6.2.0] - 2026-11-02
+
+WebUI「美观与简洁」的第二轮优化与样式架构深化。**无破坏性变更、无配置迁移、公开 API 零改动**。
 以「不必过度追求 UI 保持原样」为前提，把省下来的地方从"像素完全不变"换成
 "更统一 + 更少代码"，并把每一处视觉变化都落进计算样式契约的 diff 里。
 
 ### Added
 
 - `--space-1..--space-20`（2px 网格）与 `--text-xs..--text-2xl`（7 档）设计尺度令牌。
+- `components/PasswordInput.js`：通用密码输入组件（仅编辑态支持回读明文、展开期间强制只读，保证密码安全）。
+- `lib/api.js#downloadBlob`：通用 Blob 文件下载辅助函数，统一各页面下载触发逻辑。
+- `lib/sse.js#streamBatchImport`：统一封装 POST + SSE 批量导入与鉴权错误解析。
+- `components/DistributionList.js`：支持自定义格式化函数与空状态插槽，并在 `model-usage-stats.js` 中复用以淘汰重复的局部条形图实现。
 - `scripts/webui-html-shell.mjs` + `scripts/gen-webui-html-head.mjs`：5 份 HTML 的
   import map 与主题引导脚本的单一真源；`npm run gen:webui-html:check` 纳入 `verify`。
 - `lib/page-boot.js`：4 个独立页共用的启动器（收敛 4 份逐字重复的 `boot()`）。
@@ -30,8 +36,11 @@ WebUI「美观与简洁」的第二轮优化。**无破坏性变更、无配置�
 - 5 张只被 README 引用的图（305 KB）移到 `docs/assets/sponsors/`；`static/` 1.8 MB → 1.3 MB。
 - **字号从 39 种有效取值收敛到 7 档**（密集 UI 10–18px）；圆角全部走 `--radius-*`；
   gap 走 2px 网格；px/rem 写法统一。82 条字号变化最大偏移 0.85px。
-- **mobile.css 拆分**：103 条只服务单一 section 的响应式规则迁入各自 section 文件，
-  29.6 KB → 19.2 KB（br 3.9 → 3.1 KB）。
+- **mobile.css 拆分与瘦身**：单 section 响应式规则回迁入各自 section 文件，
+  `mobile.css` 体积从 29.6 KB 降至 17.9 KB（br 3.9 → 2.9 KB）。
+- **共享原子类上收与解耦**：密码框（`.password-input-wrapper` / `.password-toggle`）与开关（`.toggle-switch` / `.toggle-slider`）收拢至 `shared.css` 权威定义，`lib/section-styles.js` 解除跨模块隐式依赖。
+- **各面板与独立插件页样式去重**：`alignment.css` 剥离页面专有规则并回迁；`plugin-shared.css` 统一作为 potluck、potluck-user 与 model-usage-stats 的共享底座。
+- **业务弹窗与下载逻辑规范化**：`plugins.js` 统一接入 `Modal` 组件；`upload-config` 与 `usage` 下载接入 `downloadBlob`；`AuthDialog` 与 `KiroAwsImportModal` 接入 `streamBatchImport`。
 
 ### Fixed
 
@@ -48,9 +57,9 @@ WebUI「美观与简洁」的第二轮优化。**无破坏性变更、无配置�
 ### Removed
 
 - `base.css` 里「统一卡片圆角」聚合规则（死代码：CSSOM 置空后 6 个 section 的
-  computed style 零变化）与 3 个被更晚同名规则完全覆盖的早期副本。
-- `potluck.css` 中与 `plugin-shared.css` 逐字节相同的 47 条规则
-  （两个文件被同一页面同时加载，属真实冗余）。
+  computed style 零变化）与 3 个被更晚同名规则完全覆盖的早期副本；清理未使用的颜色与状态变量。
+- `potluck.css` 中与 `plugin-shared.css` 逐字节相同的 47 条规则。
+- `model-usage-stats.js` 冗余的局部 `Bars` 条形图实现。
 - `lib/section-styles.js#__resetSectionStyles`（无引用）。
 
 ## [v6.1.0] - 2026-11-02
