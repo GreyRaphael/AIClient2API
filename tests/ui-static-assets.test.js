@@ -12,7 +12,7 @@
  */
 
 import { describe, test, expect } from '@jest/globals';
-import { readFileSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
 const STATIC_ROOT = path.join(process.cwd(), 'static');
@@ -54,7 +54,6 @@ describe('静态图片资产', () => {
 
     test('应用引用的图片都在体积上限内', () => {
         const images = listStaticImages();
-        expect(images.length).toBeGreaterThan(0);
         const oversized = images
             .map((file) => ({
                 file: path.relative(STATIC_ROOT, file),
@@ -73,15 +72,10 @@ describe('静态图片资产', () => {
         expect(orphans).toEqual([]);
     });
 
-    test('赞助商 logo 用 webp 且被 dashboard 引用', () => {
-        const sponsors = readFileSync(
-            path.join(UI_ROOT, 'sections', 'dashboard', 'Sponsors.js'),
-            'utf8'
-        );
-        expect(sponsors).toContain('static/packycode.webp');
-        expect(sponsors).toContain('static/vmcard.webp');
+    test('static/ 下无残留赞助商图片，赞助商资产集中在 docs/assets/sponsors/', () => {
         for (const name of ['packycode.webp', 'vmcard.webp']) {
-            expect(statSync(path.join(STATIC_ROOT, name)).isFile()).toBe(true);
+            expect(existsSync(path.join(STATIC_ROOT, name))).toBe(false);
+            expect(statSync(path.join(process.cwd(), 'docs', 'assets', 'sponsors', name)).isFile()).toBe(true);
         }
     });
 });

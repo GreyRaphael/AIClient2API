@@ -1,4 +1,4 @@
-/** 仪表盘联系方式与赞助商（Phase 3 迁移，图片随语言切换）。 */
+/** 仪表盘联系方式（Phase 3 迁移，二维码占位符）。 */
 import { html } from '../../html.js';
 import { t, lang } from '../../lib/i18n.js';
 
@@ -62,43 +62,4 @@ export function DashboardContact() {
                 </div>
             </div>
         </div>`;
-}
-
-const SPONSORS = [
-    {
-        key: 'packycode',
-        logo: 'static/packycode.webp',
-        href: 'https://www.packyapi.com/register?aff=AIClient2API',
-        alt: 'PackyCode Sponsor',
-        descKey: 'sponsors.packyDesc'
-    },
-    {
-        key: 'vmcard',
-        logo: 'static/vmcard.webp',
-        href: 'https://vmcardio.com/zh/register?code=902506',
-        alt: 'VMCard Sponsor',
-        descKey: 'sponsors.vmcardDesc'
-    }
-];
-
-export function DashboardSponsors() {
-    return html`
-        <section id="sponsors" class="dashboard-sponsors" aria-labelledby="sponsors-title">
-            <h2 id="sponsors-title">${t('sponsors.title')}</h2>
-            <p class="sponsors-subtitle">${t('sponsors.subtitle')}</p>
-
-            <div class="sponsors-container">
-                ${SPONSORS.map((sponsor) => html`
-                    <div class="sponsor-card" key=${sponsor.key}>
-                        <div class="sponsor-logo">
-                            <a href=${sponsor.href} target="_blank" rel="noopener noreferrer">
-                                <img src=${sponsor.logo} alt=${sponsor.alt} />
-                            </a>
-                        </div>
-                        <div class="sponsor-content">
-                            <p dangerouslySetInnerHTML=${{ __html: t(sponsor.descKey) }}></p>
-                        </div>
-                    </div>`)}
-            </div>
-        </section>`;
 }

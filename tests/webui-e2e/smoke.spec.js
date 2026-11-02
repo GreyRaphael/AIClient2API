@@ -172,7 +172,7 @@ test.describe('console shell', () => {
         await expect(page.locator('.system-info-panel details')).toHaveCount(0);
         await expect(page.locator('.system-info-details')).toHaveCount(0);
 
-        await expect(page.locator('#sponsors')).toContainText('项目赞助商');
+        await expect(page.locator('#sponsors')).toHaveCount(0);
         await expect(page.locator('.models-toolbar').or(page.locator('.models-empty'))).toBeVisible();
         expect(problems).toEqual([]);
     });

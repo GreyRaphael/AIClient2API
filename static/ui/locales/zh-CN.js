@@ -35,12 +35,6 @@ export default {
     'nav.customModels': '自定义模型',
     'nav.playground': '模型测试',
 
-    // Sponsors
-    'sponsors.title': '项目赞助商',
-    'sponsors.subtitle': '感谢以下合作伙伴对项目的支持，按赞助时间排序。',
-    'sponsors.packyDesc': 'PackyCode 是一家可靠且高效的 API 中转服务商，提供 Claude Code、Codex、Gemini 等模型的中转服务。PackyCode 为本软件用户提供特别优惠：<a href="https://www.packyapi.com/register?aff=AIClient2API" target="_blank" rel="noopener noreferrer">通过此链接注册</a>并在充值时输入 <strong>AIClient2API</strong> 优惠码，即可享受 <strong>10% 的折扣</strong>。',
-    'sponsors.vmcardDesc': '<strong>VMCard｜AI 业务企业级支付卡</strong>，面向 AI 账号商、AI API 服务商及批量订阅业务团队。GPT / Claude 丝滑支付，专属美国 Visa 卡段，支持 API 批量开卡，全网最低结算汇率，满足大批量、长期稳定支付需求。<a href="https://vmcardio.com/zh/register?code=902506" target="_blank" rel="noopener noreferrer">通过此链接注册</a>。',
-
     // Dashboard
     'dashboard.title': '系统概览',
     'dashboard.uptime': '运行时间',

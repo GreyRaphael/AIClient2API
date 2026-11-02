@@ -94,13 +94,13 @@ describe('静态资源压缩', () => {
         expect(hit.body).toBeUndefined();
     });
 
-    test('二进制图片不压缩（本身已是压缩格式）', async () => {
+    test('二进制资产不压缩（本身已是压缩格式）', async () => {
         const res = createResponse();
-        const served = await serveStaticFiles('/packycode.webp', res, request('br, gzip'));
+        const served = await serveStaticFiles('/vendor/fontawesome@6.7.2/fa-solid-subset.woff2', res, request('br, gzip'));
         expect(served).toBe(true);
         expect(res.statusCode).toBe(200);
         expect(res.headers['Content-Encoding']).toBeUndefined();
-        expect(res.headers['Content-Type']).toBe('image/webp');
+        expect(res.headers['Content-Type']).toBe('font/woff2');
     });
 
     test('q 值能改变编码优先级', async () => {

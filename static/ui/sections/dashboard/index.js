@@ -8,7 +8,7 @@ import { useInterval } from '../../hooks/useInterval.js';
 import { SystemInfoPanel } from './SystemInfo.js';
 import { ProviderStatusPanel } from './ProviderStatus.js';
 import { ModelsPanel } from './Models.js';
-import { DashboardContact, DashboardSponsors } from './Sponsors.js';
+import { DashboardContact } from './Contact.js';
 
 export default function DashboardSection() {
     // 提供商数据同时供状态概览与模型列表使用
@@ -45,7 +45,5 @@ export default function DashboardSection() {
                     </div>
                 </div>
             </section>
-
-            <${DashboardSponsors} />
         </section>`;
 }

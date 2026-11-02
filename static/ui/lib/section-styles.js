@@ -20,14 +20,11 @@
 /**
  * section -> 需要加载的样式文件（相对 static 根）。
  *
- * 多数 section 只有一份 section-<id>.css（由 stylesFor(sectionId) 按约定拼出）；
- * 仅 dashboard 额外拥有一个内部子组件（赞助商区块 section-sponsors.css）。
+ * 各 section 只有一份 section-<id>.css（由 stylesFor(sectionId) 按约定拼出）。
  * 跨 section 共享的表单原子（.form-group / .password-input-wrapper / .password-toggle /
  * .toggle-switch / .toggle-slider 等）已全部上收到 shared.css，无需再跨 section 引用。
  */
-const SECTION_STYLES = {
-    dashboard: ['/ui/styles/components/section-dashboard.css', '/ui/styles/components/section-sponsors.css']
-};
+const SECTION_STYLES = {};
 
 /** @param {string} sectionId */
 function stylesFor(sectionId) {

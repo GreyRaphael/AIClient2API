@@ -31,7 +31,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://www.packyapi.com/register?aff=AIClient2API">
-        <img src="static/packycode.webp" alt="PackyCode Sponsor" width="180">
+        <img src="docs/assets/sponsors/packycode.webp" alt="PackyCode Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">
@@ -102,7 +102,7 @@
   <tr>
     <td width="25%" align="center" valign="middle">
       <a href="https://vmcardio.com/zh/register?code=902506">
-        <img src="static/vmcard.webp" alt="VMCard Sponsor" width="180">
+        <img src="docs/assets/sponsors/vmcard.webp" alt="VMCard Sponsor" width="180">
       </a>
     </td>
     <td width="75%" align="left" valign="middle">

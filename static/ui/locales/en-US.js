@@ -35,12 +35,6 @@ export default {
     'nav.customModels': 'Custom Models',
     'nav.playground': 'Playground',
 
-    // Sponsors
-    'sponsors.title': 'Project Sponsors',
-    'sponsors.subtitle': 'Thanks to the following partners for supporting the project. Listed in sponsorship order.',
-    'sponsors.packyDesc': 'PackyCode is a reliable and efficient API relay service provider for Claude Code, Codex, Gemini, and more. AIClient2API users receive a special offer: <a href="https://www.packyapi.com/register?aff=AIClient2API" target="_blank" rel="noopener noreferrer">register through this link</a> and enter the <strong>AIClient2API</strong> promo code when topping up to get <strong>10% off</strong>.',
-    'sponsors.vmcardDesc': '<strong>VMCard | Enterprise Payment Cards for AI Businesses</strong> is built for AI account vendors, AI API providers, and teams managing bulk subscriptions. It supports seamless GPT / Claude payments, dedicated U.S. Visa BINs, API-based bulk card issuance, and highly competitive settlement exchange rates for stable, high-volume payment needs. <a href="https://vmcardio.com/zh/register?code=902506" target="_blank" rel="noopener noreferrer">Register through this link</a>.',
-    
     // Dashboard
     'dashboard.title': 'System Overview',
     'dashboard.uptime': 'Uptime',
