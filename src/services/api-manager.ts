@@ -137,8 +137,11 @@ export function initializeAPIManagement(services: Record<string, any>) {
 
 /**
  * Handle POST /v1/images/generations - OpenAI 标准生图接口
+ *
+ * 导出以便单测覆盖「provider:model 前缀解析」这类路由细节
+ * （该路径不像对话路径那样经过 handleContentGenerationRequest 的模型同步逻辑）。
  */
-async function handleImageGenerationRequest(
+export async function handleImageGenerationRequest(
     req: IncomingMessage,
     res: ServerResponse,
     currentConfig: DynamicPayload,
@@ -235,7 +238,23 @@ async function handleImageGenerationRequest(
             slotProviderType = result.actualProviderType || CONFIG.MODEL_PROVIDER;
             slotUuid = result.uuid;
         }
-        
+
+        // 服务解析阶段会把 `provider:model` 拆成「提供商 + 纯模型名」，结果在
+        // result.actualModel 上。对话路径靠 handleContentGenerationRequest 里的
+        // `model = result.actualModel` 同步，而生图/改图路径没有那层逻辑，
+        // 导致带前缀的模型 ID 被原样传进 Provider —— Antigravity 的
+        // normalizeAntigravityModelId 只剥 `models/` 前缀，于是报
+        // 「模型不存在: gemini-antigravity:xxx」。这里按对话路径的语义补齐。
+        if (result.actualModel && result.actualModel !== model) {
+            logger.info(`[Image Generation] Model resolved: ${model} -> ${result.actualModel}`);
+            model = result.actualModel;
+            // 虚拟请求体与转换结果都要跟着换成上游真实模型名
+            virtualOpenAIRequest.model = model;
+            if (codexRequestBody && typeof codexRequestBody === 'object') {
+                codexRequestBody.model = model;
+            }
+        }
+
         const finalProviderProtocol = getProtocolPrefix(slotProviderType || CONFIG.MODEL_PROVIDER);
         const fromProvider = MODEL_PROTOCOL_PREFIX.OPENAI;
         const toProvider = slotProviderType || CONFIG.MODEL_PROVIDER;
@@ -492,8 +511,10 @@ function getMultipartFiles(form: DynamicPayload, fieldNames: string[]): DynamicP
  * Handle POST /v1/images/edits - OpenAI 标准改图接口
  * Accepts multipart/form-data: image (required), prompt (required),
  * mask (ignored), model, n, size, response_format
+ *
+ * 导出以便单测覆盖「provider:model 前缀解析」这类路由细节。
  */
-async function handleImageEditsRequest(
+export async function handleImageEditsRequest(
     req: IncomingMessage,
     res: ServerResponse,
     currentConfig: DynamicPayload,
@@ -506,7 +527,8 @@ async function handleImageEditsRequest(
         const form = await parseMultipartForm(req) as DynamicPayload;
         const { fields, files } = form;
 
-        const model = fields.model;
+        // 由路由解析阶段回填为不含 provider 前缀的真实模型名，故用 let
+        let model = fields.model;
         const prompt = fields.prompt;
         const response_format = fields.response_format || 'b64_json';
         const size = fields.size;
@@ -583,6 +605,15 @@ async function handleImageEditsRequest(
         if (shouldUsePool && result.uuid) {
             slotProviderType = result.actualProviderType || currentConfig.MODEL_PROVIDER;
             slotUuid = result.uuid;
+        }
+
+        // 与 images/generations 同理：服务解析会剥掉 `provider:` 前缀，
+        // 结果在 result.actualModel 上；这里必须同步回 model，
+        // 否则带前缀的模型 ID 会被原样传给上游 Provider 而报「模型不存在」。
+        if (result.actualModel && result.actualModel !== model) {
+            logger.info(`[Image Edits] Model resolved: ${model} -> ${result.actualModel}`);
+            model = result.actualModel;
+            virtualOpenAIRequest.model = model;
         }
 
         const finalProviderProtocol = getProtocolPrefix(slotProviderType || currentConfig.MODEL_PROVIDER);
