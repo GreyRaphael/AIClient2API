@@ -20,12 +20,11 @@ import { fork } from 'child_process';
 import logger from '../utils/logger.ts';
 import * as http from 'http';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import { isRetryableNetworkError } from '../utils/common.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Node.js 20.11+ 提供 import.meta.dirname，无需再经过 fileURLToPath
+const __dirname = import.meta.dirname;
 
 // 子进程实例
 let workerProcess: ChildProcess | null = null;

@@ -11,7 +11,6 @@ import { spawn } from 'child_process';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import logger from './logger.ts';
 import http from 'http';
 import { getErrorMessage } from './error.ts';
@@ -23,7 +22,8 @@ function isRecord(value: unknown): value is UnknownRecord {
 }
 let __dirname = process.cwd();
 try {
-    __dirname = path.dirname(fileURLToPath(import.meta.url));
+    // Node.js 20.11+ 提供 import.meta.dirname，无需再经过 fileURLToPath
+    __dirname = import.meta.dirname;
 } catch (_) {}
 
 const DEFAULT_PORT = 9090;

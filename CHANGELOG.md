@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v7.0.0] - 2026-11-03
+
+运行基线收紧为 Node.js 24+。**这是破坏性变更**：Node.js 22 及更早版本将拒绝启动。
+
+> 本版本同时并入 v6.3.0 的后端优化内容（该数字版本号未在 GitHub 单独发布）。
+
+### ⚠️ Breaking Changes
+
+- **不再支持 Node.js 22**：`engines` 由 `^22.18.0 || >=23.6.0` 收紧为 `>=24.0.0`。
+- **启动时新增真实主版本校验**：此前只探测 `process.features.typescript`，
+  而 Node 22.18+ 与本项目基线在类型擦除能力上**完全一致**，会导致 22.x 静默通过。
+  现在入口会在加载应用模块图之前校验主版本，低于 24 直接退出并给出升级提示。
+- `.nvmrc` 由 `22` 改为 `24`。
+- Dockerfile 基础镜像由 `node:22-alpine` 升级为 `node:24-alpine`。
+- CI 矩阵由 `[22.x, 24.x]` 改为单版本 `24.x`（13 个检查步骤的执行次数减半）。
+
+### Removed
+
+- **移除 `dotenv` 依赖**：改用 Node 内置 `process.loadEnvFile`，
+  新增 `src/services/env-loader.ts` 封装。语义与 dotenv 对齐：
+  `.env` 缺失时静默跳过（原生 `loadEnvFile` 会抛 `ENOENT`）、不覆盖已存在的环境变量。
+
+### Changed
+
+- `src/core/master-core.ts`、`src/utils/tls-sidecar.ts` 改用 `import.meta.dirname`，
+  移除 `fileURLToPath(import.meta.url)` 的间接转换（后者保留 try/catch 兜底语义）。
+- `README.md` / `README-ZH.md` / `install-and-run.sh` / `install-and-run.ps1`
+  的版本要求与提示文案同步为 Node.js 24+。
+
+### Added
+
+- `tests/runtime-check.test.js` 扩展：主版本解析、低于 24 拒绝、
+  以及**入口级**伪造 `v22.18.0` 的快速失败验证。
+- `tests/env-loader.test.js`：`.env` 缺失静默跳过、不覆盖已有变量、
+  自定义文件名（因 Jest 的 `process.env` 为隔离副本，注入语义在子进程中验证）。
+
 ## [v6.3.0] - 2026-11-03
 
 跨协议转译的跳数收敛与准确性修复。**无破坏性变更、无配置迁移、公开 API 零改动**。

@@ -11,7 +11,7 @@
 <div align="center">
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Node.js](https://img.shields.io/badge/Node.js-≥22.18.0-green.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-≥24.0.0-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-≥20.0.0-blue.svg)](https://hub.docker.com/r/greyraphael/aiclient-2-api)
 [![GitHub stars](https://img.shields.io/github/stars/GreyRaphael/AIClient2API.svg?style=flat&label=Star)](https://github.com/GreyRaphael/AIClient2API/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/GreyRaphael/AIClient2API.svg)](https://github.com/GreyRaphael/AIClient2API/issues)
@@ -227,7 +227,7 @@
 
 The most recommended way to use AIClient2API is to start it through an automated script and configure it visually directly in the **Web UI console**.
 
-> **⚠️ Requirement**: Node.js **>= 22.18.0** (Node.js 22 LTS or 24 recommended). The server runs `.ts` sources directly and relies on Node.js native TypeScript type stripping; Node.js 20 and older cannot start the service.
+> **⚠️ Requirement**: Node.js **>= 24.0.0**. This release supports Node.js 24+ only. The server runs `.ts` sources directly and relies on Node.js native TypeScript type stripping; Node.js 22 and older cannot start the service.
 
 #### 🐳 Docker Quick Start (Recommended)
 
@@ -305,7 +305,7 @@ If you are running directly on your local machine (via script or Node.js) and ne
 ========================================
 
 [Check] Checking if Node.js is installed...
-✅ Node.js is installed, version: v22.18.0
+✅ Node.js is installed, version: v24.0.0
 ✅ Found package.json file
 ✅ node_modules directory already exists
 ✅ Project file check completed

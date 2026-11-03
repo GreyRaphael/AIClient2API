@@ -87,7 +87,7 @@ import { HEALTH_CHECK } from '../utils/constants.ts';
  *
  */
 
-import 'dotenv/config'; // Import dotenv and configure it
+import './env-loader.ts'; // 加载 .env（Node 内置 process.loadEnvFile，已替代 dotenv）
 import '../converters/register-converters.ts'; // 注册所有转换器
 import { getProviderPoolManager } from './service-manager.ts';
 import { isRetryableNetworkError } from '../utils/common.ts';

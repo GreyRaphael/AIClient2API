@@ -35,12 +35,12 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 $nodeVersion = node --version
 Write-Host "[SUCCESS] Node.js installed, version: $nodeVersion" -ForegroundColor Green
 
-# Check native TypeScript support (Node.js >= 22.18.0)
+# Check Node.js version and native TypeScript support (requires >= 24.0.0)
 Write-Host "[CHECK] Checking native TypeScript support..." -ForegroundColor Cyan
 node -e "if (!process.features || !process.features.typescript) process.exit(1)"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Current Node.js ($nodeVersion) does not support native TypeScript execution." -ForegroundColor Red
-    Write-Host "Please upgrade to Node.js >= 22.18.0 (Node 22 LTS or 24)."
+    Write-Host "Please upgrade to Node.js >= 24.0.0 (Node.js 24+ is required)."
     Write-Host "Download: https://nodejs.org/"
     Pause
     exit 1

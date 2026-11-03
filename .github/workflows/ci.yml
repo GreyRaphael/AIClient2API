@@ -14,10 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22.x, 24.x]
+    # 本版本起只支持 Node.js 24+（engines: >=24.0.0），因此不再做多版本矩阵。
+    # 版本下限由 tests/runtime-check.test.js 的真实主版本校验守护：
+    # 仅探测 process.features.typescript 是不够的，Node 22.18+ 同样会静默通过。
 
     steps:
       - name: 检出代码
@@ -26,7 +25,7 @@ jobs:
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24.x
           cache: npm
 
       - name: 安装依赖
