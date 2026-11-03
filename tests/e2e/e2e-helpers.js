@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { AUXILIARY_E2E_MODELS } from './representative-models.js';
 
 /**
  * globalSetup 从 `/auto/v1/models` 抓取模型列表后写入的缓存文件。
@@ -93,7 +94,18 @@ export function resolveBaseUrl() {
     return (process.env.AICLIENT_E2E_BASE || 'http://127.0.0.1:3000/auto').replace(/\/$/, '');
 }
 
-export function resolveModels() {
+/**
+ * 读取本次 E2E 要跑的模型列表。
+ *
+ * `options.excludeAuxiliary` 用于「通用矩阵」类用例：默认收敛模式下模型缓存里
+ * 除了 10 个代表模型，还包含仅供 opt-in 用例使用的辅助模型（如生图模型
+ * `gemini-3.1-flash-image`）。这类模型只支持图像生成，跑文本/工具矩阵会稳定
+ * 429 或返回空内容，因此通用矩阵必须把它们排除；生图用例则显式需要它们。
+ *
+ * @param {{ excludeAuxiliary?: boolean }} [options]
+ * @returns {string[]}
+ */
+export function resolveModels(options = {}) {
     const raw = process.env.AICLIENT_E2E_MODELS;
     const selector = raw ? raw.trim() : '';
     // 显式逗号列表：允许本地只跑指定模型，不读取全局模型列表。
@@ -109,9 +121,18 @@ export function resolveModels() {
         );
     }
 
-    const models = JSON.parse(fs.readFileSync(MODELS_CACHE_FILE, 'utf8'));
+    let models = JSON.parse(fs.readFileSync(MODELS_CACHE_FILE, 'utf8'));
     if (!Array.isArray(models) || models.length === 0) {
         throw new Error(`E2E model list at ${MODELS_CACHE_FILE} is empty or invalid.`);
+    }
+    if (options.excludeAuxiliary === true) {
+        models = models.filter((model) => !AUXILIARY_E2E_MODELS.includes(model));
+        if (models.length === 0) {
+            throw new Error(
+                `E2E model list at ${MODELS_CACHE_FILE} contains only auxiliary models after filtering. ` +
+                'Set AICLIENT_E2E_ALL_MODELS=1 or AICLIENT_E2E_MODELS to run the general matrix.'
+            );
+        }
     }
     return models;
 }

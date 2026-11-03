@@ -21,7 +21,8 @@ import {
 } from '../model-selection.js';
 
 const BASE_URL = resolveBaseUrl();
-const MODELS = resolveModels();
+// 通用 canary 矩阵：排除仅用于 opt-in 图像用例的辅助模型
+const MODELS = resolveModels({ excludeAuxiliary: true });
 const { pickModel } = createModelSelection(MODELS);
 
 /**

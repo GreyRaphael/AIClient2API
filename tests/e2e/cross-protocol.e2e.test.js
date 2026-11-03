@@ -37,7 +37,8 @@ import {
 } from './model-selection.js';
 
 const BASE_URL = resolveBaseUrl();
-const MODELS = resolveModels();
+// 通用文本/工具矩阵：排除仅用于 opt-in 图像用例的辅助模型（生图模型跑文本矩阵会 429）
+const MODELS = resolveModels({ excludeAuxiliary: true });
 const { pickModel, pickModelFromProviders } = createModelSelection(MODELS);
 const OPENAI_CUSTOM_TOOL_MODEL =
     pickModel('openai-custom', model => /glm/i.test(model)) ||
