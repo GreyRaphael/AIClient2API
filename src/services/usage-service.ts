@@ -19,14 +19,12 @@ export class UsageService {
 
     constructor() {
         this.providerHandlers = {
-            [MODEL_PROVIDER.KIRO_API]: this.getKiroUsage.bind(this),
             [MODEL_PROVIDER.ANTIGRAVITY]: this.getAntigravityUsage.bind(this),
             [MODEL_PROVIDER.CODEX_API]: this.getCodexUsage.bind(this),
         };
 
         // 映射提供商到对应的格式化函数
         this.formatters = {
-            [MODEL_PROVIDER.KIRO_API]: formatKiroUsage,
             [MODEL_PROVIDER.ANTIGRAVITY]: formatAntigravityUsage,
             [MODEL_PROVIDER.CODEX_API]: formatCodexUsage,
         };
@@ -138,7 +136,6 @@ export class UsageService {
         
         // 2. 尝试适配器内部的服务实例
         const apiServiceNames = [
-            'kiroApiService', 
             'geminiApiService', 
             'antigravityApiService',
             'codexApiService'
@@ -151,13 +148,6 @@ export class UsageService {
         }
         
         throw new Error(`${providerType} 服务实例不支持用量查询: ${providerKey}`);
-    }
-
-    /**
-     * 获取 Kiro 提供商的用量信息
-     */
-    async getKiroUsage(uuid: string | null = null) {
-        return this._getRawUsageFromAdapter(MODEL_PROVIDER.KIRO_API, uuid);
     }
 
     /**
@@ -245,130 +235,6 @@ function getPlanClass(plan: string | null | undefined): string {
     if (p.includes('heavy')) return 'plan-heavy';
     if (p.includes('standard')) return 'plan-standard';
     return 'plan-default';
-}
-
-/**
- * 格式化 Kiro 用量
- */
-export function formatKiroUsage(usageData: DynamicPayload | null | undefined): DynamicPayload | null {
-    if (!usageData) return null;
-
-    // 兼容多种命名格式 (usageBreakdownList 是 API 原生, usageBreakdown 是某些版本的处理结果)
-    const breakdownList = usageData.usageBreakdownList || usageData.usageBreakdown || [];
-    const items: DynamicPayload[] = [];
-    const now = Date.now();
-    const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000; // 约3个月
-    
-    // 检查时间戳是否在当前时间前后3个月内
-    const isWithinWindow = (ts: unknown): boolean => {
-        if (!ts) return true;
-        const numeric = Number(ts);
-        if (!Number.isFinite(numeric)) return true;
-        const val = numeric < 10000000000 ? numeric * 1000 : numeric;
-        return Math.abs(val - now) <= THREE_MONTHS_MS;
-    };
-    
-    breakdownList.forEach((breakdown: DynamicPayload) => {
-        // 1. 基本资源信息
-        if (isWithinWindow(breakdown.nextDateReset)) {
-            const used = breakdown.currentUsageWithPrecision ?? breakdown.currentUsage;
-            const limit = breakdown.usageLimitWithPrecision ?? breakdown.usageLimit;
-            const percent = limit > 0 ? (used / limit) * 100 : 0;
-            
-            items.push({
-                id: breakdown.resourceType,
-                label: breakdown.displayName,
-                used,
-                limit,
-                percent,
-                unit: 'tokens',
-                status: getStatus(percent),
-                resetAt: formatTimestamp(breakdown.nextDateReset),
-                isExpired: false
-            });
-        }
-
-        // 2. 解析奖励信息 (bonuses)
-        if (breakdown.bonuses && Array.isArray(breakdown.bonuses)) {
-            breakdown.bonuses.forEach((bonus: DynamicPayload) => {
-                if (!isWithinWindow(bonus.expiresAt)) return;
-
-                const bUsed = bonus.currentUsageWithPrecision ?? bonus.currentUsage ?? 0;
-                const bLimit = bonus.usageLimitWithPrecision ?? bonus.usageLimit ?? 0;
-                const bPercent = bLimit > 0 ? (bUsed / bLimit) * 100 : 0;
-                const isExpired = bonus.status === 'EXPIRED';
-                
-                items.push({
-                    id: `bonus_${bonus.bonusCode || bonus.displayName}`,
-                    label: `Bonus: ${bonus.displayName}${isExpired ? ' (Expired)' : ''}`,
-                    used: bUsed,
-                    limit: bLimit,
-                    percent: bPercent,
-                    unit: 'tokens',
-                    status: isExpired ? 'danger' : getStatus(bPercent),
-                    resetAt: formatTimestamp(bonus.expiresAt),
-                    isExpired
-                });
-            });
-        }
-
-        // 3. 解析免费试用信息 (freeTrialInfo)
-        if (breakdown.freeTrialInfo) {
-            const ft = breakdown.freeTrialInfo;
-            if (isWithinWindow(ft.freeTrialExpiry)) {
-                const ftUsed = ft.currentUsageWithPrecision ?? ft.currentUsage ?? 0;
-                const ftLimit = ft.usageLimitWithPrecision ?? ft.usageLimit ?? 0;
-                const ftPercent = ftLimit > 0 ? (ftUsed / ftLimit) * 100 : 0;
-                const isExpired = ft.freeTrialStatus === 'EXPIRED';
-                
-                items.push({
-                    id: `freetrial_${breakdown.resourceType}`,
-                    label: `Free Trial${isExpired ? ' (Expired)' : ''}`,
-                    used: ftUsed,
-                    limit: ftLimit,
-                    percent: ftPercent,
-                    unit: 'tokens',
-                    status: isExpired ? 'danger' : getStatus(ftPercent),
-                    resetAt: formatTimestamp(ft.freeTrialExpiry),
-                    isExpired
-                });
-            }
-        }
-    });
-
-    // 仅汇总未过期的额度
-    const activeItems = items.filter((item: DynamicPayload) => !item.isExpired);
-    const totalUsed = activeItems.reduce((sum: number, item: DynamicPayload) => sum + item.used, 0);
-    const totalLimit = activeItems.reduce((sum: number, item: DynamicPayload) => sum + item.limit, 0);
-    const usedPercent = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
-
-    // 兼容多种用户信息和计划信息的路径
-    let plan = usageData.subscriptionInfo?.subscriptionTitle || 
-               usageData.subscription?.title || 
-               'FREE';
-               
-    // 移除 'KIRO ' 前缀
-    plan = plan.replace(/^KIRO\s+/i, '');
-                 
-    const email = usageData.userInfo?.email;
-
-    return {
-        summary: {
-            usedPercent,
-            status: getStatus(usedPercent),
-            resetAt: formatTimestamp(usageData.nextDateReset),
-            plan,
-            planClass: getPlanClass(plan),
-            unit: items.length > 0 ? items[0].unit : 'tokens',
-            totalUsed,
-            totalLimit
-        },
-        user: {
-            email
-        },
-        items,
-        raw: usageData
-    };
 }
 
 /**

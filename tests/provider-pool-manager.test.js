@@ -148,11 +148,11 @@ describe('ProviderPoolManager fallback and refresh characterization', () => {
     test('does not cross provider types when the primary pool is unavailable', async () => {
         // 跨类型 fallback 链已移除：主池不可用时不再回退到同协议的其他 provider 类型
         manager = createManagerForPools({
-            'claude-kiro-oauth': [makeNode('primary', { isHealthy: false })],
-            'claude-custom': [makeNode('fallback')]
+            'claude-custom': [makeNode('primary', { isHealthy: false })],
+            'zed': [makeNode('fallback')]
         });
 
-        const selected = await manager.selectProviderWithFallback('claude-kiro-oauth');
+        const selected = await manager.selectProviderWithFallback('claude-custom');
 
         expect(selected).toBeNull();
     });
@@ -242,16 +242,6 @@ describe('ProviderPoolManager health check requests', () => {
             messages: [{ role: 'user', content: 'Hi' }],
             model: 'gpt-5-nano',
             max_tokens: 16
-        }]);
-    });
-
-    test('Kiro health check keeps max_tokens 1', () => {
-        manager = createManagerForPools({ 'claude-kiro-oauth': [makeNode('kiro-node')] });
-
-        expect(manager._buildHealthCheckRequests('claude-kiro-oauth', 'claude-haiku-4-5')).toEqual([{
-            messages: [{ role: 'user', content: 'Hi' }],
-            model: 'claude-haiku-4-5',
-            max_tokens: 1
         }]);
     });
 });

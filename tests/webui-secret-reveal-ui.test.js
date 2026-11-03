@@ -55,7 +55,7 @@ describe('provider 字段声明', () => {
     test('每个声明的字段都有可读标签（不会把裸 key 显示给用户）', () => {
         const declared = new Set();
         for (const providerType of [
-            'openai-custom', 'openaiResponses-custom', 'claude-custom', 'claude-kiro-oauth',
+            'openai-custom', 'openaiResponses-custom', 'claude-custom',
             'gemini-antigravity', 'openai-codex-oauth', 'zed', 'trae', 'trae-chat_v3'
         ]) {
             for (const field of getProviderTypeFields(providerType)) declared.add(field.id);

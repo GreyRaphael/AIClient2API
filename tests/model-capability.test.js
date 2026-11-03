@@ -352,10 +352,13 @@ describe('Model Capability', () => {
     });
 
     test('静态 provider 标记 source=static 且不参与路由守卫', () => {
-        const capability = resolveNodeCapability('claude-kiro-oauth', { uuid: 'kiro-1' });
+        // claude-custom 无 dynamicModels，属静态 provider：
+        // 无发现记录时回退到基线，且 known=false 表示不做路由守卫。
+        const capability = resolveNodeCapability('claude-custom', { uuid: 'claude-1' });
         expect(capability.source).toBe(CAPABILITY_SOURCE.STATIC);
         expect(capability.known).toBe(false);
-        expect(capability.selectedModels.length).toBeGreaterThan(0);
+        // 静态 provider 的 staticModels 可能为空（如 claude-custom 由用户自行配置），
+        // 因此这里不断言模型数量；关键语义是「未知模型也必须放行」。
         expect(nodeSupportsModel(capability, 'non-existent-model')).toBe(true);
     });
 

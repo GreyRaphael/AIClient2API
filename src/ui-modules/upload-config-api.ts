@@ -279,7 +279,7 @@ export async function handleDeleteUnboundConfigs(req: IncomingMessage, res: Serv
             const pathParts = normalizedPath.split('/');
 
             // 路径至少需要3部分：configs/子目录/文件名
-            // 例如：configs/kiro/xxx.json 或 configs/gemini/xxx.json
+            // 例如：configs/zed/xxx.json 或 configs/gemini/xxx.json
             if (pathParts.length >= 3 && pathParts[0] === 'configs') {
                 // 确保第二部分是子目录名（不是文件名）
                 return true;

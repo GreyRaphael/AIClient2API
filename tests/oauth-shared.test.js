@@ -17,16 +17,6 @@ describe('oauth-shared', () => {
         expect(html).toContain('"gemini-antigravity"');
     });
 
-    test('kiro-style page includes debug hint and console log', () => {
-        const html = generateOAuthResponsePage(true, 'ok', {
-            showDebugHint: true,
-            logMessage: true
-        });
-
-        expect(html).toContain('按 F12');
-        expect(html).toContain('console.log("OAuth Result:"');
-    });
-
     test('failure page has no countdown script', () => {
         const html = generateOAuthResponsePage(false, '授权失败: bad code');
 

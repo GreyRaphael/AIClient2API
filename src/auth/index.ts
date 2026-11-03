@@ -13,15 +13,6 @@ export {
     checkGeminiCredentialsDuplicate
 } from './gemini-oauth.ts';
 
-// Kiro OAuth
-export {
-    handleKiroOAuth,
-    checkKiroCredentialsDuplicate,
-    batchImportKiroRefreshTokens,
-    batchImportKiroRefreshTokensStream,
-    importAwsCredentials
-} from './kiro-oauth.ts';
-
 // Zed OAuth
 export {
     handleZedOAuth,

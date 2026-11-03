@@ -223,7 +223,7 @@ export async function initializeConfig(
         HOST: '0.0.0.0',
         MODEL_PROVIDER: MODEL_PROVIDER.ANTIGRAVITY,
         PROXY_URL: null, // HTTP/HTTPS/SOCKS5 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
-        PROXY_ENABLED_PROVIDERS: [], // 启用代理的提供商列表，如 ['gemini-antigravity', 'claude-kiro-oauth']
+        PROXY_ENABLED_PROVIDERS: [], // 启用代理的提供商列表，如 ['gemini-antigravity', 'zed']
         PROMPT_LOG_BASE_NAME: "prompt_log",
         PROMPT_LOG_MODE: "none",
         REQUEST_MAX_RETRIES: 3,
@@ -232,7 +232,7 @@ export async function initializeConfig(
         REQUEST_BODY_MAX_BYTES: DEFAULT_REQUEST_BODY_MAX_BYTES,
         CREDENTIAL_SWITCH_MAX_RETRIES: 5, // 坏凭证切换最大重试次数（用于认证错误后切换凭证）
         // 上游返回完全空响应（无文本/工具调用/思考）时的独立重试预算，与 CREDENTIAL_SWITCH_MAX_RETRIES 分开计数。
-        // 该机制是通用的，对任何 provider 抛出 isEmptyUpstreamResponse 错误都生效，不局限于 Kiro。
+        // 该机制是通用的，对任何 provider 抛出 isEmptyUpstreamResponse 错误都生效。
         EMPTY_RESPONSE_MAX_RETRIES: 5,
         EMPTY_RESPONSE_RETRY_DELAY_MS: 500, // 空响应重试前的等待时间（毫秒），避免瞬间打满上游
         EMPTY_RESPONSE_MAX_TOTAL_MS: 120000, // 单次请求空响应重试的墙钟上限（毫秒）；0 表示不限制

@@ -3,12 +3,12 @@ import { buildCurlCommand, resolveRouteInfo } from '@ui/lib/routing.js';
 
 describe('routing helpers', () => {
     test('Claude 协议不携带 Authorization 头', () => {
-        const command = buildCurlCommand('claude-kiro-oauth', {
+        const command = buildCurlCommand('claude-custom', {
             protocol: 'claude',
             model: 'claude-sonnet',
             origin: 'http://127.0.0.1:3000'
         });
-        expect(command).toContain('http://127.0.0.1:3000/claude-kiro-oauth/v1/messages');
+        expect(command).toContain('http://127.0.0.1:3000/claude-custom/v1/messages');
         expect(command).not.toContain('Authorization');
     });
 

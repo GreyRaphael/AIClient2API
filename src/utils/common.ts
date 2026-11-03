@@ -383,7 +383,7 @@ export function formatExpiryTime(expiryTimestamp: unknown): string {
 
 /**
  * 格式化日志输出，统一日志格式
- * @param {string} tag - 日志标签，如 'Qwen', 'Kiro' 等
+ * @param {string} tag - 日志标签，如 'Qwen', 'Zed' 等
  * @param {string} message - 日志消息
  * @param {Object} [data] - 可选的数据对象，将被格式化输出
  * @returns {string} 格式化后的日志字符串
@@ -407,7 +407,7 @@ export function formatLog(tag: string, message: string, data: unknown = null): s
 
 /**
  * 格式化凭证过期时间日志
- * @param {string} tag - 日志标签，如 'Qwen', 'Kiro' 等
+ * @param {string} tag - 日志标签，如 'Qwen', 'Zed' 等
  * @param {number} expiryDate - 过期时间戳
  * @param {number} nearMinutes - 临近过期的分钟数
  * @returns {{message: string, isNearExpiry: boolean}} 格式化后的日志字符串和是否临近过期
@@ -619,7 +619,7 @@ export function isAuthorized(req: http.IncomingMessage, requestUrl: URL, REQUIRE
  * 任何 provider 的 *-core.js 检测到这种情况时都可以抛出这个错误，以复用下面的空响应重试分支。
  * 标记为可切换凭证重试，且不计入凭证错误次数（这通常不是凭证本身的问题，可能是上游偶发静默无输出）。
  *
- * @param {string} providerLabel - 用于日志/错误信息的标签，如 'Kiro'、'Qwen' 等
+ * @param {string} providerLabel - 用于日志/错误信息的标签，如 'Gemini'、'Qwen' 等
  */
 export interface EmptyUpstreamResponseError extends Error {
     isEmptyUpstreamResponse: boolean;

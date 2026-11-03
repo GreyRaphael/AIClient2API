@@ -83,40 +83,6 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         staticModels: []
     },
     {
-        type: MODEL_PROVIDER.KIRO_API,
-        protocolPrefix: MODEL_PROTOCOL_PREFIX.CLAUDE,
-        healthCheckModel: 'claude-sonnet-4-5',
-        credentialPathKey: 'KIRO_OAUTH_CREDS_FILE_PATH',
-        credentialLabel: 'Kiro',
-        statusIdentify: true,
-        staticModels: [
-            'gpt-5.6-sol',
-            'gpt-5.6-terra',
-            'gpt-5.6-luna',
-            'claude-haiku-4-5',
-            'claude-haiku-4-5-20251001',
-            'claude-sonnet-5',
-            'claude-opus-5',
-            'claude-opus-4-8',
-            'claude-opus-4-7',
-            'claude-opus-4-6',
-            'claude-sonnet-4-6',
-            'claude-opus-4-5',
-            'claude-opus-4-5-20251101',
-            'claude-sonnet-4-5',
-            'claude-sonnet-4-5-20250929'
-        ],
-        providerUtils: {
-            mappingOrder: 1,
-            dirName: 'kiro',
-            patterns: ['configs/kiro/', '/kiro/', 'kiro-auth-token'],
-            defaultCheckModel: 'claude-haiku-4-5',
-            displayName: 'Claude Kiro OAuth',
-            needsProjectId: false,
-            urlKeys: ['KIRO_BASE_URL', 'KIRO_REFRESH_URL', 'KIRO_REFRESH_IDC_URL']
-        }
-    },
-    {
         type: MODEL_PROVIDER.OPENAI_CUSTOM,
         protocolPrefix: MODEL_PROTOCOL_PREFIX.OPENAI,
         // 多数第三方 OpenAI 兼容端点对“指定 function”的 tool_choice 支持不完整。

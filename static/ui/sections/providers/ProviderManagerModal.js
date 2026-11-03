@@ -81,9 +81,6 @@ function ProviderField({ fieldKey, definition, value, editing, onChange, onUploa
         <div class="config-item" data-field=${fieldKey}>
             <label dangerouslySetInnerHTML=${{ __html: label }}></label>
             ${control}
-            ${isOAuthPath && fieldKey.includes('KIRO')
-                ? html`<small class="form-text"><i class="fas fa-info-circle"></i> <span dangerouslySetInnerHTML=${{ __html: t('modal.provider.kiroAuthHint') }}></span></small>`
-                : null}
         </div>`;
 }
 

@@ -102,15 +102,13 @@ export async function analyzeOAuthFile(
         const providerMapping = detectProviderFromPath(normalizedPath);
         if (providerMapping) {
             const type = providerMapping.providerType;
-            if (type.includes('kiro')) oauthProvider = 'kiro';
-            else if (type.includes('gemini')) oauthProvider = 'gemini';
+            if (type.includes('gemini')) oauthProvider = 'gemini';
             else if (type.includes('antigravity')) oauthProvider = 'antigravity';
             else if (type.includes('codex')) oauthProvider = 'codex';
             else if (type.includes('zed')) oauthProvider = 'zed';
         } else {
             // 兜底逻辑
-            if (normalizedPath.includes('/kiro/') || normalizedPath.includes('kiro-auth-token')) oauthProvider = 'kiro';
-            else if (normalizedPath.includes('/antigravity/') || normalizedPath.includes('/.antigravity/')) oauthProvider = 'antigravity';
+            if (normalizedPath.includes('/antigravity/') || normalizedPath.includes('/.antigravity/')) oauthProvider = 'antigravity';
             else if (normalizedPath.includes('/codex/') || normalizedPath.includes('/.codex/')) oauthProvider = 'codex';
             else if (normalizedPath.includes('/zed/') || normalizedPath.includes('/.zed/')) oauthProvider = 'zed';
         }
@@ -398,7 +396,7 @@ async function scanOAuthDirectory(
             } else if (file.isDirectory()) {
                 // 递归扫描子目录（限制深度）
                 const relativePath = path.relative(process.cwd(), fullPath);
-                // 最大深度4层，以支持 configs/kiro/{subfolder}/file.json 这样的结构
+                // 最大深度4层，以支持 configs/{provider}/{subfolder}/file.json 这样的结构
                 if (relativePath.split(path.sep).length < 4) {
                     const subFiles = await scanOAuthDirectory(fullPath, usedPaths, currentConfig, providerPools);
                     oauthFiles.push(...subFiles);

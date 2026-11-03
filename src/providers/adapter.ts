@@ -2,7 +2,6 @@ import { OpenAIResponsesApiService } from './openai/openai-responses-core.ts';
 import { AntigravityApiService } from './gemini/antigravity-core.ts';
 import { OpenAIApiService } from './openai/openai-core.ts';
 import { ClaudeApiService } from './claude/claude-core.ts';
-import { KiroApiService } from './claude/claude-kiro.ts';
 import { CodexApiService } from './openai/codex-core.ts';
 import { ZedApiService } from './zed/zed-core.ts';
 import { TraeApiService } from './trae/trae-core.ts';
@@ -365,95 +364,6 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
     }
 }
 
-// Kiro API 服务适配器
-export class KiroApiServiceAdapter extends ApiServiceAdapter {
-    kiroApiService: DynamicPayload;
-
-    constructor(config: DynamicPayload) {
-        super();
-        this.kiroApiService = new KiroApiService(config);
-        // this.kiroApiService.initialize().catch(error => {
-        //     logger.error("Failed to initialize kiroApiService:", error);
-        // });
-    }
-
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
-        // The adapter expects the requestBody to be in OpenAI format for Kiro API
-        if (!this.kiroApiService.isInitialized) {
-            logger.warn("kiroApiService not initialized, attempting to re-initialize...");
-            await this.kiroApiService.initialize();
-        }
-        return this.kiroApiService.generateContent(model, requestBody);
-    }
-
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
-        // The adapter expects the requestBody to be in OpenAI format for Kiro API
-        if (!this.kiroApiService.isInitialized) {
-            logger.warn("kiroApiService not initialized, attempting to re-initialize...");
-            await this.kiroApiService.initialize();
-        }
-        const stream = this.kiroApiService.generateContentStream(model, requestBody);
-        yield* stream;
-    }
-
-    async listModels() {
-        // Returns the native model list from the Kiro service
-        if (!this.kiroApiService.isInitialized) {
-            logger.warn("kiroApiService not initialized, attempting to re-initialize...");
-            await this.kiroApiService.initialize();
-        }
-        return this.kiroApiService.listModels();
-    }
-
-    async refreshToken() {
-        if (!this.kiroApiService.isInitialized) {
-            await this.kiroApiService.initialize();
-        }
-        if(this.isExpiryDateNear()===true){
-            logger.info(`[Kiro] Expiry date is near, refreshing token...`);
-            await this.kiroApiService.initializeAuth(true);
-            return true;
-        }
-        return false;
-    }
-
-    async forceRefreshToken() {
-        if (!this.kiroApiService.isInitialized) {
-            await this.kiroApiService.initialize();
-        }
-        logger.info(`[Kiro] Force refreshing token...`);
-        await this.kiroApiService.initializeAuth(true);
-        return true;
-    }
-
-    isExpiryDateNear() {
-        return this.kiroApiService.isExpiryDateNear();
-    }
-
-    /**
-     * 获取用量限制信息
-     * @returns {Promise<Object>} 用量限制信息
-     */
-    async getUsageLimits() {
-        if (!this.kiroApiService.isInitialized) {
-            logger.warn("kiroApiService not initialized, attempting to re-initialize...");
-            await this.kiroApiService.initialize();
-        }
-        return this.kiroApiService.getUsageLimits();
-    }
-
-    /**
-     * Count tokens for a message request (compatible with Anthropic API)
-     * @param {Object} requestBody - The request body containing model, messages, system, tools, etc.
-     * @returns {Object} { input_tokens: number }
-     */
-    countTokens(requestBody: DynamicPayload): unknown {
-        return this.kiroApiService.countTokens(requestBody);
-    }
-}
-
-
-
 // Codex API 服务适配器
 export class CodexApiServiceAdapter extends ApiServiceAdapter {
     codexApiService: DynamicPayload;
@@ -668,7 +578,6 @@ registerAdapter(MODEL_PROVIDER.OPENAI_CUSTOM, OpenAIApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.OPENAI_CUSTOM_RESPONSES, OpenAIResponsesApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.CLAUDE_CUSTOM, ClaudeApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.ANTIGRAVITY, AntigravityApiServiceAdapter);
-registerAdapter(MODEL_PROVIDER.KIRO_API, KiroApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.CODEX_API, CodexApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.ZED, ZedApiServiceAdapter);
 registerAdapter(MODEL_PROVIDER.TRAE, TraeApiServiceAdapter);

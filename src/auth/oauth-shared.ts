@@ -1,7 +1,7 @@
 /**
  * OAuth 流程公共工具。
  *
- * Gemini / Kiro 的浏览器回调页、Codex / Gemini 的活动回调服务器清理逻辑
+ * Gemini 的浏览器回调页、Codex / Gemini 的活动回调服务器清理逻辑
  * 原本各自复制了一份。这里保留唯一实现，调用方只保留很薄的适配函数。
  */
 
@@ -20,10 +20,6 @@ export interface OAuthResponsePageOptions {
     provider?: string | null;
     /** 成功后通知打开 OAuth 弹窗的父页面 */
     notifyOpener?: boolean;
-    /** Kiro 回调页的 F12 提示 */
-    showDebugHint?: boolean;
-    /** Kiro 回调页在控制台打印结果 */
-    logMessage?: boolean;
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -54,9 +50,7 @@ export function generateOAuthResponsePage(
     const title = isSuccess ? '授权成功！' : '授权失败';
     const countdownHtml = isSuccess ? `
         <p>此窗口将在 <span id="countdown" style="font-weight: bold; color: #2196f3;">10</span> 秒后自动关闭。</p>
-        ${options.showDebugHint ? '<p style="font-size: 12px; color: #999;">提示：您可以按 F12 查看详细日志。</p>' : ''}
         <script>
-            ${options.logMessage ? `console.log("OAuth Result:", ${serializeForInlineScript(message)});` : ''}
             ${options.notifyOpener ? `
             const notifyOpener = () => {
                 try {

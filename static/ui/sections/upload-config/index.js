@@ -472,7 +472,7 @@ export default function UploadConfigSection() {
                             <span id="configCount">${t('upload.count', { count: filtered.length })}</span>
                             <span id="usedConfigCount" class="status-used">${t('upload.usedCount', { count: usedCount })}</span>
                             <span id="unusedConfigCount" class="status-unused">${t('upload.unusedCount', { count: unusedCount })}</span>
-                            <button id="batchLinkKiroBtn" class="btn-batch-link" title=${t('upload.batchLink')}
+                            <button id="batchLinkBtn" class="btn-batch-link" title=${t('upload.batchLink')}
                                 onClick=${() => void batchLink()}>
                                 <i class="fas fa-link"></i> <span>${t('upload.batchLink')}</span>
                             </button>

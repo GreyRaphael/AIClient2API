@@ -25,20 +25,6 @@ const PROVIDER_DEFINITIONS = [
         shortName: 'antigravity'
     },
     {
-        id: 'claude-kiro-oauth',
-        nameKey: 'dashboard.routing.nodeName.kiro',
-        usageName: 'Kiro',
-        icon: 'fa-key',
-        defaultPath: 'configs/kiro/',
-        defaultModel: 'claude-sonnet-4-5',
-        displayName: 'Claude Kiro OAuth',
-        oauth: true,
-        credPathKey: 'KIRO_OAUTH_CREDS_FILE_PATH',
-        filePatterns: ['configs/kiro/', '/kiro/', 'kiro-auth-token'],
-        uploadDir: 'kiro',
-        shortName: 'kiro-oauth'
-    },
-    {
         id: 'openai-codex-oauth',
         nameKey: 'dashboard.routing.nodeName.codex',
         usageName: 'Codex',

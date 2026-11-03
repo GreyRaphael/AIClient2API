@@ -4,7 +4,7 @@
 
 # AIClient2API（A2）🚀
 
-**一个能将多种仅客户端内使用的大模型 API（Antigravity, Codex, Kiro ...），模拟请求，统一封装为本地 OpenAI 兼容接口的强大代理。**
+**一个能将多种仅客户端内使用的大模型 API（Antigravity, Codex, Zed ...），模拟请求，统一封装为本地 OpenAI 兼容接口的强大代理。**
 
 </div>
 
@@ -125,7 +125,7 @@
 
 ## 🚀 项目概览
 
-`AIClient2API` 是一个突破客户端限制的 API 代理服务，将 Gemini、Antigravity、Codex、Kiro 等原本仅限客户端内使用的免费大模型，转换为可供任何应用调用的标准 OpenAI 兼容接口。基于 Node.js 构建，支持 OpenAI、Claude、Gemini 三大协议的智能互转，让 Cherry-Studio、NextChat、Cline 等工具能够免费大量使用 Claude Opus、Gemini Pro 等高级模型。项目采用策略模式和适配器模式的模块化架构，内置账号池管理、智能轮询、自动故障转移和健康检查机制，确保 99.9% 的服务可用性。
+`AIClient2API` 是一个突破客户端限制的 API 代理服务，将 Gemini、Antigravity、Codex、Zed 等原本仅限客户端内使用的免费大模型，转换为可供任何应用调用的标准 OpenAI 兼容接口。基于 Node.js 构建，支持 OpenAI、Claude、Gemini 三大协议的智能互转，让 Cherry-Studio、NextChat、Cline 等工具能够免费大量使用 Claude Opus、Gemini Pro 等高级模型。项目采用策略模式和适配器模式的模块化架构，内置账号池管理、智能轮询、自动故障转移和健康检查机制，确保 99.9% 的服务可用性。
 
 > [!NOTE]
 > **🎉 重要里程碑**
@@ -151,12 +151,11 @@
 > - **2025.11.30** - 新增 Antigravity 协议支持，支持通过 Google 内部接口访问 Gemini Pro、Claude Sonnet 等模型
 > - **2025.11.11** - 新增 Web UI 管理控制台，支持实时配置管理和健康状态监控
 > - **2025.11.06** - 新增对 Gemini 预览版的支持，增强模型兼容性和性能优化
-> - **2025.10.18** - Kiro 开放注册，新用户赠送 500 额度，已完整支持 Claude Sonnet
 > - **2025.08.29** - 发布账号池管理功能，支持多账号轮询、智能故障转移和自动降级策略
 >   - 配置方式：在 `configs/config.json` 中添加 `PROVIDER_POOLS_FILE_PATH` 参数
 >   - 参考配置：[provider_pools.json](./configs/provider_pools.json.example)
 > - **历史已开发**
->   - 支持 Gemini 、Kiro 等客户端2API
+>   - 支持 Gemini、Zed 等客户端2API
 >   - OpenAI ,Claude ,Gemini 三协议互转，自动智能切换
 > </details>
 ---
@@ -183,12 +182,12 @@
 *   **多模型统一接口**：通过标准 OpenAI 兼容协议，一次配置即可接入 Gemini、Claude、Codex、Kimi、MiniMax 等主流大模型
 *   **灵活切换机制**：Path 路由、支持通过启动参数、环境变量三种方式动态切换模型，满足不同场景需求
 *   **零成本迁移**：完全兼容 OpenAI API 规范，Cherry-Studio、NextChat、Cline 等工具无需修改即可使用
-*   **多协议智能转换**：下游支持 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议，上游可接入 Gemini、Claude、Codex、Kiro 等提供方并自动转换
+*   **多协议智能转换**：下游支持 OpenAI Chat、OpenAI Responses、Anthropic Messages 三种客户端协议，上游可接入 Gemini、Claude、Codex、Zed 等提供方并自动转换
 
 ### 🚀 突破限制，提升效率
 *   **绕过官方限制**：利用 OAuth 授权机制，有效突破 Gemini, Antigravity 等服务的免费 API 速率和配额限制
 *   **TLS 指纹绕过**：内置 TLS Sidecar (Go uTLS) 模拟浏览器特征，有效绕过部分上游服务的 Cloudflare 403 封锁
-*   **免费高级模型**：通过 Kiro API 模式免费使用 Claude Opus，降低使用成本
+*   **免费高级模型**：通过 Antigravity / Claude 兼容端点使用 Claude Opus，降低使用成本
 *   **账号池智能调度**：支持多账号轮询、自动故障转移和配置降级，确保 99.9% 服务可用性
 
 ### 🛡️ 安全可控，数据透明
@@ -236,7 +235,7 @@ docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 
 
 **参数说明**：
 - `-d`：后台运行容器
-- `-p 3000:3000 ...`：端口映射。3000 为 Web UI，其余为 OAuth 回调端口（Antigravity: 8086, Codex: 1455, Kiro: 19876-19880）
+- `-p 3000:3000 ...`：端口映射。3000 为 Web UI，其余为 OAuth 回调端口（Antigravity: 8086, Codex: 1455, Zed: 19876-19880）
 - `--restart=always`：容器自动重启策略
 - `-v "指定路径/configs:/app/configs"`：挂载配置目录（请将"指定路径"替换为实际路径，如 `/home/user/aiclient2api`）
 - `-v "指定路径/plugins:/app/src/plugins-user"`：挂载用户插件目录
@@ -342,7 +341,7 @@ docker compose up -d
 
 **📊 仪表盘**：系统概览、交互式路由示例、客户端配置指南
 
-**⚙️ 配置管理**：实时参数修改，支持所有提供商（Gemini、Antigravity、OpenAI、Claude、Kiro），包含高级设置和文件上传
+**⚙️ 配置管理**：实时参数修改，支持所有提供商（Gemini、Antigravity、OpenAI、Claude、Zed），包含高级设置和文件上传
 
 **🔗 提供商池**：监控活动连接、提供商健康统计、启用/禁用管理
 
@@ -359,7 +358,7 @@ docker compose up -d
 
 #### 最新模型支持
 无缝支持以下最新大模型，仅需在 Web UI 或 [`configs/config.json`](./configs/config.json) 中配置相应的端点：
-*   **Claude Opus** - Anthropic 史上最强模型，现已通过 Kiro, Antigravity 支持
+*   **Claude Opus** - Anthropic 史上最强模型，现已通过 Antigravity 与 Claude 兼容端点支持
 *   **Gemini Pro** - Google 下一代架构预览版，现已通过 Gemini, Antigravity 支持
 *   **Kimi / MiniMax** - 国内顶级旗舰模型同步支持，现已通过自定义OpenAI，Claude 支持
 
@@ -384,52 +383,6 @@ docker compose up -d
 2. **Pro会员**：Antigravity 暂时对 Pro 会员开放，需要先购买 Pro 会员。
 3. **组织账号**：组织账号需要单独授权，联系管理员获取授权。
 
-#### Kiro API 配置
-1. **环境准备**：[下载并安装 Kiro 客户端](https://kiro.dev/pricing/)
-2. **完成授权**：在客户端中登录账号，生成 `kiro-auth-token.json` 凭据文件
-3. **最佳实践**：推荐配合 **Claude Code** 使用，可获得最优体验
-4. **重要提示**：Kiro 服务使用政策已更新，请访问官方网站查看最新使用限制和条款
-
-#### Kiro 扩展思考 (Claude 模型)
-AIClient2API 在使用路由到 `claude-kiro-oauth` 的 Claude 兼容请求 (`/v1/messages`) 或 OpenAI 兼容请求 (`/v1/chat/completions`) 时支持 Kiro 扩展思考。
-
-**Claude 兼容接口 (`/v1/messages`)**:
-```bash
-curl http://localhost:3000/claude-kiro-oauth/v1/messages \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
-  -d '{
-    "model": "claude-sonnet-4-5",
-    "max_tokens": 1024,
-    "thinking": { "type": "enabled", "budget_tokens": 10000 },
-    "messages": [{ "role": "user", "content": "逐步解决这个问题。" }]
-  }'
-```
-
-**OpenAI 兼容接口 (`/v1/chat/completions`)**:
-```bash
-curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
-  -d '{
-    "model": "claude-sonnet-4-5",
-    "messages": [{ "role": "user", "content": "逐步解决这个问题。" }],
-    "extra_body": {
-      "anthropic": {
-        "thinking": { "type": "enabled", "budget_tokens": 10000 }
-      }
-    }
-  }'
-```
-
-**自适应模式**:
-- Claude: `"thinking": { "type": "adaptive", "effort": "high" }`
-- OpenAI: `"extra_body.anthropic.thinking": { "type": "adaptive", "effort": "high" }`
-
-注意：
-- `budget_tokens` 被限制在 `[1024, 24576]` 之间（如果省略或无效，默认值为 `20000`）。
-- Token 获取/刷新/池轮换机制保持不变。
-
 #### Codex OAuth 配置
 1. **生成授权**：在 Web UI 的"提供商池"或"配置管理"页面，点击 Codex 的"生成授权"按钮
 2. **浏览器登录**：系统将打开 OpenAI Codex 授权页面，完成 OAuth 登录
@@ -453,7 +406,6 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 
 | 服务 | 默认路径 | 说明 |
 |------|---------|------|
-| **Kiro** | `~/.aws/sso/cache/kiro-auth-token.json` | Kiro 认证令牌 |
 | **Antigravity** | `~/.antigravity/oauth_creds.json` | Antigravity OAuth 凭据 (支持 Claude Opus) |
 | **Codex** | `~/.codex/oauth_creds.json` | Codex OAuth 凭据 |
 
@@ -492,7 +444,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
      "PROXY_URL": "http://127.0.0.1:7890",
       "PROXY_ENABLED_PROVIDERS": [
         "gemini-antigravity",
-        "claude-kiro-oauth"
+        "zed"
       ]
     }
     ```
@@ -555,15 +507,15 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 
 #### 3. 跨类型 Fallback 配置
 
-当某一 Provider Type（如 `claude-kiro-oauth`）下的所有账号都因 429 配额耗尽或被标记为 unhealthy 时，系统能够自动 fallback 到另一个兼容的 Provider Type（如 `claude-custom`），而不是直接返回错误。
+当某一 Provider Type（如 `zed`）下的所有账号都因 429 配额耗尽或被标记为 unhealthy 时，系统能够自动 fallback 到另一个兼容的 Provider Type（如 `claude-custom`），而不是直接返回错误。
 
 **配置方式**：在 `configs/config.json` 中添加 `providerFallbackChain` 配置：
 
 ```json
 {
   "providerFallbackChain": {
-    "claude-kiro-oauth": ["claude-custom"],
-    "claude-custom": ["claude-kiro-oauth"]
+    "zed": ["claude-custom"],
+    "claude-custom": ["zed"]
   }
 }
 ```
@@ -574,7 +526,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
    - 查找配置的 fallback 类型
    - 检查 fallback 类型是否支持当前请求的模型（协议兼容性检查）
    - 从 fallback 类型的池中选取 healthy 账号
-3. 支持多级降级链：`claude-kiro-oauth → claude-custom → openai-custom`
+3. 支持多级降级链：`zed → claude-custom → openai-custom`
 4. 如果所有 fallback 类型也不可用，才返回错误
 
 **使用场景**：
@@ -632,7 +584,7 @@ curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
 
 **解决方案**：
 - **检查网络连接**：确保能够正常访问 Google、阿里云等服务
-- **检查端口占用**：OAuth 回调需要特定端口（Antigravity: 8086, Codex: 1455, Kiro: 19876-19880），确保这些端口未被占用
+- **检查端口占用**：OAuth 回调需要特定端口（Antigravity: 8086, Codex: 1455, Zed: 19876-19880），确保这些端口未被占用
 - **清除浏览器缓存**：尝试使用无痕模式或清除浏览器缓存后重试
 - **检查防火墙设置**：确保防火墙允许本地回调端口的访问
 - **Docker 用户**：确保已正确映射所有 OAuth 回调端口
@@ -715,9 +667,9 @@ kill -9 <PID>
 - **检查代理设置**：如使用代理，确保代理支持长连接
 - **查看服务日志**：检查是否有错误信息
 
-**上游空响应自动重试**（目前 Kiro `claude-kiro-oauth` 在用，机制本身与 provider 无关）：
+**上游空响应自动重试**（机制与具体 provider 无关）：
 
-在 Kiro 反代场景下，上游偶尔会返回 HTTP 200 但内容完全为空（没有文本、没有工具调用、也没有思考内容，`output_tokens: 0`）。这类空回如果直接放行给客户端，Claude Code 等客户端会认为"没有任何动作"，进而自行追加一条"请继续"之类的消息，导致对话历史（以及 `input_tokens`）不断累积膨胀，形成恶性循环。
+在上游反代场景下，上游偶尔会返回 HTTP 200 但内容完全为空（没有文本、没有工具调用、也没有思考内容，`output_tokens: 0`）。这类空回如果直接放行给客户端，Claude Code 等客户端会认为"没有任何动作"，进而自行追加一条"请继续"之类的消息，导致对话历史（以及 `input_tokens`）不断累积膨胀，形成恶性循环。
 
 本项目针对这种情况内置了检测与重试机制：
 

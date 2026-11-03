@@ -21,17 +21,6 @@ export function getAvailableRoutes() {
             badgeClass: 'official'
         },
         {
-            provider: 'claude-kiro-oauth',
-            name: t('dashboard.routing.nodeName.kiro'),
-            paths: {
-                openai: '/claude-kiro-oauth/v1/chat/completions',
-                claude: '/claude-kiro-oauth/v1/messages'
-            },
-            description: t('dashboard.routing.free'),
-            badge: t('dashboard.routing.free'),
-            badgeClass: 'oauth'
-        },
-        {
             provider: 'openai-custom',
             name: t('dashboard.routing.nodeName.openai'),
             paths: {
@@ -173,7 +162,6 @@ export function buildCurlCommand(provider, options = {}) {
 
     switch (baseProviderId) {
         case 'claude-custom':
-        case 'claude-kiro-oauth':
             if (protocol === 'openai') {
                 return `curl ${hostname}${path} \\
   -H "Content-Type: application/json" \\

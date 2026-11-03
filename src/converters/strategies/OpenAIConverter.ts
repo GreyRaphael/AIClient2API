@@ -459,10 +459,10 @@ export class OpenAIConverter extends BaseConverter {
             };
         }
 
-        // Optional passthrough: request-side "thinking" controls for Claude/Kiro.
+        // Optional passthrough: request-side "thinking" controls for Claude upstreams.
         // OpenAI-compatible clients can provide these via `extra_body.anthropic.thinking`.
         // We intentionally keep normalization minimal here; provider implementations
-        // (e.g. Kiro) clamp budgets and apply defaults.
+        // Some Claude-compatible upstreams clamp budgets and apply defaults.
         const extThinking = openaiRequest?.extra_body?.anthropic?.thinking;
         let thinkingExplicitlyDisabled = false;
         if (extThinking && typeof extThinking === 'object' && !Array.isArray(extThinking)) {

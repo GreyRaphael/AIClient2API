@@ -1578,16 +1578,6 @@ export class ProviderPoolManager {
             return requests;
         }
 
-        // Kiro OAuth 只支持 messages 格式；Claude 通道接受极小的 max_tokens。
-        if (providerType.startsWith('claude-kiro')) {
-            requests.push({
-                messages: [baseMessage],
-                model: modelName,
-                max_tokens: 1
-            });
-            return requests;
-        }
-
         // Zed 也使用 messages 格式，但其 OpenAI Responses 通道有最小输出预算：
         // 实测 max_tokens 1-12 会被上游以空 500 拒绝，16 起正常。健康检查取最小可用值。
         if (providerType.startsWith('zed')) {

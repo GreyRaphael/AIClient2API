@@ -12,16 +12,8 @@ import { useEvent } from '../../../hooks/useEvent.js';
 import { Modal } from '../../../components/Modal.js';
 import { CopyButton } from '../../../components/CopyButton.js';
 import { streamBatchImport } from '../../../lib/sse.js';
-import { KiroAwsImportModal } from './KiroAwsImportModal.js';
 
 const AUTH_METHODS = {
-    'claude-kiro-oauth': [
-        { method: 'google', icon: 'fab fa-google', titleKey: 'oauth.kiro.google', descKey: 'oauth.kiro.googleDesc' },
-        { method: 'github', icon: 'fab fa-github', titleKey: 'oauth.kiro.github', descKey: 'oauth.kiro.githubDesc' },
-        { method: 'builder-id', icon: 'fab fa-aws', titleKey: 'oauth.kiro.awsBuilder', descKey: 'oauth.kiro.awsBuilderDesc' },
-        { method: 'aws-import', icon: 'fas fa-cloud-upload-alt', titleKey: 'oauth.kiro.awsImport', descKey: 'oauth.kiro.awsImportDesc' },
-        { method: 'batch-import', icon: 'fas fa-file-import', titleKey: 'oauth.kiro.batchImport', descKey: 'oauth.kiro.batchImportDesc' }
-    ],
     'openai-codex-oauth': [
         { method: 'oauth', icon: 'fas fa-key', titleKey: 'oauth.codex.oauth', descKey: 'oauth.codex.oauthDesc' },
         { method: 'batch-import', icon: 'fas fa-file-import', titleKey: 'oauth.codex.batchImport', descKey: 'oauth.codex.batchImportDesc' },
@@ -35,15 +27,6 @@ const AUTH_METHODS = {
 };
 
 const BATCH_CONFIG = {
-    'claude-kiro-oauth': {
-        endpoint: '/kiro/batch-import-tokens',
-        instructionsKey: 'oauth.kiro.batchImportInstructions',
-        labelKey: 'oauth.kiro.refreshTokensLabel',
-        placeholderKey: 'oauth.kiro.refreshTokensPlaceholder',
-        buildBody: (text) => ({
-            refreshTokens: text.split('\n').map((line) => line.trim()).filter(Boolean)
-        })
-    },
     'openai-codex-oauth': {
         endpoint: '/codex/batch-import-tokens',
         instructionsKey: 'oauth.codex.importInstructions',
@@ -75,7 +58,6 @@ function defaultTraeHost(providerType) {
 
 export function AuthDialog({ providerType, onClose, onCompleted }) {
     const methods = AUTH_METHODS[providerType] || [];
-    const isKiro = providerType === 'claude-kiro-oauth';
     const isTrae = providerType === 'trae' || providerType.startsWith('trae-');
     const isZed = providerType === 'zed';
 
@@ -140,10 +122,6 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
     function pickMethod(method) {
         if (method === 'batch-import') {
             setStep('batch');
-            setProgress(null);
-            setResult(null);
-        } else if (method === 'aws-import') {
-            setStep('aws-import');
             setProgress(null);
             setResult(null);
         } else if (method === 'cpa-import' || method === 'sub2api-import') {
@@ -259,10 +237,6 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
         }
     }
 
-    if (step === 'aws-import') {
-        return html`<${KiroAwsImportModal} onClose=${onClose} onCompleted=${onCompleted} />`;
-    }
-
     const externalMeta = externalSource
         ? getCodexExternalImportMeta(externalSource, t)
         : null;
@@ -353,20 +327,12 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                     </div>
                     <div class="auth-instructions">
                         <h4>${t('oauth.modal.steps')}</h4>
-                        ${isKiro ? html`
-                            <p dangerouslySetInnerHTML=${{ __html: t('oauth.kiro.manualHint') }}></p>
-                            <ol>
-                                <li>${t('oauth.kiro.step1')}</li>
-                                <li>${t('oauth.kiro.step2', { method: authData.authInfo?.authMethod === 'builder-id' ? 'AWS Builder ID' : (authData.authInfo?.socialProvider || 'Google') })}</li>
-                                <li>${t('oauth.kiro.step3')}</li>
-                                <li>${t('oauth.kiro.step4')}</li>
-                            </ol>` : html`
-                            <ol>
-                                <li>${t('oauth.modal.step1')}</li>
-                                <li>${t('oauth.modal.step2.google')}</li>
-                                <li>${t('oauth.modal.step4.google')}</li>
-                                <li>${t('oauth.modal.step3')}</li>
-                            </ol>`}
+                        <ol>
+                            <li>${t('oauth.modal.step1')}</li>
+                            <li>${t('oauth.modal.step2.google')}</li>
+                            <li>${t('oauth.modal.step4.google')}</li>
+                            <li>${t('oauth.modal.step3')}</li>
+                        </ol>
                     </div>
                     <div class="auth-url-section">
                         <label>${t('oauth.modal.urlLabel')}</label>

@@ -13,12 +13,8 @@ function getFieldLabel(key) {
         'CLAUDE_API_KEY': `Claude ${t('modal.provider.field.apiKey')}`,
         'CLAUDE_BASE_URL': 'Claude Base URL',
         'PROJECT_ID': t('modal.provider.field.projectId'),
-        'KIRO_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
         'CODEX_OAUTH_CREDS_FILE_PATH': t('modal.provider.field.oauthPath'),
-        'KIRO_BASE_URL': t('modal.provider.field.baseUrl'),
-        'KIRO_REFRESH_URL': t('modal.provider.field.refreshUrl'),
-        'KIRO_REFRESH_IDC_URL': t('modal.provider.field.refreshIdcUrl'),
         'ANTIGRAVITY_BASE_URL_DAILY': t('modal.provider.field.dailyBaseUrl'),
         'ANTIGRAVITY_BASE_URL_AUTOPUSH': t('modal.provider.field.autopushBaseUrl'),
         'ANTIGRAVITY_CLIENT_VERSION': t('modal.provider.field.antigravityClientVersion'),
@@ -79,28 +75,6 @@ function getProviderTypeFields(providerType) {
                 id: 'CLAUDE_BASE_URL',
                 type: 'text',
                 placeholder: 'https://api.anthropic.com/v1'
-            }
-        ],
-        'claude-kiro-oauth': [
-            {
-                id: 'KIRO_OAUTH_CREDS_FILE_PATH',
-                type: 'text',
-                placeholder: t('modal.provider.field.oauthPath.kiro.placeholder')
-            },
-            {
-                id: 'KIRO_BASE_URL',
-                type: 'text',
-                placeholder: 'https://q.{{region}}.amazonaws.com/generateAssistantResponse'
-            },
-            {
-                id: 'KIRO_REFRESH_URL',
-                type: 'text',
-                placeholder: 'https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken'
-            },
-            {
-                id: 'KIRO_REFRESH_IDC_URL',
-                type: 'text',
-                placeholder: 'https://oidc.{{region}}.amazonaws.com/token'
             }
         ],
         'gemini-antigravity': [

@@ -233,7 +233,7 @@ function getPluginHookRequestId(config: DynamicPayload | null | undefined): stri
  * （CREDENTIAL_SWITCH_MAX_RETRIES）完全独立计数，避免一次空回把凭证切换预算耗光。
  * 该机制不绑定具体 provider：任何 provider 抛出带 isEmptyUpstreamResponse 标记的错误都会走到这里。
  *
- * @param {string} [providerLabel='Upstream'] - 用于日志的 provider 标签，如 'Kiro'、'Qwen' 等
+ * @param {string} [providerLabel='Upstream'] - 用于日志的 provider 标签，如 'Gemini'、'Qwen' 等
  * @returns {Promise<{retry: boolean, result?: object, emptyResponseRetry?: number, budgetExhausted?: boolean}>}
  */
 export async function resolveEmptyUpstreamResponseRetry(
@@ -1016,7 +1016,7 @@ export async function handleStreamRequest(
         // 上游空响应（无文本/工具调用/思考内容）：使用独立的小额重试预算，
         // 不占用凭证切换预算（CREDENTIAL_SWITCH_MAX_RETRIES），重试沿用同一份 requestBody，
         // 不会让历史/token 变大。预算耗尽后直接返回明确错误，不再静默放行空的 end_turn。
-        // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支（目前 Kiro 在用）。
+        // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支。
         if ((error as PipelineError).isEmptyUpstreamResponse) {
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
             const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
@@ -1329,7 +1329,7 @@ export async function handleUnaryRequest(
         // 上游空响应（无文本/工具调用/思考内容）：使用独立的小额重试预算，
         // 不占用凭证切换预算（CREDENTIAL_SWITCH_MAX_RETRIES），重试沿用同一份 requestBody，
         // 不会让历史/token 变大。预算耗尽后直接返回明确错误，不再静默放行空响应。
-        // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支（目前 Kiro 在用）。
+        // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支。
         if ((error as PipelineError).isEmptyUpstreamResponse) {
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
             const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
@@ -1812,7 +1812,7 @@ export async function handleContentGenerationRequest(
         });
     }
 
-    // 若发往 Claude 协议前缀的上游（包括直通 claude-custom / kiro / zed），剥离虚拟签名避免服务端报 400
+    // 若发往 Claude 协议前缀的上游（包括直通 claude-custom / zed），剥离虚拟签名避免服务端报 400
     if (getProtocolPrefix(toProvider, model) === MODEL_PROTOCOL_PREFIX.CLAUDE &&
         Array.isArray(processedRequestBody.messages) &&
         isSignatureStrippingEnabled()) {

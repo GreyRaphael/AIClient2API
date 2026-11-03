@@ -8,19 +8,19 @@
 {
     "plugin": [],
     "provider": {
-        "kiro": {
+        "claude-custom": {
             "npm": "@ai-sdk/anthropic",
-            "name": "AIClient2API-kiro",
+            "name": "AIClient2API-claude",
             "options": {
-                "baseURL": "http://localhost:3000/claude-kiro-oauth/v1",
+                "baseURL": "http://localhost:3000/claude-custom/v1",
                 "apiKey": "123456"
             },
             "models": {
                 "claude-opus-4-5": {
-                    "name": "Claude Opus 4.5 Kiro"
+                    "name": "Claude Opus 4.5"
                 },
                 "claude-sonnet-4-5-20250929": {
-                    "name": "Claude Sonnet 4.5 Kiro"
+                    "name": "Claude Sonnet 4.5"
                 }
             }
         },
@@ -51,7 +51,7 @@
 ## 配置重点解释
 
 ### 1. `provider` (服务提供商配置)
-这是配置的核心部分，每个键（如 `kiro`, `gemini-antigravity`）代表一个独立的服务提供商实例。
+这是配置的核心部分，每个键（如 `claude-custom`, `gemini-antigravity`）代表一个独立的服务提供商实例。
 
 *   **`npm` (SDK 适配器)**:
     *   指定底层使用的 AI SDK。例如：

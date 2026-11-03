@@ -54,7 +54,7 @@ export function filterNodes(nodes, search) {
     const term = search.toLowerCase().trim();
     const fields = [
         'customName', 'uuid', 'OPENAI_API_KEY', 'OPENAI_BASE_URL',
-        'CLAUDE_API_KEY', 'CLAUDE_BASE_URL', 'KIRO_OAUTH_CREDS_FILE_PATH',
+        'CLAUDE_API_KEY', 'CLAUDE_BASE_URL',
         'ANTIGRAVITY_OAUTH_CREDS_FILE_PATH', 'CODEX_OAUTH_CREDS_FILE_PATH',
         'CODEX_VERSION', 'ZED_OAUTH_CREDS_FILE_PATH', 'TRAE_OAUTH_CREDS_FILE_PATH',
         'checkModelName'

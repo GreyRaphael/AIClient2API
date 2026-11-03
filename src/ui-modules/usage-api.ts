@@ -23,7 +23,6 @@ function sendJson(res: ServerResponse, statusCode: number, payload: unknown): vo
 }
 
 const supportedProviders = [
-    MODEL_PROVIDER.KIRO_API,
     MODEL_PROVIDER.ANTIGRAVITY,
     MODEL_PROVIDER.CODEX_API
 ];

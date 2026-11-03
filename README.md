@@ -4,7 +4,7 @@
 
 # AIClient2API（A2）🚀
 
-**A powerful proxy that can unify the requests of various client-only large model APIs (Antigravity, Codex, Kiro ...), simulate requests, and encapsulate them into a local OpenAI-compatible interface.**
+**A powerful proxy that can unify the requests of various client-only large model APIs (Antigravity, Codex, Zed ...), simulate requests, and encapsulate them into a local OpenAI-compatible interface.**
 
 </div>
 
@@ -125,7 +125,7 @@
 
 ## 🚀 Overview
 
-`AIClient2API` is an API proxy service that breaks through client limitations, converting free large models originally restricted to client use only (such as Gemini, Antigravity, Codex, Kiro) into standard OpenAI-compatible interfaces that can be called by any application. Built on Node.js, it supports intelligent conversion between OpenAI, Claude, and Gemini protocols, enabling tools like Cherry-Studio, NextChat, and Cline to freely use advanced models such as Claude Opus and Gemini Pro at scale. The project adopts a modular architecture based on strategy and adapter patterns, with built-in account pool management, intelligent polling, automatic failover, and health check mechanisms, ensuring 99.9% service availability.
+`AIClient2API` is an API proxy service that breaks through client limitations, converting free large models originally restricted to client use only (such as Gemini, Antigravity, Codex, Zed) into standard OpenAI-compatible interfaces that can be called by any application. Built on Node.js, it supports intelligent conversion between OpenAI, Claude, and Gemini protocols, enabling tools like Cherry-Studio, NextChat, and Cline to freely use advanced models such as Claude Opus and Gemini Pro at scale. The project adopts a modular architecture based on strategy and adapter patterns, with built-in account pool management, intelligent polling, automatic failover, and health check mechanisms, ensuring 99.9% service availability.
 
 > [!NOTE]
 > **🎉 Important Milestone**
@@ -151,12 +151,11 @@
 > - **2025.11.30** - Added Antigravity protocol support, enabling access to Gemini Pro, Claude Sonnet, and other models via Google internal interfaces
 > - **2025.11.11** - Added Web UI management console, supporting real-time configuration management and health status monitoring
 > - **2025.11.06** - Added support for Gemini Preview, enhanced model compatibility and performance optimization
-> - **2025.10.18** - Kiro open registration, new accounts get 500 credits, full support for Claude Sonnet
 > - **2025.08.29** - Released account pool management feature, supporting multi-account polling, intelligent failover, and automatic degradation strategies
 >   - Configuration: Add `PROVIDER_POOLS_FILE_PATH` parameter in `configs/config.json`
 >   - Reference configuration: [provider_pools.json](./configs/provider_pools.json.example)
 > - **History Developed**
->   - Support Gemini , Kiro and other client2API
+>   - Support Gemini, Zed and other client2API
 >   - OpenAI, Claude, Gemini three-protocol mutual conversion, automatic intelligent switching
 > </details>
 
@@ -184,12 +183,12 @@
 *   **Multi-Model Unified Interface**: Through standard OpenAI-compatible protocol, configure once to access mainstream large models including Gemini, Claude, Codex, Kimi, MiniMax
 *   **Flexible Switching Mechanism**: Path routing, support dynamic model switching via startup parameters or environment variables to meet different scenario requirements
 *   **Zero-Cost Migration**: Fully compatible with OpenAI API specifications, tools like Cherry-Studio, NextChat, Cline can be used without modification
-*   **Multi-Protocol Intelligent Conversion**: Downstream supports OpenAI Chat, OpenAI Responses, and Anthropic Messages, while upstream providers such as Gemini, Claude, Codex, and Kiro are converted automatically
+*   **Multi-Protocol Intelligent Conversion**: Downstream supports OpenAI Chat, OpenAI Responses, and Anthropic Messages, while upstream providers such as Gemini, Claude, Codex, and Zed are converted automatically
 
 ### 🚀 Break Through Limitations, Improve Efficiency
 *   **Bypass Official Restrictions**: Utilize OAuth authorization mechanism to effectively break through rate and quota limits of services like Gemini, Antigravity
 *   **TLS Fingerprint Bypass**: Built-in TLS Sidecar (Go uTLS) to simulate browser features, effectively bypassing Cloudflare 403 blocks for some upstream services
-*   **Free Advanced Models**: Use Claude Opus for free via Kiro API mode, reducing usage costs
+*   **Free Advanced Models**: Use Claude Opus via Antigravity / Claude-compatible endpoints, reducing usage costs
 *   **Intelligent Account Pool Scheduling**: Support multi-account polling, automatic failover, and configuration degradation, ensuring 99.9% service availability
 
 ### 🛡️ Secure and Controllable, Data Transparent
@@ -237,7 +236,7 @@ docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 
 
 **Parameter Description**:
 - `-d`: Run container in background
-- `-p 3000:3000 ...`: Port mapping. 3000 is for Web UI, others are for OAuth callbacks (Antigravity: 8086, Codex: 1455, Kiro: 19876-19880)
+- `-p 3000:3000 ...`: Port mapping. 3000 is for Web UI, others are for OAuth callbacks (Antigravity: 8086, Codex: 1455, Zed: 19876-19880)
 - `--restart=always`: Container auto-restart policy
 - `-v "your_path/configs:/app/configs"`: Mount configuration directory (replace "your_path" with actual path, e.g., `/home/user/aiclient2api`)
 - `-v "your_path/plugins:/app/src/plugins-user"`: Mount user plugins directory
@@ -343,7 +342,7 @@ A functional Web management interface, including:
 
 **📊 Dashboard**: System overview, interactive routing examples, client configuration guide
 
-**⚙️ Configuration**: Real-time parameter modification, supporting all providers (Gemini, Antigravity, OpenAI, Claude, Kiro), including advanced settings and file uploads
+**⚙️ Configuration**: Real-time parameter modification, supporting all providers (Gemini, Antigravity, OpenAI, Claude, Zed), including advanced settings and file uploads
 
 **🔗 Provider Pools**: Monitor active connections, provider health statistics, enable/disable management
 
@@ -360,7 +359,7 @@ Supports various input types such as images and documents, providing you with a 
 
 #### Latest Model Support
 Seamlessly support the following latest large models, just configure the corresponding endpoint in Web UI or [`configs/config.json`](./configs/config.json):
-*   **Claude Opus** - Anthropic's strongest model ever, now supported via Kiro, Antigravity
+*   **Claude Opus** - Anthropic's strongest model ever, now supported via Antigravity and Claude-compatible endpoints
 *   **Gemini Pro** - Google's next-generation architecture preview, now supported via Gemini, Antigravity
 *   **Kimi / MiniMax** - Synchronized support for top domestic flagship models, now supported via custom OpenAI, Claude
 
@@ -385,52 +384,6 @@ In the Web UI management interface, you can complete authorization configuration
 2. **Pro Member**: Antigravity is temporarily open to Pro members, you need to purchase a Pro membership first.
 3. **Organization Account**: Organization accounts require separate authorization, contact the administrator to obtain authorization.
 
-#### Kiro API Configuration
-1. **Environment Preparation**: [Download and install Kiro client](https://kiro.dev/pricing/)
-2. **Complete Authorization**: Log in to your account in the client to generate `kiro-auth-token.json` credential file
-3. **Best Practice**: Recommended to use with **Claude Code** for optimal experience
-4. **Important Notice**: Kiro service usage policy has been updated, please visit the official website for the latest usage restrictions and terms
-
-#### Kiro Extended Thinking (Claude Models)
-AIClient2API supports Kiro extended thinking when using Claude-compatible requests (`/v1/messages`) or OpenAI-compatible requests (`/v1/chat/completions`) routed to `claude-kiro-oauth`.
-
-**Claude-compatible (`/v1/messages`)**:
-```bash
-curl http://localhost:3000/claude-kiro-oauth/v1/messages \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
-  -d '{
-    "model": "claude-sonnet-4-5",
-    "max_tokens": 1024,
-    "thinking": { "type": "enabled", "budget_tokens": 10000 },
-    "messages": [{ "role": "user", "content": "Solve this step by step." }]
-  }'
-```
-
-**OpenAI-compatible (`/v1/chat/completions`)**:
-```bash
-curl http://localhost:3000/claude-kiro-oauth/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
-  -d '{
-    "model": "claude-sonnet-4-5",
-    "messages": [{ "role": "user", "content": "Solve this step by step." }],
-    "extra_body": {
-      "anthropic": {
-        "thinking": { "type": "enabled", "budget_tokens": 10000 }
-      }
-    }
-  }'
-```
-
-**Adaptive mode**:
-- Claude: `"thinking": { "type": "adaptive", "effort": "high" }`
-- OpenAI: `"extra_body.anthropic.thinking": { "type": "adaptive", "effort": "high" }`
-
-Notes:
-- `budget_tokens` is clamped to `[1024, 24576]` (default `20000` if omitted/invalid).
-- Token acquisition/refresh/pool rotation is unchanged.
-
 #### Codex OAuth Configuration
 1. **Generate Authorization**: On the Web UI "Provider Pools" or "Configuration" page, click the "Generate Authorization" button for Codex
 2. **Browser Login**: The system opens the OpenAI Codex authorization page to complete OAuth login
@@ -454,7 +407,6 @@ Default storage locations for authorization credential files of each service:
 
 | Service | Default Path | Description |
 |------|---------|------|
-| **Kiro** | `~/.aws/sso/cache/kiro-auth-token.json` | Kiro authentication token |
 | **Antigravity** | `~/.antigravity/oauth_creds.json` | Antigravity OAuth credentials (supports Claude Opus) |
 | **Codex** | `~/.codex/oauth_creds.json` | Codex OAuth credentials |
 
@@ -493,7 +445,7 @@ This project supports flexible proxy configuration, allowing you to configure a 
      "PROXY_URL": "http://127.0.0.1:7890",
       "PROXY_ENABLED_PROVIDERS": [
         "gemini-antigravity",
-        "claude-kiro-oauth"
+        "zed"
       ]
     }
     ```
@@ -556,15 +508,15 @@ Node models use positive selection: candidates come from the upstream `model_lis
 
 #### 3. Cross-Type Fallback Configuration
 
-When all accounts under a Provider Type (e.g., `claude-kiro-oauth`) are exhausted due to 429 quota limits or marked as unhealthy, the system can automatically fallback to another compatible Provider Type (e.g., `claude-custom`) instead of returning an error directly.
+When all accounts under a Provider Type (e.g., `zed`) are exhausted due to 429 quota limits or marked as unhealthy, the system can automatically fallback to another compatible Provider Type (e.g., `claude-custom`) instead of returning an error directly.
 
 **Configuration**: Add `providerFallbackChain` configuration in `configs/config.json`:
 
 ```json
 {
   "providerFallbackChain": {
-    "claude-kiro-oauth": ["claude-custom"],
-    "claude-custom": ["claude-kiro-oauth"]
+    "zed": ["claude-custom"],
+    "claude-custom": ["zed"]
   }
 }
 ```
@@ -575,7 +527,7 @@ When all accounts under a Provider Type (e.g., `claude-kiro-oauth`) are exhauste
    - Look up the configured fallback types
    - Check if the fallback type supports the requested model (protocol compatibility check)
    - Select a healthy account from the fallback type's pool
-3. Supports multi-level degradation chains: `claude-kiro-oauth → claude-custom → openai-custom`
+3. Supports multi-level degradation chains: `zed → claude-custom → openai-custom`
 4. Only returns an error if all fallback types are also unavailable
 
 **Use Cases**:
@@ -633,7 +585,7 @@ For upstream services that strictly validate TLS fingerprints (JA3/JA4), this pr
 
 **Solutions**:
 - **Check Network Connection**: Ensure you can access Google, Alibaba Cloud, and other services normally
-- **Check Port Occupation**: OAuth callbacks require specific ports (Antigravity: 8086, Codex: 1455, Kiro: 19876-19880), ensure these ports are not occupied
+- **Check Port Occupation**: OAuth callbacks require specific ports (Antigravity: 8086, Codex: 1455, Zed: 19876-19880), ensure these ports are not occupied
 - **Clear Browser Cache**: Try using incognito mode or clearing browser cache and retry
 - **Check Firewall Settings**: Ensure the firewall allows access to local callback ports
 - **Docker Users**: Ensure all OAuth callback ports are correctly mapped

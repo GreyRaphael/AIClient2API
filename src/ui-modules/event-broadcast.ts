@@ -284,15 +284,6 @@ export function handleUploadOAuthCredentials(
                 // 根据实际的provider移动文件到正确的目录
                 let targetDir = path.join(process.cwd(), 'configs', provider);
 
-                // 如果是kiro类型的凭证，需要再包裹一层文件夹
-                if (provider === 'kiro') {
-                    // 使用时间戳作为子文件夹名称，确保每个上传的文件都有独立的目录
-                    const timestamp = Date.now();
-                    const originalNameWithoutExt = path.parse(req.file.originalname).name;
-                    const subFolder = `${timestamp}_${originalNameWithoutExt}`;
-                    targetDir = path.join(targetDir, subFolder);
-                }
-
                 const targetFilePath = path.join(targetDir, storedFilename);
 
                 // 安全边界防御：计算绝对路径以防止路径穿越，确保目标文件严格存在于 configs 目录内

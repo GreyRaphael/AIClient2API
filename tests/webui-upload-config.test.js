@@ -13,7 +13,7 @@ import {
 describe('upload config helpers', () => {
     const configs = [
         { name: 'a.json', path: 'configs/antigravity/a.json', modified: '2026-01-01T00:00:00Z', isUsed: false, size: 1024 },
-        { name: 'b.json', path: 'configs/kiro/b.json', modified: '2026-02-01T00:00:00Z', isUsed: true, size: 2048 },
+        { name: 'b.json', path: 'configs/zed/b.json', modified: '2026-02-01T00:00:00Z', isUsed: true, size: 2048 },
         { name: 'c.txt', path: 'configs/misc/c.txt', modified: '2026-03-01T00:00:00Z', isUsed: false, size: 10 }
     ];
 
@@ -26,6 +26,8 @@ describe('upload config helpers', () => {
         expect(filterConfigs(configs, { status: 'used' }).map((config) => config.name)).toEqual(['b.json']);
         expect(filterConfigs(configs, { provider: 'gemini-antigravity' }).map((config) => config.name))
             .toEqual(['a.json']);
+        expect(filterConfigs(configs, { provider: 'zed' }).map((config) => config.name))
+            .toEqual(['b.json']);
         expect(filterConfigs(configs, { provider: 'other' }).map((config) => config.name))
             .toEqual(['c.txt']);
     });

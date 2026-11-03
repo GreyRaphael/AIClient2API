@@ -58,7 +58,6 @@ export const MODEL_PROVIDER = {
     OPENAI_CUSTOM: 'openai-custom',
     OPENAI_CUSTOM_RESPONSES: 'openaiResponses-custom',
     CLAUDE_CUSTOM: 'claude-custom',
-    KIRO_API: 'claude-kiro-oauth',
     CODEX_API: 'openai-codex-oauth',
     ZED: 'zed',
     TRAE: 'trae',
