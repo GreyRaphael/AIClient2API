@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.0.0] - 2026-11-03
+
+彻底移除 Kiro provider（`claude-kiro-oauth`）。**这是破坏性变更**：
+该 provider 不再可用，已配置的 Kiro 节点将不再被加载。
+
+### ⚠️ Breaking Changes
+
+- **移除 `claude-kiro-oauth` provider**：删除其核心服务、OAuth 流程、
+  协议转换器、流解析器、适配器注册、UI 入口、用量查询与配置模板。
+  `provider_pools.json` 中的 Kiro 节点需迁移到其他 provider。
+- **移除相关 API 端点**：`/api/kiro/batch-import-tokens`、
+  `/api/kiro/import-aws-credentials` 不再存在。
+
+### Removed
+
+- 删除 10 个 Kiro 专有文件（服务、OAuth、请求构建、流解析、状态机、
+  AWS 凭据导入弹窗与纯函数、3 个测试文件）。
+- WebUI：`AuthDialog` 移除 5 种 Kiro 认证方式与 `aws-import` 步骤；
+  `provider-registry` / `provider-fields` / `routing` / `providers-utils` /
+  `ProviderManagerModal` 移除 Kiro 条目；中英 locale 各移除 54 个 key；
+  删除 334 行 AWS 导入样式与 `.tag-kiro-oauth` 徽章样式。
+- 文档：README 中英各删 2 章（共 92 行），`OPENCODE_CONFIG_EXAMPLE.md`
+  示例改用 `claude-custom`，`provider_pools.json.example` 移除 28 行模板。
+
+### Changed
+
+- `oauth-shared.ts` 移除仅为 Kiro 服务的 `showDebugHint` / `logMessage` 选项
+  （唯一调用方 Gemini 未使用）。
+- `provider-pool-manager.ts` 移除 Kiro 专属健康检查 `max_tokens: 1` 特例。
+- 依赖 Kiro 的测试改用仍维护的 provider，覆盖意图保持不变。
+
 ## [v7.0.0] - 2026-11-03
 
 运行基线收紧为 Node.js 24+。**这是破坏性变更**：Node.js 22 及更早版本将拒绝启动。
