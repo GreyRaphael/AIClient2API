@@ -4,7 +4,8 @@ import {
     resolveBridgePlan,
     nativePayloadHasMeaningfulContent,
     extractTerminalFinishReason,
-    extractResponseText
+    extractResponseText,
+    extractPromptText
 } from '../../src/handlers/request-pipeline.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../src/utils/constants.ts';
 
@@ -126,5 +127,16 @@ describe('protocol override for direct-output providers', () => {
             'deepseek-v4.1-flash',
             MODEL_PROTOCOL_PREFIX.CLAUDE
         )).toBe('hi');
+    });
+
+    test('extractPromptText follows effective protocol when conversion is skipped', () => {
+        // 当客户端以 Responses 协议调用 trae（needsConversion=false），请求体为 Responses 形状
+        const responsesReq = {
+            input: [{ role: 'user', content: [{ type: 'input_text', text: 'tell me a joke' }] }]
+        };
+        // 不传 override 时按 trae 声明协议 (openai) 读取 messages，读不到 prompt
+        expect(extractPromptText(responsesReq, 'trae', 'deepseek-v4.1-flash')).toBe('');
+        // 传入桥接计划的 nativeProtocol (openaiResponses) 时能正确提取 prompt
+        expect(extractPromptText(responsesReq, 'trae', 'deepseek-v4.1-flash', MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES)).toBe('tell me a joke');
     });
 });

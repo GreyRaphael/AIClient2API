@@ -295,19 +295,34 @@ function readCodexToolName(tool: unknown): string {
 
 /**
  * 构建工具名缩短映射（同名冲突时追加 _1/_2 后缀，与 CodexConverter 对齐）。
+ * 支持从 tools 以及历史 input（Responses 格式）中的 tool call 收集待缩短名称。
  * @param {Array} tools
+ * @param {Array} [input]
  * @returns {{toolNameMap: Map<string,string>, reverseToolNameMap: Map<string,string>}}
  */
-export function buildCodexToolNameMaps(tools: unknown): CodexToolNameMaps {
+export function buildCodexToolNameMaps(tools: unknown, input?: unknown): CodexToolNameMaps {
     const toolNameMap = new Map<string, string>();
     const reverseToolNameMap = new Map<string, string>();
-    if (!Array.isArray(tools)) return { toolNameMap, reverseToolNameMap };
-
     const names: string[] = [];
-    for (const tool of tools) {
-        const name = readCodexToolName(tool);
-        if (name) names.push(name);
+
+    if (Array.isArray(tools)) {
+        for (const tool of tools) {
+            const name = readCodexToolName(tool);
+            if (name) names.push(name);
+        }
     }
+
+    if (Array.isArray(input)) {
+        for (const item of input) {
+            if (isRecord(item) && (item.type === 'function_call' || item.type === 'custom_tool_call')) {
+                const name = typeof item.name === 'string' ? item.name : '';
+                if (name && !names.includes(name)) {
+                    names.push(name);
+                }
+            }
+        }
+    }
+
     if (names.length === 0) return { toolNameMap, reverseToolNameMap };
 
     const used = new Set<string>();
@@ -331,7 +346,7 @@ export function buildCodexToolNameMaps(tools: unknown): CodexToolNameMaps {
 }
 
 /**
- * 把缩短后的工具名写回请求体（兼容 Chat 嵌套形状与 Responses 扁平形状，以及 tool_choice）。
+ * 把缩短后的工具名写回请求体（兼容 Chat 嵌套形状与 Responses 扁平形状，以及 tool_choice 与 input 历史）。
  *
  * @param {Object} body - 待发送给上游的请求体（会被原地改写）
  * @param {Map<string,string>} toolNameMap - 原始名 -> 缩短名
@@ -363,6 +378,18 @@ function applyCodexToolNameShorts(body: Record<string, unknown>, toolNameMap: Ma
             choice.name = toolNameMap.get(choice.name);
         }
         body.tool_choice = choice;
+    }
+
+    if (Array.isArray(body.input)) {
+        body.input = body.input.map((item) => {
+            if (!isRecord(item)) return item;
+            if (item.type === 'function_call' || item.type === 'custom_tool_call') {
+                if (typeof item.name === 'string' && toolNameMap.has(item.name)) {
+                    return { ...item, name: toolNameMap.get(item.name) };
+                }
+            }
+            return item;
+        });
     }
 }
 
@@ -1155,7 +1182,7 @@ export class CodexApiService {
         // 因此缩短 + 反向还原都由 Provider 自己负责。映射绑定在返回体的不可枚举属性上，
         // 由 parseSSEStream / parseNonStreamResponse 取出用于还原。
         // 1-Hop 路径下工具名已由 CodexConverter 缩短（<=64），此处为幂等空操作。
-        const toolNameMaps = buildCodexToolNameMaps(cleanedBody.tools);
+        const toolNameMaps = buildCodexToolNameMaps(cleanedBody.tools, cleanedBody.input);
         if (toolNameMaps.toolNameMap.size > 0) {
             applyCodexToolNameShorts(cleanedBody, toolNameMaps.toolNameMap);
         }

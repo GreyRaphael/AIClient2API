@@ -807,3 +807,85 @@ describe('Codex 1-Hop 路径不受 0-Hop 改造影响', () => {
         }
     });
 });
+
+describe('Codex 0-Hop：历史 input 中的超长工具名同步缩短', () => {
+    test('input 中的 function_call.name >64 字符被缩短并与 tools 映射一致', async () => {
+        const service = createCodexService();
+        try {
+            const longName = 'mcp__filesystem_server_long_prefix__very_long_tool_name_exceeding_sixty_four_chars_action';
+            const body = await service.prepareRequestBody('gpt-6-luna', {
+                model: 'gpt-6-luna',
+                input: [
+                    { type: 'message', role: 'user', content: 'read file' },
+                    { type: 'function_call', id: 'call_1', name: longName, arguments: '{}' },
+                    { type: 'function_call_output', call_id: 'call_1', output: 'ok' }
+                ],
+                tools: [{ type: 'function', name: longName, parameters: { type: 'object' } }]
+            }, true);
+
+            const toolDef = body.tools.find((t) => t.name !== longName);
+            expect(toolDef).toBeDefined();
+            expect(toolDef.name.length).toBeLessThanOrEqual(64);
+
+            const callItem = body.input.find((i) => i.type === 'function_call');
+            expect(callItem).toBeDefined();
+            expect(callItem.name).toBe(toolDef.name);
+        } finally {
+            service.stopCacheCleanup();
+        }
+    });
+});
+
+describe('Trae 1-Hop：Claude 非流式思考签名与空 tool_result 兜底', () => {
+    test('非流式 Claude 响应的 thinking 块包含 vsig1.* 虚拟签名', async () => {
+        const service = createTraeService();
+        const fakeSse = toTraeSse([
+            { event: 'output', data: { response: 'done', reasoning_content: 'thinking carefully' } },
+            { event: 'done', data: { finish_reason: 'stop' } }
+        ]);
+        axios.mockResolvedValue({
+            data: Readable.from([Buffer.from(fakeSse, 'utf-8')])
+        });
+
+        const requestBody = { model: 'glm-5.2', _downstreamProtocol: MODEL_PROTOCOL_PREFIX.CLAUDE };
+        const claudeResp = await service.generateContent('glm-5.2', requestBody);
+
+        expect(claudeResp.type).toBe('message');
+        expect(claudeResp.role).toBe('assistant');
+        const thinkingBlock = claudeResp.content.find((b) => b.type === 'thinking');
+        expect(thinkingBlock).toBeDefined();
+        expect(thinkingBlock.thinking).toBe('thinking carefully');
+        expect(typeof thinkingBlock.signature).toBe('string');
+        expect(thinkingBlock.signature.startsWith('vsig1.')).toBe(true);
+    });
+
+    test('Claude 与 Responses 空字符串 tool_result 转换为 content: [{type:"text", text:""}]', () => {
+        const service = createTraeService();
+
+        // 1) Responses 协议的空输出
+        const reqResponses = service.prepareRequestBody('glm-5.2', {
+            model: 'glm-5.2',
+            _downstreamProtocol: MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES,
+            input: [
+                { type: 'function_call', id: 'call_1', name: 'calc', arguments: '{}' },
+                { type: 'function_call_output', call_id: 'call_1', output: '' }
+            ]
+        });
+        const toolMsgResp = reqResponses.messages.find((m) => m.role === 'tool');
+        expect(toolMsgResp).toBeDefined();
+        expect(toolMsgResp.content).toEqual([{ type: 'text', text: '' }]);
+
+        // 2) Claude 协议的空输出
+        const reqClaude = service.prepareRequestBody('glm-5.2', {
+            model: 'glm-5.2',
+            _downstreamProtocol: MODEL_PROTOCOL_PREFIX.CLAUDE,
+            messages: [{
+                role: 'user',
+                content: [{ type: 'tool_result', tool_use_id: 'call_2', content: '' }]
+            }]
+        });
+        const toolMsgClaude = reqClaude.messages.find((m) => m.role === 'tool');
+        expect(toolMsgClaude).toBeDefined();
+        expect(toolMsgClaude.content).toEqual([{ type: 'text', text: '' }]);
+    });
+});

@@ -9,7 +9,7 @@ import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../../converters/responses-sse-emitter.ts';
 import { AnthropicSseEmitter } from '../../converters/anthropic-sse-emitter.ts';
 import { anthropicUsageFromInclusiveInput } from '../../converters/utils.ts';
-import { isSignatureVaultEnabled } from '../../converters/signature-vault.ts';
+import { isSignatureVaultEnabled, mintVirtualSignature } from '../../converters/signature-vault.ts';
 import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.ts';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.ts';
@@ -469,9 +469,9 @@ export function responsesRequestToTraeMessages(requestBody: DynamicPayload): { m
             }
             case 'function_call_output':
             case 'custom_tool_call_output': {
-                pushMessage('tool', toTraeTextBlocks(
-                    typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')
-                ));
+                const outputStr = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '');
+                const contentBlocks = toTraeTextBlocks(outputStr);
+                pushMessage('tool', contentBlocks.length > 0 ? contentBlocks : [{ type: 'text', text: '' }]);
                 const last = messages[messages.length - 1];
                 const outputCallId = item.call_id ?? item.id;
                 if (last && typeof outputCallId === 'string') last.tool_call_id = outputCallId;
@@ -583,10 +583,11 @@ export function claudeRequestToTraeMessages(requestBody: DynamicPayload): { mess
                             }).join('')
                             : JSON.stringify(block.content ?? ''));
                     const toolUseId = block.tool_use_id;
+                    const blocks = toTraeTextBlocks(resultContent);
                     toolResults.push({
                         role: 'tool',
                         tool_call_id: typeof toolUseId === 'string' ? toolUseId : undefined,
-                        content: toTraeTextBlocks(resultContent)
+                        content: blocks.length > 0 ? blocks : [{ type: 'text', text: '' }]
                     });
                     break;
                 }
@@ -1160,6 +1161,7 @@ function buildTraeResponsesResponse({
 interface TraeClaudeContentBlock {
     type: 'thinking' | 'text' | 'tool_use';
     thinking?: string;
+    signature?: string;
     text?: string;
     id?: string;
     name?: string;
@@ -1192,9 +1194,18 @@ function buildTraeClaudeResponse({
     toolCalls: TraeToolCall[];
     usage: TraeNormalizedUsage | null;
 }): TraeClaudeResponse {
+    const messageId = `msg_${randomUUID().replace(/-/g, '')}`;
     const contentBlocks: TraeClaudeContentBlock[] = [];
     if (reasoning) {
-        contentBlocks.push({ type: 'thinking', thinking: reasoning });
+        const thinkingBlock: TraeClaudeContentBlock = { type: 'thinking', thinking: reasoning };
+        if (isSignatureVaultEnabled()) {
+            thinkingBlock.signature = mintVirtualSignature({
+                sessionKey: messageId,
+                blockIndex: 0,
+                thinkingText: reasoning
+            });
+        }
+        contentBlocks.push(thinkingBlock);
     }
     if (content) {
         contentBlocks.push({ type: 'text', text: content });
@@ -1218,7 +1229,7 @@ function buildTraeClaudeResponse({
     }
 
     return {
-        id: `msg_${randomUUID().replace(/-/g, '')}`,
+        id: messageId,
         type: 'message',
         role: 'assistant',
         model,
@@ -1795,6 +1806,9 @@ export class TraeApiService {
                         }
                         return { type: 'text', text: String(part) };
                     });
+                    if (msg.role === 'tool' && msg.content.length === 0) {
+                        msg.content = [{ type: 'text', text: '' }];
+                    }
                 } else if (msg.role === 'tool' && (msg.content === null || msg.content === undefined)) {
                     msg.content = [{ type: 'text', text: '' }];
                 }

@@ -1824,11 +1824,11 @@ export async function handleContentGenerationRequest(
     }
     
     // 4. Log the incoming prompt (after potential conversion to the backend's format).
-    const promptText = extractPromptText(processedRequestBody, toProvider, model);
+    const promptText = extractPromptText(processedRequestBody, toProvider, model, requestBridgePlan.nativeProtocol);
     
     // 4.1. 应用自定义模型参数 (温度、最大长度等)
     if (customModelConfig) {
-        _applyCustomModelParameters(processedRequestBody, customModelConfig, toProvider, model);
+        _applyCustomModelParameters(processedRequestBody, customModelConfig, toProvider, model, requestBridgePlan.nativeProtocol);
     }
 
     await logConversation('input', promptText, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
@@ -1891,9 +1891,9 @@ export function extractResponseText(response: DynamicPayload, provider: string, 
     return strategy.extractResponseText(response);
 }
 
-export function extractPromptText(requestBody: DynamicPayload, provider: string, model?: string): string {
+export function extractPromptText(requestBody: DynamicPayload, provider: string, model?: string, protocolOverride?: string): string {
     const effectiveModel = model || (typeof requestBody?.model === 'string' ? requestBody.model : undefined);
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider, effectiveModel));
+    const strategy = ProviderStrategyFactory.getStrategy(resolvePayloadProtocol(provider, effectiveModel, protocolOverride));
     return strategy.extractPromptText(requestBody);
 }
 
@@ -1902,11 +1902,19 @@ export function extractPromptText(requestBody: DynamicPayload, provider: string,
  * @param {Object} requestBody - 处理后的请求体
  * @param {Object} customConfig - 自定义模型配置
  * @param {string} provider - 目标提供商
+ * @param {string} [model] - 模型名称
+ * @param {string} [protocolOverride] - 协议覆盖（直通/直出时使用有效协议）
  */
-function _applyCustomModelParameters(requestBody: DynamicPayload, customConfig: DynamicPayload | null, provider: string, model?: string): void {
+function _applyCustomModelParameters(
+    requestBody: DynamicPayload,
+    customConfig: DynamicPayload | null,
+    provider: string,
+    model?: string,
+    protocolOverride?: string
+): void {
     if (!customConfig) return;
     const effectiveModel = model || (typeof requestBody?.model === 'string' ? requestBody.model : undefined);
-    const protocol = getProtocolPrefix(provider, effectiveModel);
+    const protocol = resolvePayloadProtocol(provider, effectiveModel, protocolOverride);
     const hasConfiguredValue = (value: unknown): boolean => value !== undefined && value !== null;
 
     // 参数映射表（自定义模型只保留 max_output_tokens）
