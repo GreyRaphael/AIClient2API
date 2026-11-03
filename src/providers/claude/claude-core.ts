@@ -26,6 +26,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
 }
 
+/**
+ * 把上游模型列表归一化为 `{ id, name }[]`。
+ * 兼容 `{data:[...]}`、`{models:[...]}` 与纯数组；字符串项按 id 处理。
+ */
+function normalizeModelList(payload: unknown): unknown[] {
+    const raw = Array.isArray(payload)
+        ? payload
+        : (isRecord(payload) && Array.isArray(payload.data) ? payload.data
+            : (isRecord(payload) && Array.isArray(payload.models) ? payload.models : []));
+    return raw.map((item: unknown) => {
+        if (typeof item === 'string') return { id: item, name: item };
+        if (!isRecord(item)) return null;
+        const id = typeof item.id === 'string' ? item.id
+            : (typeof item.name === 'string' ? item.name : '');
+        return { ...item, id, name: typeof item.name === 'string' ? item.name : id };
+    }).filter(Boolean);
+}
+
 function getErrorResponseDetails(error: unknown): ErrorResponseDetails {
     if (isRecord(error)) {
         const response = isRecord(error.response) ? error.response : null;
@@ -296,32 +314,65 @@ export class ClaudeApiService {
 
     /**
      * Lists available models.
+     *
+     * 按优先级探测三个候选端点，第一个返回非空模型列表的即为结果：
+     *   1. `${base_url}/models`
+     *   2. `${host}/models`
+     *   3. `${host}/v1/models`
+     *
+     * 全部失败时返回空列表（而不是编造 claude-* 模型），
+     * 避免 playground 展示上游并不存在的模型。
+     *
+     * 之所以需要后两跳：第三方「Claude 兼容」网关常常不实现 Anthropic 的
+     * `/models`（实测 `https://api.deepseek.com/anthropic/models` 返回 404），
+     * 但同源标准 OpenAI 端点可用。
+     *
      * @returns {Promise<object>} List of models.
      */
     async listModels<T = unknown>(): Promise<T | { models: unknown[] }> {
-        logger.info('[ClaudeApiService] Listing available models.');
-        try {
-            const axiosConfig: Record<string, unknown> = {
-                method: 'get',
-                url: '/models'
-            };
-            this._applySidecar(axiosConfig);
-            const response = await this.client.request(axiosConfig as AxiosRequestConfig);
-            if (isRecord(response.data) && Array.isArray(response.data.data)) {
-                return { models: response.data.data };
+        for (const url of this.getModelListUrls()) {
+            try {
+                const axiosConfig: Record<string, unknown> = { method: 'get', url };
+                this._applySidecar(axiosConfig);
+                const response = await this.client.request(axiosConfig as AxiosRequestConfig);
+                const models = normalizeModelList(response.data);
+                if (models.length > 0) {
+                    logger.info(`[ClaudeApiService] Discovered ${models.length} model(s) via ${url}`);
+                    return { models };
+                }
+                logger.debug(`[ClaudeApiService] ${url} returned no models; trying next candidate.`);
+            } catch (error) {
+                const { status, message } = getErrorResponseDetails(error);
+                logger.debug(`[ClaudeApiService] Model discovery failed at ${url} (status: ${status || 'N/A'}): ${message}`);
             }
-            return response.data as T;
-        } catch (error) {
-            const { status, data, message } = getErrorResponseDetails(error);
-            logger.warn(`[ClaudeApiService] Failed to fetch models from upstream (Status: ${status || 'N/A'}), using fallback list:`, data || message);
         }
+        logger.warn(`[ClaudeApiService] No models discovered from ${this.baseUrl}; returning empty list.`);
+        return { models: [] };
+    }
 
-        const models = [
-            { id: "claude-4-sonnet", name: "claude-4-sonnet" },
-            { id: "claude-sonnet-4-20250514", name: "claude-sonnet-4-20250514" },
-            { id: "claude-opus-4-20250514", name: "claude-opus-4-20250514" },
-        ];
-
-        return { models: models.map((m) => ({ name: m.name })) };
+    /**
+     * 模型发现的候选 URL，按优先级排列：
+     *   1. `${base_url}/models`
+     *   2. `${host}/models`
+     *   3. `${host}/v1/models`
+     *
+     * 注意：第一跳必须**显式拼接** base_url，不能用 `new URL('/models', base_url)`。
+     * 以 `/` 开头的路径是「根相对」，会丢弃 base_url 的路径部分
+     * （`https://api.deepseek.com/anthropic` + `/models` → `https://api.deepseek.com/models`），
+     * 结果与第二跳重复、第一跳的语义就丢失了。
+     *
+     * 按解析后的绝对地址去重：当 base_url 本身已是根路径时，
+     * 第一跳与第二跳指向同一地址，只请求一次。
+     */
+    getModelListUrls(): string[] {
+        const baseNoSlash = String(this.baseUrl || '').replace(/\/+$/, '');
+        const candidates = [`${baseNoSlash}/models`];
+        try {
+            const { origin } = new URL(this.baseUrl);
+            candidates.push(`${origin}/models`, `${origin}/v1/models`);
+        } catch {
+            return candidates;
+        }
+        return [...new Set(candidates)];
     }
 }

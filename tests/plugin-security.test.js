@@ -3,6 +3,7 @@ import { spawnSync } from 'child_process';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { scanPluginDirectory, shouldScanPluginFile } from '../src/core/plugin-security.ts';
 
 describe('plugin-security text file extensions', () => {
@@ -135,6 +136,77 @@ console.log(JSON.stringify({
         } finally {
             await fs.rm(pluginDir, { recursive: true, force: true });
             await fs.rm(workDir, { recursive: true, force: true });
+        }
+    });
+});
+
+/**
+ * 回归：插件通过 fd 写入时不得被路径校验误拦截。
+ *
+ * `utils/file-lock.ts` 的 `atomicWriteFileSync` 是「先 openSync 拿 fd，
+ * 再 writeFileSync(fd, ...)」的写法。安全加固最初把首参当路径去
+ * `path.resolve`，数字 fd 因此被解析成 "22" 这种伪路径，判定为越权写，
+ * 导致所有插件的原子写入全部失败（实测 api-potluck 无法持久化 Key）。
+ *
+ * fd 的路径校验已在 openSync 阶段完成，这里必须放行。
+ */
+describe('plugin sandbox file-descriptor writes', () => {
+    const repoRoot = process.cwd();
+
+    test('allows atomicWriteFileSync (fd-based) inside a plugin', async () => {
+        const unique = `${process.pid}-${Date.now()}`;
+        const pluginDir = path.join(repoRoot, 'src', 'plugins', `__fd_probe_${unique}__`);
+        const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fd-probe-'));
+        const target = path.join(repoRoot, 'configs', `__fd_probe_${unique}__.json`);
+
+        try {
+            await fs.mkdir(pluginDir, { recursive: true });
+            await fs.writeFile(
+                path.join(pluginDir, 'index.js'),
+                [
+                    "import { atomicWriteFileSync } from '../../utils/file-lock.ts';",
+                    'export function run(target) {',
+                    '    try {',
+                    "        atomicWriteFileSync(target, JSON.stringify({ ok: true }));",
+                    "        return 'ok';",
+                    '    } catch (error) {',
+                    "        return 'denied: ' + error.message;",
+                    '    }',
+                    '}'
+                ].join('\n'),
+                'utf-8'
+            );
+
+            const probe = path.join(workDir, 'probe.mjs');
+            await fs.writeFile(
+                probe,
+                [
+                    "import { pathToFileURL } from 'node:url';",
+                    `await import(${JSON.stringify(pathToFileURL(path.join(repoRoot, 'src/core/security-hardening.ts')).href)});`,
+                    `const mod = await import(${JSON.stringify(pathToFileURL(path.join(pluginDir, 'index.js')).href)});`,
+                    `const result = mod.run(${JSON.stringify(target)});`,
+                    'console.log(JSON.stringify({ result }));'
+                ].join('\n'),
+                'utf-8'
+            );
+
+            const result = spawnSync(process.execPath, [probe], {
+                encoding: 'utf8',
+                cwd: repoRoot,
+                timeout: 30000
+            });
+
+            expect(result.error).toBeUndefined();
+            expect(result.status).toBe(0);
+            const outcome = JSON.parse(result.stdout.trim().split('\n').pop());
+            // 修复前这里会是 'denied: [Security Hardening] Permission Denied ... (Target: 22)'
+            expect(outcome.result).toBe('ok');
+            const written = JSON.parse(await fs.readFile(target, 'utf-8'));
+            expect(written.ok).toBe(true);
+        } finally {
+            await fs.rm(pluginDir, { recursive: true, force: true });
+            await fs.rm(workDir, { recursive: true, force: true });
+            await fs.rm(target, { force: true });
         }
     });
 });

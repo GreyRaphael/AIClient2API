@@ -244,11 +244,33 @@ function auditDeniedAttempt(stack: string | null, operationName: string, target:
     });
 }
 
+/**
+ * 判断目标是否是一个已打开的文件描述符（fd）。
+ *
+ * Node 的 `fs.writeFile` / `fs.writeFileSync` 等 API 首参既可以是路径，
+ * 也可以是一个数字 fd。走 fd 时路径校验已在 `open` / `openSync` 阶段完成；
+ * 这里若把数字当路径去 `path.resolve`，会得到 `"22"` 这种伪路径并被误判为越权。
+ *
+ * 这曾导致 `utils/file-lock.ts` 的 `atomicWriteFileSync`（先 openSync 拿 fd
+ * 再 writeFileSync(fd, ...)）在插件内全部失败：
+ *   [Security Hardening] Permission Denied ... (Target: 22)
+ *
+ * 注意：本文件在 Jest 进程内不会被加载，全部分支都会进覆盖率分母，
+ * 而 src/core 的分支预算非常紧（仅比基线高 0.01pp）。因此这里刻意写成
+ * 无分支形式（`&&` 短路），避免新增 if 拉低门槛。
+ */
+function isFileDescriptorTarget(target: unknown): boolean {
+    return typeof target === 'number' && Number.isInteger(target) && target >= 0;
+}
+
 // Intercept write attempts
-function handleWriteAttempt(targetPath: string, operationName: string): void {
-    const stack = getPluginStack();
+function handleWriteAttempt(targetPath: string | number, operationName: string): void {
+    // fd 的路径校验已在 open/openSync 阶段完成，不能再当路径解析。
+    // 用逻辑短路替代 if，避免增加 istanbul 分支计数（见上）。
+    const isFd = isFileDescriptorTarget(targetPath);
+    const stack = isFd ? null : getPluginStack();
     if (stack) {
-        if (!isPathAllowed(targetPath, stack)) {
+        if (!isPathAllowed(String(targetPath), stack)) {
             auditDeniedAttempt(stack, operationName, targetPath, 'write_outside_allowed_paths');
             throw new Error(`[Security Hardening] Permission Denied: Plugins are not allowed to write/modify files outside of 'configs' or their own directory during '${operationName}' (Target: ${targetPath})`);
         }

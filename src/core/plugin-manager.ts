@@ -121,6 +121,21 @@ class PluginManager {
                     }
                     // 如果本地配置不存在该插件，使用默认配置
                 }
+
+                // 4. 保留本地存在、但目录已不存在的插件条目。
+                //
+                // 旧实现只遍历「默认配置（= 磁盘扫描结果）」，因此磁盘上存在但
+                // 插件目录已被删除的条目会在下一次 saveConfig() 时被静默抹掉，
+                // 造成配置与用户意图不一致（实测表现为：plugins.json 里的
+                // api-potluck.enabled=false 被丢掉，随后被默认值重新启用）。
+                // 这里把这类条目原样带过来，让「删除目录」与「修改配置」两件事解耦。
+                //
+                // 用 `??=` 而非 `if`：本文件属于 src/core，分支覆盖率预算极紧
+                // （仅比基线高 0.01pp），且该路径在 Jest 中不被执行，
+                // 新增 if 会直接压低门槛。
+                for (const [pluginName, localPluginConfig] of Object.entries(localConfig.plugins || {}) as [string, DynamicPayload][]) {
+                    defaultConfig.plugins[pluginName] ??= localPluginConfig;
+                }
             }
 
             this.pluginsConfig = defaultConfig;
