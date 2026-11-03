@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v6.3.0] - 2026-11-03
+
+跨协议转译的跳数收敛与准确性修复。**无破坏性变更、无配置迁移、公开 API 零改动**。
+
+### Changed
+
+- **跳数收敛**：`openai-codex-oauth` 由 `1-Hop / 1-Hop / 1-Hop` 收敛为
+  `1-Hop / 0-Hop / 1-Hop`；`trae` 与 `trae-chat_v3` 由 `1-Hop / 2-Hop / 2-Hop`
+  收敛为 `1-Hop / 1-Hop / 1-Hop`。改为「下游 `/v1/responses` 直通 Codex」
+  与「Trae 三端直接产出下游协议」，去掉中间 OpenAI 协议转换层。
+- 管道层引入显式「桥接计划」（`resolveBridgePlan`），把「是否需要转换」从
+  「协议前缀不同」升级为可推理的计划表，避免 0-Hop / 1-Hop 场景误走 `convertData`。
+- **Codex 方言清洗内聚到 Provider**：`input` 字符串/数组归一、`system`→`developer`、
+  已提取 `instructions` 时过滤重复 system 消息、`text.format` 字符串归一、
+  剔除 `temperature` / `top_p` / `user`。清洗幂等，1-Hop 路径重复执行无副作用。
+- **工具名缩短/还原归属改为「谁缩短谁还原」**：0-Hop 时由 Provider 自己维护映射
+  （挂在请求体不可枚举属性上，不会发往上游），1-Hop 时仍由 Converter 负责，
+  杜绝双重缩短与双重还原。
+- **Trae 三协议入参一步归一**：Responses 的 `instructions` + `input`、Claude 的
+  `system` + content blocks 直接构造 Trae 私有 messages/tools，
+  `tool_result` 提升为独立 `role: 'tool'` 消息，`parameters` 序列化为 JSON 字符串。
+- `DynamicPayload`（`Record<string, any>` 逃生舱）引用从 1549 收敛到 1506，
+  为新增的 Provider 协议结构定义具名类型（`TraeMessage` / `AntigravityStreamFrame` 等）。
+
+### Fixed
+
+- `CodexConverter` 非流式响应只取首个 `output_text` 块、多段输出用覆盖而非累加，
+  导致长回答被截断；现改为 filter + join 累加（跨 item 用换行分隔）。
+- `CodexConverter` 流式忽略 `response.reasoning_text.delta`，且 `toOpenAIStreamChunk`
+  未处理增量工具参数；补齐 reasoning 分支，并增加 `output_item.added` /
+  `function_call_arguments.delta` / `output_item.done` 三段式增量工具调用。
+- `GeminiConverter` 非流式忽略内联图片（`inlineData` / `inline_data`），
+  导致生图结果在非流式路径丢失；新增 `normalizeInlineData` 并收口四条路径。
+- `ZedApiService` 非流式聚合忽略 `signature_delta`，导致 thinking 块缺签名；
+  现累加签名并在真有时写入。
+- `TraeApiService` 聚合工具调用对同名多帧执行 `+=`，拼成 `get_weatherget_weather`；
+  改为仅在名称为空时赋值。
+- **生图/改图路由不再把 `provider:model` 前缀泄漏给上游**：
+  `/v1/images/generations` 与 `/v1/images/edits` 此前用原始模型 ID（含 `provider:`）
+  调用 Provider，`[Antigravity] 模型不存在: gemini-antigravity:xxx` 必然 500；
+  现与对话路径对齐，同步 `result.actualModel`。
+- Codex 0-Hop 的历史 `input` 中的超长工具名（>64 字符）此前未缩短，
+  多轮对话会被上游拒绝；现从 `input` 历史一并收集并改写。
+- Trae 1-Hop 的空 `tool_result` / `function_call_output` 会产出空 content 数组
+  被上游 400；统一兜底为 `[{ type: 'text', text: '' }]`。
+- Trae 1-Hop 的 Claude 非流式 thinking 块缺 `signature`；现按与其它 Provider
+  一致的语义铸造虚拟签名。
+- 管道层 `extractPromptText` / `_applyCustomModelParameters` 支持 `protocolOverride`，
+  避免 0-Hop/1-Hop 跳过 Converter 后按错误协议解析请求体。
+
+### Performance
+
+- Antigravity SSE 热路径每帧由「`filterSSEUsageMetadata` 的 `JSON.parse` +
+  `JSON.stringify`」加二次 `JSON.parse` 降为**单次解析**，改为对象级剥离
+  `usageMetadata`；顺带修正原实现 `slice(6)` 错切 `data: ` 前缀的缺陷。
+- Antigravity 非流式聚合消除三重 JSON 往返：`convertStreamToNonStream` 可直接
+  消费已解析对象数组，去掉 `stringify` → `join` → `split` → `parse`。
+- Antigravity 请求构建深拷贝从**最多 4 次降为 1 次**：非流式回退判定前移到建包之前，
+  回退时复用同一份 payload（含 Base64 图片时显著减少主线程阻塞）。
+- Trae 请求体入口移除全量深拷贝，改为浅拷贝。
+- Converter 会话级状态驻留治理：`buildToolNameMap` 仅在确有工具名被缩短时写入；
+  非流式出口与流终止路径主动释放；管道层 `finally` 统一调用 `clearCustomTools`。
+
+### Security
+
+- 封堵插件通过 `Error.stackTraceLimit = 0`、负值或劫持 `Error.prepareStackTrace`
+  清空调用栈、绕过 `fs` 写保护沙箱的路径；取栈时临时抬升到安全下限并还原现场，
+  补充子进程回归用例。
+- 移除 `src/plugins-user/` 下 12 个越权写文件的安全审计 PoC 插件及其配置条目。
+- 删除 6 个单行 `.js` 转发桩，`src/plugins/` 下 import 统一指向 `.ts`。
+
+### Removed
+
+- 删除 8 个冗余测试文件（`api-integration`、`import-integrity`、`static-syntax`、
+  `static-import-graph`、`webui-ui-importmap`、`error-helper-regression`、
+  `playground-interfaces.e2e`、`custom-model-metadata.e2e`）。
+  其中 `error-helper-regression` 含唯一覆盖插件市场降级回退的用例，
+  该断言已迁移至 `tests/plugin-installer-market.test.js` 后再删除；
+  `webui-ui-importmap` 的 modulepreload / sourcemap 断言并入 `webui-html-shell`。
+- 移除 `package.json` 的 `test:integration` 脚本（其唯一引用方已被删除）。
+
+### Added
+
+- `tests/regressions/bridge-plan.test.js`：锁定 hop 矩阵与协议覆盖行为。
+- `tests/regressions/phase2-*.test.js`（80 例）、`phase3-providers.test.js`（24 例）：
+  覆盖 5 项转译修复、4 项热路径优化与 Provider 三协议 1-Hop 契约。
+- `tests/image-route-model-prefix.test.js`：锁定生图路由的模型前缀解析。
+- `tests/e2e-model-auxiliary-isolation.test.js`：通用矩阵排除仅用于图像用例的辅助模型。
+
 ## [v6.2.0] - 2026-11-02
 
 WebUI「美观与简洁」的第二轮优化与样式架构深化。**无破坏性变更、无配置迁移、公开 API 零改动**。
