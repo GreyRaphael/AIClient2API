@@ -22,6 +22,7 @@ import {
 import type { ProviderConfig } from '../provider-types.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import { getErrorMessage } from '../../utils/error.ts';
+import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 
 interface CodexServiceConfig extends ProviderConfig {
     CODEX_BASE_URL?: string;
@@ -1101,7 +1102,10 @@ export class CodexApiService {
                 if (!hasWebSearch) {
                     tools.push({type: 'web_search'});
                 }
-                cleanedBody.tools = tools;
+                // 前缀缓存稳定化：Codex 的 /v1/responses 走 0-Hop 直通，不经过 Converter，
+                // 因此 Converter 内的 sortToolsByName 对本路径不生效。客户端每轮 tools 顺序
+                // 抖动会让上游前缀缓存整段 miss，这里统一排序 + 归一 schema 键序。
+                cleanedBody.tools = stabilizeToolsForPrefixCache(tools);
             }
         }
 

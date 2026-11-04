@@ -3,6 +3,7 @@ import logger from '../../utils/logger.ts';
 import { sanitizeToolId } from '../../utils/protocol-utils.ts';
 import { budgetTokensToEffort, effortToClaudeBudget } from '../../converters/thinking-budget.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
+import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import {
@@ -347,7 +348,10 @@ export function buildOpenAIZedPayload(
     }
 
     if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0 && resolvedMeta?.supports_tools !== false) {
-        provReq.tools = requestBody.tools.map((t: DynamicPayload) => {
+        // 稳定排序 + schema 键序归一，避免 tools 顺序抖动破坏上游前缀缓存。
+        // zed 为直通路径（不经过 Converter），Converter 内的 sortToolsByName 不生效。
+        const stabilizedTools = stabilizeToolsForPrefixCache(requestBody.tools as Array<Record<string, unknown>>);
+        provReq.tools = stabilizedTools.map((t: DynamicPayload) => {
             if (t.type === 'custom') {
                 return { ...t };
             }
@@ -676,8 +680,10 @@ export function buildGoogleZedPayload(
         }
 
         if (rawDecls.length > 0) {
+            // 稳定排序 + schema 键序归一，避免 tools 顺序抖动破坏上游前缀缓存。
+            const stabilizedDecls = stabilizeToolsForPrefixCache(rawDecls as Array<Record<string, unknown>>);
             provReq.tools = [{
-                functionDeclarations: rawDecls.map((decl) => ({
+                functionDeclarations: stabilizedDecls.map((decl) => ({
                     name: decl.name,
                     description: decl.description,
                     parameters: polyfillAndCleanSchemaForGemini(
@@ -954,7 +960,9 @@ export function buildAnthropicZedPayload(
     }
 
     if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0 && resolvedMeta?.supports_tools !== false) {
-        provReq.tools = requestBody.tools.map((t) => ({
+        // 稳定排序 + schema 键序归一，避免 tools 顺序抖动破坏上游前缀缓存。
+        const stabilizedTools = stabilizeToolsForPrefixCache(requestBody.tools as Array<Record<string, unknown>>);
+        provReq.tools = stabilizedTools.map((t) => ({
             name: t.name,
             description: t.description,
             input_schema: t.input_schema || t.parameters
