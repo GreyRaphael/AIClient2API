@@ -828,7 +828,60 @@ export function sortToolsByName<T extends ToolLike>(tools: T[]): T[] {
     return [...tools].sort((a, b) => {
         const nameA = a?.name || a?.function?.name || a?.function_declarations?.[0]?.name || a?.functionDeclarations?.[0]?.name || '';
         const nameB = b?.name || b?.function?.name || b?.function_declarations?.[0]?.name || b?.functionDeclarations?.[0]?.name || '';
-        return String(nameA).localeCompare(String(nameB));
+        // 用码点比较而非 localeCompare：localeCompare 受进程 locale/ICU 影响，
+        // 同一份 tools 在不同机器上可能得到不同顺序，反而破坏前缀缓存的稳定性。
+        const strA = String(nameA);
+        const strB = String(nameB);
+        return strA < strB ? -1 : strA > strB ? 1 : 0;
+    });
+}
+
+/**
+ * 递归地按字典序重建对象键顺序（数组保持元素顺序，仅递归处理元素内的对象）。
+ * 用于让语义等价的 JSON 结构产出逐字节一致的序列化结果。
+ */
+export function sortJsonKeysDeep<T>(value: T): T {
+    if (Array.isArray(value)) {
+        return value.map((item) => sortJsonKeysDeep(item)) as unknown as T;
+    }
+    if (value && typeof value === 'object') {
+        const source = value as Record<string, unknown>;
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(source).sort()) {
+            out[key] = sortJsonKeysDeep(source[key]);
+        }
+        return out as unknown as T;
+    }
+    return value;
+}
+
+/**
+ * 为「前缀缓存」稳定化 tools：按 name 排序 + `function.parameters` 键序归一。
+ *
+ * 直通（0-Hop / 1-Hop）路径不经过 Converter，因此不会走 `sortToolsByName` 的调用点，
+ * 需要 Provider 自己调用本函数。它只消除**顺序抖动**，不改动任何语义
+ * （数组元素顺序、字段值均保留）。
+ *
+ * @param tools 上游 tools 数组（兼容 `{name}` 与 `{type,function:{name,parameters}}` 包装）
+ * @returns 稳定排序 + 键序归一后的新数组
+ */
+export function stabilizeToolsForPrefixCache<T extends ToolLike>(tools: T[]): T[] {
+    const sorted = sortToolsByName(tools);
+    if (!Array.isArray(sorted) || sorted.length === 0) {
+        return sorted || [];
+    }
+    return sorted.map((tool) => {
+        if (!tool || typeof tool !== 'object') return tool;
+        const cloned = { ...tool } as T;
+        const fn = (cloned as { function?: unknown }).function;
+        if (fn && typeof fn === 'object') {
+            const fnObj = { ...(fn as Record<string, unknown>) };
+            if (fnObj.parameters && typeof fnObj.parameters === 'object' && !Array.isArray(fnObj.parameters)) {
+                fnObj.parameters = sortJsonKeysDeep(fnObj.parameters);
+            }
+            (cloned as { function?: unknown }).function = fnObj;
+        }
+        return cloned;
     });
 }
 
