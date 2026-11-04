@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.1.0] - 2026-11-04
+
+缓存命中率统计口径修复与隐式前缀缓存对齐。**无破坏性变更、无配置迁移、公开 API 零改动**。
+本版本解决「缓存命中率显示只有约 30%」的问题：其中约 1/3 是统计口径失真，约 2/3 是
+网关侧可消除的前缀失效（完整分析见 [`docs/CACHE_HIT_RATE.md`](docs/CACHE_HIT_RATE.md)）。
+
+### Fixed
+
+- **统一缓存命中统计口径**：`usage-normalizer` 此前把两种互斥语义塞进同一个
+  `promptTokens` 字段——OpenAI / Responses / Gemini 的 `prompt_tokens`、
+  `promptTokenCount` 是 inclusive（已含缓存），而 Anthropic Messages 的
+  `input_tokens` 是 exclusive（不含缓存）。由于命中率 = `cached/prompt`，
+  Anthropic 形状的行分母偏小、比值虚高，生产日志中 `trae` 有 **15.1%** 的行
+  出现 `cached > prompt` 这种不可能值。现按「顶层是否出现 `cache_*` 字段」
+  判别语义（不可用「有没有 `input_tokens`」——Responses API 也给 `input_tokens`
+  但它是 inclusive），把 exclusive 归一为 inclusive 总量；`totalTokens` 同步补齐。
+- **`zed-core._formatClaudeUsage` 方向修正**：该路径需要 Anthropic **exclusive**
+  语义，故把缓存从总量中扣回（`input_tokens = total - cacheRead - cacheCreation`），
+  避免下游重复计数。
+- **`trae` 直通路径补齐 tools 稳定排序**：`sortToolsByName` 及其开关
+  `CONVERT_SORT_TOOLS`（默认开启）此前只在 Converter strategies 内部被调用。
+  而 `trae` 走 1-Hop（`resolveBridgePlan` 对 trae 恒 `needsConversion=false`）、
+  `codex` 走 0-Hop、`zed` 直通，这三条路径不进 Converter，排序开关对它们
+  **静默失效**。上游使用隐式内容前缀缓存（按 token 前缀哈希），tools 位于 prompt
+  很靠前的位置，客户端（尤其 MCP / 多 sub-agent 并发组装）每轮顺序不同即导致
+  其后整段内容失去可复用前缀。
+- **`trae` 移除透传的顶层 `system`**：Claude 分支此前只删 `max_tokens`，
+  `system` 已由 `claudeRequestToTraeMessages` 拍平进 `messages[0]`，顶层重复透传
+  还会把客户端的 `cache_control:{type:'ephemeral'}` 噪声带给上游（trae 不吃显式缓存）。
+- **`trae` 清理 `_` 前缀内部字段泄漏**：`request-pipeline` 注入的
+  `_monitorRequestId` / `_requestBaseUrl` 为可枚举赋值，会被 `{ ...requestBody }`
+  浅拷贝带进上游 body，而其余 Provider 均已显式删除。
+
+### Added
+
+- `converters/utils.ts` 新增 `stabilizeToolsForPrefixCache()`：按 name 稳定排序 +
+  对 `function.parameters` 做递归 JSON 键序归一，消除「同一份 schema、键插入顺序不同」
+  导致的字节差异。兼容 `{name}` 与 `{type,function:{name,parameters}}` 两种包装。
+- `converters/utils.ts` 新增 `sortJsonKeysDeep()`：递归按字典序重建对象键顺序
+  （数组保持元素顺序），让语义等价的 JSON 产出逐字节一致的序列化结果。
+- `docs/CACHE_HIT_RATE.md`：记录该问题的完整分析——上游隐式前缀缓存机制、
+  两类根因、位置敏感性实测、网关侧修复清单、客户端侧配合约定与排查流程。
+
+### Changed
+
+- **三条直通路径接入 tools 稳定化**：`trae-core`、`codex-core`（0-Hop）、
+  `zed-payload-builders`（三处 tools 构建点）。
+- `sortToolsByName` 的 `localeCompare` 改为码点比较：`localeCompare` 受进程
+  locale/ICU 影响，同一份 tools 在不同机器上可能得出不同顺序，反而破坏前缀缓存稳定性。
+- `docs/CROSS_PROTOCOL_ARCHITECTURE.md`：第 5 节缓存约束补明上游实际使用隐式前缀
+  缓存、直通 Provider 亦需请求侧稳定化；第 6 节文档入口登记新文档。
+
+### Removed
+
+- 清理 `review/` 下 56 个审计中间产物（53 个原始抓包与 3 份分析报告），
+  知识已固化进 `docs/CACHE_HIT_RATE.md`。
+
+### Verification
+
+- `npm run typecheck`：**0 errors**。
+- `npm test`：**85 suites / 862 tests 通过**（4 个既有失败为 `phase3-providers`
+  的 Codex 超长工具名用例，已用 `git stash` 基线对照证明与本次改动无关）。
+- 口径验证：`cached > prompt` 行占比 **15.1% → 0%**；Claude 与 OpenAI 两种下游
+  协议的命中率恢复可比（修复前 Claude 路径显示成 400%+）。
+- tools 验证（trae，10 个 tools，其余请求全同）：每轮乱序命中率
+  **18.0% → 75.4%**，与顺序稳定时的 75.6% 持平。
+- 真实流量复检：`trae` 命中率 **75.2%**。
+
 ## [v8.0.0] - 2026-11-03
 
 彻底移除 Kiro provider（`claude-kiro-oauth`）。**这是破坏性变更**：
