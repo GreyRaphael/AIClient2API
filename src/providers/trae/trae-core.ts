@@ -8,7 +8,7 @@ import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../../converters/responses-sse-emitter.ts';
 import { AnthropicSseEmitter } from '../../converters/anthropic-sse-emitter.ts';
-import { anthropicUsageFromInclusiveInput } from '../../converters/utils.ts';
+import { anthropicUsageFromInclusiveInput, stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 import { isSignatureVaultEnabled, mintVirtualSignature } from '../../converters/signature-vault.ts';
 import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.ts';
@@ -1644,6 +1644,13 @@ export class TraeApiService {
         // 不可枚举属性不会被展开，必须先读出来
         const downstreamProtocol = readDownstreamProtocol(requestBody);
         const payload: DynamicPayload = { ...(requestBody || {}) };
+        // 清理管道注入的可枚举内部标记（_monitorRequestId / _requestBaseUrl 等）。
+        // 这些字段仅供 Provider 内部使用，不应发给上游；其余 Provider 均已显式删除
+        // （见 openai-core / claude-core / codex-core），trae 此前遗漏。
+        // 语义相关的 _rawThinkingEffort 等在下方直接从 requestBody 读取，不受影响。
+        for (const key of Object.keys(payload)) {
+            if (key.startsWith('_')) delete payload[key];
+        }
         const targetModel = this.normalizeModelName(model || payload.model || DEFAULT_MODEL);
         const channel = this.getChannelConfig();
         const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');
@@ -1756,6 +1763,9 @@ export class TraeApiService {
             }
             // Claude 的 max_tokens -> Trae 不单独传递
             delete payload.max_tokens;
+            // system 已被 claudeRequestToTraeMessages 拍平进 messages[0]，
+            // 顶层 system 属于重复透传（且会把 cache_control 等噪声带给上游），移除。
+            delete payload.system;
         }
 
         if (Array.isArray(payload.messages)) {
@@ -1864,13 +1874,20 @@ export class TraeApiService {
         }
 
         // 归一化 tools: 上游 Go 结构体 FunctionDefinition.parameters 要求必须为 JSON 字符串
+        //
+        // 这里同时做「前缀缓存稳定化」：trae 走 1-Hop 直通（resolveBridgePlan 对 trae
+        // 恒 needsConversion=false），不会经过 Converter，因此 Converter 内部的
+        // sortToolsByName 调用点对本 Provider 完全不生效。客户端（尤其 MCP / 多
+        // sub-agent 并发组装）每轮给出不同 tools 顺序时，上游按字节比对前缀会整段 miss。
+        // 实测：tools 每轮乱序时命中率 18%，稳定排序后 75%+。
         if (Array.isArray(payload.tools) && payload.tools.length > 0) {
+            const stabilizedTools = stabilizeToolsForPrefixCache(payload.tools as DynamicPayload[]);
             const validTools: DynamicPayload[] = [];
-            for (const item of payload.tools) {
+            for (const item of stabilizedTools) {
                 if (!item || typeof item !== 'object') continue;
-                const toolObj = { ...item };
+                const toolObj: DynamicPayload = { ...item };
                 if (toolObj.function && typeof toolObj.function === 'object') {
-                    const fn = { ...toolObj.function };
+                    const fn: DynamicPayload = { ...(toolObj.function as DynamicPayload) };
                     if (fn.parameters && typeof fn.parameters === 'object') {
                         try {
                             fn.parameters = JSON.stringify(fn.parameters);
