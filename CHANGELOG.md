@@ -67,13 +67,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Verification
 
 - `npm run typecheck`：**0 errors**。
-- `npm test`：**85 suites / 862 tests 通过**（4 个既有失败为 `phase3-providers`
-  的 Codex 超长工具名用例，已用 `git stash` 基线对照证明与本次改动无关）。
+- `npm test`：**86 suites / 879 tests 全部通过，0 失败**。
+  v8.0.0 基线为 85 suites / 862 tests 全绿；新增 1 个测试文件、17 个用例。
 - 口径验证：`cached > prompt` 行占比 **15.1% → 0%**；Claude 与 OpenAI 两种下游
   协议的命中率恢复可比（修复前 Claude 路径显示成 400%+）。
 - tools 验证（trae，10 个 tools，其余请求全同）：每轮乱序命中率
   **18.0% → 75.4%**，与顺序稳定时的 75.6% 持平。
 - 真实流量复检：`trae` 命中率 **75.2%**。
+
+### Fixed (发布前回归修复)
+
+> 首发版本曾引入 1 处回归：Codex 0-Hop 路径把网关注入的无名 `web_search` 工具
+> 一并纳入排序，因取不到 name（空串码点最小）而被排到 `tools[0]`，把客户端原有
+> 首工具挤到 `tools[1]`，导致 4 个 `phase3-providers` 用例失败
+> （`Cannot read properties of undefined (reading 'length')` 等）。
+>
+> 修复：先对「客户端的工具」稳定化，再追加网关注入的 `web_search`，使其固定
+> 位于末尾、不参与排序。修复后该测试套件恢复 27/27，全量 879/879。
+>
+> 同时修正 `stabilizeToolsForPrefixCache` 只处理嵌套 `function.parameters` 的
+> 缺陷——Codex / Zed 使用扁平 `parameters` 或 `input_schema`，此前 schema 键序
+> 归一在这几处静默失效，现已覆盖三种形状。
 
 ## [v8.0.0] - 2026-11-03
 

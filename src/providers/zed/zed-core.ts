@@ -425,6 +425,11 @@ export class ZedApiService {
      * 而 Anthropic 的 input_tokens 必须是**不含缓存**的 exclusive 量（缓存另计
      * cache_read / cache_creation）。因此这里需要把缓存部分从 input_tokens 扣除，
      * 否则下游会重复计数。
+     *
+     * @deprecated 目前**无生产调用点**，仅 `tests/zed-provider.test.js` 使用。
+     * 生产路径由三个流式聚合器各自处理 usage（`_aggregateAnthropicContent` 等）。
+     * 保留它是为了覆盖「跨协议 usage 映射」这一约定；若后续确认长期不用，
+     * 应连同其测试一并删除，避免出现「看起来已修但实际未接入」的假修复。
      * @param {Object} rawUsage - 上游原始 usage 对象
      * @returns {Object}
      */

@@ -144,12 +144,25 @@ const promptTokens = isAnthropicExclusive
 | 项目 | 结果 |
 |---|---|
 | `npm run typecheck` | **0 errors** |
-| `npm test` | **85 suites / 862 tests 通过** |
-| 既有失败 | 4 例（`phase3-providers` 的 Codex 超长工具名），已用 `git stash` 基线对照证明与本次改动无关 |
+| `npm test` | **86 suites / 879 tests 全部通过，0 失败**（v8.0.0 基线 85/862 全绿，新增 1 文件 17 用例） |
 | `cached > prompt` 行占比 | **15.1% → 0%** |
 | tools 每轮乱序命中率 | **18.0% → 75.4%**（与顺序稳定时的 75.6% 持平） |
 | 真实流量复检 | `trae` 命中率 **75.2%** |
 | 跨协议一致性 | Claude 与 OpenAI 两种下游协议的命中率恢复可比 |
+
+### 发布前修复的回归
+
+首发版本曾引入 1 处回归并在文档中误判为「既有失败」：
+
+- **缺陷**：Codex 0-Hop 路径把网关注入的无名 `web_search` 工具一并纳入排序。
+  它取不到 name（空串码点最小）被排到 `tools[0]`，把客户端原有首工具挤到
+  `tools[1]`，导致 4 个 `phase3-providers` 用例失败。
+- **修复**：先稳定化客户端工具，再追加 `web_search`，使其固定位于末尾、不参与排序。
+- **同时修正**：`stabilizeToolsForPrefixCache` 此前只处理嵌套 `function.parameters`，
+  而 Codex / Zed 使用扁平 `parameters` 或 `input_schema`，schema 键序归一在这几处
+  静默失效——现已覆盖三种形状。
+- **订正**：v8.0.0 基线实测为 862/862 全绿，不存在「既有失败」；此前的归因陈述有误，
+  已在本版本改正。
 
 ---
 

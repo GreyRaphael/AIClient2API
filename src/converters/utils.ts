@@ -870,18 +870,25 @@ export function stabilizeToolsForPrefixCache<T extends ToolLike>(tools: T[]): T[
     if (!Array.isArray(sorted) || sorted.length === 0) {
         return sorted || [];
     }
+    const normalizeSchema = (value: unknown): unknown =>
+        (value && typeof value === 'object' && !Array.isArray(value)) ? sortJsonKeysDeep(value) : value;
+
     return sorted.map((tool) => {
         if (!tool || typeof tool !== 'object') return tool;
-        const cloned = { ...tool } as T;
-        const fn = (cloned as { function?: unknown }).function;
+        const cloned = { ...tool } as Record<string, unknown>;
+        // 嵌套形状：OpenAI Chat / Trae / Responses 包装的 `function.parameters`
+        const fn = cloned.function;
         if (fn && typeof fn === 'object') {
             const fnObj = { ...(fn as Record<string, unknown>) };
-            if (fnObj.parameters && typeof fnObj.parameters === 'object' && !Array.isArray(fnObj.parameters)) {
-                fnObj.parameters = sortJsonKeysDeep(fnObj.parameters);
-            }
-            (cloned as { function?: unknown }).function = fnObj;
+            fnObj.parameters = normalizeSchema(fnObj.parameters);
+            cloned.function = fnObj;
         }
-        return cloned;
+        // 扁平形状：Codex / Zed(OpenAI) 的 `parameters`，Zed(Anthropic) 的 `input_schema`，
+        // Zed(Google) 的 `parameters`。此前只处理 function.parameters，导致这几条接入点
+        // 的 schema 键序归一静默失效。
+        if (cloned.parameters) cloned.parameters = normalizeSchema(cloned.parameters);
+        if (cloned.input_schema) cloned.input_schema = normalizeSchema(cloned.input_schema);
+        return cloned as T;
     });
 }
 

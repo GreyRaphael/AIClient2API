@@ -1099,13 +1099,19 @@ export class CodexApiService {
             if (Array.isArray(cleanedBody.tools)) {
                 const tools = [...cleanedBody.tools];
                 const hasWebSearch = tools.some((t) => isRecord(t) && t.type === 'web_search');
-                if (!hasWebSearch) {
-                    tools.push({type: 'web_search'});
-                }
                 // 前缀缓存稳定化：Codex 的 /v1/responses 走 0-Hop 直通，不经过 Converter，
                 // 因此 Converter 内的 sortToolsByName 对本路径不生效。客户端每轮 tools 顺序
                 // 抖动会让上游前缀缓存整段 miss，这里统一排序 + 归一 schema 键序。
-                cleanedBody.tools = stabilizeToolsForPrefixCache(tools);
+                //
+                // 顺序很重要：先对「客户端的工具」稳定化，再追加网关注入的 web_search。
+                // web_search 是扁平对象（无 name / function.name），若参与排序会取到空名而
+                // 被排到 tools[0]，既改变客户端工具的相对位次，也会让按位置取首个工具的
+                // 逻辑失配。网关注入的工具固定追加在末尾，客户端工具内部的顺序才是稳定化目标。
+                const stabilized = stabilizeToolsForPrefixCache(tools);
+                if (!hasWebSearch) {
+                    stabilized.push({ type: 'web_search' } as (typeof stabilized)[number]);
+                }
+                cleanedBody.tools = stabilized;
             }
         }
 
