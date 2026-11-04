@@ -105,7 +105,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 5. **模型可调用性不等于发现结果**：上游 `model_list` 可见不代表当前账号/Plan 一定可调用。
 6. **流式事件顺序与流内错误终态**：上游 SSE 是单连接有序流，不承诺对乱序 chunk 做重排；流内 `response.failed`、`event: error`、`data.error`（含 `choices: []` / `candidates: []`）被识别为终态错误，转换器无法表达时返回 502，禁止触发空响应重试或补发 `response.completed` / `message_stop`。非流式 HTTP 200 错误体同样返回 502。
 7. **Gemini 输出上限**：`maxOutputTokens` 现在按标准字段透传；上游会遵守上限，但 thinking token 也计入预算，极小 `max_tokens` 可能只产出 thinking。网关把 `MAX_TOKENS` / `SAFETY` 等终态视为合法截断，不再触发空响应重试。
-8. **显式缓存标记**：`cache_control` 没有跨协议等价字段，网关仅做计费回填（`cached_tokens → cache_read_input_tokens`）而不保证跨协议缓存断点；默认开启工具稳定排序以对齐上游隐式前缀缓存。
+8. **显式缓存标记与隐式前缀缓存**：`cache_control` 没有跨协议等价字段，网关仅做计费回填（`cached_tokens → cache_read_input_tokens`）而不保证跨协议缓存断点。上游实际使用的是**隐式内容前缀缓存**（按 token 前缀哈希，块粒度约 256），因此网关对已声明直通（0-Hop / 1-Hop）的 Provider 也会在请求侧做 tools 稳定排序与 schema 键序归一，以对齐前缀缓存。命中率机制、排查与修复详见 [`docs/CACHE_HIT_RATE.md`](./CACHE_HIT_RATE.md)。
 9. **Provider 默认参数注入**：部分 Provider 适配层会注入通道级默认参数（如 Codex 默认注入 `web_search` 工具、`store: false`、`include: ['reasoning.encrypted_content']`、`parallel_tool_calls: true`；`OpenAIConverter → Gemini` 未指定时默认 `temperature=1`、`topP=0.95`、`maxOutputTokens=65534`；Claude↔OpenAI 在 thinking 开启时自动调整 `max_completion_tokens` / `max_tokens`）。
 10. **Zed Google 多轮工具历史**：Zed Google 通道不支持 `functionCall` / `functionResponse` 历史；网关通过 `supportsToolResultHistory=false` 将历史工具调用/结果降级为文本，保留上下文并返回 200。
 11. **Gemini 流式思考**：`streamGenerateContent` 不返回 thought 文本；当请求需要 thinking 时，网关默认回退到非流式 `generateContent` 并在本地合成 chunk（`GEMINI_STREAM_THOUGHTS_FALLBACK`，默认开启），以 reasoning 完整性优先于逐字流式。
@@ -123,6 +123,7 @@ Gemini 已删除 2.5 的 `thinkingBudget` 双轨，统一使用 `thinkingLevel`�
 | [`docs/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md`](./archive/CROSS_PROTOCOL_REVIEW_19MODELS_2026-10-23.md) | 2026-10-23 19 模型全量 E2E 与转译 review（历史归档） |
 | [`docs/TRAE_CHANNELS_UPSTREAM_GUIDE.md`](./TRAE_CHANNELS_UPSTREAM_GUIDE.md) | Trae 三通道上游细节 |
 | [`docs/ANTIGRAVITY_NOTES.md`](./ANTIGRAVITY_NOTES.md) | Antigravity 模型发现与思考机制 |
+| [`docs/CACHE_HIT_RATE.md`](./CACHE_HIT_RATE.md) | 缓存命中率低的原因、解决方案与排查流程 |
 
 ---
 
