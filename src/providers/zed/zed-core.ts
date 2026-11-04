@@ -420,20 +420,31 @@ export class ZedApiService {
     /**
      * 将上游各协议的 usage 数据规整为 Claude 规范的 usage 结构 (完整保留 cache_read_input_tokens)
      * 字段提取统一走共享的 usage-normalizer，此处仅做 Claude 格式映射
+     *
+     * 语义：usage-normalizer 输出的 promptTokens 是**含缓存**的 inclusive 总量，
+     * 而 Anthropic 的 input_tokens 必须是**不含缓存**的 exclusive 量（缓存另计
+     * cache_read / cache_creation）。因此这里需要把缓存部分从 input_tokens 扣除，
+     * 否则下游会重复计数。
      * @param {Object} rawUsage - 上游原始 usage 对象
      * @returns {Object}
      */
     _formatClaudeUsage(rawUsage: unknown = {}): DynamicPayload {
         const normalized = normalizeUsageCandidate(rawUsage);
 
+        const totalInput = normalized?.promptTokens ?? 0;
+        const cacheRead = normalized?.cachedTokens ?? 0;
+        const cacheCreation = isRecord(rawUsage)
+            ? Number(rawUsage.cache_creation_input_tokens) || 0
+            : 0;
+
         const res: DynamicPayload = {
-            input_tokens: normalized?.promptTokens ?? 0,
+            input_tokens: Math.max(0, totalInput - cacheRead - cacheCreation),
             output_tokens: normalized?.completionTokens ?? 0,
-            cache_read_input_tokens: normalized?.cachedTokens ?? 0
+            cache_read_input_tokens: cacheRead
         };
 
         if (isRecord(rawUsage) && rawUsage.cache_creation_input_tokens !== undefined) {
-            res.cache_creation_input_tokens = Number(rawUsage.cache_creation_input_tokens) || 0;
+            res.cache_creation_input_tokens = cacheCreation;
         }
 
         return res;

@@ -13,6 +13,23 @@
  * - Gemini:        promptTokenCount / candidatesTokenCount / totalTokenCount /
  *                  thoughtsTokenCount / cachedContentTokenCount（usageMetadata）
  * - Responses API: response.usage / message.usage
+ *
+ * **promptTokens 的语义约定（重要）**：本模块统一输出「**含缓存**」的输入总量
+ * （inclusive），即 promptTokens 已包含 cachedTokens —— 只有这样
+ * `cachedTokens / promptTokens` 才是跨协议可比的缓存命中率。
+ *
+ * 各协议原始语义不一致：
+ * - OpenAI / Responses / Gemini：prompt_tokens、input_tokens、promptTokenCount
+ *   本身即为 inclusive（已含缓存）。
+ * - Anthropic Messages：`input_tokens` 是 **exclusive**（不含缓存），命中量在
+ *   `cache_read_input_tokens`、写入量在 `cache_creation_input_tokens`，需加回。
+ *
+ * 历史问题：此前把 `input_tokens` 直接当 promptTokens，导致 Anthropic 形状的 usage
+ * 分母偏小 → 命中率虚高（生产里出现 cached > prompt 的不可能值），且同一模型在不同
+ * 下游协议下的命中率不可比。此处按「顶层是否出现 cache_* 字段」判别语义后归一。
+ *
+ * 判别子不能用「有没有 input_tokens」——Responses API 同样返回 `input_tokens`，
+ * 但它是 inclusive 的。
  */
 
 export interface NormalizedUsage {
@@ -80,7 +97,10 @@ export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | n
         usage?.thoughtsTokenCount ??
         record.thoughtsTokenCount
     );
-    const promptTokens = toNumber(
+    // 原始输入量：注意此处语义因协议而异（见文件头说明）。
+    // - prompt_tokens / promptTokenCount / inputTokenCount → inclusive
+    // - input_tokens（Anthropic）→ exclusive
+    const rawPromptTokens = toNumber(
         record.prompt_tokens ??
         usage?.prompt_tokens ??
         usage?.input_tokens ??
@@ -90,6 +110,15 @@ export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | n
         usage?.inputTokenCount ??
         record.inputTokenCount
     );
+    // Anthropic 语义判别：顶层（或嵌套 usage）出现 cache_* 字段即为 exclusive。
+    // 不能用「有没有 input_tokens」——Responses API 也给 input_tokens 但它是 inclusive。
+    const topCacheRead = usage?.cache_read_input_tokens ?? record.cache_read_input_tokens;
+    const topCacheCreation = usage?.cache_creation_input_tokens ?? record.cache_creation_input_tokens;
+    const isAnthropicExclusive = topCacheRead !== undefined || topCacheCreation !== undefined;
+    // 统一成 inclusive：Anthropic 的 input_tokens 不含缓存，需把读/写加回
+    const promptTokens = isAnthropicExclusive
+        ? rawPromptTokens + toNumber(topCacheRead) + toNumber(topCacheCreation)
+        : rawPromptTokens;
     const rawCompletionTokens = toNumber(
         record.completion_tokens ??
         usage?.completion_tokens ??
@@ -117,7 +146,11 @@ export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | n
             completionTokens += reasoningTokens;
         }
     }
-    const totalTokens = totalTokensCandidate;
+    // 显式 total 若存在则优先采用；但 Anthropic exclusive 形状下的 total（若有）
+    // 同样是「不含缓存」口径，需按与 prompt 相同的增量补齐，避免 total < prompt 的矛盾值。
+    const totalTokens = (totalTokensCandidate > 0 && isAnthropicExclusive)
+        ? totalTokensCandidate + toNumber(topCacheRead) + toNumber(topCacheCreation)
+        : totalTokensCandidate;
     const promptDetails = isRecord(record.prompt_tokens_details) ? record.prompt_tokens_details : null;
     const inputDetails = isRecord(record.input_tokens_details) ? record.input_tokens_details : null;
     const inputTokenDetails = isRecord(record.input_token_details) ? record.input_token_details : null;

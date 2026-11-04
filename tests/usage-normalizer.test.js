@@ -36,10 +36,47 @@ describe('normalizeUsageCandidate', () => {
         })).toEqual({ promptTokens: 3, completionTokens: 4, totalTokens: 7, cachedTokens: 0 });
     });
 
-    test('Claude input/output tokens 与 cache_read_input_tokens', () => {
+    test('Claude input/output tokens 与 cache_read_input_tokens（Anthropic exclusive → 归一为 inclusive）', () => {
+        // Anthropic 的 input_tokens 不含缓存，promptTokens 需把 cache_read 加回，
+        // 否则 cached/prompt 会虚高（历史 bug：曾出现 cached > prompt 的不可能值）。
         expect(normalizeUsageCandidate({
             usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 80 }
-        })).toEqual({ promptTokens: 100, completionTokens: 50, totalTokens: 150, cachedTokens: 80 });
+        })).toEqual({ promptTokens: 180, completionTokens: 50, totalTokens: 230, cachedTokens: 80 });
+    });
+
+    test('Anthropic exclusive：cache_creation 也计入 inclusive 分母', () => {
+        expect(normalizeUsageCandidate({
+            input_tokens: 2500,
+            output_tokens: 400,
+            cache_read_input_tokens: 1500,
+            cache_creation_input_tokens: 200
+        })).toEqual({ promptTokens: 4200, completionTokens: 400, totalTokens: 4600, cachedTokens: 1500 });
+    });
+
+    test('Anthropic exclusive：cache_read 为 0 时仍按 exclusive 处理', () => {
+        expect(normalizeUsageCandidate({
+            input_tokens: 1000,
+            output_tokens: 10,
+            cache_read_input_tokens: 0
+        })).toEqual({ promptTokens: 1000, completionTokens: 10, totalTokens: 1010, cachedTokens: 0 });
+    });
+
+    test('Responses API 的 input_tokens 是 inclusive，不得加回（判别子不能只看 input_tokens）', () => {
+        expect(normalizeUsageCandidate({
+            input_tokens: 100,
+            output_tokens: 20,
+            input_tokens_details: { cached_tokens: 60 }
+        })).toEqual({ promptTokens: 100, completionTokens: 20, totalTokens: 120, cachedTokens: 60 });
+    });
+
+    test('回归：cachedTokens 永不超过 promptTokens（跨协议命中率可比）', () => {
+        const claude = normalizeUsageCandidate({
+            input_tokens: 607, output_tokens: 197, cache_read_input_tokens: 2432
+        });
+        expect(claude.cachedTokens).toBeLessThanOrEqual(claude.promptTokens);
+        expect(claude.promptTokens).toBe(3039);
+        // 命中率按 inclusive 分母计算才合理
+        expect(claude.cachedTokens / claude.promptTokens).toBeLessThan(1);
     });
 
     test('Gemini usageMetadata（thoughtsTokenCount 未计入 candidatesTokenCount 时补齐）', () => {
@@ -112,7 +149,7 @@ describe('normalizeUsageCandidate', () => {
             input_tokens: 1200,
             output_tokens: 350,
             cache_read_input_tokens: 800
-        })).toEqual({ promptTokens: 1200, completionTokens: 350, totalTokens: 1550, cachedTokens: 800 });
+        })).toEqual({ promptTokens: 2000, completionTokens: 350, totalTokens: 2350, cachedTokens: 800 });
     });
 
     test('原始 Gemini usageMetadata 对象（顶层字段）', () => {

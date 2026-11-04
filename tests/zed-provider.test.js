@@ -731,6 +731,7 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
             const zedService = createZedService({ uuid: 'test-uuid' });
 
             // 1. OpenAI Responses API (response.completed)
+            // input_tokens 是 inclusive（已含缓存），Anthropic 需扣除缓存 → 1200 - 800 = 400
             const openaiResponsesUsage = {
                 input_tokens: 1200,
                 output_tokens: 350,
@@ -739,12 +740,13 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
                 }
             };
             expect(zedService._formatClaudeUsage(openaiResponsesUsage)).toEqual({
-                input_tokens: 1200,
+                input_tokens: 400,
                 output_tokens: 350,
                 cache_read_input_tokens: 800
             });
 
             // 2. OpenAI Chat Completions (prompt_tokens_details)
+            // 1500 - 1000 = 500
             const openaiChatUsage = {
                 prompt_tokens: 1500,
                 completion_tokens: 200,
@@ -753,24 +755,26 @@ describe('Zed Provider & OAuth Implementation Tests', () => {
                 }
             };
             expect(zedService._formatClaudeUsage(openaiChatUsage)).toEqual({
-                input_tokens: 1500,
+                input_tokens: 500,
                 output_tokens: 200,
                 cache_read_input_tokens: 1000
             });
 
             // 3. Google Gemini (usageMetadata)
+            // 2000 - 1800 = 200
             const geminiUsage = {
                 promptTokenCount: 2000,
                 candidatesTokenCount: 500,
                 cachedContentTokenCount: 1800
             };
             expect(zedService._formatClaudeUsage(geminiUsage)).toEqual({
-                input_tokens: 2000,
+                input_tokens: 200,
                 output_tokens: 500,
                 cache_read_input_tokens: 1800
             });
 
-            // 4. Native Anthropic (cache_read_input_tokens + cache_creation_input_tokens)
+            // 4. Native Anthropic（本身就是 exclusive）
+            // promptTokens 归一为 2500+1500+200=4200，扣回缓存与写入 → 2500
             const anthropicUsage = {
                 input_tokens: 2500,
                 output_tokens: 400,
