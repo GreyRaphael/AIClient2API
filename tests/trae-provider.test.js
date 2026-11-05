@@ -747,6 +747,102 @@ describe('Trae Provider Implementation Tests', () => {
             spy.mockRestore();
         }
     });
+
+    describe('Trae Session Affinity and Deterministic Conversation ID', () => {
+        const RFC4122_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+        test('toValidUUID normalizes existing UUIDs and handles session- prefixed UUIDs', () => {
+            const standardUUID = 'ac9a9071-3331-44b1-94a6-ff526bfed9b2';
+            expect(TraeApiService.toValidUUID(standardUUID)).toBe(standardUUID);
+            expect(TraeApiService.toValidUUID(`session-${standardUUID}`)).toBe(standardUUID);
+            expect(TraeApiService.toValidUUID(`prefix_${standardUUID}_suffix`)).toBe(standardUUID);
+        });
+
+        test('toValidUUID derives valid RFC 4122 UUID deterministically for arbitrary strings', () => {
+            const uuid1 = TraeApiService.toValidUUID('arbitrary-conversation-seed-1');
+            const uuid2 = TraeApiService.toValidUUID('arbitrary-conversation-seed-1');
+            const uuid3 = TraeApiService.toValidUUID('arbitrary-conversation-seed-2');
+
+            expect(uuid1).toMatch(RFC4122_REGEX);
+            expect(uuid2).toMatch(RFC4122_REGEX);
+            expect(uuid1).toBe(uuid2); // 确定性一致
+            expect(uuid1).not.toBe(uuid3); // 不同种子产出不同 ID
+        });
+
+        test('extractFirstMessageSeed extracts from first user message and falls back to system message', () => {
+            const conversation = [
+                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'user', content: 'First user prompt text here' },
+                { role: 'assistant', content: 'Hello!' },
+                { role: 'user', content: 'Second user prompt' }
+            ];
+            expect(TraeApiService.extractFirstMessageSeed(conversation)).toBe('First user prompt text here');
+
+            const systemOnly = [
+                { role: 'system', content: 'System instruction only' }
+            ];
+            expect(TraeApiService.extractFirstMessageSeed(systemOnly)).toBe('System instruction only');
+
+            expect(TraeApiService.extractFirstMessageSeed([])).toBeNull();
+            expect(TraeApiService.extractFirstMessageSeed(null)).toBeNull();
+        });
+
+        test('resolveTraeConversationId prioritizes explicit IDs then _downstreamSessionId then deterministic seed', () => {
+            const bodyWithExplicit = {
+                conversation_id: 'session-ac9a9071-3331-44b1-94a6-ff526bfed9b2',
+                _downstreamSessionId: 'session-11111111-2222-3333-4444-555555555555',
+                messages: [{ role: 'user', content: 'Hello' }]
+            };
+            expect(TraeApiService.resolveTraeConversationId(bodyWithExplicit)).toBe('ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+
+            const bodyWithDownstreamHeader = {
+                _downstreamSessionId: 'session-11111111-2222-3333-4444-555555555555',
+                messages: [{ role: 'user', content: 'Hello' }]
+            };
+            expect(TraeApiService.resolveTraeConversationId(bodyWithDownstreamHeader)).toBe('11111111-2222-3333-4444-555555555555');
+
+            const bodyWithMessagesOnly = {
+                messages: [
+                    { role: 'system', content: 'System' },
+                    { role: 'user', content: 'User question for conversation' }
+                ]
+            };
+            const derivedId = TraeApiService.resolveTraeConversationId(bodyWithMessagesOnly);
+            expect(derivedId).toMatch(RFC4122_REGEX);
+            // 多轮对话调用产生完全一致的 ID
+            const turn2Body = {
+                messages: [
+                    ...bodyWithMessagesOnly.messages,
+                    { role: 'assistant', content: 'Response' },
+                    { role: 'user', content: 'Follow up' }
+                ]
+            };
+            expect(TraeApiService.resolveTraeConversationId(turn2Body)).toBe(derivedId);
+        });
+
+        test('prepareRequestBody sets identical conversation_id and session_id across turns', () => {
+            const trae = new TraeApiService({ uuid: 'affinity-test-uuid' });
+            const turn1 = trae.prepareRequestBody('DeepSeek-V4.1-Flash', {
+                messages: [
+                    { role: 'system', content: 'System' },
+                    { role: 'user', content: 'Turn 1 user prompt' }
+                ]
+            });
+            const turn2 = trae.prepareRequestBody('DeepSeek-V4.1-Flash', {
+                messages: [
+                    { role: 'system', content: 'System' },
+                    { role: 'user', content: 'Turn 1 user prompt' },
+                    { role: 'assistant', content: 'Response 1' },
+                    { role: 'user', content: 'Turn 2 user prompt' }
+                ]
+            });
+
+            expect(turn1.conversation_id).toMatch(RFC4122_REGEX);
+            expect(turn1.session_id).toBe(turn1.conversation_id);
+            expect(turn2.conversation_id).toBe(turn1.conversation_id);
+            expect(turn2.session_id).toBe(turn1.session_id);
+        });
+    });
 });
 
 

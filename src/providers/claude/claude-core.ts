@@ -128,12 +128,22 @@ export class ClaudeApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
+        const downstreamSessionId = (body as DynamicPayload)?._downstreamSessionId;
+        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+
         try {
             const axiosConfig: Record<string, unknown> = {
                 method: 'post',
                 url: endpoint,
-                data: body
+                data: cleanBody
             };
+            if (downstreamSessionId) {
+                axiosConfig.headers = {
+                    ...((axiosConfig.headers as Record<string, string>) || {}),
+                    'x-session-affinity': String(downstreamSessionId),
+                    'session-id': String(downstreamSessionId)
+                };
+            }
             this._applySidecar(axiosConfig);
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             return response.data as T;
@@ -198,13 +208,23 @@ export class ClaudeApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
+        const downstreamSessionId = (body as DynamicPayload)?._downstreamSessionId;
+        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+
         try {
             const axiosConfig: Record<string, unknown> = {
                 method: 'post',
                 url: endpoint,
-                data: { ...body, stream: true },
+                data: { ...cleanBody, stream: true },
                 responseType: 'stream'
             };
+            if (downstreamSessionId) {
+                axiosConfig.headers = {
+                    ...((axiosConfig.headers as Record<string, string>) || {}),
+                    'x-session-affinity': String(downstreamSessionId),
+                    'session-id': String(downstreamSessionId)
+                };
+            }
             this._applySidecar(axiosConfig);
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             const reader = response.data as AsyncIterable<Buffer | string>;

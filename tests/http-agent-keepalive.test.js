@@ -30,6 +30,9 @@ describe('HTTP / HTTPS Keep-Alive Agents for Providers', () => {
         expect(isSingleSocketAffinityEnabled({ maxSockets: 1 }, 'https://api.remote.com')).toBe(true);
         expect(isSingleSocketAffinityEnabled({ singleSocket: false }, 'http://localhost:4003/v1')).toBe(false);
         expect(isSingleSocketAffinityEnabled({}, 'https://api.openai.com/v1')).toBe(false);
+        expect(isSingleSocketAffinityEnabled({ MODEL_PROVIDER: 'trae' }, 'https://api.enterprise.trae.cn/api/ide/v1/chat')).toBe(true);
+        expect(isSingleSocketAffinityEnabled({ TRAE_CHANNEL_MODE: 'tob_raw_chat' }, 'https://api.enterprise.trae.cn/api/ide/v1/chat')).toBe(true);
+        expect(isSingleSocketAffinityEnabled({}, 'https://api.enterprise.trae.cn/api/ide/v1/chat')).toBe(true);
     });
 
     test('configureAxiosProxy sets default Keep-Alive agents when no proxy and remote URL', () => {
@@ -154,6 +157,76 @@ describe('HTTP / HTTPS Keep-Alive Agents for Providers', () => {
             expect(socketsSeen[0].destroyed).toBe(false);
         } finally {
             invalidateKeepAliveAgents('stream-keepalive-test-uuid');
+            await new Promise((resolve) => server.close(resolve));
+        }
+    });
+
+    test('OpenAIApiService, OpenAIResponsesApiService, and ClaudeApiService forward downstream affinity headers', async () => {
+        const http = await import('node:http');
+        const capturedHeaders = [];
+        const capturedBodies = [];
+
+        const server = http.createServer((req, res) => {
+            capturedHeaders.push(req.headers);
+            let bodyStr = '';
+            req.on('data', chunk => { bodyStr += chunk; });
+            req.on('end', () => {
+                try {
+                    capturedBodies.push(JSON.parse(bodyStr));
+                } catch {
+                    capturedBodies.push({});
+                }
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ id: 'resp-1', choices: [{ message: { content: 'ok' } }] }));
+            });
+        });
+
+        await new Promise((resolve) => server.listen(0, resolve));
+        const port = server.address().port;
+
+        try {
+            const openaiService = new OpenAIApiService({
+                OPENAI_API_KEY: 'test-key',
+                OPENAI_BASE_URL: `http://localhost:${port}/v1`
+            });
+            await openaiService.callApi('/chat/completions', {
+                model: 'gpt-4o',
+                messages: [{ role: 'user', content: 'hello' }],
+                _downstreamSessionId: 'session-ac9a9071-3331-44b1-94a6-ff526bfed9b2'
+            });
+
+            expect(capturedHeaders[0]['x-session-affinity']).toBe('session-ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+            expect(capturedHeaders[0]['session-id']).toBe('session-ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+            expect(capturedBodies[0]._downstreamSessionId).toBeUndefined();
+
+            const responsesService = new OpenAIResponsesApiService({
+                OPENAI_API_KEY: 'test-key',
+                OPENAI_BASE_URL: `http://localhost:${port}/v1`
+            });
+            await responsesService.callApi('/responses', {
+                model: 'gpt-4o',
+                input: 'hello',
+                _downstreamSessionId: 'session-ac9a9071-3331-44b1-94a6-ff526bfed9b2'
+            });
+
+            expect(capturedHeaders[1]['x-session-affinity']).toBe('session-ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+            expect(capturedHeaders[1]['session-id']).toBe('session-ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+            expect(capturedBodies[1]._downstreamSessionId).toBeUndefined();
+
+            const claudeService = new ClaudeApiService({
+                CLAUDE_API_KEY: 'test-key',
+                CLAUDE_BASE_URL: `http://localhost:${port}`
+            });
+            await claudeService.callApi('/messages', {
+                model: 'claude-3-5-sonnet',
+                messages: [{ role: 'user', content: 'hello' }],
+                _downstreamSessionId: 'session-ac9a9071-3331-44b1-94a6-ff526bfed9b2'
+            });
+
+            expect(capturedHeaders[2]['x-session-affinity']).toBe('session-ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+            expect(capturedHeaders[2]['session-id']).toBe('session-ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+            expect(capturedBodies[2]._downstreamSessionId).toBeUndefined();
+        } finally {
             await new Promise((resolve) => server.close(resolve));
         }
     });

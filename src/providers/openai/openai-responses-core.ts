@@ -86,12 +86,22 @@ export class OpenAIResponsesApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
+        const downstreamSessionId = (body as DynamicPayload)?._downstreamSessionId;
+        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+
         try {
             const axiosConfig: Record<string, unknown> = {
                 method: 'post',
                 url: endpoint,
-                data: body
+                data: cleanBody
             };
+            if (downstreamSessionId) {
+                axiosConfig.headers = {
+                    ...((axiosConfig.headers as Record<string, string>) || {}),
+                    'x-session-affinity': String(downstreamSessionId),
+                    'session-id': String(downstreamSessionId)
+                };
+            }
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(axiosConfig as AxiosRequestConfig);
             return response.data as T;
@@ -134,8 +144,11 @@ export class OpenAIResponsesApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
+        const downstreamSessionId = (body as DynamicPayload)?._downstreamSessionId;
+        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+
         // OpenAI 的流式请求需要将 stream 设置为 true
-        const streamRequestBody = { ...body, stream: true };
+        const streamRequestBody = { ...cleanBody, stream: true };
 
         try {
             const axiosConfig: Record<string, unknown> = {
@@ -144,6 +157,13 @@ export class OpenAIResponsesApiService {
                 data: streamRequestBody,
                 responseType: 'stream'
             };
+            if (downstreamSessionId) {
+                axiosConfig.headers = {
+                    ...((axiosConfig.headers as Record<string, string>) || {}),
+                    'x-session-affinity': String(downstreamSessionId),
+                    'session-id': String(downstreamSessionId)
+                };
+            }
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(axiosConfig as AxiosRequestConfig);
 

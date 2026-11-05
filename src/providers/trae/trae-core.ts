@@ -1,6 +1,6 @@
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID, randomBytes, createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
@@ -1280,6 +1280,9 @@ export class TraeApiService {
             providerType: this.config.MODEL_PROVIDER,
             baseUrl: this.config.TRAE_BASE_URL || this.config.TRAE_HOST
         });
+        if (!this.config.MODEL_PROVIDER) {
+            this.config.MODEL_PROVIDER = this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3 ? MODEL_PROVIDER.TRAE_CHAT_V3 : MODEL_PROVIDER.TRAE;
+        }
         // 别名表种类在构造后不再变化（channelMode 与 config 均固定），解析一次缓存，
         // 避免 normalizeModelName 每次调用都重建一遍 channel config
         this._aliasKind = resolveAliasTableKind(this.channelMode, () => this.getChannelConfig()?.function);
@@ -1631,6 +1634,68 @@ export class TraeApiService {
     }
 
     /**
+     * 将任意标识或种子转换为合法的 RFC 4122 UUID 格式字符串。
+     * 若本身已经是合法 UUID，则规范化后直接返回；否则基于 MD5 哈希生成确定性 RFC 4122 UUID。
+     */
+    static toValidUUID(strOrSeed: string): string {
+        const raw = String(strOrSeed || '').trim();
+        const uuidMatch = raw.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+        if (uuidMatch) {
+            return uuidMatch[1].toLowerCase();
+        }
+        const hex = createHash('md5').update(raw).digest('hex');
+        const p1 = hex.slice(0, 8);
+        const p2 = hex.slice(8, 12);
+        const p3 = `4${hex.slice(13, 16)}`;
+        const p4 = `${((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`;
+        const p5 = hex.slice(20, 32);
+        return `${p1}-${p2}-${p3}-${p4}-${p5}`;
+    }
+
+    /**
+     * 提取对话首条消息的内容片段，用于派生确定性会话标识。
+     */
+    static extractFirstMessageSeed(messages: unknown): string | null {
+        if (!Array.isArray(messages) || messages.length === 0) return null;
+        for (const msg of messages) {
+            if (msg && typeof msg === 'object' && msg.role === 'user') {
+                if (typeof msg.content === 'string') return msg.content.slice(0, 500);
+                if (Array.isArray(msg.content)) return JSON.stringify(msg.content).slice(0, 500);
+            }
+        }
+        const first = messages[0];
+        if (first && typeof first === 'object') {
+            return typeof first.content === 'string' ? first.content.slice(0, 500) : JSON.stringify(first).slice(0, 500);
+        }
+        return null;
+    }
+
+    /**
+     * 为 Trae 上游解析或派生稳定的 conversation_id / session_id (RFC 4122 UUID 格式)。
+     * 优先级：
+     * 1. requestBody 中显式提供的 conversation_id / session_id
+     * 2. 下游透传的 _downstreamSessionId (来自 x-session-affinity / session-id 请求头)
+     * 3. 基于首条用户/系统消息的内容派生确定性 UUID（确保多轮对话内会话 ID 100% 稳定，锁定上游 KV Cache 槽位）
+     * 4. 兜底生成随机 UUID
+     */
+    static resolveTraeConversationId(requestBody: DynamicPayload): string {
+        const rawId = requestBody?.conversation_id
+            || requestBody?.session_id
+            || requestBody?._downstreamSessionId;
+
+        if (rawId) {
+            return TraeApiService.toValidUUID(String(rawId));
+        }
+
+        const firstSeed = TraeApiService.extractFirstMessageSeed(requestBody?.messages || requestBody?.input);
+        if (firstSeed) {
+            return TraeApiService.toValidUUID(`trae_conv_${firstSeed}`);
+        }
+
+        return randomUUID();
+    }
+
+    /**
      * 改写下游请求体为 Trae 上游格式 (适配 ToB 原生 raw_chat 与 solo_work_lite / chat_v3)
      *
      * 三协议 1-Hop：管道对 trae / trae-chat_v3 跳过 convertData，这里直接消化下游
@@ -1677,13 +1742,17 @@ export class TraeApiService {
                 const defaultMax = isFlashOff ? 'deepseek_v4_flash_official__max' : `${targetModel}__max`;
                 payload.model_name = payload.max_mode ? defaultMax : defaultDev;
             }
-            payload.conversation_id = payload.conversation_id || randomUUID();
-            payload.session_id = payload.session_id || payload.conversation_id;
+            const stableSessionId = TraeApiService.resolveTraeConversationId(requestBody);
+            payload.conversation_id = stableSessionId;
+            payload.session_id = stableSessionId;
             payload.mode_type = 0;
             payload.access_type = 4;
         } else {
             payload.max_mode = true;
             payload.function = channel.function || 'chat_v3';
+            const stableSessionId = TraeApiService.resolveTraeConversationId(requestBody);
+            payload.conversation_id = stableSessionId;
+            payload.session_id = stableSessionId;
         }
 
         // 映射并注入 Trae 思考深度 (light / high / extra_high)
@@ -1958,6 +2027,10 @@ export class TraeApiService {
         const channel = this.getChannelConfig();
         const payload = this.prepareRequestBody(model, requestBody);
         const headers = await this.buildHeaders(true);
+        if (payload.conversation_id) {
+            headers['x-session-affinity'] = payload.conversation_id;
+            headers['session-id'] = payload.session_id || payload.conversation_id;
+        }
         const url = channel.url;
 
         const axiosConfig: DynamicPayload = {

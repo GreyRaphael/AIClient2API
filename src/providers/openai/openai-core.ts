@@ -301,12 +301,25 @@ export class OpenAIApiService {
             logger.debug(`[OpenAI API] Provider declares supportsNonStream=false; forcing stream + local aggregation for ${this.config.MODEL_PROVIDER || 'openai-compatible'} (model: ${body?.model || 'unknown'})`);
         }
 
+        const downstreamSessionId = body?._downstreamSessionId || (requestData as DynamicPayload)?._downstreamSessionId;
+        const cleanRequestData: DynamicPayload = { ...(requestData || {}) };
+        if ('_downstreamSessionId' in cleanRequestData) {
+            delete cleanRequestData._downstreamSessionId;
+        }
+
         try {
             const axiosConfig: DynamicPayload = {
                 method: 'post',
                 url: endpoint,
-                data: requestData
+                data: cleanRequestData
             };
+            if (downstreamSessionId) {
+                axiosConfig.headers = {
+                    ...(axiosConfig.headers || {}),
+                    'x-session-affinity': String(downstreamSessionId),
+                    'session-id': String(downstreamSessionId)
+                };
+            }
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(axiosConfig);
             const contentType = String(response.headers?.['content-type'] || '');
@@ -411,7 +424,8 @@ export class OpenAIApiService {
         const includeUsageEnabled = includeUsageRaw === undefined
             || !['0', 'false', 'off', 'no'].includes(String(includeUsageRaw).toLowerCase());
         const shouldMergeFinishUsage = body._includeUsageForConversion === true && includeUsageEnabled;
-        const { _includeUsageForConversion: _includeUsageMarker, ...cleanBody } = normalizedBody;
+        const downstreamSessionId = body?._downstreamSessionId || (normalizedBody as DynamicPayload)?._downstreamSessionId;
+        const { _includeUsageForConversion: _includeUsageMarker, _downstreamSessionId: _dsMarker, ...cleanBody } = normalizedBody;
         const streamRequestBody: DynamicPayload = { ...cleanBody, stream: true };
         if (shouldMergeFinishUsage) {
             streamRequestBody.stream_options = {
@@ -427,6 +441,13 @@ export class OpenAIApiService {
                 data: streamRequestBody,
                 responseType: 'stream'
             };
+            if (downstreamSessionId) {
+                axiosConfig.headers = {
+                    ...(axiosConfig.headers || {}),
+                    'x-session-affinity': String(downstreamSessionId),
+                    'session-id': String(downstreamSessionId)
+                };
+            }
             this._applySidecar(axiosConfig);
             const response = await this.axiosInstance.request(axiosConfig);
 

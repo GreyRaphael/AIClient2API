@@ -1765,6 +1765,20 @@ export async function handleContentGenerationRequest(
         processedRequestBody._requestBaseUrl = CONFIG.requestBaseUrl;
     }
 
+    // 提取客户端会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
+    const downstreamSessionId = (
+        req?.headers?.['x-session-affinity'] ||
+        req?.headers?.['session-id'] ||
+        req?.headers?.['x-session-id'] ||
+        req?.headers?.['conversation-id'] ||
+        req?.headers?.['x-conversation-id'] ||
+        originalRequestBody?.conversation_id ||
+        originalRequestBody?.session_id
+    );
+    if (downstreamSessionId) {
+        processedRequestBody._downstreamSessionId = String(downstreamSessionId);
+    }
+
     // 保留客户端原始思考档位与显式关闭标记（不可枚举，防止跨协议转换器吸附/截断后丢失原始档位）
     const rawThinkingEffort = originalRequestBody.reasoning_effort
         ?? originalRequestBody.reasoning?.effort

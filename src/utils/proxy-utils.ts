@@ -12,7 +12,7 @@ import requestContext from './context.ts';
 import { HttpProxyAgent } from 'http-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { getTLSSidecar } from './tls-sidecar.ts';
-import { NETWORK } from './constants.ts';
+import { NETWORK, MODEL_PROVIDER } from './constants.ts';
 import { getErrorMessage } from './error.ts';
 
 type UnknownRecord = Record<string, unknown>;
@@ -52,6 +52,20 @@ export function isSingleSocketAffinityEnabled(config?: UnknownRecord | null, bas
         || getString(config?.TRAE_BASE_URL)
         || getString(config?.baseUrl)
         || baseUrl;
+    const provider = getString(config?.MODEL_PROVIDER) || getString(config?.provider);
+    if (
+        provider === MODEL_PROVIDER.TRAE ||
+        provider === 'trae' ||
+        provider === 'trae-chat_v3' ||
+        provider === MODEL_PROVIDER.TRAE_CHAT_V3 ||
+        Boolean(config?.TRAE_OAUTH_CREDS_FILE_PATH) ||
+        Boolean(config?.TRAE_CHANNEL_MODE)
+    ) {
+        return true;
+    }
+    if (url && (url.includes('trae.cn') || url.includes('mchost.guru'))) {
+        return true;
+    }
     return isLocalhostUrl(url);
 }
 
