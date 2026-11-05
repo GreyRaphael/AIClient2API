@@ -94,7 +94,10 @@ export class OpenAIResponsesApiService {
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
         const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+        const cleanBody: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(body || {})) {
+            if (!k.startsWith('_')) cleanBody[k] = v;
+        }
 
         try {
             const axiosConfig: Record<string, unknown> = {
@@ -156,7 +159,10 @@ export class OpenAIResponsesApiService {
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
         const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+        const cleanBody: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(body || {})) {
+            if (!k.startsWith('_')) cleanBody[k] = v;
+        }
 
         // OpenAI 的流式请求需要将 stream 设置为 true
         const streamRequestBody = { ...cleanBody, stream: true };

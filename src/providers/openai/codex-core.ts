@@ -1039,8 +1039,9 @@ export class CodexApiService {
         // 提取 metadata 并从请求体中移除，避免透传到上游
         const metadata = asRecord(requestBody.metadata);
 
-        // 明确会话维度：优先使用 session_id 或 conversation_id，其次 user_id
-        const sessionId = String(metadata.session_id || metadata.conversation_id || metadata.user_id || 'default');
+        // 明确会话维度：优先使用 downstreamSessionId，其次 metadata.session_id 或 conversation_id，最后 user_id
+        const downstreamSessionId = requestBody._downstreamSessionId || requestBody.downstreamSessionId;
+        const sessionId = String(downstreamSessionId || metadata.session_id || metadata.conversation_id || metadata.user_id || 'default');
 
         // 规范化模型名称
         const upstreamModel = String(model || '').trim();
@@ -1053,6 +1054,13 @@ export class CodexApiService {
         delete cleanedBody.prompt_cache_retention;
         delete cleanedBody.safety_identifier;
         delete cleanedBody.stream_options;
+
+        // 清理以 _ 开头的内部属性（如 _downstreamSessionId），避免上游报 400 Unsupported parameter
+        Object.keys(cleanedBody).forEach((k) => {
+            if (k.startsWith('_') && k !== '_codexToolNameMap') {
+                delete cleanedBody[k];
+            }
+        });
 
         // 0-Hop 直通入口：下游 /v1/responses 的标准 Responses 请求体不再经 CodexConverter，
         // 方言清洗（input 字符串包装、type:'message' 补齐、system->developer、text.format 归一、

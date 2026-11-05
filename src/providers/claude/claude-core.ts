@@ -137,7 +137,10 @@ export class ClaudeApiService {
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
         const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+        const cleanBody: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(body || {})) {
+            if (!k.startsWith('_')) cleanBody[k] = v;
+        }
         if (Array.isArray(cleanBody.tools) && cleanBody.tools.length > 0) {
             cleanBody.tools = stabilizeToolsForPrefixCache(cleanBody.tools as Record<string, unknown>[]);
         }
@@ -224,7 +227,10 @@ export class ClaudeApiService {
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
         const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-        const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+        const cleanBody: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(body || {})) {
+            if (!k.startsWith('_')) cleanBody[k] = v;
+        }
         if (Array.isArray(cleanBody.tools) && cleanBody.tools.length > 0) {
             cleanBody.tools = stabilizeToolsForPrefixCache(cleanBody.tools as Record<string, unknown>[]);
         }
