@@ -1628,17 +1628,13 @@ export class TraeApiService {
             const traceId = conversationId
                 ? TraeApiService.toTraceId(conversationId)
                 : randomBytes(16).toString('hex');
-            const spanId = conversationId
-                ? traceId.slice(0, 16)
-                : randomBytes(8).toString('hex');
+            const spanId = randomBytes(8).toString('hex');
             const traceparent = `00-${traceId}-${spanId}-01`;
             headers['x-flow-traceparent'] = traceparent;
             headers['traceparent'] = traceparent;
-            if (conversationId) {
-                const convUUID = TraeApiService.toValidUUID(conversationId);
-                headers['x-request-id'] = convUUID;
-                headers['x-client-request-id'] = convUUID;
-            }
+            const reqId = randomUUID();
+            headers['x-request-id'] = reqId;
+            headers['x-client-request-id'] = reqId;
         }
 
         return headers;
@@ -2025,9 +2021,9 @@ export class TraeApiService {
         const headers = await this.buildHeaders(true, payload.conversation_id);
         if (payload.conversation_id) {
             const traceId = TraeApiService.toTraceId(payload.conversation_id);
-            const spanId = traceId.slice(0, 16);
+            const spanId = randomBytes(8).toString('hex');
             const traceparent = `00-${traceId}-${spanId}-01`;
-            const convUUID = TraeApiService.toValidUUID(payload.conversation_id);
+            const reqId = randomUUID();
             headers['x-flow-traceparent'] = traceparent;
             headers['traceparent'] = traceparent;
             headers['x-session-affinity'] = payload.conversation_id;
@@ -2036,8 +2032,8 @@ export class TraeApiService {
             headers['x-conversation-id'] = payload.conversation_id;
             headers['X-Session-Id'] = payload.session_id || payload.conversation_id;
             headers['X-Conversation-Id'] = payload.conversation_id;
-            headers['x-request-id'] = convUUID;
-            headers['x-client-request-id'] = convUUID;
+            headers['x-request-id'] = reqId;
+            headers['x-client-request-id'] = reqId;
         }
         const url = channel.url;
 
