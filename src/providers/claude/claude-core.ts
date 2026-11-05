@@ -1,7 +1,8 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
+import type { Agent } from 'node:http';
 import logger from '../../utils/logger.ts';
-import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar, getKeepAliveAgents } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 
 interface ClaudeApiServiceConfig {
@@ -67,6 +68,8 @@ export class ClaudeApiService {
     baseUrl: string;
     useSystemProxy: boolean;
     client: AxiosInstance;
+    httpAgent!: Agent;
+    httpsAgent!: Agent;
 
     /**
      * Constructor
@@ -89,6 +92,10 @@ export class ClaudeApiService {
      * @returns {object} Axios instance.
      */
     createClient(): AxiosInstance {
+        const agents = getKeepAliveAgents(this.config, this.baseUrl);
+        this.httpAgent = agents.httpAgent;
+        this.httpsAgent = agents.httpsAgent;
+
         const axiosConfig = {
             baseURL: this.baseUrl,
             headers: {
@@ -96,12 +103,16 @@ export class ClaudeApiService {
                 'Content-Type': 'application/json',
                 'anthropic-version': '2023-06-01', // Claude API 版本
             },
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
         };
 
         return axios.create(axiosConfig);
     }
 
     _applySidecar(axiosConfig: Record<string, unknown>) {
+        if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
+        if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CLAUDE_CUSTOM, this.baseUrl);
     }
 
@@ -198,33 +209,54 @@ export class ClaudeApiService {
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             const reader = response.data as AsyncIterable<Buffer | string>;
             let buffer = '';
+            let seenDone = false;
+            let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
+            const destroyable = reader as { destroy?: () => void; destroyed?: boolean };
 
-            for await (const chunk of reader) {
-                buffer += chunk.toString();
-                let boundary: number;
-                while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-                    const eventBlock = buffer.substring(0, boundary);
-                    buffer = buffer.substring(boundary + 2);
+            try {
+                for await (const chunk of reader) {
+                    buffer += chunk.toString();
+                    let boundary: number;
+                    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                        const eventBlock = buffer.substring(0, boundary);
+                        buffer = buffer.substring(boundary + 2);
 
-                    const lines = eventBlock.split('\n');
-                    let data = '';
-                    for (const line of lines) {
-                        if (line.startsWith('data:')) {
-                            data = line.substring(5).trim();
-                        }
-                    }
-
-                    if (data) {
-                        try {
-                            const parsedChunk: unknown = JSON.parse(data);
-                            yield parsedChunk;
-                            if (isRecord(parsedChunk) && parsedChunk.type === 'message_stop') {
-                                return;
+                        const lines = eventBlock.split('\n');
+                        let data = '';
+                        for (const line of lines) {
+                            if (line.startsWith('data:')) {
+                                data = line.substring(5).trim();
                             }
-                        } catch (e) {
-                            logger.warn("[ClaudeApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", data);
+                        }
+
+                        if (data) {
+                            if (seenDone) {
+                                continue;
+                            }
+                            try {
+                                const parsedChunk: unknown = JSON.parse(data);
+                                yield parsedChunk;
+                                if (isRecord(parsedChunk) && parsedChunk.type === 'message_stop') {
+                                    seenDone = true;
+                                    if (typeof destroyable?.destroy === 'function' && !doneDrainTimer) {
+                                        doneDrainTimer = setTimeout(() => {
+                                            if (!destroyable.destroyed) {
+                                                destroyable.destroy?.();
+                                            }
+                                        }, 1000);
+                                    }
+                                    continue;
+                                }
+                            } catch (e) {
+                                logger.warn("[ClaudeApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", data);
+                            }
                         }
                     }
+                }
+            } finally {
+                if (doneDrainTimer) {
+                    clearTimeout(doneDrainTimer);
+                    doneDrainTimer = null;
                 }
             }
         } catch (error) {

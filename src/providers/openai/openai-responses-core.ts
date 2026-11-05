@@ -1,7 +1,8 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
+import type { Agent } from 'node:http';
 import logger from '../../utils/logger.ts';
-import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar, getKeepAliveAgents } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 
 interface OpenAIResponsesServiceConfig {
@@ -44,6 +45,8 @@ export class OpenAIResponsesApiService {
     baseUrl: string;
     useSystemProxy: boolean;
     axiosInstance: AxiosInstance;
+    httpAgent: Agent;
+    httpsAgent: Agent;
 
     constructor(config: OpenAIResponsesServiceConfig) {
         if (!config.OPENAI_API_KEY) {
@@ -55,12 +58,18 @@ export class OpenAIResponsesApiService {
         this.useSystemProxy = config?.USE_SYSTEM_PROXY_OPENAI ?? false;
         logger.info(`[OpenAIResponses] System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
 
+        const agents = getKeepAliveAgents(this.config, this.baseUrl);
+        this.httpAgent = agents.httpAgent;
+        this.httpsAgent = agents.httpsAgent;
+
         const axiosConfig = {
             baseURL: this.baseUrl,
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${this.apiKey}`
-            }
+            },
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
         };
 
         this.axiosInstance = axios.create(axiosConfig);
@@ -68,6 +77,8 @@ export class OpenAIResponsesApiService {
     }
 
     _applySidecar(axiosConfig: Record<string, unknown>) {
+        if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
+        if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM_RESPONSES, this.baseUrl);
     }
 
@@ -138,28 +149,49 @@ export class OpenAIResponsesApiService {
 
             const stream = response.data as AsyncIterable<Buffer | string>;
             let buffer = '';
+            let seenDone = false;
+            let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
+            const destroyable = stream as { destroy?: () => void; destroyed?: boolean };
 
-            for await (const chunk of stream) {
-                buffer += chunk.toString();
-                let newlineIndex: number;
-                while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-                    const line = buffer.substring(0, newlineIndex).trim();
-                    buffer = buffer.substring(newlineIndex + 1);
+            try {
+                for await (const chunk of stream) {
+                    buffer += chunk.toString();
+                    let newlineIndex: number;
+                    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                        const line = buffer.substring(0, newlineIndex).trim();
+                        buffer = buffer.substring(newlineIndex + 1);
 
-                    if (line.startsWith('data:')) {
-                        const jsonData = line.substring(5).trim();
-                        if (jsonData === '[DONE]') {
-                            return; // Stream finished
+                        if (line.startsWith('data:')) {
+                            const jsonData = line.substring(5).trim();
+                            if (jsonData === '[DONE]') {
+                                seenDone = true;
+                                if (typeof destroyable?.destroy === 'function' && !doneDrainTimer) {
+                                    doneDrainTimer = setTimeout(() => {
+                                        if (!destroyable.destroyed) {
+                                            destroyable.destroy?.();
+                                        }
+                                    }, 1000);
+                                }
+                                continue;
+                            }
+                            if (seenDone) {
+                                continue;
+                            }
+                            try {
+                                const parsedChunk: unknown = JSON.parse(jsonData);
+                                yield parsedChunk;
+                            } catch (e) {
+                                logger.warn("[OpenAIResponsesApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", jsonData);
+                            }
+                        } else if (line === '') {
+                            // Empty line, end of an event
                         }
-                        try {
-                            const parsedChunk: unknown = JSON.parse(jsonData);
-                            yield parsedChunk;
-                        } catch (e) {
-                            logger.warn("[OpenAIResponsesApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", jsonData);
-                        }
-                    } else if (line === '') {
-                        // Empty line, end of an event
                     }
+                }
+            } finally {
+                if (doneDrainTimer) {
+                    clearTimeout(doneDrainTimer);
+                    doneDrainTimer = null;
                 }
             }
         } catch (error) {

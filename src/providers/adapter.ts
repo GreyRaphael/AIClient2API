@@ -7,6 +7,7 @@ import { ZedApiService } from './zed/zed-core.ts';
 import { TraeApiService } from './trae/trae-core.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import logger from '../utils/logger.ts';
+import { invalidateKeepAliveAgents } from '../utils/proxy-utils.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 type AdapterConstructor = new (config: DynamicPayload) => ApiServiceAdapter;
@@ -593,6 +594,9 @@ export function getServiceInstanceKey(provider: string, uuid: string | null = nu
 
 export function invalidateServiceAdapter(provider: string, uuid: string | null = null): boolean {
     const providerKey = getServiceInstanceKey(provider, uuid);
+    if (uuid) {
+        invalidateKeepAliveAgents(uuid);
+    }
     if (serviceInstances[providerKey]) {
         delete serviceInstances[providerKey];
         logger.info(`[Adapter] Invalidated service adapter, provider: ${provider}, uuid: ${uuid || 'default'}`);

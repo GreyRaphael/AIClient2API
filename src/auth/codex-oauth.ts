@@ -11,7 +11,7 @@ import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
 import { closeActiveServer as closeSharedActiveServer, escapeHtml } from './oauth-shared.ts';
 import type { ActiveServerInfo } from './oauth-shared.ts';
 import { CONFIG } from '../core/config-manager.ts';
-import { getProxyConfigForProvider } from '../utils/proxy-utils.ts';
+import { getProxyConfigForProvider, defaultHttpAgent, defaultHttpsAgent } from '../utils/proxy-utils.ts';
 import { getErrorMessage } from '../utils/error.ts';
 
 interface CodexAuthConfig {
@@ -166,7 +166,7 @@ function sanitizeCodexCredentialFilenamePart(value: unknown): string {
  * Codex OAuth 认证类
  * 实现 OAuth2 + PKCE 流程
  */
-class CodexAuth {
+export class CodexAuth {
     config: CodexAuthConfig;
     httpClient: AxiosInstance;
     server: http.Server | null;
@@ -175,7 +175,11 @@ class CodexAuth {
         this.config = config;
 
         // 配置代理支持
-        const axiosConfig: Record<string, unknown> = { timeout: 30000 };
+        const axiosConfig: Record<string, unknown> = {
+            timeout: 30000,
+            httpAgent: defaultHttpAgent,
+            httpsAgent: defaultHttpsAgent
+        };
         const proxyConfig = getProxyConfigForProvider(config, 'openai-codex-oauth');
         if (proxyConfig) {
             axiosConfig.httpAgent = proxyConfig.httpAgent;

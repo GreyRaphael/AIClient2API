@@ -1,7 +1,8 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
+import type { Agent } from 'node:http';
 import logger from '../../utils/logger.ts';
-import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar, getKeepAliveAgents } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
@@ -238,6 +239,8 @@ export class OpenAIApiService {
     baseUrl: string;
     useSystemProxy: boolean;
     axiosInstance!: AxiosInstance;
+    httpAgent: Agent;
+    httpsAgent: Agent;
     _loggedNonStreamCapability: boolean = false;
 
     constructor(config: DynamicPayload) {
@@ -250,18 +253,26 @@ export class OpenAIApiService {
         this.useSystemProxy = config?.USE_SYSTEM_PROXY_OPENAI ?? false;
         logger.info(`[OpenAI] System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
 
+        const agents = getKeepAliveAgents(this.config, this.baseUrl);
+        this.httpAgent = agents.httpAgent;
+        this.httpsAgent = agents.httpsAgent;
+
         const axiosConfig = {
             baseURL: this.baseUrl,
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${this.apiKey}`
             },
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
         };
 
         this.axiosInstance = axios.create(axiosConfig);
     }
 
     _applySidecar(axiosConfig: DynamicPayload): DynamicPayload {
+        if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
+        if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM, this.baseUrl);
     }
 
@@ -424,51 +435,73 @@ export class OpenAIApiService {
             // include_usage 的 usage 帧在 finish 帧之后到达。跨协议转换时先暂存 finish，
             // 等 usage 帧到达后合并，避免 Claude / Responses 下游拿到全零 usage。
             let pendingFinishChunk: DynamicPayload | null = null;
+            let seenDone = false;
+            let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
 
-            for await (const chunk of stream) {
-                buffer += chunk.toString();
-                let newlineIndex: number;
-                while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-                    const line = buffer.substring(0, newlineIndex).trim();
-                    buffer = buffer.substring(newlineIndex + 1);
+            try {
+                for await (const chunk of stream) {
+                    buffer += chunk.toString();
+                    let newlineIndex: number;
+                    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                        const line = buffer.substring(0, newlineIndex).trim();
+                        buffer = buffer.substring(newlineIndex + 1);
 
-                    if (line.startsWith('data:')) {
-                        const jsonData = line.substring(5).trim();
-                        if (jsonData === '[DONE]') {
-                            if (pendingFinishChunk) {
-                                yield pendingFinishChunk;
-                                pendingFinishChunk = null;
-                            }
-                            return; // Stream finished
-                        }
-                        try {
-                            const parsedChunk = JSON.parse(jsonData);
-                            if (shouldMergeFinishUsage && pendingFinishChunk) {
-                                const isUsageOnly = (!Array.isArray(parsedChunk.choices) || parsedChunk.choices.length === 0)
-                                    && parsedChunk.usage;
-                                if (isUsageOnly) {
-                                    pendingFinishChunk.usage = parsedChunk.usage;
+                        if (line.startsWith('data:')) {
+                            const jsonData = line.substring(5).trim();
+                            if (jsonData === '[DONE]') {
+                                if (pendingFinishChunk) {
                                     yield pendingFinishChunk;
                                     pendingFinishChunk = null;
-                                    continue;
                                 }
-                                yield pendingFinishChunk;
-                                pendingFinishChunk = null;
+                                seenDone = true;
+                                // 避免提前 return / break 导致 Node 销毁底层 keep-alive socket。
+                                // 设 1 秒安全兜底，在上游异常未关闭响应流时销毁，防止挂死。
+                                if (typeof stream?.destroy === 'function' && !doneDrainTimer) {
+                                    doneDrainTimer = setTimeout(() => {
+                                        if (!stream.destroyed) {
+                                            stream.destroy();
+                                        }
+                                    }, 1000);
+                                }
+                                continue;
                             }
+                            if (seenDone) {
+                                continue;
+                            }
+                            try {
+                                const parsedChunk = JSON.parse(jsonData);
+                                if (shouldMergeFinishUsage && pendingFinishChunk) {
+                                    const isUsageOnly = (!Array.isArray(parsedChunk.choices) || parsedChunk.choices.length === 0)
+                                        && parsedChunk.usage;
+                                    if (isUsageOnly) {
+                                        pendingFinishChunk.usage = parsedChunk.usage;
+                                        yield pendingFinishChunk;
+                                        pendingFinishChunk = null;
+                                        continue;
+                                    }
+                                    yield pendingFinishChunk;
+                                    pendingFinishChunk = null;
+                                }
 
-                            const hasFinishReason = Array.isArray(parsedChunk.choices)
-                                && parsedChunk.choices.some((choice: DynamicPayload) => choice?.finish_reason);
-                            if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
-                                pendingFinishChunk = parsedChunk;
-                            } else {
-                                yield parsedChunk;
+                                const hasFinishReason = Array.isArray(parsedChunk.choices)
+                                    && parsedChunk.choices.some((choice: DynamicPayload) => choice?.finish_reason);
+                                if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
+                                    pendingFinishChunk = parsedChunk;
+                                } else {
+                                    yield parsedChunk;
+                                }
+                            } catch (caught) { const e = caught as DynamicPayload;
+                                logger.warn("[OpenAIApiService] Failed to parse stream chunk JSON:", e.message, "Data:", jsonData);
                             }
-                        } catch (caught) { const e = caught as DynamicPayload;
-                            logger.warn("[OpenAIApiService] Failed to parse stream chunk JSON:", e.message, "Data:", jsonData);
+                        } else if (line === '') {
+                            // Empty line, end of an event
                         }
-                    } else if (line === '') {
-                        // Empty line, end of an event
                     }
+                }
+            } finally {
+                if (doneDrainTimer) {
+                    clearTimeout(doneDrainTimer);
+                    doneDrainTimer = null;
                 }
             }
 

@@ -3,6 +3,8 @@
  * 支持 HTTP、HTTPS 和 SOCKS5 代理
  */
 
+import http from 'node:http';
+import https from 'node:https';
 import type { Agent } from 'node:http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import logger from './logger.ts';
@@ -14,6 +16,85 @@ import { NETWORK } from './constants.ts';
 import { getErrorMessage } from './error.ts';
 
 type UnknownRecord = Record<string, unknown>;
+
+// 默认 Keep-Alive Agent 配置（无代理直连时复用 TCP 连接池，优化前缀缓存与连接性能）
+const defaultAgentOptions = {
+    keepAlive: true,
+    maxSockets: 64,        // 每个主机最多 64 个连接
+    maxFreeSockets: 1,     // 最多保留 1 个空闲连接，避免多空闲 socket 轮询导致 KV cache slot 分裂
+    timeout: NETWORK.DEFAULT_TIMEOUT
+};
+
+export const defaultHttpAgent = new http.Agent(defaultAgentOptions);
+export const defaultHttpsAgent = new https.Agent(defaultAgentOptions);
+
+// 专用单 Socket 亲和性 Agent 缓存（针对本地推理服务或显式配置单连接的上游，确保 100% 绑定单一 TCP 连接与后端 KV Cache Slot）
+const singleSocketAgentCache = new Map<string, { httpAgent: http.Agent; httpsAgent: https.Agent }>();
+
+export function isLocalhostUrl(urlStr: string | null | undefined): boolean {
+    if (!urlStr || typeof urlStr !== 'string') return false;
+    try {
+        const parsed = new URL(urlStr);
+        const host = parsed.hostname.toLowerCase();
+        return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+    } catch {
+        return urlStr.includes('localhost') || urlStr.includes('127.0.0.1');
+    }
+}
+
+export function isSingleSocketAffinityEnabled(config?: UnknownRecord | null, baseUrl?: string | null): boolean {
+    if (!config && !baseUrl) return false;
+    if (config?.singleSocket === true || config?.maxSockets === 1) return true;
+    if (config?.singleSocket === false) return false;
+    const url = getString(config?.OPENAI_BASE_URL)
+        || getString(config?.CLAUDE_BASE_URL)
+        || getString(config?.CODEX_BASE_URL)
+        || getString(config?.TRAE_BASE_URL)
+        || getString(config?.baseUrl)
+        || baseUrl;
+    return isLocalhostUrl(url);
+}
+
+export function getKeepAliveAgents(
+    config?: UnknownRecord | null,
+    baseUrl?: string | null
+): { httpAgent: http.Agent; httpsAgent: https.Agent } {
+    if (!isSingleSocketAffinityEnabled(config, baseUrl)) {
+        return { httpAgent: defaultHttpAgent, httpsAgent: defaultHttpsAgent };
+    }
+
+    const key = (typeof config?.uuid === 'string' && config.uuid)
+        ? config.uuid
+        : (baseUrl || 'single-socket-default');
+
+    let cached = singleSocketAgentCache.get(key);
+    if (!cached) {
+        const singleSocketOptions = {
+            keepAlive: true,
+            maxSockets: 1,
+            maxFreeSockets: 1,
+            timeout: NETWORK.DEFAULT_TIMEOUT
+        };
+        cached = {
+            httpAgent: new http.Agent(singleSocketOptions),
+            httpsAgent: new https.Agent(singleSocketOptions)
+        };
+        singleSocketAgentCache.set(key, cached);
+        logger.info(`[KeepAlive] Created single-socket affinity agent for key: ${key}`);
+    }
+    return cached;
+}
+
+export function invalidateKeepAliveAgents(key: string): boolean {
+    const cached = singleSocketAgentCache.get(key);
+    if (cached) {
+        cached.httpAgent.destroy();
+        cached.httpsAgent.destroy();
+        singleSocketAgentCache.delete(key);
+        return true;
+    }
+    return false;
+}
 
 interface ProxyConfig {
     httpAgent: Agent;
@@ -246,6 +327,18 @@ export function configureAxiosProxy(axiosConfig: UnknownRecord, config: UnknownR
         axiosConfig.httpsAgent = proxyConfig.httpsAgent;
         // 禁用 axios 内置的代理配置，使用我们的 agent
         axiosConfig.proxy = false;
+    } else {
+        // 无代理直连时，优先使用已绑定的 agent，若未指定则按配置/URL 决定（支持单 Socket 亲和性）
+        if (!axiosConfig.httpAgent || !axiosConfig.httpsAgent) {
+            const baseUrl = getString(axiosConfig.baseURL) || getString(axiosConfig.url);
+            const agents = getKeepAliveAgents(config, baseUrl);
+            if (!axiosConfig.httpAgent) {
+                axiosConfig.httpAgent = agents.httpAgent;
+            }
+            if (!axiosConfig.httpsAgent) {
+                axiosConfig.httpsAgent = agents.httpsAgent;
+            }
+        }
     }
 
     return axiosConfig;
