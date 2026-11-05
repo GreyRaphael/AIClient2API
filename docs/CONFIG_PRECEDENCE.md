@@ -17,7 +17,7 @@
 
 ## 2. 开关读取顺序
 
-`src/core/config-manager.js` 的 `getConfigToggle` / `getConfigPositiveInt` 统一按以下顺序读取：
+`src/core/config-manager.ts` 的 `getConfigToggle` / `getConfigPositiveInt` 统一按以下顺序读取：
 
 1. `process.env[KEY]`（进程内动态覆盖，优先级最高）
 2. `CONFIG[KEY]`（`config.json` 或启动参数归一化后的值）
@@ -27,7 +27,7 @@
 
 ## 3. Provider 能力优先级
 
-`src/providers/provider-capabilities.js` 的 `resolveProviderCapabilities` 按以下顺序叠加，后者覆盖前者：
+`src/providers/provider-capabilities.ts` 的 `resolveProviderCapabilities` 按以下顺序叠加，后者覆盖前者：
 
 1. `DEFAULT_PROVIDER_CAPABILITIES`
 2. `BUILTIN_PROVIDER_RULES`（按 `providerType` 前缀匹配）
@@ -37,7 +37,7 @@
 
 ## 4. 模型列表与路由优先级
 
-模型列表由 `src/providers/model-capability.js` 统一读取，来源优先级：
+模型列表由 `src/providers/model-capability.ts` 统一读取，来源优先级：
 
 1. `live`：本次从上游发现
 2. `persisted`：`model-capability-cache.json` 中的历史发现
@@ -59,7 +59,7 @@
 以下字段/取值仅为兼容存量配置，新增部署不建议继续使用：
 
 - `GEMINI_PASS_MAX_OUTPUT_TOKENS`：旧的 Gemini 输出上限开关。
-- Trae `agent_v3` / `legacy` 通道标识：启动时会迁移到 `trae-solo_work_lite`。
+- Trae 历史通道标识（如旧版 `agent_v3` / `legacy`）：已被彻底废弃；系统按 URL 自动归纳为 `chat_v3`（个人版侧边栏）或 `tob_raw_chat`（企业版），不再支持已删除的 `solo_work_lite`。
 - `provider_pools.json` 中的 `notSupportedModels` / `disabledModels` / `availableModels`：运行时不再读取，可用一次性脚本清理。
 
 ## 7. 排查顺序建议

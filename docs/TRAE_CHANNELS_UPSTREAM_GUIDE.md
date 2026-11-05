@@ -1,111 +1,82 @@
 # Trae 双通道架构与上游技术规范详解
 
-本文档详细记录了 AIClient2API 中字节跳动 **Trae** 提供商的双通道架构实现、上游协议机制、模型发现、请求参数差异及节点管理规范，为后续功能迭代和上游变更维护提供完整技术参考。
+- 状态：当前有效
+- 更新：2026-11-05
+- 范围：`src/providers/trae/trae-core.ts`、`src/providers/trae/trae-channel.ts`、`src/utils/proxy-utils.ts`、`src/converters/utils.ts`
+
+本文档详细记录 AIClient2API 中字节跳动 **Trae** 提供商的双通道架构实现、上游协议规范、模型动态发现与过滤算法、请求体改写流水线、传输层单 Socket 亲和性以及流式响应解析规范，为功能迭代与上游协议维护提供权威参考。
 
 ---
 
 ## 一、架构背景与演进
 
 ### 1. 历史渊源与项目背景
-* **早期逆向与 trae2api-web**：最初社区对 Trae 的反代实现（如 `trae2api-web`）主要基于 Trae 的 **SOLO 个人版 Agent 接口**（即 `solo_work_lite` / `agent_v3` / `chat_v3`）。该接口打向 `https://trae-api-cn.mchost.guru`，主要用于 IDE 的端侧 Agent 协作。
-* **企业版与原生 ToB Raw Chat**：随后 Trae 推出了企业版服务（`api.enterprise.trae.cn`），提供了原生的聊天端点 `/api/ide/v2/llm_raw_chat`（`function: "chat"`），支持更原生的企业模型调用与流式协议。
-* **三通道独立决策与后续瘦身**：在 AIClient2API 中，早先曾尝试在单一 provider 内混合多种模式，但由于各模式的**上游 Host、请求 Header 指纹、请求体参数规范、可用模型清单及命名**均存在显著差异。系统将历史的 `agent_v3` 路径彻底清除并一度拆分为 `trae` (ToB Raw Chat)、`trae-solo_work_lite` (SOLO Agent) 以及 `trae-chat_v3` (侧边栏 Chat)。随后，为了保证代码纯粹优雅，系统进一步**彻底清除了代码库中的 `solo_work_lite` 通道**（文档中仍完整保留其上游技术规范以备参考），全面收敛聚焦于 **`trae`** (企业 ToB) 与 **`trae-chat_v3`** (个人版侧边栏) 双核心通道。
+* **早期逆向与 trae2api-web**：最初社区对 Trae 的反代实现（如 `trae2api-web`）主要基于 Trae 的 **SOLO 个人版 Agent 接口**（打向 `https://trae-api-cn.mchost.guru`），用于 IDE 的端侧 Agent 协作。
+* **企业版与原生 ToB Raw Chat**：随后 Trae 推出了企业版服务（`api.enterprise.trae.cn`），提供了原生的聊天端点 `/api/ide/v2/llm_raw_chat`（`function: "chat"`），支持更原生的企业模型调用、链路追踪与流式协议。
+* **双通道收敛决策**：在系统早期迭代中，曾尝试在单一 provider 内混合多种模式，但由于上游 Host、Header 指纹、参数规范及可用模型清单存在显著差异。系统将历史网关路径 `agent_v3` 彻底清除，并将原 `solo_work_lite` 通道代码从运行时完全移除（文档中保留其逆向协议分析作为技术归档），全面收敛聚焦于两大活跃通道：
+  1. **`trae`**：企业版 ToB 原生直连通道（`tob_raw_chat`）；
+  2. **`trae-chat_v3`**：个人版侧边栏 Chat 模式（`chat_v3`）。
 
-### 2. 深度剖析：`solo_work_lite`、`chat_v3` 与企业 `chat` 三者区别，以及 `agent_v3` 的历史与清理
-
-在分析上游 Trae 协议时，必须厘清 **业务功能函数 (Function)** 与 **网络网关路由 (Endpoint Route)** 两个层面的概念：
-
-#### (1) 上游真正同级的三大业务模式 (`function` 字段)
-
-经对 Trae 上游网关实测抓取与调试，上游后端真实注册并运行的聊天业务 `function` 主要是以下三个同级项：
-
-| 业务模式 (`function`) | 所属通道 / 主机 | 上游模型数 | 核心定位与业务特征 |
-| :--- | :--- | :---: | :--- |
-| **`solo_work_lite`** | 个人版 / mchost.guru | **47 个配置 (实测 19 个真实活跃模型)** | **SOLO 智能体轻量工作流**。<br>Trae 个人版 IDE 主打的全自主编程智能体 SOLO（类似于 Composer/Devin）的轻量化工作流。上游为此模式特化了 Agent 子智能体支持（如 `file_search_agent`、`explore_sub_agent_v2`、`computer_use_subagent` 等），专为代码辅助 Agent 设计。 |
-| **`chat_v3`** | 个人版 / mchost.guru | **57 个配置 (实测 20 个真实活跃模型)** | **个人版侧边栏 Chat (第 3 代)**。<br>Trae 个人版 IDE 经典的侧边栏问答对话界面。是个人版中可用模型库最全的模式（包含专属模型 `qwen3.8-flash`、`Doubao-Seed-Code`、`kimi-k2.8-preview` 等），并特化了 `fast_apply`（代码快速采纳）、`title_generation`（会话标题生成）、`input_optimization` 等对话衍生能力，底层走 `llm_raw_chat_v2` 管道。 |
-| **企业 `chat`** | 企业版 / enterprise.trae.cn | **28 个配置 (实测 24 个真实活跃模型)** | **ToB 企业原生直连聊天**。<br>Trae 企业版专属服务。经过企业合规治理与审计，请求必须携带 Linux/PC 指纹、`x-flow-traceparent` 链路追踪以及 `access_type: 4`、`mode_type: 0`、`conversation_id`，且模型名称需补齐 `__max` / `__dev` 调度后缀。 |
-
-#### (2) 为什么历史上有 `agent_v3`？为什么必须将其彻底清除与拆分？
-
-**结论：`agent_v3` 从来不是上游的一个业务 `function`，它只是上游的 URL 网关路径层级！**
-
-1. **实测验证**：
-   * 在向上游 `POST /api/ide/v1/get_detail_param` 传入 `{"function": "agent_v3"}` 时，上游返回 `configs count: 0`。上游调度器中根本不存在名为 `agent_v3` 的功能函数。
-2. **历史命名的借用**：
-   * 个人版对话接口在 Trae 网关上的完整路径为：
-     ```
-     https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat
-     ```
-     其中 `/api/agent/v3` 是字节 Trae 为 Agent 微服务集群划分的第 3 代网关路由层。早期社区（如 `trae2api-web`）借用了此路径片段将其称为 `agent_v3`。
-3. **彻底拆分与清除的必要性**：
-   * 实际上，走该网关的有两种截然不同的业务功能：`solo_work_lite`（专供 Agent，实测 19 个真实活跃模型）与 `chat_v3`（专供侧边栏对话，实测 20 个真实活跃模型，支持更高推理档位）。
-   * 将两者合并为所谓的 `agent_v3` 会导致模型丢失（如缺少 `qwen3.8-flash`、`Doubao-Seed-Code`）、无法针对性配置思考档位等缺陷。因此，本系统将 `agent_v3` 彻底废弃清除，纯净拆解为独立的 `trae-solo_work_lite` 与 `trae-chat_v3` 提供商。并且彻底废除历史别名与下线模型的兜底强并逻辑，仅提供 100% 真实活跃模型。
-
-#### (3) 完整四者技术层级拓扑
+### 2. 核心架构拓扑
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 AIClient2API 顶层配置                                  │
-│  Provider: "trae"       Provider: "trae-solo_work_lite"       Provider: "trae-chat_v3" │
-│  (企业 ToB 原生直连)     (个人版 SOLO Agent 模式)              (个人版侧边栏 Chat 模式)   │
-└────────────┬────────────────────────────┬─────────────────────────────┬────────────────┘
-             │                            │                             │
-             ▼                            ▼                             ▼
+│                              AIClient2API 顶层活跃配置                                 │
+│  Provider: "trae"                                       Provider: "trae-chat_v3"       │
+│  (企业 ToB 原生直连，支持 KV Cache 90%+)                 (个人版侧边栏 Chat 模式)        │
+│  [注：原 trae-solo_work_lite 代码已精简清理，仅作为本文档上游协议归档参考]             │
+└────────────┬──────────────────────────────────────────────────────────┬────────────────┘
+             │                                                          │
+             ▼                                                          ▼
 ┌─────────────────────────┐  ┌───────────────────────────────────────────────────────────┐
 │ 上游网络与网关 (Endpoint)│  │ 上游网络与网关路由 (Endpoint)                             │
 │ Host: enterprise.trae.cn│  │ Host: trae-api-cn.mchost.guru                             │
 │ Path: /llm_raw_chat     │  │ Path: /api/agent/v3/llm_utils_chat                        │
 └────────────┬────────────┘  └────────────┬─────────────────────────────┬────────────────┘
              │                            │                             │
-             ▼                            ▼                             ▼
+             ▼                            ▼ (上游协议同构参考)          ▼
 ┌─────────────────────────┐  ┌─────────────────────────┐  ┌─────────────────────────┐
 │ 上游真实业务功能 Payload │  │ 上游真实业务功能 Payload │  │ 上游真实业务功能 Payload │
 │ • function: "chat"      │  │ • function:             │  │ • function: "chat_v3"   │
 │   (28 模型，企业审计)   │  │   "solo_work_lite"       │  │   (57 模型，侧边栏对话) │
-│                         │  │   (46 模型，全功能 Agent)│  │                         │
+│                         │  │   (47 模型，代码已归档)  │  │                         │
 └─────────────────────────┘  └─────────────────────────┘  └─────────────────────────┘
 ```
 
-#### (4) 三大业务功能核心指标深度对比表
-
-| 维度 | `solo_work_lite` | `chat_v3` | 企业 `chat` |
-| :--- | :--- | :--- | :--- |
-| **所属提供商** | **`trae-solo_work_lite`** | **`trae-chat_v3`** | **`trae`** |
-| **所属上游主机** | `trae-api-cn.mchost.guru` | `trae-api-cn.mchost.guru` | `api.enterprise.trae.cn` |
-| **上游对话接口** | `/api/agent/v3/llm_utils_chat` | `/api/agent/v3/llm_utils_chat` | `/api/ide/v2/llm_raw_chat` |
-| **模型拉取接口** | `/api/ide/v1/get_detail_param` | `/api/ide/v1/get_detail_param` | `/api/ide/v1/batch_get_detail_param` |
-| **拉取入参** | `{"function": "solo_work_lite"}` | `{"function": "chat_v3"}` | `{"functions": ["chat"], ...}` |
-| **上游可用模型库** | 47 个配置项 (实测 19 个真实活跃模型) | 57 个配置项 (实测 20 个真实活跃模型) | 28 个配置项 (实测 24 个真实活跃模型) |
-| **Agent / 工具链特性** | 内置 subagent 占位符、支持复杂 Agent 工具调度 | 纯问答，不支持 subagent | 支持常规 function_call，无 subagent |
-| **专有辅助能力** | 富上下文规划、poly_prompt 扩展 | `fast_apply`、`title_generation` | 企业链路审计、`x-flow-traceparent` |
-| **请求体必需字段** | `config_name`, `model`, `max_mode` | `config_name`, `model`, `max_mode` | `model_name` (`__max`), `conversation_id`, `session_id`, `access_type: 4`, `mode_type: 0` |
-| **在当前项目中的应用** | 原 `trae-solo_work_lite` 模式（代码已精简清除，文档保留技术归档） | `trae-chat_v3` 专属模式 (一等公民) | `trae` 专属使用的上游 Function |
+### 3. 个人版内部同构关系：`solo_work_lite` 与 `chat_v3`
+上游个人版网关（`trae-api-cn.mchost.guru`）底层通过统一网关 `/api/agent/v3/llm_utils_chat` 提供服务（代码中统一由 `isSoloFamilyChannel` 识别）：
+* 早期社区曾借用网关 URL 片段统称为所谓的 `agent_v3`，但实际上上游是通过请求体中的 `function` 字段严格分流的：
+  * **`function: "chat_v3"`**：主打 IDE **侧边栏问答对话**，拥有最完整的主流模型库（含侧边栏特供的 `qwen3.8-flash`、`kimi-k2.8-preview` 等）与最高思考档位支持，并承接 `fast_apply` 等对话衍生功能；
+  * **`function: "solo_work_lite"`**：主打端侧全自主智能体 **SOLO Agent**（类似 Devin/Composer 轻量工作流），上游为此挂载了复杂的 subagent 调度句柄（如 `file_search_agent`、`explore_sub_agent_v2`、`computer_use_subagent`）与特定代码模型（如 `kimi-k2.7-code`）；
+* **收敛为 `trae-chat_v3` 的原因**：
+  在引入 `extra_high` 思考准入过滤后，两个模式保留的旗舰思考大模型（GLM-5.3、DeepSeek-V4.1-Flash、Kimi-K3 等）完全一致，且 `chat_v3` 的接口纯粹无 subagent 冗余。系统因此收敛为 `trae-chat_v3`，下文保留 `solo_work_lite` 的协议规范以备查阅。
 
 ---
 
 ## 二、三通道核心指标全景对比
 
-| 维度 | `trae` (企业原生 ToB Raw Chat) | `trae-solo_work_lite` (SOLO Agent) | `trae-chat_v3` (侧边栏 Chat) |
+| 维度 | `trae` (企业原生 ToB Raw Chat) | `trae-chat_v3` (个人版侧边栏 Chat) | `solo_work_lite` (个人版 SOLO Agent, 协议归档) |
 | :--- | :--- | :--- | :--- |
-| **Provider 标识** | `trae` | `trae-solo_work_lite` | `trae-chat_v3` |
-| **通道模式 (`TRAE_CHANNEL_MODE`)** | `tob_raw_chat` | `solo_work_lite` | `chat_v3` |
+| **Provider 标识** | `trae` | `trae-chat_v3` | 原 `trae-solo_work_lite` *(代码已归档)* |
+| **通道模式 (`TRAE_CHANNEL_MODE`)** | `tob_raw_chat` | `chat_v3` | `solo_work_lite` |
 | **默认上游 Host** | `https://api.enterprise.trae.cn` | `https://trae-api-cn.mchost.guru` | `https://trae-api-cn.mchost.guru` |
 | **对话补全端点 (Chat Endpoint)** | `/api/ide/v2/llm_raw_chat` | `/api/agent/v3/llm_utils_chat` | `/api/agent/v3/llm_utils_chat` |
 | **模型拉取端点 (Models Endpoint)** | `/api/ide/v1/batch_get_detail_param` | `/api/ide/v1/get_detail_param` | `/api/ide/v1/get_detail_param` |
-| **核心 Function 字段** | `"chat"` | `"solo_work_lite"` | `"chat_v3"` |
+| **核心 Function 字段** | `"chat"` | `"chat_v3"` | `"solo_work_lite"` |
 | **上游 App ID** | `7b3f9dc2-8a4e-5c6d-2f1b-9e4a3c5b7df0` | `6eefa01c-1036-4c7e-9ca5-d891f63bfcd8` | `6eefa01c-1036-4c7e-9ca5-d891f63bfcd8` |
-| **IDE 版本指纹** | `0.208.1` (`20260908`) | `0.1.52` (`20260811`) | `0.1.52` (`20260811`) |
+| **IDE 版本指纹** | `0.211.1` (`ideVersionCode: 20260908`) | `3.4.4` (`ideVersionCode: 20261015`) | `0.1.52` (`ideVersionCode: 20260811`) |
 | **设备类型指纹** | `X-Device-Type: linux`<br>`X-OS-Version: Linux 6.8.0`<br>`X-Device-Brand: PC` | `X-Device-Type: windows`<br>`X-OS-Version: Windows 11 Pro`<br>`X-Device-Brand: 83DG` | `X-Device-Type: windows`<br>`X-OS-Version: Windows 11 Pro`<br>`X-Device-Brand: 83DG` |
-| **专有请求头** | `x-ide-function: chat`<br>`x-flow-traceparent: 00-...` | *无额外 traceparent* | *无额外 traceparent* |
-| **对话上下文标识** | 必传 `conversation_id`, `session_id` | 无需上下文 ID | 无需上下文 ID |
-| **专有请求参数** | `model_name` (如 `glm-5.2__max` 或 `__dev`), `mode_type: 0`, `access_type: 4` | 仅需 `config_name` 与 `model` | 仅需 `config_name` 与 `model` |
-| **可用模型数** | 24 个 | 19 个 | 20 个 |
+| **专有请求头** | `x-ide-function: chat`<br>`x-flow-traceparent: 00-...`<br>`x-session-affinity` | *标准客户端头 + 会话标识头* | *标准客户端头* |
+| **会话上下文标识** | 必传 `conversation_id`, `session_id` | 必传 `conversation_id`, `session_id` | 支持 `conversation_id`, `session_id` |
+| **专有请求参数** | `model_name` (`__max`/`__dev`), `mode_type: 0`, `access_type: 4`, `user_input` | `config_name`, `model`, `max_mode: true` | `config_name`, `model`, `max_mode: true` |
+| **上游可用模型库** | 28 个原始配置 (过滤后 13 个思考模型) | 57 个原始配置 (过滤后 13 个思考模型) | 47 个原始配置 (过滤后 13 个思考模型) |
+| **KV Cache 命中率表现** | **支持前缀缓存**（多轮综合命中率 **90%+**） | 上游恒返回 `0` | 上游恒返回 `0` |
 
 ---
 
 ## 三、认证与凭证生命周期
 
-三个通道底层均共用 Trae 的账户授权凭证体系（即 `configs/trae/*_creds.json`）。
+两个通道底层共用 Trae 的账户授权凭证体系（存储于 `configs/trae/*_creds.json`）。
 
 ### 1. 凭据文件结构
 ```json
@@ -135,10 +106,30 @@
 
 ---
 
-## 四、模型发现机制 (Model Discovery)
+## 四、模型发现机制 (Model Discovery) 与严格准入过滤
 
-### 1. `trae` (ToB Raw Chat)
-* **请求地址**：`POST https://api.enterprise.trae.cn/api/ide/v1/batch_get_detail_param`
+### 1. 模型列表接口调用
+
+根据当前节点的通道模式，向对应上游接口发起 POST 请求：
+
+#### (1) `chat_v3` (个人版侧边栏 Chat)
+* **请求端点**：`POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param`
+* **请求体**：
+  ```json
+  {
+    "function": "chat_v3",
+    "poly_prompt": true,
+    "need_prompt": false,
+    "config_names": null,
+    "current_config_info": null,
+    "mode_type": null,
+    "agent_type": null
+  }
+  ```
+* **数据提取**：从响应体 `res.data.config_info_list` 中获取模型配置项。
+
+#### (2) `trae` (企业 ToB Raw Chat)
+* **请求端点**：`POST https://api.enterprise.trae.cn/api/ide/v1/batch_get_detail_param`
 * **请求体**：
   ```json
   {
@@ -152,14 +143,14 @@
     "show_custom_model": false
   }
   ```
-* **解析逻辑**：遍历响应中 `data.function_configs[]` 的每个项，提取 `config_info_list[]` 中的元数据。
+* **数据提取**：遍历响应体 `res.data.function_configs[].config_info_list` 获取模型配置项。
 
-### 2. `trae-solo_work_lite` (SOLO Agent) 与 `trae-chat_v3` (侧边栏 Chat)
-* **请求地址**：`POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param`
+#### (3) 附：`solo_work_lite` (个人版 SOLO Agent, 上游协议)
+* **请求端点**：`POST https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param`（与 `chat_v3` 共享同端点）
 * **请求体**：
   ```json
   {
-    "function": "solo_work_lite", // 或 "chat_v3"
+    "function": "solo_work_lite",
     "poly_prompt": true,
     "need_prompt": false,
     "config_names": null,
@@ -168,161 +159,84 @@
     "agent_type": null
   }
   ```
-* **解析逻辑**：直接提取响应中的 `data.config_info_list[]`。
+* **数据提取**：从 `res.data.config_info_list` 中获取模型配置项（原始返回 47 个配置，曾包含专供自主 Agent 的子智能体调度句柄）。
 
-### 3. 模型清洗与过滤机制（上游原始配置如何精简过滤为真实活跃模型）
+### 2. 核心过滤流水线 (`fetchRemoteModels`)
 
-系统严格执行**纯净上游真实模型原则**，彻底废除“基准兜底模型强行合并”与“强制追加 `auto` 虚拟别名”的旧机制。上游原始返回配置经过 4 道严密的过滤流水线清洗：
+代码通过两道严密规则对上游全量配置进行过滤，**天然排除**弱算力模型与内部辅助 subagent：
 
-1. **内部 Agent/功能占位符拦截**：通过 `excludedConfigNames` 集合过滤纯内部使用的调度句柄（如 `computer_use_subagent`、`summary`、`fast_apply` 等）。
-2. **外部自定义反代占位拦截**：通过 `is_custom_model` 或 `custom_` 前缀过滤用户在 Trae 自定义的外部 API 占位壳。
-3. **上游开关状态与可见性校验**：严格剔除 `config_switch: false`（已下线/已关闭）、`is_invisible_to_user: true`（用户不可见）以及未命名的无效占位项（`display_name: "-"`）。
-4. **底层真实 ID 提取**：直接暴露上游真实技术 ID，杜绝中文显示名污染。
+```ts
+for (const item of allConfigs) {
+    const id = item.config_name;
+    if (!id) continue;
 
-#### (1) `trae` (ToB Chat, 原始 28 个 $\rightarrow$ 过滤后 24 个真实活跃模型)
-* **原始返回 (28 个)**：包含 24 个正常业务大模型 + 4 个非活跃/辅助项。
-* **过滤剔除 (4 个)**：
-  1. `glm-5.1`：上游开关关闭 (`is_invisible_to_user: true`)。
-  2. `DeepSeek-V4-Flash`：上游开关关闭（ToB 端官方统一启用 `DeepSeek-V4-Flash-Official`）。
-  3. `summary`：内部摘要占位符 (`excludedConfigNames`)。
-  4. `custom_model_placeholder`：自定义模型占位符 (`excludedConfigNames`)。
-* **最终结果**：$28 - 4 = \mathbf{24\text{ 个}}$ 真实活跃模型。
+    const effortConfig = item.reasoning_effort_config;
+    const rawOptions = Array.isArray(effortConfig?.options)
+        ? effortConfig.options
+        : (Array.isArray(effortConfig?.reasoning_effort_level_options) ? effortConfig.reasoning_effort_level_options : []);
 
-#### (2) `trae-solo_work_lite` (`solo_work_lite`, 原始 47 个 $\rightarrow$ 过滤后 19 个真实活跃模型)
-* **原始返回 (47 个)**：包含丰富但繁杂的 Agent 特化配置、外部自定义反代配置及开关关闭项。
-* **过滤剔除 (28 个)**：
-  1. **内部 Agent 占位符 (6 个)**：`computer_use_subagent`、`browser_use_subagent`、`file_search_agent`、`explore_sub_agent_v2`、`summary`、`custom_model_placeholder`。
-  2. **自定义与外部映射模型 (13 个以 `custom_` 开头)**：`custom_model_gemini`、`custom_model_1M_text`、`custom_model_1M`、`custom_model_doubao_1M`、`custom_model_doubao_256k`、`custom_model_kimi`、`custom_model_claude`、`custom_model_gpt-6`、`custom_model_gpt-5`、`custom_model_no-fc`、`custom_model_deepseek_chat`、`custom_model_deepseek_reasoner`、`custom_model_deepseek_v4`。
-  3. **非活跃/关闭/已下线/测试项 (9 个)**：
-     - `seed-code-pro-0430`、`sagitta`、`aquila`（内部试验模型，`config_switch: false`）。
-     - `Doubao-Seed-2.0-Code`、`glm-5`、`glm-5-turbo`、`DeepSeek-V4-Flash`、`DeepSeek-V4-Pro`（已下线或关闭）。
-     - `-`（空白占位项）。
-* **最终结果**：$47 - 6 - 13 - 9 = \mathbf{19\text{ 个}}$ 真实活跃模型。
+    const normalizedOptions = rawOptions.map((opt) => String(opt || '').trim().toLowerCase());
+    
+    // 规则 1：思考档位必须包含 extra_high
+    if (!normalizedOptions.includes('extra_high')) {
+        continue;
+    }
 
-#### (3) `trae-chat_v3` (`chat_v3`, 原始 57 个 $\rightarrow$ 过滤后 20 个真实活跃模型)
-* **原始返回 (57 个)**：涵盖全量对话与衍生任务模型。
-* **过滤剔除 (37 个)**：
-  1. **内部衍生功能/辅助占位符 (5 个)**：`summary`、`fast_apply`、`fast_apply_new`、`title_generation`、`input_optimization`。
-  2. **自定义与外部映射模型 (14 个)**：`custom_model_placeholder` 以及 `custom_model_gemini`、`custom_model_1M_text` 等 13 个外部反代项。
-  3. **非活跃/关闭/已下线项 (18 个)**：
-     `seed-code-pro-0430`、`sagitta`、`aquila`、`Doubao_1_6`、`glm-5.1`、`glm-5`、`glm-4.7`、`minimax-m2.1`、`kimi-k2.7-code`、`DeepSeek-V4-Flash`、`DeepSeek-V4-Pro`、`context_selection`、以及多个不可见或未启用占位项。
-* **最终结果**：$57 - 5 - 14 - 18 = \mathbf{20\text{ 个}}$ 真实活跃模型。
+    // 规则 2：上游标记为用户不可见的配置不暴露
+    if (item.is_invisible_to_user === true) {
+        continue;
+    }
+    // ...通过准入，提取模型元数据
+}
+```
 
----
+* **准入规则一：`options` 必须包含 `'extra_high'`**：
+  * Trae 上游中，内部辅助/衍生 Agent（如 `summary`、`fast_apply`、`file_search_agent`、`explore_sub_agent_v2`）以及无深度思考能力的模型（如早期的豆包部分档位、Mimo 等）均不具备 `extra_high` 思考配置；
+  * 此规则使得系统**无需硬编码排除列表**，即可自动化、纯净地仅保留具备最高思考推理能力的旗舰大模型。
+* **准入规则二：`is_invisible_to_user !== true`**：
+  * 剔除上游标记为废弃、内测或关闭的隐藏配置项。
 
-### 4. 什么是个人版中的 `function: "chat"` (29 个旧版模型)？
-
-在向 `mchost.guru` 请求 `get_detail_param` 时，传入 `function: "chat"` 会返回 29 个模型。这是 **Trae 个人版在早期（v1/v2 时代）的初代聊天接口残留**：
-
-1. **历史背景**：
-   * 在 Trae 尚未全面进化为以 **SOLO（Agent 模式）** 为主导，且尚未推出 **`chat_v3`** 之前，Trae 个人版 IDE 侧边栏最初调用的就是这个基础的 `function: "chat"`。
-2. **模型特征（明显滞后于当前时代）**：
-   * **保留大量上代基座模型**：如 **GLM-4.6 / GLM-4.7**（当前主流为 5.2/5.3）、**MiniMax-M2 / M2.1**（当前主流为 M3）、**Kimi-K2**（当前主流为 K2.7/K3）、**Qwen-3.5**（当前主流为 3.7+/3.8）、**Doubao_1_8** 等。
-   * **完全缺失当前主流旗舰**：没有 `glm-5.3`、`mimo-v2.6-pro`、`kimi-k3`、`step-5-preview`、`DeepSeek-V4.1-Flash` 等最新模型。
-3. **Trae 聊天模式的演进三部曲**：
-   * **第 1 代（个人版早期）**：`mchost.guru` 下的 `function: "chat"`（即这 29 个旧模型），主要提供 GLM-4、MiniMax-M2 等基础代码问答。
-   * **第 2 代（个人版升级 SOLO 与 v3）**：推出了 `function: "solo_work_lite"`（47 个配置项，19 个活跃模型）专供 Agent，并升级了 `function: "chat_v3"`（57 个配置项，20 个活跃模型）作为新的侧边栏主面板。
-   * **第 3 代（企业版独立重构）**：将架构迁移至 `api.enterprise.trae.cn`，企业端重新启用了 `function: "chat"` 命名，但后端模型已全面替换为 28 个现代化新版配置（24 个活跃模型），并赋予了 `access_type: 4`、`mode_type: 0` 和 `__max` 调度后缀机制。
+### 3. 模型元数据提取规范
+通过准入的模型，系统会提取以下权威属性并写入系统缓存：
+1. **上下文窗口 (`context_window`)**：
+   优先提取上游 Max 档位 `context_window_tokens.max`；若未显式提供则取 `dev` 或 `model_detail_list` 计算出的最大容量。
+2. **最大输出 Token (`max_tokens`)**：
+   从 `model_detail_list[].max_tokens` 所有变体中提取最大值。
+3. **默认思考强度 (`default_reasoning_effort`)**：
+   Trae 上游多数模型的 `default_level` 默认为保守的 `light`。代码通过 `resolveMaxStandardEffort` 动态优选最高档位，对外统一输出为标准层的 **`xhigh`**（对应上游 `extra_high`）。
+4. **底层变体键名解析**：
+   从 `model_detail_list` 中提取 Standard 档位（`__dev`，如 `glm-5.2__dev`）与 Max 档位（`__max`，如 `glm-5.2__max`），供后续发送请求时精确路由。
 
 ---
 
-## 五、模型清单对比与差异矩阵
+## 五、最新实测双通道思考模型对照表
 
-各通道实测可用模型清单对比，存在**专属模型**与**命名大小写/后缀差异**：
+通过上述严格准入流水线保留的双通道活跃思考模型清单如下（实测 ToB 13 个，chat_v3 13 个）：
 
-### 1. 通道独有活跃模型
-
-| 通道 | 模型总数 | 独有模型列表 | 业务定位与差异说明 |
-| :--- | :---: | :--- | :--- |
-| **`trae`** (ToB) | **24 个** | `Doubao-Seed-2.0-Code`<br>`Doubao_1_6`<br>`glm-5v-turbo`<br>`minimax-m2.7`<br>`deepseek-V4-Pro` | 企业版专属治理保留；提供视觉模型 `glm-5v-turbo`；保留 `Doubao_1_6` 与特定 ToB 调度项。 |
-| **`trae-solo_work_lite`** | **19 个** | `kimi-k2.6`<br>`kimi-k2.7-code` | SOLO Agent 专属轻量代码模型调度通道。 |
-| **`trae-chat_v3`** | **20 个** | `Doubao-Seed-Code`<br>`kimi-k2.8-preview`<br>`qwen3.8-flash` | 侧边栏 Chat 专属对话模型，包含极速轻量模型 `qwen3.8-flash` 与 `kimi-k2.8-preview`。 |
-
-### 2. 三通道全量真实活跃模型对照总表
-
-| 序号 | 目标模型名称 | `trae` (ToB, 24) | `trae-solo_work_lite` (SOLO, 19) | `trae-chat_v3` (Chat, 20) |
-| :---: | :--- | :---: | :---: | :---: |
-| 1 | **Doubao-Seed-Evolving** | ✅ (`Doubao-Seed-Evolving`) | ✅ (`Doubao-Seed-Evolving`) | ✅ (`Doubao-Seed-Evolving`) |
-| 2 | **Doubao-Seed-2.1-Pro** | ✅ (`Doubao-Seed-2.1-pro`) | ✅ (`Doubao-Seed-2.1-Pro`) | ✅ (`Doubao-Seed-2.1-Pro`) |
-| 3 | **Doubao-Seed-2.1-Turbo** | ✅ (`Doubao-Seed-2.1-turbo`) | ✅ (`Doubao-Seed-2.1-Turbo`) | ✅ (`Doubao-Seed-2.1-Turbo`) |
-| 4 | **Doubao-Seed-2.0-Code** | ✅ (`Doubao-Seed-2.0-Code`) | ❌ *(已下线)* | ❌ *(已下线)* |
-| 5 | **Doubao_1_6** | ✅ (`Doubao_1_6`) | ❌ *(已下线)* | ❌ *(已下线)* |
-| 6 | **Doubao-Seed-Code** | ❌ | ❌ | ✅ (`Doubao-Seed-Code`) |
-| 7 | **glm-5.3-flashx** | ✅ (`glm-5.3-flashx`) | ✅ (`glm-5.3-flashx`) | ✅ (`glm-5.3-flashx`) |
-| 8 | **glm-5.3-flash** | ✅ (`glm-5.3-flash`) | ✅ (`glm-5.3-flash`) | ✅ (`glm-5.3-flash`) |
-| 9 | **glm-5.3** | ✅ (`glm-5.3`) | ✅ (`glm-5.3`) | ✅ (`glm-5.3`) |
-| 10 | **glm-5.2** | ✅ (`glm-5.2`) | ✅ (`glm-5.2`) | ✅ (`glm-5.2`) |
-| 11 | **glm-5v-turbo** | ✅ (`glm-5v-turbo`) | ❌ | ❌ |
-| 12 | **DeepSeek-V4.1-Flash** | ✅ (`DeepSeek-V4.1-Flash`) | ✅ (`deepseek-v4.1-flash`) | ✅ (`deepseek-v4.1-flash`) |
-| 13 | **DeepSeek-V4-Flash-Official** | ✅ (`DeepSeek-V4-Flash-Official`) | ✅ (`DeepSeek-V4-Flash-Official`) | ✅ (`DeepSeek-V4-Flash-Official`) |
-| 14 | **DeepSeek-V4-Pro-Official** | ✅ (`DeepSeek-V4-Pro-Official`) | ✅ (`DeepSeek-V4-Pro-Official`) | ✅ (`DeepSeek-V4-Pro-Official`) |
-| 15 | **deepseek-V4-Pro** | ✅ (`deepseek-V4-Pro`) | ❌ *(已下线)* | ❌ *(已下线)* |
-| 16 | **kimi-k3** | ✅ (`kimi-k3`) | ✅ (`kimi-k3`) | ✅ (`kimi-k3`) |
-| 17 | **kimi-k2.8-preview** | ✅ (`kimi-k2.8-preview`) | ❌ | ✅ (`kimi-k2.8-preview`) |
-| 18 | **kimi-k2.7-code** | ✅ (`kimi-k2.7-code`) | ✅ (`kimi-k2.7-code`) | ❌ *(已下线)* |
-| 19 | **kimi-k2.6** | ❌ | ✅ (`kimi-k2.6`) | ❌ |
-| 20 | **mimo-v2.6-pro** | ✅ (`mimo-v2.6-pro`) | ✅ (`mimo-v2.6-pro`) | ✅ (`mimo-v2.6-pro`) |
-| 21 | **mimo-v2.6-flash** | ✅ (`mimo-v2.6-flash`) | ✅ (`mimo-v2.6-flash`) | ✅ (`mimo-v2.6-flash`) |
-| 22 | **minimax-m3** | ✅ (`minimax-m3`) | ✅ (`minimax-m3`) | ✅ (`minimax-m3`) |
-| 23 | **minimax-m2.7** | ✅ (`minimax-m2.7`) | ❌ | ❌ |
-| 24 | **qwen3.8-max** | ✅ (`qwen3.8-max`) | ✅ (`qwen3.8-max`) | ✅ (`qwen3.8-max`) |
-| 25 | **qwen-3.7-plus** | ✅ (`qwen-3.7-plus`) | ✅ (`qwen-3.7-plus`) | ✅ (`qwen-3.7-plus`) |
-| 26 | **qwen3.8-flash** | ❌ | ❌ | ✅ (`qwen3.8-flash`) |
-| 27 | **step-5-preview** | ✅ (`step-5-preview`) | ✅ (`step-5-preview`) | ✅ (`step-5-preview`) |
-
-### 3. 命名与大小写差异对照
-
-| 目标模型 | `trae` (ToB) 模型 ID | `trae-solo_work_lite` / `trae-chat_v3` 模型 ID | 兼容策略 |
-| :--- | :--- | :--- | :--- |
-| **豆包 2.1 Pro** | `Doubao-Seed-2.1-pro` (小写 pro) | `Doubao-Seed-2.1-Pro` (大写 Pro) | `normalizeModelName` 自动大小写兼容 |
-| **豆包 2.1 Turbo** | `Doubao-Seed-2.1-turbo` (小写 turbo) | `Doubao-Seed-2.1-Turbo` (大写 Turbo) | 自动大小写兼容 |
-| **DeepSeek V4 Pro** | `deepseek-V4-Pro` 与 `DeepSeek-V4-Pro-Official` | `DeepSeek-V4-Pro-Official` | 请求时自动映射底层 ID |
-| **DeepSeek V4.1 Flash** | `DeepSeek-V4.1-Flash` | `deepseek-v4.1-flash` | 大小写自动不区分归一化 |
-
----
-
-### 4. 思考模型严格准入机制与过滤保留清单（双通道核心架构）
-
-在系统的现代化架构迭代中，针对当前活跃的两个通道 **`trae`** (ToB Raw Chat) 与 **`trae-chat_v3`** (个人版侧边栏 Chat)，执行了严格的**思考模型准入过滤机制**：
-
-#### (1) 严格准入准则
-1. **`support_thinking === true`**：必须在上游 `reasoning_effort_config` 中明确标记支持思考能力；
-2. **`options` 必须包含 `'extra_high'`**：上游返回的思考深度选项必须包含最高深度 `extra_high`。
-
-> [!IMPORTANT]
-> **过滤与剔除范围**：
-> 凡未达到上述标准的模型（如全系列豆包仅支持 `["light", "high"]`、小米 Mimo 全系不支持思考、`step-5-preview` 仅支持到 `high`、以及未开放思考的旧版基座模型），均被**彻底从 `xxx/v1/models`、号池动态探测与发现机制中剔除**，不再对外暴露，确保所有客户端可用的 Trae 模型均具备最高深度的完整思考推理能力。
-
-#### (2) 最新实测双通道思考模型过滤保留对照表 (双通道各 13 个)
-
-基于对 Trae 上游网关最新实测动态拉取，通过上述严格准入流水线的 100% 活跃思考模型清单如下：
-
-| 序号 | 模型名称 | `trae` (ToB Raw Chat) | `trae-chat_v3` (侧边栏 Chat) | 支持的思考档位 (`options`) | 专属特性与说明 |
+| 序号 | 规范模型名称 | `trae` (ToB Raw Chat) | `trae-chat_v3` (侧边栏 Chat) | 支持的思考档位 | 特性与说明 |
 | :---: | :--- | :---: | :---: | :---: | :--- |
-| 1 | **glm-5.3-flashx** | ✅ `glm-5.3-flashx` | ✅ `glm-5.3-flashx` | `["light", "high", "extra_high"]` | 极速思考增强 |
-| 2 | **glm-5.3-flash** | ✅ `glm-5.3-flash` | ✅ `glm-5.3-flash` | `["light", "high", "extra_high"]` | 极速推理 |
-| 3 | **glm-5.3** | ✅ `glm-5.3` | ✅ `glm-5.3` | `["light", "high", "extra_high"]` | GLM 旗舰思考模型 |
-| 4 | **glm-5.2** | ✅ `glm-5.2` | ✅ `glm-5.2` | `["high", "extra_high"]` | 默认起点即为 `high` |
-| 5 | **DeepSeek-V4.1-Flash** | ✅ `DeepSeek-V4.1-Flash` | ✅ `deepseek-v4.1-flash` | `["light", "high", "extra_high"]` | DeepSeek 思考版 (大小写差异) |
-| 6 | **DeepSeek-V4.1-Flash-1017** | ✅ `DeepSeek-V4.1-Flash-1017` | ❌ *(ToB 独有)* | `["light", "high", "extra_high"]` | 企业版特供定制快照 |
-| 7 | **DeepSeek-V4-Flash-Official** | ✅ `DeepSeek-V4-Flash-Official` | ✅ `DeepSeek-V4-Flash-Official` | `["light", "high", "extra_high"]` | DeepSeek 官方直连版 |
-| 8 | **DeepSeek-V4-Pro-Official** | ✅ `DeepSeek-V4-Pro-Official` | ✅ `DeepSeek-V4-Pro-Official` | `["light", "high", "extra_high"]` | DeepSeek 旗舰官方直连版 |
-| 9 | **kimi-k3.1-pro** | ✅ `kimi-k3.1-pro` | ✅ `kimi-k3.1-pro` | `["light", "high", "extra_high"]` | Kimi 现代化旗舰代码思考模型 |
-| 10 | **kimi-k3** | ✅ `kimi-k3` | ✅ `kimi-k3` | `["light", "high", "extra_high"]` | Kimi 基础深度思考模型 |
-| 11 | **kimi-k2.8-preview** | ✅ `kimi-k2.8-preview` | ✅ `kimi-k2.8-preview` | `["light", "high", "extra_high"]` | Kimi 预览版思考模型 |
-| 12 | **minimax-m3.1-flash** | ✅ `minimax-m3.1-flash` | ✅ `minimax-m3.1-flash` | `["light", "high", "extra_high"]` | MiniMax 极速思考模型 |
-| 13 | **qwen3.8-max** | ✅ `qwen3.8-max` | ✅ `qwen3.8-max` | `["light", "high", "extra_high"]` | 通义千问 3.8 旗舰思考模型 |
-| 14 | **qwen3.8-flash** | ❌ *(chat_v3 独有)* | ✅ `qwen3.8-flash` | `["light", "high", "extra_high"]` | 个人版侧边栏专属极速模型 |
-
-*注：`solo_work_lite` 通道代码已完全清理，仅在本文档中保留其历史协议规范以供技术归档。*
+| 1 | **glm-5.3-flashx** | ✅ `glm-5.3-flashx` | ✅ `glm-5.3-flashx` | `light, high, extra_high` | 极速思考增强 |
+| 2 | **glm-5.3-flash** | ✅ `glm-5.3-flash` | ✅ `glm-5.3-flash` | `light, high, extra_high` | 极速推理 |
+| 3 | **glm-5.3** | ✅ `glm-5.3` | ✅ `glm-5.3` | `light, high, extra_high` | GLM 旗舰思考模型 |
+| 4 | **glm-5.2** | ✅ `glm-5.2` | ✅ `glm-5.2` | `high, extra_high` | 默认起点即为 `high` |
+| 5 | **DeepSeek-V4.1-Flash** | ✅ `DeepSeek-V4.1-Flash` | ✅ `deepseek-v4.1-flash` | `light, high, extra_high` | 大小写自动归一化映射 |
+| 6 | **DeepSeek-V4.1-Flash-1017**| ✅ `DeepSeek-V4.1-Flash-1017` | ❌ *(ToB 独有)* | `light, high, extra_high` | 企业版特供定制快照 |
+| 7 | **DeepSeek-V4-Flash-Official** | ✅ `DeepSeek-V4-Flash-Official` | ✅ `DeepSeek-V4-Flash-Official` | `light, high, extra_high` | DeepSeek 官方直连版 |
+| 8 | **DeepSeek-V4-Pro-Official** | ✅ `DeepSeek-V4-Pro-Official` | ✅ `DeepSeek-V4-Pro-Official` | `light, high, extra_high` | DeepSeek 旗舰官方直连版 |
+| 9 | **kimi-k3.1-pro** | ✅ `kimi-k3.1-pro` | ✅ `kimi-k3.1-pro` | `light, high, extra_high` | Kimi 现代化旗舰代码思考模型 |
+| 10 | **kimi-k3** | ✅ `kimi-k3` | ✅ `kimi-k3` | `light, high, extra_high` | Kimi 基础深度思考模型 |
+| 11 | **kimi-k2.8-preview** | ✅ `kimi-k2.8-preview` | ✅ `kimi-k2.8-preview` | `light, high, extra_high` | Kimi 预览版思考模型 |
+| 12 | **minimax-m3.1-flash** | ✅ `minimax-m3.1-flash` | ✅ `minimax-m3.1-flash` | `light, high, extra_high` | MiniMax 极速思考模型 |
+| 13 | **qwen3.8-max** | ✅ `qwen3.8-max` | ✅ `qwen3.8-max` | `light, high, extra_high` | 通义千问 3.8 旗舰思考模型 |
+| 14 | **qwen3.8-flash** | ❌ *(chat_v3 独有)* | ✅ `qwen3.8-flash` | `light, high, extra_high` | 个人版侧边栏专属极速模型 |
 
 ---
 
 ## 六、请求改写与参数适配 (Payload Transformation)
 
-### 1. 请求体结构对比
+### 1. 双通道发送请求体对比
 
-#### (1) `trae` (ToB Raw Chat) 发送给上游的请求体
+#### (1) `trae` (ToB Raw Chat) 最终 Payload 结构
 ```json
 {
   "stream": true,
@@ -335,94 +249,113 @@
   "session_id": "87e424cd-9a92-4e68-a7d6-7a9c46abf036",
   "mode_type": 0,
   "access_type": 4,
+  "user_input": "请帮我实现一个 LRU Cache",
   "reasoning_effort_level": "extra_high",
   "messages": [
     {
       "role": "user",
-      "content": [
-        { "type": "text", "text": "hi" }
-      ]
+      "content": [{ "type": "text", "text": "请帮我实现一个 LRU Cache" }]
     }
   ]
 }
 ```
 
-#### (2) `trae-solo_work_lite` / `trae-chat_v3` 发送给上游的请求体
+#### (2) `trae-chat_v3`（及同构的 `solo_work_lite`）最终 Payload 结构
 ```json
 {
   "stream": true,
   "config_name": "glm-5.2",
   "model": "glm-5.2",
-  "function": "solo_work_lite", // 或 "chat_v3"
+  "function": "chat_v3", // 个人版 SOLO 模式则仅替换为 "solo_work_lite"
   "max_mode": true,
+  "conversation_id": "87e424cd-9a92-4e68-a7d6-7a9c46abf036",
+  "session_id": "87e424cd-9a92-4e68-a7d6-7a9c46abf036",
   "reasoning_effort_level": "extra_high",
   "messages": [
     {
       "role": "user",
-      "content": [
-        { "type": "text", "text": "hi" }
-      ]
+      "content": [{ "type": "text", "text": "请帮我实现一个 LRU Cache" }]
     }
   ]
 }
 ```
+*注：个人版的两种模式在数据包协议上完全同构，仅区别于 `function` 字段（`"chat_v3"` 用于侧边栏对话，`"solo_work_lite"` 用于端侧 SOLO Agent 任务）。*
 
-### 2. 关键改写规则（防踩坑要点）
+### 2. 核心改写流水线与防踩坑规则 (`prepareRequestBody`)
 
-1. **`messages.content` 结构封装**：
-   * 上游不接受原生 OpenAI 的单个字符串 content，必须封装为数组对象：
-     ```json
-     "content": [{ "type": "text", "text": "..." }]
-     ```
-2. **Tool Calls 结构改写**：
-   * OpenAI 标准格式为 `tool_calls: [{ function: { name, arguments } }]`。
-   * Trae 上游要求字段名必须为 `function_call`，且 `name` 不能为空。代码中需自动将 `function` 重命名为 `function_call`，并丢弃无 name 的非法项。
-3. **连续 Assistant 消息合并（规避 4027 错误）**：
-   * 如果用户请求中由于上下文截断或连续调用出现相邻的两个 `assistant` 角色消息，上游后端会报错 `Trae stream error (4027): param is invalid`。
-   * 本系统在 `prepareRequestBody` 中自动将相邻的连续 assistant 消息的内容与工具调用深度合并为一条。
-4. **思考深度映射与动态最大化机制 (`reasoning_effort`)**：
-   * **完整映射矩阵**：
-     客户端请求中的标准 `reasoning_effort` 字段会被解析归一化，并映射为 Trae 上游识别的 `reasoning_effort_level`：
+1. **私有字段深度清理**：
+   遍历请求体，清理所有以 `_` 开头的网关内部标记（如 `_monitorRequestId`、`_requestBaseUrl`），防止向字节跳动上游泄露内部实现。
+2. **多协议 1-Hop 入参归一**：
+   * **OpenAI Responses 协议**：将 `instructions` + `input` 自动映射为 Trae `messages`，扁平 `tools` 映射为 Trae 嵌套 tools，删除 Responses 专有字段（`input`、`instructions`、`reasoning`）。
+   * **Anthropic Messages 协议**：将 `system` 拍平插入 `messages[0]`，并**显式删除顶层的 `system` 字段**，杜绝与 `messages[0]` 双写产生重复指令，并消除 Anthropic 特有的 `cache_control` 噪声。
+3. **思考深度严格映射 (`reasoning_effort_level`)**：
+   * 客户端传 `xhigh` / `max` / `ultra` / `extra_high` $\rightarrow$ 映射为上游 `extra_high`；
+   * 客户端传 `high` / `medium` $\rightarrow$ 映射为上游 `high`；
+   * 客户端传 `low` / `light` $\rightarrow$ 映射为上游 `light`；
+   * 客户端未显式传参时 $\rightarrow$ 自动优选当前模型支持的最高深度（默认 `extra_high`）；
+   * 客户端传 `none` / `off` $\rightarrow$ 显式删除该字段，不触发思考。
+4. **历史上下文思考残留清理**：
+   在历史 `assistant` 与 `tool` 消息中，**删除 `reasoning_content`、`reasoning`、`thinking`**，确保发往上游的历史 prompt 不含动态变动的思考残留，保证前缀稳定性。
+5. **消息结构与连续 Assistant 消息合并**：
+   * `content` 数组化：上游严格要求 `content: [{ "type": "text", "text": "..." }]`；
+   * **合并连续 Assistant 消息**：若上下文截断或工具执行出现连续相邻的 `assistant` 角色，上游会报错 `4027: param is invalid`。代码自动将连续 assistant 消息的内容与工具调用深度合并为一条。
+6. **Tools 参数序列化与前缀缓存稳定化 (`stabilizeToolsForPrefixCache`)**：
+   * **Go 结构体要求**：上游后端要求 `function.parameters` 必须为 JSON 序列化字符串；
+   * **确定性稳定化**：Trae 走 1-Hop 直通，不经过 Converter strategies。代码在 Trae Provider 内部直接调用 `stabilizeToolsForPrefixCache`：
+     - 按 `tools[].function.name` 进行码点确定性排序；
+     - 递归深层排序 JSON Schema 键名。
+     - **收益**：彻底消除客户端（如 MCP / 多智能体组装）每轮 tools 乱序导致的前缀缓存失效（命中率从 18% 提升至 75%+）。
 
-     | 客户端请求标准值 (`reasoning_effort`) | 等效别名 | 权重 | Trae 上游发送字段值 (`reasoning_effort_level`) | 行为说明 |
-     | :--- | :--- | :---: | :--- | :--- |
-     | `low` | `min`, `minimum`, `light`, `small` | 1 | `light` | 映射至上游基础轻量思考档位 |
-     | `medium` | `normal`, `moderate`, `middle` | 2 | `high` *(若模型无 high 则降级为 light)* | 映射至高思考档位（上游无独立 medium） |
-     | `high` | - | 3 | `high` *(若模型无 high 则降级)* | 映射至高思考档位 |
-     | `xhigh` | `extra_high`, `max`, `maximum`, `full`, `ultra` | 4 | `extra_high` | 映射至最高极限思考档位 |
-     | **未显式指定** | - | - | **`extra_high`** *(标准层 `xhigh`)* | **动态最大化决策**：自动锁定当前模型支持的最高档位 |
-     | `none` | `off`, `false`, `null` | 0 | *不传该字段* | 显式关闭思考模式 |
+### 3. 传输层单 Socket 亲和性与长连接池
 
-   * **非硬编码的动态最大深度默认决策 (`resolveMaxStandardEffort`)**：
-     1. **脱离上游 `default_level`**：Trae 上游对多数思考模型的 `default_level` 保守设定为 `light`。系统彻底解除了对上游默认字段的依赖；
-     2. **拒绝特定模型硬编码**：摒弃对特定模型（如 Kimi）的硬编码分支；
-     3. **基于权重动态优选**：代码通过 `EFFORT_LEVEL_WEIGHTS` 权重字典（`extra_high: 4`, `high: 3`, `medium: 2`, `light: 1`），动态遍历当前模型在 `options`（或 `reasoning_effort_level_options`）中所声明的全部支持项，提取其中的最高档位作为默认值；
-     4. **对外暴露**：在 `/auto/v1/models`、`/trae/v1/models` 等接口返回的元数据中，所有通过准入的思考模型其 `default_reasoning_effort` 均统一自动呈现为最高强度的标准值 **`xhigh`**。
+为实现 90%+ 的 KV Cache 命中率与极低首字延迟，网络层实施了会话物理绑定：
+1. **会话单 Socket Agent 缓存 (`singleSocketAgentCache`)**：
+   在 `src/utils/proxy-utils.ts` 中，为每个会话维持独立的 `https.Agent({ keepAlive: true, maxSockets: 1 })`，以 `${nodeUuid}:${sessionAffinityId}` 为二级缓存键。
+2. **链路追踪与亲和性 Headers**：
+   * `x-flow-traceparent`: `00-${traceId}-${spanId}-01`。其中 `traceId` 与 `conversation_id` 强绑定（保持多轮会话恒定），`spanId` 每轮随机生成；
+   * `x-session-affinity`、`session-id`、`x-conversation-id`：携带一致的会话指纹；
+   * `x-request-id`、`x-client-request-id`：每轮随机生成独立的 UUID。
+3. **物理连接复用**：
+   同一会话的连续请求在操作系统网络层物理复用同一个 TCP Socket（日志可观测 `reused=true`），强制上游网关和 GPU 实例将请求精准路由至同一块已有显存 Cache 的节点。
 
 ---
 
-## 七、流式 SSE 协议与错误码分析
+## 七、流式 SSE 协议与响应解析
 
-Trae 通道在请求上游时均必须强制设定 `stream: true`（非流式请求在服务端聚合）。
+Trae 上游交互均强制使用 `stream: true`，服务端逐 chunk 解析并进行 1-Hop 渲染。
 
-### 1. 上游 SSE 事件类型
-* `event: chat_response`：标准文本块与 Reasoning 内容增量。
-* `event: token_usage`：包含 `prompt_tokens`、`completion_tokens` 以及详细的 `reasoning_tokens`。
-* `event: error`：上游错误事件，包含错误码及提示信息。
+### 1. UTF-8 无损分块解码 (`StringDecoder`)
+在上游响应的流式循环中，使用 Node.js 原生 `StringDecoder('utf-8')` 解码数据 chunk，保留不完整的末尾字节并在下一帧拼接，杜绝汉字多字节被 TCP 分包切割产生的乱码。
 
-### 2. 常见上游错误码速查
+### 2. 上游 SSE 事件类型
+* **`event: output`**（默认输出事件）：
+  * `response`: 文本内容增量；
+  * `reasoning_content`: 思考思维链内容增量；
+  * `tool_calls`: 工具调用增量（若上游返回 `function_call`，网关自动归一化为标准 `function` 结构）。
+* **`event: token_usage`**：
+  * 返回当前轮次的 Token 用量：`prompt_tokens`、`completion_tokens`、`cache_read_input_tokens`（ToB 专属）、`reasoning_tokens`。
+* **`event: error`**：
+  * 上游抛出错误，包含 `code` 与 `message`。
+
+### 3. 三协议 1-Hop 直出渲染器 (`createTraeStreamRenderer`)
+根据下游请求协议，直接产出目标格式的 SSE 数据，不经中间转码：
+* **OpenAI Chat**：格式化为 `chat.completion.chunk`；
+* **OpenAI Responses**：格式化为 `response.output_item.added`、`response.content_part.delta` 等标准 Responses 事件；
+* **Anthropic Messages**：格式化为 `message_start`、`content_block_delta`（`thinking_delta` 与 `text_delta`）、`message_stop`。
+
+### 4. 常见上游错误码速查
 
 | 错误码 | 错误表现 | 根因与规避策略 |
 | :---: | :--- | :--- |
-| **`4001`** | `We're sorry, the param is invalid.` | 请求体字段不匹配（如在 solo_work_lite 误发 ToB 的 `model_name`，或未传 `function`）。 |
-| **`4023`** | `We're sorry, something went wrong.` | ① 目标模型不存在于当前通道；② 模型通道鉴权异常；③ 上游后端偶发故障。 |
-| **`4027`** | `Param is invalid (consecutive assistant messages)` | 请求的 `messages` 列表中存在连续相邻的 assistant 角色消息。 |
+| **`4001`** | `We're sorry, the param is invalid.` | 请求体字段不匹配（如在 chat_v3 误发 ToB 的 `model_name`，或未传 `function`）。 |
+| **`4023`** | `We're sorry, something went wrong.` | ① 目标模型不存在于当前通道；② 账号授权凭证失效（触发 401 凭证切换）；③ 上游后端偶发故障。 |
+| **`4027`** | `Param is invalid (consecutive assistant messages)` | 请求的 `messages` 列表中存在连续相邻的 assistant 角色消息（网关已实现自动合并防御）。 |
 
 ---
 
 ## 八、号池管理与防呆机制 (Provider Pools)
 
-在 `configs/provider_pools.json` 中，三个通道作为独立数组存储：
+在 `configs/provider_pools.json` 中，活跃通道作为独立数组存储：
 
 ```json
 {
@@ -434,16 +367,6 @@ Trae 通道在请求上游时均必须强制设定 `stream: true`（非流式请
       "TRAE_BASE_URL": "https://api.enterprise.trae.cn",
       "uuid": "bedb2578-5f2d-436a-ae5a-1541f5e7bee9",
       "checkModelName": "glm-5.2"
-    }
-  ],
-  "trae-solo_work_lite": [
-    {
-      "customName": "SOLO Agent",
-      "TRAE_OAUTH_CREDS_FILE_PATH": "./configs/trae/..._creds.json",
-      "TRAE_CHANNEL_MODE": "solo_work_lite",
-      "TRAE_BASE_URL": "https://trae-api-cn.mchost.guru",
-      "uuid": "c5a78210-9b4f-4d1e-8e2a-7140bfe29aa1",
-      "checkModelName": "deepseek-v4.1-flash"
     }
   ],
   "trae-chat_v3": [
@@ -462,8 +385,21 @@ Trae 通道在请求上游时均必须强制设定 `stream: true`（非流式请
 ### 1. 防呆错配校验 (`validateTraeProviderConfig`)
 在 WebUI 保存或 API 更新提供商配置时，系统会自动执行严格的主机地址交叉校验：
 * 禁止在 `trae` 节点上填写 `mchost.guru` 主机地址。
-* 禁止在 `trae-solo_work_lite` / `trae-chat_v3` 节点上填写 `enterprise.trae.cn`（ToB 企业版）主机地址。
+* 禁止在 `trae-chat_v3` 节点上填写 `enterprise.trae.cn`（ToB 企业版）主机地址。
 * 若用户显式声明 `TRAE_CHANNEL_MODE: "custom"`，则允许任意自定义反代域名。
 
 ### 2. 登录自动关联与 Host 透传
 在执行 PAT 或 OAuth 登录时，若指定了自定义 Host（例如专有代理域名），该 Host 会沿着 `autoLinkProviderConfigs` 的配置链完整透传至新创建的节点属性 `TRAE_BASE_URL`，避免保存后仍被重置回硬编码默认地址。
+
+---
+
+## 九、前缀缓存与 KV Cache 特性对比
+
+Trae 上游对缓存的支持因通道模式而异：
+
+| 通道 | 前缀缓存支持 | `cache_read_input_tokens` 遥测 | 典型命中率 | 适用场景 |
+| :--- | :---: | :---: | :---: | :--- |
+| **`trae`** (企业 ToB) | **支持** | **真实返回** | **90%+**（长会话稳定复用） | 复杂多轮 Agent、深度代码排查与长文本推理 |
+| **`trae-chat_v3`** (个人版) | 结构性未知 | 上游恒返回 `0` | 显示为 0% | 轻量个人对话、侧边栏单轮或短轮交互 |
+
+`trae` (ToB) 在复杂 Agent 场景下实现高命中率的深度原理、前缀对齐、UTF-8 无损分包与单 Socket 亲和性机制，详见 [`docs/CACHE_HIT_RATE.md`](./CACHE_HIT_RATE.md)。
