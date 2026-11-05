@@ -75,7 +75,9 @@ export function getKeepAliveAgents(
     baseUrl?: string | null,
     affinityKey?: string | null
 ): { httpAgent: http.Agent; httpsAgent: https.Agent } {
-    if (!isSingleSocketAffinityEnabled(config, baseUrl)) {
+    const affinityDisabled = config?.singleSocket === false;
+    const shouldAffinity = !affinityDisabled && (Boolean(affinityKey) || isSingleSocketAffinityEnabled(config, baseUrl));
+    if (!shouldAffinity) {
         return { httpAgent: defaultHttpAgent, httpsAgent: defaultHttpsAgent };
     }
 
@@ -94,6 +96,7 @@ export function getKeepAliveAgents(
         }
         const singleSocketOptions = {
             keepAlive: true,
+            keepAliveMsecs: 60000,
             maxSockets: 1,
             maxFreeSockets: 1,
             timeout: NETWORK.DEFAULT_TIMEOUT

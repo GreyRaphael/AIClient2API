@@ -1,9 +1,11 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Agent } from 'node:http';
+import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import { configureTLSSidecar, getKeepAliveAgents } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
+import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 
 interface ClaudeApiServiceConfig {
     CLAUDE_API_KEY: string;
@@ -136,6 +138,9 @@ export class ClaudeApiService {
 
         const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
         const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+        if (Array.isArray(cleanBody.tools) && cleanBody.tools.length > 0) {
+            cleanBody.tools = stabilizeToolsForPrefixCache(cleanBody.tools as Record<string, unknown>[]);
+        }
 
         try {
             const axiosConfig: Record<string, unknown> = {
@@ -220,6 +225,9 @@ export class ClaudeApiService {
 
         const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
         const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
+        if (Array.isArray(cleanBody.tools) && cleanBody.tools.length > 0) {
+            cleanBody.tools = stabilizeToolsForPrefixCache(cleanBody.tools as Record<string, unknown>[]);
+        }
 
         try {
             const axiosConfig: Record<string, unknown> = {
@@ -243,13 +251,14 @@ export class ClaudeApiService {
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             const reader = response.data as AsyncIterable<Buffer | string>;
             let buffer = '';
+            const decoder = new StringDecoder('utf8');
             let seenDone = false;
             let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
             const destroyable = reader as { destroy?: () => void; destroyed?: boolean };
 
             try {
                 for await (const chunk of reader) {
-                    buffer += chunk.toString();
+                    buffer += decoder.write(chunk);
                     let boundary: number;
                     while ((boundary = buffer.indexOf('\n\n')) !== -1) {
                         const eventBlock = buffer.substring(0, boundary);

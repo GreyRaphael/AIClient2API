@@ -7,6 +7,7 @@ export interface ProviderSelectionOptions {
     allowUnselectedModel?: boolean;
     customModelConfig?: unknown;
     skipUsageCount?: boolean;
+    sessionId?: string | null;
     [key: string]: unknown;
 }
 
@@ -29,6 +30,7 @@ export class ProviderPoolSelector {
     private readonly getDisplayName: ProviderPoolSelectorOptions['getDisplayName'];
     private readonly debouncedSave: ProviderPoolSelectorOptions['debouncedSave'];
     private readonly log: ProviderPoolSelectorOptions['log'];
+    private readonly _sessionNodeMap: Map<string, string>;
     private _selectionSequence: number;
 
     constructor(options: ProviderPoolSelectorOptions) {
@@ -39,6 +41,7 @@ export class ProviderPoolSelector {
         this.getDisplayName = options.getDisplayName;
         this.debouncedSave = options.debouncedSave;
         this.log = options.log;
+        this._sessionNodeMap = new Map();
         this._selectionSequence = 0;
     }
 
@@ -187,15 +190,47 @@ export class ProviderPoolSelector {
             return null;
         }
 
-        // 改进：使用统一的评分策略进行选择
-        // 传入当前时间戳 now 确保一致性
-        const selected = availableAndHealthyProviders.sort((a, b) => {
-            const scoreA = this.calculateNodeScore(a, now, minSeq);
-            const scoreB = this.calculateNodeScore(b, now, minSeq);
-            if (scoreA !== scoreB) return scoreA - scoreB;
-            // 如果分值相同，使用 UUID 排序确保确定性
-            return a.uuid < b.uuid ? -1 : 1;
-        })[0];
+        const sessionId = (typeof options.sessionId === 'string' && options.sessionId) ? options.sessionId : null;
+        let selected: ProviderStatus | undefined;
+
+        if (sessionId) {
+            const affinityKey = `${providerType}:${sessionId}`;
+            const preferredUuid = this._sessionNodeMap.get(affinityKey);
+            if (preferredUuid) {
+                const candidate = availableAndHealthyProviders.find((p) => p.uuid === preferredUuid);
+                if (candidate) {
+                    const concurrencyLimit = parseInt(String(candidate.config.concurrencyLimit || 0), 10);
+                    const queueLimit = parseInt(String(candidate.config.queueLimit || 0), 10);
+                    const isOverloaded = concurrencyLimit > 0 &&
+                        candidate.state.activeCount >= concurrencyLimit &&
+                        candidate.state.queue.length >= queueLimit;
+                    if (!isOverloaded) {
+                        selected = candidate;
+                        this.log('debug', `[Session Affinity] Reusing pinned node ${this.getDisplayName(candidate.config)} for session: ${sessionId}`);
+                    }
+                }
+            }
+        }
+
+        if (!selected) {
+            // 使用统一的评分策略进行选择
+            // 传入当前时间戳 now 确保一致性
+            selected = availableAndHealthyProviders.sort((a, b) => {
+                const scoreA = this.calculateNodeScore(a, now, minSeq);
+                const scoreB = this.calculateNodeScore(b, now, minSeq);
+                if (scoreA !== scoreB) return scoreA - scoreB;
+                // 如果分值相同，使用 UUID 排序确保确定性
+                return a.uuid < b.uuid ? -1 : 1;
+            })[0];
+
+            if (sessionId && selected) {
+                if (this._sessionNodeMap.size >= 2000) {
+                    const oldestKey = this._sessionNodeMap.keys().next().value;
+                    if (oldestKey) this._sessionNodeMap.delete(oldestKey);
+                }
+                this._sessionNodeMap.set(`${providerType}:${sessionId}`, selected.uuid);
+            }
+        }
 
         // 始终更新 lastUsed（确保 LRU 策略生效，避免并发请求选到同一个 provider）
         // usageCount 只在请求成功后才增加（由 skipUsageCount 控制）

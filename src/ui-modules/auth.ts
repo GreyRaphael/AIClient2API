@@ -91,7 +91,7 @@ function parseRequestBody(req: IncomingMessage, maxBytes = 10 * 1024): Promise<D
             return reject(Object.assign(new Error('Request body too large'), { code: 'BODY_TOO_LARGE' }));
         }
 
-        let body = '';
+        const chunks: Buffer[] = [];
         let received = 0;
 
         req.on('data', (chunk: Buffer) => {
@@ -101,11 +101,12 @@ function parseRequestBody(req: IncomingMessage, maxBytes = 10 * 1024): Promise<D
                 req.destroy();
                 return reject(Object.assign(new Error('Request body too large'), { code: 'BODY_TOO_LARGE' }));
             }
-            body += chunk.toString();
+            chunks.push(chunk);
         });
 
         req.on('end', () => {
             try {
+                const body = Buffer.concat(chunks).toString('utf8');
                 resolve(body.trim() ? JSON.parse(body) : {});
             } catch {
                 reject(new Error('Invalid JSON format'));

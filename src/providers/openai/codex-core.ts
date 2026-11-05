@@ -1,5 +1,6 @@
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
+import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import crypto from 'crypto';
 import {promises as fs} from 'fs';
@@ -1443,11 +1444,12 @@ export class CodexApiService {
         reverseToolNameMap: Map<string, string> | null = null
     ): AsyncGenerator<unknown> {
         let buffer = '';
+        const decoder = new StringDecoder('utf8');
         const outputItemsByIndex = new Map();
         const outputItemsFallback: unknown[] = [];
 
         for await (const chunk of stream) {
-            buffer += chunk.toString();
+            buffer += decoder.write(chunk);
             const lines = buffer.split('\n');
             buffer = lines.pop() || ''; // 保留不完整的行
 

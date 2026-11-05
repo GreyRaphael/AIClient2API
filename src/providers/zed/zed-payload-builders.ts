@@ -4,6 +4,7 @@ import { sanitizeToolId } from '../../utils/protocol-utils.ts';
 import { budgetTokensToEffort, effortToClaudeBudget } from '../../converters/thinking-budget.ts';
 import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfill.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
+import { toValidUUID } from '../../utils/proxy-utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import {
@@ -18,6 +19,11 @@ export type ZedRequest = DynamicPayload;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
+}
+
+function resolveZedThreadId(requestBody?: ZedRequest): string {
+    const dsId = requestBody?._downstreamSessionId || requestBody?.downstreamSessionId;
+    return dsId ? toValidUUID(String(dsId)) : randomUUID();
 }
 
 /** 将 Claude thinking budget 映射为 adaptive effort。 */
@@ -391,7 +397,7 @@ export function buildOpenAIZedPayload(
     }
 
     return {
-        thread_id: randomUUID(),
+        thread_id: resolveZedThreadId(requestBody),
         prompt_id: randomUUID(),
         intent: 'user_prompt',
         provider: 'open_ai',
@@ -811,7 +817,7 @@ export function buildGoogleZedPayload(
     }
 
     return {
-        thread_id: randomUUID(),
+        thread_id: resolveZedThreadId(requestBody),
         prompt_id: randomUUID(),
         intent: 'user_prompt',
         provider: 'google',
@@ -1067,7 +1073,7 @@ export function buildAnthropicZedPayload(
     provReq.messages = messages;
 
     return {
-        thread_id: randomUUID(),
+        thread_id: resolveZedThreadId(requestBody),
         prompt_id: randomUUID(),
         intent: 'user_prompt',
         provider: provider,

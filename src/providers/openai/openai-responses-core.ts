@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Agent } from 'node:http';
+import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import { configureTLSSidecar, getKeepAliveAgents } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
@@ -183,13 +184,14 @@ export class OpenAIResponsesApiService {
 
             const stream = response.data as AsyncIterable<Buffer | string>;
             let buffer = '';
+            const decoder = new StringDecoder('utf8');
             let seenDone = false;
             let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
             const destroyable = stream as { destroy?: () => void; destroyed?: boolean };
 
             try {
                 for await (const chunk of stream) {
-                    buffer += chunk.toString();
+                    buffer += decoder.write(chunk);
                     let newlineIndex: number;
                     while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
                         const line = buffer.substring(0, newlineIndex).trim();

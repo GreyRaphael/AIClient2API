@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
@@ -525,6 +526,7 @@ export class ZedApiService {
         const stream = response.data as AsyncIterable<Buffer | string>;
 
         let buffer = '';
+        const decoder = new StringDecoder('utf8');
         let messageStarted = false;
         let messageStopped = false;
         let responsesStarted = false;
@@ -548,7 +550,7 @@ export class ZedApiService {
         };
 
         for await (const chunk of stream) {
-            buffer += chunk.toString('utf8');
+            buffer += decoder.write(chunk);
             const lines = buffer.split('\n');
             buffer = lines.pop() || ''; // 保留未完整的最后一行
 

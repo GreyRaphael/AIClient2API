@@ -1713,6 +1713,9 @@ export async function handleContentGenerationRequest(
 
     let actualCustomName = CONFIG.customName;
 
+    // 提取客户端会话亲和性标识（用于号池节点选择亲和性与上游 Session Affinity / KV Cache 亲和性）
+    const downstreamSessionId = resolveSessionAffinityId(req, originalRequestBody);
+
     // 2.5. 根据模型选择服务适配器：
     // - service 缺失时（例如上游未预先注入）进行兜底选择
     // - 使用号池/AUTO 时按模型重选并支持 fallback
@@ -1723,7 +1726,8 @@ export async function handleContentGenerationRequest(
         const result = await getApiServiceWithFallback(CONFIG, model, {
             acquireSlot: shouldSelectByPool,
             allowUnselectedModel: Boolean(customModelConfig),
-            customModelConfig: customModelConfig || null
+            customModelConfig: customModelConfig || null,
+            sessionId: downstreamSessionId || undefined
         });
 
         service = result.service as DynamicPayload;
@@ -1766,8 +1770,7 @@ export async function handleContentGenerationRequest(
         processedRequestBody._requestBaseUrl = CONFIG.requestBaseUrl;
     }
 
-    // 提取客户端会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
-    const downstreamSessionId = resolveSessionAffinityId(req, originalRequestBody || processedRequestBody);
+    // 注入客户端会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
     if (downstreamSessionId) {
         processedRequestBody._downstreamSessionId = String(downstreamSessionId);
     }

@@ -1,10 +1,12 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import type { Agent } from 'node:http';
+import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import { configureTLSSidecar, getKeepAliveAgents } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
+import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 
@@ -312,6 +314,9 @@ export class OpenAIApiService {
         if ('_downstreamSessionId' in cleanRequestData) {
             delete cleanRequestData._downstreamSessionId;
         }
+        if (Array.isArray(cleanRequestData.tools) && cleanRequestData.tools.length > 0) {
+            cleanRequestData.tools = stabilizeToolsForPrefixCache(cleanRequestData.tools as DynamicPayload[]);
+        }
 
         try {
             const axiosConfig: DynamicPayload = {
@@ -437,6 +442,9 @@ export class OpenAIApiService {
         const downstreamSessionId = body?._downstreamSessionId || (normalizedBody as DynamicPayload)?._downstreamSessionId;
         const { _includeUsageForConversion: _includeUsageMarker, _downstreamSessionId: _dsMarker, ...cleanBody } = normalizedBody;
         const streamRequestBody: DynamicPayload = { ...cleanBody, stream: true };
+        if (Array.isArray(streamRequestBody.tools) && streamRequestBody.tools.length > 0) {
+            streamRequestBody.tools = stabilizeToolsForPrefixCache(streamRequestBody.tools as DynamicPayload[]);
+        }
         if (shouldMergeFinishUsage) {
             streamRequestBody.stream_options = {
                 ...(cleanBody.stream_options || {}),
@@ -467,6 +475,7 @@ export class OpenAIApiService {
 
             const stream = response.data;
             let buffer = '';
+            const decoder = new StringDecoder('utf8');
             // include_usage 的 usage 帧在 finish 帧之后到达。跨协议转换时先暂存 finish，
             // 等 usage 帧到达后合并，避免 Claude / Responses 下游拿到全零 usage。
             let pendingFinishChunk: DynamicPayload | null = null;
@@ -475,7 +484,7 @@ export class OpenAIApiService {
 
             try {
                 for await (const chunk of stream) {
-                    buffer += chunk.toString();
+                    buffer += decoder.write(chunk);
                     let newlineIndex: number;
                     while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
                         const line = buffer.substring(0, newlineIndex).trim();
