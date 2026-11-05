@@ -416,6 +416,12 @@ function generateSessionID() {
  */
 function generateStableSessionID(payload: DynamicPayload): string {
     try {
+        const dsId = payload?.request?._downstreamSessionId || payload?._downstreamSessionId;
+        if (dsId) {
+            const hash = crypto.createHash('sha256').update(String(dsId)).digest();
+            const n = hash.readBigUInt64BE(0) & BigInt('0x7FFFFFFFFFFFFFFF');
+            return '-' + n.toString();
+        }
         const contents = payload?.request?.contents;
         if (Array.isArray(contents)) {
             for (const content of contents) {
@@ -772,6 +778,14 @@ function geminiToAntigravityInPlace(modelName: string, template: DynamicPayload,
             delete template.request.aspect_ratio;
             delete template.request.size;
         }
+    }
+
+    if (template.request && typeof template.request === 'object') {
+        Object.keys(template.request).forEach((key) => {
+            if (key.startsWith('_')) {
+                delete template.request[key];
+            }
+        });
     }
 
     // 规范化 Thinking 配置
