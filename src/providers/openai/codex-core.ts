@@ -673,8 +673,8 @@ export class CodexApiService {
         this.version = getCodexVersion(config);
     }
 
-    _applySidecar(axiosConfig: Record<string, unknown>) {
-        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API, this.baseUrl);
+    _applySidecar(axiosConfig: Record<string, unknown>, affinityKey?: string | null) {
+        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API, this.baseUrl, affinityKey);
     }
 
     /**
@@ -862,13 +862,14 @@ export class CodexApiService {
                 timeout: 300000 // 5 分钟超时，适应慢速模型
             };
 
+            const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
             const axiosRequestConfig = {
                 method: 'post',
                 url,
                 data: body,
                 ...config
             };
-            this._applySidecar(axiosRequestConfig);
+            this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
@@ -943,13 +944,14 @@ export class CodexApiService {
                 timeout: 300000 // 5 分钟超时
             };
 
+            const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
             const axiosRequestConfig = {
                 method: 'post',
                 url,
                 data: body,
                 ...config
             };
-            this._applySidecar(axiosRequestConfig);
+            this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 

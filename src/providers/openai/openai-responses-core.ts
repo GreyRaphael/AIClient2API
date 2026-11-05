@@ -76,10 +76,16 @@ export class OpenAIResponsesApiService {
 
     }
 
-    _applySidecar(axiosConfig: Record<string, unknown>) {
-        if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
-        if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
-        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM_RESPONSES, this.baseUrl);
+    _applySidecar(axiosConfig: Record<string, unknown>, affinityKey?: string | null) {
+        if (affinityKey) {
+            const sessionAgents = getKeepAliveAgents(this.config, this.baseUrl, affinityKey);
+            axiosConfig.httpAgent = sessionAgents.httpAgent;
+            axiosConfig.httpsAgent = sessionAgents.httpsAgent;
+        } else {
+            if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
+            if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
+        }
+        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM_RESPONSES, this.baseUrl, affinityKey);
     }
 
     async callApi<T = unknown>(endpoint: string, body: Record<string, unknown>, isRetry = false, retryCount = 0): Promise<T> {
@@ -106,7 +112,7 @@ export class OpenAIResponsesApiService {
                     'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
-            this._applySidecar(axiosConfig);
+            this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.axiosInstance.request(axiosConfig as AxiosRequestConfig);
             return response.data as T;
         } catch (error) {
@@ -172,7 +178,7 @@ export class OpenAIResponsesApiService {
                     'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
-            this._applySidecar(axiosConfig);
+            this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.axiosInstance.request(axiosConfig as AxiosRequestConfig);
 
             const stream = response.data as AsyncIterable<Buffer | string>;

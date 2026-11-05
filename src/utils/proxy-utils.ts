@@ -72,18 +72,26 @@ export function isSingleSocketAffinityEnabled(config?: UnknownRecord | null, bas
 
 export function getKeepAliveAgents(
     config?: UnknownRecord | null,
-    baseUrl?: string | null
+    baseUrl?: string | null,
+    affinityKey?: string | null
 ): { httpAgent: http.Agent; httpsAgent: https.Agent } {
     if (!isSingleSocketAffinityEnabled(config, baseUrl)) {
         return { httpAgent: defaultHttpAgent, httpsAgent: defaultHttpsAgent };
     }
 
-    const key = (typeof config?.uuid === 'string' && config.uuid)
+    const baseKey = (typeof config?.uuid === 'string' && config.uuid)
         ? config.uuid
         : (baseUrl || 'single-socket-default');
+    const key = affinityKey ? `${baseKey}:${affinityKey}` : baseKey;
 
     let cached = singleSocketAgentCache.get(key);
     if (!cached) {
+        if (singleSocketAgentCache.size >= 100) {
+            const oldestKey = singleSocketAgentCache.keys().next().value;
+            if (oldestKey) {
+                invalidateKeepAliveAgents(oldestKey);
+            }
+        }
         const singleSocketOptions = {
             keepAlive: true,
             maxSockets: 1,
@@ -96,6 +104,9 @@ export function getKeepAliveAgents(
         };
         singleSocketAgentCache.set(key, cached);
         logger.info(`[KeepAlive] Created single-socket affinity agent for key: ${key}`);
+    } else {
+        singleSocketAgentCache.delete(key);
+        singleSocketAgentCache.set(key, cached);
     }
     return cached;
 }
@@ -432,9 +443,15 @@ export function getProxyConfigForProvider(config: UnknownRecord | null | undefin
  * @param {Object} axiosConfig - axios 配置对象
  * @param {Object} config - 应用配置对象
  * @param {string} providerType - 提供商类型
+ * @param {string} [affinityKey] - 会话级亲和性标识（用于独立 Socket 缓存）
  * @returns {Object} 更新后的 axios 配置
  */
-export function configureAxiosProxy(axiosConfig: UnknownRecord, config: UnknownRecord | null | undefined, providerType: string): UnknownRecord {
+export function configureAxiosProxy(
+    axiosConfig: UnknownRecord,
+    config: UnknownRecord | null | undefined,
+    providerType: string,
+    affinityKey?: string | null
+): UnknownRecord {
     const proxyConfig = getProxyConfigForProvider(config, providerType);
 
     if (proxyConfig) {
@@ -444,16 +461,12 @@ export function configureAxiosProxy(axiosConfig: UnknownRecord, config: UnknownR
         // 禁用 axios 内置的代理配置，使用我们的 agent
         axiosConfig.proxy = false;
     } else {
-        // 无代理直连时，优先使用已绑定的 agent，若未指定则按配置/URL 决定（支持单 Socket 亲和性）
-        if (!axiosConfig.httpAgent || !axiosConfig.httpsAgent) {
+        // 无代理直连时，优先使用已绑定的 agent，若未指定或指定了会话亲和性则按配置/URL 决定
+        if (affinityKey || !axiosConfig.httpAgent || !axiosConfig.httpsAgent) {
             const baseUrl = getString(axiosConfig.baseURL) || getString(axiosConfig.url);
-            const agents = getKeepAliveAgents(config, baseUrl);
-            if (!axiosConfig.httpAgent) {
-                axiosConfig.httpAgent = agents.httpAgent;
-            }
-            if (!axiosConfig.httpsAgent) {
-                axiosConfig.httpsAgent = agents.httpsAgent;
-            }
+            const agents = getKeepAliveAgents(config, baseUrl, affinityKey);
+            axiosConfig.httpAgent = agents.httpAgent;
+            axiosConfig.httpsAgent = agents.httpsAgent;
         }
     }
 
@@ -495,16 +508,18 @@ export function isTLSSidecarEnabledForProvider(config: UnknownRecord | null | un
  * @param {Object} config - 应用配置对象
  * @param {string} providerType - 提供商类型
  * @param {string} [defaultBaseUrl] - 默认基础 URL（用于处理相对路径）
+ * @param {string} [affinityKey] - 会话级亲和性标识
  * @returns {Object} 更新后的 axios 配置
  */
 export function configureTLSSidecar(
     axiosConfig: UnknownRecord,
     config: UnknownRecord | null | undefined,
     providerType: string,
-    defaultBaseUrl: string | null = null
+    defaultBaseUrl: string | null = null,
+    affinityKey?: string | null
 ): UnknownRecord {
     if (!config) {
-        return configureAxiosProxy(axiosConfig, config, providerType);
+        return configureAxiosProxy(axiosConfig, config, providerType, affinityKey);
     }
 
     const sidecar = getTLSSidecar();
@@ -537,7 +552,7 @@ export function configureTLSSidecar(
         sidecar.wrapAxiosConfig(axiosConfig, proxyUrl);
     }else{
         // 未启用 TLS Sidecar，直接使用全局代理
-        configureAxiosProxy(axiosConfig, config, providerType);
+        configureAxiosProxy(axiosConfig, config, providerType, affinityKey);
     }
     return axiosConfig;
 }

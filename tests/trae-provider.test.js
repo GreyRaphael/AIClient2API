@@ -856,7 +856,7 @@ describe('Trae Provider Implementation Tests', () => {
             expect(TraeApiService.toTraceId('some-random-seed')).toBe(arbitraryTraceId);
         });
 
-        test('buildHeaders with conversationId sets deterministic traceId in x-flow-traceparent', async () => {
+        test('buildHeaders with conversationId sets deterministic traceId, spanId, and x-request-id in x-flow-traceparent', async () => {
             const trae = new TraeApiService({ uuid: 'trace-test', TRAE_CHANNEL_MODE: 'tob_raw_chat' });
             trae.getToken = async () => 'test-token';
             const convId = 'affad22a-6486-46c8-a268-46484c315c6e';
@@ -864,9 +864,12 @@ describe('Trae Provider Implementation Tests', () => {
             const headers1 = await trae.buildHeaders(true, convId);
             const headers2 = await trae.buildHeaders(true, convId);
 
-            expect(headers1['x-flow-traceparent']).toMatch(/^00-affad22a648646c8a26846484c315c6e-[0-9a-f]{16}-01$/);
-            expect(headers2['x-flow-traceparent']).toMatch(/^00-affad22a648646c8a26846484c315c6e-[0-9a-f]{16}-01$/);
+            expect(headers1['x-flow-traceparent']).toBe('00-affad22a648646c8a26846484c315c6e-affad22a648646c8-01');
+            expect(headers2['x-flow-traceparent']).toBe(headers1['x-flow-traceparent']);
             expect(headers1['traceparent']).toBe(headers1['x-flow-traceparent']);
+            expect(headers1['x-request-id']).toBe('affad22a-6486-46c8-a268-46484c315c6e');
+            expect(headers2['x-request-id']).toBe(headers1['x-request-id']);
+            expect(headers1['x-client-request-id']).toBe(headers1['x-request-id']);
         });
     });
 });

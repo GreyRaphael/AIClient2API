@@ -1628,10 +1628,17 @@ export class TraeApiService {
             const traceId = conversationId
                 ? TraeApiService.toTraceId(conversationId)
                 : randomBytes(16).toString('hex');
-            const spanId = randomBytes(8).toString('hex');
+            const spanId = conversationId
+                ? traceId.slice(0, 16)
+                : randomBytes(8).toString('hex');
             const traceparent = `00-${traceId}-${spanId}-01`;
             headers['x-flow-traceparent'] = traceparent;
             headers['traceparent'] = traceparent;
+            if (conversationId) {
+                const convUUID = TraeApiService.toValidUUID(conversationId);
+                headers['x-request-id'] = convUUID;
+                headers['x-client-request-id'] = convUUID;
+            }
         }
 
         return headers;
@@ -2018,8 +2025,9 @@ export class TraeApiService {
         const headers = await this.buildHeaders(true, payload.conversation_id);
         if (payload.conversation_id) {
             const traceId = TraeApiService.toTraceId(payload.conversation_id);
-            const spanId = randomBytes(8).toString('hex');
+            const spanId = traceId.slice(0, 16);
             const traceparent = `00-${traceId}-${spanId}-01`;
+            const convUUID = TraeApiService.toValidUUID(payload.conversation_id);
             headers['x-flow-traceparent'] = traceparent;
             headers['traceparent'] = traceparent;
             headers['x-session-affinity'] = payload.conversation_id;
@@ -2028,6 +2036,8 @@ export class TraeApiService {
             headers['x-conversation-id'] = payload.conversation_id;
             headers['X-Session-Id'] = payload.session_id || payload.conversation_id;
             headers['X-Conversation-Id'] = payload.conversation_id;
+            headers['x-request-id'] = convUUID;
+            headers['x-client-request-id'] = convUUID;
         }
         const url = channel.url;
 
@@ -2039,7 +2049,7 @@ export class TraeApiService {
             responseType: 'stream',
             timeout: 120000
         };
-        configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
+        configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE, payload.conversation_id);
 
         logger.debug(`[Trae] Streaming request to ${url} (channel: ${channel.mode}, model: ${payload.model_name || payload.model})`);
         let response: DynamicPayload;

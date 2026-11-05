@@ -230,4 +230,30 @@ describe('HTTP / HTTPS Keep-Alive Agents for Providers', () => {
             await new Promise((resolve) => server.close(resolve));
         }
     });
+
+    test('getKeepAliveAgents supports affinityKey and isolates agents per session', () => {
+        const config = { uuid: 'affinity-node-1', singleSocket: true };
+        const agentSessionA = getKeepAliveAgents(config, null, 'session-A');
+        const agentSessionB = getKeepAliveAgents(config, null, 'session-B');
+        const agentSessionAReused = getKeepAliveAgents(config, null, 'session-A');
+
+        expect(agentSessionA).not.toBe(agentSessionB);
+        expect(agentSessionA).toBe(agentSessionAReused);
+        expect(agentSessionA.httpAgent.maxSockets).toBe(1);
+        expect(agentSessionB.httpAgent.maxSockets).toBe(1);
+
+        invalidateKeepAliveAgents('affinity-node-1:session-A');
+        invalidateKeepAliveAgents('affinity-node-1:session-B');
+    });
+
+    test('getKeepAliveAgents enforces bounded cache with LRU eviction at 100 entries', () => {
+        const baseConfig = { uuid: 'lru-test-node', singleSocket: true };
+        for (let i = 0; i < 105; i++) {
+            getKeepAliveAgents(baseConfig, null, `session-${i}`);
+        }
+        // First session should have been evicted
+        expect(invalidateKeepAliveAgents('lru-test-node:session-0')).toBe(false);
+        // Recent session should still be in cache
+        expect(invalidateKeepAliveAgents('lru-test-node:session-104')).toBe(true);
+    });
 });

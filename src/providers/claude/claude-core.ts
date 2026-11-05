@@ -110,10 +110,16 @@ export class ClaudeApiService {
         return axios.create(axiosConfig);
     }
 
-    _applySidecar(axiosConfig: Record<string, unknown>) {
-        if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
-        if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
-        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CLAUDE_CUSTOM, this.baseUrl);
+    _applySidecar(axiosConfig: Record<string, unknown>, affinityKey?: string | null) {
+        if (affinityKey) {
+            const sessionAgents = getKeepAliveAgents(this.config, this.baseUrl, affinityKey);
+            axiosConfig.httpAgent = sessionAgents.httpAgent;
+            axiosConfig.httpsAgent = sessionAgents.httpsAgent;
+        } else {
+            if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
+            if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
+        }
+        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CLAUDE_CUSTOM, this.baseUrl, affinityKey);
     }
 
     /**
@@ -148,7 +154,7 @@ export class ClaudeApiService {
                     'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
-            this._applySidecar(axiosConfig);
+            this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             return response.data as T;
         } catch (error) {
@@ -233,7 +239,7 @@ export class ClaudeApiService {
                     'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
-            this._applySidecar(axiosConfig);
+            this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             const reader = response.data as AsyncIterable<Buffer | string>;
             let buffer = '';

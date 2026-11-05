@@ -485,7 +485,13 @@ export class ZedApiService {
             timeout: 120000
         };
 
-        configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, this.config, MODEL_PROVIDER.ZED);
+        const downstreamSessionId = (requestBody as Record<string, unknown>)?._downstreamSessionId;
+        configureAxiosProxy(
+            axiosConfig as unknown as Record<string, unknown>,
+            this.config,
+            MODEL_PROVIDER.ZED,
+            downstreamSessionId ? String(downstreamSessionId) : null
+        );
 
         let response: AxiosResponse;
         try {

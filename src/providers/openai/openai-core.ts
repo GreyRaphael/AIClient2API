@@ -270,10 +270,16 @@ export class OpenAIApiService {
         this.axiosInstance = axios.create(axiosConfig);
     }
 
-    _applySidecar(axiosConfig: DynamicPayload): DynamicPayload {
-        if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
-        if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
-        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM, this.baseUrl);
+    _applySidecar(axiosConfig: DynamicPayload, affinityKey?: string | null): DynamicPayload {
+        if (affinityKey) {
+            const sessionAgents = getKeepAliveAgents(this.config, this.baseUrl, affinityKey);
+            axiosConfig.httpAgent = sessionAgents.httpAgent;
+            axiosConfig.httpsAgent = sessionAgents.httpsAgent;
+        } else {
+            if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
+            if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
+        }
+        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM, this.baseUrl, affinityKey);
     }
 
     async callApi(
@@ -324,7 +330,7 @@ export class OpenAIApiService {
                     'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
-            this._applySidecar(axiosConfig);
+            this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.axiosInstance.request(axiosConfig);
             const contentType = String(response.headers?.['content-type'] || '');
             let result: DynamicPayload = response.data;
@@ -456,7 +462,7 @@ export class OpenAIApiService {
                     'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
-            this._applySidecar(axiosConfig);
+            this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.axiosInstance.request(axiosConfig);
 
             const stream = response.data;
