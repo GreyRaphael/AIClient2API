@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
 import { randomUUID, randomBytes } from 'crypto';
+import { StringDecoder } from 'string_decoder';
 import fs from 'fs';
 import path from 'path';
 import { configureAxiosProxy, toValidUUID, toTraceId, extractFirstMessageSeed } from '../../utils/proxy-utils.ts';
@@ -1855,6 +1856,13 @@ export class TraeApiService {
                     }
                 }
 
+                // 清理历史思考残留（确保模型历史上下文不含变动或冗余字段）
+                if (msg.role === 'assistant' || msg.role === 'tool') {
+                    delete msg.reasoning_content;
+                    delete msg.reasoning;
+                    delete msg.thinking;
+                }
+
                 // 规范化 content 为 Trae 的 [{"type": "text", "text": "..."}] 结构
                 if (typeof msg.content === 'string') {
                     msg.content = [{ type: 'text', text: msg.content }];
@@ -1881,6 +1889,10 @@ export class TraeApiService {
                         msg.content = [{ type: 'text', text: '' }];
                     }
                 } else if (msg.role === 'tool' && (msg.content === null || msg.content === undefined)) {
+                    msg.content = [{ type: 'text', text: '' }];
+                }
+
+                if (msg.role === 'assistant' && (!msg.content || (Array.isArray(msg.content) && msg.content.length === 0))) {
                     msg.content = [{ type: 'text', text: '' }];
                 }
 
@@ -2047,10 +2059,14 @@ export class TraeApiService {
         };
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE, payload.conversation_id);
 
+
+
         logger.debug(`[Trae] Streaming request to ${url} (channel: ${channel.mode}, model: ${payload.model_name || payload.model})`);
         let response: DynamicPayload;
         try {
             response = await axios(/** @type {any} */ (axiosConfig));
+            const sock = response.request?.socket;
+            logger.info(`[Trae Socket] localPort=${sock?.localPort} remoteAddress=${sock?.remoteAddress} reused=${response.request?.reusedSocket} conv=${payload.conversation_id}`);
         } catch (caught) { const err = caught as DynamicPayload;
             const errData = err.response?.data;
             let errMsg = err.message;
@@ -2094,8 +2110,9 @@ export class TraeApiService {
             created
         });
 
+        const decoder = new StringDecoder('utf-8');
         for await (const chunk of response.data) {
-            buffer += chunk.toString('utf-8');
+            buffer += decoder.write(chunk);
             const lines = buffer.split(/\r?\n/);
             buffer = lines.pop() || ''; // 保留不完整尾部
 

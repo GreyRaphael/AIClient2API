@@ -501,7 +501,7 @@ export function getRequestBody(
     options: { maxBytes?: number } = {}
 ): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
-        let body = '';
+        const chunks: Buffer[] = [];
         let receivedBytes = 0;
         let settled = false;
         const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_REQUEST_BODY_MAX_BYTES;
@@ -551,15 +551,19 @@ export function getRequestBody(
                 rejectTooLarge(error);
                 return;
             }
-            body += chunk.toString();
+            chunks.push(chunk);
         });
         req.on('end', () => {
             if (settled) return;
             settled = true;
-            if (!body) {
+            if (chunks.length === 0) {
                 return resolve({});
             }
             try {
+                const body = Buffer.concat(chunks).toString('utf8');
+                if (!body.trim()) {
+                    return resolve({});
+                }
                 resolve(JSON.parse(body) as Record<string, unknown>);
             } catch {
                 reject(new Error("Invalid JSON in request body."));

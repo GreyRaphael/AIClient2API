@@ -4,7 +4,7 @@ import cp from 'node:child_process';
 import crypto from 'node:crypto';
 
 const HARNESS_URL = 'http://127.0.0.1:3080';
-const LAUNCH_TOKEN = 'dC7rJapGq1NOPgRueSU3F-N4v5-YEYW1ghb4p3emkcw';
+const LAUNCH_TOKEN = process.env.DSH_TOKEN || 'UTrNG5Xs14V9Mc0Xb95tcaOXpVbNqV9_McLrl4SvotY';
 const TARGET_CWD = '/home/gewei/work/AIClient2API';
 
 async function getAuthCookie() {
@@ -94,17 +94,6 @@ async function runBenchmark(promptText) {
   const created = await rpc(cookie, 'session/create', { request: { cwd: TARGET_CWD } });
   const sessionId = created.sessionId;
   console.log(`2. Created Session: ${sessionId}`);
-
-  // Explicitly select model
-  await rpc(cookie, 'session/select-model', {
-    request: {
-      sessionId,
-      provider: 'tencent',
-      model: 'trae:DeepSeek-V4.1-Flash-1017',
-      reasoningEffort: 'xhigh'
-    }
-  });
-  console.log('2.1 Selected model: tencent / trae:DeepSeek-V4.1-Flash-1017 (xhigh)');
 
   // Send prompt
   const requestId = crypto.randomUUID();

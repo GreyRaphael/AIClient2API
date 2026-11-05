@@ -152,29 +152,40 @@ export function toTraceId(convId: string): string {
 }
 
 /**
- * 提取对话首条消息的内容片段，用于派生确定性会话标识。
+ * 提取对话首轮消息的内容片段，用于派生确定性会话标识。
+ * 为避免相同 prompt 的不同会话发生碰撞，拼接首轮（首个 assistant 消息之前）的所有 user 消息文本
+ * （例如 DeepSeek-Harness 首轮中包含唯一的 turn 1, step 1 时间戳和环境上下文）。
  */
 export function extractFirstMessageSeed(messages: unknown): string | null {
     if (!Array.isArray(messages) || messages.length === 0) return null;
+    const userTexts: string[] = [];
     for (const msg of messages) {
         if (!msg || typeof msg !== 'object') continue;
         const role = (msg as { role?: unknown }).role;
-        const content = (msg as { content?: unknown }).content;
+        // 遇到首个 assistant 消息说明首轮已结束，停止收集
+        if (role === 'assistant') {
+            break;
+        }
         if (role === 'user') {
+            const content = (msg as { content?: unknown }).content;
             if (typeof content === 'string' && content.trim()) {
-                return content.trim();
-            }
-            if (Array.isArray(content)) {
+                userTexts.push(content.trim());
+            } else if (Array.isArray(content)) {
                 for (const part of content) {
-                    if (typeof part === 'string' && part.trim()) return part.trim();
-                    if (part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' && part.text.trim()) {
-                        return part.text.trim();
+                    if (typeof part === 'string' && part.trim()) {
+                        userTexts.push(part.trim());
+                    } else if (part && typeof part === 'object' && 'text' in part && typeof (part as { text?: unknown }).text === 'string') {
+                        const t = ((part as { text: string }).text || '').trim();
+                        if (t) userTexts.push(t);
                     }
                 }
             }
         }
     }
-    // 若无 user 消息，尝试读取第一条任意角色的消息
+    if (userTexts.length > 0) {
+        return userTexts.join('\n---\n');
+    }
+    // 若无首轮 user 消息，尝试读取第一条任意角色的消息作为保底
     const first = messages[0];
     if (first && typeof first === 'object') {
         const content = (first as { content?: unknown }).content;
@@ -212,13 +223,26 @@ export function resolveSessionAffinityId(req?: unknown, requestBody?: unknown): 
         body?._downstreamSessionId
     );
     if (explicit) {
-        return toValidUUID(String(explicit));
+        const isTitle = (typeof body?.system === 'string' && body.system.includes('concise title')) ||
+            (Array.isArray(body?.messages) && body.messages.some((m: unknown) => {
+                const c = (m && typeof m === 'object' && 'content' in m) ? (m as { content?: unknown }).content : null;
+                const text = typeof c === 'string' ? c : (Array.isArray(c) ? JSON.stringify(c) : '');
+                return text.includes('Generate the session title') || text.includes('concise title');
+            }));
+        return toValidUUID(isTitle ? `${explicit}_title` : String(explicit));
     }
 
     const messages = body?.messages;
     const seed = extractFirstMessageSeed(messages);
     if (seed) {
-        return toValidUUID(seed);
+        const isTitle = (typeof body?.system === 'string' && body.system.includes('concise title')) ||
+            (Array.isArray(body?.messages) && body.messages.some((m: unknown) => {
+                const c = (m && typeof m === 'object' && 'content' in m) ? (m as { content?: unknown }).content : null;
+                const text = typeof c === 'string' ? c : (Array.isArray(c) ? JSON.stringify(c) : '');
+                return text.includes('Generate the session title') || text.includes('concise title');
+            }));
+        const baseSeed = isTitle ? `${seed}_title` : seed;
+        return toValidUUID(baseSeed);
     }
     return null;
 }
