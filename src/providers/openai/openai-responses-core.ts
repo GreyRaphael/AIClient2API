@@ -86,7 +86,7 @@ export class OpenAIResponsesApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
-        const downstreamSessionId = (body as DynamicPayload)?._downstreamSessionId;
+        const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
         const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
 
         try {
@@ -99,7 +99,11 @@ export class OpenAIResponsesApiService {
                 axiosConfig.headers = {
                     ...((axiosConfig.headers as Record<string, string>) || {}),
                     'x-session-affinity': String(downstreamSessionId),
-                    'session-id': String(downstreamSessionId)
+                    'session-id': String(downstreamSessionId),
+                    'x-session-id': String(downstreamSessionId),
+                    'x-conversation-id': String(downstreamSessionId),
+                    'X-Session-Id': String(downstreamSessionId),
+                    'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
             this._applySidecar(axiosConfig);
@@ -144,7 +148,7 @@ export class OpenAIResponsesApiService {
         const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;  // 1 second base delay
 
-        const downstreamSessionId = (body as DynamicPayload)?._downstreamSessionId;
+        const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
         const { _downstreamSessionId: _unused, ...cleanBody } = body || {};
 
         // OpenAI 的流式请求需要将 stream 设置为 true
@@ -161,7 +165,11 @@ export class OpenAIResponsesApiService {
                 axiosConfig.headers = {
                     ...((axiosConfig.headers as Record<string, string>) || {}),
                     'x-session-affinity': String(downstreamSessionId),
-                    'session-id': String(downstreamSessionId)
+                    'session-id': String(downstreamSessionId),
+                    'x-session-id': String(downstreamSessionId),
+                    'x-conversation-id': String(downstreamSessionId),
+                    'X-Session-Id': String(downstreamSessionId),
+                    'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
             this._applySidecar(axiosConfig);

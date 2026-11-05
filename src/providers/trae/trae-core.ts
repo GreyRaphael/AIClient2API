@@ -1,9 +1,9 @@
 import axios from 'axios';
 import logger from '../../utils/logger.ts';
-import { randomUUID, randomBytes, createHash } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
+import { configureAxiosProxy, toValidUUID, toTraceId, extractFirstMessageSeed } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../../converters/responses-sse-emitter.ts';
@@ -1596,7 +1596,7 @@ export class TraeApiService {
     /**
      * 构造上游请求头 (按通道模式适配)
      */
-    async buildHeaders(stream = false): Promise<DynamicPayload> {
+    async buildHeaders(stream = false, conversationId?: string | null): Promise<DynamicPayload> {
         const token = await this.getToken();
         const channel = this.getChannelConfig();
         const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');
@@ -1625,9 +1625,13 @@ export class TraeApiService {
 
         if (isToB) {
             headers['x-ide-function'] = channel.function;
-            const traceId = randomBytes(16).toString('hex');
+            const traceId = conversationId
+                ? TraeApiService.toTraceId(conversationId)
+                : randomBytes(16).toString('hex');
             const spanId = randomBytes(8).toString('hex');
-            headers['x-flow-traceparent'] = `00-${traceId}-${spanId}-01`;
+            const traceparent = `00-${traceId}-${spanId}-01`;
+            headers['x-flow-traceparent'] = traceparent;
+            headers['traceparent'] = traceparent;
         }
 
         return headers;
@@ -1638,36 +1642,21 @@ export class TraeApiService {
      * 若本身已经是合法 UUID，则规范化后直接返回；否则基于 MD5 哈希生成确定性 RFC 4122 UUID。
      */
     static toValidUUID(strOrSeed: string): string {
-        const raw = String(strOrSeed || '').trim();
-        const uuidMatch = raw.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
-        if (uuidMatch) {
-            return uuidMatch[1].toLowerCase();
-        }
-        const hex = createHash('md5').update(raw).digest('hex');
-        const p1 = hex.slice(0, 8);
-        const p2 = hex.slice(8, 12);
-        const p3 = `4${hex.slice(13, 16)}`;
-        const p4 = `${((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`;
-        const p5 = hex.slice(20, 32);
-        return `${p1}-${p2}-${p3}-${p4}-${p5}`;
+        return toValidUUID(strOrSeed);
+    }
+
+    /**
+     * 将会话标识归一化为标准的 32 位十六进制 W3C traceId。
+     */
+    static toTraceId(convId: string): string {
+        return toTraceId(convId);
     }
 
     /**
      * 提取对话首条消息的内容片段，用于派生确定性会话标识。
      */
     static extractFirstMessageSeed(messages: unknown): string | null {
-        if (!Array.isArray(messages) || messages.length === 0) return null;
-        for (const msg of messages) {
-            if (msg && typeof msg === 'object' && msg.role === 'user') {
-                if (typeof msg.content === 'string') return msg.content.slice(0, 500);
-                if (Array.isArray(msg.content)) return JSON.stringify(msg.content).slice(0, 500);
-            }
-        }
-        const first = messages[0];
-        if (first && typeof first === 'object') {
-            return typeof first.content === 'string' ? first.content.slice(0, 500) : JSON.stringify(first).slice(0, 500);
-        }
-        return null;
+        return extractFirstMessageSeed(messages);
     }
 
     /**
@@ -2026,10 +2015,19 @@ export class TraeApiService {
         const downstreamProtocol = protocolOverride || readDownstreamProtocol(requestBody);
         const channel = this.getChannelConfig();
         const payload = this.prepareRequestBody(model, requestBody);
-        const headers = await this.buildHeaders(true);
+        const headers = await this.buildHeaders(true, payload.conversation_id);
         if (payload.conversation_id) {
+            const traceId = TraeApiService.toTraceId(payload.conversation_id);
+            const spanId = randomBytes(8).toString('hex');
+            const traceparent = `00-${traceId}-${spanId}-01`;
+            headers['x-flow-traceparent'] = traceparent;
+            headers['traceparent'] = traceparent;
             headers['x-session-affinity'] = payload.conversation_id;
             headers['session-id'] = payload.session_id || payload.conversation_id;
+            headers['x-session-id'] = payload.session_id || payload.conversation_id;
+            headers['x-conversation-id'] = payload.conversation_id;
+            headers['X-Session-Id'] = payload.session_id || payload.conversation_id;
+            headers['X-Conversation-Id'] = payload.conversation_id;
         }
         const url = channel.url;
 

@@ -6,6 +6,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import type { Agent } from 'node:http';
+import { createHash } from 'node:crypto';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import logger from './logger.ts';
 import requestContext from './context.ts';
@@ -108,6 +109,107 @@ export function invalidateKeepAliveAgents(key: string): boolean {
         return true;
     }
     return false;
+}
+
+/**
+ * 将任意标识或种子转换为合法的 RFC 4122 UUID 格式字符串。
+ * 若本身已经是合法 UUID，则规范化后直接返回；否则基于 MD5 哈希生成确定性 RFC 4122 UUID。
+ */
+export function toValidUUID(strOrSeed: string): string {
+    const raw = String(strOrSeed || '').trim();
+    const uuidMatch = raw.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+    if (uuidMatch) {
+        return uuidMatch[1].toLowerCase();
+    }
+    const hex = createHash('md5').update(raw).digest('hex');
+    const p1 = hex.slice(0, 8);
+    const p2 = hex.slice(8, 12);
+    const p3 = `4${hex.slice(13, 16)}`;
+    const p4 = `${((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`;
+    const p5 = hex.slice(20, 32);
+    return `${p1}-${p2}-${p3}-${p4}-${p5}`;
+}
+
+/**
+ * 将会话标识归一化为标准的 32 位十六进制 W3C traceId。
+ * 若本身可提炼出 32 位十六进制串则直接使用；否则基于 MD5 哈希计算确定性 32 位 hex。
+ */
+export function toTraceId(convId: string): string {
+    const clean = String(convId || '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+    if (clean.length === 32) return clean;
+    return createHash('md5').update(String(convId || '')).digest('hex');
+}
+
+/**
+ * 提取对话首条消息的内容片段，用于派生确定性会话标识。
+ */
+export function extractFirstMessageSeed(messages: unknown): string | null {
+    if (!Array.isArray(messages) || messages.length === 0) return null;
+    for (const msg of messages) {
+        if (!msg || typeof msg !== 'object') continue;
+        const role = (msg as { role?: unknown }).role;
+        const content = (msg as { content?: unknown }).content;
+        if (role === 'user') {
+            if (typeof content === 'string' && content.trim()) {
+                return content.trim();
+            }
+            if (Array.isArray(content)) {
+                for (const part of content) {
+                    if (typeof part === 'string' && part.trim()) return part.trim();
+                    if (part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' && part.text.trim()) {
+                        return part.text.trim();
+                    }
+                }
+            }
+        }
+    }
+    // 若无 user 消息，尝试读取第一条任意角色的消息
+    const first = messages[0];
+    if (first && typeof first === 'object') {
+        const content = (first as { content?: unknown }).content;
+        if (typeof content === 'string' && content.trim()) return content.trim();
+        if (Array.isArray(content) && content.length > 0) {
+            const part = content[0];
+            if (typeof part === 'string' && part.trim()) return part.trim();
+            if (part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' && part.text.trim()) {
+                return part.text.trim();
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * 从下游请求头或请求体消息中解析会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
+ */
+export function resolveSessionAffinityId(req?: unknown, requestBody?: unknown): string | null {
+    const headers = (req && typeof req === 'object' && 'headers' in req)
+        ? (req as { headers?: Record<string, unknown> }).headers
+        : undefined;
+    const body = (requestBody && typeof requestBody === 'object')
+        ? (requestBody as Record<string, unknown>)
+        : undefined;
+
+    const explicit = (
+        headers?.['x-session-affinity'] ||
+        headers?.['session-id'] ||
+        headers?.['x-session-id'] ||
+        headers?.['conversation-id'] ||
+        headers?.['x-conversation-id'] ||
+        body?.conversation_id ||
+        body?.session_id ||
+        body?._downstreamSessionId
+    );
+    if (explicit) {
+        return toValidUUID(String(explicit));
+    }
+
+    const messages = body?.messages;
+    const seed = extractFirstMessageSeed(messages);
+    if (seed) {
+        return toValidUUID(seed);
+    }
+    return null;
 }
 
 interface ProxyConfig {

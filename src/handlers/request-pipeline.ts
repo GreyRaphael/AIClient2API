@@ -33,6 +33,7 @@ import { applyModelMetadata } from '../providers/model-metadata.ts';
 import type { ModelMetadata } from '../providers/model-metadata.ts';
 import { applyCustomModelMetadata } from '../providers/custom-model-metadata.ts';
 export { applyCustomModelMetadata };
+import { resolveSessionAffinityId } from '../utils/proxy-utils.ts';
 import { getProviderDefinition } from '../providers/provider-registry.ts';
 import {
     extractRequestedReasoningEffort,
@@ -1766,15 +1767,7 @@ export async function handleContentGenerationRequest(
     }
 
     // 提取客户端会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
-    const downstreamSessionId = (
-        req?.headers?.['x-session-affinity'] ||
-        req?.headers?.['session-id'] ||
-        req?.headers?.['x-session-id'] ||
-        req?.headers?.['conversation-id'] ||
-        req?.headers?.['x-conversation-id'] ||
-        originalRequestBody?.conversation_id ||
-        originalRequestBody?.session_id
-    );
+    const downstreamSessionId = resolveSessionAffinityId(req, originalRequestBody || processedRequestBody);
     if (downstreamSessionId) {
         processedRequestBody._downstreamSessionId = String(downstreamSessionId);
     }

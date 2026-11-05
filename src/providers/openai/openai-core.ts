@@ -317,7 +317,11 @@ export class OpenAIApiService {
                 axiosConfig.headers = {
                     ...(axiosConfig.headers || {}),
                     'x-session-affinity': String(downstreamSessionId),
-                    'session-id': String(downstreamSessionId)
+                    'session-id': String(downstreamSessionId),
+                    'x-session-id': String(downstreamSessionId),
+                    'x-conversation-id': String(downstreamSessionId),
+                    'X-Session-Id': String(downstreamSessionId),
+                    'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
             this._applySidecar(axiosConfig);
@@ -445,7 +449,11 @@ export class OpenAIApiService {
                 axiosConfig.headers = {
                     ...(axiosConfig.headers || {}),
                     'x-session-affinity': String(downstreamSessionId),
-                    'session-id': String(downstreamSessionId)
+                    'session-id': String(downstreamSessionId),
+                    'x-session-id': String(downstreamSessionId),
+                    'x-conversation-id': String(downstreamSessionId),
+                    'X-Session-Id': String(downstreamSessionId),
+                    'X-Conversation-Id': String(downstreamSessionId)
                 };
             }
             this._applySidecar(axiosConfig);
