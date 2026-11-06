@@ -1055,6 +1055,8 @@ export class CodexApiService {
         delete cleanedBody.safety_identifier;
         delete cleanedBody.stream_options;
 
+        const imageSize = cleanedBody._imageSize;
+
         // 清理以 _ 开头的内部属性（如 _downstreamSessionId），避免上游报 400 Unsupported parameter
         Object.keys(cleanedBody).forEach((k) => {
             if (k.startsWith('_') && k !== '_codexToolNameMap') {
@@ -1091,10 +1093,9 @@ export class CodexApiService {
             // 直接使用真实 upstreamModel，不再硬编码改写为 gpt-5.5
             effectiveUpstreamModel = upstreamModel;
             const imageToolConfig: Record<string, unknown> = { type: 'image_generation' };
-            if (cleanedBody._imageSize) {
-                imageToolConfig.size = cleanedBody._imageSize;
+            if (imageSize) {
+                imageToolConfig.size = imageSize;
             }
-            delete cleanedBody._imageSize;
             cleanedBody.tools = [imageToolConfig];
             if (typeof cleanedBody.instructions !== 'string' || !cleanedBody.instructions.trim()) {
                 cleanedBody.instructions = 'You are a helpful assistant.';

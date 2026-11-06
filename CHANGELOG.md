@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.2.0] - 2026-11-06
+
+多轮 KV Cache 稳定性与前缀缓存命中率全面提升。**无破坏性变更、无配置迁移、公开 API 零改动**。
+本版本重点解决跨多轮复杂智能体（如 DeepSeek Harness、Claude Code、Cursor 等）执行场景下「前缀缓存命中率断崖式下跌」与「号池多账号轮询导致缓存清零」的问题。
+实测 DeepSeek Harness 12 步自主任务，整体 KV 缓存命中率达到 **93.13%**，后半程单步缓存率稳定保持在 **96.7% ～ 99.7%**。
+
+### Fixed
+
+- **全链路 SSE 流式 UTF-8 字符解码防跨块乱码**：在 `openai-core`、`openai-responses-core`、`codex-core`、`claude-core`、`zed-core` 等所有 SSE 流式读取器引入 `StringDecoder('utf8')`，并使用 `Buffer.concat` 代替原生字符串拼接，杜绝多字节 UTF-8 中文字符跨 chunk 分割时被替换为 `\ufffd` 导致的下游 Assistant 历史消息前缀断裂。
+- **0-Hop 直通路径工具 Schema 深度稳定化**：在 `openai-core` 与 `claude-core` 的直通调用入口（`callApi` 与 `streamApi`）中接入 `stabilizeToolsForPrefixCache`，对入参 tools 数组按 `name` 排序并对 `parameters`/`input_schema` 的 properties 递归排序，防止客户端工具动态注册或 JSON 键乱序引发的前缀缓存抖动。
+- **全局会话级单 Socket 亲和性保活**：在 `proxy-utils.ts` 中解除单连接亲和性仅限本地与 Trae 的限制。只要请求存在会话标识（`x-session-affinity` / `session-id` 或网关基于首轮摘要派生的会话种子），即分配并绑定专用 Keep-Alive 单 Socket Agent，避免多轮请求在全局多 Socket 池中随机漂移到不同的后端 L4 Pod。
+- **号池多账号节点会话粘滞（Session Stickiness）**：在 `ProviderPoolSelector` 中新增基于会话 ID 的 LRU 亲和性映射表（`_sessionNodeMap`）。同一会话的多轮交互在原节点健康且未达并发上限的情况下，始终固定在同一个账号/节点上，彻底解决多账号号池由于 LRU 轮询导致每轮请求在不同账号间交替、上游 KV 缓存归零的问题。
+- **Zed 协议确定性 `thread_id` 派生**：在 `zed-payload-builders.ts` 中，将每轮无条件生成的随机 `thread_id: randomUUID()` 改为通过 `toValidUUID(sessionId)` 从下游会话确定性派生，保证多轮交互在上游始终位于同一会话流。
+- **内部调度属性深度隔离与 Google / OpenAI 原生协议兼容**：在所有提供商发往真实上游前，统一深度剥离网关注入的内部 `_` 调度标记（如 `_downstreamSessionId`、`_monitorRequestId`、`_requestBaseUrl` 等），彻底解决 Google Antigravity 原生 Protobuf 报错 `Invalid JSON payload received. Unknown name "_downstreamSessionId"` 以及 OpenAI Responses API 报 `400 Bad Request: Unsupported parameter` 的阻断性兼容问题。
+- **跨 Provider 会话缓存绑定支持**：利用提取的 `downstreamSessionId` 派生 Antigravity 的 `generateStableSessionID` 与 Codex 的 `prompt_cache_key`，实现跨提供商多轮前缀缓存。
+
 ## [v8.1.0] - 2026-11-04
 
 缓存命中率统计口径修复与隐式前缀缓存对齐。**无破坏性变更、无配置迁移、公开 API 零改动**。

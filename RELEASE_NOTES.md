@@ -1,186 +1,76 @@
-# AIClient-2-API 发布说明 (v8.1.0)
+# AIClient-2-API 发布说明 (v8.2.0)
 
 > ## ✅ 本版本无破坏性变更
 >
 > **无需任何配置迁移、无需改动 `provider_pools.json`、公开 API 零改动。**
-> 直接替换代码并重启即可。
+> 直接拉取最新代码并重启服务即可：`git pull && npm ci && systemctl --user restart aiclient2api`。
 >
-> 本版本解决一个长期容易被误判的问题：**「缓存命中率只有约 30%」**。
-> 经过对上游的对照实测，结论是——
->
-> - **约 1/3 是统计口径失真**：命中率数字本身算错了（部分行甚至显示成 400%+）；
-> - **约 2/3 是真实 miss**：但其中**网关可消除的部分已经修复**（tools 顺序抖动）。
->
-> **核心证据**：绕过网关直连上游、使用完全稳定的前缀时，命中率可达
-> **98%–99.9%**（4K / 35K / 105K / 210K token 均验证）。因此问题不在上游
-> 不支持缓存，而在于发出去的请求前缀是否稳定。
+> 本版本重点解决跨多轮复杂智能体（如 DeepSeek Harness、Claude Code、Cursor 等）多步执行场景下的 **「前缀缓存命中率断崖式下跌」** 与 **「高并发跨账号号池轮询导致缓存清零」** 问题。
+> 经过 DeepSeek Harness 实机 12 步全自主任务验收，**整体 KV 缓存命中率达到 93.13%**，后半程单步缓存率稳定保持在 **96.7% ～ 99.7%**。
 
 ---
 
-## 一、两类根因
+## 一、真实场景评测（DeepSeek-Harness 12 步验收）
 
-上游（Trae ToB、Gemini、OpenAI 兼容、Anthropic 等）使用的是**隐式内容前缀缓存**：
-缓存键是从 prompt 第 0 个 token 开始的内容前缀哈希，块粒度约 256 token，
-**与 `conversation_id`、账号、会话无关**——纯内容匹配。
+使用 DeepSeek Harness 真实代码审查与复杂多步重构任务进行端到端闭环验证：
 
-由此推出一条决定性规则：
-
-> **prompt 前部任何位置发生 1 个 token 的变化，该位置之后的全部内容
-> 都失去可复用前缀。** 历史越长、变化点越靠前，损失越大。
-
-### 1.1 原因一：统计口径混用（数字失真）
-
-`src/utils/usage-normalizer.ts` 此前把两种**互斥语义**塞进同一个 `promptTokens`：
-
-| 协议 | 字段 | 语义 |
-|---|---|---|
-| OpenAI / Responses / Gemini | `prompt_tokens`、`promptTokenCount` | **inclusive**（已含缓存） |
-| Anthropic Messages | `input_tokens` | **exclusive**（不含缓存） |
-
-由于命中率 = `cached / prompt`，Anthropic 形状的行**分母偏小、比值虚高**。
-生产日志中 `trae` 有 **15.1%** 的行出现 `cached > prompt` 这种物理上不可能的值。
-
-同一上游缓存状态，只换下游协议：
-
-| 下游协议 | 下游 usage | 修复前显示 | 真实 |
-|---|---|---:|---:|
-| `/v1/chat/completions` | `prompt_tokens:3039, cached:2944` | 96.9% ✅ | 96.9% |
-| `/v1/messages` | `input_tokens:607, cache_read:2432` | **400%** ❌ | 80.0% |
-
-### 1.2 原因二：真实前缀失效
-
-| 触发方式 | 实测影响 |
-|---|---|
-| 动态内容（`<env>`/git status/日期）放在 **system 尾部** | 命中率 **14.4%**（历史涨到 50k 时仅 7.8%） |
-| 同一内容移到**末条 user 消息** | **82.7%** |
-| **tools 每轮乱序** | 75.5% → **18.0%** |
-| 历史中间插入 20 token 的 `<system-reminder>` | 99.4% → **31.8%** |
-
-生产实测与上表吻合：`trae` 的 `>50k` 请求命中 15.3%、`>200k` 约 7%。
+| 步骤 (Step) | Prompt Tokens | Cached Tokens | 新增未缓存 (Uncached) | 单步缓存命中率 | 说明 |
+|:---:|---:|---:|---:|---:|---|
+| **Step 1** | 14,856 | 14,592 | 264 | **98.22%** | 首轮系统指令与项目上下文命中 |
+| **Step 2** | 17,665 | 14,848 | 2,817 | **84.05%** | 工具调用输出回填 |
+| **Step 3** | 20,076 | 17,664 | 2,412 | **87.99%** | 执行代码库检索 |
+| **Step 4** | 23,219 | 19,968 | 3,251 | **86.00%** | 读取文件上下文 |
+| **Step 5** | 27,079 | 23,040 | 4,039 | **85.08%** | 递归定位依赖文件 |
+| **Step 6** | 32,978 | 26,880 | 6,098 | **81.51%** | 批量抓取历史 Commit |
+| **Step 7** | 41,328 | 41,216 | 112 | **99.73%** | 上下文完全复用，几乎零新增冷启动 |
+| **Step 8** | 46,771 | 41,216 | 5,555 | **88.12%** | 综合分析并构建测试 |
+| **Step 9** | 46,989 | 46,592 | 397 | **99.16%** | 单步命中率超 99% |
+| **Step 10** | 47,648 | 46,848 | 800 | **98.32%** | 单步命中率超 98% |
+| **Step 11** | 48,926 | 47,616 | 1,310 | **97.32%** | 单步命中率超 97% |
+| **Step 12** | 50,561 | 48,896 | 1,665 | **96.71%** | 任务完成与总结 |
+| **总体 (Total)** | **418,096** | **389,376** | **28,720** | **93.13%** | **12 步综合缓存率超过 93%** |
 
 ---
 
-## 二、本次修复内容
+## 二、本次核心修复内容
 
-### 2.1 统一缓存命中统计口径（`src/utils/usage-normalizer.ts`）
+### 2.1 P0：全链路 SSE 流式 UTF-8 字符解码与防跨 chunk 乱码截断
+* **问题根因**：Node.js 原生 SSE 流读取中，长中文字符由 3 字节 UTF-8 构成。当 TCP 分包或缓冲区边界恰好切断在中文中间时，直接使用 `chunk.toString()` 或 `buffer += chunk.toString()` 会将半个多字节替换为 UTF-8 替换符 `\ufffd`（乱码）。客户端在下一轮将 Assistant 消息原样发回上游时，上游在该乱码位置发生 Token 前缀失配，直接导致历史 KV 缓存断崖式丢失。
+* **修复**：对 `openai-core`、`openai-responses-core`、`codex-core`、`claude-core`、`zed-core` 等所有 SSE 流式读取器引入 `StringDecoder('utf8')`，并使用 `Buffer.concat` 代替所有的请求体字符串累加，彻底根除 UTF-8 跨块切分产生的破坏。
 
-按「**顶层是否出现 `cache_*` 字段**」判别语义，把 exclusive 归一为 inclusive 总量：
+### 2.2 P1：0-Hop 直通路径补齐 tools 稳定排序与通用 Socket 亲和性保活
+* **直通工具稳定化**：在 `openai-core` 与 `claude-core` 的直通调用入口（`callApi` 与 `streamApi`）中接入 `stabilizeToolsForPrefixCache`，对入参 tools 数组按 `name` 排序并对 `parameters`/`input_schema` 的 properties 递归排序，防止客户端工具动态注册或 JSON 键乱序引发的前缀缓存抖动。
+* **通用会话单连接亲和性**：在 `proxy-utils.ts` 中移除仅对本地与 Trae 生效的限制。只要下游携带 `x-session-affinity` / `session-id`（或网关基于首轮消息摘要自动提取的会话种子），即针对该会话分配专用 Keep-Alive 单 Socket Agent，避免多轮请求在全局多 Socket 池中随机漂移到不同的后端 L4 Pod。
 
-```ts
-// 判别子不能用「有没有 input_tokens」——
-// Responses API 也给 input_tokens，但它是 inclusive 的
-const topCacheRead = usage?.cache_read_input_tokens ?? record.cache_read_input_tokens;
-const topCacheCreation = usage?.cache_creation_input_tokens ?? record.cache_creation_input_tokens;
-const isAnthropicExclusive = topCacheRead !== undefined || topCacheCreation !== undefined;
+### 2.3 P2：号池多账号节点会话粘滞（Session Stickiness）
+* **问题根因**：此前号池选择器 `ProviderPoolSelector` 使用纯 LRU 评分策略，每次请求都会主动挑选评分最低（最久未使用）的节点。当号池配置了多个账号（如 2 个 Trae 账号或多个 Codex/API 凭据）时，多轮对话的每一步都会轮流换号。由于每个账号在上游拥有独立的认证上下文与计算集群，每次换号都会导致上游面对全新会话，缓存命中率直接归零。
+* **修复**：在 `ProviderPoolSelector` 中新增基于会话 ID 的 LRU 亲和性映射表（`_sessionNodeMap`）。同一会话的多轮交互在原节点健康且未达并发上限的情况下，始终固定在同一个账号/节点上；当且仅当节点故障或显式重试时平滑故障转移。新增单元测试保障亲和性与故障切换行为。
 
-const promptTokens = isAnthropicExclusive
-    ? rawPromptTokens + toNumber(topCacheRead) + toNumber(topCacheCreation)
-    : rawPromptTokens;
-```
+### 2.4 P2：Zed 协议确定性 `thread_id` 派生
+* **修复**：在 `zed-payload-builders.ts` 中，将每轮无条件生成的随机 `thread_id: randomUUID()` 改为通过 `toValidUUID(sessionId)` 从下游会话确定性派生，保证多轮交互在上游始终位于同一会话流。
 
-`totalTokens` 同步补齐，避免 `total < prompt` 的矛盾值。
-
-**方向相反的配套修正**：`zed-core._formatClaudeUsage` 需要 Anthropic **exclusive**
-语义，因此把缓存从总量中**扣回**（`input_tokens = total − cacheRead − cacheCreation`）。
-两处方向相反，后续维护时勿混淆。
-
-### 2.2 直通路径补齐 tools 稳定排序（收益最大）
-
-**根因**：`sortToolsByName` 及其开关 `CONVERT_SORT_TOOLS`（默认开启）
-**只在 Converter strategies 内部被调用**。而：
-
-- `trae` 走 **1-Hop**（`resolveBridgePlan` 对 trae 恒 `needsConversion=false`）
-- `codex` 的 `/v1/responses` 走 **0-Hop**
-- `zed` 三协议**直通**
-
-这三条路径**根本不进 Converter**，因此排序开关对它们**静默失效**——
-这正是「tools 每轮重排 = 每轮冷启动」的根因。
-
-**修复**：新增 `stabilizeToolsForPrefixCache()` 并接入三条直通路径：
-
-| 文件 | 接入点 |
-|---|---|
-| `src/providers/trae/trae-core.ts` | `prepareRequestBody` 的 tools 归一化处 |
-| `src/providers/openai/codex-core.ts` | 补完 `web_search` 之后 |
-| `src/providers/zed/zed-payload-builders.ts` | 三处 tools 构建点（OpenAI / Gemini / Anthropic） |
-
-该函数做两件事：
-1. **按 name 稳定排序**（码点比较，不用 `localeCompare`——后者受进程 locale/ICU
-   影响，同一份 tools 在不同机器上可能得出不同顺序，反而破坏稳定性）；
-2. **对 `function.parameters` 递归归一 JSON 键序**，消除「同一份 schema、
-   键插入顺序不同」导致的字节差异。
-
-仅消除顺序抖动，**不改动任何语义**（数组元素顺序、字段值均保留）。
-
-### 2.3 其他清理
-
-- **`trae` 不再透传顶层 `system`**：该系统提示已由 `claudeRequestToTraeMessages`
-  拍平进 `messages[0]`，顶层重复透传还会把客户端的 `cache_control:{type:'ephemeral'}`
-  噪声带给上游（trae 不吃显式缓存）。
-- **`trae` 清理 `_` 前缀内部字段泄漏**：`request-pipeline` 注入的
-  `_monitorRequestId` / `_requestBaseUrl` 是可枚举赋值，会被 `{ ...requestBody }`
-  浅拷贝带进上游 body。其余 Provider 均已显式删除，唯独 trae 遗漏。
+### 2.5 内部调度属性深度隔离与 Google / OpenAI 原生协议兼容
+* **修复**：网关内部注入的调度控制标记（如 `_downstreamSessionId`、`_monitorRequestId`、`_requestBaseUrl` 等）在发往实际提供商前统一深度剥离，彻底杜绝 Google Antigravity 原生 Protobuf 报错 `Invalid JSON payload received. Unknown name "_downstreamSessionId"` 以及 OpenAI Responses API 报 `400 Bad Request: Unsupported parameter` 的阻断性兼容问题。
 
 ---
 
-## 三、新增文档
+## 三、7 大主流 Provider 实测兼容性矩阵
 
-[`docs/CACHE_HIT_RATE.md`](docs/CACHE_HIT_RATE.md) —— 完整记录了：
+对以下 7 个 Provider 及其代表模型进行了全量多轮对话与流式 SSE 验证：
 
-- 上游隐式前缀缓存的机制与位置敏感性
-- 两类根因的代码定位与实测数据
-- 网关侧修复清单 + **客户端侧必须配合的三条约定**
-- 排查流程（先判别口径 → 再直连上游确认真 miss → 最后定位请求形状）
-- 正确口径公式、已修复项与「已知正常低命中情形」清单
-- 相关代码索引
-
-同步更新 [`docs/CROSS_PROTOCOL_ARCHITECTURE.md`](docs/CROSS_PROTOCOL_ARCHITECTURE.md)
-第 5 节缓存约束与第 6 节文档入口。
-
----
-
-## 四、验证
-
-| 项目 | 结果 |
-|---|---|
-| `npm run typecheck` | **0 errors** |
-| `npm test` | **86 suites / 879 tests 全部通过，0 失败**（v8.0.0 基线 85/862 全绿，新增 1 文件 17 用例） |
-| `cached > prompt` 行占比 | **15.1% → 0%** |
-| tools 每轮乱序命中率 | **18.0% → 75.4%**（与顺序稳定时的 75.6% 持平） |
-| 真实流量复检 | `trae` 命中率 **75.2%** |
-| 跨协议一致性 | Claude 与 OpenAI 两种下游协议的命中率恢复可比 |
-
-### 发布前修复的回归
-
-首发版本曾引入 1 处回归并在文档中误判为「既有失败」：
-
-- **缺陷**：Codex 0-Hop 路径把网关注入的无名 `web_search` 工具一并纳入排序。
-  它取不到 name（空串码点最小）被排到 `tools[0]`，把客户端原有首工具挤到
-  `tools[1]`，导致 4 个 `phase3-providers` 用例失败。
-- **修复**：先稳定化客户端工具，再追加 `web_search`，使其固定位于末尾、不参与排序。
-- **同时修正**：`stabilizeToolsForPrefixCache` 此前只处理嵌套 `function.parameters`，
-  而 Codex / Zed 使用扁平 `parameters` 或 `input_schema`，schema 键序归一在这几处
-  静默失效——现已覆盖三种形状。
-- **订正**：v8.0.0 基线实测为 862/862 全绿，不存在「既有失败」；此前的归因陈述有误，
-  已在本版本改正。
+| Provider | 代表模型 | 多轮对话与流式状态 | Turn 2 缓存命中率 | 特性支持 |
+|---|---|:---:|:---:|---|
+| **antigravity** | `gemini-3.8-flash-medium` | ✅ 成功 | 0.0% (依赖官方显式缓存) | 支持原生 Thinking 流式回传与多轮对话 |
+| **openai-codex-oauth** | `gpt-6-luna` | ✅ 成功 | **61.0%** (指令级缓存) | 自动绑定 `prompt_cache_key`，命中 4K+ 指令缓存 |
+| **openai-custom** | `deepseek-v4.1-flash` | ✅ 成功 | **92.3%** | 本地/自建推理端点，极速低延迟输出 |
+| **claude-custom** | `deepseek-flash` | ✅ 成功 | **92.3%** | DeepSeek 官方 Anthropic 协议端点 |
+| **openai responses** | `deepseek-v4-flash` | ✅ 成功 | 0.0% (依上游 vLLM 开启情况) | 标准 OpenAI Responses 协议，支持原生推理 |
+| **trae (tob_raw_chat)** | `DeepSeek-V4.1-Flash-1017` | ✅ 成功 | **96.5%** | 官方 Direct LLM 通道，前缀缓存收益极高 |
+| **trae (chat_v3)** | `deepseek-v4.1-flash` | ✅ 成功 | 0.0% (IDE 封装代理层) | 完整保留思考过程与代码补全能力 |
 
 ---
 
-## 五、升级建议
+## 四、升级说明
 
-1. **无需配置迁移**：本版本不含破坏性变更，直接替换代码即可。
-2. **重启服务**：使新的 `usage-normalizer` 与直通路径稳定化生效。
-3. **观察命中率**：重启后 `model-usage-stats` 页面显示的 `cached / prompt`
-   即为正确值，且 Claude / OpenAI 两种协议可比。
-4. **若命中率仍偏低**，按以下顺序排查（详见 `docs/CACHE_HIT_RATE.md` §6）：
-   - **客户端 system 是否静态**——把所有易变信息（日期、cwd、git status）
-     移到**最后一条 user 消息**。这是最大头，实测 14.4% → 82.7%；
-   - 历史中间是否插入了 `<system-reminder>` 等变化内容；
-   - 客户端 tools 集合是否每轮**增删**（排序能兜住重排，兜不住增删）。
-
-> **说明**：网关不会擅自改写对话语义（例如剔除 `<env>`、重排历史消息），
-> 因为那会污染模型输入。这类信息应仅由客户端调整位置。
-
----
-
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+* **平滑升级**：本版本完全向前兼容，现有的 `config.json`、`provider_pools.json` 与客户端调用方式无需任何变动。
+* **推荐实践**：在客户端（如 Cursor、Claude Code、DSH 等）配置中开启会话保持或传递 `session-id` / `x-session-affinity` 请求头，即可自动激活网关的单 Socket 亲和性与号池账号粘滞功能，获得最高的缓存加速与推理性价比。
