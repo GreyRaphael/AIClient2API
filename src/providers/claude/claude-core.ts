@@ -3,7 +3,7 @@ import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Agent } from 'node:http';
 import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
-import { configureTLSSidecar, getKeepAliveAgents } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 
@@ -151,17 +151,10 @@ export class ClaudeApiService {
                 url: endpoint,
                 data: cleanBody
             };
-            if (downstreamSessionId) {
-                axiosConfig.headers = {
+            axiosConfig.headers = {
                     ...((axiosConfig.headers as Record<string, string>) || {}),
-                    'x-session-affinity': String(downstreamSessionId),
-                    'session-id': String(downstreamSessionId),
-                    'x-session-id': String(downstreamSessionId),
-                    'x-conversation-id': String(downstreamSessionId),
-                    'X-Session-Id': String(downstreamSessionId),
-                    'X-Conversation-Id': String(downstreamSessionId)
+                    ...buildSessionHeaders(downstreamSessionId)
                 };
-            }
             this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             return response.data as T;
@@ -242,17 +235,10 @@ export class ClaudeApiService {
                 data: { ...cleanBody, stream: true },
                 responseType: 'stream'
             };
-            if (downstreamSessionId) {
-                axiosConfig.headers = {
+            axiosConfig.headers = {
                     ...((axiosConfig.headers as Record<string, string>) || {}),
-                    'x-session-affinity': String(downstreamSessionId),
-                    'session-id': String(downstreamSessionId),
-                    'x-session-id': String(downstreamSessionId),
-                    'x-conversation-id': String(downstreamSessionId),
-                    'X-Session-Id': String(downstreamSessionId),
-                    'X-Conversation-Id': String(downstreamSessionId)
+                    ...buildSessionHeaders(downstreamSessionId)
                 };
-            }
             this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             const reader = response.data as AsyncIterable<Buffer | string>;

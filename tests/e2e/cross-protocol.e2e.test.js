@@ -446,20 +446,18 @@ describe('跨协议定向 E2E（真实上游）', () => {
     }, resolveModelTimeoutMs(MULTIMODAL_MODEL));
 
     registerTargetTest('上游 4xx 错误响应保留可读细节', RESPONSES_MODEL, async () => {
+        // 该用例必须用「与模型能力无关」的方式制造 4xx。
+        // 旧版靠传图片并假定该 provider 不支持图片、会返回 400；实测该 provider 现已支持
+        // 图片（返回 200 并正确识别），前提失效导致假失败。改用超范围的 max_tokens：
+        // 任何 OpenAI 兼容上游都必须拒绝，且网关需把上游错误体透出为 "upstream: ..."。
         const result = await postJson({
             baseUrl: BASE_URL,
             apiKey,
             pathName: '/v1/chat/completions',
             body: {
                 model: RESPONSES_MODEL,
-                messages: [{
-                    role: 'user',
-                    content: [
-                        { type: 'text', text: 'What color is this image?' },
-                        { type: 'image_url', image_url: { url: `data:image/png;base64,${E2E_RED_32_PNG_BASE64}` } }
-                    ]
-                }],
-                max_tokens: 128,
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 999999999,
                 stream: false
             }
         });

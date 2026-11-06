@@ -3,6 +3,12 @@ import { getCustomModelListProvider } from './provider-models.ts';
 import { nodeSupportsModel, resolveNodeCapability, resolveProviderCapability } from './model-capability.ts';
 import type { ProviderConfig, ProviderPoolGlobalConfig, ProviderStatus, ProviderStatusMap } from './provider-types.ts';
 
+/**
+ * 会话→节点亲和映射的容量上限。
+ * 达到上限时按 LRU 淘汰（命中会刷新顺序），避免热会话被误踢。
+ */
+const SESSION_NODE_MAP_LIMIT = 2000;
+
 export interface ProviderSelectionOptions {
     allowUnselectedModel?: boolean;
     customModelConfig?: unknown;
@@ -122,6 +128,27 @@ export class ProviderPoolSelector {
      * 实际执行 provider 选择的内部方法（同步执行，由锁保护）
      * @private
      */
+    /**
+     * 判断节点是否已达并发上限。
+     *
+     * 修复 v8.2.0 的两个缺陷：
+     *   1. `queueLimit` 未配置时为 0，而 `queue.length >= 0` 恒为真 —— 于是任何达到
+     *      concurrencyLimit 的节点都被判为"过载"，钉住逻辑形同死代码、并发时每轮丢弃亲和。
+     *      这里改为与 provider-pool-scoring 一致：只有 `queueLimit > 0` 时才用队列长度判定。
+     *   2. 用 `waitingCount`（评分所用的真值）而非 `queue.length`，避免两个字段漂移。
+     */
+    private isNodeOverloaded(candidate: ProviderStatus): boolean {
+        const concurrencyLimit = parseInt(String(candidate.config.concurrencyLimit || 0), 10);
+        if (!(concurrencyLimit > 0)) return false;
+        if (candidate.state.activeCount < concurrencyLimit) return false;
+
+        const queueLimit = parseInt(String(candidate.config.queueLimit || 0), 10);
+        if (!(queueLimit > 0)) return true;   // 无队列上限：达到并发上限即视为过载
+
+        const waiting = Number(candidate.state.waitingCount ?? 0);
+        return waiting >= queueLimit;
+    }
+
     select(providerType: string, requestedModel: string | null, options: ProviderSelectionOptions) {
         const availableProviders = this.getProviderStatus()[providerType] || [];
 
@@ -134,9 +161,16 @@ export class ProviderPoolSelector {
         // 提前计算池中最小序列号，避免在排序算法中重复 O(N) 计算
         const minSeq = Math.min(...availableProviders.map((p: ProviderStatus) => p.config._lastSelectionSeq || 0));
 
-        let availableAndHealthyProviders = availableProviders.filter((p: ProviderStatus) =>
-            p.config.isHealthy && !p.config.isDisabled && !p.config.needsRefresh
-        );
+        let availableAndHealthyProviders = availableProviders.filter((p: ProviderStatus) => {
+            if (!p.config.isHealthy || p.config.isDisabled || p.config.needsRefresh) return false;
+            // 冷却期内的节点不应被选中（含被会话亲和钉住的情况）
+            const recovery = p.config.scheduledRecoveryTime;
+            if (recovery) {
+                const recoveryTime = new Date(String(recovery)).getTime();
+                if (Number.isFinite(recoveryTime) && recoveryTime > now) return false;
+            }
+            return true;
+        });
 
         // 自定义模型是用户显式创建的路由意图；即使其 actualModel 未出现在上游发现列表，
         // 也允许节点尝试处理，避免“分组列表可见但无法路由”。
@@ -193,21 +227,17 @@ export class ProviderPoolSelector {
         const sessionId = (typeof options.sessionId === 'string' && options.sessionId) ? options.sessionId : null;
         let selected: ProviderStatus | undefined;
 
-        if (sessionId) {
-            const affinityKey = `${providerType}:${sessionId}`;
+        const affinityKey = sessionId ? `${providerType}:${sessionId}` : null;
+        if (affinityKey) {
             const preferredUuid = this._sessionNodeMap.get(affinityKey);
             if (preferredUuid) {
                 const candidate = availableAndHealthyProviders.find((p) => p.uuid === preferredUuid);
-                if (candidate) {
-                    const concurrencyLimit = parseInt(String(candidate.config.concurrencyLimit || 0), 10);
-                    const queueLimit = parseInt(String(candidate.config.queueLimit || 0), 10);
-                    const isOverloaded = concurrencyLimit > 0 &&
-                        candidate.state.activeCount >= concurrencyLimit &&
-                        candidate.state.queue.length >= queueLimit;
-                    if (!isOverloaded) {
-                        selected = candidate;
-                        this.log('debug', `[Session Affinity] Reusing pinned node ${this.getDisplayName(candidate.config)} for session: ${sessionId}`);
-                    }
+                if (candidate && !this.isNodeOverloaded(candidate)) {
+                    selected = candidate;
+                    // 真正的 LRU：命中后把该会话移到队尾，避免热会话被 FIFO 淘汰
+                    this._sessionNodeMap.delete(affinityKey);
+                    this._sessionNodeMap.set(affinityKey, candidate.uuid);
+                    this.log('debug', `[Session Affinity] Reusing pinned node ${this.getDisplayName(candidate.config)} for session: ${sessionId}`);
                 }
             }
         }
@@ -223,12 +253,12 @@ export class ProviderPoolSelector {
                 return a.uuid < b.uuid ? -1 : 1;
             })[0];
 
-            if (sessionId && selected) {
-                if (this._sessionNodeMap.size >= 2000) {
+            if (affinityKey && selected) {
+                if (this._sessionNodeMap.size >= SESSION_NODE_MAP_LIMIT) {
                     const oldestKey = this._sessionNodeMap.keys().next().value;
                     if (oldestKey) this._sessionNodeMap.delete(oldestKey);
                 }
-                this._sessionNodeMap.set(`${providerType}:${sessionId}`, selected.uuid);
+                this._sessionNodeMap.set(affinityKey, selected.uuid);
             }
         }
 

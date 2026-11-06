@@ -45,7 +45,7 @@
     "start:standalone": "node src/services/api-server.js",
     "start:dev": "node src/core/master.js --dev",
     "test": "jest",
-    "test:e2e": "jest tests/e2e --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=/tests/e2e/providers/ --testPathIgnorePatterns=/tests/e2e/image-generation/ --testTimeout=300000 --globalSetup=./tests/e2e/global-setup.js",
+    "test:e2e": "jest tests/e2e --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=/tests/e2e/providers/ --testPathIgnorePatterns=/tests/e2e/image-generation\\.e2e\\.test\\.js$ --testTimeout=300000 --globalSetup=./tests/e2e/global-setup.js",
     "test:e2e:providers": "jest tests/e2e/providers --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testTimeout=300000 --globalSetup=./tests/e2e/global-setup.js",
     "test:e2e:images": "jest tests/e2e/image-input.e2e.test.js --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testTimeout=300000 --globalSetup=./tests/e2e/global-setup.js",
     "test:e2e:images:generation": "jest tests/e2e/image-generation.e2e.test.js --runInBand --forceExit --testPathIgnorePatterns=/node_modules/ --testTimeout=300000 --globalSetup=./tests/e2e/global-setup.js",

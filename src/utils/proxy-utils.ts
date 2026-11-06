@@ -13,24 +13,74 @@ import requestContext from './context.ts';
 import { HttpProxyAgent } from 'http-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { getTLSSidecar } from './tls-sidecar.ts';
-import { NETWORK, MODEL_PROVIDER } from './constants.ts';
+import { NETWORK } from './constants.ts';
 import { getErrorMessage } from './error.ts';
 
 type UnknownRecord = Record<string, unknown>;
 
-// 默认 Keep-Alive Agent 配置（无代理直连时复用 TCP 连接池，优化前缀缓存与连接性能）
+// ---------------------------------------------------------------------------
+// Keep-Alive Agent 策略（v8.2.0 实测结论驱动）
+//
+// 背景：v8.2.0 引入了「每会话一个 maxSockets:1 的 Agent」来追求上游 KV cache 亲和。
+// 实测（见 logs/review-final/MAXSOCKETS-CACHE-VERIFICATION.md）证明该策略：
+//   1) 没有缓存收益 —— 关闭环境代理、socket 复用真实发生（reused=true）的条件下，
+//      多轮命中率中位数 maxSockets:1 与 maxSockets:64 完全相同（97.23% vs 97.23%，
+//      n=18/16）；甚至每轮强制新建连接仍有 97%–99.5% 命中。
+//   2) 有明确代价 —— 同会话 5 并发被串行化，慢 3.26 倍。
+//   3) 有正确性风险 —— 缓存放不下时会 destroy() 掉仍有在途请求的 Agent，导致
+//      客户端收到无终止事件的截断流（线上已实际触发）。
+//
+// 因此改为「按 provider 节点复用单个 Keep-Alive Agent 池」：
+//   - keepAlive: true          —— 保留，这是 TCP 复用得以发生的前提
+//   - maxFreeSockets: 1        —— 保留，确保复用同一个空闲 socket
+//   - maxSockets               —— 可配置（默认 pool 大小），不再被钉死为 1
+//   - 不再按会话拆分 Agent      —— 消除串行化与驱逐杀流
+// 若某上游确实要求"单连接绑定 KV cache slot"，可用 singleSocket: true 显式开启。
+// ---------------------------------------------------------------------------
+
+/** 默认 Keep-Alive Agent 配置（按节点共享的连接池） */
 const defaultAgentOptions = {
     keepAlive: true,
-    maxSockets: 64,        // 每个主机最多 64 个连接
-    maxFreeSockets: 1,     // 最多保留 1 个空闲连接，避免多空闲 socket 轮询导致 KV cache slot 分裂
+    maxSockets: 64,
+    maxFreeSockets: 1,     // 只保留 1 个空闲 socket，避免多空闲连接轮询导致 KV cache slot 分裂
     timeout: NETWORK.DEFAULT_TIMEOUT
 };
 
 export const defaultHttpAgent = new http.Agent(defaultAgentOptions);
 export const defaultHttpsAgent = new https.Agent(defaultAgentOptions);
 
-// 专用单 Socket 亲和性 Agent 缓存（针对本地推理服务或显式配置单连接的上游，确保 100% 绑定单一 TCP 连接与后端 KV Cache Slot）
-const singleSocketAgentCache = new Map<string, { httpAgent: http.Agent; httpsAgent: https.Agent }>();
+/** 默认池的稳定包装对象（保证 getKeepAliveAgents 的返回身份一致） */
+const DEFAULT_AGENT_PAIR = { httpAgent: defaultHttpAgent, httpsAgent: defaultHttpsAgent } as const;
+
+/**
+ * 按 provider 节点缓存的 Keep-Alive Agent（键为 `${uuid|baseUrl}|${maxSockets}`）。
+ * 由于不再按会话拆分，条目数上界是「节点数 × 不同 maxSockets 取值」，规模很小；
+ * 仍保留容量上限 + 真正 LRU 作为兜底。
+ */
+const keepAliveAgentCache = new Map<string, { httpAgent: Agent; httpsAgent: Agent }>();
+const KEEPALIVE_CACHE_LIMIT = 256;
+
+/** 单 socket 模式下 maxSockets 的取值 */
+const SINGLE_SOCKET_MAX = 1;
+
+/**
+ * 解析配置期望的 maxSockets。
+ * 兼容字符串形态（配置文件/环境变量经常是 "4" 而不一定是数字 4）。
+ */
+export function resolveMaxSockets(config?: UnknownRecord | null): number {
+    const raw = config?.maxSockets;
+    if (raw === undefined || raw === null || raw === '') return defaultAgentOptions.maxSockets;
+    const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return defaultAgentOptions.maxSockets;
+    return Math.floor(parsed);
+}
+
+/** 布尔值兼容字符串形态（"true"/"false" 在配置文件里很常见） */
+function toBooleanFlag(value: unknown): boolean | undefined {
+    if (value === true || value === 'true' || value === 1 || value === '1') return true;
+    if (value === false || value === 'false' || value === 0 || value === '0') return false;
+    return undefined;
+}
 
 export function isLocalhostUrl(urlStr: string | null | undefined): boolean {
     if (!urlStr || typeof urlStr !== 'string') return false;
@@ -43,86 +93,198 @@ export function isLocalhostUrl(urlStr: string | null | undefined): boolean {
     }
 }
 
+/**
+ * 判断某个 provider 是否要启用「单 socket」模式。
+ *
+ * 注意：这里**只**决定 maxSockets 取 1 还是池大小，不再影响「是否按会话拆分 Agent」
+ * —— 后者已被实测证明无收益且有害，已整体移除。
+ *
+ * 优先级：显式 singleSocket 配置 > 显式 maxSockets 配置 > 按 provider/URL 推断。
+ */
 export function isSingleSocketAffinityEnabled(config?: UnknownRecord | null, baseUrl?: string | null): boolean {
     if (!config && !baseUrl) return false;
-    if (config?.singleSocket === true || config?.maxSockets === 1) return true;
-    if (config?.singleSocket === false) return false;
+
+    // 1. 显式配置优先（兼容字符串形态）
+    const explicitSingle = toBooleanFlag(config?.singleSocket);
+    if (explicitSingle !== undefined) return explicitSingle;
+    // maxSockets 是数值语义：只有解析结果恰好为 1 才代表"单连接"
+    if (config?.maxSockets !== undefined && config?.maxSockets !== null && config?.maxSockets !== '') {
+        const parsed = Number.parseInt(String(config.maxSockets), 10);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed === 1;
+    }
+
+    // 2. 不再按 provider 名称硬编码开启单连接。
+    //    v8.2.0 曾对 trae 无条件返回 true。实测（trae tob_raw_chat，关闭环境代理、socket
+    //    复用真实发生）显示：maxSockets:1 与 :64 的多轮命中率中位数完全相同
+    //    （97.23% vs 97.23%，n=18/16），而 :1 让同会话 5 并发慢 3.26 倍。
+    //    因此改为「仅在配置显式声明 singleSocket:true / maxSockets:1 时才启用」，
+    //    需要单连接的部署仍可在 provider_pools.json 里显式开启。
+
     const url = getString(config?.OPENAI_BASE_URL)
         || getString(config?.CLAUDE_BASE_URL)
         || getString(config?.CODEX_BASE_URL)
         || getString(config?.TRAE_BASE_URL)
         || getString(config?.baseUrl)
         || baseUrl;
-    const provider = getString(config?.MODEL_PROVIDER) || getString(config?.provider);
-    if (
-        provider === MODEL_PROVIDER.TRAE ||
-        provider === 'trae' ||
-        provider === 'trae-chat_v3' ||
-        provider === MODEL_PROVIDER.TRAE_CHAT_V3 ||
-        Boolean(config?.TRAE_OAUTH_CREDS_FILE_PATH) ||
-        Boolean(config?.TRAE_CHANNEL_MODE)
-    ) {
-        return true;
-    }
-    if (url && (url.includes('trae.cn') || url.includes('mchost.guru'))) {
-        return true;
-    }
+
+    // 3. 仅对 localhost / 127.0.0.1 保留单连接默认（本地推理服务常见单 worker）
     return isLocalhostUrl(url);
 }
 
+/**
+ * 按 provider 节点获取 Keep-Alive Agent。
+ *
+ * 与 v8.2.0 的关键差异：**Agent 按节点共享，不再按会话拆分**。
+ * `affinityKey` 参数仅为向后兼容保留，不再影响 Agent 的选取（实测会话隔离无缓存收益）。
+ *
+ * 这样同时消除了两个线上问题：
+ *   - 同会话并发被 maxSockets:1 串行化
+ *   - 缓存放不下时 destroy() 掉在途请求的连接池
+ */
 export function getKeepAliveAgents(
     config?: UnknownRecord | null,
     baseUrl?: string | null,
-    affinityKey?: string | null
-): { httpAgent: http.Agent; httpsAgent: https.Agent } {
-    const affinityDisabled = config?.singleSocket === false;
-    const shouldAffinity = !affinityDisabled && (Boolean(affinityKey) || isSingleSocketAffinityEnabled(config, baseUrl));
-    if (!shouldAffinity) {
-        return { httpAgent: defaultHttpAgent, httpsAgent: defaultHttpsAgent };
+    _affinityKey?: string | null
+): { httpAgent: Agent; httpsAgent: Agent } {
+    const singleSocket = isSingleSocketAffinityEnabled(config, baseUrl);
+    const maxSockets = singleSocket ? SINGLE_SOCKET_MAX : resolveMaxSockets(config);
+
+    // 无特殊配置的远端 provider 直接复用全局默认池（保持既有契约，且全局只有一份）
+    if (!singleSocket && maxSockets === defaultAgentOptions.maxSockets) {
+        return DEFAULT_AGENT_PAIR;
     }
 
     const baseKey = (typeof config?.uuid === 'string' && config.uuid)
         ? config.uuid
-        : (baseUrl || 'single-socket-default');
-    const key = affinityKey ? `${baseKey}:${affinityKey}` : baseKey;
+        : (baseUrl || 'keepalive-default');
+    const key = `${baseKey}|${maxSockets}`;
 
-    let cached = singleSocketAgentCache.get(key);
-    if (!cached) {
-        if (singleSocketAgentCache.size >= 100) {
-            const oldestKey = singleSocketAgentCache.keys().next().value;
-            if (oldestKey) {
-                invalidateKeepAliveAgents(oldestKey);
-            }
-        }
-        const singleSocketOptions = {
-            keepAlive: true,
-            keepAliveMsecs: 60000,
-            maxSockets: 1,
-            maxFreeSockets: 1,
-            timeout: NETWORK.DEFAULT_TIMEOUT
-        };
-        cached = {
-            httpAgent: new http.Agent(singleSocketOptions),
-            httpsAgent: new https.Agent(singleSocketOptions)
-        };
-        singleSocketAgentCache.set(key, cached);
-        logger.info(`[KeepAlive] Created single-socket affinity agent for key: ${key}`);
-    } else {
-        singleSocketAgentCache.delete(key);
-        singleSocketAgentCache.set(key, cached);
+    let cached = keepAliveAgentCache.get(key);
+    if (cached) {
+        // 命中时刷新插入序（真正的 LRU）
+        keepAliveAgentCache.delete(key);
+        keepAliveAgentCache.set(key, cached);
+        return cached;
     }
+
+    if (singleSocket) {
+        logger.warn(
+            `[KeepAlive] single-socket mode enabled for ${baseKey}; this serialises concurrent ` +
+            'requests to one TCP connection. Measured: no cache-hit benefit vs a socket pool. ' +
+            'Set singleSocket:false (or maxSockets:N) unless your upstream truly binds KV cache to a connection.'
+        );
+    }
+
+    const options = {
+        keepAlive: true,
+        keepAliveMsecs: 60000,
+        maxSockets,
+        maxFreeSockets: 1,
+        timeout: NETWORK.DEFAULT_TIMEOUT
+    };
+    cached = {
+        httpAgent: new http.Agent(options),
+        httpsAgent: new https.Agent(options)
+    };
+    if (keepAliveAgentCache.size >= KEEPALIVE_CACHE_LIMIT) {
+        const oldestKey = keepAliveAgentCache.keys().next().value;
+        if (oldestKey) {
+            const evicted = keepAliveAgentCache.get(oldestKey);
+            keepAliveAgentCache.delete(oldestKey);
+            if (evicted) destroyAgentWhenIdle(evicted);
+        }
+    }
+    keepAliveAgentCache.set(key, cached);
+    logger.info(`[KeepAlive] Created pooled keep-alive agent for ${baseKey} (maxSockets=${maxSockets})`);
     return cached;
 }
 
+/**
+ * 回收某个节点的 Agent。
+ *
+ * 与 v8.2.0 的关键差异：
+ *   1. 支持按 uuid 前缀批量失效（v8.2.0 只做精确匹配，而缓存键含后缀，导致永远失效失败）
+ *   2. **不再 destroy() 仍有在途请求的 Agent** —— 只把它从缓存移除，让连接自然排空。
+ *      v8.2.0 无条件 destroy() 会掐断在途响应，客户端收到无 [DONE] 的截断流。
+ */
 export function invalidateKeepAliveAgents(key: string): boolean {
-    const cached = singleSocketAgentCache.get(key);
-    if (cached) {
-        cached.httpAgent.destroy();
-        cached.httpsAgent.destroy();
-        singleSocketAgentCache.delete(key);
-        return true;
+    if (!key) return false;
+    let removed = false;
+    for (const cacheKey of [...keepAliveAgentCache.keys()]) {
+        // 精确匹配，或以 `${key}|` / `${key}:` 开头的节点级匹配（兼容 v8.2.0 的旧键格式）
+        const isMatch = cacheKey === key
+            || cacheKey.startsWith(`${key}|`)
+            || cacheKey.startsWith(`${key}:`);
+        if (!isMatch) continue;
+        const cached = keepAliveAgentCache.get(cacheKey);
+        keepAliveAgentCache.delete(cacheKey);
+        if (cached) destroyAgentWhenIdle(cached);
+        removed = true;
     }
-    return false;
+    return removed;
+}
+
+/**
+ * 仅在 Agent 没有在途请求时才 destroy；否则等它自然排空。
+ *
+ * Node 的 `agent.destroy()` 会立刻掐断所有 socket（包括正在传输响应的），
+ * 因此这里必须检查 `sockets` / `requests` 是否为空。
+ */
+function destroyAgentWhenIdle(agentPair: { httpAgent: Agent; httpsAgent: Agent }): void {
+    for (const agent of [agentPair.httpAgent, agentPair.httpsAgent]) {
+        const anyAgent = agent as unknown as {
+            sockets?: Record<string, unknown[]>;
+            requests?: Record<string, unknown[]>;
+            freeSockets?: Record<string, unknown[]>;
+            destroy: () => void;
+        };
+        const hasActive = Object.values(anyAgent.sockets || {}).some((list) => list.length > 0)
+            || Object.values(anyAgent.requests || {}).some((list) => list.length > 0);
+        if (!hasActive) {
+            try { anyAgent.destroy(); } catch { /* 已被销毁 */ }
+            continue;
+        }
+        // 有在途请求：等 socket 空闲后再销毁，避免掐断响应
+        const poll = () => {
+            const stillActive = Object.values(anyAgent.sockets || {}).some((list) => list.length > 0)
+                || Object.values(anyAgent.requests || {}).some((list) => list.length > 0);
+            if (stillActive) {
+                const timer = setTimeout(poll, 500);
+                if (typeof timer.unref === 'function') timer.unref();
+                return;
+            }
+            try { anyAgent.destroy(); } catch { /* 已被销毁 */ }
+        };
+        const timer = setTimeout(poll, 500);
+        if (typeof timer.unref === 'function') timer.unref();
+    }
+}
+
+/**
+ * 上游会话关联请求头。
+ *
+ * 历史原因：v8.2.0 为了"让上游把同一会话的多轮请求路由到同一 KV cache slot"，
+ * 在 openai-core / openai-responses-core / claude-core 的每个调用点（共 4 处）
+ * 各自内联了同一份 6 个头。实测（logs/review-unverified/session-headers.json）表明
+ * 上游并不依赖这些头——带与不带的多轮命中率差异在噪声内（trae 98% vs 97.59%、
+ * openai-custom 94.95% vs 95.63%、claude-custom 95.28% vs 95.63%）。
+ *
+ * 它们仍然保留（少数上游可能用于日志/计费归因，且删除属可观测的对外行为变更），
+ * 但收敛到这里一处，避免 4 份重复代码各自漂移。
+ *
+ * @param sessionId 下游会话标识；为空时返回空对象
+ */
+export function buildSessionHeaders(sessionId: unknown): Record<string, string> {
+    if (sessionId === null || sessionId === undefined || sessionId === '') return {};
+    const value = String(sessionId);
+    return {
+        'x-session-affinity': value,
+        'session-id': value,
+        'x-session-id': value,
+        'x-conversation-id': value,
+        'X-Session-Id': value,
+        'X-Conversation-Id': value
+    };
 }
 
 /**
@@ -473,6 +635,50 @@ export function getProxyConfigForProvider(config: UnknownRecord | null | undefin
  * @param {string} [affinityKey] - 会话级亲和性标识（用于独立 Socket 缓存）
  * @returns {Object} 更新后的 axios 配置
  */
+/**
+ * 判断某个 baseUrl 是否应当直连（而不是交给 axios 的环境代理）。
+ *
+ * 背景：v8.2.0 的直连分支不设置 `proxy`，axios 于是自行读取环境代理变量并把请求改写到
+ * 代理上，导致本模块的 Keep-Alive / 单 Socket 决策全部失效。但把 `proxy` 无条件设为
+ * `false` 又会打断那些**只能经代理访问**的上游（实测 codex 的 chatgpt.com 直连不可达）。
+ *
+ * 采取的判据：
+ *   1. 显式 `PROXY_ENABLED_PROVIDERS` 中的 provider 走代理，不在此处理（由代理分支接管）。
+ *   2. 目标是本机 / 私网地址（localhost、127/8、10/8、172.16/12、192.168/16、*.local）
+ *      —— 环境代理通常不覆盖这些，直连更可靠。
+ *   3. 其余情况：若有 `NO_PROXY` 覆盖该主机则直连；否则**保留环境代理**（安全默认）。
+ */
+function isDirectlyReachable(baseUrl: string | null | undefined): boolean {
+    if (!baseUrl) return false;
+    let host: string;
+    try {
+        host = new URL(baseUrl).hostname.toLowerCase();
+    } catch {
+        return false;
+    }
+    if (isLocalhostUrl(baseUrl)) return true;
+    // 私网网段
+    if (/^10\./.test(host)
+        || /^192\.168\./.test(host)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+        || host.endsWith('.local')
+        || host.endsWith('.internal')) {
+        return true;
+    }
+    // NO_PROXY / no_proxy 覆盖则直连
+    const noProxy = process.env.NO_PROXY || process.env.no_proxy || '';
+    if (noProxy.trim() === '*') return true;
+    if (noProxy) {
+        const entries = noProxy.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+        for (const entry of entries) {
+            const bare = entry.replace(/^\*?\./, '');
+            if (!bare) continue;
+            if (host === bare || host.endsWith(`.${bare}`)) return true;
+        }
+    }
+    return false;
+}
+
 export function configureAxiosProxy(
     axiosConfig: UnknownRecord,
     config: UnknownRecord | null | undefined,
@@ -488,12 +694,22 @@ export function configureAxiosProxy(
         // 禁用 axios 内置的代理配置，使用我们的 agent
         axiosConfig.proxy = false;
     } else {
-        // 无代理直连时，优先使用已绑定的 agent，若未指定或指定了会话亲和性则按配置/URL 决定
-        if (affinityKey || !axiosConfig.httpAgent || !axiosConfig.httpsAgent) {
-            const baseUrl = getString(axiosConfig.baseURL) || getString(axiosConfig.url);
-            const agents = getKeepAliveAgents(config, baseUrl, affinityKey);
-            axiosConfig.httpAgent = agents.httpAgent;
-            axiosConfig.httpsAgent = agents.httpsAgent;
+        // 无代理直连：总是装配本模块的 Keep-Alive Agent。
+        const baseUrl = getString(axiosConfig.baseURL) || getString(axiosConfig.url);
+        const agents = getKeepAliveAgents(config, baseUrl, affinityKey);
+        axiosConfig.httpAgent = agents.httpAgent;
+        axiosConfig.httpsAgent = agents.httpsAgent;
+
+        // 关闭 axios 自身的内置代理解析，避免它读取 `http_proxy`/`https_proxy`/
+        // `NODE_USE_ENV_PROXY` 后，在 lib/adapters/http.js 的 setProxy() 里把 hostname
+        // 改写成代理地址（agent 在其后才赋值）—— 那会让 Keep-Alive 失效（代理普遍回
+        // Connection: close），并掩盖本模块的代理决策。
+        //
+        // 但**不能无条件关闭**：某些上游（例如 codex 的 chatgpt.com）在本环境中只能经
+        // 环境代理访问，强制直连会直接失败（实测 500 / 直连不可达）。因此仅当目标主机
+        // 确实可直连时才关闭；否则保留环境代理行为。
+        if (isDirectlyReachable(baseUrl)) {
+            axiosConfig.proxy = false;
         }
     }
 

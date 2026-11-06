@@ -110,11 +110,26 @@ export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | n
         usage?.inputTokenCount ??
         record.inputTokenCount
     );
-    // Anthropic 语义判别：顶层（或嵌套 usage）出现 cache_* 字段即为 exclusive。
-    // 不能用「有没有 input_tokens」——Responses API 也给 input_tokens 但它是 inclusive。
+    // Anthropic 语义判别：出现 cache_* 字段 **且输入量本身也是 Anthropic 形状** 才算 exclusive。
+    //
+    // 仅凭「有没有 cache_*」是不够的：聚合/代理类上游经常在 OpenAI 形状的 payload 上
+    // 顺带带上 cache_read_input_tokens，此时 prompt_tokens 已经是 inclusive，
+    // 再加一次就会把缓存重复计数（实测 {prompt_tokens:1000, cache_read_input_tokens:400}
+    // 会被算成 1400，命中率从 90% 掉到 47%）。
+    //
+    // 因此额外要求：没有出现 OpenAI/Responses 的 inclusive 专有字段
+    // （prompt_tokens / promptTokenCount / inputTokenCount）时，才按 Anthropic exclusive 处理。
     const topCacheRead = usage?.cache_read_input_tokens ?? record.cache_read_input_tokens;
     const topCacheCreation = usage?.cache_creation_input_tokens ?? record.cache_creation_input_tokens;
-    const isAnthropicExclusive = topCacheRead !== undefined || topCacheCreation !== undefined;
+    const hasAnthropicCacheFields = topCacheRead !== undefined || topCacheCreation !== undefined;
+    const hasInclusivePromptField =
+        record.prompt_tokens !== undefined
+        || usage?.prompt_tokens !== undefined
+        || usage?.promptTokenCount !== undefined
+        || record.promptTokenCount !== undefined
+        || usage?.inputTokenCount !== undefined
+        || record.inputTokenCount !== undefined;
+    const isAnthropicExclusive = hasAnthropicCacheFields && !hasInclusivePromptField;
     // 统一成 inclusive：Anthropic 的 input_tokens 不含缓存，需把读/写加回
     const promptTokens = isAnthropicExclusive
         ? rawPromptTokens + toNumber(topCacheRead) + toNumber(topCacheCreation)
@@ -146,11 +161,12 @@ export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | n
             completionTokens += reasoningTokens;
         }
     }
-    // 显式 total 若存在则优先采用；但 Anthropic exclusive 形状下的 total（若有）
-    // 同样是「不含缓存」口径，需按与 prompt 相同的增量补齐，避免 total < prompt 的矛盾值。
-    const totalTokens = (totalTokensCandidate > 0 && isAnthropicExclusive)
-        ? totalTokensCandidate + toNumber(topCacheRead) + toNumber(topCacheCreation)
-        : totalTokensCandidate;
+    // total 口径：
+    //  - 上游显式给出 total 时**一律尊重上游**，不再自行加缓存量。
+    //    v8.2.0 会在 Anthropic 形状下把 total 也加一遍，出现「上游说 610、网关报 1010」的
+    //    伪造值；而 Anthropic 的 total_tokens（若给）本来就是 inclusive 的。
+    //  - 上游未给 total 时，用归一后的 inclusive prompt + completion 兜底（见下方 return）。
+    const totalTokens = totalTokensCandidate;
     const promptDetails = isRecord(record.prompt_tokens_details) ? record.prompt_tokens_details : null;
     const inputDetails = isRecord(record.input_tokens_details) ? record.input_tokens_details : null;
     const inputTokenDetails = isRecord(record.input_token_details) ? record.input_token_details : null;
