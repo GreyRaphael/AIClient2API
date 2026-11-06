@@ -3,7 +3,7 @@ import type { AxiosInstance } from 'axios';
 import type { Agent } from 'node:http';
 import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
-import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
@@ -310,10 +310,7 @@ export class OpenAIApiService {
         }
 
         const downstreamSessionId = body?._downstreamSessionId || (requestData as DynamicPayload)?._downstreamSessionId;
-        const cleanRequestData: DynamicPayload = { ...(requestData || {}) };
-        Object.keys(cleanRequestData).forEach((k) => {
-            if (k.startsWith('_')) delete cleanRequestData[k];
-        });
+        const cleanRequestData: DynamicPayload = stripInternalFields(requestData as DynamicPayload);
         if (Array.isArray(cleanRequestData.tools) && cleanRequestData.tools.length > 0) {
             cleanRequestData.tools = stabilizeToolsForPrefixCache(cleanRequestData.tools as DynamicPayload[]);
         }
@@ -433,10 +430,7 @@ export class OpenAIApiService {
             || !['0', 'false', 'off', 'no'].includes(String(includeUsageRaw).toLowerCase());
         const shouldMergeFinishUsage = body._includeUsageForConversion === true && includeUsageEnabled;
         const downstreamSessionId = body?._downstreamSessionId || (normalizedBody as DynamicPayload)?._downstreamSessionId;
-        const cleanBody: DynamicPayload = {};
-        for (const [k, v] of Object.entries(normalizedBody || {})) {
-            if (!k.startsWith('_')) cleanBody[k] = v;
-        }
+        const cleanBody: DynamicPayload = stripInternalFields(normalizedBody as DynamicPayload);
         const streamRequestBody: DynamicPayload = { ...cleanBody, stream: true };
         if (Array.isArray(streamRequestBody.tools) && streamRequestBody.tools.length > 0) {
             streamRequestBody.tools = stabilizeToolsForPrefixCache(streamRequestBody.tools as DynamicPayload[]);

@@ -7,7 +7,11 @@ import {
     getKeepAliveAgents,
     invalidateKeepAliveAgents,
     isSingleSocketAffinityEnabled,
-    resolveMaxSockets
+    resolveMaxSockets,
+    stripInternalFields,
+    deleteInternalFields,
+    buildSessionHeaders,
+    resolveSessionAffinityId
 } from '../src/utils/proxy-utils.ts';
 import { OpenAIApiService } from '../src/providers/openai/openai-core.ts';
 import { OpenAIResponsesApiService } from '../src/providers/openai/openai-responses-core.ts';
@@ -383,5 +387,71 @@ describe('Agent eviction must not kill in-flight requests', () => {
         expect(outcome.ended).toBe(true);
 
         await new Promise((resolve) => server.close(resolve));
+    });
+});
+
+describe('Shared sanitise / session-header helpers', () => {
+    test('stripInternalFields removes underscore keys and keeps the rest', () => {
+        const source = {
+            model: 'm',
+            messages: [{ role: 'user', content: 'hi' }],
+            _downstreamSessionId: 'x',
+            _monitorRequestId: 'y',
+            _requestBaseUrl: 'z'
+        };
+        const clean = stripInternalFields(source);
+        expect(Object.keys(clean).sort()).toEqual(['messages', 'model']);
+        expect(clean._downstreamSessionId).toBeUndefined();
+        // 原对象未被修改
+        expect(source._downstreamSessionId).toBe('x');
+    });
+
+    test('stripInternalFields honours the keep list (codex tool-name map)', () => {
+        const clean = stripInternalFields(
+            { model: 'm', _codexToolNameMap: { a: 'b' }, _other: 1 },
+            ['_codexToolNameMap']
+        );
+        expect(clean._codexToolNameMap).toEqual({ a: 'b' });
+        expect(clean._other).toBeUndefined();
+        expect(clean.model).toBe('m');
+    });
+
+    test('deleteInternalFields mutates in place', () => {
+        const body = { model: 'm', _a: 1, _b: 2, keep: true };
+        deleteInternalFields(body);
+        expect(body).toEqual({ model: 'm', keep: true });
+    });
+
+    test('stripInternalFields tolerates null/undefined', () => {
+        expect(stripInternalFields(null)).toEqual({});
+        expect(stripInternalFields(undefined)).toEqual({});
+        deleteInternalFields(null); // should not throw
+    });
+
+    test('buildSessionHeaders returns empty object without a session id', () => {
+        expect(buildSessionHeaders(null)).toEqual({});
+        expect(buildSessionHeaders(undefined)).toEqual({});
+        expect(buildSessionHeaders('')).toEqual({});
+    });
+
+    test('buildSessionHeaders emits all six upstream headers', () => {
+        const headers = buildSessionHeaders('sess-1');
+        expect(Object.keys(headers).sort()).toEqual([
+            'X-Conversation-Id', 'X-Session-Id',
+            'session-id', 'x-conversation-id', 'x-session-affinity', 'x-session-id'
+        ].sort());
+        expect(new Set(Object.values(headers))).toEqual(new Set(['sess-1']));
+    });
+
+    test('resolveSessionAffinityId can skip message-seed derivation', () => {
+        const req = { headers: {} };
+        const body = { messages: [{ role: 'user', content: 'hello world' }] };
+        // 默认：从首条消息派生
+        expect(resolveSessionAffinityId(req, body)).not.toBeNull();
+        // 关闭派生：无显式 id 时返回 null（无状态客户端不再被赋予合成 id）
+        expect(resolveSessionAffinityId(req, body, { deriveFromMessages: false })).toBeNull();
+        // 但显式 id 仍优先于该开关
+        const withHeader = { headers: { 'session-id': 'abc' } };
+        expect(resolveSessionAffinityId(withHeader, body, { deriveFromMessages: false })).not.toBeNull();
     });
 });

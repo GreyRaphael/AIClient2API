@@ -7,7 +7,7 @@ import {promises as fs} from 'fs';
 import path from 'path';
 import { refreshCodexTokensWithRetry } from '../../auth/codex-oauth.ts';
 import { getProviderPoolManager } from '../pool-context.ts';
-import {configureTLSSidecar} from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar, deleteInternalFields } from '../../utils/proxy-utils.ts';
 import {MODEL_PROVIDER, formatExpiryLog, normalizeProviderErrorMessage} from '../../utils/common.ts';
 import {getProviderModels} from '../provider-models.ts';
 import {normalizeCodexInstructions} from './codex-request-utils.ts';
@@ -1057,12 +1057,9 @@ export class CodexApiService {
 
         const imageSize = cleanedBody._imageSize;
 
-        // 清理以 _ 开头的内部属性（如 _downstreamSessionId），避免上游报 400 Unsupported parameter
-        Object.keys(cleanedBody).forEach((k) => {
-            if (k.startsWith('_') && k !== '_codexToolNameMap') {
-                delete cleanedBody[k];
-            }
-        });
+        // 清理以 _ 开头的内部属性（如 _downstreamSessionId），避免上游报 400 Unsupported parameter。
+        // _codexToolNameMap 必须保留到后续工具名还原。
+        deleteInternalFields(cleanedBody as Record<string, unknown>, ['_codexToolNameMap']);
 
         // 0-Hop 直通入口：下游 /v1/responses 的标准 Responses 请求体不再经 CodexConverter，
         // 方言清洗（input 字符串包装、type:'message' 补齐、system->developer、text.format 归一、

@@ -4,7 +4,7 @@ import { randomUUID, randomBytes } from 'crypto';
 import { StringDecoder } from 'string_decoder';
 import fs from 'fs';
 import path from 'path';
-import { configureAxiosProxy, toValidUUID, toTraceId, extractFirstMessageSeed } from '../../utils/proxy-utils.ts';
+import { configureAxiosProxy, toValidUUID, toTraceId, extractFirstMessageSeed, deleteInternalFields } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../../converters/responses-sse-emitter.ts';
@@ -1706,9 +1706,7 @@ export class TraeApiService {
         // 这些字段仅供 Provider 内部使用，不应发给上游；其余 Provider 均已显式删除
         // （见 openai-core / claude-core / codex-core），trae 此前遗漏。
         // 语义相关的 _rawThinkingEffort 等在下方直接从 requestBody 读取，不受影响。
-        for (const key of Object.keys(payload)) {
-            if (key.startsWith('_')) delete payload[key];
-        }
+        deleteInternalFields(payload);
         const targetModel = this.normalizeModelName(model || payload.model || DEFAULT_MODEL);
         const channel = this.getChannelConfig();
         const isToB = channel.mode === TRAE_CHANNEL_MODES.TOB_RAW_CHAT || (channel.mode === TRAE_CHANNEL_MODES.CUSTOM && channel.function === 'chat');

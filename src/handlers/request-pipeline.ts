@@ -1713,8 +1713,17 @@ export async function handleContentGenerationRequest(
 
     let actualCustomName = CONFIG.customName;
 
-    // 提取客户端会话亲和性标识（用于号池节点选择亲和性与上游 Session Affinity / KV Cache 亲和性）
-    const downstreamSessionId = resolveSessionAffinityId(req, originalRequestBody);
+    // 提取客户端会话亲和性标识。
+    // 实测该标识对上游 KV cache 无作用（命中由内容前缀决定），但仍被用于：
+    //   1) 号池多账号的节点粘滞（_sessionNodeMap）
+    //   2) codex 的会话缓存键隔离（缺失时会归入 'default'，导致跨客户端共享上游会话）
+    // 因此默认保持「无显式 id 时从首条消息派生」；如需让无状态客户端不被赋予合成 id，
+    // 可设置 SESSION_AFFINITY_DERIVE=false 关闭派生。
+    const deriveSessionAffinity = (CONFIG as DynamicPayload)?.SESSION_AFFINITY_DERIVE !== false
+        && (CONFIG as DynamicPayload)?.SESSION_AFFINITY_DERIVE !== 'false';
+    const downstreamSessionId = resolveSessionAffinityId(req, originalRequestBody, {
+        deriveFromMessages: deriveSessionAffinity
+    });
 
     // 2.5. 根据模型选择服务适配器：
     // - service 缺失时（例如上游未预先注入）进行兜底选择

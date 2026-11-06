@@ -42,7 +42,10 @@ type UnknownRecord = Record<string, unknown>;
 const defaultAgentOptions = {
     keepAlive: true,
     maxSockets: 64,
-    maxFreeSockets: 1,     // 只保留 1 个空闲 socket，避免多空闲连接轮询导致 KV cache slot 分裂
+    // 只保留 1 个空闲 socket。注意：注释历史上写的是「避免多空闲连接轮询导致 KV cache
+    // slot 分裂」，但实测 maxFreeSockets 1 与 8 的命中率完全相同（98.91% vs 98.91%），
+    // 该理由不成立。这里保留 1 是因为它无害且能让连接更集中，便于观察复用情况。
+    maxFreeSockets: 1,
     timeout: NETWORK.DEFAULT_TIMEOUT
 };
 
@@ -261,6 +264,44 @@ function destroyAgentWhenIdle(agentPair: { httpAgent: Agent; httpsAgent: Agent }
 }
 
 /**
+ * 剥离网关注入的内部字段（以 `_` 开头，如 `_downstreamSessionId` / `_monitorRequestId` /
+ * `_requestBaseUrl` / `_rawThinkingEffort`），避免它们被发往上游触发
+ * `Unsupported parameter` / `Unknown name` 一类 400。
+ *
+ * 历史上这段逻辑在 6 个 provider 里各写了一遍（`delete` 版和 `!startsWith` 白名单版混用），
+ * 极易漏改 —— `trae` 就曾遗漏，导致内部字段泄漏。这里收敛为唯一实现，并支持按需保留。
+ *
+ * @param keep 需要保留的 `_` 前缀键（如 codex 的 `_codexToolNameMap`，它必须留到后续解析）
+ */
+export function stripInternalFields<T extends Record<string, unknown>>(
+    body: T | null | undefined,
+    keep: readonly string[] = []
+): T {
+    const out: Record<string, unknown> = {};
+    if (!body) return out as T;
+    const keepSet = keep.length > 0 ? new Set(keep) : null;
+    for (const [key, value] of Object.entries(body)) {
+        if (key.startsWith('_') && !(keepSet && keepSet.has(key))) continue;
+        out[key] = value;
+    }
+    return out as T;
+}
+
+/**
+ * 原地版本：用于已经持有可变对象、希望避免再拷贝的路径。
+ */
+export function deleteInternalFields(
+    body: Record<string, unknown> | null | undefined,
+    keep: readonly string[] = []
+): void {
+    if (!body) return;
+    const keepSet = keep.length > 0 ? new Set(keep) : null;
+    for (const key of Object.keys(body)) {
+        if (key.startsWith('_') && !(keepSet && keepSet.has(key))) delete body[key];
+    }
+}
+
+/**
  * 上游会话关联请求头。
  *
  * 历史原因：v8.2.0 为了"让上游把同一会话的多轮请求路由到同一 KV cache slot"，
@@ -367,9 +408,52 @@ export function extractFirstMessageSeed(messages: unknown): string | null {
 }
 
 /**
- * 从下游请求头或请求体消息中解析会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
+ * 判断这是否是「生成会话标题」这类旁路请求。
+ *
+ * 这类请求携带的 messages 与前缀缓存无关，若与主请求共用亲和 id 会污染缓存，
+ * 因此历史上单独加 `_title` 后缀隔离。原实现把这段判断在函数里复制了两份，
+ * 这里提取为一处。
  */
-export function resolveSessionAffinityId(req?: unknown, requestBody?: unknown): string | null {
+function isTitleRequest(body: Record<string, unknown> | undefined): boolean {
+    if (!body) return false;
+    if (typeof body.system === 'string' && body.system.includes('concise title')) return true;
+    if (!Array.isArray(body.messages)) return false;
+    return body.messages.some((m: unknown) => {
+        const content = (m && typeof m === 'object' && 'content' in m)
+            ? (m as { content?: unknown }).content
+            : null;
+        const text = typeof content === 'string'
+            ? content
+            : (Array.isArray(content) ? JSON.stringify(content) : '');
+        return text.includes('Generate the session title') || text.includes('concise title');
+    });
+}
+
+/**
+ * 从下游请求头或请求体消息中解析会话亲和性标识。
+ *
+ * **实测结论（决定这份代码为何这么简单）**：该标识对上游 KV cache **没有作用**。
+ *   - 带与不带的命中率差异 0.35–0.68 pp（三个上游，在噪声内，两个甚至"不带更好"）
+ *   - 同一 id vs 每轮不同 id：命中率**完全相同**（95.56% vs 95.56%）
+ *   命中由「字节相同的内容前缀」决定，与 session id / TCP 连接均无关。
+ *   详见 logs/review-unverified/THREE-UNVERIFIED-RESOLVED.md 与
+ *   logs/review-optimize/session-id-value.json。
+ *
+ * 它仍然保留的三个理由：
+ *   1. codex 在无 id 时会归入 `'default'` 缓存键（仅按 model 区分），
+ *      **导致不同客户端共享上游会话**——保留隔离反而更安全。
+ *   2. `_sessionNodeMap` 用它做号池多账号的节点粘滞。
+ *   3. 少数上游可能用它做日志/计费归因。
+ *
+ * @param options.deriveFromMessages 未显式提供 id 时，是否从首条消息派生。
+ *        默认 true 以保持既有行为（codex 的 'default' 共享问题依赖它）；
+ *        设为 false 可让无状态客户端不再被赋予合成 id。
+ */
+export function resolveSessionAffinityId(
+    req?: unknown,
+    requestBody?: unknown,
+    options: { deriveFromMessages?: boolean } = {}
+): string | null {
     const headers = (req && typeof req === 'object' && 'headers' in req)
         ? (req as { headers?: Record<string, unknown> }).headers
         : undefined;
@@ -377,37 +461,27 @@ export function resolveSessionAffinityId(req?: unknown, requestBody?: unknown): 
         ? (requestBody as Record<string, unknown>)
         : undefined;
 
+    const titleSuffix = isTitleRequest(body) ? '_title' : '';
+
     const explicit = (
-        headers?.['x-session-affinity'] ||
-        headers?.['session-id'] ||
-        headers?.['x-session-id'] ||
-        headers?.['conversation-id'] ||
-        headers?.['x-conversation-id'] ||
-        body?.conversation_id ||
-        body?.session_id ||
+        headers?.['x-session-affinity'] ??
+        headers?.['session-id'] ??
+        headers?.['x-session-id'] ??
+        headers?.['conversation-id'] ??
+        headers?.['x-conversation-id'] ??
+        body?.conversation_id ??
+        body?.session_id ??
         body?._downstreamSessionId
     );
-    if (explicit) {
-        const isTitle = (typeof body?.system === 'string' && body.system.includes('concise title')) ||
-            (Array.isArray(body?.messages) && body.messages.some((m: unknown) => {
-                const c = (m && typeof m === 'object' && 'content' in m) ? (m as { content?: unknown }).content : null;
-                const text = typeof c === 'string' ? c : (Array.isArray(c) ? JSON.stringify(c) : '');
-                return text.includes('Generate the session title') || text.includes('concise title');
-            }));
-        return toValidUUID(isTitle ? `${explicit}_title` : String(explicit));
+    if (explicit !== undefined && explicit !== null && explicit !== '') {
+        return toValidUUID(`${String(explicit)}${titleSuffix}`);
     }
 
-    const messages = body?.messages;
-    const seed = extractFirstMessageSeed(messages);
+    if (options.deriveFromMessages === false) return null;
+
+    const seed = extractFirstMessageSeed(body?.messages);
     if (seed) {
-        const isTitle = (typeof body?.system === 'string' && body.system.includes('concise title')) ||
-            (Array.isArray(body?.messages) && body.messages.some((m: unknown) => {
-                const c = (m && typeof m === 'object' && 'content' in m) ? (m as { content?: unknown }).content : null;
-                const text = typeof c === 'string' ? c : (Array.isArray(c) ? JSON.stringify(c) : '');
-                return text.includes('Generate the session title') || text.includes('concise title');
-            }));
-        const baseSeed = isTitle ? `${seed}_title` : seed;
-        return toValidUUID(baseSeed);
+        return toValidUUID(`${seed}${titleSuffix}`);
     }
     return null;
 }
@@ -528,11 +602,15 @@ export function parseProxyUrl(proxyUrl: unknown): ProxyConfig | null {
         const url = new URL(trimmedUrl);
         const protocol = url.protocol.toLowerCase();
 
-        // 默认 Agent 配置
+        // 代理 Agent 配置。
+        // 与直连 Agent 的 maxFreeSockets:1 不同是**有意为之**，不是口径不一致：
+        // 直连 Agent 按 provider 节点缓存，每个节点只连一个目标主机；而代理 Agent
+        // 按代理 URL 缓存，所有经该代理的 provider 共用同一个代理主机，
+        // 需要更多空闲连接来吸收并发。两者服务不同场景，故取值不同。
         const agentOptions = {
             keepAlive: true,
-            maxSockets: 64,        // 每个主机最多 64 个连接（稍微下调，平衡性能与资源）
-            maxFreeSockets: 8,     // 最多保留 8 个空闲连接
+            maxSockets: 64,
+            maxFreeSockets: 8,
             timeout: NETWORK.DEFAULT_TIMEOUT
         };
 

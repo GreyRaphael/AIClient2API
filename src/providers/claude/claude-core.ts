@@ -3,7 +3,7 @@ import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Agent } from 'node:http';
 import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
-import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders } from '../../utils/proxy-utils.ts';
+import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
 import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 
@@ -137,10 +137,7 @@ export class ClaudeApiService {
         const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
         const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-        const cleanBody: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(body || {})) {
-            if (!k.startsWith('_')) cleanBody[k] = v;
-        }
+        const cleanBody: Record<string, unknown> = stripInternalFields(body);
         if (Array.isArray(cleanBody.tools) && cleanBody.tools.length > 0) {
             cleanBody.tools = stabilizeToolsForPrefixCache(cleanBody.tools as Record<string, unknown>[]);
         }
