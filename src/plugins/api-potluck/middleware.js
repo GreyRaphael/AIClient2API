@@ -84,6 +84,23 @@ export function sendPotluckError(res, error) {
         };
     }
 
+    // 如果是套餐相关限制，附加套餐余量与有效期信息
+    if (error.plan) {
+        response.error.plan = {
+            packId: error.plan.packId,
+            cycleId: error.plan.cycleId,
+            tokenQuota: error.plan.tokenQuota,
+            tokenUsed: error.plan.tokenUsed,
+            tokenReserved: error.plan.tokenReserved,
+            remaining: error.remaining ?? null,
+            required: error.required ?? null,
+            validFrom: error.plan.validFrom,
+            validUntil: error.plan.validUntil,
+            dailyTokenCap: error.plan.dailyTokenCap,
+            todayTokenUsed: error.plan.todayTokenUsed
+        };
+    }
+
     // 检查响应流是否已关闭
     if (res.writableEnded || res.destroyed) {
         logger.warn('[API Potluck] Response already ended, skipping error response');

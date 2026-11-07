@@ -237,11 +237,28 @@ function ensureLoaded() {
     // 启动定期持久化
     if (!persistTimer) {
         persistTimer = setInterval(persistIfDirty, currentPersistInterval);
+        if (typeof persistTimer.unref === 'function') {
+            persistTimer.unref();
+        }
         // 进程退出时保存
-        process.on('beforeExit', () => persistIfDirty());
-        process.on('SIGINT', () => { persistIfDirty(); process.exit(0); });
-        process.on('SIGTERM', () => { persistIfDirty(); process.exit(0); });
+        process.on('beforeExit', onBeforeExit);
+        process.on('SIGINT', onSigInt);
+        process.on('SIGTERM', onSigTerm);
     }
+}
+
+function onBeforeExit() {
+    persistIfDirty();
+}
+
+function onSigInt() {
+    persistIfDirty();
+    process.exit(0);
+}
+
+function onSigTerm() {
+    persistIfDirty();
+    process.exit(0);
 }
 
 /**
@@ -257,6 +274,9 @@ export function shutdownKeyManager() {
         clearInterval(persistTimer);
         persistTimer = null;
     }
+    process.off('beforeExit', onBeforeExit);
+    process.off('SIGINT', onSigInt);
+    process.off('SIGTERM', onSigTerm);
 }
 
 /**

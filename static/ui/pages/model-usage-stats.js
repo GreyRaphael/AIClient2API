@@ -428,7 +428,7 @@ function ModelUsageStatsPage() {
                         <thead><tr><th>Provider</th><th>Model</th><th>请求数</th><th>Prompt</th><th>Cached</th><th>缓存命中率</th><th>Completion</th><th>Total</th><th>最近使用</th></tr></thead>
                         <tbody>
                             ${filteredRows.length === 0
-                                ? html`<tr><td colspan="8" style="text-align:center;color:var(--text-tertiary)">没有匹配的数据</td></tr>`
+                                ? html`<tr><td colspan="9" style="text-align:center;color:var(--text-tertiary)">没有匹配的数据</td></tr>`
                                 : filteredRows.map((row, index) => html`
                                     <tr key=${`${row.provider}-${row.model}-${index}`}>
                                         <td><span class="tag"><i class="fas fa-server"></i>${row.provider}</span></td>

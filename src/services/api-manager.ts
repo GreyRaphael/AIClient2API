@@ -300,12 +300,21 @@ export async function handleImageGenerationRequest(
 
         const clientResponse = { created: Math.floor(Date.now() / 1000), data };
 
-        // 监控钩子：内容生成后与一元响应
+        // 监控钩子：先触发一元响应钩子记录 usage，再触发内容生成完成钩子结算
         if (currentConfig._monitorRequestId) {
             try {
                 const { getPluginManager } = await import('../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
+                    await pluginManager.executeHook('onUnaryResponse', {
+                        nativeResponse: responses.length === 1 ? responses[0] : responses,
+                        clientResponse,
+                        fromProvider,
+                        toProvider,
+                        model,
+                        requestId: currentConfig._monitorRequestId
+                    });
+
                     await pluginManager.executeHook('onContentGenerated', {
                         ...currentConfig,
                         originalRequestBody: { model, prompt, n, size, response_format },
@@ -314,15 +323,6 @@ export async function handleImageGenerationRequest(
                         toProvider,
                         model,
                         isStream: false
-                    });
-
-                    await pluginManager.executeHook('onUnaryResponse', {
-                        nativeResponse: responses.length === 1 ? responses[0] : responses,
-                        clientResponse,
-                        fromProvider,
-                        toProvider,
-                        model,
-                        requestId: currentConfig._monitorRequestId
                     });
                 }
             } catch (e) {
@@ -663,12 +663,21 @@ export async function handleImageEditsRequest(
 
         const clientResponse = { created: Math.floor(Date.now() / 1000), data };
 
-        // 监控钩子
+        // 监控钩子：先触发一元响应钩子记录 usage，再触发内容生成完成钩子结算
         if (currentConfig._monitorRequestId) {
             try {
                 const { getPluginManager } = await import('../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
+                    await pluginManager.executeHook('onUnaryResponse', {
+                        nativeResponse: responses.length === 1 ? responses[0] : responses,
+                        clientResponse,
+                        fromProvider,
+                        toProvider,
+                        model,
+                        requestId: currentConfig._monitorRequestId
+                    });
+
                     await pluginManager.executeHook('onContentGenerated', {
                         ...currentConfig,
                         originalRequestBody: { model, prompt, n, size, response_format },
@@ -677,15 +686,6 @@ export async function handleImageEditsRequest(
                         toProvider,
                         model,
                         isStream: false
-                    });
-
-                    await pluginManager.executeHook('onUnaryResponse', {
-                        nativeResponse: responses.length === 1 ? responses[0] : responses,
-                        clientResponse,
-                        fromProvider,
-                        toProvider,
-                        model,
-                        requestId: currentConfig._monitorRequestId
                     });
                 }
             } catch (e) {

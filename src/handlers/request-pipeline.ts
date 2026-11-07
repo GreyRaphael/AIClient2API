@@ -1472,8 +1472,15 @@ export async function handleUnaryRequest(
 
         // 使用新方法创建符合 fromProvider 格式的错误响应
         const errorResponse = createErrorResponse(error as PipelineError, fromProvider);
-        const rawStatusCode = (error as PipelineError).status || (error as PipelineError).code || (error as PipelineError).response?.status || 500;
-        const statusCode = ensureValidStatusCode(rawStatusCode);
+        const rawStatusCode = (error as PipelineError).response?.status
+            || (error as PipelineError).statusCode
+            || (error as PipelineError).status
+            || (error as PipelineError).code
+            || 500;
+        let statusCode = ensureValidStatusCode(rawStatusCode);
+        if ((error as PipelineError).clientError && statusCode >= 500) {
+            statusCode = 400;
+        }
         await handleUnifiedResponse(res, JSON.stringify(errorResponse), false, statusCode);
     } finally {
         // 请求级状态治理：非流式响应结束后释放 custom tool 登记。

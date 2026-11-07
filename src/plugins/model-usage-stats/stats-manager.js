@@ -161,10 +161,34 @@ function ensureLoaded() {
         if (persistTimer.unref) {
             persistTimer.unref();
         }
-        process.on('beforeExit', () => syncWriteToFile());
-        process.on('SIGINT', () => { syncWriteToFile(); process.exit(0); });
-        process.on('SIGTERM', () => { syncWriteToFile(); process.exit(0); });
+        process.on('beforeExit', onBeforeExit);
+        process.on('SIGINT', onSigInt);
+        process.on('SIGTERM', onSigTerm);
     }
+}
+
+function onBeforeExit() {
+    syncWriteToFile();
+}
+
+function onSigInt() {
+    syncWriteToFile();
+    process.exit(0);
+}
+
+function onSigTerm() {
+    syncWriteToFile();
+    process.exit(0);
+}
+
+export function shutdownStatsManager() {
+    if (persistTimer) {
+        clearInterval(persistTimer);
+        persistTimer = null;
+    }
+    process.off('beforeExit', onBeforeExit);
+    process.off('SIGINT', onSigInt);
+    process.off('SIGTERM', onSigTerm);
 }
 
 export function syncWriteToFile() {
@@ -385,8 +409,9 @@ export async function finalizeRequest({ requestId, model, provider, fromProvider
     applyUsage(dailyBlock, usage, timestamp);
 
     // 按「provider:model」记录当日该模型的用量，供 UI 按天展示各模型明细。
-    // 使用 provider:model 作为键，避免不同 provider 的同名模型互相覆盖。
-    const modelKey = `${provider || 'unknown'}:${model || 'unknown'}`;
+    // 使用已归一化的 normalizedProvider:normalizedModel 作为键，避免仅在流式/一元钩子中
+    // 传递 provider/model 而在 finalizeRequest 省略时退化为 unknown:unknown。
+    const modelKey = `${normalizedProvider}:${normalizedModel}`;
     if (!dailyBlock.models[modelKey]) dailyBlock.models[modelKey] = createEmptyUsage();
     applyUsage(dailyBlock.models[modelKey], usage, timestamp);
     updatePeaks(dailyBlock);
@@ -453,6 +478,11 @@ export async function resetTokenStats() {
     if (statsStore.daily) {
         for (const dayBlock of Object.values(statsStore.daily)) {
             resetUsageBlockTokens(dayBlock);
+            if (dayBlock?.models && typeof dayBlock.models === 'object') {
+                for (const modelBlock of Object.values(dayBlock.models)) {
+                    resetUsageBlockTokens(modelBlock);
+                }
+            }
         }
     }
 

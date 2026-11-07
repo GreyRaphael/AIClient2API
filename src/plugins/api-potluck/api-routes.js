@@ -22,6 +22,8 @@ import {
     setKeyPlan,
     renewKeyPlan,
     clearKeyPlan,
+    remainingTokens,
+    isExpired,
     TOKEN_PACKS,
     BILLING_CYCLES
 } from './key-manager.js';
@@ -483,10 +485,17 @@ export async function handlePotluckUserApiRoutes(method, path, req, res) {
             return true;
         }
 
-        // 验证 API Key
+        // 验证 API Key（配额耗尽或套餐到期/超限的 Key 仍允许用户在自助页查看自身用量与套餐状态）
         const validation = await validateKey(apiKey);
+        const allowUserQueryReasons = new Set([
+            'quota_exceeded',
+            'insufficient_quota',
+            'plan_expired',
+            'plan_not_started',
+            'daily_token_cap_exceeded'
+        ]);
         
-        if (!validation.valid && validation.reason !== 'quota_exceeded') {
+        if (!validation.valid && !allowUserQueryReasons.has(validation.reason || '')) {
             const errorMessages = {
                 'invalid_format': 'API Key 格式无效',
                 'not_found': '未找到 API Key',
@@ -543,6 +552,11 @@ export async function handlePotluckUserApiRoutes(method, path, req, res) {
                         maxTps: keyData.maxTps || 0,
                         maxRpm: keyData.maxRpm || 0
                     },
+                    plan: keyData.plan ? {
+                        ...keyData.plan,
+                        remaining: remainingTokens(keyData.plan),
+                        expired: isExpired(keyData.plan)
+                    } : null,
                     total: keyData.totalUsage,
                     tokens: {
                         prompt: keyData.totalPromptTokens || 0,

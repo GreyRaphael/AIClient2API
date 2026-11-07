@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeEach, afterAll, jest } from '@jest/globals';
+import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from '@jest/globals';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -26,33 +27,26 @@ let sandbox;
 let lastKeyManager = null;
 
 beforeEach(() => {
-    // 上一个用例的 key-manager 实例会留下 setInterval + process 监听，
-    // 必须显式 shutdown 并摘掉监听，否则 Jest 进程不退出、覆盖率模式会超时。
-    if (lastKeyManager && typeof lastKeyManager.shutdownKeyManager === 'function') {
-        try { lastKeyManager.shutdownKeyManager(); } catch { /* noop */ }
-    }
-    lastKeyManager = null;
-    for (const signal of ['beforeExit', 'SIGINT', 'SIGTERM']) {
-        try { process.removeAllListeners(signal); } catch { /* noop */ }
-    }
     sandbox = mkdtempSync(path.join(tmpdir(), 'potluck-plan-'));
     process.chdir(sandbox);
     jest.resetModules();
 });
 
-afterAll(async () => {
-    // key-manager 加载时会注册 setInterval 与 beforeExit/SIGINT/SIGTERM 监听；
-    // 不清理的话 Jest 进程不会退出（表现为 "Jest did not exit one second after..."，
-    // 覆盖率模式下会直接拖到超时）。
+afterEach(() => {
+    // 清理本用例加载的 key-manager 定时器与进程监听，并删除本用例创建的临时目录，防止 /tmp 泄漏
     if (lastKeyManager && typeof lastKeyManager.shutdownKeyManager === 'function') {
         try { lastKeyManager.shutdownKeyManager(); } catch { /* noop */ }
     }
     lastKeyManager = null;
-    for (const signal of ['beforeExit', 'SIGINT', 'SIGTERM']) {
-        try { process.removeAllListeners(signal); } catch { /* noop */ }
-    }
     process.chdir(ORIGINAL_CWD);
-    if (sandbox) rmSync(sandbox, { recursive: true, force: true });
+    if (sandbox) {
+        rmSync(sandbox, { recursive: true, force: true });
+        sandbox = null;
+    }
+});
+
+afterAll(async () => {
+    process.chdir(ORIGINAL_CWD);
 });
 
 async function freshKeyManager() {
@@ -270,5 +264,205 @@ describe('核心不变量：并发预扣不超卖', () => {
         // 已用 = 成功数 × 90%
         expect(kd.plan.tokenUsed).toBe(granted.length * Math.floor(AMOUNT * 0.9));
         expect(kd.plan.tokenUsed).toBeLessThanOrEqual(kd.plan.tokenQuota);
+    });
+});
+
+function createMockRes() {
+    const emitter = new EventEmitter();
+    return Object.assign(emitter, {
+        statusCode: 200,
+        headersSent: false,
+        writableEnded: false,
+        destroyed: false,
+        headers: {},
+        body: '',
+        writeHead(status, headers = {}) {
+            this.statusCode = status;
+            this.headersSent = true;
+            Object.assign(this.headers, headers);
+        },
+        end(chunk = '') {
+            this.body = String(chunk || '');
+            this.writableEnded = true;
+            this.emit('finish');
+            this.emit('close');
+        }
+    });
+}
+
+describe('网关管线集成回归：预扣回收、上游报错退还与错误码对齐', () => {
+    test('非生成请求（GET /v1/models、POST /v1/messages/count_tokens）不得预扣 token', async () => {
+        const km = await freshKeyManager();
+        const plugin = (await import('../src/plugins/api-potluck/index.js')).default;
+        const key = await km.createKey('non-gen', 999999);
+        await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
+
+        // 1. GET /v1/models
+        const resModels = createMockRes();
+        const authModels = await plugin.authenticate(
+            { method: 'GET', url: '/v1/models', headers: { authorization: `Bearer ${key.id}` } },
+            resModels,
+            new URL('http://localhost/v1/models'),
+            {}
+        );
+        expect(authModels.authorized).toBe(true);
+        expect(authModels.data.potluckReserved).toBe(0);
+
+        // 2. POST /v1/messages/count_tokens
+        const resCount = createMockRes();
+        const authCount = await plugin.authenticate(
+            { method: 'POST', url: '/v1/messages/count_tokens', headers: { authorization: `Bearer ${key.id}` } },
+            resCount,
+            new URL('http://localhost/v1/messages/count_tokens'),
+            {}
+        );
+        expect(authCount.authorized).toBe(true);
+        expect(authCount.data.potluckReserved).toBe(0);
+
+        const after = await km.getKey(key.id);
+        expect(after.plan.tokenReserved).toBe(0);
+        expect(after.plan.todayTokenUsed).toBe(0);
+    });
+
+    test('生成请求在前置校验失败（未进入 onContentGenerated）时自动释放预扣额度', async () => {
+        const km = await freshKeyManager();
+        const plugin = (await import('../src/plugins/api-potluck/index.js')).default;
+        const key = await km.createKey('early-400', 999999);
+        await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
+
+        const res = createMockRes();
+        const auth = await plugin.authenticate(
+            { method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${key.id}` } },
+            res,
+            new URL('http://localhost/v1/chat/completions'),
+            {}
+        );
+        expect(auth.authorized).toBe(true);
+        expect(auth.data.potluckReserved).toBe(20000);
+
+        // 此时在途预扣已生效
+        const mid = await km.getKey(key.id);
+        expect(mid.plan.tokenReserved).toBe(20000);
+
+        // 模拟前置 400 参数校验失败直接写回响应，未调用 onContentGenerated
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'missing messages' } }));
+
+        // 等待 setImmediate 回收钩子执行
+        await new Promise((resolve) => setImmediate(resolve));
+
+        const after = await km.getKey(key.id);
+        expect(after.plan.tokenReserved).toBe(0);
+        expect(after.plan.tokenUsed).toBe(0);
+        expect(after.plan.todayTokenUsed).toBe(0);
+    });
+
+    test('上游返回 4xx/5xx 失败时退还预扣，而上游成功但无 usage 时按预扣兜底计费', async () => {
+        const km = await freshKeyManager();
+        const plugin = (await import('../src/plugins/api-potluck/index.js')).default;
+        const key = await km.createKey('upstream-err', 999999);
+        await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
+
+        // 情形 1：上游 502 失败（未触发 onUnaryResponse/onStreamChunk，但进入了 onContentGenerated）
+        const resFail = createMockRes();
+        const authFail = await plugin.authenticate(
+            { method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${key.id}` } },
+            resFail,
+            new URL('http://localhost/v1/chat/completions'),
+            {}
+        );
+        resFail.writeHead(502, { 'Content-Type': 'application/json' });
+        resFail.end(JSON.stringify({ error: { message: 'bad gateway' } }));
+        await plugin.hooks.onContentGenerated({
+            _monitorRequestId: 'req-fail-1',
+            toProvider: 'openai-custom',
+            model: 'gpt-test',
+            ...authFail.data
+        });
+
+        const afterFail = await km.getKey(key.id);
+        expect(afterFail.plan.tokenReserved).toBe(0);
+        expect(afterFail.plan.tokenUsed).toBe(0);
+
+        // 情形 2：上游 200 成功返回（触发了 onUnaryResponse），但响应体没有 usage 字段 -> 防白嫖按预扣计费
+        const resNoUsage = createMockRes();
+        const authNoUsage = await plugin.authenticate(
+            { method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${key.id}` } },
+            resNoUsage,
+            new URL('http://localhost/v1/chat/completions'),
+            {}
+        );
+        await plugin.hooks.onUnaryResponse({
+            requestId: 'req-ok-no-usage',
+            nativeResponse: { id: 'resp_1', choices: [{ message: { content: 'hi' } }] },
+            clientResponse: { id: 'resp_1', choices: [{ message: { content: 'hi' } }] }
+        });
+        resNoUsage.writeHead(200, { 'Content-Type': 'application/json' });
+        resNoUsage.end(JSON.stringify({ id: 'resp_1' }));
+        await plugin.hooks.onContentGenerated({
+            _monitorRequestId: 'req-ok-no-usage',
+            toProvider: 'openai-custom',
+            model: 'gpt-test',
+            ...authNoUsage.data
+        });
+
+        const afterNoUsage = await km.getKey(key.id);
+        expect(afterNoUsage.plan.tokenReserved).toBe(0);
+        expect(afterNoUsage.plan.tokenUsed).toBe(20000);
+    });
+
+    test('套餐过期 / 耗尽 / 未生效时 authenticate 返回 429/403（而非 401），且用户端仍可查询用量', async () => {
+        const km = await freshKeyManager();
+        const plugin = (await import('../src/plugins/api-potluck/index.js')).default;
+        const { handlePotluckUserApiRoutes } = await import('../src/plugins/api-potluck/api-routes.js');
+        const key = await km.createKey('status-check', 999999);
+        await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
+
+        // 1. 额度耗尽 (remaining = 0) -> 429 insufficient_quota
+        const kd = await km.getKey(key.id);
+        kd.plan.tokenUsed = kd.plan.tokenQuota;
+        await km.updateKeyPlanRaw(key.id, kd.plan);
+
+        const resDrained = createMockRes();
+        const authDrained = await plugin.authenticate(
+            { method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${key.id}` } },
+            resDrained,
+            new URL('http://localhost/v1/chat/completions'),
+            {}
+        );
+        expect(authDrained.authorized).toBe(false);
+        expect(resDrained.statusCode).toBe(429);
+        expect(JSON.parse(resDrained.body).error.code).toBe('insufficient_quota');
+
+        // 额度耗尽的用户仍可通过 /api/potluckuser/usage 查看自己的用量与套餐信息
+        const resUserUsage = createMockRes();
+        const handled = await handlePotluckUserApiRoutes(
+            'GET',
+            '/api/potluckuser/usage',
+            { headers: { authorization: `Bearer ${key.id}` } },
+            resUserUsage
+        );
+        expect(handled).toBe(true);
+        expect(resUserUsage.statusCode).toBe(200);
+        const userPayload = JSON.parse(resUserUsage.body);
+        expect(userPayload.success).toBe(true);
+        expect(userPayload.data.plan).toBeDefined();
+        expect(userPayload.data.plan.remaining).toBe(0);
+
+        // 2. 套餐尚未生效 -> 403 plan_not_started
+        kd.plan.tokenUsed = 0;
+        kd.plan.validFrom = new Date(Date.now() + 3600_000).toISOString();
+        await km.updateKeyPlanRaw(key.id, kd.plan);
+
+        const resFuture = createMockRes();
+        const authFuture = await plugin.authenticate(
+            { method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${key.id}` } },
+            resFuture,
+            new URL('http://localhost/v1/chat/completions'),
+            {}
+        );
+        expect(authFuture.authorized).toBe(false);
+        expect(resFuture.statusCode).toBe(403);
+        expect(JSON.parse(resFuture.body).error.code).toBe('plan_not_started');
     });
 });
