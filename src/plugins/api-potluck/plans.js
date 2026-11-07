@@ -45,7 +45,7 @@ export function findCycle(cycleId) {
  * - week：+7 天
  * - month：按日历月顺延（1/31 起一个月 = 2/28 或 2/29，不会溢出到 3 月）
  * @param {Date} from - 起始时间
- * @param {'week'|'month'} cycleId
+ * @param {string} cycleId - 'week' | 'month'（用 string 以便运行时校验未知值）
  * @returns {Date}
  */
 export function computeValidUntil(from, cycleId) {

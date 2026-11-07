@@ -46,13 +46,7 @@ function getReserveAmount() {
     return DEFAULT_RESERVE_PER_REQUEST;
 }
 
-/**
- * 从 hook 上下文里定位这次请求对应的 requestId（用于关联预扣与结算）。
- */
-function getPrimaryRequestId(hookContext = {}) {
-    const ids = getTrackedRequestIds(hookContext);
-    return ids[0] || null;
-}
+
 
 
 

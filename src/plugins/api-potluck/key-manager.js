@@ -245,6 +245,21 @@ function ensureLoaded() {
 }
 
 /**
+ * 停止定期持久化并移除进程监听。
+ *
+ * 存在的意义有两个：
+ *   1. 生产环境的优雅关闭（避免定时器在 shutdown 后再触发写盘）
+ *   2. 测试收尾 —— Jest 里加载本模块会留下 setInterval + 3 个 process 监听，
+ *      不清理会导致 "Jest did not exit"，覆盖率模式下直接拖到超时。
+ */
+export function shutdownKeyManager() {
+    if (persistTimer) {
+        clearInterval(persistTimer);
+        persistTimer = null;
+    }
+}
+
+/**
  * 同步写入文件（仅初始化时使用）
  */
 function syncWriteToFile() {
@@ -403,7 +418,7 @@ export async function listKeys() {
  * @param {{packId: string, cycleId: string, dailyTokenCap?: number|null, now?: Date}} input
  * @returns {Promise<Object|null>} 更新后的 keyData
  */
-export async function setKeyPlan(keyId, { packId, cycleId, dailyTokenCap = null, now = new Date() } = {}) {
+export async function setKeyPlan(keyId, /** @type {{packId: string, cycleId: string, dailyTokenCap?: number|null, now?: Date}} */ { packId, cycleId, dailyTokenCap = null, now = new Date() }) {
     ensureLoaded();
     const keyData = keyStore.keys[keyId];
     if (!keyData) return null;
@@ -449,7 +464,7 @@ export async function clearKeyPlan(keyId) {
  * 续期：从「现在」或「原到期时间」中较晚者起算新周期，并重置已用额度。
  * 在原额度过期前续期不会损失剩余天数。
  */
-export async function renewKeyPlan(keyId, { cycleId, now = new Date() } = {}) {
+export async function renewKeyPlan(keyId, /** @type {{cycleId?: string|null, now?: Date}} */ { cycleId = null, now = new Date() } = {}) {
     ensureLoaded();
     const keyData = keyStore.keys[keyId];
     if (!keyData || !keyData.plan) return null;
@@ -851,7 +866,7 @@ export function getAllKeyIds() {
  *
  * @param {string} keyId
  * @param {number|null} amount - 预扣额度；null 表示该 Key 没有套餐（免预扣，返回 ok）
- * @returns {Promise<{ok: boolean, reason?: string, reserved?: number, remaining?: number, plan?: Object}>}
+ * @returns {Promise<{ok: boolean, reason?: string, reserved?: number, remaining?: number| null, plan?: Object|null, required?: number, dailyCap?: number, todayUsed?: number}>}
  */
 export async function reserveTokens(keyId, amount) {
     ensureLoaded();

@@ -22,20 +22,42 @@ jest.mock('../src/utils/logger.ts', () => ({
 
 const ORIGINAL_CWD = process.cwd();
 let sandbox;
+/** 上一个用例加载的 key-manager 模块实例（每用例 resetModules 会产生新实例） */
+let lastKeyManager = null;
 
 beforeEach(() => {
+    // 上一个用例的 key-manager 实例会留下 setInterval + process 监听，
+    // 必须显式 shutdown 并摘掉监听，否则 Jest 进程不退出、覆盖率模式会超时。
+    if (lastKeyManager && typeof lastKeyManager.shutdownKeyManager === 'function') {
+        try { lastKeyManager.shutdownKeyManager(); } catch { /* noop */ }
+    }
+    lastKeyManager = null;
+    for (const signal of ['beforeExit', 'SIGINT', 'SIGTERM']) {
+        try { process.removeAllListeners(signal); } catch { /* noop */ }
+    }
     sandbox = mkdtempSync(path.join(tmpdir(), 'potluck-plan-'));
     process.chdir(sandbox);
     jest.resetModules();
 });
 
-afterAll(() => {
+afterAll(async () => {
+    // key-manager 加载时会注册 setInterval 与 beforeExit/SIGINT/SIGTERM 监听；
+    // 不清理的话 Jest 进程不会退出（表现为 "Jest did not exit one second after..."，
+    // 覆盖率模式下会直接拖到超时）。
+    if (lastKeyManager && typeof lastKeyManager.shutdownKeyManager === 'function') {
+        try { lastKeyManager.shutdownKeyManager(); } catch { /* noop */ }
+    }
+    lastKeyManager = null;
+    for (const signal of ['beforeExit', 'SIGINT', 'SIGTERM']) {
+        try { process.removeAllListeners(signal); } catch { /* noop */ }
+    }
     process.chdir(ORIGINAL_CWD);
     if (sandbox) rmSync(sandbox, { recursive: true, force: true });
 });
 
 async function freshKeyManager() {
-    return import('../src/plugins/api-potluck/key-manager.js');
+    lastKeyManager = await import('../src/plugins/api-potluck/key-manager.js');
+    return lastKeyManager;
 }
 
 describe('plans 纯函数', () => {
