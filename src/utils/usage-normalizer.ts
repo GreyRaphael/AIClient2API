@@ -212,11 +212,27 @@ export function mergeUsage(baseUsage: NormalizedUsage, nextUsage: NormalizedUsag
         return baseUsage;
     }
 
+    // 用 `Number.isFinite` 兜底：调用方经常手写一个只有三个字段的初始对象
+    // （如 api-potluck 插件的 `{ promptTokens: 0, completionTokens: 0, totalTokens: 0 }`），
+    // 此时 `Math.max(undefined, N)` 会得到 NaN，进而让下游统计恒为 0。
+    // 这是一个真实发生过的缺陷：potluck 的 cachedTokens 长期显示 0，而实际命中率约 97.5%。
+    const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+
+    const basePrompt = num(baseUsage.promptTokens);
+    const baseCompletion = num(baseUsage.completionTokens);
+    const baseTotal = num(baseUsage.totalTokens);
+    const baseCached = num(baseUsage.cachedTokens);
+
+    const nextPrompt = num(nextUsage.promptTokens);
+    const nextCompletion = num(nextUsage.completionTokens);
+    const nextCached = num(nextUsage.cachedTokens);
+    const nextTotal = num(nextUsage.totalTokens) || (nextPrompt + nextCompletion);
+
     return {
-        promptTokens: Math.max(baseUsage.promptTokens, nextUsage.promptTokens),
-        completionTokens: Math.max(baseUsage.completionTokens, nextUsage.completionTokens),
-        totalTokens: Math.max(baseUsage.totalTokens, nextUsage.totalTokens || (nextUsage.promptTokens + nextUsage.completionTokens)),
-        cachedTokens: Math.max(baseUsage.cachedTokens, nextUsage.cachedTokens)
+        promptTokens: Math.max(basePrompt, nextPrompt),
+        completionTokens: Math.max(baseCompletion, nextCompletion),
+        totalTokens: Math.max(baseTotal, nextTotal),
+        cachedTokens: Math.max(baseCached, nextCached)
     };
 }
 

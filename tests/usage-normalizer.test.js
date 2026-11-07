@@ -197,6 +197,25 @@ describe('mergeUsage', () => {
             { promptTokens: 3, completionTokens: 8, totalTokens: 20, cachedTokens: 2 }
         )).toEqual({ promptTokens: 10, completionTokens: 8, totalTokens: 20, cachedTokens: 2 });
     });
+
+    test('base 缺少字段时不得产生 NaN（真实缺陷回归）', () => {
+        // api-potluck 插件曾用 `{ promptTokens: 0, completionTokens: 0, totalTokens: 0 }`
+        // 作为初始值（没有 cachedTokens），导致 Math.max(undefined, N) = NaN，
+        // 使得该插件的 cachedTokens 统计长期恒为 0，而实际命中率约 97.5%。
+        const base = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+        const next = { promptTokens: 2600, completionTokens: 20, totalTokens: 2620, cachedTokens: 2534 };
+        const merged = mergeUsage(base, next);
+        expect(merged.cachedTokens).toBe(2534);
+        expect(Number.isNaN(merged.cachedTokens)).toBe(false);
+        expect(merged).toEqual({ promptTokens: 2600, completionTokens: 20, totalTokens: 2620, cachedTokens: 2534 });
+    });
+
+    test('next 缺少字段时按 0 处理', () => {
+        const base = { promptTokens: 10, completionTokens: 5, totalTokens: 15, cachedTokens: 7 };
+        const merged = mergeUsage(base, { promptTokens: 20, completionTokens: 1, totalTokens: 21 });
+        expect(merged.cachedTokens).toBe(7);
+        expect(Number.isNaN(merged.cachedTokens)).toBe(false);
+    });
 });
 
 describe('extractUsage', () => {
