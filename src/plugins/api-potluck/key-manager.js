@@ -11,6 +11,15 @@ import path from 'path';
 import crypto from 'crypto';
 import { RateManager } from '../../utils/rate-tracker.ts';
 import { getBeijingDateString } from '../../utils/common.ts';
+import {
+    createPlan,
+    normalizePlan,
+    remainingTokens,
+    isExpired,
+    isNotStarted,
+    isDailyCapReached,
+    toDateKey
+} from './plans.js';
 
 // 配置文件路径
 const KEYS_STORE_FILE = path.join(process.cwd(), 'configs', 'api-potluck-keys.json');
@@ -29,6 +38,14 @@ let configGetter = null;
  */
 export function setConfigGetter(getter) {
     configGetter = getter;
+}
+
+/**
+ * 公开读取当前插件配置（供 index.js 取预扣额度等参数）。
+ * 内部 getConfig 是模块私有的，这里给一个受控出口。
+ */
+export function getPluginConfig() {
+    return getConfig();
 }
 
 /**
@@ -128,6 +145,8 @@ function normalizeKeyData(keyData = {}) {
         totalCompletionTokens: toNumber(keyData.totalCompletionTokens),
         totalTokens: toNumber(keyData.totalTokens),
         totalCachedTokens: toNumber(keyData.totalCachedTokens),
+        // 付费套餐（可选）。旧 Key 没有该字段时为 null，行为与之前完全一致。
+        plan: normalizePlan(keyData.plan),
         usageHistory: {}
     };
 
@@ -374,6 +393,84 @@ export async function listKeys() {
 /**
  * 获取单个 Key 详情
  */
+/**
+ * 为 Key 设置（或更换）付费套餐。
+ *
+ * 会重置该套餐的用量计数——换套餐意味着开始一个新周期，
+ * 因此调用方应确认这是「新购/续期」，而不是想保留旧额度。
+ *
+ * @param {string} keyId
+ * @param {{packId: string, cycleId: string, dailyTokenCap?: number|null, now?: Date}} input
+ * @returns {Promise<Object|null>} 更新后的 keyData
+ */
+export async function setKeyPlan(keyId, { packId, cycleId, dailyTokenCap = null, now = new Date() } = {}) {
+    ensureLoaded();
+    const keyData = keyStore.keys[keyId];
+    if (!keyData) return null;
+
+    // createPlan 会抛错（未知套餐/周期），让调用方拿到明确信息
+    const plan = createPlan({ packId, cycleId, now, dailyTokenCap });
+    keyData.plan = plan;
+    markDirty();
+    // 套餐变更涉及计费，立即落盘
+    try { await persistIfDirty(); } catch { /* 已在内部记日志 */ }
+    logger.info(`[API Potluck] Plan set for ${keyId.substring(0, 12)}...: ${plan.packId}/${plan.cycleId} until ${plan.validUntil}`);
+    return keyData;
+}
+
+/**
+ * 直接覆盖 plan 对象（供运营侧修正/测试注入使用）。
+ * 会经过 normalizePlan 归一化，避免脏数据进入 store。
+ */
+export async function updateKeyPlanRaw(keyId, plan) {
+    ensureLoaded();
+    const keyData = keyStore.keys[keyId];
+    if (!keyData) return null;
+    keyData.plan = normalizePlan(plan);
+    markDirty();
+    try { await persistIfDirty(); } catch { /* noop */ }
+    return keyData;
+}
+
+/**
+ * 移除套餐（Key 回到「仅受 dailyLimit 约束」的旧行为）。
+ */
+export async function clearKeyPlan(keyId) {
+    ensureLoaded();
+    const keyData = keyStore.keys[keyId];
+    if (!keyData) return null;
+    keyData.plan = null;
+    markDirty();
+    try { await persistIfDirty(); } catch { /* noop */ }
+    return keyData;
+}
+
+/**
+ * 续期：从「现在」或「原到期时间」中较晚者起算新周期，并重置已用额度。
+ * 在原额度过期前续期不会损失剩余天数。
+ */
+export async function renewKeyPlan(keyId, { cycleId, now = new Date() } = {}) {
+    ensureLoaded();
+    const keyData = keyStore.keys[keyId];
+    if (!keyData || !keyData.plan) return null;
+
+    const current = keyData.plan;
+    const baseTime = isExpired(current, now) ? now : new Date(current.validUntil);
+    const nextCycle = cycleId || current.cycleId || 'month';
+
+    const plan = createPlan({
+        packId: current.packId,
+        cycleId: nextCycle,
+        now: baseTime,
+        dailyTokenCap: current.dailyTokenCap
+    });
+    keyData.plan = plan;
+    markDirty();
+    try { await persistIfDirty(); } catch { /* noop */ }
+    logger.info(`[API Potluck] Plan renewed for ${keyId.substring(0, 12)}...: until ${plan.validUntil}`);
+    return keyData;
+}
+
 export async function getKey(keyId) {
     ensureLoaded();
     const keyData = keyStore.keys[keyId];
@@ -745,6 +842,135 @@ export function getAllKeyIds() {
  * @param {string} apiKey - 待验证的 Key
  * @returns {Promise<{valid: boolean, reason?: string, keyData?: Object}>}
  */
+/**
+ * 预扣 token（reserve）。
+ *
+ * 这是「不超卖」的核心：在**转发上游之前**同步扣减可用额度。
+ * Node 单线程 + 同步执行的 检查+自增 天然原子，因此并发请求会依次扣减，
+ * 余额不足的那一个当场失败，不存在"多个请求都看到余额充足"的窗口。
+ *
+ * @param {string} keyId
+ * @param {number|null} amount - 预扣额度；null 表示该 Key 没有套餐（免预扣，返回 ok）
+ * @returns {Promise<{ok: boolean, reason?: string, reserved?: number, remaining?: number, plan?: Object}>}
+ */
+export async function reserveTokens(keyId, amount) {
+    ensureLoaded();
+    const keyData = keyStore.keys[keyId];
+    if (!keyData) return { ok: false, reason: 'not_found' };
+    if (!keyData.plan) return { ok: true, reserved: 0, remaining: null, plan: null };
+
+    const plan = keyData.plan;
+    const now = new Date();
+
+    if (isNotStarted(plan, now)) return { ok: false, reason: 'plan_not_started', plan };
+    if (isExpired(plan, now)) return { ok: false, reason: 'plan_expired', plan };
+
+    // 跨天时重置当日用量（速率保护按自然日）
+    const today = toDateKey(now);
+    if (plan.lastDailyReset !== today) {
+        plan.lastDailyReset = today;
+        plan.todayTokenUsed = 0;
+    }
+
+    const want = Math.max(0, Math.floor(Number(amount) || 0));
+    if (want === 0) {
+        return { ok: true, reserved: 0, remaining: remainingTokens(plan), plan };
+    }
+
+    const remaining = remainingTokens(plan);
+    // 额度不足就拒绝。注意不在这里"部分预扣"——要么整笔扣，要么不动，
+    // 避免半扣状态让结算逻辑复杂化。
+    if (want > remaining) {
+        return { ok: false, reason: 'insufficient_quota', remaining, required: want, plan };
+    }
+    // 每日速率保护
+    if (plan.dailyTokenCap && plan.todayTokenUsed + want > plan.dailyTokenCap) {
+        return {
+            ok: false,
+            reason: 'daily_token_cap_exceeded',
+            remaining,
+            dailyCap: plan.dailyTokenCap,
+            todayUsed: plan.todayTokenUsed,
+            plan
+        };
+    }
+
+    plan.tokenReserved += want;
+    plan.todayTokenUsed += want;
+
+    // 预扣必须立即落盘：进程崩溃不能丢失"已经花出去的钱"。
+    // 结算可以走 5s 防抖，因为差额很小且方向可预测。
+    markDirty();
+    try { await persistIfDirty(); } catch { /* 落盘失败不阻断请求，日志已在 persistIfDirty 内 */ }
+
+    return { ok: true, reserved: want, remaining: remainingTokens(plan), plan };
+}
+
+/**
+ * 结算（settle）：用上游真实 usage 校正预扣。
+ *
+ * @param {string} keyId
+ * @param {number} reserved - 当初 reserveTokens 返回的额度
+ * @param {number|null} actualTokens - 上游返回的真实 total tokens；null/0 表示拿不到 usage
+ * @param {{fallbackToReserved?: boolean}} [options]
+ *        拿不到 usage 时是否按预扣值计费。默认 true：
+ *        否则客户端可以构造"无 usage"的响应来白嫖。
+ * @returns {Promise<{settled: number, refunded: number, charged: number, remaining: number|null}>}
+ */
+export async function settleTokens(keyId, reserved, actualTokens, options = {}) {
+    ensureLoaded();
+    const keyData = keyStore.keys[keyId];
+    const base = { settled: 0, refunded: 0, charged: 0, remaining: null };
+    if (!keyData || !keyData.plan) return base;
+
+    const plan = keyData.plan;
+    const held = Math.max(0, Math.floor(Number(reserved) || 0));
+    const actualRaw = Number(actualTokens);
+    const hasActual = Number.isFinite(actualRaw) && actualRaw > 0;
+    const fallbackToReserved = options.fallbackToReserved !== false;
+
+    // 拿不到 usage 时：按预扣值计费（防白嫖），不退不补。
+    const finalTokens = hasActual ? Math.floor(actualRaw) : (fallbackToReserved ? held : 0);
+
+    // 释放预扣
+    plan.tokenReserved = Math.max(0, plan.tokenReserved - held);
+
+    // 把真实消费补进已用（held 尚未计入 tokenUsed，只计在 tokenReserved 里）
+    const delta = finalTokens - held;
+    plan.tokenUsed += finalTokens;
+
+    // 差额同步到「当日用量」（用于每日速率保护）。今日已在预扣时加过 held，
+    // 这里只调整差额，保证 todayTokenUsed ≈ 当日真实消费 + 在途预扣。
+    plan.todayTokenUsed = Math.max(0, plan.todayTokenUsed + delta);
+
+    const result = {
+        settled: finalTokens,
+        refunded: delta < 0 ? -delta : 0,
+        charged: delta > 0 ? delta : 0,
+        remaining: remainingTokens(plan),
+        usedReservedFallback: !hasActual
+    };
+
+    markDirty();
+    // 结算走已有的定时防抖持久化（persistInterval），无需额外调用
+    return result;
+}
+
+/** 便捷别名：把"套餐是否可用"的判断收敛到一处 */
+function evaluatePlanAvailability(keyData, now = new Date()) {
+    const plan = keyData.plan;
+    if (!plan) return { ok: true };
+    if (isNotStarted(plan, now)) return { ok: false, reason: 'plan_not_started' };
+    if (isExpired(plan, now)) return { ok: false, reason: 'plan_expired' };
+    if (plan.lastDailyReset !== toDateKey(now)) {
+        plan.lastDailyReset = toDateKey(now);
+        plan.todayTokenUsed = 0;
+    }
+    if (remainingTokens(plan) <= 0) return { ok: false, reason: 'insufficient_quota' };
+    if (isDailyCapReached(plan, 0)) return { ok: false, reason: 'daily_token_cap_exceeded' };
+    return { ok: true };
+}
+
 export async function validateKey(apiKey) {
     ensureLoaded();
     if (!apiKey || !apiKey.startsWith(KEY_PREFIX)) {
@@ -761,6 +987,14 @@ export async function validateKey(apiKey) {
     if (updated.dailyLimit > 0 && updated.todayUsage >= updated.dailyLimit) {
         return { valid: false, reason: 'quota_exceeded', keyData: updated };
     }
+
+    // 套餐校验：过期 / 未生效 / 余额耗尽 / 当日速率超限
+    // 注意这里只做「快速失败」，真正防超卖的预扣仍在 reserveTokens 里。
+    const planCheck = evaluatePlanAvailability(updated);
+    if (!planCheck.ok) {
+        return { valid: false, reason: planCheck.reason, keyData: updated };
+    }
+
     return { valid: true, keyData: updated };
 }
 
@@ -804,3 +1038,6 @@ export async function regenerateKey(oldKeyId) {
 
 // 导出常量
 export { KEY_PREFIX };
+
+// 便于调用方只依赖 key-manager：把常用的套餐纯函数一并导出
+export { remainingTokens, isExpired, isNotStarted, toDateKey, TOKEN_PACKS, BILLING_CYCLES } from './plans.js';

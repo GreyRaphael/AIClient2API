@@ -31,6 +31,34 @@ function sendJson(res, statusCode, data) {
     res.end(JSON.stringify(data));
 }
 
+
+/** 读取并解析请求体（限 64KB，管理接口不需要更大） */
+function readJsonBody(req) {
+    return new Promise((resolve) => {
+        let raw = '';
+        let size = 0;
+        const LIMIT = 64 * 1024;
+        req.on('data', (chunk) => {
+            size += chunk.length;
+            if (size > LIMIT) { resolve(null); req.destroy(); return; }
+            raw += chunk;
+        });
+        req.on('end', () => {
+            try { resolve(JSON.parse(raw || '{}')); } catch { resolve(null); }
+        });
+        req.on('error', () => resolve(null));
+    });
+}
+
+/** 输出 Key 时剔除内部字段 */
+function sanitizeKey(keyData) {
+    if (!keyData) return null;
+    const { ...safe } = keyData;
+    return safe;
+}
+
+
+
 /**
  * 验证管理员 Token
  * @param {import('node:http').IncomingMessage} req
@@ -127,6 +155,71 @@ export async function handlePotluckApiRoutes(method, path, req, res) {
                 success: true, 
                 data: { keys, stats } 
             });
+            return true;
+        }
+
+        // GET /api/potluck/plans - 列出可售套餐与周期
+        if (method === 'GET' && path === '/api/potluck/plans') {
+            sendJson(res, 200, {
+                success: true,
+                data: { packs: TOKEN_PACKS, cycles: BILLING_CYCLES }
+            });
+            return true;
+        }
+
+        // POST /api/potluck/keys/plan - 为 Key 设置套餐
+        // body: { keyId, packId, cycleId, dailyTokenCap? }
+        if (method === 'POST' && path === '/api/potluck/keys/plan') {
+            const payload = await readJsonBody(req);
+            const { keyId, packId, cycleId, dailyTokenCap = null } = payload || {};
+            if (!keyId || !packId || !cycleId) {
+                sendJson(res, 400, { success: false, error: { message: '缺少 keyId / packId / cycleId' } });
+                return true;
+            }
+            try {
+                const updated = await setKeyPlan(keyId, { packId, cycleId, dailyTokenCap });
+                if (!updated) {
+                    sendJson(res, 404, { success: false, error: { message: 'Key 不存在' } });
+                    return true;
+                }
+                sendJson(res, 200, { success: true, data: sanitizeKey(updated) });
+            } catch (error) {
+                sendJson(res, 400, { success: false, error: { message: error.message } });
+            }
+            return true;
+        }
+
+        // POST /api/potluck/keys/plan/renew - 续期
+        if (method === 'POST' && path === '/api/potluck/keys/plan/renew') {
+            const payload = await readJsonBody(req);
+            const { keyId, cycleId = null } = payload || {};
+            if (!keyId) {
+                sendJson(res, 400, { success: false, error: { message: '缺少 keyId' } });
+                return true;
+            }
+            const updated = await renewKeyPlan(keyId, { cycleId });
+            if (!updated) {
+                sendJson(res, 404, { success: false, error: { message: 'Key 不存在或未设置套餐' } });
+                return true;
+            }
+            sendJson(res, 200, { success: true, data: sanitizeKey(updated) });
+            return true;
+        }
+
+        // DELETE /api/potluck/keys/plan - 移除套餐
+        if (method === 'DELETE' && path === '/api/potluck/keys/plan') {
+            const payload = await readJsonBody(req);
+            const { keyId } = payload || {};
+            if (!keyId) {
+                sendJson(res, 400, { success: false, error: { message: '缺少 keyId' } });
+                return true;
+            }
+            const updated = await clearKeyPlan(keyId);
+            if (!updated) {
+                sendJson(res, 404, { success: false, error: { message: 'Key 不存在' } });
+                return true;
+            }
+            sendJson(res, 200, { success: true, data: sanitizeKey(updated) });
             return true;
         }
 

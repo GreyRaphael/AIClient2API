@@ -8,22 +8,7 @@
  * 4. 管理 API 接口
  */
 
-import {
-    createKey,
-    listKeys,
-    getKey,
-    deleteKey,
-    updateKeyLimit,
-    resetKeyUsage,
-    resetKeyTokenStats,
-    toggleKey,
-    updateKeyName,
-    validateKey,
-    incrementUsage,
-    getStats,
-    resetAllTokenStats,
-    KEY_PREFIX
-} from './key-manager.js';
+import { createKey, listKeys, getKey, deleteKey, updateKeyLimit, resetKeyUsage, resetKeyTokenStats, toggleKey, updateKeyName, validateKey, incrementUsage, getStats, resetAllTokenStats, KEY_PREFIX, reserveTokens, settleTokens, getPluginConfig } from './key-manager.js';
 
 import {
     extractPotluckKey,
@@ -38,6 +23,37 @@ import { handlePotluckApiRoutes, handlePotluckUserApiRoutes } from './api-routes
 import { mergeUsage, extractUsage } from '../../utils/usage-normalizer.ts';
 
 const pendingUsage = new Map();
+/**
+ * 认证阶段的固定预扣额度。
+ *
+ * 为什么是固定值而不是按请求体估算：认证（authenticate 钩子）发生在
+ * 请求体解析**之前**，此刻拿不到 messages / max_tokens。可选方案只有两个：
+ *   a) 认证阶段不预扣，等生成后再记账 —— 那就退回到会超卖的旧行为；
+ *   b) 按一个保守的固定额度预扣，结算时用真实 usage 多退少补 —— 保持防超卖。
+ * 这里选 b。固定额度取得偏大一些，避免长请求被低估；多余部分在结算时全额退还，
+ * 因此不会让用户多付钱，只会短暂占用额度。
+ *
+ * 可通过插件配置 config.reserveTokensPerRequest 覆盖。
+ */
+const DEFAULT_RESERVE_PER_REQUEST = 20000;
+
+function getReserveAmount() {
+    try {
+        const config = getPluginConfig();
+        const configured = Number(config?.reserveTokensPerRequest);
+        if (Number.isFinite(configured) && configured > 0) return Math.floor(configured);
+    } catch { /* 取不到配置就用默认 */ }
+    return DEFAULT_RESERVE_PER_REQUEST;
+}
+
+/**
+ * 从 hook 上下文里定位这次请求对应的 requestId（用于关联预扣与结算）。
+ */
+function getPrimaryRequestId(hookContext = {}) {
+    const ids = getTrackedRequestIds(hookContext);
+    return ids[0] || null;
+}
+
 
 
 function getTrackedRequestIds(hookContext = {}) {
@@ -154,14 +170,47 @@ const apiPotluckPlugin = {
             return { handled: true, authorized: false, error };
         }
 
-        // 认证成功，返回数据供后续使用
+        // 认证通过。若该 Key 有付费套餐，**在转发前**做 token 预扣 —— 这是防超卖的关键：
+        // 扣减同步执行，余额不足的请求在此刻被拒，不存在"并发都看到余额充足"的窗口。
+        const hasPlan = Boolean(validation.keyData?.plan);
+        let reservedNow = 0;
+        if (hasPlan) {
+            // 认证早于请求体解析，拿不到 messages / max_tokens，因此按固定额度预扣，
+            // 结算时用上游真实 usage 多退少补（见 onContentGenerated）。
+            const reservation = await reserveTokens(apiKey, getReserveAmount());
+            if (!reservation.ok) {
+                const planErrors = {
+                    insufficient_quota: '套餐额度不足',
+                    plan_expired: '套餐已过期',
+                    plan_not_started: '套餐尚未生效',
+                    daily_token_cap_exceeded: '已达当日 token 上限'
+                };
+                const err = {
+                    statusCode: reservation.reason === 'plan_not_started' ? 403 : 429,
+                    message: planErrors[reservation.reason] || '套餐不可用',
+                    code: reservation.reason,
+                    keyData: validation.keyData,
+                    plan: reservation.plan || null,
+                    remaining: reservation.remaining ?? null,
+                    required: reservation.required ?? null
+                };
+                sendPotluckError(res, err);
+                return { handled: true, authorized: false, error: err };
+            }
+            reservedNow = reservation.reserved;
+            logger.info(`[API Potluck] Reserved ${reservedNow} tokens for ${apiKey.substring(0, 12)}... (remaining ${reservation.remaining})`);
+        }
+
         logger.info(`[API Potluck Plugin] Authorized with key: ${apiKey.substring(0, 12)}...`);
         return {
             handled: false,
             authorized: true,
             data: {
                 potluckApiKey: apiKey,
-                potluckKeyData: validation.keyData
+                potluckKeyData: validation.keyData,
+                // 本次请求已预扣的 token。认证阶段拿不到 requestId，
+                // 由 onContentGenerated 依据 hook 上下文里的 key 回查（见下）。
+                potluckReserved: reservedNow
             }
         };
     },
@@ -205,6 +254,22 @@ const apiPotluckPlugin = {
                         usage,
                         trackedRequestIds[0] || null
                     );
+
+                    // 结算：用上游真实 totalTokens 对认证阶段预扣的额度多退少补。
+                    // 预扣额由 authenticate 通过 config 透传到这里（potluckReserved）。
+                    // 拿不到 usage 时按预扣值计费（fallbackToReserved 默认 true），防止白嫖。
+                    const reserved = Number(hookContext.potluckReserved) || 0;
+                    if (reserved > 0) {
+                        const settled = await settleTokens(
+                            hookContext.potluckApiKey,
+                            reserved,
+                            usage?.totalTokens || 0
+                        );
+                        logger.info(
+                            `[API Potluck] Settled ${settled.settled} tokens for ${hookContext.potluckApiKey.substring(0, 12)}...`
+                            + ` (reserved ${reserved}, refund ${settled.refunded}, charge ${settled.charged}, remaining ${settled.remaining})`
+                        );
+                    }
 
                 } catch (e) {
                     // 静默失败，不影响主流程
