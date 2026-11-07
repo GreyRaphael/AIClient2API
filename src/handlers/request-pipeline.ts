@@ -1714,9 +1714,9 @@ export async function handleContentGenerationRequest(
     let actualCustomName = CONFIG.customName;
 
     // 提取客户端会话亲和性标识。
-    // 实测该标识对上游 KV cache 无作用（命中由内容前缀决定），但仍被用于：
-    //   1) 号池多账号的节点粘滞（_sessionNodeMap）
-    //   2) codex 的会话缓存键隔离（缺失时会归入 'default'，导致跨客户端共享上游会话）
+    // 实测该标识对上游 KV cache 无作用（命中由内容前缀决定）。
+    // 号池的节点粘滞（_sessionNodeMap）已因无收益被移除，故它现在只剩一个用途：
+    //   codex 的会话缓存键隔离（缺失时会归入 'default'，导致跨客户端共享上游会话）
     // 因此默认保持「无显式 id 时从首条消息派生」；如需让无状态客户端不被赋予合成 id，
     // 可设置 SESSION_AFFINITY_DERIVE=false 关闭派生。
     const deriveSessionAffinity = (CONFIG as DynamicPayload)?.SESSION_AFFINITY_DERIVE !== false
@@ -1735,8 +1735,7 @@ export async function handleContentGenerationRequest(
         const result = await getApiServiceWithFallback(CONFIG, model, {
             acquireSlot: shouldSelectByPool,
             allowUnselectedModel: Boolean(customModelConfig),
-            customModelConfig: customModelConfig || null,
-            sessionId: downstreamSessionId || undefined
+            customModelConfig: customModelConfig || null
         });
 
         service = result.service as DynamicPayload;

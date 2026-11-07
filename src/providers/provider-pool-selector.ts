@@ -3,17 +3,10 @@ import { getCustomModelListProvider } from './provider-models.ts';
 import { nodeSupportsModel, resolveNodeCapability, resolveProviderCapability } from './model-capability.ts';
 import type { ProviderConfig, ProviderPoolGlobalConfig, ProviderStatus, ProviderStatusMap } from './provider-types.ts';
 
-/**
- * 会话→节点亲和映射的容量上限。
- * 达到上限时按 LRU 淘汰（命中会刷新顺序），避免热会话被误踢。
- */
-const SESSION_NODE_MAP_LIMIT = 2000;
-
 export interface ProviderSelectionOptions {
     allowUnselectedModel?: boolean;
     customModelConfig?: unknown;
     skipUsageCount?: boolean;
-    sessionId?: string | null;
     [key: string]: unknown;
 }
 
@@ -36,7 +29,6 @@ export class ProviderPoolSelector {
     private readonly getDisplayName: ProviderPoolSelectorOptions['getDisplayName'];
     private readonly debouncedSave: ProviderPoolSelectorOptions['debouncedSave'];
     private readonly log: ProviderPoolSelectorOptions['log'];
-    private readonly _sessionNodeMap: Map<string, string>;
     private _selectionSequence: number;
 
     constructor(options: ProviderPoolSelectorOptions) {
@@ -47,7 +39,6 @@ export class ProviderPoolSelector {
         this.getDisplayName = options.getDisplayName;
         this.debouncedSave = options.debouncedSave;
         this.log = options.log;
-        this._sessionNodeMap = new Map();
         this._selectionSequence = 0;
     }
 
@@ -128,27 +119,6 @@ export class ProviderPoolSelector {
      * 实际执行 provider 选择的内部方法（同步执行，由锁保护）
      * @private
      */
-    /**
-     * 判断节点是否已达并发上限。
-     *
-     * 修复 v8.2.0 的两个缺陷：
-     *   1. `queueLimit` 未配置时为 0，而 `queue.length >= 0` 恒为真 —— 于是任何达到
-     *      concurrencyLimit 的节点都被判为"过载"，钉住逻辑形同死代码、并发时每轮丢弃亲和。
-     *      这里改为与 provider-pool-scoring 一致：只有 `queueLimit > 0` 时才用队列长度判定。
-     *   2. 用 `waitingCount`（评分所用的真值）而非 `queue.length`，避免两个字段漂移。
-     */
-    private isNodeOverloaded(candidate: ProviderStatus): boolean {
-        const concurrencyLimit = parseInt(String(candidate.config.concurrencyLimit || 0), 10);
-        if (!(concurrencyLimit > 0)) return false;
-        if (candidate.state.activeCount < concurrencyLimit) return false;
-
-        const queueLimit = parseInt(String(candidate.config.queueLimit || 0), 10);
-        if (!(queueLimit > 0)) return true;   // 无队列上限：达到并发上限即视为过载
-
-        const waiting = Number(candidate.state.waitingCount ?? 0);
-        return waiting >= queueLimit;
-    }
-
     select(providerType: string, requestedModel: string | null, options: ProviderSelectionOptions) {
         const availableProviders = this.getProviderStatus()[providerType] || [];
 
@@ -224,43 +194,22 @@ export class ProviderPoolSelector {
             return null;
         }
 
-        const sessionId = (typeof options.sessionId === 'string' && options.sessionId) ? options.sessionId : null;
-        let selected: ProviderStatus | undefined;
-
-        const affinityKey = sessionId ? `${providerType}:${sessionId}` : null;
-        if (affinityKey) {
-            const preferredUuid = this._sessionNodeMap.get(affinityKey);
-            if (preferredUuid) {
-                const candidate = availableAndHealthyProviders.find((p) => p.uuid === preferredUuid);
-                if (candidate && !this.isNodeOverloaded(candidate)) {
-                    selected = candidate;
-                    // 真正的 LRU：命中后把该会话移到队尾，避免热会话被 FIFO 淘汰
-                    this._sessionNodeMap.delete(affinityKey);
-                    this._sessionNodeMap.set(affinityKey, candidate.uuid);
-                    this.log('debug', `[Session Affinity] Reusing pinned node ${this.getDisplayName(candidate.config)} for session: ${sessionId}`);
-                }
-            }
-        }
-
-        if (!selected) {
-            // 使用统一的评分策略进行选择
-            // 传入当前时间戳 now 确保一致性
-            selected = availableAndHealthyProviders.sort((a, b) => {
-                const scoreA = this.calculateNodeScore(a, now, minSeq);
-                const scoreB = this.calculateNodeScore(b, now, minSeq);
-                if (scoreA !== scoreB) return scoreA - scoreB;
-                // 如果分值相同，使用 UUID 排序确保确定性
-                return a.uuid < b.uuid ? -1 : 1;
-            })[0];
-
-            if (affinityKey && selected) {
-                if (this._sessionNodeMap.size >= SESSION_NODE_MAP_LIMIT) {
-                    const oldestKey = this._sessionNodeMap.keys().next().value;
-                    if (oldestKey) this._sessionNodeMap.delete(oldestKey);
-                }
-                this._sessionNodeMap.set(affinityKey, selected.uuid);
-            }
-        }
+        // 统一的评分选点。
+        // 注：v8.2.0 曾在此处维护一张「会话→节点」粘滞表（_sessionNodeMap），
+        // 试图让同一会话固定落在同一账号以复用其 KV cache。实测（真实双账号号池：
+        // ToB Raw Chat + test_dsh，两个模型各 6 次重复）该表**没有缓存收益**：
+        //   粘滞 98.46% vs 轮询 98.39/98.46%（差 ≤0.07pp）
+        // 根因是 trae 的前缀缓存按「模型 + 内容前缀」维护，与节点/账号无关：
+        //   跨节点命中 98.39% vs 同节点 98.46%（8 次实验中 3 次跨节点）
+        // 数据见 logs/review-pool2/ 与 logs/review-pool/。
+        // 该表还会带来 2000 条上限管理、LRU 维护与一次多余的 Map 查找，故移除。
+        const selected = availableAndHealthyProviders.sort((a, b) => {
+            const scoreA = this.calculateNodeScore(a, now, minSeq);
+            const scoreB = this.calculateNodeScore(b, now, minSeq);
+            if (scoreA !== scoreB) return scoreA - scoreB;
+            // 如果分值相同，使用 UUID 排序确保确定性
+            return a.uuid < b.uuid ? -1 : 1;
+        })[0];
 
         // 始终更新 lastUsed（确保 LRU 策略生效，避免并发请求选到同一个 provider）
         // usageCount 只在请求成功后才增加（由 skipUsageCount 控制）
