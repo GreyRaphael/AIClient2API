@@ -55,6 +55,8 @@ export type PipelineError = DynamicPayload & {
     code?: string | number;
     response?: DynamicPayload;
     isEmptyUpstreamResponse?: boolean;
+    /** 标记「调用方请求错误」，handleError 会映射为 4xx 而非 5xx */
+    clientError?: boolean;
     skipErrorCount?: boolean;
     shouldSwitchCredential?: boolean;
     credentialMarkedUnhealthy?: boolean;
@@ -1709,6 +1711,32 @@ export async function handleContentGenerationRequest(
         }
     }
 
+    // ── 本地请求体校验（在触碰任何上游之前）──────────────────────────────
+    // 目的：把「必然失败的客户端请求」在本地以 4xx 快速失败。
+    // 此前缺少这个校验，一个缺 `messages` 的请求会一路走到 provider，
+    // 因此**先烧掉 5 次上游重试**（每次都是 400）才最终以 502 返回，
+    // 既浪费上游配额，也让客户端误判为网关故障。
+    {
+        const body = (originalRequestBody || {}) as DynamicPayload;
+        // 仅对「生成类」请求校验 messages；模型列表等其它路径不走这里。
+        const messages = body.messages;
+        const hasMessages = Array.isArray(messages) && messages.length > 0;
+        // 某些协议用 input / contents / prompt 表达输入（Responses / Gemini / 单字符串）
+        const hasAltInput = (typeof body.input === 'string' && body.input.trim() !== '')
+            || (Array.isArray(body.input) && body.input.length > 0)
+            || (Array.isArray(body.contents) && body.contents.length > 0)
+            || (typeof body.prompt === 'string' && body.prompt.trim() !== '');
+        if (!hasMessages && !hasAltInput) {
+            const validationError = new Error(
+                'Invalid request: `messages` must be a non-empty array. '
+                + 'Provide at least one message (e.g. [{"role":"user","content":"hi"}]).'
+            ) as PipelineError;
+            validationError.clientError = true;
+            validationError.statusCode = 400;
+            throw validationError;
+        }
+    }
+
     logger.info(`[Content Generation] Model: ${model}, Stream: ${isStream}`);
 
     let actualCustomName = CONFIG.customName;
@@ -1981,7 +2009,14 @@ export function handleError(
     req: IncomingMessage | null = null
 ): void {
     const rawStatusCode = (error as PipelineError).response?.status || error.statusCode || (error as PipelineError).status || (error as PipelineError).code || 500;
-    const statusCode = ensureValidStatusCode(rawStatusCode);
+    let statusCode = ensureValidStatusCode(rawStatusCode);
+
+    // 客户端请求错误纠正：这些错误源于调用方（模型名缺前缀、指定模型无可用节点等），
+    // 但历史上会兜底成 500。5xx 会让客户端误以为网关故障并盲目重试，故映射为 4xx。
+    // 只用显式标记判断（error.clientError），不靠消息文本猜测，避免误伤真实上游故障。
+    if ((error as PipelineError).clientError && statusCode >= 500) {
+        statusCode = 400;
+    }
     
     // 如果没有提供 fromProvider 但提供了 req，尝试从路径推断
     if (!fromProvider && req && req.url) {
@@ -2249,8 +2284,18 @@ function buildErrorMessageWithUpstream(error: PipelineError, statusCode: number,
  */
 export function createErrorResponse(error: PipelineError, fromProvider: string | null): DynamicPayload {
     const protocolPrefix = getProtocolPrefix(fromProvider || '');
-    const rawStatusCode = (error as PipelineError).status || (error as PipelineError).code || 500;
-    const statusCode = ensureValidStatusCode(rawStatusCode);
+    // 与 handleError 保持一致的状态码解析顺序：response.status > statusCode > status > code。
+    // 之前只读 status/code，导致设置了 `statusCode` 的客户端错误被默认成 500，
+    // 进而把 type 映射成 server_error（对 4xx 语义是错的）。
+    const rawStatusCode = (error as PipelineError).response?.status
+        || (error as PipelineError).statusCode
+        || (error as PipelineError).status
+        || (error as PipelineError).code
+        || 500;
+    let statusCode = ensureValidStatusCode(rawStatusCode);
+    if ((error as PipelineError).clientError && statusCode >= 500) {
+        statusCode = 400;
+    }
     const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during processing.");
     
     // 根据 HTTP 状态码映射错误类型

@@ -134,6 +134,24 @@ export async function initApiService(config: Record<string, any>, isReady = fals
  * @private
  * @returns {Promise<Object>} { effectiveProvider, actualModelName }
  */
+/**
+ * 构造「客户端请求错误」并打上 `clientError` 标记。
+ *
+ * 为什么需要这个标记：这些错误原先都只是普通 `Error`，走到 `handleError` 时取不到
+ * 状态码，于是被统一兜底成 **500**。但它们的本质是「调用方请求不对」——
+ * 例如模型名没有 provider 前缀、指定模型在池里没有健康节点。
+ * 返回 5xx 会让客户端和监控无法区分「我写错了」与「网关挂了」，
+ * 还会让朴素的重试循环对永久失败的请求反复重试。
+ *
+ * `handleError` 据此把状态码映射为 4xx（默认 400），并保留原始可读信息。
+ */
+function createClientRequestError(message: string, statusCode = 400): Error & { clientError: true; statusCode: number } {
+    const error = new Error(message) as Error & { clientError: true; statusCode: number };
+    error.clientError = true;
+    error.statusCode = statusCode;
+    return error;
+}
+
 async function _resolveEffectiveRouting(
     config: Record<string, any>,
     requestedModel: string | null
@@ -158,7 +176,7 @@ async function _resolveEffectiveRouting(
 
     // 2. 严格性检查：在 AUTO 模式下，如果到这里还没解析出具体提供商，则报错 (除非是列出模型场景)
     if (effectiveProvider === MODEL_PROVIDER.AUTO && requestedModel) {
-        throw new Error(`[API Service] Auto-routing failed: Model name must include a provider prefix (e.g., 'provider:model'). Received: '${requestedModel}'`);
+        throw createClientRequestError(`[API Service] Auto-routing failed: Model name must include a provider prefix (e.g., 'provider:model'). Received: '${requestedModel}'`);
     }
 
     return { effectiveProvider, actualModelName };
@@ -202,11 +220,12 @@ export async function getApiService(
         } else {
             const errorMsg = `[API Service] No healthy provider found in pool for ${config.MODEL_PROVIDER}${actualModelName ? ` supporting model: ${actualModelName}` : ''}`;
             logger.error(errorMsg);
-            throw new Error(errorMsg);
+            // 指定模型在池中没有可用节点 = 客户端请求了不可服务的模型 -> 4xx
+            throw createClientRequestError(errorMsg, 400);
         }
     } else if (effectiveProvider === MODEL_PROVIDER.AUTO && actualModelName) {
         // 如果在 AUTO 模式下依然没能解析出具体提供商，则报错
-        throw new Error(`[API Service] Auto-routing failed: Model name must include a provider prefix (e.g., 'provider:model'). Received: '${actualModelName}'`);
+        throw createClientRequestError(`[API Service] Auto-routing failed: Model name must include a provider prefix (e.g., 'provider:model'). Received: '${actualModelName}'`);
     }
     return getServiceAdapter(serviceConfig);
 }
@@ -281,11 +300,12 @@ export async function getApiServiceWithFallback(
         } else {
             const errorMsg = `[API Service] No healthy provider found in pool for ${config.MODEL_PROVIDER}${actualModelName ? ` supporting model: ${actualModelName}` : ''}`;
             logger.error(errorMsg);
-            throw new Error(errorMsg);
+            // 指定模型在池中没有可用节点 = 客户端请求了不可服务的模型 -> 4xx
+            throw createClientRequestError(errorMsg, 400);
         }
     } else if (effectiveProvider === MODEL_PROVIDER.AUTO && actualModelName) {
         // 如果在 AUTO 模式下依然没能解析出具体提供商，则报错
-        throw new Error(`[API Service] Auto-routing failed: Model name must include a provider prefix (e.g., 'provider:model'). Received: '${actualModelName}'`);
+        throw createClientRequestError(`[API Service] Auto-routing failed: Model name must include a provider prefix (e.g., 'provider:model'). Received: '${actualModelName}'`);
     }
     
     const service = getServiceAdapter(serviceConfig);
