@@ -91,7 +91,15 @@ function normalizeStore(store) {
 
     if (store?.daily) {
         for (const [date, dailyStore] of Object.entries(store.daily)) {
-            normalizedStore.daily[date] = normalizeUsageBlock(dailyStore);
+            // 旧版 daily[date] 是扁平的 usage 块；新版在其上增加 `models` 子维度。
+            // 两者共存以便向后兼容：历史数据仍可直接读扁平字段。
+            const block = normalizeUsageBlock(dailyStore);
+            const models = {};
+            for (const [modelKey, modelStore] of Object.entries(dailyStore?.models || {})) {
+                models[modelKey] = normalizeUsageBlock(modelStore);
+            }
+            block.models = models;
+            normalizedStore.daily[date] = block;
         }
     }
 
@@ -369,10 +377,18 @@ export async function finalizeRequest({ requestId, model, provider, fromProvider
     updatePeaks(ensureModelStore(normalizedProvider, normalizedModel));
 
     if (!statsStore.daily[dateKey]) {
-        statsStore.daily[dateKey] = createEmptyUsage();
+        statsStore.daily[dateKey] = { ...createEmptyUsage(), models: {} };
     }
     const dailyBlock = statsStore.daily[dateKey];
+    // 旧数据可能没有 models 容器，补齐
+    if (!dailyBlock.models || typeof dailyBlock.models !== 'object') dailyBlock.models = {};
     applyUsage(dailyBlock, usage, timestamp);
+
+    // 按「provider:model」记录当日该模型的用量，供 UI 按天展示各模型明细。
+    // 使用 provider:model 作为键，避免不同 provider 的同名模型互相覆盖。
+    const modelKey = `${provider || 'unknown'}:${model || 'unknown'}`;
+    if (!dailyBlock.models[modelKey]) dailyBlock.models[modelKey] = createEmptyUsage();
+    applyUsage(dailyBlock.models[modelKey], usage, timestamp);
     updatePeaks(dailyBlock);
 
     logger.info(`${getTracePrefix(requestId)} >>> Request Finalized: Provider: ${normalizedProvider} | Model: ${normalizedModel} | Prompt: ${usage.promptTokens} | Completion: ${usage.completionTokens} | Total: ${usage.totalTokens} | Cached: ${usage.cachedTokens} | Stream: ${Boolean(state.isStream)} | QPS: ${globalRates.qps}`);

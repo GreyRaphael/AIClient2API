@@ -172,6 +172,22 @@ body {
 .calendar-day { width: 11px; height: 11px; border-radius: 2px; background: var(--bg-secondary); position: relative; cursor: pointer; transition: transform 0.1s; }
 
 .calendar-day:hover { transform: scale(1.2); z-index: 10; outline: 1px solid var(--primary-color); }
+/* 可点击日历格：用于把统计页切换到「选中某一天」的视图。未传 onSelect 时不会加这个类。 */
+.calendar-day-clickable { cursor: pointer; }
+.calendar-day-clickable:hover { outline: 2px solid var(--primary-color); }
+/* 当前选中的那一天：描边 + 轻微放大，与 hover 区分开 */
+/* 缓存命中率列：>=80% 高亮，0 值置灰。颜色一律走设计令牌，避免内联硬编码。 */
+.cache-rate { font-weight: 600; }
+.cache-rate.high { color: var(--primary-color); }
+.cache-rate.normal { color: inherit; }
+.cache-rate.idle { color: var(--text-tertiary); }
+
+.calendar-day-selected {
+    outline: 2px solid var(--primary-color);
+    box-shadow: 0 0 0 2px var(--bg-primary) inset;
+    transform: scale(1.15);
+    z-index: 5;
+}
 
 .calendar-footer { margin-top: 0.625rem; font-size: 0.75rem; color: var(--text-tertiary); text-align: right; }
 

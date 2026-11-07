@@ -51,6 +51,9 @@ function ModelUsageStatsPage() {
     const [connected, setConnected] = useState(false);
     const [search, setSearch] = useState('');
     const [sort, setSort] = useState('totalTokens-desc');
+    // 视图模式：'today' = 当日各模型（默认）；'date' = 日历选中的某天；'history' = 历史全部累计
+    const [viewMode, setViewMode] = useState(/** @type {'today'|'date'|'history'} */ ('today'));
+    const [selectedDate, setSelectedDate] = useState(/** @type {string|null} */ (null));
 
     const setStatusMessage = (text, type = 'info') => setStatus({ text, type });
 
@@ -87,11 +90,80 @@ function ModelUsageStatsPage() {
     }, []);
 
     const summary = data?.summary || {};
+
+    /** 当日日期键（UTC+8，与 stats-manager 的 dateKey 口径一致） */
+    const todayKey = useMemo(() => {
+        const utc8 = new Date(Date.now() + 8 * 60 * 60 * 1000);
+        return utc8.toISOString().split('T')[0];
+    }, []);
+
+    /**
+     * 根据当前视图派生出「要展示的模型行」。
+     * - today / date：读 daily[dateKey].models，按天展示各模型用量
+     * - history：读 providers[*].models，展示历史全部累计
+     * 每行统一补齐 cachedTokens 与命中率，供表格新增列使用。
+     */
+    const viewRows = useMemo(() => {
+        const makeRow = (providerName, modelName, block) => {
+            const promptTokens = Number(block?.promptTokens || 0);
+            const cachedTokens = Number(block?.cachedTokens || 0);
+            return {
+                provider: providerName,
+                model: modelName,
+                requestCount: Number(block?.requestCount || 0),
+                promptTokens,
+                completionTokens: Number(block?.completionTokens || 0),
+                cachedTokens,
+                totalTokens: Number(block?.totalTokens || 0),
+                lastUsedAt: block?.lastUsedAt || null,
+                // 命中率 = 缓存命中 token / 输入 token（分母为 0 时记 0）
+                cacheHitRate: promptTokens > 0 ? (cachedTokens / promptTokens) * 100 : 0
+            };
+        };
+
+        if (viewMode === 'history') {
+            const list = [];
+            for (const [providerName, provider] of Object.entries(data?.providers || {})) {
+                for (const [modelName, block] of Object.entries(provider?.models || {})) {
+                    list.push(makeRow(providerName, modelName, block));
+                }
+            }
+            return list;
+        }
+
+        const dateKey = viewMode === 'date' ? selectedDate : todayKey;
+        const dayBlock = dateKey ? data?.daily?.[dateKey] : null;
+        const models = dayBlock?.models || {};
+        const list = [];
+        for (const [modelKey, block] of Object.entries(models)) {
+            // modelKey 形如 "provider:model"；用第一个冒号切分，兼容 model 名本身含冒号
+            const sep = modelKey.indexOf(':');
+            const providerName = sep === -1 ? 'unknown' : modelKey.slice(0, sep);
+            const modelName = sep === -1 ? modelKey : modelKey.slice(sep + 1);
+            list.push(makeRow(providerName, modelName, block));
+        }
+        return list;
+    }, [data, viewMode, selectedDate, todayKey]);
+
+    /** 当前视图的汇总（用于顶部说明与空态提示） */
+    const viewSummary = useMemo(() => {
+        const acc = { requestCount: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, totalTokens: 0 };
+        for (const row of viewRows) {
+            acc.requestCount += row.requestCount;
+            acc.promptTokens += row.promptTokens;
+            acc.completionTokens += row.completionTokens;
+            acc.cachedTokens += row.cachedTokens;
+            acc.totalTokens += row.totalTokens;
+        }
+        acc.cacheHitRate = acc.promptTokens > 0 ? (acc.cachedTokens / acc.promptTokens) * 100 : 0;
+        return acc;
+    }, [viewRows]);
+
     const filteredRows = useMemo(() => {
         const keyword = search.trim().toLowerCase();
         const list = keyword
-            ? rows.filter((row) => row.provider.toLowerCase().includes(keyword) || row.model.toLowerCase().includes(keyword))
-            : rows.slice();
+            ? viewRows.filter((row) => row.provider.toLowerCase().includes(keyword) || row.model.toLowerCase().includes(keyword))
+            : viewRows.slice();
         const [field, direction] = sort.split('-');
         list.sort((a, b) => {
             if (field === 'provider' || field === 'model') {
@@ -104,7 +176,7 @@ function ModelUsageStatsPage() {
             return direction === 'desc' ? right - left : left - right;
         });
         return list;
-    }, [rows, search, sort]);
+    }, [viewRows, search, sort]);
 
     const providersRaw = Object.entries(data?.providers || {})
         .map(([name, provider]) => ({
@@ -248,7 +320,13 @@ function ModelUsageStatsPage() {
                         </div>
                     </div>
                     <div class="calendar-wrapper" style="justify-content: flex-start; padding: 15px 0 5px;">
-                        <${StatsCalendar} usageHistory=${data?.daily || {}} />
+                        <${StatsCalendar}
+                            usageHistory=${data?.daily || {}}
+                            selectedDate=${viewMode === 'date' ? selectedDate : null}
+                            onSelect=${(dateKey) => { setSelectedDate(dateKey); setViewMode('date'); }} />
+                    </div>
+                    <div class="calendar-footer-note" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">
+                        点击任意方格可查看该日各模型用量；下方「历史累计」按钮可切回全量视图。
                     </div>
                 </div>
                 <div class="panel">
@@ -325,9 +403,29 @@ function ModelUsageStatsPage() {
                         </select>
                     </div>
                 </div>
+                <div class="view-switch" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0;">
+                    <button class=${'btn ' + (viewMode === 'today' ? 'btn-primary' : 'btn-secondary')}
+                        onClick=${() => { setViewMode('today'); setSelectedDate(null); }}>
+                        <i class="fas fa-calendar-alt"></i><span>当日（${todayKey}）</span>
+                    </button>
+                    <button class=${'btn ' + (viewMode === 'history' ? 'btn-primary' : 'btn-secondary')}
+                        onClick=${() => { setViewMode('history'); }}>
+                        <i class="fas fa-history"></i><span>历史累计</span>
+                    </button>
+                    ${viewMode === 'date' && selectedDate ? html`
+                        <button class="btn btn-primary" disabled>
+                            <i class="fas fa-calendar-days"></i><span>选中：${selectedDate}</span>
+                        </button>` : null}
+                    <span style="font-size:12px;color:var(--text-tertiary);">
+                        ${viewMode === 'history'
+                            ? `覆盖全部历史，共 ${formatNumber(viewRows.length)} 个模型`
+                            : `当前视图：${viewMode === 'date' ? selectedDate : todayKey}，${formatNumber(viewRows.length)} 个模型`}
+                        ${' · '}缓存命中率 ${viewSummary.cacheHitRate.toFixed(2)}%
+                    </span>
+                </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>Provider</th><th>Model</th><th>请求数</th><th>Prompt</th><th>Cached</th><th>Completion</th><th>Total</th><th>最近使用</th></tr></thead>
+                        <thead><tr><th>Provider</th><th>Model</th><th>请求数</th><th>Prompt</th><th>Cached</th><th>缓存命中率</th><th>Completion</th><th>Total</th><th>最近使用</th></tr></thead>
                         <tbody>
                             ${filteredRows.length === 0
                                 ? html`<tr><td colspan="8" style="text-align:center;color:var(--text-tertiary)">没有匹配的数据</td></tr>`
@@ -338,6 +436,9 @@ function ModelUsageStatsPage() {
                                         <td class="mono">${formatNumber(row.requestCount)}</td>
                                         <td class="mono">${formatTokenCompact(row.promptTokens)}</td>
                                         <td class="mono">${formatTokenCompact(row.cachedTokens)}</td>
+                                        <td class=${'mono cache-rate' + (row.cacheHitRate >= 80 ? ' high' : row.promptTokens > 0 ? ' normal' : ' idle')}>
+                                            ${row.promptTokens > 0 ? row.cacheHitRate.toFixed(2) + '%' : '—'}
+                                        </td>
                                         <td class="mono">${formatTokenCompact(row.completionTokens)}</td>
                                         <td class="mono">${formatTokenCompact(row.totalTokens)}</td>
                                         <td>${formatRelativeTime(row.lastUsedAt)}</td>

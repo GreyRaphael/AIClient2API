@@ -3,9 +3,26 @@ import { html, useState } from '../html.js';
 import { buildCalendarDays, formatNumber, formatTokenCompact } from '../lib/stats.js';
 
 /**
- * @param {{usageHistory: Record<string, any>, footerPrefix?: string, tokenLabel?: string}} props
+ * 用量日历（GitHub 风格热力图）。
+ *
+ * 传 `onSelect` 后每一格可点击，用于把页面切换到「选中那一天」的用量视图。
+ * 不传时保持原行为（纯展示），因此其它页面的复用不受影响。
+ *
+ * @param {{
+ *   usageHistory: Record<string, any>,
+ *   footerPrefix?: string,
+ *   tokenLabel?: string,
+ *   onSelect?: ((dateKey: string) => void) | null,
+ *   selectedDate?: string | null
+ * }} props
  */
-export function StatsCalendar({ usageHistory, footerPrefix = '最近三个月累计消耗', tokenLabel = 'Tokens' }) {
+export function StatsCalendar({
+    usageHistory,
+    footerPrefix = '最近三个月累计消耗',
+    tokenLabel = 'Tokens',
+    onSelect = null,
+    selectedDate = null
+}) {
     const [tooltip, setTooltip] = useState(/** @type {any} */ (null));
     const { days, total } = buildCalendarDays(usageHistory || {});
 
@@ -14,19 +31,29 @@ export function StatsCalendar({ usageHistory, footerPrefix = '最近三个月累
         const peak = day.maxQps
             ? `\n峰值: ${day.maxQps.toFixed(2)} QPS / ${day.maxRpm.toFixed(0)} RPM / ${day.maxTps.toFixed(2)} TPS`
             : '';
+        const hint = onSelect ? '\n点击查看该日各模型用量' : '';
         setTooltip({
-            text: `${day.dateKey}: ${formatNumber(day.requestCount)} 次请求, ${formatTokenCompact(day.totalTokens)} ${tokenLabel}${peak}`,
+            text: `${day.dateKey}: ${formatNumber(day.requestCount)} 次请求, ${formatTokenCompact(day.totalTokens)} ${tokenLabel}${peak}${hint}`,
             left: rect.left + rect.width / 2,
             top: rect.top - 8
         });
     };
 
+    const handleClick = (day) => {
+        if (!onSelect) return;
+        onSelect(day.dateKey);
+    };
+
     return html`
         <div class="calendar-grid" style="grid-template-rows: repeat(7, 11px); gap: 3px;">
             ${days.map((day) => html`
-                <div class="calendar-day" data-level=${day.level} key=${day.dateKey}
+                <div class=${'calendar-day' + (onSelect ? ' calendar-day-clickable' : '')
+                        + (selectedDate && day.dateKey === selectedDate ? ' calendar-day-selected' : '')}
+                    data-level=${day.level} key=${day.dateKey}
+                    title=${onSelect ? `${day.dateKey}（点击查看该日明细）` : ''}
                     onMouseEnter=${(event) => showTooltip(event, day)}
-                    onMouseLeave=${() => setTooltip(null)}></div>`)}
+                    onMouseLeave=${() => setTooltip(null)}
+                    onClick=${() => handleClick(day)}></div>`)}
         </div>
         <div class="calendar-footer" style="font-size: 11px; color: var(--text-tertiary); margin-top: 8px;">
             ${footerPrefix}: ${formatTokenCompact(total)} ${tokenLabel}
