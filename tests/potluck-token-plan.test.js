@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import deepmerge from 'deepmerge';
 
 /**
  * API 大锅饭 - 付费 token 套餐（第一期）
@@ -464,5 +465,51 @@ describe('网关管线集成回归：预扣回收、上游报错退还与错误�
         expect(authFuture.authorized).toBe(false);
         expect(resFuture.statusCode).toBe(403);
         expect(JSON.parse(resFuture.body).error.code).toBe('plan_not_started');
+    });
+
+    test('authenticate 返回的 data 可安全经受 deepmerge（无循环引用），且流式首帧缓冲后 502 失败仍全额退还预扣', async () => {
+        const km = await freshKeyManager();
+        const plugin = (await import('../src/plugins/api-potluck/index.js')).default;
+        const key = await km.createKey('deepmerge-safe', 999999);
+        await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
+
+        // 构造模拟真实 Node ServerResponse 的循环引用：res.socket._httpMessage === res
+        const res = createMockRes();
+        res.socket = { _httpMessage: res };
+
+        const config = { MODEL_PROVIDER: 'openai-custom' };
+        const auth = await plugin.authenticate(
+            { method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${key.id}` } },
+            res,
+            new URL('http://localhost/v1/chat/completions'),
+            config
+        );
+        expect(auth.authorized).toBe(true);
+        expect(typeof auth.data.potluckReservationToken).toBe('string');
+
+        // 模拟 pluginManager.executeAuth 合并 auth.data 到 config，再由 service-manager 执行 deepmerge
+        Object.assign(config, auth.data);
+        expect(() => deepmerge(config, { uuid: 'node-1' })).not.toThrow();
+
+        // 模拟流式首内容前缓冲场景：已收到过无 usage 的 metadata 帧（触发了 onStreamChunk），
+        // 但随后上游流异常中断，管线写回 502 错误状态码
+        await plugin.hooks.onStreamChunk({
+            requestId: 'req-stream-502',
+            nativeChunk: { id: 'chunk_meta' },
+            chunkToSend: { id: 'chunk_meta' }
+        });
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'empty upstream stream' } }));
+
+        await plugin.hooks.onContentGenerated({
+            _monitorRequestId: 'req-stream-502',
+            toProvider: 'openai-custom',
+            model: 'gpt-test',
+            ...config
+        });
+
+        const after = await km.getKey(key.id);
+        expect(after.plan.tokenReserved).toBe(0);
+        expect(after.plan.tokenUsed).toBe(0);
     });
 });

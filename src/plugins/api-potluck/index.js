@@ -281,6 +281,7 @@ const apiPotluckPlugin = {
                                 return;
                             }
                             current.settled = true;
+                            current.res = null;
                             reservationRegistry.delete(token);
                             try {
                                 const refunded = await settleTokens(current.keyId, current.reserved, 0, { fallbackToReserved: false });
@@ -348,7 +349,11 @@ const apiPotluckPlugin = {
             const entry = token ? reservationRegistry.get(token) : null;
             if (token) reservationRegistry.delete(token);
             const alreadySettled = Boolean(entry?.settled);
-            if (entry) entry.settled = true;
+            const statusCode = Number(entry?.res?.statusCode) || 200;
+            if (entry) {
+                entry.settled = true;
+                entry.res = null;
+            }
 
             if (hookContext.potluckApiKey) {
                 try {
@@ -356,11 +361,11 @@ const apiPotluckPlugin = {
                     const usage = getPendingUsageForHookContext(hookContext);
                     const actualTokens = Number(usage?.totalTokens) || 0;
                     // 请求是否真正成功产出内容：
-                    // 若上游返回 4xx/5xx（pipeline 内部捕获后仍会走到本钩子），此时既不会触发
-                    // onUnaryResponse/onStreamChunk，也没有 token 产出，必须全额退还预扣，
-                    // 不能按"防白嫖"兜底扣费。
-                    // 注意这里不再依赖 res.statusCode —— res 不进入 config 了。
-                    const responseSucceeded = hasCapturedResponse || actualTokens > 0;
+                    // 1) 上游直接返回 4xx/5xx 时，既不会触发 onUnaryResponse/onStreamChunk，也无 token 产出；
+                    // 2) 流式首内容前缓冲（preContentBuffer）阶段若收到过无正文 metadata 帧（触发了 onStreamChunk）
+                    //    但随后流失败并以 statusCode >= 400（如 502）结束，entry.res.statusCode 也能识别该失败。
+                    // 以上失败情形均必须全额退还预扣，不能按"防白嫖"兜底扣费。
+                    const responseSucceeded = statusCode < 400 && (hasCapturedResponse || actualTokens > 0);
 
                     // 传入提供商和模型信息，以及请求 ID 用于防重
                     await incrementUsage(
