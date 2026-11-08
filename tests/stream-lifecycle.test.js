@@ -1,4 +1,12 @@
+jest.mock('open', () => ({ default: jest.fn() }));
+
+import { Readable } from 'node:stream';
 import { createStreamRetryContext, writeStreamCompletion } from '../src/handlers/stream-lifecycle.ts';
+import { handleContentGenerationRequest, handleError } from '../src/handlers/request-pipeline.ts';
+import { MODEL_PROTOCOL_PREFIX } from '../src/utils/constants.ts';
+import { ENDPOINT_TYPE } from '../src/utils/protocol.ts';
+import { serviceInstances } from '../src/providers/adapter.ts';
+import { setProviderPoolManager } from '../src/providers/pool-context.ts';
 
 function createResponse(overrides = {}) {
     const chunks = [];
@@ -9,7 +17,10 @@ function createResponse(overrides = {}) {
         write: jest.fn(function (chunk) {
             chunks.push(String(chunk));
         }),
-        end: jest.fn(function () {
+        end: jest.fn(function (chunk) {
+            if (chunk !== undefined) {
+                chunks.push(String(chunk));
+            }
             this.writableEnded = true;
             this.ended = true;
         }),
@@ -110,5 +121,87 @@ describe('stream lifecycle', () => {
         });
         expect(context.clientDisconnected).toBe(clientDisconnected);
         expect(context.streamState).toBe(streamState);
+    });
+
+    test('handleContentGenerationRequest releases acquired pool slot when pre-dispatch validation fails', async () => {
+        const releaseSlot = jest.fn();
+        const providerPoolManager = {
+            acquireSlotWithFallback: jest.fn(async () => ({
+                config: { uuid: 'node-1', MODEL_PROVIDER: 'zed' },
+                uuid: 'node-1',
+                actualProviderType: 'zed',
+                isFallback: false
+            })),
+            releaseSlot
+        };
+        setProviderPoolManager(providerPoolManager);
+        serviceInstances['zednode-1'] = {
+            getNodeModelMetadata: async () => ({
+                'gpt-5': { support_efforts: ['low', 'high'] }
+            })
+        };
+
+        const bodyJson = JSON.stringify({
+            model: 'gpt-5',
+            reasoning_effort: 'invalid-effort-value',
+            messages: [{ role: 'user', content: 'hi' }]
+        });
+        const req = Object.assign(Readable.from([Buffer.from(bodyJson, 'utf8')]), {
+            url: '/v1/chat/completions',
+            headers: { 'content-length': String(Buffer.byteLength(bodyJson)) },
+            socket: {}
+        });
+        const res = createResponse({
+            headersSent: false,
+            writeHead: jest.fn(),
+            setHeader: jest.fn()
+        });
+        const config = {
+            MODEL_PROVIDER: 'zed',
+            providerPools: { zed: [{ uuid: 'node-1' }] },
+            providerPoolManager
+        };
+
+        try {
+            await expect(handleContentGenerationRequest(
+                req,
+                res,
+                null,
+                ENDPOINT_TYPE.OPENAI_CHAT,
+                config,
+                '',
+                providerPoolManager,
+                null,
+                '/v1/chat/completions'
+            )).rejects.toThrow(/reasoning_effort 'invalid-effort-value' is unsupported/);
+        } finally {
+            delete serviceInstances['zednode-1'];
+            setProviderPoolManager(null);
+        }
+
+        expect(providerPoolManager.acquireSlotWithFallback).toHaveBeenCalledWith(
+            'zed',
+            'gpt-5',
+            expect.objectContaining({ acquireSlot: true })
+        );
+        expect(releaseSlot).toHaveBeenCalledWith('zed', 'node-1');
+    });
+
+    test('handleError infers openaiResponses protocol for /v1/responses and omits details on 5xx', () => {
+        const res = createResponse({
+            headersSent: false,
+            writeHead: jest.fn()
+        });
+        const err = Object.assign(new Error('upstream crash'), {
+            status: 502,
+            response: { data: { internalSecret: 'should-not-leak' } }
+        });
+
+        handleError(res, err, null, MODEL_PROTOCOL_PREFIX.OPENAI, '/v1/responses');
+
+        expect(res.writeHead).toHaveBeenCalledWith(502, { 'Content-Type': 'application/json' });
+        const payload = JSON.parse(res.chunks.join(''));
+        expect(payload.error.code).toBe('server_error');
+        expect(payload.error.details).toBeUndefined();
     });
 });

@@ -10,7 +10,7 @@ import {CodexConverter} from './CodexConverter.ts';
 import {StreamSessionStore} from '../stream-session.ts';
 import {
     cleanJsonSchemaForOpenAI,
-    determineReasoningEffortFromBudget,
+    budgetTokensToEffort,
     isOpenAIReasoningModel,
     sanitizeToolId,
     safeParseJSON,
@@ -117,15 +117,6 @@ export class ClaudeConverter extends BaseConverter {
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }
-    }
-
-    /**
-     * 转换模型列表
-     */
-    convertModelList(data: unknown, targetProtocol: string): unknown {
-        return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
-            ? this.toOpenAIModelList(data as DynamicPayload)
-            : data;
     }
 
     /**
@@ -430,7 +421,7 @@ export class ClaudeConverter extends BaseConverter {
             const budgetTokens = claudeRequest.thinking.budget_tokens;
             let reasoningEffort = effortFromConfig
                 ? String(effortFromConfig).toLowerCase()
-                : determineReasoningEffortFromBudget(budgetTokens);
+                : budgetTokensToEffort(budgetTokens);
             if (reasoningEffort === "max" || reasoningEffort === "xhigh") {
                 reasoningEffort = "high";
             }
@@ -944,27 +935,6 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude模型列表 -> OpenAI模型列表
-     */
-    toOpenAIModelList(claudeModels: DynamicPayload | null | undefined) {
-        const models: DynamicPayload[] = claudeModels?.models || claudeModels?.data || (Array.isArray(claudeModels) ? claudeModels : []);
-        return {
-            object: "list",
-            data: models.map((m: DynamicPayload | string) => {
-                const modelId = typeof m === 'string' ? m : (m.id || m.name);
-                return {
-                    id: modelId,
-                    object: "model",
-                    created: Math.floor(Date.now() / 1000),
-                    owned_by: typeof m === 'string' ? "anthropic" : (m.owned_by || "anthropic"),
-                    display_name: modelId,
-                };
-            }),
-        };
-    }
-
-
-    /**
      * 处理Claude内容到OpenAI格式
      */
     processClaudeContentToOpenAIContent(content: DynamicPayload | string | null | undefined): DynamicPayload[] {
@@ -1447,7 +1417,7 @@ export class ClaudeConverter extends BaseConverter {
                     || claudeRequest.thinking?.effort
                     || 'high';
             } else {
-                effort = determineReasoningEffortFromBudget(claudeRequest.thinking?.budget_tokens);
+                effort = budgetTokensToEffort(claudeRequest.thinking?.budget_tokens);
             }
             const thinkingConfig = effortToGeminiThinking(effort);
             if (thinkingConfig) {
@@ -1762,7 +1732,7 @@ export class ClaudeConverter extends BaseConverter {
         const configuredEffort = claudeRequest.output_config?.effort;
         const effort = configuredEffort
             ? String(configuredEffort).toLowerCase()
-            : determineReasoningEffortFromBudget(claudeRequest.thinking?.budget_tokens);
+            : budgetTokensToEffort(claudeRequest.thinking?.budget_tokens);
         return { effort };
     }
 
@@ -2553,7 +2523,7 @@ export class ClaudeConverter extends BaseConverter {
             if (codexThinkingType === 'adaptive') {
                 effort = claudeRequest.output_config?.effort ?? claudeRequest.thinking?.effort;
             } else {
-                effort = determineReasoningEffortFromBudget(claudeRequest.thinking?.budget_tokens);
+                effort = budgetTokensToEffort(claudeRequest.thinking?.budget_tokens);
             }
             const normalizedEffort = effort === undefined || effort === null ? '' : String(effort).trim().toLowerCase();
             if (normalizedEffort) {

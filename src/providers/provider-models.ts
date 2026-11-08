@@ -1,4 +1,3 @@
-import { convertData } from '../convert/convert.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProviderStaticModels } from './provider-registry.ts';
@@ -101,53 +100,6 @@ export function getCustomModelIdsForProvider(customModels: unknown, providerType
             return listProvider && (listProvider === providerType || providerType.startsWith(listProvider + '-'));
         })
         .map((model: DynamicPayload) => model.id));
-}
-
-function extractModelIdsFromListShape(modelList: DynamicPayload | null | undefined): string[] {
-    if (!modelList) {
-        return [];
-    }
-
-    if (Array.isArray(modelList)) {
-        return modelList.map((item: DynamicPayload | string) => {
-            if (typeof item === 'string') return item;
-            return item?.id || item?.name || item?.model || null;
-        }).filter((value): value is string => Boolean(value));
-    }
-
-    if (Array.isArray(modelList.data)) {
-        return modelList.data.map((item: DynamicPayload) => item?.id || item?.name || item?.model || null)
-            .filter((value): value is string => Boolean(value));
-    }
-
-    if (Array.isArray(modelList.models)) {
-        return modelList.models.map((item: DynamicPayload | string) => {
-            if (typeof item === 'string') return item;
-            return item?.id || item?.name || item?.model || null;
-        }).filter((value): value is string => Boolean(value));
-    }
-
-    return [];
-}
-
-export function extractModelIdsFromNativeList(modelList: DynamicPayload | null | undefined, providerType: string): string[] {
-    let convertedModelList = modelList;
-
-    // 只有在提供商类型与目标类型协议不同时才尝试转换
-    if (providerType !== MODEL_PROVIDER.OPENAI_CUSTOM && !providerType.startsWith(MODEL_PROVIDER.OPENAI_CUSTOM + '-')) {
-        try {
-            convertedModelList = convertData(modelList || {}, 'modelList', providerType, MODEL_PROVIDER.OPENAI_CUSTOM, undefined, undefined) as DynamicPayload;
-        } catch {
-            convertedModelList = modelList;
-        }
-    }
-
-    const convertedIds = normalizeModelIds(extractModelIdsFromListShape(convertedModelList as DynamicPayload));
-    if (convertedIds.length > 0) {
-        return convertedIds;
-    }
-
-    return normalizeModelIds(extractModelIdsFromListShape(modelList));
 }
 
 export function getConfiguredSupportedModels(providerType: string, providerConfig: DynamicPayload = {}): string[] {

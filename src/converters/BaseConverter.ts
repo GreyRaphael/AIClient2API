@@ -56,16 +56,6 @@ export class BaseConverter implements IProtocolConverter {
     }
 
     /**
-     * 转换模型列表
-     * @param data - 模型列表数据
-     * @param targetProtocol - 目标协议
-     * @returns 转换后的模型列表
-     */
-    convertModelList(data: unknown, targetProtocol: string): unknown {
-        throw new Error('convertModelList方法必须被子类实现');
-    }
-
-    /**
      * 清理某个请求的流式转换状态。
      *
      * 空响应重试 / 凭证切换重试会在同一个 requestId 下重新消费上游流；

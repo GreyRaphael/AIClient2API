@@ -7,7 +7,6 @@ import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { PROVIDER_MODELS } from '../provider-models.ts';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.ts';
-import { normalizeUsageCandidate } from '../../utils/usage-normalizer.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
@@ -416,44 +415,6 @@ export class ZedApiService {
             return buildGoogleZedPayload(model, requestBody, capabilities, meta);
         }
         return buildAnthropicZedPayload(model, requestBody, capabilities, meta, provider);
-    }
-
-    /**
-     * 将上游各协议的 usage 数据规整为 Claude 规范的 usage 结构 (完整保留 cache_read_input_tokens)
-     * 字段提取统一走共享的 usage-normalizer，此处仅做 Claude 格式映射
-     *
-     * 语义：usage-normalizer 输出的 promptTokens 是**含缓存**的 inclusive 总量，
-     * 而 Anthropic 的 input_tokens 必须是**不含缓存**的 exclusive 量（缓存另计
-     * cache_read / cache_creation）。因此这里需要把缓存部分从 input_tokens 扣除，
-     * 否则下游会重复计数。
-     *
-     * @deprecated 目前**无生产调用点**，仅 `tests/zed-provider.test.js` 使用。
-     * 生产路径由三个流式聚合器各自处理 usage（`_aggregateAnthropicContent` 等）。
-     * 保留它是为了覆盖「跨协议 usage 映射」这一约定；若后续确认长期不用，
-     * 应连同其测试一并删除，避免出现「看起来已修但实际未接入」的假修复。
-     * @param {Object} rawUsage - 上游原始 usage 对象
-     * @returns {Object}
-     */
-    _formatClaudeUsage(rawUsage: unknown = {}): DynamicPayload {
-        const normalized = normalizeUsageCandidate(rawUsage);
-
-        const totalInput = normalized?.promptTokens ?? 0;
-        const cacheRead = normalized?.cachedTokens ?? 0;
-        const cacheCreation = isRecord(rawUsage)
-            ? Number(rawUsage.cache_creation_input_tokens) || 0
-            : 0;
-
-        const res: DynamicPayload = {
-            input_tokens: Math.max(0, totalInput - cacheRead - cacheCreation),
-            output_tokens: normalized?.completionTokens ?? 0,
-            cache_read_input_tokens: cacheRead
-        };
-
-        if (isRecord(rawUsage) && rawUsage.cache_creation_input_tokens !== undefined) {
-            res.cache_creation_input_tokens = cacheCreation;
-        }
-
-        return res;
     }
 
     /**

@@ -1,13 +1,14 @@
 import {
     ENDPOINT_TYPE,
     getRequestBody,
-    getRateLimitCooldownRecoveryTime,
     getProtocolPrefix,
-    MODEL_PROTOCOL_PREFIX
+    MODEL_PROTOCOL_PREFIX,
+    ensureValidStatusCode
 } from '../utils/common.ts';
 import {
     handleModelListRequest,
-    handleContentGenerationRequest
+    handleContentGenerationRequest,
+    markCredentialFailureOnError
 } from '../handlers/request-pipeline.ts';
 import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.ts';
 import logger from '../utils/logger.ts';
@@ -15,6 +16,7 @@ import busboy from 'busboy';
 import { convertData } from '../convert/convert.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
+import type { ProviderStatus } from '../providers/provider-types.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
@@ -114,10 +116,14 @@ export function initializeAPIManagement(services: Record<string, any>) {
                 // For pooled providers, refreshToken should be handled by individual instances
                 // For single instances, this remains relevant
                 if (serviceAdapter.config?.uuid && providerPoolManager) {
-                    providerPoolManager._enqueueRefresh(serviceAdapter.config.MODEL_PROVIDER, {
+                    const providerType = serviceAdapter.config.MODEL_PROVIDER;
+                    const poolNode = providerPoolManager.providerStatus?.[providerType]?.find(
+                        (p: ProviderStatus) => p.uuid === serviceAdapter.config.uuid
+                    );
+                    providerPoolManager._enqueueRefresh(providerType, poolNode || {
                         config: serviceAdapter.config,
                         uuid: serviceAdapter.config.uuid,
-                        type: serviceAdapter.config.MODEL_PROVIDER,
+                        type: providerType,
                         state: { activeCount: 0, waitingCount: 0, queue: [] }
                     });
                 } else {
@@ -151,8 +157,15 @@ export async function handleImageGenerationRequest(
     const maxRetries = retryContext?.maxRetries ?? 3;
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG ?? currentConfig;
-    let slotProviderType = null;
-    let slotUuid = null;
+    let slotProviderType: string | null = null;
+    let slotUuid: string | null = null;
+    let slotReleased = false;
+    const releaseCurrentSlot = () => {
+        if (!slotReleased && providerPoolManager && slotProviderType && slotUuid) {
+            slotReleased = true;
+            providerPoolManager.releaseSlot(slotProviderType, slotUuid);
+        }
+    };
     let model = '';
     let prompt = '';
     let n = 1;
@@ -336,29 +349,17 @@ export async function handleImageGenerationRequest(
         const err = error as Record<string, any>;
         logger.error('[Image Generation] Error:', getErrorMessage(error));
 
-        const shouldSwitchCredential = err.shouldSwitchCredential === true;
-        let credentialMarkedUnhealthy = err.credentialMarkedUnhealthy === true;
-
-        if (providerPoolManager && slotUuid) {
-            const rateLimitRecoveryTime = getRateLimitCooldownRecoveryTime(error, CONFIG);
-            if (rateLimitRecoveryTime) {
-                logger.info(`[Provider Pool] Applying 429 cooldown for ${slotProviderType} (${slotUuid})`);
-                providerPoolManager.markProviderUnhealthyWithRecoveryTime(slotProviderType, {uuid: slotUuid}, '429 Too Many Requests - short cooldown', rateLimitRecoveryTime);
-                credentialMarkedUnhealthy = true;
-            } else if (!credentialMarkedUnhealthy && !err.skipErrorCount) {
-                if (err.response?.status !== 400) {
-                    logger.info(`[Provider Pool] Marking ${slotProviderType} as unhealthy due to image generation error (status: ${err.response?.status || 'unknown'})`);
-                    providerPoolManager.markProviderUnhealthy(slotProviderType, {uuid: slotUuid}, getErrorMessage(error));
-                    credentialMarkedUnhealthy = true;
-                }
-            }
-        }
-
-        if (shouldSwitchCredential && !credentialMarkedUnhealthy) {
-            credentialMarkedUnhealthy = true;
-        }
+        const credentialMarkedUnhealthy = markCredentialFailureOnError(
+            error,
+            slotProviderType || CONFIG.MODEL_PROVIDER,
+            slotUuid,
+            providerPoolManager as DynamicPayload | null,
+            CONFIG,
+            'image generation'
+        );
 
         if (credentialMarkedUnhealthy && currentRetry < maxRetries && providerPoolManager && CONFIG) {
+            releaseCurrentSlot();
             const randomDelay = Math.floor(Math.random() * 10000);
             logger.info(`[Image Generation Retry] Credential marked unhealthy. Waiting ${randomDelay}ms before retry ${currentRetry + 1}/${maxRetries}...`);
             await new Promise(resolve => setTimeout(resolve, randomDelay));
@@ -377,14 +378,18 @@ export async function handleImageGenerationRequest(
         }
 
         if (!res.writableEnded) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: 'server_error' } }));
+            const rawStatus = err.response?.status || err.statusCode || err.status || 500;
+            let statusCode = ensureValidStatusCode(rawStatus);
+            if (err.clientError && statusCode >= 500) {
+                statusCode = 400;
+            }
+            const errorType = statusCode < 500 ? 'invalid_request_error' : 'server_error';
+            res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: errorType } }));
         }
     } finally {
-        // 确保并发槽在请求结束后归还（与 handleStreamRequest/handleUnaryRequest 保持一致）
-        if (providerPoolManager && slotProviderType && slotUuid) {
-            providerPoolManager.releaseSlot(slotProviderType, slotUuid);
-        }
+        // 确保并发槽在请求结束后归还（幂等）
+        releaseCurrentSlot();
     }
 }
 
@@ -520,8 +525,15 @@ export async function handleImageEditsRequest(
     currentConfig: DynamicPayload,
     providerPoolManager: ProviderPoolManager | null
 ): Promise<void> {
-    let slotProviderType = null;
-    let slotUuid = null;
+    let slotProviderType: string | null = null;
+    let slotUuid: string | null = null;
+    let slotReleased = false;
+    const releaseCurrentSlot = () => {
+        if (!slotReleased && providerPoolManager && slotProviderType && slotUuid) {
+            slotReleased = true;
+            providerPoolManager.releaseSlot(slotProviderType, slotUuid);
+        }
+    };
 
     try {
         const form = await parseMultipartForm(req) as DynamicPayload;
@@ -637,14 +649,13 @@ export async function handleImageEditsRequest(
 
         logger.info(`[Image Edits] model=${model}, protocol=${finalProviderProtocol}, n=${n}, response_format=${response_format}, imageCount=${imageFiles.length}, totalImageSize=${Math.round(totalImageBytes / 1024)}KB${size ? `, size=${size}` : ''}`);
 
-        const imageRequests = Array.from({ length: n }, () =>
-            service.generateContent(model, { ...codexRequestBody })
-        );
-        const responses = await Promise.all(imageRequests);
+        // 串行发起 n 张图请求，每张独立占用一次上游调用，与号池 slot 计数对应
         const data: DynamicPayload[] = [];
-
-        for (let i = 0; i < responses.length; i++) {
-            const extracted = extractImagesFromServiceResponse(responses[i], finalProviderProtocol, response_format);
+        const responses: DynamicPayload[] = [];
+        for (let i = 0; i < n; i++) {
+            const response = await service.generateContent(model, { ...codexRequestBody });
+            responses.push(response);
+            const extracted = extractImagesFromServiceResponse(response, finalProviderProtocol, response_format);
             data.push(...extracted);
         }
 
@@ -696,15 +707,20 @@ export async function handleImageEditsRequest(
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clientResponse));
     } catch (error) {
+        const err = error as Record<string, any>;
         logger.error('[Image Edits] Error:', getErrorMessage(error));
         if (!res.writableEnded) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: 'server_error' } }));
+            const rawStatus = err.response?.status || err.statusCode || err.status || 500;
+            let statusCode = ensureValidStatusCode(rawStatus);
+            if (err.clientError && statusCode >= 500) {
+                statusCode = 400;
+            }
+            const errorType = statusCode < 500 ? 'invalid_request_error' : 'server_error';
+            res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: errorType } }));
         }
     } finally {
-        if (providerPoolManager && slotProviderType && slotUuid) {
-            providerPoolManager.releaseSlot(slotProviderType, slotUuid);
-        }
+        releaseCurrentSlot();
     }
 }
 

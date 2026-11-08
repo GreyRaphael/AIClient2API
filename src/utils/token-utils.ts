@@ -82,57 +82,6 @@ export function countTextTokens(text: string): number {
 }
 
 /**
- * Calculate input tokens from request body using Claude's official tokenizer
- */
-export function estimateInputTokens(requestBody: UnknownRecord): number {
-    let allText = "";
-
-    // Count system prompt tokens
-    if (requestBody.system) {
-        allText += processContent(requestBody.system);
-    }
-
-    // Count thinking prefix tokens if thinking is enabled
-    const thinking = isRecord(requestBody.thinking) ? requestBody.thinking : null;
-    if (thinking?.type && typeof thinking.type === 'string') {
-        const t = thinking.type.toLowerCase().trim();
-        if (t === 'enabled') {
-            const budgetTokens = thinking.budget_tokens;
-            let budget = Number(budgetTokens);
-            if (!Number.isFinite(budget) || budget <= 0) {
-                budget = 20000;
-            }
-            budget = Math.floor(budget);
-            if (budget < 1024) budget = 1024;
-            budget = Math.min(budget, 24576);
-            allText += `<thinking_mode>enabled</thinking_mode><max_thinking_length>${budget}</max_thinking_length>`;
-        }
-else if (t === 'adaptive') {
-            const effortRaw = typeof thinking.effort === 'string' ? thinking.effort : '';
-            const effort = effortRaw.toLowerCase().trim();
-            const normalizedEffort = (effort === 'low' || effort === 'medium' || effort === 'high') ? effort : 'high';
-            allText += `<thinking_mode>adaptive</thinking_mode><thinking_effort>${normalizedEffort}</thinking_effort>`;
-        }
-    }
-
-    // Count all messages tokens
-    if (requestBody.messages && Array.isArray(requestBody.messages)) {
-        for (const message of requestBody.messages) {
-            if (isRecord(message) && message.content) {
-                allText += processContent(message.content);
-            }
-        }
-    }
-
-    // Count tools definitions tokens if present
-    if (requestBody.tools && Array.isArray(requestBody.tools)) {
-        allText += JSON.stringify(requestBody.tools);
-    }
-
-    return countTextTokens(allText);
-}
-
-/**
  * Count tokens for a message request (compatible with Anthropic API)
  * @param {Object} requestBody - The request body containing model, messages, system, tools, etc.
  * @returns {Object} { input_tokens: number }

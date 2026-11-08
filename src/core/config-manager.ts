@@ -153,7 +153,7 @@ function normalizePreserveReasoningItemConfig(config: DynamicPayload): void {
     normalizeToggleConfig(config, 'CONVERT_PRESERVE_REASONING_ITEM', true);
 }
 
-function normalizeConfiguredProviders(config: DynamicPayload): void {
+export function normalizeConfiguredProviders(config: DynamicPayload): void {
     const fallbackProvider = MODEL_PROVIDER.ANTIGRAVITY;
     const dedupedProviders: string[] = [];
 
@@ -228,7 +228,6 @@ export async function initializeConfig(
         PROMPT_LOG_MODE: "none",
         REQUEST_MAX_RETRIES: 3,
         REQUEST_BASE_DELAY: 1000,
-        MODEL_FALLBACK_ENABLED: true, // 模型不存在时是否自动 fallback 到默认/映射模型
         REQUEST_BODY_MAX_BYTES: DEFAULT_REQUEST_BODY_MAX_BYTES,
         CREDENTIAL_SWITCH_MAX_RETRIES: 5, // 坏凭证切换最大重试次数（用于认证错误后切换凭证）
         // 上游返回完全空响应（无文本/工具调用/思考）时的独立重试预算，与 CREDENTIAL_SWITCH_MAX_RETRIES 分开计数。
@@ -256,7 +255,6 @@ export async function initializeConfig(
             interval: 600000,
             startupRun: false
         },
-        providerFallbackChain: {}, // 跨类型 Fallback 链配置
         providerPools: {}, // 运行时加载的号池配置
         customModels: [], // 运行时加载的自定义模型配置
         LOG_ENABLED: true,
@@ -305,7 +303,6 @@ export async function initializeConfig(
         { flag: '--empty-response-max-retries', configKey: 'EMPTY_RESPONSE_MAX_RETRIES', type: 'int' },
         { flag: '--empty-response-retry-delay-ms', configKey: 'EMPTY_RESPONSE_RETRY_DELAY_MS', type: 'int' },
         { flag: '--empty-response-max-total-ms', configKey: 'EMPTY_RESPONSE_MAX_TOTAL_MS', type: 'int' },
-        { flag: '--model-fallback-enabled', configKey: 'MODEL_FALLBACK_ENABLED', type: 'bool' },
         { flag: '--request-body-max-bytes', configKey: 'REQUEST_BODY_MAX_BYTES', type: 'int' },
         { flag: '--rate-limit-cooldown-enabled', configKey: 'RATE_LIMIT_COOLDOWN_ENABLED', type: 'bool' },
         { flag: '--rate-limit-cooldown-ms', configKey: 'RATE_LIMIT_COOLDOWN_MS', type: 'int' },

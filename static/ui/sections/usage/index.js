@@ -12,7 +12,6 @@ import {
     formatUsageNumber,
     formatUsageDate,
     getUsageItemLabelKey,
-    getValidInstances,
     groupUsage
 } from './usage-utils.js';
 

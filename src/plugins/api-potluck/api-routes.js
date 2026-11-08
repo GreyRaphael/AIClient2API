@@ -27,7 +27,9 @@ import {
     TOKEN_PACKS,
     BILLING_CYCLES
 } from './key-manager.js';
+import { stripInternalFields } from '../../utils/proxy-utils.ts';
 import { getRequestBody } from '../../utils/common.ts';
+import { checkAuth } from '../../ui-modules/auth.ts';
 import logger from '../../utils/logger.ts';
 
 /**
@@ -38,71 +40,35 @@ function sendJson(res, statusCode, data) {
     res.end(JSON.stringify(data));
 }
 
-
-/** 读取并解析请求体（限 64KB，管理接口不需要更大） */
-function readJsonBody(req) {
-    return new Promise((resolve) => {
-        let raw = '';
-        let size = 0;
-        const LIMIT = 64 * 1024;
-        req.on('data', (chunk) => {
-            size += chunk.length;
-            if (size > LIMIT) { resolve(null); req.destroy(); return; }
-            raw += chunk;
-        });
-        req.on('end', () => {
-            try { resolve(JSON.parse(raw || '{}')); } catch { resolve(null); }
-        });
-        req.on('error', () => resolve(null));
-    });
+/**
+ * 读取并解析管理接口 JSON 请求体（复用 getRequestBody，限 64KB）
+ * @param {import('node:http').IncomingMessage} req
+ * @returns {Promise<Record<string, any> | null>}
+ */
+async function readJsonBody(req) {
+    try {
+        return await getRequestBody(req, { maxBytes: 64 * 1024 });
+    } catch {
+        return null;
+    }
 }
 
-/** 输出 Key 时剔除内部字段 */
+/** 输出 Key 时剔除以 `_` 开头的内部字段并生成安全浅拷贝 */
 function sanitizeKey(keyData) {
     if (!keyData) return null;
-    const { ...safe } = keyData;
-    return safe;
+    return stripInternalFields(keyData);
 }
 
 
 
 /**
- * 验证管理员 Token
+ * 验证管理员 Token（复用 UI 模块统一鉴权逻辑）
  * @param {import('node:http').IncomingMessage} req
  * @returns {Promise<boolean>}
  */
 async function checkAdminAuth(req) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return false;
-    }
-    
-    // 动态导入 ui-manager 中的 token 验证逻辑
     try {
-        const { existsSync, readFileSync } = await import('fs');
-        const path = await import('path');
-        
-        const TOKEN_STORE_FILE = path.join(process.cwd(), 'configs', 'token-store.json');
-        
-        if (!existsSync(TOKEN_STORE_FILE)) {
-            return false;
-        }
-        
-        const content = readFileSync(TOKEN_STORE_FILE, 'utf8');
-        const tokenStore = JSON.parse(content);
-        const token = authHeader.substring(7);
-        const tokenInfo = tokenStore.tokens[token];
-        
-        if (!tokenInfo) {
-            return false;
-        }
-        
-        // 检查是否过期
-        if (Date.now() > tokenInfo.expiryTime) {
-            return false;
-        }
-        
-        return true;
+        return await checkAuth(req);
     } catch (error) {
         logger.error('[API Potluck] Auth check error:', error.message);
         return false;

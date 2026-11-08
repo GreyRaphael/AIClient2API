@@ -16,7 +16,6 @@ import {
     MODEL_STORAGE_KEY
 } from './store.js';
 import {
-    TEXT_INTERFACES,
     getTextProtocol,
     buildUserContent,
     dataUrlToBlob

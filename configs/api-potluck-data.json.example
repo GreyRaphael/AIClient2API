@@ -10,8 +10,8 @@
       "credentials": [
         {
           "id": "cred_0000000000000_xxxxxx",
-          "path": "configs/kiro/example_kiro-auth-token/example_kiro-auth-token.json",
-          "provider": "claude-kiro-oauth",
+          "path": "configs/antigravity/example_oauth_creds.json",
+          "provider": "gemini-antigravity",
           "authMethod": "refresh-token",
           "addedAt": "2026-01-01T00:00:00.000Z"
         }

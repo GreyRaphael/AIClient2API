@@ -7,6 +7,7 @@ import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 export interface StreamTerminalState {
     hasMessageStop: boolean;
+    fullResponseText?: string;
 }
 
 export interface PipelineRetryContext {

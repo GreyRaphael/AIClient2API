@@ -231,6 +231,50 @@ function getPluginHookRequestId(config: DynamicPayload | null | undefined): stri
 }
 
 /**
+ * 统一处理流式/非流式请求异常时的 429 短冷却与节点不健康标记，返回是否应触发切号重试。
+ */
+export function markCredentialFailureOnError(
+    error: unknown,
+    toProvider: string,
+    pooluuid: string | null,
+    providerPoolManager: DynamicPayload | null | undefined,
+    CONFIG: DynamicPayload,
+    modeLabel: 'stream' | 'unary' | 'image generation'
+): boolean {
+    const status = getErrorStatusCode(error);
+    const skipErrorCount = (error as PipelineError).skipErrorCount === true;
+    const shouldSwitchCredential = (error as PipelineError).shouldSwitchCredential === true;
+    let credentialMarkedUnhealthy = (error as PipelineError).credentialMarkedUnhealthy === true;
+
+    const rateLimitRecoveryTime = getRateLimitCooldownRecoveryTime(error, CONFIG);
+    if (rateLimitRecoveryTime && providerPoolManager && pooluuid) {
+        logger.info(`[Provider Pool] Applying 429 cooldown for ${toProvider} (${pooluuid}) until ${rateLimitRecoveryTime.toISOString()}`);
+        providerPoolManager.markProviderUnhealthyWithRecoveryTime(toProvider, {
+            uuid: pooluuid
+        }, '429 Too Many Requests - short cooldown', rateLimitRecoveryTime);
+        credentialMarkedUnhealthy = true;
+    }
+
+    if (!credentialMarkedUnhealthy && !skipErrorCount && providerPoolManager && pooluuid) {
+        if ((error as PipelineError).response?.status === 400) {
+            logger.info(`[Provider Pool] Skipping unhealthy marking for ${toProvider} (${pooluuid}) due to status 400 (client error)`);
+        } else {
+            logger.info(`[Provider Pool] Marking ${toProvider} as unhealthy due to ${modeLabel} error (status: ${status || 'unknown'})`);
+            providerPoolManager.markProviderUnhealthy(toProvider, {
+                uuid: pooluuid
+            }, getErrorMessage(error));
+            credentialMarkedUnhealthy = true;
+        }
+    }
+
+    if (shouldSwitchCredential && !credentialMarkedUnhealthy) {
+        credentialMarkedUnhealthy = true;
+    }
+
+    return credentialMarkedUnhealthy;
+}
+
+/**
  * 针对上游「空响应」（(error as PipelineError).isEmptyUpstreamResponse）计算是否应该重试，并在应该重试时尝试获取一个
  * 备用的服务实例。重试预算由 CONFIG.EMPTY_RESPONSE_MAX_RETRIES 控制，与凭证切换预算
  * （CREDENTIAL_SWITCH_MAX_RETRIES）完全独立计数，避免一次空回把凭证切换预算耗光。
@@ -705,9 +749,18 @@ export async function handleStreamRequest(
     }
 
     let hasToolCall = false;
-    // 结束标志由外层帧与重试帧共享：内层重试帧发送 message_stop /
-    // response.completed 后，外层帧的 finally 不应再补发一次终止事件。
-    const streamState = retryContext?.streamState || { hasMessageStop: false };
+    // 结束标志与完整输出文本由外层帧与重试帧共享：内层重试帧发送 message_stop /
+    // response.completed 后，外层帧的 finally 不应再补发一次终止事件，且日志应记录最终成功帧的输出。
+    const streamState = retryContext?.streamState || { hasMessageStop: false, fullResponseText: '' };
+    streamState.fullResponseText = '';
+
+    let slotReleased = false;
+    const releaseCurrentSlot = () => {
+        if (!slotReleased && providerPoolManager && pooluuid) {
+            slotReleased = true;
+            providerPoolManager.releaseSlot(toProvider, pooluuid);
+        }
+    };
 
     // ---- 首内容前缓冲（pre-content buffering）----
     // 上游（典型如 Antigravity 的 Gemini 3 思考模型）可能在思考阶段后直接以
@@ -816,6 +869,7 @@ export async function handleStreamRequest(
             const chunkText = extractResponseText(nativeChunk, toProvider, model, nativeProtocol);
             if (chunkText && !Array.isArray(chunkText)) {
                 fullResponseText += chunkText;
+                streamState.fullResponseText = fullResponseText;
             }
 
             // Convert the complete chunk object to the client's format (fromProvider), if necessary.
@@ -978,6 +1032,7 @@ export async function handleStreamRequest(
         // 仅在真实产出有效内容且未发生流内错误的情况下才统计使用次数并将 Provider 标记为健康；
         // 避免客户端在首字前超时断开或流内返回错误帧时误将节点记为成功
         if (sawMeaningfulContent && !sawStreamError) {
+            CONFIG._requestFailed = false;
             if (providerPoolManager && pooluuid) {
                 const customNameDisplay = customName ? `, ${customName}` : '';
                 logger.info(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}${customNameDisplay}) after successful stream request`);
@@ -985,6 +1040,8 @@ export async function handleStreamRequest(
                     uuid: pooluuid
                 });
             }
+        } else if (sawStreamError) {
+            CONFIG._requestFailed = true;
         } else if (clientDisconnected.value) {
             logger.warn(`[Stream] Client disconnected before any meaningful content was received from ${toProvider} (${pooluuid || 'no-uuid'}). Discarded ${preContentBuffer.discard().length} buffered frame(s).`);
         }
@@ -1002,6 +1059,7 @@ export async function handleStreamRequest(
         // 如果已经发送了数据（包括 metadata），不进行重试（避免响应数据损坏或顺序错误）
         if (anyDataSent) {
             logger.info(`[Stream Retry] Cannot retry: data already sent to client`);
+            CONFIG._requestFailed = true;
             // 直接发送错误并结束
             const errorPayload = createStreamErrorResponse(error as PipelineError, fromProvider);
             if (!res.writableEnded) {
@@ -1021,6 +1079,8 @@ export async function handleStreamRequest(
         // 不会让历史/token 变大。预算耗尽后直接返回明确错误，不再静默放行空的 end_turn。
         // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支。
         if ((error as PipelineError).isEmptyUpstreamResponse) {
+            // 在申请重试节点插槽前先释放当前节点的并发插槽，防止单节点池自锁或无效占槽
+            releaseCurrentSlot();
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
             const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
             const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Stream Retry]', toProvider, emptyResponseStartedAt);
@@ -1058,6 +1118,7 @@ export async function handleStreamRequest(
                 );
             }
 
+            CONFIG._requestFailed = true;
             const giveUpError = new Error(`${toProvider} upstream returned an empty response after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request. Please try again, or /clear your session if this keeps happening.`);
             giveUpError.status = 502;
             const errorPayload = createStreamErrorResponse(giveUpError, fromProvider);
@@ -1073,49 +1134,20 @@ export async function handleStreamRequest(
             return;
         }
         
-        // 获取状态码（用于日志记录，不再用于判断是否重试）
-        const status = getErrorStatusCode(error);
-        
-        // 检查是否应该跳过错误计数（用于 429/5xx 等需要直接切换凭证的情况）
-        const skipErrorCount = (error as PipelineError).skipErrorCount === true;
-        // 检查是否应该切换凭证（用于 429/5xx/402/403 等情况）
-        const shouldSwitchCredential = (error as PipelineError).shouldSwitchCredential === true;
-        
-        // 检查凭证是否已在底层被标记为不健康（避免重复标记）
-        let credentialMarkedUnhealthy = (error as PipelineError).credentialMarkedUnhealthy === true;
-
-        const rateLimitRecoveryTime = getRateLimitCooldownRecoveryTime(error, CONFIG);
-        if (rateLimitRecoveryTime && providerPoolManager && pooluuid) {
-            logger.info(`[Provider Pool] Applying 429 cooldown for ${toProvider} (${pooluuid}) until ${rateLimitRecoveryTime.toISOString()}`);
-            providerPoolManager.markProviderUnhealthyWithRecoveryTime(toProvider, {
-                uuid: pooluuid
-            }, '429 Too Many Requests - short cooldown', rateLimitRecoveryTime);
-            credentialMarkedUnhealthy = true;
-        }
-        
-        // 如果底层未标记，且不跳过错误计数，则在此处标记
-        if (!credentialMarkedUnhealthy && !skipErrorCount && providerPoolManager && pooluuid) {
-            // 400 报错码通常是请求参数问题，不记录为提供商错误
-            if ((error as PipelineError).response?.status === 400) {
-                logger.info(`[Provider Pool] Skipping unhealthy marking for ${toProvider} (${pooluuid}) due to status 400 (client error)`);
-            } else {
-                logger.info(`[Provider Pool] Marking ${toProvider} as unhealthy due to stream error (status: ${status || 'unknown'})`);
-                // 如果是号池模式，并且请求处理失败，则标记当前使用的提供者为不健康
-                providerPoolManager.markProviderUnhealthy(toProvider, {
-                    uuid: pooluuid
-                }, getErrorMessage(error));
-                credentialMarkedUnhealthy = true;
-            }
-        }
-        
-        // 如果需要切换凭证（无论是否标记不健康），都设置标记以触发重试
-        if (shouldSwitchCredential && !credentialMarkedUnhealthy) {
-            credentialMarkedUnhealthy = true; // 触发下面的重试逻辑
-        }
+        const credentialMarkedUnhealthy = markCredentialFailureOnError(
+            error,
+            toProvider,
+            pooluuid,
+            providerPoolManager,
+            CONFIG,
+            'stream'
+        );
         
         // 凭证已被标记为不健康后，尝试切换到新凭证重试
         // 不再依赖状态码判断，只要凭证被标记不健康且可以重试，就尝试切换
         if (credentialMarkedUnhealthy && currentRetry < maxRetries && providerPoolManager && CONFIG) {
+            // 先释放当前失败凭证的并发插槽，避免在等待与后续重试流期间长期占槽
+            releaseCurrentSlot();
             // 增加10秒内的随机等待时间，避免所有请求同时切换凭证
             const randomDelay = Math.floor(Math.random() * 10000); // 0-10000毫秒
             logger.info(`[Stream Retry] Credential marked unhealthy. Waiting ${randomDelay}ms before retry ${currentRetry + 1}/${maxRetries} with different credential...`);
@@ -1178,6 +1210,7 @@ export async function handleStreamRequest(
             }
         }
 
+        CONFIG._requestFailed = true;
         // 使用新方法创建符合 fromProvider 格式的流式错误响应
         const errorPayload = createStreamErrorResponse(error as PipelineError, fromProvider);
         if (!clientDisconnected.value && !res.writableEnded) {
@@ -1200,10 +1233,8 @@ export async function handleStreamRequest(
             clearCustomTools(streamRequestId);
         }
 
-        // 释放并发插槽
-        if (providerPoolManager && pooluuid) {
-            providerPoolManager.releaseSlot(toProvider, pooluuid);
-        }
+        // 释放并发插槽（幂等）
+        releaseCurrentSlot();
 
         // 只在首次请求时移除事件监听器（避免重试时误删）
         if (!isRetry) {
@@ -1217,9 +1248,9 @@ export async function handleStreamRequest(
             writeStreamCompletion({ res, fromProvider, streamState, streamRequestId, model });
         }
         
-        // 只在首次请求时记录日志（避免重试时重复记录）
+        // 只在首次请求时记录日志（避免重试时重复记录），优先读取共享 streamState 中的最终响应文本
         if (!isRetry) {
-            await logConversation('output', fullResponseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
+            await logConversation('output', streamState.fullResponseText || fullResponseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
         }
     }
 }
@@ -1244,6 +1275,15 @@ export async function handleUnaryRequest(
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG || {};
     const responseRequestId = retryContext?.requestId || null;
+    const isRetry = currentRetry > 0 || (retryContext?.emptyResponseRetry ?? 0) > 0;
+
+    let slotReleased = false;
+    const releaseCurrentSlot = () => {
+        if (!slotReleased && providerPoolManager && pooluuid) {
+            slotReleased = true;
+            providerPoolManager.releaseSlot(toProvider, pooluuid);
+        }
+    };
 
     try{
         // The service returns the response in its native format.
@@ -1317,6 +1357,7 @@ export async function handleUnaryRequest(
         await handleUnifiedResponse(res, JSON.stringify(clientResponse), false);
         await logConversation('output', responseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
         // fs.writeFile('oldResponse'+Date.now()+'.json', JSON.stringify(clientResponse));
+        CONFIG._requestFailed = false;
         
         // 一元请求成功完成，统计使用次数，错误次数重置为0
         if (providerPoolManager && pooluuid) {
@@ -1334,6 +1375,8 @@ export async function handleUnaryRequest(
         // 不会让历史/token 变大。预算耗尽后直接返回明确错误，不再静默放行空响应。
         // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支。
         if ((error as PipelineError).isEmptyUpstreamResponse) {
+            // 在申请重试节点插槽前先释放当前节点的并发插槽，防止单节点池自锁或无效占槽
+            releaseCurrentSlot();
             const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
             const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
             const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Unary Retry]', toProvider, emptyResponseStartedAt);
@@ -1365,6 +1408,7 @@ export async function handleUnaryRequest(
                 );
             }
 
+            CONFIG._requestFailed = true;
             const giveUpError = new Error(`${toProvider} upstream returned an empty response after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request. Please try again, or /clear your session if this keeps happening.`);
             giveUpError.status = 502;
             const errorResponse = createErrorResponse(giveUpError, fromProvider);
@@ -1372,49 +1416,20 @@ export async function handleUnaryRequest(
             return;
         }
         
-        // 获取状态码（用于日志记录，不再用于判断是否重试）
-        const status = getErrorStatusCode(error);
-        
-        // 检查是否应该跳过错误计数（用于 429/5xx 等需要直接切换凭证的情况）
-        const skipErrorCount = (error as PipelineError).skipErrorCount === true;
-        // 检查是否应该切换凭证（用于 429/5xx/402/403 等情况）
-        const shouldSwitchCredential = (error as PipelineError).shouldSwitchCredential === true;
-        
-        // 检查凭证是否已在底层被标记为不健康（避免重复标记）
-        let credentialMarkedUnhealthy = (error as PipelineError).credentialMarkedUnhealthy === true;
-
-        const rateLimitRecoveryTime = getRateLimitCooldownRecoveryTime(error, CONFIG);
-        if (rateLimitRecoveryTime && providerPoolManager && pooluuid) {
-            logger.info(`[Provider Pool] Applying 429 cooldown for ${toProvider} (${pooluuid}) until ${rateLimitRecoveryTime.toISOString()}`);
-            providerPoolManager.markProviderUnhealthyWithRecoveryTime(toProvider, {
-                uuid: pooluuid
-            }, '429 Too Many Requests - short cooldown', rateLimitRecoveryTime);
-            credentialMarkedUnhealthy = true;
-        }
-        
-        // 如果底层未标记，且不跳过错误计数，则在此处标记
-        if (!credentialMarkedUnhealthy && !skipErrorCount && providerPoolManager && pooluuid) {
-            // 400 报错码通常是请求参数问题，不记录为提供商错误
-            if ((error as PipelineError).response?.status === 400) {
-                logger.info(`[Provider Pool] Skipping unhealthy marking for ${toProvider} (${pooluuid}) due to status 400 (client error)`);
-            } else {
-                logger.info(`[Provider Pool] Marking ${toProvider} as unhealthy due to unary error (status: ${status || 'unknown'})`);
-                // 如果是号池模式，并且请求处理失败，则标记当前使用的提供者为不健康
-                providerPoolManager.markProviderUnhealthy(toProvider, {
-                    uuid: pooluuid
-                }, getErrorMessage(error));
-                credentialMarkedUnhealthy = true;
-            }
-        }
-        
-        // 如果需要切换凭证（无论是否标记不健康），都设置标记以触发重试
-        if (shouldSwitchCredential && !credentialMarkedUnhealthy) {
-            credentialMarkedUnhealthy = true; // 触发下面的重试逻辑
-        }
+        const credentialMarkedUnhealthy = markCredentialFailureOnError(
+            error,
+            toProvider,
+            pooluuid,
+            providerPoolManager,
+            CONFIG,
+            'unary'
+        );
         
         // 凭证已被标记为不健康后，尝试切换到新凭证重试
         // 不再依赖状态码判断，只要凭证被标记不健康且可以重试，就尝试切换
         if (credentialMarkedUnhealthy && currentRetry < maxRetries && providerPoolManager && CONFIG) {
+            // 先释放当前失败凭证的并发插槽，避免在等待与后续重试请求期间长期占槽
+            releaseCurrentSlot();
             // 增加10秒内的随机等待时间，避免所有请求同时切换凭证
             const randomDelay = Math.floor(Math.random() * 10000); // 0-10000毫秒
             logger.info(`[Unary Retry] Credential marked unhealthy. Waiting ${randomDelay}ms before retry ${currentRetry + 1}/${maxRetries} with different credential...`);
@@ -1470,6 +1485,7 @@ export async function handleUnaryRequest(
             }
         }
 
+        CONFIG._requestFailed = true;
         // 使用新方法创建符合 fromProvider 格式的错误响应
         const errorResponse = createErrorResponse(error as PipelineError, fromProvider);
         const rawStatusCode = (error as PipelineError).response?.status
@@ -1483,15 +1499,13 @@ export async function handleUnaryRequest(
         }
         await handleUnifiedResponse(res, JSON.stringify(errorResponse), false, statusCode);
     } finally {
-        // 请求级状态治理：非流式响应结束后释放 custom tool 登记。
-        // 与流式路径一致，非流式请求不会再有后续帧复用这份登记，必须主动清理，
-        // 否则每次请求的 custom tool 定义会驻留到 30 分钟 TTL 才释放。
-        clearCustomTools(responseRequestId);
-
-        // 确保在请求结束或出错时释放插槽
-        if (providerPoolManager && pooluuid) {
-            providerPoolManager.releaseSlot(toProvider, pooluuid);
+        // 请求级状态治理：非流式响应在最外层帧结束后释放 custom tool 登记。
+        if (!isRetry) {
+            clearCustomTools(responseRequestId);
         }
+
+        // 确保在请求结束或出错时释放插槽（幂等）
+        releaseCurrentSlot();
     }
 }
 
@@ -1762,9 +1776,12 @@ export async function handleContentGenerationRequest(
 
     // 2.5. 根据模型选择服务适配器：
     // - service 缺失时（例如上游未预先注入）进行兜底选择
-    // - 使用号池/AUTO 时按模型重选并支持 fallback
+    // - 使用号池/AUTO 时按模型重选
     // 注意：仅在号池场景开启 acquireSlot，占用并发名额或进入队列
-    const shouldSelectByPool = providerPoolManager && (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO || (CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]));
+    const shouldSelectByPool = Boolean(
+        providerPoolManager && (CONFIG.MODEL_PROVIDER === MODEL_PROVIDER.AUTO || (CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]))
+    );
+    let slotOwnedByPipeline = false;
     if (!service || shouldSelectByPool) {
         const { getApiServiceWithFallback } = await import('../services/service-manager.ts');
         const result = await getApiServiceWithFallback(CONFIG, model, {
@@ -1777,124 +1794,125 @@ export async function handleContentGenerationRequest(
         toProvider = result.actualProviderType;
         actualUuid = result.uuid || pooluuid;
         actualCustomName = result.serviceConfig?.customName || CONFIG.customName;
+        slotOwnedByPipeline = Boolean(shouldSelectByPool && actualUuid);
 
-        // 如果发生了模型级别的 fallback，需要更新请求使用的模型
+        // 如果发生了模型级别的重写，需要更新请求使用的模型
         if (result.actualModel && result.actualModel !== model) {
             logger.info(`[Content Generation] Model Fallback: ${model} -> ${result.actualModel}`);
             model = result.actualModel;
         }
 
-        if (result.isFallback) {
-            logger.info(`[Content Generation] Fallback activated: ${CONFIG.MODEL_PROVIDER} -> ${toProvider} (uuid: ${actualUuid})`);
+        logger.info(`[Content Generation] Selected service adapter based on model: ${model}`);
+    }
+
+    let processedRequestBody: DynamicPayload;
+    let retryContext: PipelineRetryContext;
+    try {
+        // 延迟解析后仍无可用 service：直接走统一错误处理，避免把空对象传给 handleUnaryRequest/handleStreamRequest。
+        if (!service) {
+            throw new Error(`No service available for provider '${toProvider}'.`);
+        }
+
+        // 1.1 在响应头写出前处理 reasoning_effort（Antigravity 剥离；其余 Provider 严格校验）。
+        await prepareReasoningEffortBeforeDispatch(service, toProvider, model, originalRequestBody);
+
+        // 1. Convert request body from client format to backend format, if necessary.
+        // 使用浅拷贝以避免直接变异 originalRequestBody，保持原始数据的纯净性以供后续钩子使用
+        processedRequestBody = { ...originalRequestBody };
+
+        // 将 _monitorRequestId 注入到 requestBody 中，以便在 service 内部访问
+        if (CONFIG._monitorRequestId) {
+            processedRequestBody._monitorRequestId = CONFIG._monitorRequestId;
+        }
+        
+        // 将 requestBaseUrl 注入到 requestBody 中，以便在转换器中使用
+        if (CONFIG.requestBaseUrl) {
+            processedRequestBody._requestBaseUrl = CONFIG.requestBaseUrl;
+        }
+
+        // 注入客户端会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
+        if (downstreamSessionId) {
+            processedRequestBody._downstreamSessionId = String(downstreamSessionId);
+        }
+
+        // 保留客户端原始思考档位与显式关闭标记（不可枚举，防止跨协议转换器吸附/截断后丢失原始档位）
+        const rawThinkingEffort = originalRequestBody.reasoning_effort
+            ?? originalRequestBody.reasoning?.effort
+            ?? originalRequestBody.output_config?.effort
+            ?? originalRequestBody.thinking?.effort
+            ?? originalRequestBody.extra_body?.anthropic?.thinking?.effort;
+        const rawThinkingDisabled =
+            String(rawThinkingEffort || '').trim().toLowerCase() === 'none' ||
+            String(originalRequestBody.thinking?.type || '').trim().toLowerCase() === 'disabled' ||
+            String(originalRequestBody.extra_body?.anthropic?.thinking?.type || '').trim().toLowerCase() === 'disabled';
+
+        // 请求侧桥接计划（与响应/流式共用）：Codex 的 /v1/responses 0-Hop 直通、
+        // Trae 三端 1-Hop 直出时都不应调用 Converter，由 Provider 直接消化下游协议请求体。
+        const requestBridgePlan = resolveBridgePlan(fromProvider, toProvider, model);
+        if (requestBridgePlan.needsConversion) {
+            logger.info(`[Request Convert] Converting request from ${fromProvider} to ${toProvider}`);
+            const preConvertBody = processedRequestBody;
+            processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId) as DynamicPayload;
+
+            // 保持以 _ 开头的内部属性（如 _monitorRequestId, _requestBaseUrl）
+            Object.keys(preConvertBody).forEach(key => {
+                if (key.startsWith('_') && processedRequestBody[key] === undefined) {
+                    processedRequestBody[key] = preConvertBody[key];
+                }
+            });
         } else {
-            logger.info(`[Content Generation] Selected service adapter based on model: ${model}`);
+            logger.info(`[Request Convert] Request format matches backend provider. No conversion needed.`);
         }
-    }
 
-    // 延迟解析后仍无可用 service：直接走统一错误处理，避免把空对象传给 handleUnaryRequest/handleStreamRequest。
-    if (!service) {
-        throw new Error(`No service available for provider '${toProvider}'.`);
-    }
+        if (rawThinkingEffort !== undefined && rawThinkingEffort !== null && String(rawThinkingEffort).trim() !== '') {
+            Object.defineProperty(processedRequestBody, '_rawThinkingEffort', {
+                value: String(rawThinkingEffort).trim(),
+                enumerable: false,
+                configurable: true,
+                writable: true
+            });
+        }
+        if (rawThinkingDisabled) {
+            Object.defineProperty(processedRequestBody, '_rawThinkingDisabled', {
+                value: true,
+                enumerable: false,
+                configurable: true,
+                writable: true
+            });
+        }
 
-    // 1.1 在响应头写出前处理 reasoning_effort（Antigravity 剥离；其余 Provider 严格校验）。
-    await prepareReasoningEffortBeforeDispatch(service, toProvider, model, originalRequestBody);
-
-    // 1. Convert request body from client format to backend format, if necessary.
-    // 使用浅拷贝以避免直接变异 originalRequestBody，保持原始数据的纯净性以供后续钩子使用
-    let processedRequestBody: DynamicPayload = { ...originalRequestBody };
-
-    // 将 _monitorRequestId 注入到 requestBody 中，以便在 service 内部访问
-    if (CONFIG._monitorRequestId) {
-        processedRequestBody._monitorRequestId = CONFIG._monitorRequestId;
-    }
-    
-    // 将 requestBaseUrl 注入到 requestBody 中，以便在转换器中使用
-    if (CONFIG.requestBaseUrl) {
-        processedRequestBody._requestBaseUrl = CONFIG.requestBaseUrl;
-    }
-
-    // 注入客户端会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
-    if (downstreamSessionId) {
-        processedRequestBody._downstreamSessionId = String(downstreamSessionId);
-    }
-
-    // 保留客户端原始思考档位与显式关闭标记（不可枚举，防止跨协议转换器吸附/截断后丢失原始档位）
-    const rawThinkingEffort = originalRequestBody.reasoning_effort
-        ?? originalRequestBody.reasoning?.effort
-        ?? originalRequestBody.output_config?.effort
-        ?? originalRequestBody.thinking?.effort
-        ?? originalRequestBody.extra_body?.anthropic?.thinking?.effort;
-    const rawThinkingDisabled =
-        String(rawThinkingEffort || '').trim().toLowerCase() === 'none' ||
-        String(originalRequestBody.thinking?.type || '').trim().toLowerCase() === 'disabled' ||
-        String(originalRequestBody.extra_body?.anthropic?.thinking?.type || '').trim().toLowerCase() === 'disabled';
-
-    // fs.writeFile('originalRequestBody'+Date.now()+'.json', JSON.stringify(originalRequestBody));
-    // 请求侧桥接计划（与响应/流式共用）：Codex 的 /v1/responses 0-Hop 直通、
-    // Trae 三端 1-Hop 直出时都不应调用 Converter，由 Provider 直接消化下游协议请求体。
-    const requestBridgePlan = resolveBridgePlan(fromProvider, toProvider, model);
-    if (requestBridgePlan.needsConversion) {
-        logger.info(`[Request Convert] Converting request from ${fromProvider} to ${toProvider}`);
-        const preConvertBody = processedRequestBody;
-        processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId) as DynamicPayload;
-
-        // 保持以 _ 开头的内部属性（如 _monitorRequestId, _requestBaseUrl）
-        Object.keys(preConvertBody).forEach(key => {
-            if (key.startsWith('_') && processedRequestBody[key] === undefined) {
-                processedRequestBody[key] = preConvertBody[key];
+        // 若发往 Claude 协议前缀的上游（包括直通 claude-custom / zed），剥离虚拟签名避免服务端报 400
+        if (getProtocolPrefix(toProvider, model) === MODEL_PROTOCOL_PREFIX.CLAUDE &&
+            Array.isArray(processedRequestBody.messages) &&
+            isSignatureStrippingEnabled()) {
+            const { messages: strippedMessages, stripped } = stripVirtualSignatures(processedRequestBody.messages);
+            if (stripped > 0) {
+                logger.debug(`[Request Pipeline] Stripped ${stripped} virtual signature thinking block(s) before sending to Claude upstream`);
+                processedRequestBody.messages = strippedMessages;
             }
-        });
-    } else {
-        logger.info(`[Request Convert] Request format matches backend provider. No conversion needed.`);
-    }
-
-    if (rawThinkingEffort !== undefined && rawThinkingEffort !== null && String(rawThinkingEffort).trim() !== '') {
-        Object.defineProperty(processedRequestBody, '_rawThinkingEffort', {
-            value: String(rawThinkingEffort).trim(),
-            enumerable: false,
-            configurable: true,
-            writable: true
-        });
-    }
-    if (rawThinkingDisabled) {
-        Object.defineProperty(processedRequestBody, '_rawThinkingDisabled', {
-            value: true,
-            enumerable: false,
-            configurable: true,
-            writable: true
-        });
-    }
-
-    // 若发往 Claude 协议前缀的上游（包括直通 claude-custom / zed），剥离虚拟签名避免服务端报 400
-    if (getProtocolPrefix(toProvider, model) === MODEL_PROTOCOL_PREFIX.CLAUDE &&
-        Array.isArray(processedRequestBody.messages) &&
-        isSignatureStrippingEnabled()) {
-        const { messages: strippedMessages, stripped } = stripVirtualSignatures(processedRequestBody.messages);
-        if (stripped > 0) {
-            logger.debug(`[Request Pipeline] Stripped ${stripped} virtual signature thinking block(s) before sending to Claude upstream`);
-            processedRequestBody.messages = strippedMessages;
         }
-    }
-    
-    // 4. Log the incoming prompt (after potential conversion to the backend's format).
-    const promptText = extractPromptText(processedRequestBody, toProvider, model, requestBridgePlan.nativeProtocol);
-    
-    // 4.1. 应用自定义模型参数 (温度、最大长度等)
-    if (customModelConfig) {
-        _applyCustomModelParameters(processedRequestBody, customModelConfig, toProvider, model, requestBridgePlan.nativeProtocol);
-    }
+        
+        // 4. Log the incoming prompt (after potential conversion to the backend's format).
+        const promptText = extractPromptText(processedRequestBody, toProvider, model, requestBridgePlan.nativeProtocol);
+        
+        // 4.1. 应用自定义模型参数 (max_output_tokens)
+        if (customModelConfig) {
+            _applyCustomModelParameters(processedRequestBody, customModelConfig, toProvider, model, requestBridgePlan.nativeProtocol);
+        }
 
-    await logConversation('input', promptText, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
-    
-    // 5. Call the appropriate stream or unary handler, passing the provider info.
-    // 创建重试上下文，包含 CONFIG 以便在认证错误时切换凭证重试
-    // 凭证切换重试次数（默认 5），可在配置中自定义更大的值
-    // 注意：这与底层的 429/5xx 重试（REQUEST_MAX_RETRIES）是不同层次的重试机制
-    // - 底层重试：同一凭证遇到 429/5xx 时的重试
-    // - 凭证切换重试：凭证被标记不健康后切换到其他凭证
-    // 当没有不同的健康凭证可用时，重试会自动停止
-    const credentialSwitchMaxRetries = CONFIG.CREDENTIAL_SWITCH_MAX_RETRIES || 5;
-    const retryContext = { CONFIG, currentRetry: 0, maxRetries: credentialSwitchMaxRetries, requestId: conversationRequestId };
+        await logConversation('input', promptText, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
+        
+        const credentialSwitchMaxRetries = CONFIG.CREDENTIAL_SWITCH_MAX_RETRIES || 5;
+        retryContext = { CONFIG, currentRetry: 0, maxRetries: credentialSwitchMaxRetries, requestId: conversationRequestId };
+        // 即将交由 handleStreamRequest / handleUnaryRequest 接管插槽释放责任
+        slotOwnedByPipeline = false;
+    } catch (prepError) {
+        if (slotOwnedByPipeline && providerPoolManager && actualUuid) {
+            providerPoolManager.releaseSlot(toProvider, actualUuid);
+            slotOwnedByPipeline = false;
+        }
+        throw prepError;
+    }
     
     if (isStream) {
         await handleStreamRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, actualUuid, actualCustomName, retryContext);
@@ -1965,47 +1983,28 @@ function _applyCustomModelParameters(
     model?: string,
     protocolOverride?: string
 ): void {
-    if (!customConfig) return;
+    const maxOutputTokens = customConfig?.max_output_tokens;
+    if (maxOutputTokens === undefined || maxOutputTokens === null) return;
+
     const effectiveModel = model || (typeof requestBody?.model === 'string' ? requestBody.model : undefined);
     const protocol = resolvePayloadProtocol(provider, effectiveModel, protocolOverride);
-    const hasConfiguredValue = (value: unknown): boolean => value !== undefined && value !== null;
 
-    // 参数映射表（自定义模型只保留 max_output_tokens）
-    const mappings: Record<string, Record<string, string>> = {
-        max_output_tokens: {
-            [MODEL_PROTOCOL_PREFIX.OPENAI]: 'max_tokens',
-            [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'max_output_tokens',
-            [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'max_tokens',
-            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'generationConfig.maxOutputTokens'
-        }
-    };
-
-    // 处理嵌套路径 (例如 generationConfig.maxOutputTokens)
-    const setNestedProperty = (obj: DynamicPayload, path: string, value: unknown): void => {
-        const parts = path.split('.');
-        let curr = obj;
-        for (let i = 0; i < parts.length - 1; i++) {
-            if (!curr[parts[i]]) curr[parts[i]] = {};
-            curr = curr[parts[i]];
-        }
-        curr[parts[parts.length - 1]] = value;
-        logger.debug(`[Custom Model] Applied nested parameter ${path}=${value}`);
-    };
-
-    // 应用配置
-    Object.keys(mappings).forEach(key => {
-        const value = customConfig[key];
-        const targetPath = mappings[key][protocol];
-        
-        if (hasConfiguredValue(value) && targetPath) {
-            if (targetPath.includes('.')) {
-                setNestedProperty(requestBody, targetPath, value);
-            } else {
-                requestBody[targetPath] = value;
-                logger.debug(`[Custom Model] Applied ${key}=${value} to request (${targetPath})`);
-            }
-        }
-    });
+    switch (protocol) {
+        case MODEL_PROTOCOL_PREFIX.OPENAI:
+        case MODEL_PROTOCOL_PREFIX.CLAUDE:
+            requestBody.max_tokens = maxOutputTokens;
+            logger.debug(`[Custom Model] Applied max_output_tokens=${maxOutputTokens} to request (max_tokens)`);
+            break;
+        case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
+            requestBody.max_output_tokens = maxOutputTokens;
+            logger.debug(`[Custom Model] Applied max_output_tokens=${maxOutputTokens} to request (max_output_tokens)`);
+            break;
+        case MODEL_PROTOCOL_PREFIX.GEMINI:
+            if (!requestBody.generationConfig) requestBody.generationConfig = {};
+            requestBody.generationConfig.maxOutputTokens = maxOutputTokens;
+            logger.debug(`[Custom Model] Applied nested parameter generationConfig.maxOutputTokens=${maxOutputTokens}`);
+            break;
+    }
 }
 
 export function handleError(
@@ -2029,6 +2028,7 @@ export function handleError(
     if (!fromProvider && req && req.url) {
         if (req.url.includes('/v1/messages')) fromProvider = MODEL_PROTOCOL_PREFIX.CLAUDE;
         else if (req.url.includes('/v1/chat/completions')) fromProvider = MODEL_PROTOCOL_PREFIX.OPENAI;
+        else if (req.url.includes('/v1/responses')) fromProvider = MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
     }
 
     // 如果指定了客户端协议，则使用 createErrorResponse 创建符合该协议的错误响应
@@ -2041,8 +2041,8 @@ export function handleError(
         return;
     }
 
-    const hasOriginalMessage = error.message && error.message.trim() !== '';
-    let errorMessage = error.message;
+    const hasOriginalMessage = Boolean(error.message && error.message.trim() !== '');
+    let defaultMessage = 'Request failed.';
     let suggestions: string[] = [];
 
     // 根据提供商获取适配的错误信息和建议
@@ -2051,35 +2051,35 @@ export function handleError(
     // Provide detailed information and suggestions for different error types
     switch (statusCode) {
         case 401:
-            errorMessage = 'Authentication failed. Please check your credentials.';
+            defaultMessage = 'Authentication failed. Please check your credentials.';
             suggestions = providerSuggestions.auth;
             break;
         case 403:
-            errorMessage = 'Access forbidden. Insufficient permissions.';
+            defaultMessage = 'Access forbidden. Insufficient permissions.';
             suggestions = providerSuggestions.permission;
             break;
         case 429:
-            errorMessage = 'Too many requests. Rate limit exceeded.';
+            defaultMessage = 'Too many requests. Rate limit exceeded.';
             suggestions = providerSuggestions.rateLimit;
             break;
         case 500:
         case 502:
         case 503:
         case 504:
-            errorMessage = 'Server error occurred. This is usually temporary.';
+            defaultMessage = 'Server error occurred. This is usually temporary.';
             suggestions = providerSuggestions.serverError;
             break;
         default:
             if (statusCode >= 400 && statusCode < 500) {
-                errorMessage = `Client error (${statusCode}): ${getErrorMessage(error)}`;
+                defaultMessage = `Client error (${statusCode}): ${getErrorMessage(error)}`;
                 suggestions = providerSuggestions.clientError;
             } else if (statusCode >= 500) {
-                errorMessage = `Server error (${statusCode}): ${getErrorMessage(error)}`;
+                defaultMessage = `Server error (${statusCode}): ${getErrorMessage(error)}`;
                 suggestions = providerSuggestions.serverError;
             }
     }
 
-    errorMessage = hasOriginalMessage ? error.message.trim() : errorMessage;
+    const errorMessage = hasOriginalMessage ? error.message.trim() : defaultMessage;
     logger.error(`\n[Server] Request failed (${statusCode}): ${errorMessage}`);
     if (suggestions.length > 0) {
         logger.error('[Server] Suggestions:');
@@ -2099,14 +2099,25 @@ export function handleError(
         res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     }
 
-    const errorPayload = {
+    // 结构是确定的，只有透传给客户端的 `details` 是上游任意形状，故用 unknown 收窄，
+    // 不用宽类型：本仓库对宽类型标注有棘轮门禁，只允许减少不允许增加。
+    const errorPayload: {
+        error: {
+            message: string;
+            code: number;
+            suggestions: string[];
+            details?: unknown;
+        };
+    } = {
         error: {
             message: errorMessage,
             code: statusCode,
-            suggestions: suggestions,
-            details: error.response?.data
+            suggestions
         }
     };
+    if (statusCode < 500 && error.response?.data !== undefined) {
+        errorPayload.error.details = error.response.data;
+    }
     
     try {
         res.end(JSON.stringify(errorPayload));

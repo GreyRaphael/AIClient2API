@@ -183,54 +183,6 @@ async function _resolveEffectiveRouting(
 }
 
 /**
- * Get API service adapter, considering provider pools
- * @param {Object} config - The current request configuration
- * @param {string} [requestedModel] - Optional. The model name to filter providers by.
- * @param {Object} [options] - Optional. Additional options.
- * @param {boolean} [options.skipUsageCount] - Optional. If true, skip incrementing usage count.
- * @returns {Promise<Object>} The API service adapter
- */
-export async function getApiService(
-    config: Record<string, any>,
-    requestedModel: string | null = null,
-    options: Record<string, any> = {}
-) {
-    // 1. 前置路由解析
-    const { effectiveProvider, actualModelName } = await _resolveEffectiveRouting(config, requestedModel);
-    config.MODEL_PROVIDER = effectiveProvider;
-
-    // 模型列表特殊场景：AUTO 且无模型名
-    if (effectiveProvider === MODEL_PROVIDER.AUTO && !actualModelName) return null;
-
-    let serviceConfig = config;
-    const isPoolable = PROVIDER_MAPPINGS.some(m => m.providerType === config.MODEL_PROVIDER);
-    const providerPoolManager = getProviderPoolManager();
-    if (providerPoolManager && ((config.providerPools && config.providerPools[config.MODEL_PROVIDER]) || isPoolable)) {
-        // 如果有号池管理器，并且当前模型提供者类型有对应的号池（或属于号池类型提供商），则从号池中选择一个提供者配置
-        // selectProvider 现在是异步的，使用链式锁确保并发安全
-        const selectedProviderConfig = await providerPoolManager.selectProvider(config.MODEL_PROVIDER, actualModelName, { ...options, skipUsageCount: true });
-        if (selectedProviderConfig) {
-            // 合并选中的提供者配置到当前请求的 config 中
-            serviceConfig = deepmerge(config, selectedProviderConfig);
-            delete serviceConfig.providerPools; // 移除 providerPools 属性
-            config.uuid = serviceConfig.uuid;
-            config.customName = serviceConfig.customName;
-            const customNameDisplay = serviceConfig.customName ? ` (${serviceConfig.customName})` : '';
-            logger.info(`[API Service] Using pooled configuration for ${config.MODEL_PROVIDER}: ${serviceConfig.uuid}${customNameDisplay}${actualModelName ? ` (model: ${actualModelName})` : ''}`);
-        } else {
-            const errorMsg = `[API Service] No healthy provider found in pool for ${config.MODEL_PROVIDER}${actualModelName ? ` supporting model: ${actualModelName}` : ''}`;
-            logger.error(errorMsg);
-            // 指定模型在池中没有可用节点 = 客户端请求了不可服务的模型 -> 4xx
-            throw createClientRequestError(errorMsg, 400);
-        }
-    } else if (effectiveProvider === MODEL_PROVIDER.AUTO && actualModelName) {
-        // 如果在 AUTO 模式下依然没能解析出具体提供商，则报错
-        throw createClientRequestError(`[API Service] Auto-routing failed: Model name must include a provider prefix (e.g., 'provider:model'). Received: '${actualModelName}'`);
-    }
-    return getServiceAdapter(serviceConfig);
-}
-
-/**
  * Get API service adapter with fallback support and return detailed result
  * @param {Object} config - The current request configuration
  * @param {string} [requestedModel] - Optional. The model name to filter providers by.
@@ -260,43 +212,31 @@ export async function getApiServiceWithFallback(
     const isPoolable = PROVIDER_MAPPINGS.some(m => m.providerType === config.MODEL_PROVIDER);
     const providerPoolManager = getProviderPoolManager();
     if (providerPoolManager && ((config.providerPools && config.providerPools[config.MODEL_PROVIDER]) || isPoolable)) {
-        // selectProviderWithFallback 现在是异步的，使用链式锁确保并发安全
         // 如果开启了并发限制，则使用 acquireSlot 进行选择和占位
-        const useAcquire = options.acquireSlot === true;
-        let selectedResult;
-        
-        if (useAcquire) {
-             // 我们需要一个支持 Fallback 的 acquireSlot
-             selectedResult = await providerPoolManager.acquireSlotWithFallback(
+        const useAcquire = Boolean(options.acquireSlot);
+        const selectedResult = useAcquire
+            ? await providerPoolManager.acquireSlotWithFallback(
                 config.MODEL_PROVIDER,
                 actualModelName,
                 options
-            );
-        } else {
-            selectedResult = await providerPoolManager.selectProviderWithFallback(
+            )
+            : await providerPoolManager.selectProviderWithFallback(
                 config.MODEL_PROVIDER,
                 actualModelName,
                 { ...options, skipUsageCount: true }
             );
-        }
         
         if (selectedResult) {
             const { config: selectedProviderConfig, actualProviderType: selectedType, isFallback: fallbackUsed } = selectedResult;
 
-            // 合并选中的提供者配置到当前请求的 config 中
-            serviceConfig = deepmerge(config, selectedProviderConfig);
+            // 浅拷贝合并选中的提供者配置到当前请求 config，避免深拷贝整份 providerPools
+            serviceConfig = { ...config, ...selectedProviderConfig };
             delete serviceConfig.providerPools;
 
             actualProviderType = selectedType;
             isFallback = fallbackUsed;
             selectedUuid = selectedProviderConfig.uuid;
-            // 跨类型 fallback 已移除，选中的 provider 只能来自请求的 provider 类型，
-            // 因此不存在"落到了别的 provider 上、需要换用目标模型"的情况。
             actualModel = actualModelName;
-
-            if (isFallback) {
-                serviceConfig.MODEL_PROVIDER = actualProviderType;
-            }
         } else {
             const errorMsg = `[API Service] No healthy provider found in pool for ${config.MODEL_PROVIDER}${actualModelName ? ` supporting model: ${actualModelName}` : ''}`;
             logger.error(errorMsg);

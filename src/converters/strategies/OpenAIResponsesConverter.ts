@@ -152,15 +152,6 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
     }
 
-    /**
-     * 转换模型列表到目标协议
-     */
-    convertModelList(data: unknown, targetProtocol: string): unknown {
-        return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
-            ? this.toOpenAIModelList(data as DynamicPayload)
-            : data;
-    }
-
     // =============================================================================
     // 转换到 OpenAI 格式
     // =============================================================================
@@ -2353,28 +2344,5 @@ export class OpenAIResponsesConverter extends BaseConverter {
      */
     toCodexRequest(responsesRequest: DynamicPayload, requestId: string | null = null): DynamicPayload {
         return this.codexConverter.toOpenAIResponsesToCodexRequest(responsesRequest, requestId);
-    }
-
-    // =============================================================================
-    // 辅助方法
-    // =============================================================================
-
-    toOpenAIModelList(responsesModels: DynamicPayload) {
-        // OpenAI Responses 格式的模型列表已经是标准 OpenAI 格式
-        // 如果输入已经是标准格式,直接返回
-        if (responsesModels.object === 'list' && responsesModels.data) {
-            return responsesModels;
-        }
-
-        // 如果是其他格式,转换为标准格式
-        return {
-            object: "list",
-            data: (responsesModels.models || responsesModels.data || []).map((m: DynamicPayload) => ({
-                id: m.id || m.name,
-                object: "model",
-                created: m.created || Math.floor(Date.now() / 1000),
-                owned_by: m.owned_by || "openai",
-            })),
-        };
     }
 }

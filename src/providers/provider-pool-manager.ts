@@ -25,14 +25,11 @@ export class ProviderPoolManager {
     providerPools: ProviderPools;
     globalConfig: ProviderPoolGlobalConfig;
     providerStatus: ProviderStatusMap;
-    roundRobinIndex: Record<string, number>;
     maxErrorCount: number;
     healthCheckInterval: number;
     logLevel: string;
     saveDebounceTime: number;
     persistence: ProviderPoolPersistence;
-    _selectionLocks: Record<string, Promise<void>>;
-    _isSelecting: Record<string, boolean>;
     refreshConcurrency: { global: number; perProvider: number };
     refreshScheduler: ProviderRefreshScheduler;
     globalRefreshWaiters: Array<() => void>;
@@ -53,7 +50,6 @@ export class ProviderPoolManager {
         this.providerPools = providerPools;
         this.globalConfig = options.globalConfig || {}; // 存储全局配置
         this.providerStatus = {}; // Tracks health and usage for each provider instance
-        this.roundRobinIndex = {}; // Tracks the current index for round-robin selection for each provider type
         // 使用 ?? 运算符确保 0 也能被正确设置，而不是被 || 替换为默认值
         this.maxErrorCount = options.maxErrorCount ?? 10; // Default to 10 errors before marking unhealthy
         this.healthCheckInterval = options.healthCheckInterval ?? 10 * 60 * 1000; // Default to 10 minutes
@@ -68,11 +64,6 @@ export class ProviderPoolManager {
             getFilePath: () => this.globalConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json',
             log: (level, message) => this._log(level, message)
         }, this.saveDebounceTime);
-
-        // 并发控制：每个 providerType 的选择锁
-        // 用于确保 selectProvider 的排序 and 更新操作是原子的
-        this._selectionLocks = {};
-        this._isSelecting = {}; // 同步标志位锁
 
         // --- V2: 读写分离 and 异步刷新队列 ---
         this.refreshScheduler = new ProviderRefreshScheduler({
@@ -508,20 +499,6 @@ export class ProviderPoolManager {
     }
 
     /**
-     * 根据 UUID 在所有池中查找提供商配置
-     * @param {string} uuid - 提供商 UUID
-     * @returns {object|null} 提供商配置对象或 null
-     */
-    findProviderByUuid(uuid: string) {
-        if (!uuid) return null;
-        for (const type in this.providerStatus) {
-            const provider = this.providerStatus[type].find((p: ProviderStatus) => p.uuid === uuid);
-            if (provider) return provider.config;
-        }
-        return null;
-    }
-
-    /**
      * Initializes the status for each provider in the pools.
      * Initially, all providers are considered healthy and have zero usage.
      * @param {boolean} syncFromConfig - 是否强制从配置同步统计数据（不保留内存中的旧数据）
@@ -533,11 +510,6 @@ export class ProviderPoolManager {
         for (const providerType in this.providerPools) {
             const oldStatus = oldFullStatus[providerType] || [];
             this.providerStatus[providerType] = [];
-            this.roundRobinIndex[providerType] = 0; // Initialize round-robin index for each type
-            // 只有在锁不存在时才初始化，避免在运行中被重置导致并发问题
-            if (!this._selectionLocks[providerType]) {
-                this._selectionLocks[providerType] = Promise.resolve();
-            }
 
             const pool = this.providerPools[providerType];
 
@@ -747,42 +719,13 @@ export class ProviderPoolManager {
             return null;
         }
 
-        // 使用标志位 + 异步等待实现更强力的互斥锁
-        // 这种方式能更好地处理同一微任务循环内的并发
-        while (this._isSelecting[providerType]) {
-            await new Promise<void>((resolve) => setImmediate(resolve));
-        }
-
-        this._isSelecting[providerType] = true;
-
-        try {
-            // 在锁内部执行同步选择
-            return this._doSelectProvider(providerType, requestedModel, options);
-        } finally {
-            this._isSelecting[providerType] = false;
-        }
-    }
-
-    /**
-     * 获取与请求模型等价的自定义模型候选名（id / alias / actualModel / model）。
-     * 用于能力守卫兼容 actualModel 与上游发现 ID 不一致的场景。
-     * @private
-     */
-    _getCustomModelRoutingCandidates(providerType: string, requestedModel: string | null) {
-        return this.selector.getCustomModelRoutingCandidates(providerType, requestedModel);
-    }
-
-    _providerTypeSupportsModel(providerType: string, requestedModel: string | null, options: Record<string, unknown> = {}) {
-        return this.selector.providerTypeSupportsModel(providerType, requestedModel, options);
+        return this._doSelectProvider(providerType, requestedModel, options);
     }
 
     _doSelectProvider(providerType: string, requestedModel: string | null, options: Record<string, unknown>) {
         return this.selector.select(providerType, requestedModel, options);
     }
 
-    /**
-     * 获取一个可用的提供商插槽，支持 Fallback 机制
-     */
     /**
      * 获取一个可用的提供商插槽（并发受限时使用）。
      * 跨类型 fallback 链与模型 fallback 映射已移除，只从当前 provider 类型内选节点。
@@ -802,7 +745,7 @@ export class ProviderPoolManager {
     }
 
     /**
-     * 从池中选择一个提供商（带并发锁）。
+     * 从池中选择一个提供商。
      * 跨类型 fallback 链与模型 fallback 映射已移除，只从当前 provider 类型内选节点。
      */
     async selectProviderWithFallback(providerType: string, requestedModel: string | null = null, options: Record<string, any> = {}) {
@@ -817,46 +760,6 @@ export class ProviderPoolManager {
             return null;
         }
         return { config: selectedConfig, actualProviderType: providerType, isFallback: false };
-    }
-
-    /**
-     * Checks if all providers of a given type are unhealthy.
-     * @param {string} providerType - The provider type to check.
-     * @returns {boolean} True if all providers are unhealthy or disabled.
-     */
-    isAllProvidersUnhealthy(providerType: string) {
-        const providers = this.providerStatus[providerType] || [];
-        if (providers.length === 0) {
-            return true;
-        }
-        return providers.every((p: ProviderStatus) => !p.config.isHealthy || p.config.isDisabled);
-    }
-
-    /**
-     * Gets statistics about provider health for a given type.
-     * @param {string} providerType - The provider type to get stats for.
-     * @returns {Object} Statistics object with total, healthy, unhealthy, and disabled counts.
-     */
-    getProviderStats(providerType: string) {
-        const providers = this.providerStatus[providerType] || [];
-        const stats = {
-            total: providers.length,
-            healthy: 0,
-            unhealthy: 0,
-            disabled: 0
-        };
-
-        for (const p of providers) {
-            if (p.config.isDisabled) {
-                stats.disabled++;
-            } else if (p.config.isHealthy) {
-                stats.healthy++;
-            } else {
-                stats.unhealthy++;
-            }
-        }
-
-        return stats;
     }
 
     /**
@@ -1200,6 +1103,9 @@ export class ProviderPoolManager {
             // 更新为可用
             provider.config.lastHealthCheckTime = new Date().toISOString();
             // 标记为健康，以便立即投入使用
+            provider.config.isHealthy = true;
+            provider.config.errorCount = 0;
+            provider.config.lastErrorMessage = null;
             this._log('info', `Reset refresh status and marked healthy for provider ${this._getDisplayName(provider.config)} (${providerType})`);
 
             this._debouncedSave(providerType);
@@ -1693,23 +1599,37 @@ export class ProviderPoolManager {
         for (let i = 0; i < healthCheckRequests.length; i++) {
             const healthCheckRequest = healthCheckRequests[i];
             const abortController = new AbortController();
-            const timeoutId = setTimeout(() => abortController.abort(), healthCheckTimeout);
+            let timeoutId: NodeJS.Timeout | null = null;
 
             try {
-                // 尝试将 signal 注入请求体，供支持的适配器使用
-                const requestWithSignal = {
-                    ...healthCheckRequest,
-                    // signal: abortController.signal
+                // 使用不可枚举属性注入 signal，避免污染 JSON 序列化请求体
+                const requestWithSignal: Record<string, unknown> = {
+                    ...healthCheckRequest
                 };
+                Object.defineProperty(requestWithSignal, '_abortSignal', {
+                    value: abortController.signal,
+                    enumerable: false,
+                    configurable: true
+                });
 
-                await serviceAdapter.generateContent(modelName, requestWithSignal);
+                const timeoutPromise = new Promise<never>((_, reject) => {
+                    timeoutId = setTimeout(() => {
+                        abortController.abort();
+                        reject(new Error(`Health check timed out after ${healthCheckTimeout}ms`));
+                    }, healthCheckTimeout);
+                });
 
-                clearTimeout(timeoutId);
+                await Promise.race([
+                    serviceAdapter.generateContent(modelName, requestWithSignal),
+                    timeoutPromise
+                ]);
+
+                if (timeoutId) clearTimeout(timeoutId);
                 // 注意：使用量计数由调用方处理（performHealthChecks/performInitialHealthChecks）
                 // 这里只返回成功结果，让调用方统一处理状态更新和计数
                 return { success: true, modelName, errorMessage: null };
             } catch (error) {
-                clearTimeout(timeoutId);
+                if (timeoutId) clearTimeout(timeoutId);
                 lastError = error;
             }
         }
@@ -1725,10 +1645,6 @@ export class ProviderPoolManager {
 
     _debouncedSave(providerType: string) {
         this.persistence.schedule(providerType);
-    }
-
-    async _flushPendingSaves(): Promise<void> {
-        await this.persistence.flush();
     }
 
 }

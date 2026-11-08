@@ -8,7 +8,7 @@
  * 4. 管理 API 接口
  */
 
-import { createKey, listKeys, getKey, deleteKey, updateKeyLimit, resetKeyUsage, resetKeyTokenStats, toggleKey, updateKeyName, validateKey, incrementUsage, getStats, resetAllTokenStats, KEY_PREFIX, reserveTokens, settleTokens, getPluginConfig, remainingTokens } from './key-manager.js';
+import { createKey, listKeys, getKey, deleteKey, updateKeyLimit, resetKeyUsage, resetKeyTokenStats, toggleKey, updateKeyName, validateKey, incrementUsage, getStats, resetAllTokenStats, KEY_PREFIX, reserveTokens, settleTokens, getPluginConfig, remainingTokens, shutdownKeyManager } from './key-manager.js';
 
 import {
     extractPotluckKey,
@@ -147,7 +147,8 @@ const apiPotluckPlugin = {
      * 销毁钩子
      */
     async destroy() {
-        logger.info('[API Potluck Plugin] Destroying...');
+        shutdownKeyManager();
+        logger.info('[API Potluck Plugin] Destroyed');
     },
 
     /**
@@ -360,21 +361,26 @@ const apiPotluckPlugin = {
                     const hasCapturedResponse = hasCapturedResponseForHookContext(hookContext);
                     const usage = getPendingUsageForHookContext(hookContext);
                     const actualTokens = Number(usage?.totalTokens) || 0;
+                    const requestFailed = hookContext._requestFailed === true || statusCode >= 400;
                     // 请求是否真正成功产出内容：
                     // 1) 上游直接返回 4xx/5xx 时，既不会触发 onUnaryResponse/onStreamChunk，也无 token 产出；
                     // 2) 流式首内容前缓冲（preContentBuffer）阶段若收到过无正文 metadata 帧（触发了 onStreamChunk）
-                    //    但随后流失败并以 statusCode >= 400（如 502）结束，entry.res.statusCode 也能识别该失败。
+                    //    但随后流失败（无论响应头尚未发出返回 502，还是流式响应头已先发出 200 后写 SSE error 帧并标记 _requestFailed），
+                    //    requestFailed 均能准确识别该失败。
                     // 以上失败情形均必须全额退还预扣，不能按"防白嫖"兜底扣费。
-                    const responseSucceeded = statusCode < 400 && (hasCapturedResponse || actualTokens > 0);
+                    const responseSucceeded = !requestFailed && (hasCapturedResponse || actualTokens > 0);
+                    const billableTokens = requestFailed ? 0 : actualTokens;
 
-                    // 传入提供商和模型信息，以及请求 ID 用于防重
-                    await incrementUsage(
-                        hookContext.potluckApiKey, 
-                        hookContext.toProvider, 
-                        hookContext.model,
-                        usage,
-                        trackedRequestIds[0] || null
-                    );
+                    // 传入提供商和模型信息，以及请求 ID 用于防重（失败请求不计入有效用量）
+                    if (!requestFailed) {
+                        await incrementUsage(
+                            hookContext.potluckApiKey, 
+                            hookContext.toProvider, 
+                            hookContext.model,
+                            usage,
+                            trackedRequestIds[0] || null
+                        );
+                    }
 
                     // 结算：用上游真实 totalTokens 对认证阶段预扣的额度多退少补。
                     // 仅当上游确实成功返回了响应但未携带 usage 时才按预扣值计费（防白嫖）；
@@ -384,7 +390,7 @@ const apiPotluckPlugin = {
                         const settled = await settleTokens(
                             hookContext.potluckApiKey,
                             reserved,
-                            actualTokens,
+                            billableTokens,
                             { fallbackToReserved: responseSucceeded }
                         );
                         logger.info(
@@ -404,26 +410,6 @@ const apiPotluckPlugin = {
             }
         }
 
-    },
-
-    // 导出内部函数供外部使用（可选）
-    exports: {
-        createKey,
-        listKeys,
-        getKey,
-        deleteKey,
-        updateKeyLimit,
-        resetKeyUsage,
-        resetKeyTokenStats,
-        toggleKey,
-        updateKeyName,
-        validateKey,
-        incrementUsage,
-        getStats,
-        resetAllTokenStats,
-        KEY_PREFIX,
-        extractPotluckKey,
-        isPotluckRequest
     }
 };
 

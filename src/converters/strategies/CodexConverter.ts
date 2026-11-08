@@ -273,13 +273,6 @@ export class CodexConverter extends BaseConverter {
         }
     }
 
-    /**
-     * 转换模型列表
-     */
-    convertModelList(data: unknown, targetProtocol: string): unknown {
-        return data;
-    }
-
     getCachedInputTokens(usage: DynamicPayload = {}): number {
         return usage.input_tokens_details?.cached_tokens ??
             usage.prompt_tokens_details?.cached_tokens ??

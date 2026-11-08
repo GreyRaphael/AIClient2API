@@ -8,6 +8,7 @@ import {
     resetStats,
     resetTokenStats,
     setConfigGetter,
+    shutdownStatsManager,
     syncWriteToFile
 } from './stats-manager.js';
 
@@ -29,6 +30,7 @@ const modelUsageStatsPlugin = {
 
     async destroy() {
         syncWriteToFile();
+        shutdownStatsManager();
         logger.info('[Model Usage Stats] Destroyed');
     },
 
@@ -85,12 +87,6 @@ const modelUsageStatsPlugin = {
                 isStream: config.isStream
             });
         }
-    },
-
-    exports: {
-        getStats,
-        resetStats,
-        resetTokenStats
     }
 };
 

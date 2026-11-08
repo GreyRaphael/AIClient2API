@@ -68,7 +68,8 @@ function getTodayDateString() {
 // 插件状态
 let keyStore = null;
 let isDirty = false;
-let isWriting = false;
+let mutationVersion = 0;
+let persistPromise = null;
 let persistTimer = null;
 let currentPersistInterval = DEFAULT_CONFIG.persistInterval;
 
@@ -295,30 +296,45 @@ function syncWriteToFile() {
 }
 
 /**
- * 异步持久化（带写锁）
+ * 异步持久化（带写锁与版本轮询，确保写盘期间产生的新变更不会漏写）
  */
 async function persistIfDirty() {
-    if (!isDirty || isWriting || keyStore === null) return;
-    isWriting = true;
-    try {
-        const dir = path.dirname(KEYS_STORE_FILE);
-        if (!existsSync(dir)) {
-            await fs.mkdir(dir, { recursive: true });
-        }
-        // 写入临时文件再重命名，并确保刷盘
-        await atomicWriteFile(KEYS_STORE_FILE, JSON.stringify(keyStore, null, 2), { encoding: 'utf8', mode: 0o600 });
-        isDirty = false;
-    } catch (error) {
-        logger.error('[API Potluck] Persist failed:', error.message);
-    } finally {
-        isWriting = false;
+    if (!isDirty || keyStore === null) return;
+    if (persistPromise) {
+        await persistPromise;
+        return;
     }
+
+    persistPromise = (async () => {
+        try {
+            const dir = path.dirname(KEYS_STORE_FILE);
+            if (!existsSync(dir)) {
+                await fs.mkdir(dir, { recursive: true });
+            }
+            while (isDirty && keyStore !== null) {
+                const versionAtStart = mutationVersion;
+                const snapshot = JSON.stringify(keyStore, null, 2);
+                // 写入临时文件再重命名，并确保刷盘
+                await atomicWriteFile(KEYS_STORE_FILE, snapshot, { encoding: 'utf8', mode: 0o600 });
+                if (mutationVersion === versionAtStart) {
+                    isDirty = false;
+                }
+            }
+        } catch (error) {
+            logger.error('[API Potluck] Persist failed:', error.message);
+        } finally {
+            persistPromise = null;
+        }
+    })();
+
+    await persistPromise;
 }
 
 /**
  * 标记数据已修改
  */
 function markDirty() {
+    mutationVersion += 1;
     isDirty = true;
 }
 
@@ -861,15 +877,6 @@ export async function applyDailyLimitToAllKeys(newLimit) {
     
     logger.info(`[API Potluck] Applied daily limit ${newLimit} to ${updated}/${keys.length} keys`);
     return { total: keys.length, updated };
-}
-
-/**
- * 获取所有 Key ID 列表
- * @returns {string[]}
- */
-export function getAllKeyIds() {
-    ensureLoaded();
-    return Object.keys(keyStore.keys);
 }
 
 /**

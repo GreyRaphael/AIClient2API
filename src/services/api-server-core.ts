@@ -33,12 +33,6 @@ import { HEALTH_CHECK } from '../utils/constants.ts';
  * - 灵活的 API 密钥验证：支持三种 API 密钥验证方法：`Authorization: Bearer <key>` 请求头、`x-goog-api-key` 请求头和 `?key=` URL 查询参数，可通过 `--api-key` 启动参数配置。
  *   Flexible API Key Validation: Supports three API key validation methods: `Authorization: Bearer <key>` request header, `x-goog-api-key` request header, and `?key=` URL query parameter, configurable via the `--api-key` startup parameter.
  * 
- * - 动态系统提示管理 / Dynamic System Prompt Management:
- *   - 文件注入：通过 `--system-prompt-file` 从外部文件加载系统提示，并通过 `--system-prompt-mode` 控制其行为（覆盖或追加）。
- *     File Injection: Loads system prompts from external files via `--system-prompt-file` and controls their behavior (overwrite or append) with `--system-prompt-mode`.
- *   - 实时同步：能够将请求中包含的系统提示实时写入 `configs/fetch_system_prompt.txt` 文件，便于开发者观察和调试。
- *     Real-time Synchronization: Capable of writing system prompts included in requests to the `fetch_system_prompt.txt` file in real-time, facilitating developer observation and debugging.
- * 
  * - 智能请求转换和修复：自动将 OpenAI 格式的请求转换为 Gemini 格式，包括角色映射（`assistant` -> `model`）、合并来自同一角色的连续消息以及修复缺失的 `role` 字段。
  *   Intelligent Request Conversion and Repair: Automatically converts OpenAI-formatted requests to Gemini format, including role mapping (`assistant` -> `model`), merging consecutive messages from the same role, and fixing missing `role` fields.
  * 
@@ -62,9 +56,6 @@ import { HEALTH_CHECK } from '../utils/constants.ts';
  * 使用号池配置 / Use provider pools:
  * node src/services/api-server.js --provider-pools-file configs/provider_pools.json
  *
- * 系统提示管理 / System Prompt Management:
- * node src/services/api-server.js --system-prompt-file custom-prompt.txt --system-prompt-mode append
- *
  * 日志配置 / Logging Configuration:
  * node src/services/api-server.js --log-prompts console
  * node src/services/api-server.js --log-prompts file --prompt-log-base-name my-logs
@@ -76,8 +67,6 @@ import { HEALTH_CHECK } from '../utils/constants.ts';
  * --model-provider <provider>         AI 模型提供商 / AI model provider
  * --provider-pools-file <path>        提供商号池配置文件路径 / Path to provider pools configuration file
  * --custom-models-file <path>         自定义模型配置文件路径 / Path to custom models configuration file
- * --system-prompt-file <path>         系统提示文件路径 / Path to system prompt file (default: configs/input_system_prompt.txt)
- * --system-prompt-mode <mode>         系统提示模式 / System prompt mode: overwrite or append (default: overwrite)
  * --log-prompts <mode>                提示日志模式 / Prompt logging mode: console, file, or none (default: none)
  * --prompt-log-base-name <name>       提示日志文件基础名称 / Base name for prompt log files (default: prompt_log)
  * --request-max-retries <number>      API 请求失败时，自动重试的最大次数 / Max retries for API requests (default: 3)
@@ -349,9 +338,10 @@ async function startServer() {
             // 每 CRON_NEAR_MINUTES 分钟执行一次心跳日志和令牌刷新
             setInterval(heartbeatAndRefreshToken, CONFIG.CRON_NEAR_MINUTES * 60 * 1000);
         }
-        // 服务器完全启动后,执行初始健康检查
+        // 服务器完全启动后,根据配置执行初始健康检查（当 SCHEDULED_HEALTH_CHECK.enabled 开启时由下方 startupRun 统一接管，避免启动时重复执行两次）
         const poolManager = getProviderPoolManager();
-        if (poolManager) {
+        const scheduledConfig = CONFIG.SCHEDULED_HEALTH_CHECK;
+        if (poolManager && !scheduledConfig?.enabled) {
             logger.info('[Initialization] Performing initial health checks for provider pools...');
             poolManager.performInitialHealthChecks();
         }
@@ -359,7 +349,6 @@ async function startServer() {
         // 定时健康检查
         // 注意：无论初始 enabled 状态如何，都注册 reloadHealthCheckTimer，
         // 使得热更新时（从 disabled→enabled）config-api 能调用它启动 timer。
-        const scheduledConfig = CONFIG.SCHEDULED_HEALTH_CHECK;
         {
             const DEFAULT_INTERVAL = CONFIG.CRON_NEAR_MINUTES * 60 * 1000;
 

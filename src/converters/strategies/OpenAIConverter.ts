@@ -149,30 +149,6 @@ export class OpenAIConverter extends BaseConverter {
         }
     }
 
-    /**
-     * 转换模型列表
-     */
-    convertModelList(data: unknown, targetProtocol: string): unknown {
-        return this.ensureDisplayName(data as DynamicPayload);
-    }
-
-    /**
-     * Ensure display_name field exists in OpenAI model list
-     */
-    ensureDisplayName(openaiModels: DynamicPayload): DynamicPayload {
-        if (!openaiModels || !openaiModels.data) {
-            return openaiModels;
-        }
-
-        return {
-            ...openaiModels,
-            data: openaiModels.data.map((model: DynamicPayload) => ({
-                ...model,
-                display_name: model.display_name || model.id,
-            })),
-        };
-    }
-
     // =========================================================================
     // OpenAI -> Claude 转换
     // =========================================================================

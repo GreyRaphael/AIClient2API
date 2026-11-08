@@ -244,4 +244,25 @@ describe('ProviderPoolManager health check requests', () => {
             max_tokens: 16
         }]);
     });
+
+    test('resetProviderRefreshStatus restores healthy status and resets errorCount', () => {
+        manager = createManager([
+            makeNode('unhealthy-node', {
+                isHealthy: false,
+                needsRefresh: true,
+                errorCount: 3,
+                lastErrorMessage: 'token expired'
+            })
+        ]);
+        manager._debouncedSave = jest.fn();
+
+        manager.resetProviderRefreshStatus('openai-custom', 'unhealthy-node');
+
+        expect(manager._debouncedSave).toHaveBeenCalledWith('openai-custom');
+        const node = manager.providerStatus['openai-custom'][0].config;
+        expect(node.needsRefresh).toBe(false);
+        expect(node.isHealthy).toBe(true);
+        expect(node.errorCount).toBe(0);
+        expect(node.lastErrorMessage).toBeNull();
+    });
 });

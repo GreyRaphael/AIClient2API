@@ -111,12 +111,16 @@ function normalizeFsPath(targetPath: unknown): string {
 }
 
 // Helper to check if caller stack trace belongs to a plugin
+function isInternalPluginInfraFrame(line: string): boolean {
+    return /plugin-installer\.(js|ts)|plugin-manager\.(js|ts)|security-hardening\.(js|ts)/.test(line);
+}
+
 function getPluginStack() {
     const stack = captureCallerStack();
     const lines = stack.split('\n');
     for (const line of lines) {
         if (line.includes('node:internal') || line.includes('node:')) continue;
-        if (line.includes('plugin-installer.js') || line.includes('plugin-manager.js') || line.includes('security-hardening.js')) continue;
+        if (isInternalPluginInfraFrame(line)) continue;
 
         if (/src[\\/]plugins(-user)?[\\/]/.test(line)) {
             return stack;
@@ -130,7 +134,7 @@ function getPluginContext(stack: string | null | undefined): PluginSecurityConte
     const lines = stack.split('\n');
     for (const line of lines) {
         if (line.includes('node:internal') || line.includes('node:')) continue;
-        if (line.includes('plugin-installer.js') || line.includes('plugin-manager.js') || line.includes('security-hardening.js')) continue;
+        if (isInternalPluginInfraFrame(line)) continue;
 
         const match = line.match(/src[\\/](plugins|plugins-user)[\\/]([^\\/]+)/);
         if (match) {

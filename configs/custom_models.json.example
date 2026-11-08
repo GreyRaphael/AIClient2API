@@ -17,10 +17,10 @@
   },
   {
     "id": "claude-sonnet-4-6-custom",
-    "name": "Claude 3.7 Sonnet Custom",
+    "name": "Claude 4.6 Sonnet Custom",
     "alias": "claude-sonnet-4-6",
     "provider": "claude-custom",
-    "actualProvider": "claude-kiro-oauth",
+    "actualProvider": "claude-custom",
     "actualModel": "claude-sonnet-4-6",
     "context_length": 200000,
     "support_images": true,

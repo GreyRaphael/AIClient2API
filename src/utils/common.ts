@@ -1,6 +1,6 @@
 export { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from './constants.ts';
 import { DEFAULT_REQUEST_BODY_MAX_BYTES } from './protocol.ts';
-export { getProtocolPrefix, ENDPOINT_TYPE, DEFAULT_REQUEST_BODY_MAX_BYTES, FETCH_SYSTEM_PROMPT_FILE, INPUT_SYSTEM_PROMPT_FILE, extractSystemPromptFromRequestBody } from './protocol.ts';
+export { getProtocolPrefix, ENDPOINT_TYPE, DEFAULT_REQUEST_BODY_MAX_BYTES } from './protocol.ts';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import logger from './logger.ts';
 import { getErrorMessage } from './error.ts';

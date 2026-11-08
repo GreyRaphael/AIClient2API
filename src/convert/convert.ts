@@ -110,9 +110,6 @@ export function convertData(
             case 'streamChunk':
                 return converter.convertStreamChunk(data as CrossProtocolStreamChunk, toProtocol, model, requestId ?? undefined) as DynamicPayload | DynamicPayload[] | null;
 
-            case 'modelList':
-                return converter.convertModelList(data, toProtocol) as DynamicPayload;
-
             default:
                 throw new Error(`Unsupported conversion type: ${type}`);
         }

@@ -3,11 +3,12 @@ import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts'
 
 
 import logger from '../utils/logger.ts';
+import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { CONFIG } from '../core/config-manager.ts';
+import { CONFIG, normalizeConfiguredProviders } from '../core/config-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
-import { initApiService } from '../services/service-manager.ts';
+import { initApiService, getProviderPoolManager } from '../services/service-manager.ts';
 import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
@@ -188,7 +189,10 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
             const port = Number(newConfig.SERVER_PORT);
             if (Number.isInteger(port) && port >= NETWORK.MIN_PORT && port <= NETWORK.MAX_PORT) currentConfig.SERVER_PORT = port;
         }
-        if (newConfig.MODEL_PROVIDER !== undefined) currentConfig.MODEL_PROVIDER = newConfig.MODEL_PROVIDER;
+        if (newConfig.MODEL_PROVIDER !== undefined) {
+            currentConfig.MODEL_PROVIDER = newConfig.MODEL_PROVIDER;
+            normalizeConfiguredProviders(currentConfig);
+        }
         if (newConfig.PROMPT_LOG_BASE_NAME !== undefined) currentConfig.PROMPT_LOG_BASE_NAME = newConfig.PROMPT_LOG_BASE_NAME;
         if (newConfig.PROMPT_LOG_MODE !== undefined) currentConfig.PROMPT_LOG_MODE = newConfig.PROMPT_LOG_MODE;
         if (newConfig.REQUEST_MAX_RETRIES !== undefined) {
@@ -238,6 +242,24 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
         if (newConfig.MAX_ERROR_COUNT !== undefined) currentConfig.MAX_ERROR_COUNT = newConfig.MAX_ERROR_COUNT;
         if (newConfig.WARMUP_TARGET !== undefined) currentConfig.WARMUP_TARGET = newConfig.WARMUP_TARGET;
         if (newConfig.REFRESH_CONCURRENCY_PER_PROVIDER !== undefined) currentConfig.REFRESH_CONCURRENCY_PER_PROVIDER = newConfig.REFRESH_CONCURRENCY_PER_PROVIDER;
+
+        // 同步号池运行期参数
+        const poolManager = getProviderPoolManager();
+        if (poolManager) {
+            if (newConfig.MAX_ERROR_COUNT !== undefined && Number.isFinite(Number(currentConfig.MAX_ERROR_COUNT))) {
+                poolManager.maxErrorCount = Number(currentConfig.MAX_ERROR_COUNT);
+            }
+            if (newConfig.WARMUP_TARGET !== undefined && Number.isFinite(Number(currentConfig.WARMUP_TARGET))) {
+                poolManager.warmupTarget = Number(currentConfig.WARMUP_TARGET);
+            }
+            if (
+                newConfig.REFRESH_CONCURRENCY_PER_PROVIDER !== undefined &&
+                poolManager.refreshConcurrency &&
+                Number.isFinite(Number(currentConfig.REFRESH_CONCURRENCY_PER_PROVIDER))
+            ) {
+                poolManager.refreshConcurrency.perProvider = Number(currentConfig.REFRESH_CONCURRENCY_PER_PROVIDER);
+            }
+        }
 
         // Proxy settings
         if (newConfig.PROXY_URL !== undefined) currentConfig.PROXY_URL = newConfig.PROXY_URL;
@@ -326,13 +348,27 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
         // Update config.json file
         try {
             const configPath = 'configs/config.json';
+            let existingDiskConfig: Record<string, unknown> = {};
+            try {
+                if (fs.existsSync(configPath)) {
+                    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        existingDiskConfig = parsed;
+                    }
+                }
+            } catch (readErr) {
+                logger.warn('[UI API] Failed to read existing config.json before merge, writing fresh UI config:', getErrorMessage(readErr));
+            }
 
-            // Create a clean config object for saving (exclude runtime-only properties)
+            // Create a clean config object for saving (merge with existing disk keys to avoid wiping non-UI settings)
             const configToSave = {
+                ...existingDiskConfig,
                 REQUIRED_API_KEY: currentConfig.REQUIRED_API_KEY,
                 SERVER_PORT: currentConfig.SERVER_PORT,
                 HOST: currentConfig.HOST,
-                MODEL_PROVIDER: currentConfig.MODEL_PROVIDER,
+                MODEL_PROVIDER: Array.isArray(currentConfig.DEFAULT_MODEL_PROVIDERS) && currentConfig.DEFAULT_MODEL_PROVIDERS.length > 0
+                    ? currentConfig.DEFAULT_MODEL_PROVIDERS.join(',')
+                    : currentConfig.MODEL_PROVIDER,
                 PROMPT_LOG_BASE_NAME: currentConfig.PROMPT_LOG_BASE_NAME,
                 PROMPT_LOG_MODE: currentConfig.PROMPT_LOG_MODE,
                 REQUEST_MAX_RETRIES: currentConfig.REQUEST_MAX_RETRIES,

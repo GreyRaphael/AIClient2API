@@ -26,7 +26,6 @@ describe('BaseConverter contract', () => {
         expect(() => converter.convertRequest({}, 'openai')).toThrow('convertRequest方法必须被子类实现');
         expect(() => converter.convertResponse({}, 'openai')).toThrow('convertResponse方法必须被子类实现');
         expect(() => converter.convertStreamChunk({}, 'openai')).toThrow('convertStreamChunk方法必须被子类实现');
-        expect(() => converter.convertModelList({}, 'openai')).toThrow('convertModelList方法必须被子类实现');
     });
 });
 

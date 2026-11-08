@@ -163,13 +163,3 @@ export function isDailyCapReached(plan, reservedToday = 0) {
     if (!plan || !plan.dailyTokenCap) return false;
     return plan.todayTokenUsed + reservedToday >= plan.dailyTokenCap;
 }
-
-/**
- * 结算差额：actual 为上游返回的真实用量，reserved 为当初预扣的额度。
- * 正数 = 需要补扣，负数 = 需要退还。
- */
-export function settleDelta(reserved, actual) {
-    const r = Number(reserved) || 0;
-    const a = Number(actual) || 0;
-    return a - r;
-}

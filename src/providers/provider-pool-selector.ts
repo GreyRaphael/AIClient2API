@@ -1,6 +1,6 @@
 import { CONFIG } from '../core/config-manager.ts';
 import { getCustomModelListProvider } from './provider-models.ts';
-import { nodeSupportsModel, resolveNodeCapability, resolveProviderCapability } from './model-capability.ts';
+import { nodeSupportsModel, resolveNodeCapability } from './model-capability.ts';
 import type { ProviderConfig, ProviderPoolGlobalConfig, ProviderStatus, ProviderStatusMap } from './provider-types.ts';
 
 export interface ProviderSelectionOptions {
@@ -77,46 +77,7 @@ export class ProviderPoolSelector {
     }
 
     /**
-     * 判断某个 providerType 的活跃节点是否支持目标模型。
-     * 用于 fallback chain / model fallback mapping 的预检。
-     * @private
-     */
-    providerTypeSupportsModel(providerType: string, requestedModel: string | null, options: ProviderSelectionOptions = {}) {
-        const nodes = this.getProviderStatus()[providerType] || [];
-        if (nodes.length === 0) {
-            return false;
-        }
-
-        // 自定义模型显式路由：只要目标 provider 有对应自定义模型映射，就不做上游候选守卫
-        if (options.allowUnselectedModel &&
-            (options.customModelConfig || this.getCustomModelRoutingCandidates(providerType, requestedModel).length > 0)) {
-            return true;
-        }
-
-        const capability = resolveProviderCapability(providerType, nodes);
-        const knownNodes = (capability.nodes as Array<{
-            known?: boolean;
-            candidateModels?: string[];
-            selectedModels?: string[];
-        }>).filter((node) => node.known);
-        if (knownNodes.length === 0) {
-            return true;
-        }
-
-        const models = new Set();
-        for (const node of knownNodes) {
-            const list = options.allowUnselectedModel
-                ? node.candidateModels
-                : node.selectedModels;
-            for (const model of list || []) {
-                models.add(model);
-            }
-        }
-        return models.has(requestedModel);
-    }
-
-    /**
-     * 实际执行 provider 选择的内部方法（同步执行，由锁保护）
+     * 实际执行 provider 选择的内部方法（同步执行）
      * @private
      */
     select(providerType: string, requestedModel: string | null, options: ProviderSelectionOptions) {

@@ -261,15 +261,6 @@ export class GeminiConverter extends BaseConverter {
         }
     }
 
-    /**
-     * 转换模型列表
-     */
-    convertModelList(data: unknown, targetProtocol: string): unknown {
-        return targetProtocol === MODEL_PROTOCOL_PREFIX.OPENAI
-            ? this.toOpenAIModelList(data as DynamicPayload)
-            : data;
-    }
-
     // =========================================================================
     // Gemini -> OpenAI 转换
     // =========================================================================
@@ -462,25 +453,6 @@ export class GeminiConverter extends BaseConverter {
         }
 
         return chunk;
-    }
-
-    /**
-     * Gemini模型列表 -> OpenAI模型列表
-     */
-    toOpenAIModelList(geminiModels: DynamicPayload): DynamicPayload {
-        return {
-            object: "list",
-            data: geminiModels.models.map((m: DynamicPayload) => {
-                const modelId = m.name.startsWith('models/') ? m.name.substring(7) : m.name;
-                return {
-                    id: modelId,
-                    object: "model",
-                    created: Math.floor(Date.now() / 1000),
-                    owned_by: "google",
-                    display_name: m.displayName || modelId,
-                };
-            }),
-        };
     }
 
     processGeminiResponseContent(geminiResponse: DynamicPayload): DynamicPayload {

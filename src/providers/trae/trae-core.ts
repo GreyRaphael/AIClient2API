@@ -130,7 +130,6 @@ export const TRAE_UPSTREAM_EFFORT_LEVELS = {
  * Trae 通道默认思考深度：统一默认 extra_high (OpenAI 标准层表示为 xhigh)
  */
 export const DEFAULT_TRAE_REASONING_EFFORT = 'xhigh';
-export const DEFAULT_TRAE_UPSTREAM_EFFORT_LEVEL = TRAE_UPSTREAM_EFFORT_LEVELS.EXTRA_HIGH;
 
 /**
  * 常见已知具备思考/推理能力的模型特征正则
@@ -143,15 +142,6 @@ export const TRAE_REASONING_MODEL_PATTERNS = [
     /qwen3\.8/i,
     /minimax-m3/i
 ];
-
-/**
- * 判断指定模型是否具备思考/推理能力
- */
-export function isTraeReasoningModel(modelId: unknown): boolean {
-    const id = String(modelId || '').trim();
-    if (!id) return false;
-    return TRAE_REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(id));
-}
 
 /**
  * 将标准化档位映射为 Trae 上游识别的 reasoning_effort_level ('light' | 'high' | 'extra_high')。

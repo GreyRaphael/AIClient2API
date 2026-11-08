@@ -10,7 +10,7 @@ import type {
     ProtocolPrefix
 } from './protocols/common.js';
 
-export type ConversionType = 'request' | 'response' | 'streamChunk' | 'modelList';
+export type ConversionType = 'request' | 'response' | 'streamChunk';
 
 export interface IProtocolConverter {
     readonly protocolName: string;
@@ -18,7 +18,6 @@ export interface IProtocolConverter {
     convertRequest(data: CrossProtocolRequest, targetProtocol: string, requestId?: string): CrossProtocolRequest | void;
     convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId?: string): CrossProtocolResponse;
     convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk;
-    convertModelList(data: unknown, targetProtocol: string): unknown;
 }
 
 export interface IConverterFactory {

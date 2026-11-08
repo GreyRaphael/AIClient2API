@@ -20,11 +20,6 @@ interface AnthropicUsageOptions {
     outputTokens?: number;
 }
 
-interface PromptReplacement {
-    old: string | RegExp;
-    new: string;
-}
-
 interface SchemaCleanOptions {
     allowedKeys?: string[];
     excludedKeys?: string[];
@@ -56,18 +51,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.ts';
 export { budgetTokensToEffort } from './thinking-budget.ts';
-import { budgetTokensToEffort } from './thinking-budget.ts';
 
 // =============================================================================
 // 常量定义
 // =============================================================================
-
-// =============================================================================
-// OpenAI 相关常量
-// =============================================================================
-export const OPENAI_DEFAULT_MAX_TOKENS = 128000;
-export const OPENAI_DEFAULT_TEMPERATURE = 1;
-export const OPENAI_DEFAULT_TOP_P = 0.95;
 
 // =============================================================================
 // Claude 相关常量
@@ -397,51 +384,19 @@ export function extractTextFromMessageContent(content: unknown): string {
 }
 
 /**
- * 应用系统提示词内容替换
- * @param {string} content - 原始内容
- * @param {Array} replacements - 替换规则数组
- * @returns {string} 替换后的内容
- */
-export function applySystemPromptReplacements(content: string, replacements: PromptReplacement[] = []): string {
-    if (!content || !replacements || !Array.isArray(replacements) || replacements.length === 0) {
-        return content;
-    }
-    let newContent = content;
-    for (const replacement of replacements) {
-        if (replacement.old !== undefined && replacement.new !== undefined) {
-            if (typeof replacement.old === 'string') {
-                // 简单字符串全量替换
-                newContent = newContent.split(replacement.old).join(replacement.new);
-            } else if (replacement.old instanceof RegExp || (typeof replacement.old === 'object' && replacement.old !== null)) {
-                // 正则表达式替换
-                newContent = newContent.replace(replacement.old, replacement.new);
-            }
-        }
-    }
-    return newContent;
-}
-
-/**
  * 提取并处理系统消息
  * @param {Array} messages - 消息数组
- * @param {Array} replacements - 替换规则数组，可选
  * @returns {{systemInstruction: Object|null, nonSystemMessages: Array}}
  */
 export function extractAndProcessSystemMessages(
-    messages: Array<Record<string, unknown>>,
-    replacements: PromptReplacement[] = []
+    messages: Array<Record<string, unknown>>
 ): { systemInstruction: { parts: Array<{ text: string }> } | null; nonSystemMessages: Array<Record<string, unknown>> } {
     const systemContents: string[] = [];
     const nonSystemMessages: Array<Record<string, unknown>> = [];
 
     for (const message of messages) {
         if (message.role === 'system' || message.role === 'developer') {
-            let content = extractTextFromMessageContent(message.content);
-
-            // 应用系统提示词内容替换
-            content = applySystemPromptReplacements(content, replacements);
-
-            systemContents.push(content);
+            systemContents.push(extractTextFromMessageContent(message.content));
         } else {
             nonSystemMessages.push(message);
         }
@@ -684,16 +639,6 @@ export function getOpenAIStreamIdentity(
  * Claude API 要求 tool_use.id 匹配 ^[a-zA-Z0-9_-]+$
  * （实现已迁移至 ../utils/protocol-utils.js，经上方再导出）
  */
-
-/**
- * 根据budget_tokens智能判断OpenAI reasoning_effort等级
- * @deprecated 请使用 thinking-budget.ts 中的 budgetTokensToEffort
- * @param {number|null} budgetTokens - Anthropic thinking的budget_tokens值
- * @returns {string} OpenAI reasoning_effort等级
- */
-export function determineReasoningEffortFromBudget(budgetTokens: unknown): string {
-    return budgetTokensToEffort(budgetTokens as number | null);
-}
 
 /**
  * 从OpenAI文本中提取thinking内容

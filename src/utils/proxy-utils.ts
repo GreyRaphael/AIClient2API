@@ -439,11 +439,10 @@ function isTitleRequest(body: Record<string, unknown> | undefined): boolean {
  *   详见 logs/review-unverified/THREE-UNVERIFIED-RESOLVED.md 与
  *   logs/review-optimize/session-id-value.json。
  *
- * 它仍然保留的三个理由：
+ * 它仍然保留的两个理由：
  *   1. codex 在无 id 时会归入 `'default'` 缓存键（仅按 model 区分），
  *      **导致不同客户端共享上游会话**——保留隔离反而更安全。
- *   2. codex 用它做会话缓存键隔离（缺失会归入 'default'，导致跨客户端共享上游会话）。
- *   3. 少数上游可能用它做日志/计费归因。
+ *   2. 少数上游可能用它做日志/计费归因。
  *
  * @param options.deriveFromMessages 未显式提供 id 时，是否从首条消息派生。
  *        默认 true 以保持既有行为（codex 的 'default' 共享问题依赖它）；

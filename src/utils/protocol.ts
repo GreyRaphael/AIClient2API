@@ -1,14 +1,11 @@
 /**
- * 协议层基础工具（低层模块，仅依赖 constants.js 与 logger）
+ * 协议层基础工具（低层模块，仅依赖 provider-registry）
  *
  * 从 utils/common.js 下沉，用于打破 common.js 与 convert/config-manager/
  * provider-strategy/provider-models 之间的循环依赖。需要这些能力的低层模块
  * 应直接从此处 import，而不是从 common.js。
  */
 
-import * as path from 'path';
-import logger from './logger.ts';
-import { MODEL_PROTOCOL_PREFIX } from './constants.ts';
 import { getProviderDefinition } from '../providers/provider-registry.ts';
 
 /**
@@ -17,45 +14,6 @@ import { getProviderDefinition } from '../providers/provider-registry.ts';
  * @param {string} provider - The model provider string (e.g., 'gemini-antigravity', 'openai-custom').
  * @returns {string} The protocol prefix (e.g., 'gemini', 'openai', 'claude').
  */
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return value !== null && typeof value === 'object';
-}
-
-function getMessages(requestBody: UnknownRecord): UnknownRecord[] {
-    const messages = requestBody.messages;
-    return Array.isArray(messages) ? messages.filter(isRecord) : [];
-}
-
-function contentToText(content: unknown): string {
-    if (content === null || content === undefined) return '';
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-        return content
-            .map(item => {
-                if (typeof item === 'string') return item;
-                if (isRecord(item)) {
-                    if (typeof item.text === 'string') return item.text;
-                    if (typeof item.content === 'string') return item.content;
-                }
-                return JSON.stringify(item);
-            })
-            .join('\n');
-    }
-    if (typeof content === 'object') return JSON.stringify(content);
-    return String(content);
-}
-
-function extractPartsText(parts: unknown): string {
-    if (!Array.isArray(parts)) return '';
-    return parts
-        .filter(isRecord)
-        .map(part => part.text)
-        .filter((text): text is string => typeof text === 'string' && text.length > 0)
-        .join('\n');
-}
-
 export function getProtocolPrefix(provider: string, model?: string): string {
     const definition = getProviderDefinition(provider);
     if (model && typeof definition?.resolveProtocolPrefix === 'function') {
@@ -79,111 +37,4 @@ export const ENDPOINT_TYPE = {
     OPENAI_MODEL_LIST: 'openai_model_list',
 };
 
-export const FETCH_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'fetch_system_prompt.txt');
-export const INPUT_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'input_system_prompt.txt');
-
 export const DEFAULT_REQUEST_BODY_MAX_BYTES = 10 * 1024 * 1024;
-
-/**
- * 从请求体中提取系统提示词。
- * @param {Object} requestBody - 请求体对象。
- * @param {string} provider - 提供商类型（'openai', 'gemini', 'claude'）。
- * @returns {string} 提取到的系统提示词字符串。
- */
-export function extractSystemPromptFromRequestBody(requestBody: UnknownRecord, provider: string): string {
-    let incomingSystemText = '';
-    switch (provider) {
-        case MODEL_PROTOCOL_PREFIX.OPENAI: {
-            const messages = getMessages(requestBody);
-            const openaiSystemMessage = messages.find(m => m.role === 'system' || m.role === 'developer');
-            if (openaiSystemMessage?.content) {
-                incomingSystemText = contentToText(openaiSystemMessage.content);
-            } else if (messages.length > 0) {
-                // Fallback to first user message if no system message
-                const userMessage = messages.find(m => m.role === 'user');
-                if (userMessage) {
-                    incomingSystemText = contentToText(userMessage.content);
-                }
-            }
-            break;
-        }
-        case MODEL_PROTOCOL_PREFIX.GEMINI: {
-            const systemInstruction = isRecord(requestBody.system_instruction)
-                ? requestBody.system_instruction
-                : isRecord(requestBody.systemInstruction)
-                    ? requestBody.systemInstruction
-                    : null;
-            if (systemInstruction && Array.isArray(systemInstruction.parts)) {
-                incomingSystemText = extractPartsText(systemInstruction.parts);
-            } else {
-                const contents = Array.isArray(requestBody.contents) ? requestBody.contents.filter(isRecord) : [];
-                // Fallback to first user content if no system instruction
-                const userContent = contents[0];
-                if (userContent?.parts) {
-                    incomingSystemText = extractPartsText(userContent.parts);
-                }
-            }
-            break;
-        }
-        case MODEL_PROTOCOL_PREFIX.CLAUDE: {
-            if (typeof requestBody.system === 'string') {
-                incomingSystemText = requestBody.system;
-            } else if (typeof requestBody.system === 'object' && requestBody.system !== null) {
-                incomingSystemText = JSON.stringify(requestBody.system);
-            } else {
-                const messages = getMessages(requestBody);
-                // Fallback to first user message if no system property
-                const userMessage = messages.find(m => m.role === 'user');
-                if (userMessage) {
-                    if (Array.isArray(userMessage.content)) {
-                        incomingSystemText = userMessage.content
-                            .map(block => isRecord(block) && typeof block.text === 'string' ? block.text : '')
-                            .join('');
-                    } else {
-                        incomingSystemText = contentToText(userMessage.content);
-                    }
-                }
-            }
-            break;
-        }
-        case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES: {
-            if (typeof requestBody.instructions === 'string') {
-                incomingSystemText = requestBody.instructions;
-            } else if (requestBody.instructions) {
-                incomingSystemText = JSON.stringify(requestBody.instructions);
-            } else if (Array.isArray(requestBody.input)) {
-                const input = requestBody.input.filter(isRecord);
-                const responsesSystemItem = input.find(item =>
-                    item.role === 'system' ||
-                    item.role === 'developer' ||
-                    item.type === 'system' ||
-                    item.type === 'developer' ||
-                    (item.type === 'message' && (item.role === 'system' || item.role === 'developer'))
-                );
-
-                const content = responsesSystemItem?.content;
-                if (typeof content === 'string') {
-                    incomingSystemText = content;
-                } else if (Array.isArray(content)) {
-                    incomingSystemText = content
-                        .map(part => {
-                            if (typeof part === 'string') return part;
-                            if (isRecord(part)) {
-                                if (typeof part.text === 'string') return part.text;
-                                if (typeof part.content === 'string') return part.content;
-                            }
-                            return JSON.stringify(part);
-                        })
-                        .join('\n');
-                } else if (content) {
-                    incomingSystemText = JSON.stringify(content);
-                }
-            }
-            break;
-        }
-        default:
-            logger.warn(`[System Prompt] Unknown provider: ${provider}`);
-            break;
-    }
-    return incomingSystemText;
-}

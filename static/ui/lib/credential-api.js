@@ -82,18 +82,3 @@ export async function requestWithCredential(url, credential, options = {}) {
     }
     return payload;
 }
-
-/**
- * 便捷封装：GET 并返回 payload.data（插件页的通用形状）。
- * @param {string} url
- * @param {string} credential
- * @param {CredentialRequestOptions} [options]
- * @returns {Promise<any>}
- */
-export async function getDataWithCredential(url, credential, options = {}) {
-    const payload = await requestWithCredential(url, credential, options);
-    if (payload && payload.success === false) {
-        throw new Error(payload.error?.message || '请求失败');
-    }
-    return payload?.data ?? payload;
-}

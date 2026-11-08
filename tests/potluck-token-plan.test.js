@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from '@jest/globals';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -511,5 +511,67 @@ describe('网关管线集成回归：预扣回收、上游报错退还与错误�
         const after = await km.getKey(key.id);
         expect(after.plan.tokenReserved).toBe(0);
         expect(after.plan.tokenUsed).toBe(0);
+    });
+
+    test('流式请求已先写出 200 响应头、收到 metadata 帧后中途报错（_requestFailed=true）时全额退还预扣且不记成功次数', async () => {
+        const km = await freshKeyManager();
+        const plugin = (await import('../src/plugins/api-potluck/index.js')).default;
+        const key = await km.createKey('stream-200-then-fail', 999999);
+        await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
+
+        const res = createMockRes();
+        const config = { MODEL_PROVIDER: 'openai-custom' };
+        const auth = await plugin.authenticate(
+            { method: 'POST', url: '/v1/chat/completions', headers: { authorization: `Bearer ${key.id}` } },
+            res,
+            new URL('http://localhost/v1/chat/completions'),
+            config
+        );
+        Object.assign(config, auth.data);
+
+        // 模拟真实流式管线：进入 handleStreamRequest 时已先写出 200 响应头，且收到过 metadata 帧
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        await plugin.hooks.onStreamChunk({
+            requestId: 'req-stream-200-err',
+            nativeChunk: { id: 'chunk_meta' },
+            chunkToSend: { id: 'chunk_meta' }
+        });
+
+        // 随后上游流失败或空响应重试耗尽，管线写出 SSE error 帧并标记 _requestFailed = true（res.statusCode 仍为 200）
+        config._requestFailed = true;
+        res.end('data: {"error":{"message":"upstream failed"}}\n\n');
+
+        await plugin.hooks.onContentGenerated({
+            _monitorRequestId: 'req-stream-200-err',
+            toProvider: 'openai-custom',
+            model: 'gpt-test',
+            ...config
+        });
+
+        const after = await km.getKey(key.id);
+        expect(res.statusCode).toBe(200);
+        expect(after.plan.tokenReserved).toBe(0);
+        expect(after.plan.tokenUsed).toBe(0);
+        expect(after.todayUsage).toBe(0);
+    });
+
+    test('并发预扣写盘期间产生的新变更通过 mutationVersion 轮询完整持久化到磁盘，不漏写最后一批预扣', async () => {
+        const km = await freshKeyManager();
+        const key = await km.createKey('persist-race', 999999);
+        await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
+
+        // 连续并发触发多次 reserveTokens，第一笔写盘尚未完成时后续调用已修改 keyStore 并 markDirty
+        await Promise.all([
+            km.reserveTokens(key.id, 1000),
+            km.reserveTokens(key.id, 2000),
+            km.reserveTokens(key.id, 3000),
+            km.reserveTokens(key.id, 4000)
+        ]);
+
+        // 直接读取磁盘上的 JSON 文件，验证最后一次修改也已被立即持久化（而非因 isWriting 提前返回并被抹掉 isDirty）
+        const diskPath = path.join(sandbox, 'configs', 'api-potluck-keys.json');
+        const onDisk = JSON.parse(readFileSync(diskPath, 'utf8'));
+        expect(onDisk.keys[key.id].plan.tokenReserved).toBe(10000);
+        expect(onDisk.keys[key.id].plan.todayTokenUsed).toBe(10000);
     });
 });
