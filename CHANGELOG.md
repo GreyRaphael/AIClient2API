@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.6.0] - 2026-11-08
+
+清理死代码与冗余并发锁，净删 791 行。**无破坏性变更、无配置迁移**。
+
+### Changed
+
+- **移除号池选点的冗余互斥锁**（`_selectionLocks` / `_isSelecting`）。
+  被包裹的 `selector.select()` 是纯同步函数（内部无任何 `async`/`await`），
+  Node 单线程下「检查 + 更新」本身即原子，原锁里的 `await setImmediate` 轮询
+  只会让每个并发请求多等一帧事件循环。40 并发混合请求实测 **40/40 成功、4.9s**。
+- 删除无调用方的 `roundRobinIndex` / `findProviderByUuid` /
+  `isAllProvidersUnhealthy` / `getProviderStats` 及两个透传方法。
+- 删除 `src/ui-modules/system-monitor.ts`。
+- `config.json.example` 移除 `providerFallbackChain` / `modelFallbackMapping`
+  （引用的是 v8.0.0 已移除的 `claude-kiro-oauth`）与 `SYSTEM_PROMPT_*`
+  （源码已无引用），新部署不再复制死配置。
+
+### Fixed
+
+- `request-pipeline` 错误负载用显式结构替代 `Record<string, any>`，
+  上游透传部分用 `unknown`；`api-manager` 的 `(p: any)` 改为 `(p: ProviderStatus)`。
+  两处使 `check:any` 棘轮门禁恢复绿（234 annotations，回到基线）。
+
+### Verification
+
+- 单元测试 **90 suites / 949 tests** 全绿
+- 13 项门禁全部通过：typecheck / typecheck:plugins / typecheck:webui /
+  check:strict / check:any / check:imports / check:cycles / lint:css /
+  metrics:types / gen:webui-html:check / vendor:webui:check /
+  test:coverage / check:coverage / test:runtime
+- 全量 E2E **33/33**（8 个模型 × 11 项核心跨协议矩阵），exit 0
+- 类型债务：`DynamicPayload` 引用 **1549 → 1326（−14%）**
+
+## [v8.5.0] - 2026-11-07
+
+按 token 售卖套餐。采用**预扣 + 结算**防止并发超卖
+（旧实现「请求前检查、请求后记账」，超卖上界 ≈ 并发数 × 单请求 token 上限）。
+
+### Added
+
+- 套餐目录：**1 / 2 / 5 / 10 亿 token** × 周期 **一周 / 一个月**（一个月按日历月顺延，
+  1 月 31 日 + 1 月正确落到 2 月末）
+- `reserveTokens()` / `settleTokens()`：转发前原子预扣，结算按真实 usage 多退少补
+- 每日 token 速率保护（`dailyTokenCap`）、续期不损失剩余天数
+- 管理 API：`GET /api/potluck/plans`、`POST /api/potluck/keys/plan`（设置/续期/移除）
+
+### Fixed
+
+- 非生成类请求（`GET /v1/models`、`count_tokens`）不再预扣，避免额度永久泄漏
+- 上游失败 / 前置校验失败 / 客户端断连时全额退还预扣
+- 流式首帧缓冲后失败（如 502）也正确退还，不再按"防白嫖"误扣
+- 无 usage 时按预扣值计费，防止构造空响应白嫖
+
+## [v8.4.0] - 2026-11-07
+
+### Fixed
+
+- 客户端请求错误改返回 **4xx**：不存在的模型 500→400、缺 `messages` 502→400
+  且耗时从「烧掉 5 次上游重试」降到 **13 ms**
+- `mergeUsage` 在多字段缺失时产生 `NaN`，导致 potluck 缓存命中统计恒为 0
+
+### Added
+
+- 统计页支持**按日 / 按模型**查看，日历可点击切换日期，新增历史累计按钮
+- 表格新增**缓存命中率**列；`daily[date]` 增加 `models` 子维度并兼容旧数据
+
+## [v8.3.0] - 2026-11-07
+
+### Changed
+
+- 解耦 `maxSockets` 与会话亲和：实测单 socket **无缓存收益**
+  （trace 复用真实发生下 97.23% vs 97.23%），同会话并发快 **3.26 倍**；
+  保留 `keepAlive: true` / `maxFreeSockets: 1`
+- 移除无收益的会话→节点粘滞表，负载均衡 49.7/50.3 → **50.0/50.0**
+
+### Fixed
+
+- 连接池驱逐不再掐断在途流（仅空闲时销毁，容量 100→256 + 真 LRU）
+- 按可达性决定是否强制 `proxy:false`（codex 的 `chatgpt.com` 只能经代理访问）
+- `invalidateKeepAliveAgents` 支持 uuid 前缀失效
+- `usage-normalizer` 混合形状重复计数与伪造 `total_tokens`
+
 ## [v8.2.0] - 2026-11-06
 
 多轮 KV Cache 稳定性与前缀缓存命中率全面提升。**无破坏性变更、无配置迁移、公开 API 零改动**。
