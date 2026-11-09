@@ -1,5 +1,5 @@
 import { MODEL_PROTOCOL_PREFIX } from './constants.ts';
-import { ProviderStrategy } from './provider-strategy-base.ts';
+import type { ProviderStrategy } from './provider-strategy-base.ts';
 import { GeminiStrategy } from '../providers/gemini/gemini-strategy.ts';
 import { OpenAIStrategy } from '../providers/openai/openai-strategy.ts';
 import { ClaudeStrategy } from '../providers/claude/claude-strategy.ts';

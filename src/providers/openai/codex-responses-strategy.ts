@@ -1,4 +1,4 @@
-import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
+import type { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -6,7 +6,7 @@ import type { DynamicPayload } from '../../../types/dynamic-payload.js';
  * OpenAI Responses API strategy implementation.
  * Migrated from Chat Completions API to Responses API.
  */
-class CodexResponsesAPIStrategy extends ProviderStrategy {
+class CodexResponsesAPIStrategy implements ProviderStrategy {
     extractModelAndStreamInfo(req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;

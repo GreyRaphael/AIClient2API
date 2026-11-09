@@ -1,11 +1,11 @@
-import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
+import type { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
  * Claude provider strategy implementation.
  */
-class ClaudeStrategy extends ProviderStrategy {
+class ClaudeStrategy implements ProviderStrategy {
     extractModelAndStreamInfo(req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;

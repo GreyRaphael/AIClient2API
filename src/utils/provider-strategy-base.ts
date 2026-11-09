@@ -1,35 +1,31 @@
-
 type UnknownRecord = Record<string, unknown>;
 
 /**
- * Abstract provider strategy class, defining the interface for handling different model providers.
+ * Provider strategy 契约。
+ *
+ * 这里是 **interface** 而不是抛异常的抽象类：抽象类的 throw 是运行时错误，
+ * 某个 strategy 忘记实现某个方法时，只有在真实请求走到那条路径时才会炸。
+ * 改成 interface 后，缺实现会直接变成 `tsc` 编译错误。
+ *
+ * 实现约束：这些类只承载纯函数（输入 → 输出），**不得**持有实例字段或可变状态。
+ * provider-strategy-factory 按协议维护单例复用（流式响应每个 chunk 都取一次策略，
+ * 每次 new 会造成大量短命对象），有状态就会跨请求串话。
  */
-export class ProviderStrategy {
+export interface ProviderStrategy {
     /**
-     * Extracts model and stream information.
-     * @param {object} req - HTTP request object.
-     * @param {object} requestBody - Parsed request body.
-     * @returns {{model: string, isStream: boolean}} Object containing model name and stream status.
+     * 从请求中提取模型名与是否流式。
+     * @param req HTTP 请求对象（部分协议需要读 header）
+     * @param requestBody 已解析的请求体
      */
-    extractModelAndStreamInfo(req: unknown, requestBody: UnknownRecord): { model: string; isStream: boolean } {
-        throw new Error("Method 'extractModelAndStreamInfo()' must be implemented.");
-    }
+    extractModelAndStreamInfo(req: unknown, requestBody: UnknownRecord): { model: string; isStream: boolean };
 
     /**
-     * Extracts text content from the response.
-     * @param {object} response - API response object.
-     * @returns {string} Extracted text content.
+     * 从响应（或流式 chunk）中提取文本内容。
      */
-    extractResponseText(response: unknown): string {
-        throw new Error("Method 'extractResponseText()' must be implemented.");
-    }
+    extractResponseText(response: UnknownRecord): string;
 
     /**
-     * Extracts prompt text from the request body.
-     * @param {object} requestBody - Request body object.
-     * @returns {string} Extracted prompt text.
+     * 从请求体中提取提示词文本（用于日志 / token 估算）。
      */
-    extractPromptText(requestBody: UnknownRecord): string {
-        throw new Error("Method 'extractPromptText()' must be implemented.");
-    }
+    extractPromptText(requestBody: UnknownRecord): string;
 }

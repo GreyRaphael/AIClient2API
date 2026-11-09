@@ -1,11 +1,11 @@
-import { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
+import type { ProviderStrategy } from '../../utils/provider-strategy-base.ts';
 
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
  * OpenAI provider strategy implementation.
  */
-class OpenAIStrategy extends ProviderStrategy {
+class OpenAIStrategy implements ProviderStrategy {
     extractModelAndStreamInfo(req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
