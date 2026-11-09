@@ -1692,7 +1692,7 @@ export class TraeApiService {
         // 不可枚举属性不会被展开，必须先读出来
         const downstreamProtocol = readDownstreamProtocol(requestBody);
         const payload: DynamicPayload = { ...(requestBody || {}) };
-        // 清理管道注入的可枚举内部标记（_monitorRequestId / _requestBaseUrl 等）。
+        // 清理管道注入的可枚举内部标记（_monitorRequestId 等）。
         // 这些字段仅供 Provider 内部使用，不应发给上游；其余 Provider 均已显式删除
         // （见 openai-core / claude-core / codex-core），trae 此前遗漏。
         // 语义相关的 _rawThinkingEffort 等在下方直接从 requestBody 读取，不受影响。

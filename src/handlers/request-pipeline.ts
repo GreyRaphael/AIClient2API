@@ -63,8 +63,8 @@ export type PipelineError = DynamicPayload & {
 };
 
 type EmptyRetryOutcome =
-    | { retry: false; budgetExhausted?: boolean }
-    | { retry: true; result: DynamicPayload | null; emptyResponseRetry: number };
+    | { retry: false; budgetExhausted?: boolean; result?: undefined; emptyResponseRetry?: undefined }
+    | { retry: true; result: DynamicPayload | null; emptyResponseRetry: number; budgetExhausted?: boolean };
 function getCustomModelEntriesForProvider(
     config: DynamicPayload | null | undefined,
     providerType: string | null = null,
@@ -1119,7 +1119,13 @@ export async function handleStreamRequest(
             }
 
             CONFIG._requestFailed = true;
-            const giveUpError = new Error(`${toProvider} upstream returned an empty response after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request. Please try again, or /clear your session if this keeps happening.`);
+            // budgetExhausted 区分「重试次数用完」与「墙钟预算用完」两种情况：
+            // 之前两条路径给出完全相同的错误文案，EMPTY_RESPONSE_MAX_TOTAL_MS
+            // 这个配置项（CLI flag + UI 字段）实际上没有任何可观测效果。
+            const giveUpReason = outcome.budgetExhausted
+                ? `exhausted the ${Number(CONFIG.EMPTY_RESPONSE_MAX_TOTAL_MS)}ms retry budget`
+                : `after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request`;
+            const giveUpError = new Error(`${toProvider} upstream returned an empty response ${giveUpReason}. Please try again, or /clear your session if this keeps happening.`);
             giveUpError.status = 502;
             const errorPayload = createStreamErrorResponse(giveUpError, fromProvider);
             if (!clientDisconnected.value && !res.writableEnded) {
@@ -1409,7 +1415,11 @@ export async function handleUnaryRequest(
             }
 
             CONFIG._requestFailed = true;
-            const giveUpError = new Error(`${toProvider} upstream returned an empty response after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request. Please try again, or /clear your session if this keeps happening.`);
+            // 与流式路径保持一致：区分「次数用完」与「墙钟预算用完」
+            const unaryGiveUpReason = outcome.budgetExhausted
+                ? `exhausted the ${Number(CONFIG.EMPTY_RESPONSE_MAX_TOTAL_MS)}ms retry budget`
+                : `after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request`;
+            const giveUpError = new Error(`${toProvider} upstream returned an empty response ${unaryGiveUpReason}. Please try again, or /clear your session if this keeps happening.`);
             giveUpError.status = 502;
             const errorResponse = createErrorResponse(giveUpError, fromProvider);
             await handleUnifiedResponse(res, JSON.stringify(errorResponse), false, 502);
@@ -1824,11 +1834,6 @@ export async function handleContentGenerationRequest(
         if (CONFIG._monitorRequestId) {
             processedRequestBody._monitorRequestId = CONFIG._monitorRequestId;
         }
-        
-        // 将 requestBaseUrl 注入到 requestBody 中，以便在转换器中使用
-        if (CONFIG.requestBaseUrl) {
-            processedRequestBody._requestBaseUrl = CONFIG.requestBaseUrl;
-        }
 
         // 注入客户端会话亲和性标识（用于上游 Session Affinity / KV Cache 亲和性）
         if (downstreamSessionId) {
@@ -1854,7 +1859,7 @@ export async function handleContentGenerationRequest(
             const preConvertBody = processedRequestBody;
             processedRequestBody = convertData(preConvertBody, 'request', fromProvider, toProvider, model, conversationRequestId) as DynamicPayload;
 
-            // 保持以 _ 开头的内部属性（如 _monitorRequestId, _requestBaseUrl）
+            // 保持以 _ 开头的内部属性（如 _monitorRequestId）
             Object.keys(preConvertBody).forEach(key => {
                 if (key.startsWith('_') && processedRequestBody[key] === undefined) {
                     processedRequestBody[key] = preConvertBody[key];
@@ -2374,9 +2379,30 @@ export function createErrorResponse(error: PipelineError, fromProvider: string |
  * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {string} 格式化的流式错误响应字符串
  */
+/**
+ * 从 error 上解析 HTTP 状态码（单一真源）。
+ *
+ * 之前流式路径只读 `status || code`，而一元路径读 `response.status || statusCode
+ * || status || code`，导致同一个错误在 SSE 里变成 500 server_error、在一元里
+ * 正确呈现为 4xx（例如 413 请求体过大、无健康节点 503、参数校验 400）。
+ */
+export function resolveErrorStatusCode(error: PipelineError): number {
+    const raw = error?.response?.status
+        || error?.statusCode
+        || error?.status
+        || error?.code
+        || 500;
+    let resolved = ensureValidStatusCode(raw);
+    // 与一元路径保持一致：标记为客户端错误的，不要以 5xx 呈现
+    if (error?.clientError && resolved >= 500) {
+        resolved = 400;
+    }
+    return resolved;
+}
+
 function createStreamErrorResponse(error: PipelineError, fromProvider: string | null): string {
     const protocolPrefix = getProtocolPrefix(fromProvider || '');
-    const rawStatusCode = (error as PipelineError).status || (error as PipelineError).code || 500;
+    const rawStatusCode = resolveErrorStatusCode(error);
     const statusCode = ensureValidStatusCode(rawStatusCode);
     const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during streaming.");
     

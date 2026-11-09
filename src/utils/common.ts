@@ -612,7 +612,15 @@ export function isAuthorized(req: http.IncomingMessage, requestUrl: URL, REQUIRE
         return true;
     }
 
-    logger.info(`[Auth] Unauthorized request denied. Bearer: "${authHeader ? 'present' : 'N/A'}", Query Key: "${queryKey}", x-goog-api-key: "${googApiKey}", x-api-key: "${claudeApiKey}"`);
+    // 只记录「是否存在」，绝不把候选密钥写进日志：认证失败的请求恰恰最可能
+    // 携带攻击者提供的值，原样落盘等于把对方输入的密钥写进日志文件。
+    logger.info(
+        '[Auth] Unauthorized request denied. '
+        + `Bearer: ${authHeader ? 'present' : 'absent'}, `
+        + `query key: ${queryKey ? 'present' : 'absent'}, `
+        + `x-goog-api-key: ${googApiKey ? 'present' : 'absent'}, `
+        + `x-api-key: ${claudeApiKey ? 'present' : 'absent'}`
+    );
     return false;
 }
 

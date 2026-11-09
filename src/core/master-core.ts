@@ -344,11 +344,10 @@ function handleWorkerMessage(message: DynamicPayload): void {
             logger.info('[Master] Worker requested restart');
             restartWorker();
             break;
-        case 'status':
-            logger.info('[Master] Worker status:', message.data);
-            break;
         default:
-            logger.info('[Master] Unknown message type:', message.type);
+            // 未知消息类型此前只 info 一行，拼写错误会让 IPC 指令静默失效
+            // （例如 UI 重启请求）。改为 warn 以便暴露问题。
+            logger.warn('[Master] Unknown message type from worker:', message.type);
     }
 }
 

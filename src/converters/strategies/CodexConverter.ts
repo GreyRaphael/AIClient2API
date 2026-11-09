@@ -309,9 +309,6 @@ export class CodexConverter extends BaseConverter {
         if (responsesRequest._monitorRequestId) {
             codexRequest._monitorRequestId = responsesRequest._monitorRequestId;
         }
-        if (responsesRequest._requestBaseUrl) {
-            codexRequest._requestBaseUrl = responsesRequest._requestBaseUrl;
-        }
 
         // 处理 input 字段，如果它是字符串，则转换为消息数组
         if (codexRequest.input && typeof codexRequest.input === 'string') {
@@ -420,9 +417,6 @@ export class CodexConverter extends BaseConverter {
         // 保留监控和图片相关字段
         if (data._monitorRequestId) {
             codexRequest._monitorRequestId = data._monitorRequestId;
-        }
-        if (data._requestBaseUrl) {
-            codexRequest._requestBaseUrl = data._requestBaseUrl;
         }
         if (data._imageSize) {
             codexRequest._imageSize = data._imageSize;
@@ -783,16 +777,23 @@ export class CodexConverter extends BaseConverter {
             const originalName = func.name;
             const shortName = toolNameMap.get(originalName) || this.shortenToolName(originalName);
 
+            // 注意：parameters 可能直接引用调用方的 schema 对象，delete 会污染入参
+            // （重试时会拿已被改过的 body 再转一次）。这里浅拷贝顶层再清理。
+            const sourceParameters = func.parameters || func.input_schema || { type: 'object', properties: {} };
+            const parameters = (sourceParameters && typeof sourceParameters === 'object' && !Array.isArray(sourceParameters))
+                ? { ...sourceParameters }
+                : sourceParameters;
+
             const result = {
                 type: 'function',
                 name: shortName,
                 description: func.description,
-                parameters: func.parameters || func.input_schema || { type: 'object', properties: {} },
+                parameters,
                 strict: func.strict !== undefined ? func.strict : false
             };
 
-            // 清理参数
-            if (result.parameters && result.parameters.$schema) {
+            // 清理参数（$schema 不被上游接受）
+            if (result.parameters && typeof result.parameters === 'object' && result.parameters.$schema) {
                 delete result.parameters.$schema;
             }
 

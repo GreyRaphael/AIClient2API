@@ -612,9 +612,6 @@ export class OpenAIApiService {
             this.config._monitorRequestId = requestBody._monitorRequestId;
             delete requestBody._monitorRequestId;
         }
-        if (requestBody._requestBaseUrl) {
-            delete requestBody._requestBaseUrl;
-        }
 
         return this.callApi('/chat/completions', requestBody);
     }
@@ -624,9 +621,6 @@ export class OpenAIApiService {
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
             delete requestBody._monitorRequestId;
-        }
-        if (requestBody._requestBaseUrl) {
-            delete requestBody._requestBaseUrl;
         }
 
         yield* this.streamApi('/chat/completions', requestBody);

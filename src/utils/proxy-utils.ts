@@ -265,7 +265,7 @@ function destroyAgentWhenIdle(agentPair: { httpAgent: Agent; httpsAgent: Agent }
 
 /**
  * 剥离网关注入的内部字段（以 `_` 开头，如 `_downstreamSessionId` / `_monitorRequestId` /
- * `_requestBaseUrl` / `_rawThinkingEffort`），避免它们被发往上游触发
+ * `_monitorRequestId` / `_rawThinkingEffort`），避免它们被发往上游触发
  * `Unsupported parameter` / `Unknown name` 一类 400。
  *
  * 历史上这段逻辑在 6 个 provider 里各写了一遍（`delete` 版和 `!startsWith` 白名单版混用），

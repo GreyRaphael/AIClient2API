@@ -437,10 +437,13 @@ export class ClaudeConverter extends BaseConverter {
             } else {
                 const envMaxTokens = process.env.OPENAI_REASONING_MAX_TOKENS;
                 if (envMaxTokens) {
-                    try {
-                        maxCompletionTokens = parseInt(envMaxTokens, 10);
-                    } catch {
-                        logger.warn(`Invalid OPENAI_REASONING_MAX_TOKENS value '${envMaxTokens}'`);
+                    // parseInt 永不抛错（非法输入返回 NaN），原来的 try/catch 是死代码：
+                    // 非法值会把 NaN 一路写进 max_completion_tokens 发给上游。
+                    const parsed = Number.parseInt(envMaxTokens, 10);
+                    if (Number.isFinite(parsed) && parsed > 0) {
+                        maxCompletionTokens = parsed;
+                    } else {
+                        logger.warn(`Invalid OPENAI_REASONING_MAX_TOKENS value '${envMaxTokens}': expected a positive integer`);
                     }
                 }
                 if (!envMaxTokens) {
@@ -2338,19 +2341,17 @@ export class ClaudeConverter extends BaseConverter {
             include: ['reasoning.encrypted_content']
         };
 
-        // 处理系统指令
+        // 处理系统指令。
+        // Anthropic 允许 system 为「字符串」或「单个 block 对象」或「block 数组」；
+        // Codex 的 instructions 是纯字符串。这里统一走 _normalizeClaudeSystem，
+        // 否则单 block 对象会被整体赋给字符串字段（上游收到 {"type":"text",...}）。
         if (claudeRequest.system) {
-            let instructions = '';
             if (Array.isArray(claudeRequest.system)) {
                 claudeRequest.system.forEach((s: DynamicPayload) => logOmittedCacheControl('Claude->Codex system', s));
-                instructions = claudeRequest.system.map((s: DynamicPayload | string) => typeof s === 'string' ? s : s.text).join('\n');
             } else if (typeof claudeRequest.system === 'object') {
                 logOmittedCacheControl('Claude->Codex system', claudeRequest.system);
-                instructions = claudeRequest.system;
-            } else {
-                instructions = claudeRequest.system;
             }
-            codexRequest.instructions = instructions;
+            codexRequest.instructions = this._normalizeClaudeSystem(claudeRequest.system);
         }
 
         // 处理工具并构建短名称映射

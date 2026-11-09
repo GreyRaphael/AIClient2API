@@ -10,45 +10,7 @@
  */
 
 import logger from '../../utils/logger.ts';
-
-/**
- * 检查请求是否已授权
- * @param {import('node:http').IncomingMessage} req - HTTP 请求
- * @param {URL} requestUrl - 解析后的 URL
- * @param {string} requiredApiKey - 所需的 API Key
- * @returns {boolean}
- */
-function isAuthorized(req, requestUrl, requiredApiKey) {
-    const authHeader = req.headers['authorization'];
-    const queryKey = requestUrl.searchParams.get('key');
-    const googApiKey = req.headers['x-goog-api-key'];
-    const claudeApiKey = req.headers['x-api-key'];
-
-    // Check for Bearer token in Authorization header (OpenAI style)
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        if (token === requiredApiKey) {
-            return true;
-        }
-    }
-
-    // Check for API key in URL query parameter (Gemini style)
-    if (queryKey === requiredApiKey) {
-        return true;
-    }
-
-    // Check for API key in x-goog-api-key header (Gemini style)
-    if (googApiKey === requiredApiKey) {
-        return true;
-    }
-
-    // Check for API key in x-api-key header (Claude style)
-    if (claudeApiKey === requiredApiKey) {
-        return true;
-    }
-
-    return false;
-}
+import { isAuthorized } from '../../utils/common.ts';
 
 /**
  * 默认认证插件定义

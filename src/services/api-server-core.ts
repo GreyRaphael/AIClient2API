@@ -115,18 +115,8 @@ function setupWorkerCommunication() {
                 logger.info('[Worker] Shutdown requested by master');
                 gracefulShutdown();
                 break;
-            case 'status':
-                sendToMaster({
-                    type: 'status',
-                    data: {
-                        pid: process.pid,
-                        uptime: process.uptime(),
-                        memoryUsage: process.memoryUsage()
-                    }
-                });
-                break;
             default:
-                logger.info('[Worker] Unknown message type:', message.type);
+                logger.warn('[Worker] Unknown message type from master:', message.type);
         }
     });
 
