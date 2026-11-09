@@ -11,6 +11,7 @@ import { CONFIG } from '../core/config-manager.ts';
 import { getZedVersionFromSystem, exchangeZedToken } from '../providers/zed/zed-core.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { sanitizeCredentialFilenamePart } from './oauth-shared.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 const ZED_OAUTH_CONFIG = {
@@ -43,13 +44,8 @@ interface ZedSession {
 const activeSessions = new Map<string, ZedSession>();
 
 function sanitizeFilenamePart(value: unknown): string {
-    const sanitized = String(value || 'default')
-        .trim()
-        .replace(/[^a-zA-Z0-9@._+-]/g, '_')
-        .replace(/_+/g, '_')
-        .slice(0, 120);
-
-    return sanitized || 'default';
+    // 唯一实现在 oauth-shared
+    return sanitizeCredentialFilenamePart(value);
 }
 
 /**

@@ -1,7 +1,10 @@
 import {
     generateOAuthResponsePage,
     escapeHtml,
-    closeActiveServer
+    closeActiveServer,
+    sanitizeCredentialFilenamePart,
+    decodeJwtPayload,
+    computeTokenExpiryIso
 } from '../src/auth/oauth-shared.ts';
 
 describe('oauth-shared', () => {
@@ -62,5 +65,43 @@ describe('oauth-shared', () => {
     test('tolerates a missing provider', async () => {
         const servers = new Map();
         await expect(closeActiveServer('missing', null, servers)).resolves.toBeUndefined();
+    });
+});
+
+describe('shared OAuth helpers', () => {
+    test('sanitizeCredentialFilenamePart 只保留安全字符', () => {
+        expect(sanitizeCredentialFilenamePart('user@example.com')).toBe('user@example.com');
+        expect(sanitizeCredentialFilenamePart('../../etc/passwd')).toBe('.._.._etc_passwd');
+        expect(sanitizeCredentialFilenamePart('a b\\c/d')).toBe('a_b_c_d');
+        expect(sanitizeCredentialFilenamePart('')).toBe('default');
+        expect(sanitizeCredentialFilenamePart(null)).toBe('default');
+    });
+
+    test('sanitizeCredentialFilenamePart 压缩连续下划线并截断到 120 字符', () => {
+        expect(sanitizeCredentialFilenamePart('a___b')).toBe('a_b');
+        expect(sanitizeCredentialFilenamePart('x'.repeat(200)).length).toBe(120);
+    });
+
+    test('decodeJwtPayload 解析 base64url payload，非法输入返回 null', () => {
+        const payload = { user_id: 'u1', email: 'a@b.com' };
+        const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+        const token = `header.${encoded}.signature`;
+
+        expect(decodeJwtPayload(token)).toEqual(payload);
+        expect(decodeJwtPayload('not-a-jwt')).toBeNull();
+        expect(decodeJwtPayload('')).toBeNull();
+        expect(decodeJwtPayload(null)).toBeNull();
+        expect(decodeJwtPayload('a.!!!invalid!!!.c')).toBeNull();
+    });
+
+    test('computeTokenExpiryIso 依据 expires_in 计算，非法值回退默认', () => {
+        const now = Date.now();
+        const inHour = new Date(computeTokenExpiryIso(3600)).getTime();
+        expect(inHour - now).toBeGreaterThan(3590 * 1000);
+        expect(inHour - now).toBeLessThan(3610 * 1000);
+
+        // 非法/缺失回退到默认 3600 秒
+        const fallback = new Date(computeTokenExpiryIso('garbage')).getTime();
+        expect(fallback - now).toBeGreaterThan(3590 * 1000);
     });
 });

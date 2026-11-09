@@ -8,11 +8,35 @@ import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
-import { closeActiveServer as closeSharedActiveServer, escapeHtml } from './oauth-shared.ts';
+import {
+    closeActiveServer as closeSharedActiveServer,
+    escapeHtml,
+    sanitizeCredentialFilenamePart
+} from './oauth-shared.ts';
 import type { ActiveServerInfo } from './oauth-shared.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider, defaultHttpAgent, defaultHttpsAgent } from '../utils/proxy-utils.ts';
 import { getErrorMessage } from '../utils/error.ts';
+
+/**
+ * 回调服务器的监听窗口（毫秒）。
+ * 用户需要在浏览器里完成授权，给足 10 分钟。
+ */
+const OAUTH_CALLBACK_WINDOW_MS = 10 * 60 * 1000;
+
+/** 会话轮询间隔（毫秒）。 */
+const OAUTH_POLL_INTERVAL_MS = 3000;
+
+/**
+ * 轮询次数上限。
+ *
+ * **必须由 OAUTH_CALLBACK_WINDOW_MS 推导**，不能各自写死：曾经这里是
+ * `100 * 3000ms = 300s`（5 分钟），而回调服务器给了 10 分钟。于是用户在第 6–9 分钟
+ * 完成授权时，服务器还开着、会正常回调，但会话已被清理，
+ * handleCodexOAuthCallback 会抛 "Invalid or expired OAuth session" —— 用户看到成功页
+ * 却拿到错误。
+ */
+const OAUTH_MAX_POLL_COUNT = Math.ceil(OAUTH_CALLBACK_WINDOW_MS / OAUTH_POLL_INTERVAL_MS);
 
 interface CodexAuthConfig {
     CODEX_OAUTH_CREDS_FILE_PATH?: string;
@@ -153,13 +177,8 @@ function closeActiveServer(provider: string, port: number | null = null): Promis
 }
 
 function sanitizeCodexCredentialFilenamePart(value: unknown): string {
-    const sanitized = String(value || 'default')
-        .trim()
-        .replace(/[^a-zA-Z0-9@._+-]/g, '_')
-        .replace(/_+/g, '_')
-        .slice(0, 120);
-
-    return sanitized || 'default';
+    // 唯一实现在 oauth-shared，三个 OAuth 实现原本各复制了一份
+    return sanitizeCredentialFilenamePart(value);
 }
 
 /**
@@ -467,8 +486,8 @@ export class CodexAuth {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 server.close();
-                reject(new Error('Authentication timeout (10 minutes)'));
-            }, 10 * 60 * 1000); // 10 分钟
+                reject(new Error(`Authentication timeout (${Math.round(OAUTH_CALLBACK_WINDOW_MS / 60000)} minutes)`));
+            }, OAUTH_CALLBACK_WINDOW_MS);
 
             server.once('auth-success', (result: CallbackResult) => {
                 clearTimeout(timeout);
@@ -1022,8 +1041,8 @@ export async function handleCodexOAuth(currentConfig: CodexAuthConfig, options: 
         
         // 轮询计数器
         let pollCount = 0;
-        const maxPollCount = 100; // 增加到约 5 分钟 (100 * 3s = 300s)
-        const pollInterval = 3000; // 轮询间隔（毫秒）
+        const maxPollCount = OAUTH_MAX_POLL_COUNT;
+        const pollInterval = OAUTH_POLL_INTERVAL_MS;
         let pollTimer: NodeJS.Timeout | null = null;
         let isCompleted = false;
         

@@ -120,6 +120,60 @@ export function generateOAuthResponsePage(
 </html>`;
 }
 
+/**
+ * 把任意字符串净化成可安全用作凭据文件名一部分的片段。
+ *
+ * 三个 OAuth 实现曾各自复制了这段完全相同的逻辑（codex / zed / trae），
+ * 任何一处修 bug 都会漏掉另外两处，故收敛于此。
+ *
+ * 规则：仅保留 `[a-zA-Z0-9@._+-]`，其余替换为 `_`，压缩连续下划线，
+ * 截断到 120 字符；空值回退为 `default`。
+ */
+export function sanitizeCredentialFilenamePart(value: unknown): string {
+    const sanitized = String(value || 'default')
+        .trim()
+        .replace(/[^a-zA-Z0-9@._+-]/g, '_')
+        .replace(/_+/g, '_')
+        .slice(0, 120);
+
+    return sanitized || 'default';
+}
+
+/**
+ * 解码 JWT 的 payload 段（不校验签名）。
+ *
+ * 用途仅限读取已由上游签发的 token 里的非敏感声明（userId / email / tenant），
+ * **绝不能**用它做任何授权判断。
+ *
+ * 三个模块曾各自实现（codex / codex-import-normalizer / trae），已收敛。
+ *
+ * @returns 解析后的 payload；格式非法时返回 null
+ */
+export function decodeJwtPayload(token: unknown): Record<string, unknown> | null {
+    if (typeof token !== 'string' || !token) return null;
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    try {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        const json = Buffer.from(padded, 'base64').toString('utf8');
+        const parsed: unknown = JSON.parse(json);
+        return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 由 token 的 `expires_in`（秒）计算绝对过期时间 ISO 字符串。
+ * 缺省按 3600 秒处理，与各 provider 的既有行为一致。
+ */
+export function computeTokenExpiryIso(expiresIn: unknown, fallbackSeconds = 3600): string {
+    const seconds = Number(expiresIn);
+    const effective = Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds;
+    return new Date(Date.now() + effective * 1000).toISOString();
+}
+
 export async function closeActiveServer(
     provider: string,
     port: number | null,

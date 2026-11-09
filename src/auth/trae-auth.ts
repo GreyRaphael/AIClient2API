@@ -4,6 +4,7 @@ import path from 'path';
 import { randomBytes, randomUUID } from 'crypto';
 import logger from '../utils/logger.ts';
 import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
+import { sanitizeCredentialFilenamePart } from './oauth-shared.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { configureAxiosProxy } from '../utils/proxy-utils.ts';
@@ -64,11 +65,8 @@ function getStringField(record: Record<string, unknown>, key: string): string {
  * 清理文件名参数
  */
 function sanitizeFilenamePart(value: unknown): string {
-    return String(value || 'default')
-        .trim()
-        .replace(/[^a-zA-Z0-9@._+-]/g, '_')
-        .replace(/_+/g, '_')
-        .slice(0, 120) || 'default';
+    // 唯一实现在 oauth-shared
+    return sanitizeCredentialFilenamePart(value);
 }
 
 /**
