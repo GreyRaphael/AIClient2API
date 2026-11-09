@@ -6,7 +6,7 @@
  */
 import { signal } from '@preact/signals';
 
-const EVENT_NAMES = ['log', 'provider', 'provider_update', 'config_update', 'plugin_update', 'oauth_success'];
+const EVENT_NAMES = ['log', 'provider_update', 'config_update', 'plugin_update', 'oauth_success'];
 
 /** @type {import('@preact/signals').Signal<'connecting'|'connected'|'disconnected'>} */
 export const connection = signal('connecting');

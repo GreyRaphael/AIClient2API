@@ -1197,54 +1197,6 @@ export class ProviderPoolManager {
     }
 
     /**
-     * 刷新指定提供商的 UUID
-     * 用于在认证错误（如 401）时更换 UUID，以便重新尝试
-     * @param {string} providerType - 提供商类型
-     * @param {object} providerConfig - 提供商配置（包含当前 uuid）
-     * @returns {string|null} 新的 UUID，如果失败则返回 null
-     */
-    refreshProviderUuid(providerType: string, providerConfig: ProviderConfig) {
-        if (!providerConfig?.uuid) {
-            this._log('error', 'Invalid providerConfig in refreshProviderUuid');
-            return null;
-        }
-
-        const provider = this._findProvider(providerType, providerConfig.uuid);
-        if (provider) {
-            const oldUuid = provider.config.uuid;
-            // 生成新的 UUID
-            const newUuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c: string) {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-
-            // 更新 provider 的 UUID
-            provider.uuid = newUuid;
-            provider.config.uuid = newUuid;
-            invalidateServiceAdapter(providerType, oldUuid);
-            invalidateServiceAdapter(providerType, newUuid);
-
-            // 同时更新 providerPools 中的原始数据
-            const poolArray = this.providerPools[providerType];
-            if (poolArray) {
-                const originalProvider = poolArray.find((p) => p.uuid === oldUuid);
-                if (originalProvider) {
-                    originalProvider.uuid = newUuid;
-                }
-            }
-
-            this._log('info', `Refreshed provider UUID for ${this._getDisplayName(provider.config)}: ${oldUuid} -> ${newUuid} for type ${providerType}`);
-            this._debouncedSave(providerType);
-
-            return newUuid;
-        }
-
-        this._log('warn', `Provider not found for UUID refresh: ${this._getDisplayName(providerConfig)} in ${providerType}`);
-        return null;
-    }
-
-    /**
      * 检查并恢复已到恢复时间的提供商
      * @param {string} [providerType] - 可选，指定要检查的提供商类型。如果不提供，检查所有类型
      * @private

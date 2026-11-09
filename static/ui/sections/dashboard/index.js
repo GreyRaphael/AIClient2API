@@ -17,7 +17,6 @@ export default function DashboardSection() {
         []
     );
     useEvent('provider_update', providersApi.reload);
-    useEvent('provider', providersApi.reload);
     useInterval(providersApi.reload, 10000);
 
     const supportedProviders = providersApi.data?.supportedProviders || [];

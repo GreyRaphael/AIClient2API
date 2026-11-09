@@ -19,7 +19,7 @@ function getPartText(part: unknown): string {
 /**
  * Extract text content from message format
  */
-export function getContentText(message: unknown): string {
+function getContentText(message: unknown): string {
     if (message == null) {
         return "";
     }
@@ -44,7 +44,7 @@ export function getContentText(message: unknown): string {
  * @param {any} content - content object or array
  * @returns {string} processed text
  */
-export function processContent(content: unknown): string {
+function processContent(content: unknown): string {
     if (!content) return "";
     if (typeof content === 'string') return content;
     if (Array.isArray(content)) {

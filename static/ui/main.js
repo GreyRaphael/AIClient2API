@@ -9,7 +9,6 @@ import { ConfirmDialogHost } from './components/ConfirmDialog.js';
 import { initLanguage, t } from './lib/i18n.js';
 import { effect } from '@preact/signals';
 import { initTheme } from './lib/theme.js';
-import { initImageZoom } from './lib/image-zoom.js';
 import { api } from './lib/api.js';
 import { clearToken, getToken, isTokenValid, redirectToLogin } from './lib/auth.js';
 import { on, startEvents } from './store/events.js';
@@ -24,7 +23,6 @@ function applyDocumentMeta() {
 
 async function boot() {
     initTheme();
-    initImageZoom();
     await initLanguage();
     effect(applyDocumentMeta);
 

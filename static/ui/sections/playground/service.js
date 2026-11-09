@@ -31,7 +31,6 @@ const refreshPlaygroundCache = () => {
     }
 };
 
-on('provider', refreshPlaygroundCache);
 on('provider_update', refreshPlaygroundCache);
 
 /** @param {any[]} next */

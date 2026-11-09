@@ -21,7 +21,6 @@ export default function ProvidersSection() {
         ]);
         return { providersData, access };
     }, []);
-    useEvent('provider', reload);
     useEvent('provider_update', reload);
     useInterval(reload, 10000);
 

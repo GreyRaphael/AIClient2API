@@ -491,7 +491,6 @@ interface ProxyConfig {
     proxyType: 'socks' | 'http';
 }
 
-type WildcardProxyResolver = (providerType: string, uuid: unknown) => string | null | undefined;
 
 interface NodeProxyBinding {
     getProxyUrl: (providerType: string, uuid: unknown) => unknown;
@@ -522,17 +521,6 @@ function getClientIp(value: unknown): string {
 
 // 代理 Agent 缓存，避免重复创建 Agent 导致连接池失效和内存泄漏
 const agentCache = new Map<string, ProxyConfig>();
-
-// 用于存储全局通配符代理获取器，解决启动初始化时无请求上下文的问题
-let wildcardProxyResolver: WildcardProxyResolver | null = null;
-
-/**
- * 注册全局通配符代理获取器
- * @param {Function} resolver
- */
-export function registerWildcardProxyResolver(resolver: WildcardProxyResolver) {
-    wildcardProxyResolver = resolver;
-}
 
 /**
  * 从插件或上下文中解析当前节点的代理 URL。
@@ -565,11 +553,6 @@ export function getNodeProxyUrlFromBinding(config: UnknownRecord | null | undefi
             const nodeName = config?.customName || config?.uuid || 'unknown';
             logger.error(`[Proxy] Error calling ipNodeProxy.getProxyUrl from config for ${providerType}/${String(nodeName)}:`, getErrorMessage(error));
         }
-    }
-
-    // 最后的兜底：如果没有上下文（如项目启动初始化），使用全局通配符 '*'
-    if (wildcardProxyResolver) {
-        return wildcardProxyResolver(providerType, config?.uuid) ?? null;
     }
 
     return null;

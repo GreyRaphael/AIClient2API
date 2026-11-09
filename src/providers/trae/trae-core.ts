@@ -132,18 +132,6 @@ export const TRAE_UPSTREAM_EFFORT_LEVELS = {
 export const DEFAULT_TRAE_REASONING_EFFORT = 'xhigh';
 
 /**
- * 常见已知具备思考/推理能力的模型特征正则
- */
-export const TRAE_REASONING_MODEL_PATTERNS = [
-    /deepseek/i,
-    /glm-5/i,
-    /step-5/i,
-    /kimi/i,
-    /qwen3\.8/i,
-    /minimax-m3/i
-];
-
-/**
  * 将标准化档位映射为 Trae 上游识别的 reasoning_effort_level ('light' | 'high' | 'extra_high')。
  * 仅接受一一对应的标准档位；不支持的档位返回空串，由调用方抛出 400。
  */
