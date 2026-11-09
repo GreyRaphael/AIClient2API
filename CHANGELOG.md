@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v8.8.1] - 2026-11-09
+
+### Fixed
+
+- **前缀缓存基准测试修正**（`scripts/cache-hit-benchmark.mjs`）：首版提示词过短（79–471 tokens）
+  低于主流大模型上游 KV 缓存门槛（Anthropic 1024 / OpenAI 1024），导致命中率恒为 0%。
+  通过确定性生成稳定长前缀（~6000 字符，1500+ tokens）使测试能够真实检验网关前缀缓存能力，
+  实测稳态命中率达 98%~99%。
+
+### Tests
+
+- **删除计算样式契约测试**（`tests/webui-e2e/style-contract.*`，80 组合 / 1072 条断言 /
+  170KB 基线）：它是为一次 CSS 大重构（21 文件、约 1.2 万行）专门引入的一次性安全网，
+  该重构早已完成。作为长期回归网它有三个问题：① 断言的是"元素存在且值匹配"，
+  元素不渲染时语义会静默退化为"存在 vs 不存在"，而存在性由运行时数据状态决定
+  （`.btn-primary` 仅在"有新版本"时渲染，导致所有 8 个组合在 GitHub API 不可达时失败）；
+  ② 基线自相矛盾——同一 `.btn-primary` 在 5 个 section 记录为值、5 个记录为 null；
+  ③ 记录值本身无意义（背景色为全透明 `rgba(0,0,0,0)`）。
+  仓库已有 26 个稳定的 jest CSS 单测（令牌、层叠、作用域、设计标度、移动端、硬编码颜色），
+  均不依赖页面数据状态。删除后 webui e2e 从 42 passed / 9 failed（5.5 分钟）
+  变为 **43 passed / 0 failed（1.6 分钟）**。
+- **修复插件页 e2e 的 mock 数据**：模型 ID 由账号已不再提供的 `gemini-3-flash`
+  改为实际存在的 `gemini-3.8-flash-medium`；并补上 `daily[date].models`
+  （默认视图读的是该字段，缺它会恒定渲染「没有匹配的数据」）。
+
 ## [v8.8.0] - 2026-11-09
 
 本轮基于 v8.7.0 的全量代码审计（157 项发现）做定向修复，重点收敛三类问题：
@@ -67,22 +92,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **基准脚本替换**：删除含真实 harness token 与私有 `session.v4.jsonl.zstd` 解析的
   `scripts/harness-benchmark.mjs`，新增 `scripts/cache-hit-benchmark.mjs`
   （纯网关公开 API，可进 CI 当回归）。
-
-### Tests
-
-- **删除计算样式契约测试**（`tests/webui-e2e/style-contract.*`，80 组合 / 1072 条断言 /
-  170KB 基线）。它是为一次 CSS 大重构（21 文件、约 1.2 万行）专门引入的一次性安全网，
-  该重构早已完成。作为长期回归网它有三个问题：① 断言的是"元素存在且值匹配"，
-  元素不渲染时语义会静默退化为"存在 vs 不存在"，而存在性由运行时数据状态决定
-  （`.btn-primary` 仅在"有新版本"时渲染，导致所有 8 个组合在 GitHub API 不可达时失败）；
-  ② 基线自相矛盾——同一 `.btn-primary` 在 5 个 section 记录为值、5 个记录为 null；
-  ③ 记录值本身无意义（背景色为全透明 `rgba(0,0,0,0)`）。
-  仓库已有 26 个稳定的 jest CSS 单测（令牌、层叠、作用域、设计标度、移动端、硬编码颜色），
-  均不依赖页面数据状态。删除后 webui e2e 从 42 passed / 9 failed（5.5 分钟）
-  变为 **43 passed / 0 failed（1.6 分钟）**。
-- **修复插件页 e2e 的 mock 数据**：模型 ID 由账号已不再提供的 `gemini-3-flash`
-  改为实际存在的 `gemini-3.8-flash-medium`；并补上 `daily[date].models`
-  （默认视图读的是该字段，缺它会恒定渲染「没有匹配的数据」）。
 
 ### Breaking
 

@@ -1,6 +1,6 @@
 {
   "name": "aiclient2api",
-  "version": "8.8.0",
+  "version": "8.8.1",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
