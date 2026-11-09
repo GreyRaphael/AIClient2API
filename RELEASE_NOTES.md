@@ -177,7 +177,7 @@ GET /api/upload-configs/view/configs%2F.master_secret
 
 ## 七、验证
 
-本轮所有改动均通过完整门禁：
+### 静态门禁与单元测试
 
 ```
 typecheck · typecheck:plugins · typecheck:webui · check:strict · check:any
@@ -193,6 +193,40 @@ runtime-smoke · 1042 tests · coverage gate
 
 每项修复都配有回归测试，并**逐一验证过"去掉修复后测试确实失败"**——
 避免出现"测试通过但没锁住行为"的空壳用例。
+
+### 端到端测试（真实上游）
+
+在本机起网关（`--port 3200`），用真实凭据跑 `test:e2e`：**26 passed / 1 skipped**，
+覆盖 OpenAI Chat、OpenAI Responses、Claude Messages 三协议 × 多 Provider，
+含图片输入多模态。
+
+### 缓存命中率实测
+
+`scripts/cache-hit-benchmark.mjs` 实测（同一前缀逐轮增长）：
+
+| 模型 | 稳态命中率 | 整体（含冷启动） |
+|---|---|---|
+| `claude-sonnet-5-5-medium` | step 3–6 稳定 **99.0–99.2%** | 72.5% |
+| trae `DeepSeek-V4.1-Flash-1017` | step 3–8 稳定 **98.2–99.1%** | 85.8% |
+
+与 `docs/CACHE_HIT_RATE.md` 记录的 90.77% 处于同一量级，确认流式改造未损伤前缀缓存。
+
+> 说明：本次发布的脚本首版把 prompt 控制得过短（79–471 tokens），
+> 低于上游 KV cache 的最小可缓存门槛（Anthropic 1024 / OpenAI 1024），
+> 导致命中率恒为 0%。已修正并在此如实记录——一个永远读 0% 的基准
+> 比没有基准更糟，因为它看起来是绿的但不检验任何东西。
+
+### WebUI e2e
+
+42 passed / 9 failed。**9 个失败已在改动前的基线上复现**，与本次改动无关：
+
+- 8 个样式契约失败：基线期望 dashboard 存在 `.btn-primary`，但该按钮仅在
+  "发现新版本"时渲染（`hasUpdate ? …`），而测试环境所有 GitHub API 代理均不可用
+  → `hasUpdate = false` → 按钮不存在。
+- 1 个插件页失败：测试注入的 mock 数据含 `gemini-3-flash`，但当前账号可用模型中
+  没有该 ID，页面渲染为空。
+
+两者都属于"测试依赖外部环境/账号状态"的既有脆弱点，建议后续改为固定 fixture。
 
 ---
 
