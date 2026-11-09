@@ -1,4 +1,3 @@
-import '../core/security-hardening.ts';
 import logger from '../utils/logger.ts';
 import * as http from 'http';
 import { initializeConfig, CONFIG } from '../core/config-manager.ts';

@@ -15,7 +15,6 @@ import type { ChildProcess } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 
-import './security-hardening.ts';
 import { fork } from 'child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

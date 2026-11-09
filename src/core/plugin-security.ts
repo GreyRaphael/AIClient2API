@@ -47,13 +47,14 @@ export function auditSecurityEvent(event: DynamicPayload): void {
 /**
  * 插件执行上下文的异步传播载体。
  *
- * 沙箱原先只靠调用栈判断“调用方是不是插件”，但异步事件循环会抹掉这段信息：
- * 插件把敏感操作包进 setTimeout / queueMicrotask / 预先 bind 的函数后，回调
- * 真正执行时栈上只剩 Node 内部帧，`getPluginStack()` 返回 null，检查即被放行。
+ * 插件与宿主同进程、同权限（运行时沙箱已移除，见 README「插件权限」一节），
+ * 本上下文不再用于拦截系统调用，只用于：
+ *  - 让日志 / 审计事件能标注来源插件；
+ *  - 为插件代码提供宿主感知的归属信息（如静态资源目录归属）。
  *
- * AsyncLocalStorage 会随异步资源自动传播上下文，因此脱离调用栈的回调仍能
- * 被识别为插件来源。放在本模块是为了让 plugin-manager（写入方）与
- * security-hardening（读取方）共享同一实例而不产生循环依赖。
+ * 用 AsyncLocalStorage 而非调用栈，是因为异步事件循环会抹掉调用栈信息：
+ * 插件把操作包进 setTimeout / queueMicrotask / 预先 bind 的函数后，回调执行时
+ * 栈上只剩 Node 内部帧。ALS 会随异步资源自动传播，归属信息不会丢失。
  */
 export interface PluginExecutionContext {
     pluginDirType: string;
@@ -69,10 +70,6 @@ export function runInPluginContext<T>(context: PluginExecutionContext, fn: () =>
     return pluginExecutionContext.run(context, fn);
 }
 
-/** 当前异步上下文所属插件；宿主代码返回 null。 */
-export function getAsyncPluginContext(): PluginExecutionContext | null {
-    return pluginExecutionContext.getStore() ?? null;
-}
 
 export function validatePluginId(pluginId: unknown, label = 'pluginId'): string {
     if (typeof pluginId !== 'string' || !PLUGIN_ID_PATTERN.test(pluginId)) {

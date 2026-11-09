@@ -1,9 +1,9 @@
 {
-  "annotations": 234,
-  "assertions": 6,
-  "anyNodes": 338,
-  "srcAnyNodes": 282,
+  "annotations": 0,
+  "assertions": 0,
+  "anyNodes": 98,
+  "srcAnyNodes": 42,
   "typeAnyNodes": 56,
   "dynamicPayloadDefs": 1,
-  "dynamicPayloadRefs": 1549
+  "dynamicPayloadRefs": 1328
 }

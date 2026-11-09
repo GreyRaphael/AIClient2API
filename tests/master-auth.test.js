@@ -1,7 +1,4 @@
 jest.mock('open', () => ({ default: jest.fn() }));
-// security-hardening 会用 createRequire(import.meta.url) monkey-patch 进程级 fs，
-// 在 Babel/Jest 的 CJS 互操作下无法加载（would-be 全局污染）；鉴权逻辑与它无关，直接桩掉。
-jest.mock('../src/core/security-hardening.ts', () => ({}));
 
 /**
  * Master 管理端点鉴权回归测试。

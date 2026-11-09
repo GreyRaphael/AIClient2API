@@ -332,6 +332,21 @@ The management console and plugin pages are native ES modules under `static/ui/`
 - Run the isolated Playwright suite with `npm run test:webui:e2e` (temporary config/data directory, separate port).
 - Do not edit `static/vendor/` by hand; update the dependency and re-run the sync scripts.
 
+### ⚠️ Plugin Permissions
+
+Custom plugins (`src/plugins-user/`) run **in the host process, with host privileges**. There is
+**no runtime sandbox**: the previous monkey-patch-based "sandbox" only intercepted module-level
+entry points (`net.connect`, `vm.runInThisContext`, …), while `net.Socket.prototype.connect` and
+`vm.compileFunction` were always reachable — giving operators a false sense of isolation.
+
+The security boundary is now the **install-time static scan**: `DANGEROUS_PLUGIN_PATTERNS` rejects
+code containing `child_process`, `spawn/exec`, embedded SSH private keys, known reverse-tunnel
+markers and known-malicious plugin signatures; archive extraction is validated for path escape and
+private-network SSRF. This only catches **known** patterns.
+
+**Install only plugins from sources you trust.** For untrusted plugins, run them in a separate
+process or container.
+
 ### 📋 Core Features
 
 #### Web UI Management Console

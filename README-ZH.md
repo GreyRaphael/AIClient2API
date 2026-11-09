@@ -331,6 +331,18 @@ docker compose up -d
 - 隔离 E2E：`npm run test:webui:e2e`（临时配置目录 + 独立端口，不影响真实配置）。
 - 不要手工修改 `static/vendor/`；升级依赖后重新执行同步脚本。
 
+### ⚠️ 插件权限说明
+
+自定义插件（`src/plugins-user/`）与主进程**同进程、同权限**运行。宿主**不再提供运行时沙箱**：
+之前的 monkey-patch 式"沙箱"只能拦截模块级入口（`net.connect`、`vm.runInThisContext` 等），
+而 `net.Socket.prototype.connect`、`vm.compileFunction` 等路径一直可绕过，却让运维误以为插件已被隔离。
+
+因此现在的安全边界是 **安装期静态扫描**：`DANGEROUS_PLUGIN_PATTERNS` 会拒绝含
+`child_process`、`spawn/exec`、内嵌 SSH 私钥、已知反向隧道特征，以及已知恶意插件标记的代码；
+插件包解压也会做路径逃逸校验与私网 SSRF 拦截。但这**只能挡住已知模式**。
+
+**请只安装你信任来源的插件。** 需要隔离不可信插件时，请改为在独立进程/容器中运行。
+
 ### 📋 核心功能
 
 #### Web UI 管理控制台
