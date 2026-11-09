@@ -12,6 +12,7 @@ import {
 } from '../utils/provider-utils.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.ts';
+import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { getProviderPoolManager } from '../providers/pool-context.ts';
 import { getErrorMessage } from '../utils/error.ts';
 
@@ -197,7 +198,14 @@ async function linkSingleCredential(
             logger.warn(`[Auto-Link] Missing provider mapping fields for: ${relativePath}`);
             return null;
         }
-        const providerType = options.providerType || defaultType;
+        let providerType = options.providerType || defaultType;
+        // 如果未显式传 providerType，且文件位于 configs/trae，根据文件名智能推断是否为 trae-chat_v3
+        if (!options.providerType && matchedMapping.dirName === 'trae') {
+            const fileNameLower = getFileName(absolutePath).toLowerCase();
+            if (fileNameLower.includes('chat_v3')) {
+                providerType = MODEL_PROVIDER.TRAE_CHAT_V3;
+            }
+        }
         const traeDefaults = TRAE_PROVIDER_DEFAULTS[providerType];
         let targetDisplayName = options.providerType ? providerType : displayName;
         if (traeDefaults?.displayName) {
@@ -235,7 +243,16 @@ async function linkSingleCredential(
 
         if (traeDefaults) {
             newProvider.TRAE_CHANNEL_MODE = traeDefaults.channelMode;
-            newProvider.TRAE_BASE_URL = options.host || options.baseUrl || traeDefaults.baseUrl;
+            const isChatV3 = providerType === MODEL_PROVIDER.TRAE_CHAT_V3 || providerType === 'trae-chat_v3';
+            if (options.baseUrl) {
+                newProvider.TRAE_BASE_URL = options.baseUrl;
+            } else if (isChatV3) {
+                newProvider.TRAE_BASE_URL = (options.host && !options.host.includes('enterprise.trae.cn'))
+                    ? options.host
+                    : traeDefaults.baseUrl;
+            } else {
+                newProvider.TRAE_BASE_URL = options.host || traeDefaults.baseUrl;
+            }
             newProvider.customName = options.customName || traeDefaults.customName;
         }
 
@@ -283,6 +300,11 @@ async function scanProviderDirectory(
                 const ext = path.extname(file.name).toLowerCase();
                 // 只处理 JSON 文件
                 if (ext === '.json') {
+                    // 如果文件是 trae-chat_v3 专用的凭据（文件名包含 chat_v3），在为 trae (ToB) 扫描时跳过，避免混入 ToB 节点池
+                    if (options.credPathKey === 'TRAE_OAUTH_CREDS_FILE_PATH' && file.name.includes('chat_v3')) {
+                        continue;
+                    }
+
                     const relativePath = path.relative(process.cwd(), fullPath);
                     const fileName = getFileName(fullPath);
 

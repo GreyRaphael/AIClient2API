@@ -252,23 +252,27 @@ export async function getTraeUserInfo({
  */
 export async function saveTraeCredentials(
     credData: TraeCredentialInput,
-    options: { providerType?: string; customName?: string; host?: string } = {}
+    options: { providerType?: string; customName?: string; host?: string; baseUrl?: string } = {}
 ) {
     const baseDir = path.join(process.cwd(), 'configs', 'trae');
     if (!fs.existsSync(baseDir)) {
         fs.mkdirSync(baseDir, { recursive: true });
     }
 
+    const providerType = options.providerType || 'trae';
+    const isChatV3 = providerType === MODEL_PROVIDER.TRAE_CHAT_V3 || providerType === 'trae-chat_v3' || providerType === 'chat_v3';
+
     const timestamp = Date.now();
     const safeUser = sanitizeFilenamePart(credData.nickname || credData.userId || 'user');
-    const filename = `${timestamp}_trae-${safeUser}_creds.json`;
+    const prefix = isChatV3 ? 'trae-chat_v3' : 'trae';
+    const filename = `${timestamp}_${prefix}-${safeUser}_creds.json`;
     const credPath = path.join(baseDir, filename);
 
-    const authHost = (credData.authHost || credData.host || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
+    const authHost = (credData.authHost || (credData.host && !credData.host.includes('mchost.guru') ? credData.host : '') || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
     const agentHost = (credData.agentHost || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
 
     const fullCreds = {
-        provider: 'trae',
+        provider: isChatV3 ? MODEL_PROVIDER.TRAE_CHAT_V3 : 'trae',
         user_id: credData.userId || '',
         enterprise_id: credData.enterpriseId || '',
         nickname: credData.nickname || 'user',
@@ -290,15 +294,24 @@ export async function saveTraeCredentials(
     });
     logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Saved Trae credentials to ${credPath}`);
 
-    const providerType = options.providerType || 'trae';
     const relCredPath = `./configs/trae/${filename}`;
+    const accountName = isChatV3
+        ? `Trae Chat v3 (${credData.nickname || credData.userId})`
+        : (credData.enterpriseId
+            ? `Trae Enterprise (${credData.nickname || credData.userId})`
+            : `Trae (${credData.nickname || credData.userId})`);
+
+    const defaultInferenceBaseUrl = isChatV3 ? 'https://trae-api-cn.mchost.guru' : authHost;
+    const inferenceBaseUrl = options.baseUrl || (isChatV3 ? defaultInferenceBaseUrl : (options.host || authHost));
+
     try {
         await autoLinkProviderConfigs(CONFIG, {
             onlyCurrentCred: true,
             credPath: relCredPath,
             providerType: providerType,
-            customName: options.customName,
-            host: options.host || credData.host
+            customName: options.customName || accountName,
+            host: authHost,
+            baseUrl: inferenceBaseUrl
         });
         logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Auto-linked ${relCredPath} into provider pools (${providerType})`);
     } catch (err) {
@@ -314,10 +327,6 @@ export async function saveTraeCredentials(
             credPath: relCredPath
         });
     } catch (_) {}
-
-    const accountName = credData.enterpriseId
-        ? `Trae Enterprise (${credData.nickname || credData.userId})`
-        : `Trae (${credData.nickname || credData.userId})`;
 
     return {
         credPath: relCredPath,
@@ -352,7 +361,7 @@ export function buildTraeWebLoginUrl({
 
     const baseConsole = host && host.includes('enterprise')
         ? 'https://www.trae.cn'
-        : (host ? host.replace(/\/+$/, '') : 'https://www.trae.cn');
+        : (host && !host.includes('mchost.guru') ? host.replace(/\/+$/, '') : 'https://www.trae.cn');
 
     const params = new URLSearchParams({
         login_version: '1',
@@ -476,8 +485,20 @@ export async function handleTraePATLogin({
 
     const cleanToken = token.trim();
     const cleanHost = host.trim().replace(/\/+$/, '');
+    const isChatV3 = providerType === MODEL_PROVIDER.TRAE_CHAT_V3 || providerType === 'trae-chat_v3' || providerType === 'chat_v3';
 
-    logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Starting login with host: ${cleanHost} for provider: ${providerType}`);
+    // 确定换票鉴权使用的 authHost：
+    // 若 host 包含个人版推理域名 mchost.guru，自动回退到真正的鉴权中心 TRAE_AUTH_CONFIG.defaultHost (https://api.enterprise.trae.cn)
+    const authHost = cleanHost.includes('mchost.guru')
+        ? TRAE_AUTH_CONFIG.defaultHost
+        : (cleanHost || TRAE_AUTH_CONFIG.defaultHost);
+
+    // 确定个人版推理端点 agentHost / baseUrl：
+    const agentHost = isChatV3
+        ? (cleanHost.includes('mchost.guru') ? cleanHost : 'https://trae-api-cn.mchost.guru')
+        : 'https://trae-api-cn.mchost.guru';
+
+    logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Starting login for provider: ${providerType} (authHost: ${authHost}, agentHost: ${agentHost})`);
 
     let tokenToExchange = cleanToken;
     let callbackData: TraeCallbackData | null = null;
@@ -498,7 +519,7 @@ export async function handleTraePATLogin({
 
     try {
         const exchanged = await exchangeTraeToken({
-            host: cleanHost,
+            host: authHost,
             personalAccessToken: isPAT ? tokenToExchange : undefined,
             refreshToken: !isPAT ? tokenToExchange : undefined
         });
@@ -525,7 +546,7 @@ export async function handleTraePATLogin({
 
     try {
         const fetchedUserInfo = await getTraeUserInfo({
-            host: cleanHost,
+            host: authHost,
             accessToken
         });
         userInfo = {
@@ -545,7 +566,9 @@ export async function handleTraePATLogin({
         userId: userInfo.userId,
         nickname: userInfo.nickname,
         enterpriseId: userInfo.enterpriseId,
-        host: cleanHost,
+        authHost,
+        agentHost,
+        host: authHost,
         accessToken,
         refreshToken,
         personalAccessToken: isPAT ? tokenToExchange : '',
@@ -553,7 +576,8 @@ export async function handleTraePATLogin({
     }, {
         providerType,
         customName,
-        host: cleanHost
+        host: authHost,
+        baseUrl: isChatV3 ? agentHost : authHost
     });
 
     return {
@@ -561,7 +585,7 @@ export async function handleTraePATLogin({
         userId: userInfo.userId,
         nickname: userInfo.nickname,
         enterpriseId: userInfo.enterpriseId,
-        host: cleanHost,
+        host: authHost,
         expiresAt,
         credPath: result.credPath,
         accountName: customName || result.accountName
@@ -577,7 +601,10 @@ export async function handleTraePATLogin({
  */
 
 export async function handleTraeOAuth(currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
-    const host = options.host || TRAE_AUTH_CONFIG.defaultHost;
+    const rawHost = options.host || TRAE_AUTH_CONFIG.defaultHost;
+    // 如果 host 包含 mchost.guru，说明是个人版推理域名，网页授权入口需使用 trae.cn
+    const host = rawHost.includes('mchost.guru') ? 'https://www.trae.cn' : rawHost;
+    const providerType = options.providerType || 'trae';
     const { loginUrl, machineId, deviceId, callbackUrl } = buildTraeWebLoginUrl({
         host,
         callbackPort: options.port || options.callbackPort || '18080'
@@ -586,7 +613,7 @@ export async function handleTraeOAuth(currentConfig: DynamicPayload = CONFIG, op
     return {
         authUrl: loginUrl,
         authInfo: {
-            provider: 'trae',
+            provider: providerType,
             machineId,
             deviceId,
             callbackUrl,

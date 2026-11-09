@@ -51,9 +51,8 @@ function parseJsonList(text) {
 }
 
 function defaultTraeHost(providerType) {
-    return providerType === 'trae-chat_v3'
-        ? 'https://trae-api-cn.mchost.guru'
-        : 'https://api.enterprise.trae.cn';
+    // Trae 企业版与个人版 (chat_v3) 的 OAuth 换票与 PAT 鉴权端点均位于统一认证中心
+    return 'https://api.enterprise.trae.cn';
 }
 
 export function AuthDialog({ providerType, onClose, onCompleted }) {
@@ -244,7 +243,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
     let title = t('oauth.modal.title');
     if (step === 'method') title = t('oauth.gemini.selectMethod');
     if (step === 'zed') title = 'Zed OAuth';
-    if (step === 'trae') title = `${providerType} PAT / OAuth`;
+    if (step === 'trae') title = providerType === 'trae-chat_v3' ? 'Trae (chat_v3) PAT / OAuth' : `${providerType} PAT / OAuth`;
     if (step === 'batch') title = batchConfig ? t(batchConfig.labelKey) : t('oauth.modal.title');
     if (step === 'external') title = externalMeta?.title || t('oauth.modal.title');
 
@@ -307,13 +306,18 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
                         onInput=${(event) => setTrae({ ...trae, token: event.currentTarget.value })} />
                 </div>
                 <div class="form-group">
-                    <label>Trae 服务地址 (Host)</label>
+                    <label>Trae 认证服务地址 (Auth Host)</label>
                     <input type="text" class="form-control" value=${trae.host}
                         onInput=${(event) => setTrae({ ...trae, host: event.currentTarget.value })} />
+                    ${providerType === 'trae-chat_v3' ? html`
+                        <small style="display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.4;">
+                            Chat v3 个人版通道的鉴权通过统一认证中心完成，实际聊天推理会自动路由至个人版专属网关。
+                        </small>` : null}
                 </div>
                 <div class="form-group">
                     <label>账号备注 / 别名（可选）</label>
                     <input type="text" class="form-control" value=${trae.name}
+                        placeholder=${providerType === 'trae-chat_v3' ? 'Chat v3' : 'ToB Raw Chat'}
                         onInput=${(event) => setTrae({ ...trae, name: event.currentTarget.value })} />
                 </div>` : null}
 
