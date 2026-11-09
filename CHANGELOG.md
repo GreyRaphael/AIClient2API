@@ -68,6 +68,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/harness-benchmark.mjs`，新增 `scripts/cache-hit-benchmark.mjs`
   （纯网关公开 API，可进 CI 当回归）。
 
+### Tests
+
+- **删除计算样式契约测试**（`tests/webui-e2e/style-contract.*`，80 组合 / 1072 条断言 /
+  170KB 基线）。它是为一次 CSS 大重构（21 文件、约 1.2 万行）专门引入的一次性安全网，
+  该重构早已完成。作为长期回归网它有三个问题：① 断言的是"元素存在且值匹配"，
+  元素不渲染时语义会静默退化为"存在 vs 不存在"，而存在性由运行时数据状态决定
+  （`.btn-primary` 仅在"有新版本"时渲染，导致所有 8 个组合在 GitHub API 不可达时失败）；
+  ② 基线自相矛盾——同一 `.btn-primary` 在 5 个 section 记录为值、5 个记录为 null；
+  ③ 记录值本身无意义（背景色为全透明 `rgba(0,0,0,0)`）。
+  仓库已有 26 个稳定的 jest CSS 单测（令牌、层叠、作用域、设计标度、移动端、硬编码颜色），
+  均不依赖页面数据状态。删除后 webui e2e 从 42 passed / 9 failed（5.5 分钟）
+  变为 **43 passed / 0 failed（1.6 分钟）**。
+- **修复插件页 e2e 的 mock 数据**：模型 ID 由账号已不再提供的 `gemini-3-flash`
+  改为实际存在的 `gemini-3.8-flash-medium`；并补上 `daily[date].models`
+  （默认视图读的是该字段，缺它会恒定渲染「没有匹配的数据」）。
+
 ### Breaking
 
 - **插件不再在运行时被 fs/net/vm 隔离**。原 `security-hardening.ts` 用 85 处
