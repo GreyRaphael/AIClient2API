@@ -111,6 +111,7 @@ export class OpenAIResponsesApiService {
             return response.data as T;
         } catch (error) {
             const { status, message } = getErrorResponseDetails(error);
+
             if (status === 401 || status === 403) {
                 logger.error(`[API] Received ${status}. API Key might be invalid or expired.`);
                 throw error;
@@ -156,6 +157,9 @@ export class OpenAIResponsesApiService {
 
         // OpenAI 的流式请求需要将 stream 设置为 true
         const streamRequestBody = { ...cleanBody, stream: true };
+
+        // 已产出部分内容后不得重做整个请求（会重复输出）。见 openai-core 同名说明。
+        let hasYielded = false;
 
         try {
             const axiosConfig: Record<string, unknown> = {
@@ -204,6 +208,7 @@ export class OpenAIResponsesApiService {
                             }
                             try {
                                 const parsedChunk: unknown = JSON.parse(jsonData);
+                                hasYielded = true;
                                 yield parsedChunk;
                             } catch (e) {
                                 logger.warn("[OpenAIResponsesApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", jsonData);
@@ -221,6 +226,13 @@ export class OpenAIResponsesApiService {
             }
         } catch (error) {
             const { status, message } = getErrorResponseDetails(error);
+
+            // 已产出部分内容后不得重试。必须位于所有重试分支之前，否则 429/5xx/网络
+            // 错误仍会重新拉取并重复输出已发送的前缀。
+            if (hasYielded) {
+                logger.warn('[OpenAIResponses API] Stream failed after partial output; skipping internal retry.');
+                throw error;
+            }
             if (status === 401 || status === 403) {
                 logger.error(`[API] Received ${status} during stream. API Key might be invalid or expired.`);
                 throw error;

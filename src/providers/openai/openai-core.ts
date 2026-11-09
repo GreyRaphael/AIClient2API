@@ -442,6 +442,11 @@ export class OpenAIApiService {
             };
         }
 
+        // 已经向上层产出过数据后，绝不能在 provider 内重做整个请求：重试会把新生成的
+        // 流拼接到已发送的前缀之后，客户端看到重复/错位内容。与 antigravity-core 的
+        // 同名保护保持一致；上层 request-pipeline 会按“已发送数据不可重试”安全收尾。
+        let hasYielded = false;
+
         try {
             const axiosConfig: DynamicPayload = {
                 method: 'post',
@@ -477,6 +482,7 @@ export class OpenAIApiService {
                             const jsonData = line.substring(5).trim();
                             if (jsonData === '[DONE]') {
                                 if (pendingFinishChunk) {
+                                    hasYielded = true;
                                     yield pendingFinishChunk;
                                     pendingFinishChunk = null;
                                 }
@@ -502,10 +508,12 @@ export class OpenAIApiService {
                                         && parsedChunk.usage;
                                     if (isUsageOnly) {
                                         pendingFinishChunk.usage = parsedChunk.usage;
+                                        hasYielded = true;
                                         yield pendingFinishChunk;
                                         pendingFinishChunk = null;
                                         continue;
                                     }
+                                    hasYielded = true;
                                     yield pendingFinishChunk;
                                     pendingFinishChunk = null;
                                 }
@@ -515,6 +523,7 @@ export class OpenAIApiService {
                                 if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
                                     pendingFinishChunk = parsedChunk;
                                 } else {
+                                    hasYielded = true;
                                     yield parsedChunk;
                                 }
                             } catch (caught) { const e = caught as DynamicPayload;
@@ -534,12 +543,20 @@ export class OpenAIApiService {
 
             // 上游未发送 [DONE] 或 usage 帧时，仍要交付已暂存的 finish 帧。
             if (pendingFinishChunk) {
+                hasYielded = true;
                 yield pendingFinishChunk;
             }
         } catch (caught) { const error = caught as DynamicPayload;
             const status = error.response?.status;
             const errorCode = error.code;
             const errorMessage = error.message || '';
+
+            // 已产出部分内容后不得重试（见 hasYielded 声明处）。必须位于所有重试
+            // 分支之前，否则 429/5xx/网络错误仍会重新拉取、重复输出。
+            if (hasYielded) {
+                logger.warn('[OpenAI API] Stream failed after partial output; skipping internal retry.');
+                throw error;
+            }
 
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);

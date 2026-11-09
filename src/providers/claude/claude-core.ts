@@ -225,6 +225,9 @@ export class ClaudeApiService {
             cleanBody.tools = stabilizeToolsForPrefixCache(cleanBody.tools as Record<string, unknown>[]);
         }
 
+        // 已产出部分内容后不得重做整个请求（会重复输出）。见 openai-core 同名说明。
+        let hasYielded = false;
+
         try {
             const axiosConfig: Record<string, unknown> = {
                 method: 'post',
@@ -267,6 +270,7 @@ export class ClaudeApiService {
                             }
                             try {
                                 const parsedChunk: unknown = JSON.parse(data);
+                                hasYielded = true;
                                 yield parsedChunk;
                                 if (isRecord(parsedChunk) && parsedChunk.type === 'message_stop') {
                                     seenDone = true;
@@ -293,6 +297,12 @@ export class ClaudeApiService {
             }
         } catch (error) {
             const { status, code, message, data } = getErrorResponseDetails(error);
+
+            // 已产出部分内容后不得重试。必须位于所有重试分支之前。
+            if (hasYielded) {
+                logger.warn('[Claude API] Stream failed after partial output; skipping internal retry.');
+                throw error;
+            }
 
             // 检查是否为可重试的网络错误
             const isNetworkError = isRetryableNetworkError(error);
