@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v8.8.0] - 2026-11-09
+
+本轮基于 v8.7.0 的全量代码审计（157 项发现）做定向修复，重点收敛三类问题：
+真实缺陷、无效防护、以及已漂移的重复实现。
+
+### Fixed
+
+- **流式响应在已产出内容后仍会重试，导致客户端收到重复文本**（C1）。`openai-core`、
+  `openai-responses-core`、`claude-core` 的 `streamApi` 在 429/5xx/网络错误时会
+  `yield*` 重跑整个请求；上游先吐 N 个 chunk 再断连时，用户看到的是「前半段 + 完整
+  重放」。`antigravity-core` 早已修过同类问题并留有注释，但修法只落在一个 core 上
+  ——因为另外五个是复制出来的。现三个 core 均加入 `hasYielded` 守卫，且置于 `catch`
+  最前（早于所有重试分支）。
+- **`_abortSignal` 是死代码，健康检查超时无法取消上游请求**（C2）。全仓库仅一处
+  `defineProperty` 注入、零处读取；15 秒超时只是让 `Promise.race` 返回，底层请求继续
+  跑完并占用账号配额。已删除该注入。
+- **号池状态写入失败会丢数据**。`ProviderPoolPersistence.flush()` 在写入前就
+  `pendingSaves.clear()`，`catch` 只记日志；一次 ENOSPC/EACCES 就让整批状态变更
+  永久消失且不重试。改为写成功后按类型移除，失败时重新入队。
+- **`configs/.master_secret` 可被单文件端点读取**。`/api/upload-configs/view`、
+  `download`、`delete`、`force-expire` 只校验「路径在 configs/ 下」，而备份 zip 端点
+  已显式排除该文件——说明威胁模型明确，只是这几个端点漏了。现统一走
+  `checkConfigPath()`。
+- **凭据文件前 100 字节随列表接口外泄**。`config-scanner` 的 `preview` 字段对
+  `configs/codex/*.json` 而言落在 `id_token` 的 JWT header 内，且该字段全仓库零消费者。
+  已删除。
+- **Codex 适配器定时器泄漏**。构造函数启动 15 分钟 `setInterval`，但
+  `stopCacheCleanup()` 零生产调用方，`invalidateServiceAdapter()` 直接丢弃引用。
+  每次配置重载泄漏一个定时器 + 一份会话缓存。现补 `dispose()` 生命周期契约。
+- **Codex OAuth 回调窗口与轮询预算不一致**。回调服务器开 10 分钟，轮询循环却在
+  5 分钟就清理会话；用户第 6–9 分钟完成授权会看到成功页，随后得到
+  `Invalid or expired OAuth session`。两者现由同一常量推导。
+- **流式错误状态码与一元路径不一致**。流式只读 `status || code`，导致 413/400 在
+  SSE 中变成 500 `server_error`。现共用 `resolveErrorStatusCode()`。
+- **认证失败日志写入完整 API Key**。`common.isAuthorized` 在失败时打印候选密钥与
+  query key；被拒绝的请求恰恰最可能携带攻击者提供的值。改为只记录「是否存在」。
+- **`ClaudeConverter` 三处转换缺陷**：`parseInt` 外层 `try/catch` 永不触发（非法值
+  会把 `NaN` 发上游）；单 block 的 `system` 对象被整体赋给字符串字段 `instructions`；
+  `convertTools` 在别名 schema 上 `delete $schema`，污染调用方入参。
+- **`GeminiStrategy` 缺少 `extractModelAndStreamInfo` 实现**。将抽象类改为 `interface`
+  后立即暴露为编译错误；此前是运行时 `throw`，只因当前路由走不到而未显形。
+- **日志轮转的大小检查不再每次 `statSync`**。改为本地字节累加 + 分钟级限频；
+  实测 2000 行日志的 `statSync` 调用从 2000 次降至 0。顺带修掉一个潜伏 bug：
+  原 `existsSync` 前置判断与 `createWriteStream` 惰性建文件竞争，首次写入时会导致
+  **永不轮转**。
+
+### Changed
+
+- **删除运行时插件"沙箱"**（见 Breaking）。
+- **删除可证伪的死代码**：`registerWildcardProxyResolver`（零引用，其回退分支静态
+  不可达）、`TRAE_REASONING_MODEL_PATTERNS`、`ProviderPoolManager.refreshProviderUuid`、
+  `NETWORK.DEFAULT_PORT`、`image-zoom.js`（`clickable-qr` 无写入方，却每次启动装两个
+  永不触发的监听器）、SSE `'provider'` 幽灵事件（零发送方，却在三处订阅）。
+- **`ProviderStrategy` 由抽象类改为 interface**，缺实现从运行时错误变为编译错误。
+- **收敛重复实现**：三个 OAuth 实现的凭据文件名净化（字节相同）、JWT 解码、
+  token 过期计算合入 `oauth-shared`；`default-auth` 改用 `common.isAuthorized`。
+- **i18n 补 5 个缺失 key**（含 `login.error.bodyTooLarge`，此前登录页会把原始 key
+  直接显示给用户）、删 4 个 Kiro 移除后遗留的孤儿 key；并强化 parity 测试，
+  使其能发现「无人引用」的 key——旧测试只比对两本字典彼此。
+- **基准脚本替换**：删除含真实 harness token 与私有 `session.v4.jsonl.zstd` 解析的
+  `scripts/harness-benchmark.mjs`，新增 `scripts/cache-hit-benchmark.mjs`
+  （纯网关公开 API，可进 CI 当回归）。
+
+### Breaking
+
+- **插件不再在运行时被 fs/net/vm 隔离**。原 `security-hardening.ts` 用 85 处
+  monkey-patch + 调用栈判定尝试沙箱化插件，实测只覆盖模块级入口
+  （`net.connect`、`vm.runInThisContext`），而 `net.Socket.prototype.connect`、
+  `vm.compileFunction` 等路径一直可绕过——即"实际没有防护，但代码和日志都宣称有"，
+  运维因此会误判第三方插件的风险。该文件自身覆盖率 0/618 行，却以"避免拉低分支
+  覆盖率"为由写成无 if 形式，并对 fs 热路径造成 3.5–7.5× 开销。
+  现删除运行时沙箱，保留安装期静态扫描（`DANGEROUS_PLUGIN_PATTERNS`、包解压路径
+  逃逸校验、私网 SSRF 拦截）。**插件与主进程同权限，请只安装可信来源的插件**；
+  需要隔离不可信插件时请改为独立进程/容器运行。README 已补充该权限说明。
+
 ## [v8.7.0] - 2026-11-09
 
 ### Security
