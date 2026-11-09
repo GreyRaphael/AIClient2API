@@ -1598,29 +1598,21 @@ export class ProviderPoolManager {
         // 重试机制：尝试不同的请求格式
         for (let i = 0; i < healthCheckRequests.length; i++) {
             const healthCheckRequest = healthCheckRequests[i];
-            const abortController = new AbortController();
             let timeoutId: NodeJS.Timeout | null = null;
 
             try {
-                // 使用不可枚举属性注入 signal，避免污染 JSON 序列化请求体
-                const requestWithSignal: Record<string, unknown> = {
-                    ...healthCheckRequest
-                };
-                Object.defineProperty(requestWithSignal, '_abortSignal', {
-                    value: abortController.signal,
-                    enumerable: false,
-                    configurable: true
-                });
-
+                // 仅限制「等待时间」，不取消上游请求：超时后 Promise.race 立即返回，
+                // 但底层 HTTP 请求仍会跑到自己结束（由 axios agent 超时回收）。
+                // 健康检查是后台低频探测，这里刻意不引入 AbortController——
+                // 之前注入的 _abortSignal 没有任何 provider 读取，纯属死代码。
                 const timeoutPromise = new Promise<never>((_, reject) => {
                     timeoutId = setTimeout(() => {
-                        abortController.abort();
                         reject(new Error(`Health check timed out after ${healthCheckTimeout}ms`));
                     }, healthCheckTimeout);
                 });
 
                 await Promise.race([
-                    serviceAdapter.generateContent(modelName, requestWithSignal),
+                    serviceAdapter.generateContent(modelName, healthCheckRequest),
                     timeoutPromise
                 ]);
 
