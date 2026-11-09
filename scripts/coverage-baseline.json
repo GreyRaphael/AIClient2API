@@ -1,16 +1,16 @@
 {
   "total": {
     "lines": {
-      "covered": 10360,
-      "total": 21270
+      "covered": 10402,
+      "total": 21264
     },
     "branches": {
-      "covered": 9549,
-      "total": 20754
+      "covered": 9561,
+      "total": 20748
     },
     "functions": {
-      "covered": 1345,
-      "total": 2454
+      "covered": 1351,
+      "total": 2451
     }
   },
   "directories": {
@@ -115,7 +115,7 @@
     "src/providers": {
       "lines": {
         "covered": 3763,
-        "total": 6352
+        "total": 6348
       },
       "branches": {
         "covered": 3469,
@@ -156,16 +156,16 @@
     },
     "src/ui-modules": {
       "lines": {
-        "covered": 396,
-        "total": 2981
+        "covered": 438,
+        "total": 2979
       },
       "branches": {
-        "covered": 226,
-        "total": 1745
+        "covered": 238,
+        "total": 1739
       },
       "functions": {
-        "covered": 70,
-        "total": 311
+        "covered": 76,
+        "total": 308
       }
     },
     "src/utils": {

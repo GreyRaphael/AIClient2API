@@ -12,6 +12,34 @@ import { scanConfigFiles } from './config-scanner.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
+ * 备份打包时必须排除的文件名：管理凭据等运行期机密绝不能随备份 zip 外流。
+ * 目前只有 master 管理端口的 Bearer secret（configs/.master_secret）。
+ */
+const BACKUP_EXCLUDED_FILENAMES = new Set(['.master_secret']);
+
+/**
+ * 校验目标路径落在 configs/ 内，且不是被排除的机密文件。
+ *
+ * 单文件端点（view / download / delete / force-expire）此前只校验了目录，
+ * 因此可以直接读取 configs/.master_secret —— 而备份 zip 端点已经排除了同一文件，
+ * 说明威胁模型是明确的，只是单文件端点漏了。
+ *
+ * @returns denied: 拒绝原因（null 表示允许）；relativePath: 相对 cwd 的路径，供调用方复用
+ */
+function checkConfigPath(fullPath: string, action: string): { denied: string | null; relativePath: string } {
+    const relativePath = path.relative(process.cwd(), fullPath);
+    const allowedDirs = ['configs'];
+    const isAllowed = allowedDirs.some((dir: string) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
+    if (!isAllowed) {
+        return { denied: `Access denied: can only ${action} files in configs directory`, relativePath };
+    }
+    if (BACKUP_EXCLUDED_FILENAMES.has(path.basename(fullPath))) {
+        return { denied: `Access denied: ${action} of reserved config files is not allowed`, relativePath };
+    }
+    return { denied: null, relativePath };
+}
+
+/**
  * 获取上传配置文件列表
  */
 export async function handleGetUploadConfigs(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
@@ -39,18 +67,11 @@ export async function handleViewConfigFile(req: IncomingMessage, res: ServerResp
     try {
         const fullPath = path.join(process.cwd(), filePath);
 
-        // 安全检查：确保文件路径在允许的目录内
-        const allowedDirs = ['configs'];
-        const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some((dir: string) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-
-        if (!isAllowed) {
+        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
+        const { denied, relativePath } = checkConfigPath(fullPath, 'view');
+        if (denied) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Access denied: can only view files in configs directory'
-                }
-            }));
+            res.end(JSON.stringify({ error: { message: denied } }));
             return true;
         }
 
@@ -95,18 +116,11 @@ export async function handleDownloadConfigFile(req: IncomingMessage, res: Server
     try {
         const fullPath = path.join(process.cwd(), filePath);
 
-        // 安全检查：确保文件路径在允许的目录内
-        const allowedDirs = ['configs'];
-        const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some((dir: string) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-
-        if (!isAllowed) {
+        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
+        const { denied } = checkConfigPath(fullPath, 'download');
+        if (denied) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Access denied: can only download files in configs directory'
-                }
-            }));
+            res.end(JSON.stringify({ error: { message: denied } }));
             return true;
         }
 
@@ -149,18 +163,11 @@ export async function handleDeleteConfigFile(req: IncomingMessage, res: ServerRe
     try {
         const fullPath = path.join(process.cwd(), filePath);
 
-        // 安全检查：确保文件路径在允许的目录内
-        const allowedDirs = ['configs'];
-        const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some((dir: string) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-
-        if (!isAllowed) {
+        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
+        const { denied, relativePath } = checkConfigPath(fullPath, 'delete');
+        if (denied) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Access denied: can only delete files in configs directory'
-                }
-            }));
+            res.end(JSON.stringify({ error: { message: denied } }));
             return true;
         }
 
@@ -202,12 +209,6 @@ export async function handleDeleteConfigFile(req: IncomingMessage, res: ServerRe
         return true;
     }
 }
-
-/**
- * 备份打包时必须排除的文件名：管理凭据等运行期机密绝不能随备份 zip 外流。
- * 目前只有 master 管理端口的 Bearer secret（configs/.master_secret）。
- */
-const BACKUP_EXCLUDED_FILENAMES = new Set(['.master_secret']);
 
 /**
  * 下载所有配置为 zip
@@ -315,15 +316,12 @@ export async function handleDeleteUnboundConfigs(req: IncomingMessage, res: Serv
             try {
                 const fullPath = path.join(process.cwd(), config.path);
 
-                // 安全检查：确保文件路径在允许的目录内
-                const allowedDirs = ['configs'];
-                const relativePath = path.relative(process.cwd(), fullPath);
-                const isAllowed = allowedDirs.some((dir: string) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-
-                if (!isAllowed) {
+                // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
+                const { denied } = checkConfigPath(fullPath, 'delete');
+                if (denied) {
                     failedFiles.push({
                         path: config.path,
-                        error: 'Access denied: can only delete files in configs directory'
+                        error: denied
                     });
                     continue;
                 }
@@ -385,18 +383,11 @@ export async function handleForceExpireConfig(req: IncomingMessage, res: ServerR
     try {
         const fullPath = path.join(process.cwd(), filePath);
 
-        // 安全检查：确保文件路径在允许的目录内
-        const allowedDirs = ['configs'];
-        const relativePath = path.relative(process.cwd(), fullPath);
-        const isAllowed = allowedDirs.some((dir: string) => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-
-        if (!isAllowed) {
+        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
+        const { denied, relativePath } = checkConfigPath(fullPath, 'access');
+        if (denied) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Access denied: can only access files in configs directory'
-                }
-            }));
+            res.end(JSON.stringify({ error: { message: denied } }));
             return true;
         }
 

@@ -256,8 +256,7 @@ export async function analyzeOAuthFile(
             isValid: isValid,
             errorMessage: errorMessage,
             isUsed: isPathUsed(relativePath, filename, usedPaths),
-            usageInfo: usageInfo,
-            preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+            usageInfo: usageInfo
         };
     } catch (caught) { const error = caught as DynamicPayload;
         logger.warn(`[OAuth Analyzer] Failed to analyze file ${filePath}:`, error.message);
