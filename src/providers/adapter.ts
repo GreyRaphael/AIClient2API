@@ -7,6 +7,7 @@ import { ZedApiService } from './zed/zed-core.ts';
 import { TraeApiService } from './trae/trae-core.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import logger from '../utils/logger.ts';
+import { getErrorMessage } from '../utils/error.ts';
 import { invalidateKeepAliveAgents } from '../utils/proxy-utils.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
@@ -101,6 +102,19 @@ export class ApiServiceAdapter {
      */
     async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
         return null;
+    }
+
+    /**
+     * 释放适配器持有的资源（定时器、缓存、连接等）。
+     *
+     * 生命周期契约：invalidateServiceAdapter() 在丢弃实例前会调用本方法。
+     * 之前没有这个契约，导致构造函数里起 setInterval 的 provider（如 Codex）
+     * 每次配置重载都会泄漏一个永不清理的定时器。
+     *
+     * 默认空实现；持有资源的具体适配器应覆写。
+     */
+    dispose(): void {
+        // no-op by default
     }
 
     /**
@@ -374,6 +388,11 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         this.codexApiService = new CodexApiService(config);
     }
 
+    /** 停掉 CodexApiService 构造函数里启动的会话缓存清理定时器。 */
+    dispose(): void {
+        this.codexApiService?.stopCacheCleanup?.();
+    }
+
     async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         if (!this.codexApiService.isInitialized) {
             logger.warn("codexApiService not initialized, attempting to re-initialize...");
@@ -597,7 +616,14 @@ export function invalidateServiceAdapter(provider: string, uuid: string | null =
     if (uuid) {
         invalidateKeepAliveAgents(uuid);
     }
-    if (serviceInstances[providerKey]) {
+    const instance = serviceInstances[providerKey];
+    if (instance) {
+        // 先释放资源再丢弃引用，否则构造函数里起的长生命周期定时器会永久泄漏。
+        try {
+            instance.dispose();
+        } catch (error) {
+            logger.warn(`[Adapter] dispose() failed for ${provider}/${uuid || 'default'}:`, getErrorMessage(error));
+        }
         delete serviceInstances[providerKey];
         logger.info(`[Adapter] Invalidated service adapter, provider: ${provider}, uuid: ${uuid || 'default'}`);
         return true;

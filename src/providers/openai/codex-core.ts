@@ -1901,7 +1901,9 @@ export class CodexApiService {
      * 启动缓存清理
      */
     startCacheCleanup() {
-        // 每 15 分钟清理过期缓存
+        // 每 15 分钟清理过期缓存。
+        // unref() 让这个定时器不阻止进程退出：即使某个实例忘了 dispose，也不会
+        // 把事件循环挂住（真正的释放仍靠 ApiServiceAdapter.dispose()）。
         this.cleanupInterval = setInterval(() => {
             const now = Date.now();
             for (const [key, cache] of this.conversationCache.entries()) {
@@ -1910,6 +1912,9 @@ export class CodexApiService {
                 }
             }
         }, 15 * 60 * 1000);
+        if (typeof this.cleanupInterval?.unref === 'function') {
+            this.cleanupInterval.unref();
+        }
     }
 
     /**
