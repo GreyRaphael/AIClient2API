@@ -10,11 +10,21 @@ import { CONFIG } from '../core/config-manager.ts';
 import { configureAxiosProxy } from '../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFileSync } from '../utils/file-lock.ts';
+import {
+    isSoloFamilyProviderType,
+    isSoloAgentHost,
+    resolveTraeAuthHost,
+    resolveTraeInferenceBaseUrl,
+    TRAE_AUTH_CENTER_HOST,
+    TRAE_SOLO_AGENT_HOST,
+    TRAE_WEB_CONSOLE_HOST
+} from '../providers/trae/trae-channel.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 export const TRAE_AUTH_CONFIG = {
-    defaultHost: 'https://api.enterprise.trae.cn',
+    // 单一真源在 trae-channel（TRAE_AUTH_CENTER_HOST），此处仅为兼容既有引用
+    defaultHost: TRAE_AUTH_CENTER_HOST,
     defaultClientId: 'en1oxy7wnw8j9n',
     ideVersion: '0.1.52',
     logPrefix: '[Trae Auth]'
@@ -260,7 +270,7 @@ export async function saveTraeCredentials(
     }
 
     const providerType = options.providerType || 'trae';
-    const isChatV3 = providerType === MODEL_PROVIDER.TRAE_CHAT_V3 || providerType === 'trae-chat_v3' || providerType === 'chat_v3';
+    const isChatV3 = isSoloFamilyProviderType(providerType);
 
     const timestamp = Date.now();
     const safeUser = sanitizeFilenamePart(credData.nickname || credData.userId || 'user');
@@ -268,11 +278,14 @@ export async function saveTraeCredentials(
     const filename = `${timestamp}_${prefix}-${safeUser}_creds.json`;
     const credPath = path.join(baseDir, filename);
 
-    const authHost = (credData.authHost || (credData.host && !credData.host.includes('mchost.guru') ? credData.host : '') || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
-    const agentHost = (credData.agentHost || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
+    // 认证中心与推理网关分开解析：换票/取用户信息只认认证中心，
+    // 个人版网关（mchost.guru）不能用于换票。见 resolveTraeAuthHost 的注释。
+    const authHost = resolveTraeAuthHost(credData.authHost || credData.host);
+    const agentHost = (credData.agentHost || TRAE_SOLO_AGENT_HOST).replace(/\/+$/, '');
 
     const fullCreds = {
-        provider: isChatV3 ? MODEL_PROVIDER.TRAE_CHAT_V3 : 'trae',
+        // provider 为凭据归属的唯一真源，供 provider-config-linker 直接读取
+        provider: isChatV3 ? MODEL_PROVIDER.TRAE_CHAT_V3 : MODEL_PROVIDER.TRAE,
         user_id: credData.userId || '',
         enterprise_id: credData.enterpriseId || '',
         nickname: credData.nickname || 'user',
@@ -301,8 +314,8 @@ export async function saveTraeCredentials(
             ? `Trae Enterprise (${credData.nickname || credData.userId})`
             : `Trae (${credData.nickname || credData.userId})`);
 
-    const defaultInferenceBaseUrl = isChatV3 ? 'https://trae-api-cn.mchost.guru' : authHost;
-    const inferenceBaseUrl = options.baseUrl || (isChatV3 ? defaultInferenceBaseUrl : (options.host || authHost));
+    // 推理 baseUrl：个人版固定走个人版网关，企业版与认证同域。
+    const inferenceBaseUrl = resolveTraeInferenceBaseUrl(providerType, options.baseUrl || options.host);
 
     try {
         await autoLinkProviderConfigs(CONFIG, {
@@ -359,9 +372,12 @@ export function buildTraeWebLoginUrl({
     const deviceId = randomBytes(16).toString('hex');
     const loginTraceId = (machineId + deviceId).slice(-16);
 
-    const baseConsole = host && host.includes('enterprise')
-        ? 'https://www.trae.cn'
-        : (host && !host.includes('mchost.guru') ? host.replace(/\/+$/, '') : 'https://www.trae.cn');
+    // 网页授权入口只在 trae.cn 上；认证中心(enterprise)与个人版网关(mchost.guru)
+    // 都不是可用的登录页域名，一律回落到 TRAE_WEB_CONSOLE_HOST。
+    const normalizedHost = String(host ?? '').trim().replace(/\/+$/, '');
+    const baseConsole = (!normalizedHost || normalizedHost.includes('enterprise') || isSoloAgentHost(normalizedHost))
+        ? TRAE_WEB_CONSOLE_HOST
+        : normalizedHost;
 
     const params = new URLSearchParams({
         login_version: '1',
@@ -484,19 +500,15 @@ export async function handleTraePATLogin({
     }
 
     const cleanToken = token.trim();
-    const cleanHost = host.trim().replace(/\/+$/, '');
-    const isChatV3 = providerType === MODEL_PROVIDER.TRAE_CHAT_V3 || providerType === 'trae-chat_v3' || providerType === 'chat_v3';
+    const cleanHost = String(host ?? '').trim().replace(/\/+$/, '');
+    const isChatV3 = isSoloFamilyProviderType(providerType);
 
-    // 确定换票鉴权使用的 authHost：
-    // 若 host 包含个人版推理域名 mchost.guru，自动回退到真正的鉴权中心 TRAE_AUTH_CONFIG.defaultHost (https://api.enterprise.trae.cn)
-    const authHost = cleanHost.includes('mchost.guru')
-        ? TRAE_AUTH_CONFIG.defaultHost
-        : (cleanHost || TRAE_AUTH_CONFIG.defaultHost);
+    // 换票（ExchangeToken）与取用户信息都只认认证中心：个人版网关不承载换票，
+    // 用它去换票会得到 404（实测）。resolveTraeAuthHost 负责兜底归一。
+    const authHost = resolveTraeAuthHost(cleanHost);
 
-    // 确定个人版推理端点 agentHost / baseUrl：
-    const agentHost = isChatV3
-        ? (cleanHost.includes('mchost.guru') ? cleanHost : 'https://trae-api-cn.mchost.guru')
-        : 'https://trae-api-cn.mchost.guru';
+    // 推理网关：个人版走个人版网关，企业版与认证同域。
+    const agentHost = isChatV3 && isSoloAgentHost(cleanHost) ? cleanHost : TRAE_SOLO_AGENT_HOST;
 
     logger.info(`${TRAE_AUTH_CONFIG.logPrefix} Starting login for provider: ${providerType} (authHost: ${authHost}, agentHost: ${agentHost})`);
 
@@ -577,7 +589,7 @@ export async function handleTraePATLogin({
         providerType,
         customName,
         host: authHost,
-        baseUrl: isChatV3 ? agentHost : authHost
+        baseUrl: resolveTraeInferenceBaseUrl(providerType, cleanHost)
     });
 
     return {
@@ -601,10 +613,10 @@ export async function handleTraePATLogin({
  */
 
 export async function handleTraeOAuth(currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
-    const rawHost = options.host || TRAE_AUTH_CONFIG.defaultHost;
-    // 如果 host 包含 mchost.guru，说明是个人版推理域名，网页授权入口需使用 trae.cn
-    const host = rawHost.includes('mchost.guru') ? 'https://www.trae.cn' : rawHost;
-    const providerType = options.providerType || 'trae';
+    // 网页授权入口：个人版网关不是登录页域名，回落到 trae.cn（由 buildTraeWebLoginUrl 兜底）。
+    const rawHost = options.host || TRAE_AUTH_CENTER_HOST;
+    const host = isSoloAgentHost(rawHost) ? TRAE_WEB_CONSOLE_HOST : rawHost;
+    const providerType = options.providerType || MODEL_PROVIDER.TRAE;
     const { loginUrl, machineId, deviceId, callbackUrl } = buildTraeWebLoginUrl({
         host,
         callbackPort: options.port || options.callbackPort || '18080'

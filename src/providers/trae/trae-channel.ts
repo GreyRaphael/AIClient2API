@@ -115,13 +115,76 @@ export function isTraeProviderType(providerType: string): boolean {
 }
 
 /**
- * providerType 是否为 Chat v3 个人版
+ * providerType 是否为 Chat v3 个人版。
+ *
+ * 唯一真源：所有"这是不是个人版通道"的判断都必须走这里，不要再手写字符串比较。
+ * 历史上 trae-auth 里有两处手写版本，既不 trim 也不 lowercase，且接受的别名集合与本函数
+ * 不同 —— 同一个 providerType 在两条路径上会得出相反结论。
+ *
+ * 接受 `chat_v3` 简写：部分调用方（UI 路由、历史配置）用简写而不是完整 type。
+ *
  * @param {string} providerType
  * @returns {boolean}
  */
-export function isSoloFamilyProviderType(providerType: string): boolean {
-    const ptype = String(providerType || '').trim().toLowerCase();
-    return ptype === MODEL_PROVIDER.TRAE_CHAT_V3;
+export function isSoloFamilyProviderType(providerType: unknown): boolean {
+    const ptype = String(providerType ?? '').trim().toLowerCase();
+    return ptype === MODEL_PROVIDER.TRAE_CHAT_V3 || ptype === 'chat_v3';
+}
+
+/**
+ * Trae 的「认证中心」与「推理网关」是两套域名，必须分开对待。
+ *
+ * 实测（同一个无效 PAT 打两个域名）：
+ *   POST api.enterprise.trae.cn/cloudide/api/v3/trae/oauth/ExchangeToken -> 200
+ *   POST trae-api-cn.mchost.guru/cloudide/api/v3/trae/oauth/ExchangeToken -> 404
+ *
+ * 也就是说个人版网关只承载推理，不承载换票鉴权。把两者混为一谈，
+ * 用个人版域名去换票就会拿到 404，且错误信息完全不指向真实原因。
+ */
+
+/** 统一认证中心：换票（ExchangeToken）与取用户信息都走这里，两个通道共用。 */
+export const TRAE_AUTH_CENTER_HOST = 'https://api.enterprise.trae.cn';
+
+/** 个人版（chat_v3）推理网关：只用于业务请求，不能用于换票。 */
+export const TRAE_SOLO_AGENT_HOST = 'https://trae-api-cn.mchost.guru';
+
+/** 网页授权入口（OAuth 登录页）所在域名。 */
+export const TRAE_WEB_CONSOLE_HOST = 'https://www.trae.cn';
+
+/**
+ * 判断一个 URL 是否指向个人版推理网关（而不是认证中心）。
+ * 单独抽出来是为了避免 `includes('mchost.guru')` 这个字面量散落各处。
+ */
+export function isSoloAgentHost(url: unknown): boolean {
+    return String(url ?? '').toLowerCase().includes('mchost.guru');
+}
+
+/**
+ * 从任意来源解析出「换票应使用的认证中心 host」。
+ *
+ * 调用方可能传认证中心、传个人版网关、传空、或传带尾斜杠的地址——
+ * 一律归一为认证中心，因为换票只在那儿有效。
+ */
+export function resolveTraeAuthHost(candidate?: unknown): string {
+    const raw = String(candidate ?? '').trim().replace(/\/+$/, '');
+    if (!raw || isSoloAgentHost(raw)) {
+        return TRAE_AUTH_CENTER_HOST;
+    }
+    return raw;
+}
+
+/**
+ * 解析「业务请求应使用的推理 baseUrl」。
+ *
+ * - 个人版通道固定走个人版网关（即便调用方误传了认证中心）；
+ * - 企业版通道使用认证中心（企业版网关与认证同域）。
+ */
+export function resolveTraeInferenceBaseUrl(providerType: unknown, candidate?: unknown): string {
+    if (isSoloFamilyProviderType(providerType)) {
+        const raw = String(candidate ?? '').trim().replace(/\/+$/, '');
+        return isSoloAgentHost(raw) ? raw : TRAE_SOLO_AGENT_HOST;
+    }
+    return resolveTraeAuthHost(candidate);
 }
 
 /**

@@ -11,7 +11,7 @@ import {
     formatSystemPath
 } from '../utils/provider-utils.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
-import { TRAE_PROVIDER_DEFAULTS } from '../providers/trae/trae-channel.ts';
+import { TRAE_PROVIDER_DEFAULTS, resolveTraeInferenceBaseUrl } from '../providers/trae/trae-channel.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { getProviderPoolManager } from '../providers/pool-context.ts';
 import { getErrorMessage } from '../utils/error.ts';
@@ -154,6 +154,23 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
  * @param {Object} [options] - 可选参数
  * @returns {Promise<Object|null>} 返回关联结果或 null
  */
+/**
+ * 读取凭据文件声明的 provider（不存在或无法解析时返回 null）。
+ *
+ * 历史凭据没有这个字段，此时调用方退回文件名启发式；新凭据一律带该字段。
+ */
+function readDeclaredProvider(absolutePath: string): string | null {
+    try {
+        const raw = fs.readFileSync(absolutePath, 'utf8');
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return null;
+        const declared = (parsed as Record<string, unknown>).provider;
+        return typeof declared === 'string' && declared.trim() ? declared.trim() : null;
+    } catch {
+        return null;
+    }
+}
+
 async function linkSingleCredential(
     config: Record<string, any>,
     credPath: string,
@@ -199,11 +216,18 @@ async function linkSingleCredential(
             return null;
         }
         let providerType = options.providerType || defaultType;
-        // 如果未显式传 providerType，且文件位于 configs/trae，根据文件名智能推断是否为 trae-chat_v3
+        // Trae 的两个通道共用 configs/trae 目录，需要区分归属。
+        // 优先读凭据内的 `provider` 字段（saveTraeCredentials 写入的唯一真源）；
+        // 仅在字段缺失（历史凭据）时退回文件名启发式，避免靠改名就能改变归属。
         if (!options.providerType && matchedMapping.dirName === 'trae') {
-            const fileNameLower = getFileName(absolutePath).toLowerCase();
-            if (fileNameLower.includes('chat_v3')) {
+            const declaredProvider = readDeclaredProvider(absolutePath);
+            if (declaredProvider === MODEL_PROVIDER.TRAE_CHAT_V3) {
                 providerType = MODEL_PROVIDER.TRAE_CHAT_V3;
+            } else if (!declaredProvider) {
+                const fileNameLower = getFileName(absolutePath).toLowerCase();
+                if (fileNameLower.includes('chat_v3')) {
+                    providerType = MODEL_PROVIDER.TRAE_CHAT_V3;
+                }
             }
         }
         const traeDefaults = TRAE_PROVIDER_DEFAULTS[providerType];
@@ -243,16 +267,12 @@ async function linkSingleCredential(
 
         if (traeDefaults) {
             newProvider.TRAE_CHANNEL_MODE = traeDefaults.channelMode;
-            const isChatV3 = providerType === MODEL_PROVIDER.TRAE_CHAT_V3 || providerType === 'trae-chat_v3';
-            if (options.baseUrl) {
-                newProvider.TRAE_BASE_URL = options.baseUrl;
-            } else if (isChatV3) {
-                newProvider.TRAE_BASE_URL = (options.host && !options.host.includes('enterprise.trae.cn'))
-                    ? options.host
-                    : traeDefaults.baseUrl;
-            } else {
-                newProvider.TRAE_BASE_URL = options.host || traeDefaults.baseUrl;
-            }
+            // 推理 baseUrl 的唯一真源在 trae-channel：个人版固定走个人版网关，
+            // 企业版与认证同域。避免"误写企业版地址"这类分支散落在调用方。
+            newProvider.TRAE_BASE_URL = resolveTraeInferenceBaseUrl(
+                providerType,
+                options.baseUrl || options.host
+            ) || traeDefaults.baseUrl;
             newProvider.customName = options.customName || traeDefaults.customName;
         }
 
