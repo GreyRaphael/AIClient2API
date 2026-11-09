@@ -393,6 +393,26 @@ OVERALL: Prompt=505,709, Cached=459,008, Uncached=46,701, Rate=90.77%
 -------------------------------------------------------------
 ```
 
+### 4.5 如何复现上面这组数字
+
+上面的表格由仓库内的基准脚本产出，只依赖网关**公开** API，不依赖任何 harness 内部格式：
+
+```bash
+# 先在另一个终端把网关跑起来（默认 http://127.0.0.1:3000）
+node scripts/cache-hit-benchmark.mjs --rounds 13 --model <你的模型> --min-rate 90
+```
+
+脚本会：
+1. 直接 `POST /v1/chat/completions`，第 N 轮把前面 N-1 轮的问答累积进 `messages`（即本文的「逐轮增长历史」实验设计）；
+2. 每轮后读 `/api/model-usage-stats` 取**本次增量** `cachedTokens/promptTokens`；
+   若该插件未启用或缺管理凭据，自动降级为解析响应体里的 `usage`（含
+   `prompt_tokens_details.cached_tokens`），并在输出中说明当前用的是哪种口径；
+3. 打印与上表同格式的逐轮表格 + 总计；
+4. 总命中率低于 `--min-rate` 时以非 0 退出 —— 因此**可以直接进 CI 当回归门禁**。
+
+> 口径说明：脚本使用与 `src/utils/usage-normalizer.ts` 一致的 **inclusive** 语义
+> （`promptTokens` 已含缓存），否则 `cached/prompt` 会算出 >100% 的假值。
+
 - **后半程（Step 9~13）稳定运行在 96% ~ 98% 的极高位**；
 - **全生命周期（含启动冷请求）综合命中率达到 90.77%**；
 - 同期在服务端上捕获到浏览器前台会话请求：`Prompt: 76698 | Cached: 76288`（**99.46%** 命中率），证明并发多会话下互不干扰。
