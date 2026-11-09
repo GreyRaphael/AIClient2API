@@ -216,18 +216,46 @@ async function readStatsCumulative(options, adminToken) {
     }
 }
 
+/**
+ * 构造一段「足够长且稳定」的前缀。
+ *
+ * **为什么需要它**：主流上游都有 KV cache 的最小可缓存长度门槛
+ * （Anthropic Sonnet/Opus 1024 tokens、Haiku 2048，OpenAI 1024）。
+ * 早先版本只发几十到几百 token，全部低于门槛，命中率恒为 0%——
+ * 那是脚本的问题，不是网关的问题，会让回归门禁变成永远绿的空壳。
+ *
+ * 这里用确定性生成的代码样本把前缀撑到 ~6000 字符（约 1500+ tokens），
+ * 跨轮完全一致，从而真正触发前缀缓存。
+ */
+function buildStablePrefix() {
+    const lines = ['Review the following module and reply with one short observation.'];
+    for (let i = 1; i <= 90; i++) {
+        lines.push(
+            `export function handler${i}(request, context) {`
+            + ` const payload = normalizePayload(request.body, ${i});`
+            + ` if (!payload) return reject(context, 'E_${i}');`
+            + ` return dispatch(payload, context.tenant, { retry: ${i % 3 === 0}, tag: 'op-${i}' });`
+            + ' }'
+        );
+    }
+    return lines.join('\n');
+}
+
 /** 第 N 轮的增长历史：模拟真实多步 agent 会话，前缀稳定以便命中 KV cache。 */
 function buildMessages(history, round) {
     const system = 'You are a meticulous senior engineer doing an incremental code review. '
         + 'Answer concisely and consistently: the same style every turn keeps the prompt prefix stable.';
+    // 稳定前缀：每轮完全相同，位于 messages 最前，保证可被上游缓存
+    const stablePrefix = buildStablePrefix();
     if (history.length === 0) {
         return [
             { role: 'system', content: system },
-            { role: 'user', content: 'Reply with one short sentence about caching HTTP responses.' }
+            { role: 'user', content: stablePrefix + '\n\nReply with one short sentence.' }
         ];
     }
     return [
         { role: 'system', content: system },
+        { role: 'user', content: stablePrefix },
         ...history,
         { role: 'user', content: `Round ${round}: continue the review with one more short observation.` }
     ];
