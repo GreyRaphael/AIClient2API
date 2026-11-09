@@ -80,4 +80,44 @@ describe('ProviderPoolPersistence', () => {
             persistence.dispose();
         }
     });
+
+    /**
+     * 回归守护：写失败不得丢失待保存状态。
+     *
+     * 原实现在写之前就 pendingSaves.clear()，而 catch 只记日志 —— 一次 ENOSPC /
+     * EACCES / 锁异常就会让这批状态变更永久消失（内存里改了，磁盘上没落地，
+     * 且不会重试）。
+     */
+    test('keeps pending saves when the write fails, and retries later', async () => {
+        const oldWorkerId = process.env.JEST_WORKER_ID;
+        const oldNodeEnv = process.env.NODE_ENV;
+        delete process.env.JEST_WORKER_ID;
+        delete process.env.NODE_ENV;
+
+        // 指向一个不可写的路径：目录不存在 -> atomicWriteFile 必然失败
+        const filePath = path.join(tempDir, 'no-such-dir', 'provider_pools.json');
+        const log = jest.fn();
+        const persistence = new ProviderPoolPersistence({
+            getProviderStatus: () => ({
+                'openai-custom': [{ config: { uuid: 'a', isHealthy: true } }]
+            }),
+            getFilePath: () => filePath,
+            log
+        }, 10);
+
+        try {
+            persistence.schedule('openai-custom');
+            await persistence.flush();
+
+            // 核心断言：失败后这批 save 仍在 pending 集合里，等待下次重试
+            expect(persistence.pendingSaves.has('openai-custom')).toBe(true);
+            // 且确实记录了错误
+            const errorLogs = log.mock.calls.filter(([, message]) => /Failed to write/.test(String(message)));
+            expect(errorLogs.length).toBeGreaterThan(0);
+        } finally {
+            process.env.JEST_WORKER_ID = oldWorkerId;
+            if (oldNodeEnv !== undefined) process.env.NODE_ENV = oldNodeEnv;
+            persistence.dispose();
+        }
+    });
 });

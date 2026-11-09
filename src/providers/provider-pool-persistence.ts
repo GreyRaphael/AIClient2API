@@ -56,8 +56,9 @@ export class ProviderPoolPersistence {
         await withFileLock(filePath, async (checkValidity: () => void) => {
             const typesToSave = Array.from(this.pendingSaves);
             if (typesToSave.length === 0) return;
-            this.pendingSaves.clear();
 
+            // 注意：不能在这里 clear()。写入可能失败（ENOSPC/EACCES/锁异常），
+            // 之前先清空再写，失败时这批 save 就永久丢失了。改为写成功后按差集移除。
             try {
                 let currentPools: ProviderPools = {};
 
@@ -96,9 +97,17 @@ export class ProviderPoolPersistence {
                 }
 
                 await atomicWriteFile(filePath, JSON.stringify(currentPools, null, 2), { encoding: 'utf8', mode: 0o600 });
+                // 仅移除本次真正写成功的类型；期间新入队的类型保持 pending。
+                for (const providerType of typesToSave) {
+                    this.pendingSaves.delete(providerType);
+                }
                 this.host.log('info', `configs/provider_pools.json updated successfully for types: ${typesToSave.join(', ')}`);
             } catch (error) {
-                this.host.log('error', `Failed to write provider_pools.json: ${getErrorMessage(error)}`);
+                // 保留 pendingSaves 并重排一次，避免一次瞬时写失败丢掉整批状态变更。
+                this.host.log('error', `Failed to write provider_pools.json: ${getErrorMessage(error)} (retrying later)`);
+                for (const providerType of typesToSave) {
+                    this.schedule(providerType);
+                }
             }
         });
     }
