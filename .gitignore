@@ -24,6 +24,7 @@ model-usage-stats.json
 AGENTS.md
 src/plugins-user/
 configs/pwd
+configs/.master_secret
 configs/antigravity/
 configs/zed/
 configs/trae/

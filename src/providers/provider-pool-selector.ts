@@ -20,6 +20,18 @@ interface ProviderPoolSelectorOptions {
     log(level: string, message: string): void;
 }
 
+/**
+ * 把评分归一化成可比较的数值：NaN 视为最差（+Infinity）。
+ *
+ * calculateNodeScore 在脏数据下会返回 NaN（`lastUsed` 为非法日期字符串、
+ * `_lastSelectionSeq` 为非数值），而 NaN 参与 `<`/`===` 恒为 false，
+ * 直接比较会漏选该节点、极端情况下（全 NaN 池）选不出任何节点。
+ * 这里只影响「无法比较」的非法分数，合法分数（含 ±Infinity）原样返回。
+ */
+function toComparableScore(score: number): number {
+    return Number.isNaN(score) ? Number.POSITIVE_INFINITY : score;
+}
+
 /** 执行模型能力过滤、确定性评分和原子选点状态更新。 */
 export class ProviderPoolSelector {
     private readonly getProviderStatus: ProviderPoolSelectorOptions['getProviderStatus'];
@@ -113,11 +125,18 @@ export class ProviderPoolSelector {
             } else if (requestedModel.includes('/')) {
                 rawModelName = requestedModel.substring(requestedModel.indexOf('/') + 1);
             }
-            const modelFilteredProviders = availableAndHealthyProviders.filter((p: ProviderStatus) => {
-                const cleanRequested = (requestedModel || '').replace(/^models\//, '');
-                const cleanRaw = (rawModelName || '').replace(/^models\//, '');
-                const customCandidates = this.getCustomModelRoutingCandidates(providerType, cleanRequested);
+            // 以下四项只依赖 providerType 与 requestedModel，与具体节点无关（循环不变量）：
+            // 提到 filter 外只算一次，避免每个节点都重建 Set、全量遍历自定义模型。
+            const cleanRequested = (requestedModel || '').replace(/^models\//, '');
+            const cleanRaw = (rawModelName || '').replace(/^models\//, '');
+            const customCandidates = this.getCustomModelRoutingCandidates(providerType, cleanRequested);
+            const modelCandidates = [
+                cleanRequested,
+                cleanRaw,
+                ...customCandidates
+            ].filter(Boolean);
 
+            const modelFilteredProviders = availableAndHealthyProviders.filter((p: ProviderStatus) => {
                 // 自定义模型是用户显式创建的路由意图；即使其 actualModel 未出现在上游发现列表，
                 // 也允许节点尝试处理，避免“分组列表可见但无法路由”。
                 if (options.allowUnselectedModel && customCandidates.length > 0) {
@@ -130,11 +149,6 @@ export class ProviderPoolSelector {
                 }
 
                 // 通用节点专属能力守卫：若节点已有可靠发现结果，严格核对其是否实际支持。
-                const modelCandidates = [
-                    cleanRequested,
-                    cleanRaw,
-                    ...customCandidates
-                ].filter(Boolean);
                 const models = options.allowUnselectedModel
                     ? capability.candidateModels
                     : capability.selectedModels;
@@ -164,13 +178,27 @@ export class ProviderPoolSelector {
         //   跨节点命中 98.39% vs 同节点 98.46%（8 次实验中 3 次跨节点）
         // 数据见 logs/review-pool2/ 与 logs/review-pool/。
         // 该表还会带来 2000 条上限管理、LRU 维护与一次多余的 Map 查找，故移除。
-        const selected = availableAndHealthyProviders.sort((a, b) => {
-            const scoreA = this.calculateNodeScore(a, now, minSeq);
-            const scoreB = this.calculateNodeScore(b, now, minSeq);
-            if (scoreA !== scoreB) return scoreA - scoreB;
-            // 如果分值相同，使用 UUID 排序确保确定性
-            return a.uuid < b.uuid ? -1 : 1;
-        })[0];
+        //
+        // Schwartzian 变换：每个节点只评分一次（calculateNodeScore 内含 new Date() 解析，
+        // 原实现在 sort 比较器里被调用 O(N log N) 次），随后一次线性扫描取最小分。
+        // 排序器只为取最小值而全量排序是多余的；此处数组用后即弃，原地 sort 的副作用不外泄。
+        //
+        // NaN 语义确定化：calculateNodeScore 可能返回 NaN（config.lastUsed 为非法日期字符串、
+        // config._lastSelectionSeq 为非数值）。NaN 参与任何比较都返回 false，原 sort 下其行为
+        // 取决于引擎的稳定排序细节（NaN 与谁比较都“相等”→ 停留在原位），全 NaN 时偶然选中首节点。
+        // 这里把 NaN 视为「最差」（等价于 +Infinity）：既不会因 NaN 漏选，也不会因全 NaN 返回空。
+        // 对正常分数没有任何影响，只是把一个未定义的行为确定成了更安全的行为。
+        let selected = availableAndHealthyProviders[0];
+        let bestScore = toComparableScore(this.calculateNodeScore(selected, now, minSeq));
+        for (let i = 1; i < availableAndHealthyProviders.length; i++) {
+            const candidate = availableAndHealthyProviders[i];
+            const candidateScore = toComparableScore(this.calculateNodeScore(candidate, now, minSeq));
+            // 分数相同时用 UUID 升序打破并列，确保确定性（与原 sort 比较器的 tie-break 等价）
+            if (candidateScore < bestScore || (candidateScore === bestScore && candidate.uuid < selected.uuid)) {
+                selected = candidate;
+                bestScore = candidateScore;
+            }
+        }
 
         // 始终更新 lastUsed（确保 LRU 策略生效，避免并发请求选到同一个 provider）
         // usageCount 只在请求成功后才增加（由 skipUsageCount 控制）

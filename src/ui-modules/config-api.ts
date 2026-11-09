@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { CONFIG, normalizeConfiguredProviders } from '../core/config-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
 import { initApiService, getProviderPoolManager } from '../services/service-manager.ts';
+import { HealthCheckScheduler } from '../services/health-check-scheduler.ts';
 import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
@@ -317,7 +318,7 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
             })();
 
             // 先保存旧的 interval 用于比较
-            const oldInterval = globalThis._activeHealthCheckInterval;
+            const oldInterval = HealthCheckScheduler.getActiveInterval();
 
             // 更新配置
             currentConfig.SCHEDULED_HEALTH_CHECK = {
@@ -329,19 +330,16 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
 
             // 处理 timer 状态变化
             // 当 enabled 从 true -> false 时，清除 timer
-            if (wasEnabled && !nowEnabled && globalThis.stopHealthCheckTimer) {
-                globalThis.stopHealthCheckTimer();
-                globalThis._activeHealthCheckInterval = undefined;
+            if (wasEnabled && !nowEnabled) {
+                HealthCheckScheduler.stopTimer();
             }
             // 当 enabled 从 false -> true 时，启动 timer
-            else if (!wasEnabled && nowEnabled && globalThis.reloadHealthCheckTimer) {
-                globalThis._activeHealthCheckInterval = newInterval;
-                globalThis.reloadHealthCheckTimer(newInterval);
+            else if (!wasEnabled && nowEnabled) {
+                HealthCheckScheduler.reloadTimer(newInterval);
             }
             // 当 enabled=true 且 interval 变化时，重启 timer
-            else if (nowEnabled && newInterval !== oldInterval && globalThis.reloadHealthCheckTimer) {
-                globalThis._activeHealthCheckInterval = newInterval;
-                globalThis.reloadHealthCheckTimer(newInterval);
+            else if (nowEnabled && newInterval !== oldInterval) {
+                HealthCheckScheduler.reloadTimer(newInterval);
             }
         }
 

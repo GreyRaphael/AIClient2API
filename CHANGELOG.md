@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v8.7.0] - 2026-11-09
+
+### Security
+
+- **Master 管理端口加固**（`src/core/master-core.ts`）。管理 API 原先监听所有网卡、
+  CORS 为 `*`、五个端点全部无鉴权——局域网内任意主机（或借浏览器发起跨站请求的网页）
+  都能 `POST /master/stop` 关停网关，或从 `/master/status` 读取 PID 与内存占用。
+  现在：默认只绑 `127.0.0.1`（可用 `MASTER_HOST` 覆盖）；除 `/master/health` 外的端点
+  一律要求 `Authorization: Bearer <secret>`；CORS 只回显本机 Origin。
+- **管理 secret 的生成与存放**：优先 `MASTER_SECRET` 环境变量（需 ≥32 字符，否则忽略），
+  其次读取 `configs/.master_secret`（首次启动自动生成 32 字节随机值，`mode 0o600`）。
+  首次生成时会在启动日志打印一次明文（便于 `docker logs` 获取），之后只打印路径。
+  该文件已加入 `.gitignore`，并从「下载全部配置」的备份 zip 中排除。
+- **修复沙箱的异步逃逸**（`src/core/security-hardening.ts` + `src/core/plugin-security.ts`）。
+  沙箱原本只靠调用栈判断调用方是否为插件，插件把敏感操作投递给 `setTimeout` /
+  `queueMicrotask` / 预先 `bind` 的函数后，回调执行时栈上只剩 Node 内部帧，
+  检查即被放行（可读取 `.env` 与凭据文件）。现在 `PluginManager` 在调用插件代码的
+  唯一收口用 `AsyncLocalStorage` 标注插件身份，上下文随异步资源自动传播，
+  栈检查与上下文检查两条判据并存。
+
+### Fixed
+
+- **UI Token 存储的并发丢 Token**（`src/ui-modules/auth.ts`）。`saveToken`/`deleteToken`
+  是读-改-写，并发登录时后写者会覆盖先写者（实测 6 并发登录丢 5 个 token）。
+  改为内存缓存 + 串行写队列：写操作入队串行执行、落盘成功后才提交内存；
+  用文件 `(mtime,size)` 做失效判断，因此外部修改与删除仍立即可见
+  （「删 `configs/token-store.json` 强制全员下线」的运维手段保持有效）。
+  `writeTokenStore` 不再吞掉写盘错误，登录接口能正确返回 500。
+- **Master 进程的 restartCount 永不重置**：worker 每次崩溃配额只增不减，累计 10 次后
+  永久放弃守护。现在 worker 上报 `ready` 时归零。
+- **管理端口 `EADDRINUSE` 导致整个网关起不来**：补 `server.on('error')`，
+  端口被占用时管理 API 降级禁用，worker 照常启动。
+- **未鉴权即可制造 unhandledRejection**：`new URL(req.url, http://${req.headers.host})`
+  在空/畸形 Host 下抛错。现在兜底 `host || 'localhost'` 并返回 400。
+- **`/provider_health` 的 `identify` 可能泄露凭据路径**：原先拼进的是 OAuth 凭据文件路径
+  （含邮箱）。改为 sha256 前 8 位短标识，既让同名兄弟节点可区分，又不泄露路径。
+  另修正 `unhealthySummeryMessage` 拼写，新旧两个键双写以兼容既有消费方。
+- **号池选点在脏数据下的不确定行为**（`src/providers/provider-pool-selector.ts`）：
+  `calculateNodeScore` 在 `lastUsed` 为非法日期、`_lastSelectionSeq` 为非数值时返回 `NaN`，
+  而 `NaN` 参与比较恒为 false，会让比较器失去传递性。现在把 `NaN` 确定化为「最差」。
+  同时外提循环不变量、以一次线性扫描取代全量排序（10 节点实测 10.3 → 5.3 µs）。
+- `normalizeProviderErrorMessage` 之外的 `service-manager` 原型检查改用 `Object.hasOwn`。
+
+### Changed
+
+- **策略工厂改为单例复用**（`src/utils/provider-strategy-factory.ts`）：5 个策略类
+  实测零实例字段，流式响应每个 chunk 都会取一次策略，改为复用单例。
+  用 `Object.hasOwn` 判定，避免 `__proto__` / `constructor` 等原型键命中。
+- **移除 `globalThis` 跨模块通信**：health check 定时器的三个全局属性
+  （`reloadHealthCheckTimer` / `stopHealthCheckTimer` / `_activeHealthCheckInterval`）
+  收敛到新模块 `src/services/health-check-scheduler.ts`，由 `api-server-core` 与
+  `config-api` 共同依赖。直接互相 import 会形成运行时环（`check:cycles` 会拦下）。
+- 清理 `convert.ts` 废弃的 `modelList` JSDoc 重载与 `api-server-core.ts` 注释残留代码。
+
+### Breaking
+
+- **管理端点现在需要鉴权**：任何调用 `/master/status`、`/master/restart`、
+  `/master/stop`、`/master/start` 的脚本或运维习惯都会从 `200` 变为 `401`。
+  迁移方式：从启动日志或 `configs/.master_secret` 取得 secret，请求时带上
+  `Authorization: Bearer <secret>`。`/master/health` 保持公开，无需改动探活配置。
+- **管理端口默认只监听回环**：容器场景若需从宿主机访问管理 API，需显式设置
+  `MASTER_HOST=0.0.0.0` 并发布对应端口（现有 `docker-compose.yml` 未发布 3100，
+  因此默认部署不受影响）。
+
 ## [Unreleased]
 
 ## [v8.6.0] - 2026-11-08

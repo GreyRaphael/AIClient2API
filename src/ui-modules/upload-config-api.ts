@@ -204,6 +204,12 @@ export async function handleDeleteConfigFile(req: IncomingMessage, res: ServerRe
 }
 
 /**
+ * 备份打包时必须排除的文件名：管理凭据等运行期机密绝不能随备份 zip 外流。
+ * 目前只有 master 管理端口的 Bearer secret（configs/.master_secret）。
+ */
+const BACKUP_EXCLUDED_FILENAMES = new Set(['.master_secret']);
+
+/**
  * 下载所有配置为 zip
  */
 export async function handleDownloadAllConfigs(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -221,6 +227,9 @@ export async function handleDownloadAllConfigs(req: IncomingMessage, res: Server
         const addDirectoryToZip = async (dirPath: string, zipPath = ''): Promise<void> => {
             const items = await fs.readdir(dirPath, { withFileTypes: true });
             for (const item of items) {
+                // 排除管理凭据等机密文件，避免备份包携带 master token
+                if (BACKUP_EXCLUDED_FILENAMES.has(item.name)) continue;
+
                 const fullPath = path.join(dirPath, item.name);
                 const itemZipPath = zipPath ? path.join(zipPath, item.name) : item.name;
 

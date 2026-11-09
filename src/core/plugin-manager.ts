@@ -21,9 +21,11 @@ import path from 'path';
 import {
     auditSecurityEvent,
     isInsidePath,
+    runInPluginContext,
     scanPluginDirectory,
     validatePluginExport,
-    validatePluginId
+    validatePluginId,
+    type PluginExecutionContext
 } from './plugin-security.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
@@ -33,6 +35,21 @@ const PLUGINS_CONFIG_FILE = path.join(process.cwd(), 'configs', 'plugins.json');
 // 插件目录
 const BUILTIN_PLUGINS_DIR = path.join(process.cwd(), 'src', 'plugins');
 const USER_PLUGINS_DIR = path.join(process.cwd(), 'src', 'plugins-user');
+
+/**
+ * 由插件对象推导沙箱需要的归属信息（目录类型 / 插件 id / 是否用户插件）。
+ * 未登记 _baseDir 的插件（如占位符）退回按名称推导，保证始终有可审计的身份。
+ */
+function pluginExecutionContext(plugin: Plugin): PluginExecutionContext {
+    const baseDir = plugin._baseDir || path.join(BUILTIN_PLUGINS_DIR, plugin.name);
+    const isUserPlugin = isInsidePath(USER_PLUGINS_DIR, baseDir);
+    return {
+        pluginDirType: isUserPlugin ? 'plugins-user' : 'plugins',
+        pluginId: plugin.name,
+        isUserPlugin,
+        baseDir
+    };
+}
 
 // 默认禁用的插件列表
 const DEFAULT_DISABLED_PLUGINS = ['api-potluck', 'ai-monitor', 'model-usage-stats', 'ip-node-proxy'];
@@ -629,7 +646,10 @@ class PluginManager {
         });
 
         return Promise.race([
-            Promise.resolve().then(fn),
+            // 用 AsyncLocalStorage 标注插件身份：沙箱据此识别异步逃逸
+            // （插件把 fs 操作塞进 setTimeout / microtask 后调用栈已无插件帧）。
+            // 这是所有插件代码执行的唯一收口，故标注点只需这一处。
+            Promise.resolve().then(() => runInPluginContext(pluginExecutionContext(plugin), fn)),
             timeoutPromise
         ]).then((result) => {
             plugin._errorCount = 0;

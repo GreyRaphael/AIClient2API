@@ -166,6 +166,8 @@ export function createRequestHandler(
                                 count: provideStatus.count,
                                 unhealthyCount: provideStatus.unhealthyCount,
                                 unhealthyRatio: provideStatus.unhealthyRatio,
+                                // 对外契约双写：新键为正确拼写，旧键（Summery）为兼容已对接的外部调用方保留一个发布周期。
+                                unhealthySummaryMessage: provideStatus.unhealthySummaryMessage,
                                 unhealthySummeryMessage: provideStatus.unhealthySummeryMessage,
                                 summaryHealth
                             }));

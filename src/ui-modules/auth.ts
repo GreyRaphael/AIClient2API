@@ -1,3 +1,14 @@
+/**
+ * UI 鉴权：密码校验 + token store（configs/token-store.json）。
+ *
+ * token store 的一致性边界（P0-4/P0-5）：
+ * - **文件是唯一权威源**，内存只是一份带 (mtimeMs, size) 失效校验的读缓存；
+ * - 所有写操作在本进程内经一条写队列串行执行，保证**单进程内**并发登录不丢 token；
+ * - 该队列锁只在进程内有效：**不支持多个实例共享同一个 configs 目录**
+ *   （跨进程并发需要文件锁，例如基于 O_EXCL 的 proper-lockfile，本项目未引入）；
+ * - 外部（运维手工 / 其他工具）对文件的修改或删除会在下一次访问时被探测到：
+ *   改动按 (mtimeMs, size) 重读；文件被删则缓存一并清空（= 所有登录立即失效）。
+ */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 
@@ -188,14 +199,183 @@ async function readTokenStore(): Promise<TokenStore> {
 
 /**
  * 写入token存储文件
+ *
+ * 写失败必须向上抛出：调用方（saveToken → handleLoginRequest）要能据此返回 500。
+ * 历史实现只记录日志不抛错，登录接口会返回 200 但 token 从未落盘，是丢 token 的帮凶。
+ * （readTokenStore 里"文件不存在则建空文件"的调用由它自己的 try/catch 兜住。）
  */
 async function writeTokenStore(tokenStore: TokenStore): Promise<void> {
     try {
         await atomicWriteFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), { encoding: 'utf8', mode: 0o600 });
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Token Store] Failed to write token store file:', error);
+        throw error;
     }
 }
+
+/**
+ * 浅拷贝 token 表，且保持"无原型"形态：
+ * token 键名来自文件内容，`__proto__` 这类键在普通对象上赋值会改写原型，
+ * 在 Object.create(null) 上则只是普通自身属性。
+ * @param {Record<string, TokenRecord>} tokens
+ * @returns {Record<string, TokenRecord>}
+ */
+function cloneTokens(tokens: Record<string, TokenRecord>): Record<string, TokenRecord> {
+    const next: Record<string, TokenRecord> = Object.create(null);
+    for (const key of Object.keys(tokens)) {
+        next[key] = tokens[key];
+    }
+    return next;
+}
+
+/**
+ * token store 的进程内读缓存 + 串行写队列。
+ *
+ * 设计要点（详见文件头的一致性边界说明）：
+ * - 文件永远是权威源，缓存只在 (mtimeMs, size) 未变时复用；
+ * - 所有"读-改-写"排在同一条 Promise 链上串行执行，彻底消除并发登录互相覆盖；
+ * - 缓存的写操作只在落盘成功后提交内存，落盘失败向调用方抛出。
+ */
+class TokenStoreManager {
+    /** 内存副本（无原型对象）：仅作读缓存，绝不作为权威源单独存在 */
+    private tokens: Record<string, TokenRecord> = Object.create(null);
+    private fileMtimeMs = 0;
+    private fileSize = -1;
+    private loaded = false;
+
+    /**
+     * 串行写队列（进程内互斥）。
+     * 链条本身被归一为"永不 reject"：一次写失败不会让后续所有写永久瘫死（P0-5），
+     * 而单次操作的真实失败通过 enqueue 的返回值传回调用方。
+     */
+    private writeChain: Promise<void> = Promise.resolve();
+
+    /**
+     * 入队执行：返回的 Promise 反映"本次操作"的成败；
+     * writeChain 只用于排队，失败时也 resolve，保证链条不断。
+     * @param {() => Promise<T>} fn
+     * @returns {Promise<T>}
+     */
+    private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+        // 前一个操作失败也要继续执行本次操作，因此 fulfilled/rejected 两侧都接 fn
+        const run = this.writeChain.then(fn, fn);
+        this.writeChain = run.then(() => undefined, () => undefined);
+        return run;
+    }
+
+    /** 清空缓存：文件不存在时缓存必须一起失效 */
+    private invalidate(): void {
+        this.tokens = Object.create(null);
+        this.loaded = false;
+        this.fileMtimeMs = 0;
+        this.fileSize = -1;
+    }
+
+    /**
+     * 用 (mtimeMs, size) 判断是否需要重读文件：
+     * - 未变化 → 直接复用内存，避免每次校验都 readFile + JSON.parse；
+     * - 外部修改 → 重读，保证"手工改文件"可见；
+     * - 文件被删除 → 清空缓存，保住"删 configs/token-store.json 即全员下线"的运维语义。
+     */
+    private async refreshIfChanged(): Promise<void> {
+        const stat = await fs.stat(TOKEN_STORE_FILE).catch(() => null);
+        if (!stat) {
+            this.invalidate();
+            return;
+        }
+        if (this.loaded && stat.mtimeMs === this.fileMtimeMs && stat.size === this.fileSize) {
+            return;
+        }
+
+        const raw = await readTokenStore(); // readTokenStore 自带兜底：读失败返回空表
+        this.tokens = raw.tokens;
+        this.fileMtimeMs = stat.mtimeMs;
+        this.fileSize = stat.size;
+        this.loaded = true;
+    }
+
+    /**
+     * 落盘成功后用真实 stat 对齐缓存，避免下一次读把自己刚写的内容误判为"外部改动"。
+     * stat 失败则降级为"下次重读"，不谎报缓存有效。
+     */
+    private async syncStat(): Promise<void> {
+        const stat = await fs.stat(TOKEN_STORE_FILE).catch(() => null);
+        if (!stat) {
+            this.invalidate();
+            return;
+        }
+        this.fileMtimeMs = stat.mtimeMs;
+        this.fileSize = stat.size;
+        this.loaded = true;
+    }
+
+    /**
+     * 读路径：先做失效校验，再从内存取表（O(1)，返回的表只读不改）。
+     * @returns {Promise<Record<string, TokenRecord>>}
+     */
+    async snapshot(): Promise<Record<string, TokenRecord>> {
+        await this.refreshIfChanged();
+        return this.tokens;
+    }
+
+    /**
+     * 写入/更新一条 token：入队 → 刷新 → 改副本 → 落盘 → 对齐 stat → 提交内存。
+     * @param {string} token
+     * @param {TokenRecord} record
+     */
+    async set(token: string, record: TokenRecord): Promise<void> {
+        await this.enqueue(async () => {
+            await this.refreshIfChanged();
+            const next = cloneTokens(this.tokens);
+            next[token] = record;
+            await writeTokenStore({ tokens: next }); // 抛错就往外抛：调用方必须知道没写成功
+            this.tokens = next;
+            await this.syncStat();
+        });
+    }
+
+    /**
+     * 删除一条 token（同样在队列内完成 RMW）。
+     * @param {string} token
+     */
+    async delete(token: string): Promise<void> {
+        await this.enqueue(async () => {
+            await this.refreshIfChanged();
+            if (!isOwnToken(token, this.tokens)) return;
+            const next = cloneTokens(this.tokens);
+            delete next[token];
+            await writeTokenStore({ tokens: next });
+            this.tokens = next;
+            await this.syncStat();
+        });
+    }
+
+    /**
+     * 批量清理过期/无效记录：批量 RMW 也必须入队，否则会和并发登录互相覆盖。
+     * @param {number} now 清理基准时间戳
+     */
+    async cleanup(now: number): Promise<void> {
+        await this.enqueue(async () => {
+            await this.refreshIfChanged();
+            const next = cloneTokens(this.tokens);
+            let hasChanges = false;
+            for (const token of Object.keys(next)) {
+                const expiryTime = next[token].expiryTime;
+                // 缺失或非数字的过期时间视为无效记录，一并清理（与 verifyToken 判定一致）
+                if (typeof expiryTime !== 'number' || !Number.isFinite(expiryTime) || now > expiryTime) {
+                    delete next[token];
+                    hasChanges = true;
+                }
+            }
+            if (!hasChanges) return;
+            await writeTokenStore({ tokens: next });
+            this.tokens = next;
+            await this.syncStat();
+        });
+    }
+}
+
+const tokenStoreManager = new TokenStoreManager();
 
 /**
  * 验证简单token
@@ -208,12 +388,14 @@ export async function verifyToken(token: string): Promise<DynamicPayload | null>
         return null;
     }
 
-    const tokenStore = await readTokenStore();
-    if (!isOwnToken(token, tokenStore.tokens)) {
+    // 走内存缓存（O(1)），但必须先用 (mtimeMs, size) 校验缓存是否仍然代表文件现状：
+    // 这同时保住了"外部修改可见"与"删文件即全员下线"的运维语义。
+    const tokens = await tokenStoreManager.snapshot();
+    if (!isOwnToken(token, tokens)) {
         return null;
     }
 
-    const tokenInfo = tokenStore.tokens[token];
+    const tokenInfo = tokens[token];
     if (!tokenInfo || typeof tokenInfo !== 'object') {
         return null;
     }
@@ -222,36 +404,45 @@ export async function verifyToken(token: string): Promise<DynamicPayload | null>
     // 历史实现用 `Date.now() > undefined === false` 放行了这类记录，正是绕过点之一。
     const expiryTime = tokenInfo.expiryTime;
     if (typeof expiryTime !== 'number' || !Number.isFinite(expiryTime)) {
-        await deleteToken(token);
+        await discardToken(token);
         return null;
     }
 
     // 检查是否过期
     if (Date.now() > expiryTime) {
-        await deleteToken(token);
+        await discardToken(token);
         return null;
     }
 
-    return tokenInfo;
+    // 返回浅拷贝：缓存里的记录是共享的，调用方改返回值不能污染缓存与后续落盘内容
+    return { ...tokenInfo };
 }
 
 /**
  * 保存token到本地文件
+ * 落盘成功才 resolve：失败会抛出，调用方（handleLoginRequest）据此返回 500。
  */
 async function saveToken(token: string, tokenInfo: DynamicPayload): Promise<void> {
-    const tokenStore = await readTokenStore();
-    tokenStore.tokens[token] = tokenInfo;
-    await writeTokenStore(tokenStore);
+    await tokenStoreManager.set(token, tokenInfo as TokenRecord);
 }
 
 /**
  * 删除token
  */
 async function deleteToken(token: string): Promise<void> {
-    const tokenStore = await readTokenStore();
-    if (isOwnToken(token, tokenStore.tokens)) {
-        delete tokenStore.tokens[token];
-        await writeTokenStore(tokenStore);
+    await tokenStoreManager.delete(token);
+}
+
+/**
+ * 丢弃一条无效/过期 token（verifyToken 的顺手清理）。
+ * 这里已经要返回"拒绝"了，清理失败不应把 401 变成 500，因此吞掉写错误。
+ * @param {string} token
+ */
+async function discardToken(token: string): Promise<void> {
+    try {
+        await deleteToken(token);
+    } catch (caught) { const error = caught as DynamicPayload;
+        logger.warn('[Auth] Failed to remove invalid token from store:', error?.message || error);
     }
 }
 
@@ -339,22 +530,8 @@ const loginAttemptManager = new LoginAttemptManager();
  * 清理过期的token
  */
 export async function cleanupExpiredTokens() {
-    const tokenStore = await readTokenStore();
-    const now = Date.now();
-    let hasChanges = false;
-
-    for (const token of Object.keys(tokenStore.tokens)) {
-        const expiryTime = tokenStore.tokens[token].expiryTime;
-        // 缺失或非数字的过期时间视为无效记录，一并清理
-        if (typeof expiryTime !== 'number' || !Number.isFinite(expiryTime) || now > expiryTime) {
-            delete tokenStore.tokens[token];
-            hasChanges = true;
-        }
-    }
-
-    if (hasChanges) {
-        await writeTokenStore(tokenStore);
-    }
+    // 批量清理同样是读-改-写，必须走写队列，否则会与并发登录互相覆盖
+    await tokenStoreManager.cleanup(Date.now());
 }
 
 /**
@@ -518,7 +695,13 @@ export async function handleLoginRequest(req: IncomingMessage, res: ServerRespon
 }
 
 // 定时清理过期 token；unref 避免模块被测试/CLI 引入时阻塞进程自然退出。
-const tokenCleanupTimer = setInterval(cleanupExpiredTokens, 5 * 60 * 1000);
+// 写盘失败现在会抛出（不再被 writeTokenStore 吞掉），定时器必须自己兜住，
+// 否则会变成 unhandledRejection 直接打挂进程。
+const tokenCleanupTimer = setInterval(() => {
+    cleanupExpiredTokens().catch((caught: DynamicPayload) => {
+        logger.error('[Auth] Scheduled token cleanup failed:', caught?.message || caught);
+    });
+}, 5 * 60 * 1000);
 tokenCleanupTimer.unref?.();
 
 

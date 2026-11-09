@@ -1,4 +1,5 @@
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { promises as fs } from 'fs';
 import { existsSync, realpathSync } from 'fs';
 import path from 'path';
@@ -41,6 +42,36 @@ export function auditSecurityEvent(event: DynamicPayload): void {
         ...event
     };
     logger.warn('[Security Hardening]', JSON.stringify(payload));
+}
+
+/**
+ * 插件执行上下文的异步传播载体。
+ *
+ * 沙箱原先只靠调用栈判断“调用方是不是插件”，但异步事件循环会抹掉这段信息：
+ * 插件把敏感操作包进 setTimeout / queueMicrotask / 预先 bind 的函数后，回调
+ * 真正执行时栈上只剩 Node 内部帧，`getPluginStack()` 返回 null，检查即被放行。
+ *
+ * AsyncLocalStorage 会随异步资源自动传播上下文，因此脱离调用栈的回调仍能
+ * 被识别为插件来源。放在本模块是为了让 plugin-manager（写入方）与
+ * security-hardening（读取方）共享同一实例而不产生循环依赖。
+ */
+export interface PluginExecutionContext {
+    pluginDirType: string;
+    pluginId: string;
+    isUserPlugin: boolean;
+    baseDir: string;
+}
+
+const pluginExecutionContext = new AsyncLocalStorage<PluginExecutionContext>();
+
+/** 在指定插件上下文内执行 fn —— PluginManager 调用插件代码的唯一收口。 */
+export function runInPluginContext<T>(context: PluginExecutionContext, fn: () => T): T {
+    return pluginExecutionContext.run(context, fn);
+}
+
+/** 当前异步上下文所属插件；宿主代码返回 null。 */
+export function getAsyncPluginContext(): PluginExecutionContext | null {
+    return pluginExecutionContext.getStore() ?? null;
 }
 
 export function validatePluginId(pluginId: unknown, label = 'pluginId'): string {

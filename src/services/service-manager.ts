@@ -9,6 +9,7 @@ import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../provide
 import { getProviderPoolManager, setProviderPoolManager } from '../providers/pool-context.ts';
 import { getStatusIdentifyFieldMap } from '../providers/provider-registry.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { createHash } from 'node:crypto';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 
@@ -273,6 +274,41 @@ export function markProviderUnhealthy(provider: string, providerInfo: Record<str
 }
 
 /**
+ * 由 identify 字段的原始值派生一个稳定的短标识。
+ *
+ * 为什么不做成直接把原始值拼进 identify：
+ * `identifyField` 的实际取值是 OAuth 凭据文件路径（含邮箱，如
+ * `./configs/codex/xxx@gmail.com_oauth_creds.json`）或 Base URL。而 `identify`
+ * 最终会进入 `GET /provider_health` 的 `unhealthySummaryMessage` ——
+ * 该端点在鉴权之前，是公开可访问的。把原始值拼进去等于把凭据路径泄露到公网。
+ *
+ * 因此这里只输出"足够区分节点、但无法反推原值"的短标识：
+ * - URL 形态（自定义 provider 的 Base URL）：取 host，本身就是配置意图，不含凭据；
+ * - 路径形态：取文件名主干的 sha256 前 8 位，既保证同凭据稳定同标识、
+ *   不同凭据可区分，又不泄露目录结构与邮箱。
+ *
+ * @param raw identify 字段的原始值
+ * @returns 短标识；无法派生时返回 null
+ */
+function buildStableIdentifyTag(raw: unknown): string | null {
+    if (typeof raw !== 'string') return null;
+    const text = raw.trim();
+    if (text === '') return null;
+
+    // URL 形态：只取 host（自定义 provider 的 Base URL 不属于敏感信息）
+    try {
+        const host = new URL(text).host;
+        if (host) return host;
+    } catch {
+        // 不是 URL，按文件路径处理
+    }
+
+    const base = text.replace(/\\/g, '/').split('/').pop() || '';
+    if (base === '') return null;
+    return createHash('sha256').update(base).digest('hex').slice(0, 8);
+}
+
+/**
  * Get providers status
  * @param {Object} config - The current request configuration
  * @param {Object} [options] - Optional. Additional options.
@@ -346,17 +382,20 @@ export async function getProviderStatus(
             .map(item => {
                 const slim: DynamicPayload = {};
                 for (const f of slimFields) {
-                    let val = item.hasOwnProperty(f) ? item[f] : null;
+                    // Object.hasOwn 而非 item.hasOwnProperty(...)：后者依赖原型链，
+                    // 若 item 来自 Object.create(null) 或 hasOwnProperty 被数据污染会抛 TypeError。
+                    let val = Object.hasOwn(item, f) ? item[f] : null;
                     if (f === 'uuid' && typeof val === 'string' && val.length > 8) {
                         val = val.substring(0, 8) + '...' + val.substring(val.length - 4);
                     }
                     slim[f] = val;
                 }
-                // identify 字段
-                if (identifyField && item.hasOwnProperty(identifyField)) {
-                    let tmpCustomName = item.customName ? `${item.customName}` : (slim.uuid || 'NoUUID');
-                    let identifyStr = `${tmpCustomName}::${key}`;
-                    slim.identify = identifyStr;
+                // identify 字段：customName 相同的兄弟节点此前会撞成同一个 identify，
+                // 加入底层凭据的短标识后才能真正区分节点（短标识不是原始值，见 buildStableIdentifyTag）。
+                const baseName = item.customName ? `${item.customName}` : (slim.uuid || 'NoUUID');
+                if (identifyField && Object.hasOwn(item, identifyField)) {
+                    const identifyTag = buildStableIdentifyTag(item[identifyField]);
+                    slim.identify = identifyTag ? `${baseName}::${key}::${identifyTag}` : `${baseName}::${key}`;
                 } else {
                     slim.identify = null;
                 }
@@ -374,11 +413,14 @@ export async function getProviderStatus(
     if (count > 0) {
         unhealthyRatio = Number((unhealthyCount / count).toFixed(2));
     }
-        let unhealthySummeryMessage: string | null = unhealthyProvideIdentifyList.join('\n');
-        if (unhealthySummeryMessage === '') unhealthySummeryMessage = null;
+    let unhealthySummaryMessage: string | null = unhealthyProvideIdentifyList.join('\n');
+    if (unhealthySummaryMessage === '') unhealthySummaryMessage = null;
     return {
         providerPoolsSlim,
-        unhealthySummeryMessage,
+        unhealthySummaryMessage,
+        // @deprecated 旧键拼写错误（Summery），为兼容已按此字段名对接的外部调用方而保留一个发布周期；
+        // 与 unhealthySummaryMessage 值完全一致。计划在后续版本移除。
+        unhealthySummeryMessage: unhealthySummaryMessage,
         count,
         unhealthyCount,
         unhealthyRatio

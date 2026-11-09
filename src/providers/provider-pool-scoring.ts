@@ -5,7 +5,10 @@
  * 排序规则做单元测试。
  */
 
-import type { ProviderStatus } from './provider-types.ts';
+import type { ProviderStatus, ProviderStatusState } from './provider-types.ts';
+
+/** 缺失 state 时的零负载占位（调用方只提供 config 的场景）。 */
+const EMPTY_STATE: ProviderStatusState = { activeCount: 0, waitingCount: 0, queue: [] };
 
 export function calculateNodeScore(
     providerStatus: ProviderStatus,
@@ -14,7 +17,10 @@ export function calculateNodeScore(
     pool: ProviderStatus[] = []
 ): number {
     const config = providerStatus.config;
-    const state = providerStatus.state;
+    // state 在正常运行路径上总会被 initializeProviderStatus 填充；这里兜底是为了
+    // 兼容只带 config 的轻量节点描述（历史实现依赖 sort 对单元素数组不调用比较器，
+    // 从而从未真正评到这类节点，改用线性扫描后必须显式容忍）。
+    const state = providerStatus.state ?? EMPTY_STATE;
 
     // 1. 基础健康分：不健康的排最后
     if (!config.isHealthy || config.isDisabled) return 1e18;

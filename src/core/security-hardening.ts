@@ -1,7 +1,11 @@
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { auditSecurityEvent } from './plugin-security.ts';
+import {
+    auditSecurityEvent,
+    getAsyncPluginContext,
+    type PluginExecutionContext
+} from './plugin-security.ts';
 
 const require = createRequire(import.meta.url);
 const fs = require('fs');
@@ -115,6 +119,27 @@ function isInternalPluginInfraFrame(line: string): boolean {
     return /plugin-installer\.(js|ts)|plugin-manager\.(js|ts)|security-hardening\.(js|ts)/.test(line);
 }
 
+/**
+ * 构造一条“伪调用栈帧”，用于把 AsyncLocalStorage 的插件上下文喂给调用栈解析。
+ *
+ * 这样做的关键好处：下游所有 `getPluginStack()` 调用点（10+ 处 handle*）与
+ * `getPluginContext(stack)` 的解析逻辑都**无需改动**，异步逃逸的修复集中在这一处。
+ */
+function synthPluginFrame(context: PluginExecutionContext): string {
+    const segment = context.isUserPlugin ? 'plugins-user' : 'plugins';
+    return `Error\n    at async src/${segment}/${context.pluginId}/index.js:1:1`;
+}
+
+/**
+ * 取“插件调用栈”：同步调用走真实调用栈，异步回调走 ALS 上下文兜底。
+ *
+ * 原实现只认调用栈，而调用栈在异步边界会被抹掉：
+ *     const steal = Function.prototype.bind.call(fs.readFileSync, null, '.env', 'utf8');
+ *     setTimeout(steal, 0);   // 回调执行时栈上只有 node:internal 帧 → 检查被放行
+ * PluginManager 在 executePluginOperation 里用 AsyncLocalStorage 标注插件身份，
+ * ALS 会随 timer / microtask / nextTick / 预绑定函数自动传播，因此这里能拿到
+ * 调用栈丢失的插件归属。两条判据并存：栈用于同步路径，ALS 用于异步路径。
+ */
 function getPluginStack() {
     const stack = captureCallerStack();
     const lines = stack.split('\n');
@@ -126,7 +151,9 @@ function getPluginStack() {
             return stack;
         }
     }
-    return null;
+
+    const asyncContext = getAsyncPluginContext();
+    return asyncContext ? synthPluginFrame(asyncContext) : null;
 }
 
 function getPluginContext(stack: string | null | undefined): PluginSecurityContext | null {
