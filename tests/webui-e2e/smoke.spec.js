@@ -870,7 +870,7 @@ test.describe('plugin pages', () => {
                         [now.slice(0, 10)]: {
                             summary: { totalTokens: 1000, requestCount: 5 },
                             providers: { 'gemini-antigravity': { requestCount: 3, totalTokens: 600 } },
-                            models: { 'gemini-3-flash': { requestCount: 2, totalTokens: 400 } }
+                            models: { 'gemini-3.8-flash-medium': { requestCount: 2, totalTokens: 400 } }
                         }
                     }
                 }
@@ -892,7 +892,7 @@ test.describe('plugin pages', () => {
             [now.slice(0, 10)]: {
                 summary: { totalTokens: 1000, requestCount: 5 },
                 providers: { 'gemini-antigravity': { requestCount: 3, totalTokens: 600 } },
-                models: { 'gemini-3-flash': { requestCount: 2, totalTokens: 400 } }
+                models: { 'gemini-3.8-flash-medium': { requestCount: 2, totalTokens: 400 } }
             }
         };
         await page.route('**/api/potluck/keys', (route) => route.fulfill({
@@ -959,7 +959,7 @@ test.describe('plugin pages', () => {
                         'gemini-antigravity': {
                             summary,
                             models: {
-                                'gemini-3-flash': {
+                                'gemini-3.8-flash-medium': {
                                     requestCount: 10,
                                     promptTokens: 1000,
                                     cachedTokens: 100,
@@ -970,7 +970,25 @@ test.describe('plugin pages', () => {
                             }
                         }
                     },
-                    daily: { [now.slice(0, 10)]: { totalTokens: 1000, requestCount: 5 } },
+                    // 默认视图读 daily[dateKey].models；键格式为 "provider:model"。
+                    // 只给 totalTokens/requestCount 而不给 models，表格会渲染成
+                    // 「没有匹配的数据」——这是 mock 数据不完整，不是页面缺陷。
+                    daily: {
+                        [now.slice(0, 10)]: {
+                            totalTokens: 1000,
+                            requestCount: 5,
+                            models: {
+                                'gemini-antigravity:gemini-3.8-flash-medium': {
+                                    requestCount: 10,
+                                    promptTokens: 1000,
+                                    cachedTokens: 100,
+                                    completionTokens: 200,
+                                    totalTokens: 1300,
+                                    lastUsedAt: now
+                                }
+                            }
+                        }
+                    },
                     updatedAt: now
                 }
             })
@@ -980,7 +998,7 @@ test.describe('plugin pages', () => {
         await page.locator('#credentialValue').fill('e2e-credential');
         await page.locator('#connectBtn').click();
         await expect(page.locator('.providers')).toContainText('gemini-antigravity');
-        await expect(page.locator('tbody')).toContainText('gemini-3-flash');
+        await expect(page.locator('tbody')).toContainText('gemini-3.8-flash-medium');
         await expect(page.locator('.calendar-day').first()).toBeVisible();
 
         await page.getByRole('button', { name: /重置 Token/ }).click();
