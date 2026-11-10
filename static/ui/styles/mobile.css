@@ -190,16 +190,6 @@
         justify-content: center;
     }
 
-    /* 主题切换按钮 */
-    .header .header-controls.is-open .theme-toggle {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-
     /* 登出/重启按钮 - 与语言切换按钮样式一致 */
     .header .header-controls.is-open .logout-btn,
     .header .header-controls.is-open #restartBtn {
@@ -452,15 +442,13 @@
     }
 
     /* 按钮进一步缩小 */
-    .github-link,
-    .theme-toggle {
+    .github-link {
         width: 32px;
         height: 32px;
         font-size: 0.75rem;
     }
 
-    .github-link i,
-    .theme-toggle i {
+    .github-link i {
         font-size: 0.75rem;
     }
 
@@ -581,7 +569,6 @@
     }
 
     .github-link,
-    .theme-toggle,
     .logout-btn,
     .language-btn,
     .mobile-menu-toggle {

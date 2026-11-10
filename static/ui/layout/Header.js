@@ -6,7 +6,6 @@
  */
 import { html, useState, useEffect } from '../html.js';
 import { t } from '../lib/i18n.js';
-import { theme, toggleTheme } from '../lib/theme.js';
 import { serviceMode } from '../store/system.js';
 import { api } from '../lib/api.js';
 import { clearToken, redirectToLogin } from '../lib/auth.js';
@@ -18,7 +17,6 @@ import { LanguageSwitcher } from '../components/LanguageSwitcher.js';
 export function Header() {
     const [menuOpen, setMenuOpen] = useState(false);
     const isStandalone = serviceMode.value === 'standalone';
-    const isDark = theme.value === 'dark';
 
     useEffect(() => {
         if (!menuOpen) return undefined;
@@ -102,10 +100,6 @@ export function Header() {
                         <i class="fas fa-star github-star-icon" aria-hidden="true"></i>
                     </a>
                     <${StatusBadge} />
-                    <button id="themeToggleBtn" class="theme-toggle" aria-label=${t('header.themeToggle')}
-                        title=${t('header.themeToggle')} onClick=${() => toggleTheme()}>
-                        <i class=${isDark ? 'fas fa-sun' : 'fas fa-moon'}></i>
-                    </button>
                     <${LanguageSwitcher} />
                     <button id="logoutBtn" class="logout-btn" title=${t('header.logout')} onClick=${handleLogout}>
                         <i class="fas fa-sign-out-alt"></i> <span>${t('header.logout')}</span>

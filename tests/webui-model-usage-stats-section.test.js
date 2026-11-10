@@ -177,27 +177,18 @@ describe('日历热力图：方块形状与绿色深浅（迁移回归护栏）'
         expect(rule(shared, '.calendar-day[data-level="0"]')).toContain('background: var(--bg-secondary)');
     });
 
-    test('四个绿色令牌在亮/暗两套主题下都有定义，且逐级加深', () => {
-        const light = [...base.matchAll(/--calendar-level-(\d):\s*(#[0-9a-fA-F]{6})/g)]
-            .filter((m) => base.indexOf('data-theme="dark"') > base.indexOf(m[0]))
+    test('四个绿色令牌在暗色主题下都有定义，且逐级提亮', () => {
+        const tokens = [...base.matchAll(/--calendar-level-(\d):\s*(#[0-9a-fA-F]{6})/g)]
             .map((m) => ({ level: Number(m[1]), hex: m[2] }));
-        // 按出现顺序取前 4 个属于亮色块
-        const lightTokens = light.slice(0, 4);
-        expect(lightTokens.map((t) => t.level)).toEqual([1, 2, 3, 4]);
+        expect(tokens.map((t) => t.level)).toEqual([1, 2, 3, 4]);
 
-        // 相对亮度：level 越高必须越深（亮色主题）
+        // 相对亮度：暗色背景下 level 越高必须越亮（反向提亮）
         const luminance = (hex) => {
             const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
             return 0.2126 * r + 0.7152 * g + 0.0722 * b;
         };
-        for (let i = 1; i < lightTokens.length; i += 1) {
-            expect(luminance(lightTokens[i].hex)).toBeLessThan(luminance(lightTokens[i - 1].hex));
-        }
-
-        // 暗色块也必须有这 4 个令牌（否则深色主题下格子没有颜色）
-        const darkSection = base.slice(base.indexOf('[data-theme="dark"]'));
-        for (const level of [1, 2, 3, 4]) {
-            expect(darkSection).toContain(`--calendar-level-${level}:`);
+        for (let i = 1; i < tokens.length; i += 1) {
+            expect(luminance(tokens[i].hex)).toBeGreaterThan(luminance(tokens[i - 1].hex));
         }
     });
 

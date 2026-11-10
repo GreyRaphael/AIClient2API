@@ -8,7 +8,7 @@
  * 这里断言：
  *  1. 所有 `var(--x)` 引用的令牌都在 base.css 的 `:root` 里定义过；
  *  2. 不再有带写死 fallback 的 `var(--x, ...)`；
- *  3. 亮色 `:root` 与暗色 `[data-theme="dark"]` 两套令牌块都能被解析出来。
+ *  3. 暗黑主题 `:root` 令牌块完整定义了核心语义色。
  */
 
 import { describe, test, expect } from '@jest/globals';
@@ -58,15 +58,14 @@ function parseTokens(block) {
 
 describe('CSS 令牌完整性', () => {
     const baseCss = readFileSync(BASE, 'utf8');
-    const lightTokens = parseTokens(tokenBlock(baseCss, ':root {'));
-    const darkTokens = parseTokens(tokenBlock(baseCss, '[data-theme="dark"] {'));
+    const tokens = parseTokens(tokenBlock(baseCss, ':root {'));
 
-    test('亮色与暗色两套令牌块都能解析', () => {
-        expect(lightTokens.size).toBeGreaterThan(75);
-        // 暗色块不需要重复定义每个令牌，但应有足够数量覆盖语义色
-        expect(darkTokens.size).toBeGreaterThan(45);
-        expect(darkTokens.has('--bg-primary')).toBe(true);
-        expect(darkTokens.has('--text-primary')).toBe(true);
+    test('暗黑主题令牌块能解析且覆盖语义色', () => {
+        expect(tokens.size).toBeGreaterThan(75);
+        expect(tokens.has('--bg-primary')).toBe(true);
+        expect(tokens.has('--text-primary')).toBe(true);
+        expect(tokens.get('--bg-primary')).toBe('#0f172a');
+        expect(tokens.get('--text-primary')).toBe('#f8fafc');
     });
 
     test('所有 var() 引用的令牌都有定义', () => {
@@ -75,7 +74,7 @@ describe('CSS 令牌完整性', () => {
             if (file === BASE) continue;
             const css = stripComments(readFileSync(file, 'utf8'));
             for (const m of css.matchAll(/var\(\s*(--[-\w]+)/g)) {
-                if (!lightTokens.has(m[1])) {
+                if (!tokens.has(m[1])) {
                     undefinedRefs.push(`${path.relative(STYLES_ROOT, file)} -> ${m[1]}`);
                 }
             }
@@ -95,10 +94,8 @@ describe('CSS 令牌完整性', () => {
         expect(withFallback).toEqual([]);
     });
 
-    test('--danger-hover 在亮色与暗色下都有定义', () => {
-        // 这个令牌曾被使用但从未定义，靠内联 fallback 掩盖
-        expect(lightTokens.has('--danger-hover')).toBe(true);
-        expect(darkTokens.has('--danger-hover')).toBe(true);
-        expect(lightTokens.get('--danger-hover')).not.toBe(darkTokens.get('--danger-hover'));
+    test('--danger-hover 在暗色主题下有定义', () => {
+        expect(tokens.has('--danger-hover')).toBe(true);
+        expect(tokens.get('--danger-hover')).toBe('#ef4444');
     });
 });

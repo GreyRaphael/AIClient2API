@@ -1,6 +1,5 @@
 /** API 大锅饭 - 管理端 Key 管理页（Phase 5 迁移）。 */
 import { html, useEffect, useMemo, useState } from '../html.js';
-import { toggleTheme } from '../lib/theme.js';
 import { getToken } from '../lib/auth.js';
 import { copyToClipboard } from '../lib/clipboard.js';
 import { confirmDialog } from '../store/confirm.js';
@@ -325,9 +324,6 @@ function PotluckAdminPage() {
                     <span class="icon">🍲</span><span>API 大锅饭</span><span class="badge">管理端</span>
                 </div>
                 <div class="navbar-actions" style="display:flex;align-items:center;gap:12px;">
-                    <button class="theme-toggle" title="切换主题" onClick=${toggleTheme}>
-                        <i class="fas fa-sun"></i><i class="fas fa-moon"></i>
-                    </button>
                     <button class="btn btn-primary" onClick=${() => setCreateOpen(true)}>
                         <i class="fas fa-plus"></i> <span class="btn-text">生成新 Key</span>
                     </button>

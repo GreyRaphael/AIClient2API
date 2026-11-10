@@ -110,30 +110,23 @@ test.describe('console shell', () => {
         await expect(page.locator('a.nav-item[data-section="dashboard"]')).toContainText('仪表盘');
     });
 
-    test('明暗主题切换并持久化', async ({ authedPage: page }) => {
+    test('保持暗黑主题（仅支持暗黑模式）', async ({ authedPage: page }) => {
         await page.goto('/');
         const html = page.locator('html');
-        const initial = await html.getAttribute('data-theme');
-        await page.locator('#themeToggleBtn').click();
-        const toggled = await html.getAttribute('data-theme');
-        expect(toggled).not.toBe(initial);
+        await expect(html).toHaveAttribute('data-theme', 'dark');
 
-        await page.reload();
-        expect(await html.getAttribute('data-theme')).toBe(toggled);
+        // 不再提供主题切换按钮
+        await expect(page.locator('#themeToggleBtn')).toHaveCount(0);
     });
 
-    test('未手动设置主题时跟随系统', async ({ authedPage: page }) => {
+    test('无论系统偏好如何均保持暗黑主题', async ({ authedPage: page }) => {
         await page.emulateMedia({ colorScheme: 'light' });
         await page.goto('/');
-        await page.evaluate(() => localStorage.removeItem('theme'));
-        await page.reload();
-
         const html = page.locator('html');
-        await expect(html).not.toHaveAttribute('data-theme', 'dark');
+        await expect(html).toHaveAttribute('data-theme', 'dark');
+
         await page.emulateMedia({ colorScheme: 'dark' });
         await expect(html).toHaveAttribute('data-theme', 'dark');
-        await page.emulateMedia({ colorScheme: 'light' });
-        await expect(html).not.toHaveAttribute('data-theme', 'dark');
     });
 
     test('主界面标题与描述随语言切换', async ({ authedPage: page }) => {
@@ -1030,7 +1023,7 @@ test.describe('mobile header', () => {
         await expect(controls).toBeVisible();
         await expect(controls).toHaveClass(/is-open/);
         // 展开后的 key 控件必须真的渲染成可见盒子（曾因样式选择器与内联样式解耦而整块失效）
-        for (const sel of ['#themeToggleBtn', '#logoutBtn', '#restartBtn', '.status-badge']) {
+        for (const sel of ['#logoutBtn', '#restartBtn', '.status-badge']) {
             await expect(controls.locator(sel)).toBeVisible();
         }
 

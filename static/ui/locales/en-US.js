@@ -7,7 +7,6 @@ export default {
     'header.github': 'Star this project on GitHub',
     'header.githubStar': 'Star',
     'header.menu': 'Menu',
-    'header.themeToggle': 'Toggle Theme',
     'header.status.connecting': 'Connecting...',
     'header.status.connected': 'Connected',
     'header.status.disconnected': 'Disconnected',

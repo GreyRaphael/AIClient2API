@@ -143,7 +143,7 @@
     transition: width 0.3s ease;
 }
 
-/* 五档色调复用既有语义令牌，深浅色主题自动跟随 */
+/* 五档色调复用既有语义令牌 */
 #model-usage-stats .tone-green { color: var(--success-color); }
 #model-usage-stats .usage-stats-bar-fill.tone-green { background: var(--success-color); }
 #model-usage-stats .tone-blue { color: var(--info-color); }

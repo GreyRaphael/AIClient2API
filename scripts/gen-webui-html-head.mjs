@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 /**
- * 生成 / 校验 5 份 WebUI HTML 的公共外壳（import map + 主题引导脚本）。
+ * 生成 / 校验 4 份 WebUI HTML 的公共外壳（import map + 主题引导脚本）。
  *
  * 背景：项目没有构建步骤，所以 import map 与主题引导必须在每份 HTML 里各内联一份。
- * 这两块曾经被手工复制了 5 遍，并已经漂移过一次（index.html 缺系统深色回退，
- * 导致只有控制台在系统深色下闪白）。真源在 scripts/webui-html-shell.mjs。
+ * 真源在 scripts/webui-html-shell.mjs。
  *
  * 用法：
  *   node scripts/gen-webui-html-head.mjs          # 就地重写各 HTML 的这两块
@@ -12,7 +11,7 @@
  *
  * 识别方式不依赖标记注释：按内容定位
  *  - `<script type="importmap">…</script>`（每份恰好一个）
- *  - 含 `localStorage.getItem('theme')` 的内联 `<script>`（每份恰好一个）
+ *  - 含主题引导（data-theme="dark" / localStorage）的内联 `<script>`（每份恰好一个）
  * 引用块首行的缩进会被保留，其余行按该缩进重新排版。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -21,7 +20,7 @@ import path from 'node:path';
 import { HTML_PAGES, STATIC_ROOT, renderImportMap, renderThemeBoot } from './webui-html-shell.mjs';
 
 const IMPORTMAP_RE = /<script type="importmap">[\s\S]*?<\/script>/;
-const THEME_RE = /<script>(?:(?!<\/script>)[\s\S])*localStorage\.getItem\('theme'\)(?:(?!<\/script>)[\s\S])*<\/script>/;
+const THEME_RE = /<script>(?:(?!<\/script>)[\s\S])*(?:localStorage\.(?:getItem|removeItem)\('theme'\)|setAttribute\('data-theme',\s*'dark'\))(?:(?!<\/script>)[\s\S])*<\/script>/;
 
 /**
  * 用 render(indent) 的结果替换 html 中第一个匹配 blockRe 的片段。
@@ -53,7 +52,7 @@ function firstStylesheetIndex(html) {
  * 把主题引导脚本挪到所有样式表之前。
  *
  * 顺序有语义：主题引导必须在第一条样式表被**解析**前建立 data-theme，
- * 否则系统深色用户可能先看到浅色背景。login.html 历史上就把它写在了 base.css 之后。
+ * 保证首屏即为暗黑主题。login.html 历史上就把它写在了 base.css 之后。
  * @returns {string}
  */
 function hoistThemeBoot(html) {

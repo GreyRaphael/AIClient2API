@@ -1,21 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh-CN" id="html-root">
+<html lang="zh-CN" id="html-root" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-    <meta name="theme-color" content="#059669">
+    <meta name="theme-color" content="#1f2937">
     <meta name="description" content="AIClient2API Management Console - Unified management of AI service providers">
     <title>AIClient2API - 管理控制台</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <script>
-        // 尽早应用主题，避免首屏闪白。本块由 scripts/gen-webui-html-head.mjs 生成，勿手改。
-        // 三条分支缺一不可：手动选择 > 系统偏好 > 静默失败。
+        // 尽早应用暗黑主题，避免首屏闪烁。本块由 scripts/gen-webui-html-head.mjs 生成，勿手改。
         (function () {
-            try {
-                var t = localStorage.getItem('theme');
-                if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
-                if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-            } catch (e) { /* localStorage 可能被禁用 */ }
+            document.documentElement.setAttribute('data-theme', 'dark');
+            try { localStorage.removeItem('theme'); } catch (e) { /* localStorage 可能被禁用 */ }
         })();
     </script>
     <link rel="stylesheet" href="ui/styles/base.css">

@@ -26,7 +26,7 @@ function readImportMap(file) {
 function readThemeBoot(file) {
     const html = readFileSync(path.join(STATIC_ROOT, file), 'utf8');
     const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-    const boot = blocks.filter((body) => body.includes("localStorage.getItem('theme')"));
+    const boot = blocks.filter((body) => body.includes("setAttribute('data-theme', 'dark')"));
     expect(boot.length).toBe(1);
     return boot[0];
 }
@@ -53,21 +53,20 @@ describe('WebUI HTML 外壳', () => {
         }
     });
 
-    test('5 段主题引导脚本完全一致（含系统深色回退）', () => {
+    test('4 段主题引导脚本完全一致（仅支持暗黑主题）', () => {
         const first = readThemeBoot(HTML_PAGES[0]);
         for (const page of HTML_PAGES) {
             expect(readThemeBoot(page)).toBe(first);
         }
-        // 三条分支都必须存在，尤其是系统偏好回退 —— index.html 曾经漏掉它
-        expect(first).toContain("localStorage.getItem('theme')");
-        expect(first).toContain('prefers-color-scheme: dark');
+        expect(first).toContain("document.documentElement.setAttribute('data-theme', 'dark')");
+        expect(first).toContain("localStorage.removeItem('theme')");
         expect(first).toContain('catch');
     });
 
-    test('主题引导早于所有样式表（否则首帧仍是浅色）', () => {
+    test('主题引导早于所有样式表（否则首帧仍可能闪烁）', () => {
         for (const page of HTML_PAGES) {
             const html = readFileSync(path.join(STATIC_ROOT, page), 'utf8');
-            const bootAt = html.search(/<script>(?:(?!<\/script>)[\s\S])*localStorage\.getItem\('theme'\)/);
+            const bootAt = html.search(/<script>(?:(?!<\/script>)[\s\S])*setAttribute\('data-theme',\s*'dark'\)/);
             expect(bootAt).toBeGreaterThan(-1);
             const firstLink = html.indexOf('<link rel="stylesheet"');
             if (firstLink >= 0) {

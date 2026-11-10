@@ -1,15 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="QR code placeholder">
   <style>
-    .frame { stroke: #cbd5e1; }
-    .finder { stroke: #94a3b8; }
-    .finder-dot { fill: #94a3b8; }
-    .module { fill: #cbd5e1; }
-    @media (prefers-color-scheme: dark) {
-      .frame { stroke: #334155; }
-      .finder { stroke: #64748b; }
-      .finder-dot { fill: #64748b; }
-      .module { fill: #334155; }
-    }
+    .frame { stroke: #334155; }
+    .finder { stroke: #64748b; }
+    .finder-dot { fill: #64748b; }
+    .module { fill: #334155; }
   </style>
   <rect x="1" y="1" width="98" height="98" rx="6" fill="none" stroke-width="2"
     stroke-dasharray="6 5" class="frame" />

@@ -1,6 +1,5 @@
 /** API 大锅饭 - 用户用量页（Phase 5 迁移）。 */
 import { html, useEffect, useRef, useState } from '../html.js';
-import { toggleTheme } from '../lib/theme.js';
 import { copyToClipboard } from '../lib/clipboard.js';
 import { toast } from '../store/toast.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
@@ -90,16 +89,10 @@ function PotluckUserPage() {
                 ${data ? html`
                     <div class="navbar-user" style="display:flex;">
                         <span class="welcome">欢迎，<strong>${data.name || '用户'}</strong></span>
-                        <button class="theme-toggle" title="切换主题" onClick=${toggleTheme}>
-                            <i class="fas fa-sun"></i><i class="fas fa-moon"></i>
-                        </button>
                         <button class="btn btn-secondary btn-sm" onClick=${logout}>
                             <i class="fas fa-sign-out-alt"></i> <span class="btn-text">退出</span>
                         </button>
-                    </div>` : html`
-                    <button class="theme-toggle" style="display:inline-flex;" title="切换主题" onClick=${toggleTheme}>
-                        <i class="fas fa-sun"></i><i class="fas fa-moon"></i>
-                    </button>`}
+                    </div>` : ''}
             </div>
         </nav>
 

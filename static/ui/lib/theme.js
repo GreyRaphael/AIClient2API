@@ -1,84 +1,28 @@
 /**
- * 主题：沿用 `data-theme="dark"` + localStorage `theme` 契约。
+ * 主题：仅支持暗黑主题（dark）。
  */
 import { signal } from '@preact/signals';
 
 const THEME_KEY = 'theme';
-const THEME_LIGHT = 'light';
 const THEME_DARK = 'dark';
+const THEME_COLOR_META = '#1f2937';
 
-function readSavedTheme() {
-    try {
-        return globalThis.localStorage?.getItem(THEME_KEY) ?? null;
-    } catch {
-        return null;
-    }
-}
+export const theme = signal(THEME_DARK);
 
-function systemPrefersDark() {
-    if (typeof window === 'undefined' || !window.matchMedia) return false;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
-
-function getInitialTheme() {
-    const saved = readSavedTheme();
-    if (saved === THEME_DARK || saved === THEME_LIGHT) return saved;
-    return systemPrefersDark() ? THEME_DARK : THEME_LIGHT;
-}
-
-export const theme = signal(getInitialTheme());
-
-function updateMetaThemeColor(value) {
+function updateMetaThemeColor() {
     if (typeof document === 'undefined') return;
     document.querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content', value === THEME_DARK ? '#1f2937' : '#059669');
+        ?.setAttribute('content', THEME_COLOR_META);
 }
-
-/**
- * 应用主题。
- * @param {string} value
- * @param {boolean} [persist=true]
- */
-function applyTheme(value, persist = true) {
-    const next = value === THEME_DARK ? THEME_DARK : THEME_LIGHT;
-    theme.value = next;
-
-    if (typeof document !== 'undefined') {
-        if (next === THEME_DARK) {
-            document.documentElement.setAttribute('data-theme', THEME_DARK);
-        } else {
-            document.documentElement.removeAttribute('data-theme');
-        }
-        updateMetaThemeColor(next);
-    }
-
-    if (persist) {
-        try {
-            globalThis.localStorage?.setItem(THEME_KEY, next);
-        } catch {
-            // 忽略隐私模式下的持久化失败
-        }
-    }
-
-    return next;
-}
-
-export function toggleTheme() {
-    return applyTheme(theme.value === THEME_DARK ? THEME_LIGHT : THEME_DARK);
-}
-
-let initialized = false;
 
 export function initTheme() {
-    applyTheme(theme.value, false);
-    if (initialized || typeof window === 'undefined' || !window.matchMedia) return;
-    initialized = true;
-
-    // 用户未手动设置过主题时跟随系统
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (event) => {
-        if (!readSavedTheme()) {
-            theme.value = event.matches ? THEME_DARK : THEME_LIGHT;
-            applyTheme(theme.value, false);
-        }
-    });
+    if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', THEME_DARK);
+        updateMetaThemeColor();
+    }
+    try {
+        globalThis.localStorage?.removeItem(THEME_KEY);
+    } catch {
+        // 忽略隐私模式下的存储异常
+    }
 }

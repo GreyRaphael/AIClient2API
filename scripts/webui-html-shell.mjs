@@ -1,13 +1,12 @@
 /**
  * WebUI 页面外壳的唯一真源（import map + 主题引导脚本）。
  *
- * 这五份 HTML（index / login / potluck / potluck-user / model-usage-stats）没有构建步骤：
+ * 这四份 HTML（index / login / potluck / potluck-user）没有构建步骤：
  * 浏览器端模块解析必须靠每份 HTML 内联一份 import map；主题引导必须在 `<head>` 里同步执行，
- * 否则系统深色用户会先看到一次浅色闪烁。
+ * 保证首屏即为暗黑主题并清理历史遗留主题。
  *
- * 代价是这两块内容在 5 个文件里各抄一份。历史教训很直接：index.html 的那份主题脚本
- * 漏掉了系统深色回退分支，于是只有控制台在系统深色下闪白 —— 这类漂移靠 code review
- * 抓不住，只能靠「单一真源 + 校验脚本」（scripts/gen-webui-html-head.mjs --check）。
+ * 代价是这两块内容在各文件里各抄一份，靠「单一真源 + 校验脚本」（scripts/gen-webui-html-head.mjs --check）
+ * 避免不同页面之间发生漂移。
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -55,22 +54,18 @@ export function renderImportMap(indent = '') {
 /**
  * 渲染主题引导脚本（同步、内联、必须早于样式表生效）。
  *
- * 三条分支缺一不可：
- *  1. 用户手动选过主题 → 用他的选择；
- *  2. 没选过 → 跟随系统 prefers-color-scheme；
- *  3. localStorage 被禁用 → 静默失败，不能因此阻塞页面。
+ * 仅支持暗黑主题：
+ *  1. 尽早设置 data-theme="dark"，避免首屏闪烁；
+ *  2. 清理历史遗留的 localStorage theme 键；
+ *  3. localStorage 被禁用时静默失败，不能因此阻塞页面。
  */
 export function renderThemeBoot(indent = '') {
     const lines = [
         '<script>',
-        '    // 尽早应用主题，避免首屏闪白。本块由 scripts/gen-webui-html-head.mjs 生成，勿手改。',
-        '    // 三条分支缺一不可：手动选择 > 系统偏好 > 静默失败。',
+        '    // 尽早应用暗黑主题，避免首屏闪烁。本块由 scripts/gen-webui-html-head.mjs 生成，勿手改。',
         '    (function () {',
-        '        try {',
-        "            var t = localStorage.getItem('theme');",
-        "            if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';",
-        "            if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');",
-        '        } catch (e) { /* localStorage 可能被禁用 */ }',
+        "        document.documentElement.setAttribute('data-theme', 'dark');",
+        "        try { localStorage.removeItem('theme'); } catch (e) { /* localStorage 可能被禁用 */ }",
         '    })();',
         '</script>'
     ];
