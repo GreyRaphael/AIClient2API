@@ -54,7 +54,7 @@ function pluginExecutionContext(plugin: Plugin): PluginExecutionContext {
 // 默认禁用的插件列表
 // model-usage-stats 已迁出插件体系，成为核心服务（src/services/usage-stats/），
 // 不再受 plugins.json 的 enabled 开关控制，故不在此列表中。
-const DEFAULT_DISABLED_PLUGINS = ['api-potluck', 'ai-monitor', 'ip-node-proxy'];
+const DEFAULT_DISABLED_PLUGINS = ['api-potluck', 'ip-node-proxy'];
 const PLUGIN_OPERATION_TIMEOUT_MS = 10000;
 const PLUGIN_MAX_ERROR_COUNT = 3;
 

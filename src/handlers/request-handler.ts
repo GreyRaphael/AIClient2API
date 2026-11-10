@@ -14,6 +14,7 @@ import { isRegisteredProvider } from '../providers/adapter.ts';
 import { countTokensAnthropic } from '../utils/token-utils.ts';
 import { PROMPT_LOG_FILENAME } from '../core/config-manager.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
+import { authenticateGatewayRequest } from './gateway-auth.ts';
 import { randomUUID } from 'crypto';
 import { getErrorMessage } from '../utils/error.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
@@ -220,14 +221,14 @@ export function createRequestHandler(
                         }
                     }
 
-                    // 1. 执行认证流程（只有 type='auth' 的插件参与）
-                    const authResult = await pluginManager.executeAuth(req, res, requestUrl, currentConfig);
+                    // 1. 执行网关认证流程（优先执行扩展认证插件，未处理时由核心默认 API Key 鉴权兜底）
+                    const authResult = await authenticateGatewayRequest(req, res, requestUrl, currentConfig, pluginManager);
                     if (authResult.handled) {
                         // 认证插件已处理请求（如发送了错误响应）
                         return;
                     }
                     if (!authResult.authorized) {
-                        // 没有认证插件授权，使用 handleError 返回 401
+                        // 没有认证插件授权且默认 API Key 校验未通过，使用 handleError 返回 401
                         handleError(res, { status: 401, message: 'Unauthorized: API key is invalid or missing.' }, currentConfig.MODEL_PROVIDER, null, req);
                         return;
                     }

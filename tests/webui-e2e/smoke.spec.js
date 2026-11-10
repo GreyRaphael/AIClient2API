@@ -731,7 +731,7 @@ test.describe('console shell', () => {
         await expect(page.locator('section#plugins.active')).toBeVisible();
         await expect(page.locator('#pluginsList .plugin-card').first()).toBeVisible();
         const pluginCount = await page.locator('#pluginsList .plugin-card').count();
-        expect(pluginCount).toBeGreaterThanOrEqual(3);
+        expect(pluginCount).toBeGreaterThanOrEqual(1);
         await expect(page.locator('#totalPlugins')).toHaveText(String(pluginCount));
         await expect(page.locator('.tab-item[data-tab="market"]')).toBeVisible();
         expect(await page.evaluate(() => typeof window.togglePlugin)).toBe('undefined');

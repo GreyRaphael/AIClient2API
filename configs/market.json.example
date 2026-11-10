@@ -8,14 +8,6 @@
     "downloadUrl": "https://raw.githubusercontent.com/justlovemaki/AIClient-2-API/main/plugins/api-potluck.zip"
   },
   {
-    "id": "ai-monitor",
-    "name": "AI 实时监控",
-    "version": "1.0.0",
-    "minSystemVersion": "3.0.0",
-    "description": "监控系统吞吐量（QPS/TPS）、延迟和错误率，帮助您实时掌握各个节点的运行状况。",
-    "downloadUrl": "https://raw.githubusercontent.com/justlovemaki/AIClient-2-API/main/plugins/ai-monitor.zip"
-  },
-  {
     "id": "premium-export",
     "name": "高级数据导出插件",
     "version": "1.2.0",

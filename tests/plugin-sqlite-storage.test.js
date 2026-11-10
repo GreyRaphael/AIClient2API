@@ -86,37 +86,10 @@ describe('shared sqlite-store', () => {
     });
 });
 
-describe('ai-monitor sqlite retention', () => {
-    test('写入/查询/截断/清理', async () => {
-        const db = await import('../src/plugins/ai-monitor/monitor-db.js');
-        db.setDatabaseDir(sandbox);
-        // maxPayloadBytes 有 1024 的防误配下限，因此用 2000 触发截断
-        // maxRows 有 100 的防误配下限
-        db.configure({ MONITOR_MAX_PAYLOAD_BYTES: 2000, MONITOR_MAX_ROWS: 100, MONITOR_RETENTION_DAYS: 0 });
-
-        db.insertRecord({ requestId: 'r1', model: 'm1', fromProvider: 'a', toProvider: 'b',
-            originalRequest: { text: 'x'.repeat(5000) }, nativeResponse: { ok: true } });
-
-        const q = db.queryRecords({});
-        expect(q.total).toBe(1);
-        expect(q.rows[0].model).toBe('m1');
-        // 超长 payload 被截断并标记
-        expect(q.rows[0].truncated).toBe(true);
-        // 截断后已非合法 JSON，保留原始文本并带截断标记
-        expect(String(q.rows[0].originalRequest)).toContain('[truncated]');
-        expect(Buffer.byteLength(String(q.rows[0].originalRequest))).toBeLessThan(3000);
-
-        // maxRows 生效：写 110 条应被裁剪到 100
-        for (let i = 0; i < 110; i++) db.insertRecord({ requestId: `x${i}`, model: 'm2' });
-        expect(db.queryRecords({}).total).toBe(100);
-
-        const summary = db.querySummary();
-        expect(summary.total).toBe(100);
-        expect(summary.options.maxRows).toBe(100);
-
-        db.clearRecords();
-        expect(db.queryRecords({}).total).toBe(0);
-        db.shutdown();
+describe('已移除插件路径断言', () => {
+    test('ai-monitor 和 default-auth 插件目录已彻底删除', async () => {
+        await expect(import('../src/plugins/ai-monitor/index.js')).rejects.toThrow();
+        await expect(import('../src/plugins/default-auth/index.js')).rejects.toThrow();
     });
 });
 
