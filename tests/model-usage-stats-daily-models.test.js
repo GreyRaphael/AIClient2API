@@ -335,4 +335,156 @@ describe('spec §1 冻结的不变量', () => {
         const stats = await statsManager.getStats();
         expect(stats.byModel).toEqual([]);
     });
+
+    test('多不同 model_id 格式（DeepSeek / Qwen / Gemini / Claude / GPT）缓存均能正确入库且 cachedTokens 不为 0', async () => {
+        // 1. DeepSeek: 官方 prompt_cache_hit_tokens
+        statsManager.recordUnaryUsage({
+            requestId: 'req-deepseek',
+            model: 'deepseek-v4.1-flash',
+            provider: 'trae-chat_v3',
+            fromProvider: 'openai',
+            nativeResponse: {
+                usage: {
+                    prompt_tokens: 1000,
+                    completion_tokens: 100,
+                    total_tokens: 1100,
+                    prompt_cache_hit_tokens: 800,
+                    prompt_cache_miss_tokens: 200
+                }
+            },
+            clientResponse: null
+        });
+        statsManager.finalizeRequest({
+            requestId: 'req-deepseek',
+            model: 'deepseek-v4.1-flash',
+            provider: 'trae-chat_v3',
+            isStream: false
+        });
+
+        // 2. Qwen: 百炼 cache_hit_tokens
+        statsManager.recordUnaryUsage({
+            requestId: 'req-qwen',
+            model: 'qwen3.8-flash',
+            provider: 'trae-chat_v3',
+            fromProvider: 'openai',
+            nativeResponse: {
+                usage: {
+                    input_tokens: 2000,
+                    output_tokens: 200,
+                    total_tokens: 2200,
+                    cache_hit_tokens: 1500
+                }
+            },
+            clientResponse: null
+        });
+        statsManager.finalizeRequest({
+            requestId: 'req-qwen',
+            model: 'qwen3.8-flash',
+            provider: 'trae-chat_v3',
+            isStream: false
+        });
+
+        // 3. Gemini Antigravity: response.usageMetadata.cachedContentTokenCount
+        statsManager.recordUnaryUsage({
+            requestId: 'req-gemini',
+            model: 'gemini-3.8-flash-high',
+            provider: 'gemini-antigravity',
+            fromProvider: 'gemini',
+            nativeResponse: {
+                response: {
+                    candidates: [{ finishReason: 'STOP' }],
+                    usageMetadata: {
+                        promptTokenCount: 1200,
+                        candidatesTokenCount: 300,
+                        totalTokenCount: 1500,
+                        cachedContentTokenCount: 900
+                    }
+                }
+            },
+            clientResponse: null
+        });
+        statsManager.finalizeRequest({
+            requestId: 'req-gemini',
+            model: 'gemini-3.8-flash-high',
+            provider: 'gemini-antigravity',
+            isStream: false
+        });
+
+        // 4. Claude: cache_read_input_tokens
+        statsManager.recordUnaryUsage({
+            requestId: 'req-claude',
+            model: 'claude-3-5-sonnet',
+            provider: 'claude-custom',
+            fromProvider: 'claude',
+            nativeResponse: {
+                usage: {
+                    input_tokens: 300,
+                    output_tokens: 50,
+                    cache_read_input_tokens: 700
+                }
+            },
+            clientResponse: null
+        });
+        statsManager.finalizeRequest({
+            requestId: 'req-claude',
+            model: 'claude-3-5-sonnet',
+            provider: 'claude-custom',
+            isStream: false
+        });
+
+        // 5. GPT-4o: prompt_tokens_details.cached_tokens
+        statsManager.recordUnaryUsage({
+            requestId: 'req-gpt',
+            model: 'gpt-4o',
+            provider: 'openai-custom',
+            fromProvider: 'openai',
+            nativeResponse: {
+                usage: {
+                    prompt_tokens: 500,
+                    completion_tokens: 80,
+                    total_tokens: 580,
+                    prompt_tokens_details: {
+                        cached_tokens: 350
+                    }
+                }
+            },
+            clientResponse: null
+        });
+        statsManager.finalizeRequest({
+            requestId: 'req-gpt',
+            model: 'gpt-4o',
+            provider: 'openai-custom',
+            isStream: false
+        });
+
+        const stats = await statsManager.getStats();
+
+        const deepseekRow = findRow(stats.byModel, 'trae-chat_v3', 'deepseek-v4.1-flash');
+        expect(deepseekRow).toBeDefined();
+        expect(deepseekRow.cachedTokens).toBe(800);
+        expect(deepseekRow.promptTokens).toBe(1000);
+
+        const qwenRow = findRow(stats.byModel, 'trae-chat_v3', 'qwen3.8-flash');
+        expect(qwenRow).toBeDefined();
+        expect(qwenRow.cachedTokens).toBe(1500);
+        expect(qwenRow.promptTokens).toBe(2000);
+
+        const geminiRow = findRow(stats.byModel, 'gemini-antigravity', 'gemini-3.8-flash-high');
+        expect(geminiRow).toBeDefined();
+        expect(geminiRow.cachedTokens).toBe(900);
+        expect(geminiRow.promptTokens).toBe(1200);
+
+        const claudeRow = findRow(stats.byModel, 'claude-custom', 'claude-3-5-sonnet');
+        expect(claudeRow).toBeDefined();
+        expect(claudeRow.cachedTokens).toBe(700);
+        expect(claudeRow.promptTokens).toBe(1000); // 300 + 700 = 1000 (inclusive)
+
+        const gptRow = findRow(stats.byModel, 'openai-custom', 'gpt-4o');
+        expect(gptRow).toBeDefined();
+        expect(gptRow.cachedTokens).toBe(350);
+        expect(gptRow.promptTokens).toBe(500);
+
+        // 汇总缓存 token
+        expect(stats.summary.cachedTokens).toBe(800 + 1500 + 900 + 700 + 350);
+    });
 });

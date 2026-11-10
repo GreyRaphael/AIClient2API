@@ -227,6 +227,44 @@ describe('extractUsage', () => {
         )).toEqual({ promptTokens: 10, completionTokens: 8, totalTokens: 15, cachedTokens: 0 });
     });
 
+    test('DeepSeek 官方 usage：从 prompt_cache_hit_tokens 提取缓存', () => {
+        expect(normalizeUsageCandidate({
+            model: 'deepseek-chat',
+            usage: {
+                prompt_tokens: 1000,
+                completion_tokens: 150,
+                total_tokens: 1150,
+                prompt_cache_hit_tokens: 800,
+                prompt_cache_miss_tokens: 200
+            }
+        })).toEqual({ promptTokens: 1000, completionTokens: 150, totalTokens: 1150, cachedTokens: 800 });
+    });
+
+    test('通义千问 Qwen / 阿里云百炼：从 cache_hit_tokens 提取缓存', () => {
+        expect(normalizeUsageCandidate({
+            model: 'qwen-plus',
+            usage: {
+                input_tokens: 2000,
+                output_tokens: 300,
+                total_tokens: 2300,
+                cache_hit_tokens: 1500
+            }
+        })).toEqual({ promptTokens: 2000, completionTokens: 300, totalTokens: 2300, cachedTokens: 1500 });
+    });
+
+    test('Gemini Antigravity response.usageMetadata 嵌套结构提取缓存', () => {
+        expect(normalizeUsageCandidate({
+            response: {
+                usageMetadata: {
+                    promptTokenCount: 1200,
+                    candidatesTokenCount: 200,
+                    totalTokenCount: 1400,
+                    cachedContentTokenCount: 900
+                }
+            }
+        })).toEqual({ promptTokens: 1200, completionTokens: 200, totalTokens: 1400, cachedTokens: 900 });
+    });
+
     test('全部无效时返回全零对象', () => {
         expect(extractUsage(null, undefined, {})).toEqual({
             promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0

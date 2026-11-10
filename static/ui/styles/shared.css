@@ -302,7 +302,9 @@ input:checked + .toggle-slider::before {
     display: grid;
     grid-auto-flow: column;
     grid-template-rows: repeat(7, 11px);
+    grid-auto-columns: 11px;
     gap: 2px;
+    width: max-content;
     min-width: max-content;
     padding: 2px;
 }

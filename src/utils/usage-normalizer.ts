@@ -83,7 +83,9 @@ export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | n
                 ? record.usageMetadata
                 : isRecord(response?.usage)
                     ? response.usage
-                    : null;
+                    : isRecord(response?.usageMetadata)
+                        ? response.usageMetadata
+                        : null;
 
     const completionDetails = isRecord(record.completion_tokens_details) ? record.completion_tokens_details : null;
     const outputDetails = isRecord(record.output_tokens_details) ? record.output_tokens_details : null;
@@ -174,19 +176,38 @@ export function normalizeUsageCandidate(candidate: unknown): NormalizedUsage | n
     const usagePromptDetails = isRecord(usage?.prompt_tokens_details) ? usage.prompt_tokens_details : null;
     const usageInputDetails = isRecord(usage?.input_tokens_details) ? usage.input_tokens_details : null;
     const usageInputTokenDetails = isRecord(usage?.input_token_details) ? usage.input_token_details : null;
+    const recordMetadata = isRecord(record.usageMetadata) ? record.usageMetadata : null;
+    const responseMetadata = isRecord(response?.usageMetadata) ? response.usageMetadata : null;
+
     const cachedTokens = toNumber(
         record.cached_tokens ??
         usage?.cached_tokens ??
+        record.prompt_cache_hit_tokens ??
+        usage?.prompt_cache_hit_tokens ??
+        record.cache_hit_tokens ??
+        usage?.cache_hit_tokens ??
+        record.cache_read_tokens ??
+        usage?.cache_read_tokens ??
+        record.cache_read_input_tokens ??
+        usage?.cache_read_input_tokens ??
         promptDetails?.cached_tokens ??
+        promptDetails?.prompt_cache_hit_tokens ??
+        promptDetails?.cache_hit_tokens ??
+        promptDetails?.cache_read_tokens ??
+        promptDetails?.cache_read_input_tokens ??
+        usagePromptDetails?.cached_tokens ??
+        usagePromptDetails?.prompt_cache_hit_tokens ??
+        usagePromptDetails?.cache_hit_tokens ??
+        usagePromptDetails?.cache_read_tokens ??
+        usagePromptDetails?.cache_read_input_tokens ??
         inputDetails?.cached_tokens ??
         inputTokenDetails?.cached_tokens ??
-        usagePromptDetails?.cached_tokens ??
         usageInputDetails?.cached_tokens ??
         usageInputTokenDetails?.cached_tokens ??
-        usage?.cache_read_input_tokens ??
-        record.cache_read_input_tokens ??
+        record.cachedContentTokenCount ??
         usage?.cachedContentTokenCount ??
-        record.cachedContentTokenCount
+        recordMetadata?.cachedContentTokenCount ??
+        responseMetadata?.cachedContentTokenCount
     );
 
     const hasUsage = promptTokens > 0 || completionTokens > 0 || totalTokens > 0 || cachedTokens > 0;

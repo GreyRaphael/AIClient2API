@@ -52,16 +52,15 @@ const SORT_OPTIONS = [
 ];
 
 export default function ModelUsageStatsSection() {
-    /** null = 历史累计；'YYYY-MM-DD' = 该日 */
-    const [rangeDate, setRangeDate] = useState<string | null>(null);
+    const today = useMemo(() => todayKey(), []);
+    /** null = 历史累计；'YYYY-MM-DD' = 该日（默认当日） */
+    const [rangeDate, setRangeDate] = useState<string | null>(todayKey());
     const [groupBy, setGroupBy] = useState<GroupBy>('model');
     const [search, setSearch] = useState('');
     const [sort, setSort] = useState('totalTokens-desc');
     const [cache, setCache] = useState<ScopeCache>(EMPTY_CACHE);
     const [loading, setLoading] = useState(false);
     const [booting, setBooting] = useState(true);
-
-    const today = useMemo(() => todayKey(), []);
 
     /** 拉一个范围的数据；date 为 null 即历史累计 */
     const fetchScope = async (date: string | null): Promise<StatsPayload> => {
@@ -145,7 +144,7 @@ export default function ModelUsageStatsSection() {
             await api.post('/model-usage-stats/reset', {});
             // 重置后所有缓存都失效
             setCache(EMPTY_CACHE);
-            setRangeDate(null);
+            setRangeDate(today);
             const [all, day] = await Promise.all([fetchScope(null), fetchScope(today)]);
             setCache({ all, days: day ? { [today]: day } : {} });
         } catch (error) {

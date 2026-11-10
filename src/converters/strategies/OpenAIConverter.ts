@@ -498,6 +498,9 @@ export class OpenAIConverter extends BaseConverter {
             inputTokens: usage?.prompt_tokens || 0,
             cachedTokens: usage?.prompt_tokens_details?.cached_tokens
                 ?? usage?.cached_tokens
+                ?? usage?.prompt_cache_hit_tokens
+                ?? usage?.cache_hit_tokens
+                ?? usage?.cache_read_input_tokens
                 ?? 0,
             outputTokens: usage?.completion_tokens || 0
         });
@@ -1662,10 +1665,16 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     _buildResponsesUsageFromOpenAIUsage(usage: DynamicPayload | null | undefined): DynamicPayload {
+        const cachedTokens = usage?.prompt_tokens_details?.cached_tokens
+            ?? usage?.cached_tokens
+            ?? usage?.prompt_cache_hit_tokens
+            ?? usage?.cache_hit_tokens
+            ?? usage?.cache_read_input_tokens
+            ?? 0;
         return usage ? {
             input_tokens: usage.prompt_tokens || 0,
             input_tokens_details: {
-                cached_tokens: usage.prompt_tokens_details?.cached_tokens || 0
+                cached_tokens: cachedTokens
             },
             output_tokens: usage.completion_tokens || 0,
             output_tokens_details: {

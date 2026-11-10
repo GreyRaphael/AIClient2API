@@ -808,7 +808,14 @@ function stripIntermediateUsageMetadata(data: AntigravityStreamFrame): Antigravi
     const hasFinishReason = data?.response?.candidates?.[0]?.finishReason ||
                            data?.candidates?.[0]?.finishReason;
 
-    if (!hasFinishReason) {
+    // 仅当包含 candidates 内容分块且未带 finishReason 时判定为中间帧清洗；
+    // 上游独立的纯 usage 终帧（无 candidates 内容）必须完整保留。
+    const hasCandidates = Boolean(
+        (data?.candidates && data.candidates.length > 0) ||
+        (data?.response?.candidates && data.response.candidates.length > 0)
+    );
+
+    if (!hasFinishReason && hasCandidates) {
         if (data.response && typeof data.response === 'object') {
             delete data.response.usageMetadata;
         }

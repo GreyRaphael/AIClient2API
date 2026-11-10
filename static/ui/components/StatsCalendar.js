@@ -45,7 +45,7 @@ export function StatsCalendar({
     };
 
     return html`
-        <div class="calendar-grid" style="grid-template-rows: repeat(7, 11px); gap: 3px;">
+        <div class="calendar-grid" style="grid-template-rows: repeat(7, 11px); grid-auto-columns: 11px; gap: 2px; width: max-content;">
             ${days.map((day) => html`
                 <div class=${'calendar-day' + (onSelect ? ' calendar-day-clickable' : '')
                         + (selectedDate && day.dateKey === selectedDate ? ' calendar-day-selected' : '')}

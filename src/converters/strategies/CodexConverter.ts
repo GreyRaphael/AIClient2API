@@ -279,6 +279,8 @@ export class CodexConverter extends BaseConverter {
             usage.cache_read_input_tokens ??
             usage.cached_tokens ??
             usage.cachedContentTokenCount ??
+            usage.prompt_cache_hit_tokens ??
+            usage.cache_hit_tokens ??
             0;
     }
 
