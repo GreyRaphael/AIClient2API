@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`model-usage-stats` 从插件迁为核心功能，并搬进主菜单**（紧挨「实时日志」上方）。
+  - 后端：`src/plugins/model-usage-stats/`（4 个 `.js`，760 行）→ `src/services/usage-stats/`
+    （5 个 `.ts`：types / stats-db / stats-manager / api-routes / index）。不再受
+    `configs/plugins.json` 的 `enabled` 开关控制，无需启用插件即可用。
+  - 记账时机从 **插件 hook** 改为**核心流水线直接调用**（`request-pipeline.ts` 3 处、
+    `api-manager.ts` 2 处）。`finalizeRequest` 刻意放在插件 `onContentGenerated` **之外**
+    执行——插件可被用户禁用，用量统计不该跟着丢数据。
+  - API 契约完全不变：`GET /api/model-usage-stats?date=YYYY-MM-DD`（省略 = 历史累计）、
+    `POST|DELETE /reset`、`POST|DELETE /reset-tokens`，dual 鉴权（session token 或
+    `REQUIRED_API_KEY`）。路由注册刻意早于 `isUIApiPath` 的 session 门禁，否则只用
+    API Key 的调用方（含 `scripts/cache-hit-benchmark.mjs`）会被误拦成 401。
+  - 前端：删除独立页 `static/model-usage-stats.html` + `static/ui/pages/model-usage-stats.js`
+    + `static/ui/styles/pages/model-usage-stats.css`，改为主菜单 section
+    `static/ui/sections/model-usage-stats/{index,usage-utils}.ts`。
+    **不再需要手填访问凭证**（走控制台 session token），`lib/credential-api.js` 的
+    `dual` 模式随之删除。
+  - 页面只保留两块核心内容：「选择日期」卡片（内含「历史累计」与「重置统计」）
+    + 右侧汇总卡片（5 项指标，进度条 + 数值）+ 明细表格（按模型 / 按 Provider 切换、
+    搜索、排序、命中率药丸，沿用迁移前的交互）。
+
+### Added
+
+- **WebUI 现在可以直接用 TypeScript**（仍然零构建）。`serveStaticFiles` 对 `.ts` 做
+  服务端运行时类型擦除（`node:module` 的 `stripTypeScriptTypes`，`mode: 'strip'`），
+  擦除结果按 `filePath + mtimeMs + size` 缓存，并与压缩缓存共用同一份字节（避免
+  「压缩版含类型、未压缩版不含」的错配）。`.ts` 因此获得与 `.js` 一致的
+  `text/javascript` MIME、`no-cache` + 弱 ETag + 304 与 br/gzip 压缩。
+  - 代价：只能用**可擦除语法**（不能用 `enum` 与构造函数参数属性 `constructor(private x)`）。
+  - Node 首次调用 `stripTypeScriptTypes` 会发一条 `ExperimentalWarning`；实现里只在那
+    一次调用期间临时接管 `process.emitWarning` 并立刻还原，启动日志不再出现该警告。
+    （踩过的坑：Node 用 `emitWarning(message, type)` 两参数形状发出这条警告，`type`
+    在第二个参数而非 `Error.name` 里，只判 `instanceof Error` 会让拦截静默失效。）
+  - `tsconfig.webui.json` 的 `include` 纳入 `static/ui/**/*.ts`，并开启
+    `allowImportingTsExtensions`（浏览器不做扩展名补全，所以相对 import 必须写全扩展名）。
+
+### Removed
+
+- **三个插件的 JSON→SQLite 迁移代码与测试全部删除**（迁移窗口已过，旧 JSON 早已不存在）：
+  `src/plugins/shared/sqlite-store.js` 的 `backupLegacyJson` / `readLegacyJson`，
+  `api-potluck/potluck-db.js` 的 `migrateFromLegacyJson`，以及
+  `tests/plugin-sqlite-storage.test.js` 里对应的 3 个迁移用例。
+  另加两条反向断言，防止这些已删除的导出被重新加回。
+- `static/ui/lib/stats.js` 的 `flattenModelUsage`（随独立页删除后不再有调用者）。
+- `configs/plugins.json`、`configs/plugins.json.example`、`configs/market.json.example`
+  里 `model-usage-stats` 的插件与市场条目。
+
+### Fixed
+
+- **模型用量统计的日历在控制台里不可见**（本次迁移引入，e2e 抓到）。`StatsCalendar`
+  的样式（`.calendar-day` 的宽高等）此前只存在于 `pages/plugin-shared.css`，而该文件
+  只被 potluck / potluck-user 两个独立页加载，控制台的 `index.html` 从不加载它 ——
+  迁移后日历格子高度为 0。修法：`StatsCalendar` 被三处复用（新 section + potluck 两页），
+  而 `shared.css` 是唯一被所有页面加载的层，因此把整组日历规则收敛到 `shared.css`
+  一处；色阶抽成令牌 `--calendar-level-1..4`（亮/暗两套值都进 `base.css`），
+  不再各写一份十六进制色值。
+- **日历格子从方块变成圆点、提示文字在暗色主题下不可读**（本次迁移引入，用户反馈）。
+  重写日历样式时把「具体像素值」误换成「设计令牌」：`border-radius: 2px` →
+  `var(--radius-sm)`（6px），11px 的方块配上 6px 圆角几乎成了圆形。同一批还有
+  三处：`.calendar-tooltip` 的 `color` 从 `var(--white)` 改成 `var(--bg-primary)`
+  （暗色主题下深字压深底，亮色下恰好正常所以测试没响）、`cursor: pointer` 丢失、
+  tooltip 圆角 `4px`→6px。全部按原始值还原，并新增 4 条回归断言锁住
+  「11px 方块 + 小圆角 + 四档绿逐级加深 + 规则归属 shared.css」。
+
 ## [v8.8.1] - 2026-11-09
 
 ### Fixed

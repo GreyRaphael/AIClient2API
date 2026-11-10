@@ -1,15 +1,17 @@
 /**
  * 用「用户自填凭证」而不是后台 session 调用 API 的请求封装。
  *
- * 三个插件独立页（potluck / potluck-user / model-usage-stats）跑在后台控制台之外，
- * 鉴权方式各不相同：
- *  - potluck 管理端：登录后拿到的 session token，走 Bearer；
- *  - potluck 用户端：用户输入的 `maki_...` API Key，走 Bearer；
- *  - model-usage-stats：访问凭证，同时写 Authorization 与 x-api-key。
+ * 插件独立页（potluck / potluck-user）跑在后台控制台之外，它们拿到的都是
+ * 一个 Bearer 凭证：
+ *  - potluck 管理端：登录后拿到的 session token；
+ *  - potluck 用户端：用户输入的 `maki_...` API Key。
  *
  * 它们此前各自抄了一份 fetch + JSON 解析 + 401 跳转（共约 55 行，4 处调用点）。
- * 这里只收敛**这四页共有的部分**，每页自己的错误文案与业务特判（例如
+ * 这里只收敛**这两页共有的部分**，每页自己的错误文案与业务特判（例如
  * PLUGIN_DISABLED）仍留在各自页面 —— 那些是真的不同，不是重复。
+ *
+ * 2026-11：model-usage-stats 从插件迁进主菜单后改用 `lib/api.js`，它需要同时写
+ * Authorization 与 x-api-key 的 `dual` 模式随之失去唯一消费者，已一并删除。
  *
  * 注意：不要用它替代 `lib/api.js`。后者面向后台控制台，走 `/api` 前缀 + session token、
  * 401 一律清 token 跳登录页；插件页的 401 含义不同（凭证错），不能共用那套副作用。
@@ -20,7 +22,6 @@
  * @property {string} [method] HTTP 方法（默认 GET）
  * @property {Record<string, string>} [headers] 额外请求头
  * @property {any} [body] 请求体；对象会被 JSON 序列化，字符串原样发送
- * @property {'bearer'|'dual'} [auth] `bearer` 只写 Authorization；`dual` 同时写 x-api-key
  * @property {() => void} [onUnauthorized] 401 时的处理（默认跳登录页）
  */
 
@@ -45,16 +46,12 @@ export async function requestWithCredential(url, credential, options = {}) {
         method = 'GET',
         headers: extraHeaders = {},
         body,
-        auth = 'bearer',
         onUnauthorized = defaultUnauthorized
     } = options;
 
     /** @type {Record<string, string>} */
     const headers = { ...extraHeaders };
-    if (credential) {
-        headers.Authorization = `Bearer ${credential}`;
-        if (auth === 'dual') headers['x-api-key'] = credential;
-    }
+    if (credential) headers.Authorization = `Bearer ${credential}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 
     // 字符串视为调用方已序列化好的 JSON（既有插件页都是这么传的），对象才由这里序列化

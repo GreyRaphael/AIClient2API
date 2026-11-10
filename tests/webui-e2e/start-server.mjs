@@ -23,8 +23,10 @@ mkdirSync(path.join(workDir, 'src'), { recursive: true });
 symlinkSync(path.join(REPO, 'static'), path.join(workDir, 'static'), 'dir');
 symlinkSync(path.join(REPO, 'src', 'plugins'), path.join(workDir, 'src', 'plugins'), 'dir');
 const pluginConfig = JSON.parse(readFileSync(path.join(REPO, 'configs', 'plugins.json.example'), 'utf8'));
-// 插件独立页面由 staticPaths 提供，需启用对应插件才能访问
-for (const name of ['api-potluck', 'model-usage-stats']) {
+// 插件独立页面由 staticPaths 提供，需启用对应插件才能访问。
+// 注意：model-usage-stats 已从插件迁为核心功能（控制台主菜单 section），
+// 它的 /api/model-usage-stats 与 HTML 不再依赖任何插件开关。
+for (const name of ['api-potluck']) {
     pluginConfig.plugins[name] = { ...(pluginConfig.plugins[name] || {}), enabled: true };
 }
 writeFileSync(path.join(workDir, 'configs', 'plugins.json'), JSON.stringify(pluginConfig, null, 2));

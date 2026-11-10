@@ -1,4 +1,4 @@
-/** 插件统计页共享纯函数（potluck / potluck-user / model-usage-stats）。 */
+/** 统计页共享纯函数（potluck / potluck-user / 主菜单的模型用量统计）。 */
 
 export function formatNumber(value) {
     return new Intl.NumberFormat('zh-CN').format(Number(value || 0));
@@ -136,17 +136,6 @@ export function topWithOther(data, limit = 3) {
         });
     }
     return items;
-}
-
-/** 模型统计明细行。 */
-export function flattenModelUsage(data = {}) {
-    const rows = [];
-    Object.entries(data.providers || {}).forEach(([provider, providerData]) => {
-        Object.entries(providerData.models || {}).forEach(([model, modelData]) => {
-            rows.push({ provider, model, ...modelData });
-        });
-    });
-    return rows;
 }
 
 /** 单个 Key 的 provider 徽标（前 3）。 */

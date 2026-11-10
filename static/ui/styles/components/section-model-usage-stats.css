@@ -1,0 +1,455 @@
+/* ==========================================================================
+   模型用量统计（主菜单 section）
+   ==========================================================================
+
+   布局：两张卡片并排（左「选择日期」/ 右「用量汇总」），下方通栏明细表格。
+   左卡片承载 Interactive 的日历与两个动作（历史累计 / 重置统计），
+   右卡片是纯展示的 5 项指标 + 进度条。
+
+   作用域：全部规则以 `#model-usage-stats` 起头。
+   依据 tests/ui-css-scoping.test.js 的约定 —— section 专属类名不得以裸类形式
+   出现在组件 CSS 里，否则会与 mobile.css 的同名响应式规则互相压盖。
+   ========================================================================== */
+
+#model-usage-stats {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+}
+
+#model-usage-stats .usage-stats-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+}
+
+#model-usage-stats .usage-stats-header h2 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* 两张卡片并排：日历自适应收缩，汇总卡片固定比例，窄屏时由下方媒体查询改为单列 */
+#model-usage-stats .usage-stats-cards {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
+    gap: var(--space-8);
+    align-items: start;
+}
+
+#model-usage-stats .usage-stats-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: var(--space-8);
+    min-width: 0;
+}
+
+#model-usage-stats .usage-stats-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+}
+
+#model-usage-stats .usage-stats-card-head h3 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+#model-usage-stats .usage-stats-card-head h3 i {
+    color: var(--primary-color);
+}
+
+#model-usage-stats .usage-stats-card-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+#model-usage-stats .usage-stats-scope {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    background: var(--primary-10);
+    border-radius: var(--radius-full);
+    padding: var(--space-1) var(--space-5);
+    white-space: nowrap;
+}
+
+#model-usage-stats .usage-stats-calendar-wrap {
+    overflow-x: auto;
+    padding-bottom: var(--space-2);
+    scrollbar-width: thin;
+}
+
+#model-usage-stats .usage-stats-hint {
+    margin: var(--space-6) 0 0;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: var(--text-tertiary);
+}
+
+/* ============================ 汇总卡片 ============================ */
+
+#model-usage-stats .usage-stats-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+#model-usage-stats .usage-stats-summary-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-3);
+}
+
+#model-usage-stats .usage-stats-summary-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+#model-usage-stats .usage-stats-summary-value {
+    font-size: 0.875rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+/* 进度条：细轨 + 填充，纯视觉刻度（占本组最大值的比例，见 usage-utils） */
+#model-usage-stats .usage-stats-bar {
+    height: 0.375rem;
+    border-radius: var(--radius-full);
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+#model-usage-stats .usage-stats-bar-fill {
+    height: 100%;
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+}
+
+/* 五档色调复用既有语义令牌，深浅色主题自动跟随 */
+#model-usage-stats .tone-green { color: var(--success-color); }
+#model-usage-stats .usage-stats-bar-fill.tone-green { background: var(--success-color); }
+#model-usage-stats .tone-blue { color: var(--info-color); }
+#model-usage-stats .usage-stats-bar-fill.tone-blue { background: var(--info-color); }
+#model-usage-stats .tone-cyan { color: var(--primary-light); }
+#model-usage-stats .usage-stats-bar-fill.tone-cyan { background: var(--primary-light); }
+#model-usage-stats .tone-indigo { color: var(--indigo-500); }
+#model-usage-stats .usage-stats-bar-fill.tone-indigo { background: var(--indigo-500); }
+#model-usage-stats .tone-orange { color: var(--warning-color); }
+#model-usage-stats .usage-stats-bar-fill.tone-orange { background: var(--warning-color); }
+
+/* ============================ 明细表格 ============================ */
+
+#model-usage-stats .usage-stats-table-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    margin-bottom: var(--space-6);
+}
+
+#model-usage-stats .usage-stats-table-head h3 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+#model-usage-stats .usage-stats-table-head h3 i {
+    color: var(--primary-color);
+}
+
+#model-usage-stats .usage-stats-row-count {
+    font-size: 0.6875rem;
+    font-weight: 400;
+    color: var(--text-tertiary);
+}
+
+#model-usage-stats .usage-stats-table-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+#model-usage-stats .usage-stats-segmented {
+    display: inline-flex;
+    padding: 2px;
+    gap: 2px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+}
+
+#model-usage-stats .usage-stats-segmented .seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-6);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+#model-usage-stats .usage-stats-segmented .seg-btn:hover {
+    color: var(--text-primary);
+}
+
+#model-usage-stats .usage-stats-segmented .seg-btn.active {
+    background: var(--bg-primary);
+    color: var(--primary-color);
+    box-shadow: var(--shadow-sm);
+}
+
+#model-usage-stats .usage-stats-search,
+#model-usage-stats .usage-stats-sort {
+    height: 2rem;
+    padding: 0 var(--space-5);
+    font-size: 0.75rem;
+    /* 项目里没有 .input 原子类（那是旧独立页的 class，控制台不加载它对应的样式），
+       这里显式给出控件底座，否则暗色主题下浏览器默认的白色背景会漏出来。 */
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    transition: var(--transition);
+}
+
+#model-usage-stats .usage-stats-search::placeholder {
+    color: var(--text-tertiary);
+}
+
+#model-usage-stats .usage-stats-search:focus,
+#model-usage-stats .usage-stats-sort:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px var(--primary-20);
+}
+
+#model-usage-stats .usage-stats-search {
+    width: 12rem;
+}
+
+#model-usage-stats .usage-stats-sort {
+    width: 8rem;
+}
+
+#model-usage-stats .usage-stats-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+#model-usage-stats .usage-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.75rem;
+}
+
+#model-usage-stats .usage-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border-color);
+}
+
+#model-usage-stats .usage-table thead th.num {
+    text-align: right;
+}
+
+#model-usage-stats .usage-table tbody td {
+    padding: var(--space-5) var(--space-6);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+
+#model-usage-stats .usage-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+#model-usage-stats .usage-table tbody tr:hover td {
+    background: var(--bg-secondary);
+}
+
+#model-usage-stats .usage-table td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+#model-usage-stats .usage-table td.strong {
+    font-weight: 600;
+}
+
+#model-usage-stats .usage-table td.col-provider,
+#model-usage-stats .usage-table th.col-provider {
+    width: 12rem;
+}
+
+#model-usage-stats .usage-table td.col-model {
+    max-width: 22rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#model-usage-stats .usage-table .mono {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+}
+
+#model-usage-stats .usage-table .empty-cell {
+    padding: var(--space-12) var(--space-8);
+    text-align: center;
+    color: var(--text-tertiary);
+}
+
+#model-usage-stats .provider-chip {
+    display: inline-block;
+    max-width: 11rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: var(--space-1) var(--space-4);
+    border-radius: var(--radius-full);
+    background: var(--primary-10);
+    color: var(--primary-color);
+    font-size: 0.6875rem;
+    font-weight: 600;
+}
+
+/* 命中率药丸：三档（>=80 高 / >=50 中 / 其余低），阈值与迁移前一致 */
+#model-usage-stats .rate-pill {
+    display: inline-block;
+    min-width: 2.75rem;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+#model-usage-stats .rate-pill.rate-high {
+    background: var(--primary-20);
+    color: var(--primary-color);
+}
+
+#model-usage-stats .rate-pill.rate-mid {
+    background: var(--warning-20);
+    color: var(--warning-color);
+}
+
+#model-usage-stats .rate-pill.rate-low {
+    background: var(--danger-10);
+    color: var(--danger-color);
+}
+
+/* ============================ 响应式 ============================ */
+
+@media (max-width: 1024px) {
+    #model-usage-stats .usage-stats-cards {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    #model-usage-stats {
+        gap: var(--space-6);
+    }
+
+    #model-usage-stats .usage-stats-card {
+        padding: var(--space-6);
+        border-radius: var(--radius-md);
+    }
+
+    #model-usage-stats .usage-stats-header h2 {
+        font-size: 1rem;
+    }
+
+    #model-usage-stats .usage-stats-card-head {
+        margin-bottom: var(--space-4);
+    }
+
+    #model-usage-stats .usage-stats-card-actions .btn span {
+        display: none;
+    }
+
+    #model-usage-stats .usage-stats-table-head {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--space-4);
+    }
+
+    #model-usage-stats .usage-stats-table-controls {
+        width: 100%;
+    }
+
+    #model-usage-stats .usage-stats-search {
+        flex: 1;
+        width: auto;
+    }
+
+    #model-usage-stats .usage-stats-sort {
+        width: 7rem;
+    }
+
+    #model-usage-stats .usage-table {
+        font-size: 0.6875rem;
+    }
+
+    #model-usage-stats .usage-table thead th,
+    #model-usage-stats .usage-table tbody td {
+        padding: var(--space-3) var(--space-4);
+    }
+
+    #model-usage-stats .usage-table td.col-model {
+        max-width: 10rem;
+    }
+}
+
+@media (max-width: 480px) {
+    #model-usage-stats .usage-stats-table-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #model-usage-stats .usage-stats-segmented {
+        justify-content: center;
+    }
+
+    #model-usage-stats .usage-stats-search,
+    #model-usage-stats .usage-stats-sort {
+        width: 100%;
+    }
+}

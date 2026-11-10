@@ -1,8 +1,8 @@
 /**
  * 插件共享的 SQLite 存储基础。
  *
- * 背景：三个插件（model-usage-stats / api-potluck / ai-monitor）此前各自维护
- * JSON 快照 + 定时整文件重写。三个共同问题：
+ * 背景：potluck / ai-monitor 等插件此前各自维护
+ * JSON 快照 + 定时整文件重写。共同问题：
  *  1. 每次持久化都要序列化**整个** store，进程被 kill 时可能丢最后一批写入；
  *  2. 没有查询能力，前端只能拿到全量 JSON 自己在内存里过滤；
  *  3. 数据量增长后（ai-monitor 的报文）JSON 全量重写成本急剧上升。
@@ -10,13 +10,16 @@
  * 改用 Node 内置的 `node:sqlite`（Node 22.5+ 提供，本项目 engines 要求 >=24）：
  * 无需外部依赖、同步 API 与现有代码风格一致、支持事务与 WAL。
  *
- * 这里只收敛**三个插件共有的**部分：连接创建、PRAGMA、事务包装、优雅关闭。
+ * 这里只收敛**插件共有的**部分：连接创建、PRAGMA、事务包装。
  * 各插件的表结构与业务逻辑仍留在各自目录 —— 那些是真的不同。
+ *
+ * 历史上的 JSON → SQLite 一次性迁移辅助（backupLegacyJson / readLegacyJson）已删除：
+ * 迁移窗口早已结束，留着只会让每个插件的启动路径多一条永远走不到的分支。
  */
 
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import logger from '../../utils/logger.ts';
 
 /** 打开中的数据库，进程退出时统一关闭（避免 WAL 文件残留 -shm/-wal） */
@@ -144,48 +147,3 @@ export function closeDatabase(db) {
     try { db?.close(); } catch { /* 未跟踪或已关闭 */ }
 }
 
-/**
- * 把一个旧的 JSON 文件备份到 /tmp 并从项目目录移除。
- *
- * 迁移场景：JSON → SQLite 成功后，原始文件不能留在项目目录
- * （含用户凭据与用量数据，且已在 .gitignore 中但仍是明文散落）。
- *
- * @param {string} jsonPath 旧 JSON 文件绝对路径
- * @param {string} [tag] 备份文件名前缀，便于区分来源
- * @returns {string|null} 备份后的路径；无需备份时返回 null
- */
-export function backupLegacyJson(jsonPath, tag = 'legacy') {
-    if (!existsSync(jsonPath)) return null;
-    try {
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const base = path.basename(jsonPath);
-        const backupPath = path.join('/tmp', `${tag}-${stamp}-${base}`);
-        // 用 renameSync 跨目录移动；跨设备（EXDEV）时退化为复制后删除
-        try {
-            renameSync(jsonPath, backupPath);
-        } catch {
-            copyFileSync(jsonPath, backupPath);
-            unlinkSync(jsonPath);
-        }
-        logger.info(`[SQLite] Legacy JSON backed up to ${backupPath} and removed from project dir`);
-        return backupPath;
-    } catch (error) {
-        logger.warn(`[SQLite] Failed to back up legacy JSON ${jsonPath}: ${error?.message || error}`);
-        return null;
-    }
-}
-
-/**
- * 读取旧 JSON 文件内容（迁移用）。不存在或解析失败返回 null。
- * @param {string} jsonPath
- * @returns {any|null}
- */
-export function readLegacyJson(jsonPath) {
-    if (!existsSync(jsonPath)) return null;
-    try {
-        return JSON.parse(readFileSync(jsonPath, 'utf8'));
-    } catch (error) {
-        logger.warn(`[SQLite] Failed to parse legacy JSON ${jsonPath}: ${error?.message || error}`);
-        return null;
-    }
-}

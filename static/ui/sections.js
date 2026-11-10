@@ -22,5 +22,8 @@ export const SECTIONS = [
     { id: 'usage', labelKey: 'nav.usage', icon: 'fa-chart-bar', load: () => import('./sections/usage/index.js') },
     { id: 'plugins', labelKey: 'nav.plugins', icon: 'fa-puzzle-piece', load: () => import('./sections/plugins.js') },
     { id: 'playground', labelKey: 'nav.playground', icon: 'fa-flask', load: () => import('./sections/playground/index.js') },
+    // 模型用量统计已从插件迁为核心功能，紧挨在「实时日志」上方（常用页置底但可预期）。
+    // 加载 .ts 由服务端运行时擦除类型（见 src/services/ui-manager.ts）。
+    { id: 'model-usage-stats', labelKey: 'nav.modelUsage', icon: 'fa-chart-line', load: () => import('./sections/model-usage-stats/index.ts') },
     { id: 'logs', labelKey: 'nav.logs', icon: 'fa-file-alt', load: () => import('./sections/logs.js') }
 ];

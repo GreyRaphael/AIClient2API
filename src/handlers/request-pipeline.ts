@@ -47,6 +47,7 @@ import { startPreContentHeartbeat } from './pre-content-heartbeat.ts';
 import { createStreamRetryContext, writeStreamCompletion } from './stream-lifecycle.ts';
 import type { PipelineRetryContext } from './stream-lifecycle.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { recordUnaryUsage, recordStreamChunkUsage, finalizeRequest } from '../services/usage-stats/stats-manager.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 export type PipelineError = DynamicPayload & {
@@ -880,6 +881,16 @@ export async function handleStreamRequest(
             // 监控钩子：流式响应分块
             const hookRequestId = getPluginHookRequestId(CONFIG);
             if (hookRequestId) {
+                // 核心用量记账（非插件）：同一 requestId 的多次 chunk 由 stats-manager 合并，
+                // 内部已 try/catch，记账异常不会影响流式主流程。
+                recordStreamChunkUsage({
+                    requestId: hookRequestId,
+                    model,
+                    provider: toProvider,
+                    fromProvider,
+                    nativeChunk,
+                    clientChunk: chunkToSend
+                });
                 try {
                     const pluginManager = getPluginManager();
                     await pluginManager.executeHook('onStreamChunk', {
@@ -1346,6 +1357,15 @@ export async function handleUnaryRequest(
         // 监控钩子：非流式响应
         const hookRequestId = getPluginHookRequestId(CONFIG);
         if (hookRequestId) {
+            // 核心用量记账（非插件）：内部已 try/catch，失败不影响主流程
+            recordUnaryUsage({
+                requestId: hookRequestId,
+                model,
+                provider: toProvider,
+                fromProvider,
+                nativeResponse,
+                clientResponse
+            });
             try {
                 const pluginManager = getPluginManager();
                 await pluginManager.executeHook('onUnaryResponse', {
@@ -1943,6 +1963,18 @@ export async function handleContentGenerationRequest(
             isStream
         });
     } catch (e) { /* 静默失败，不影响主流程 */ }
+
+    // 核心用量结算（非插件）：必须在上面 hook 之后独立执行——
+    // 插件的 onContentGenerated 是用户可关的，用量统计不能依赖它是否被启用。
+    // requestId 直接取 CONFIG._monitorRequestId（request-handler.ts 对每个请求设置），
+    // 不再依赖已删除的插件 middleware 去补。finalizeRequest 内部 try/catch。
+    finalizeRequest({
+        requestId: getPluginHookRequestId(CONFIG),
+        model,
+        provider: toProvider,
+        fromProvider,
+        isStream
+    });
 }
 
 /**

@@ -12,8 +12,9 @@
  *   驱动：直接 POST /v1/chat/completions，第 N 轮把前面 N-1 轮的问答累积进 messages
  *         （即 docs/CACHE_HIT_RATE.md 里的「10 轮增长历史」实验设计）。
  *   测量：每轮后 GET /api/model-usage-stats，取本次**增量** cachedTokens/promptTokens。
- *         若该接口不可用（插件未启用或缺少管理凭据），自动降级为读取响应体里的
- *         usage（OpenAI 协议自带 prompt_tokens_details.cached_tokens）。
+ *         该接口是网关核心功能（非插件），始终可用，但仍需管理凭据；
+ *         若拿不到凭据而无法访问，自动降级为读取响应体里的 usage
+ *         （OpenAI 协议自带 prompt_tokens_details.cached_tokens）。
  *   输出：逐轮表格（轮次 | prompt | cached | uncached | 命中率）+ 总计。
  *   退出码：总命中率低于 --min-rate 时返回 1，可进 CI 当回归。
  *
@@ -309,8 +310,8 @@ async function run() {
         ? '/api/model-usage-stats (cumulative delta)'
         : 'response usage (per-request, stats API unavailable)'}`);
     if (!useStatsApi) {
-        console.log('  hint: enable the model-usage-stats plugin, or pass --admin-password, '
-            + 'to measure cumulative deltas instead of per-request usage.');
+        console.log('  hint: pass --admin-password (or ADMIN_PASSWORD) to read the built-in '
+            + '/api/model-usage-stats endpoint, to measure cumulative deltas instead of per-request usage.');
     }
     console.log('');
 

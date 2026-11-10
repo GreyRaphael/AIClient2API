@@ -1,16 +1,16 @@
 {
   "total": {
     "lines": {
-      "covered": 10753,
-      "total": 21524
+      "covered": 10813,
+      "total": 21509
     },
     "branches": {
-      "covered": 9792,
-      "total": 21026
+      "covered": 9825,
+      "total": 20993
     },
     "functions": {
-      "covered": 1415,
-      "total": 2508
+      "covered": 1423,
+      "total": 2503
     }
   },
   "directories": {
@@ -87,7 +87,7 @@
     "src/handlers": {
       "lines": {
         "covered": 570,
-        "total": 979
+        "total": 982
       },
       "branches": {
         "covered": 554,
@@ -100,16 +100,16 @@
     },
     "src/plugins": {
       "lines": {
-        "covered": 730,
-        "total": 1408
+        "covered": 564,
+        "total": 1129
       },
       "branches": {
-        "covered": 484,
-        "total": 1148
+        "covered": 382,
+        "total": 933
       },
       "functions": {
-        "covered": 129,
-        "total": 207
+        "covered": 96,
+        "total": 156
       }
     },
     "src/providers": {
@@ -142,16 +142,16 @@
     },
     "src/services": {
       "lines": {
-        "covered": 452,
-        "total": 1390
+        "covered": 655,
+        "total": 1651
       },
       "branches": {
-        "covered": 392,
-        "total": 1242
+        "covered": 502,
+        "total": 1424
       },
       "functions": {
-        "covered": 34,
-        "total": 124
+        "covered": 73,
+        "total": 170
       }
     },
     "src/ui-modules": {
@@ -170,15 +170,15 @@
     },
     "src/utils": {
       "lines": {
-        "covered": 625,
+        "covered": 648,
         "total": 1340
       },
       "branches": {
-        "covered": 549,
+        "covered": 574,
         "total": 1316
       },
       "functions": {
-        "covered": 118,
+        "covered": 120,
         "total": 234
       }
     }

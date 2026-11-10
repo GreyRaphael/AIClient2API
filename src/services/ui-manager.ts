@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, statSync } from 'fs';
 import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { stripTypeScriptTypes } from 'node:module';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import path from 'path';
 import { isUIApiPath } from '../utils/ui-utils.ts';
 import { getPluginManager } from '../core/plugin-manager.ts';
 import { resolvePluginStaticFile } from '../core/plugin-security.ts';
+import { handleModelUsageStatsRoutes } from './usage-stats/api-routes.ts';
 
 // Import UI modules
 import * as auth from '../ui-modules/auth.ts';
@@ -32,6 +34,8 @@ const STATIC_CONTENT_TYPES: Record<string, string> = {
     '.css': 'text/css',
     '.js': 'application/javascript',
     '.mjs': 'text/javascript',
+    // 前端源码直接以 .ts 直出，由服务端在响应前擦除类型（见 stripTypesForBrowser）
+    '.ts': 'text/javascript',
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
     '.gif': 'image/gif',
@@ -44,7 +48,7 @@ const STATIC_CONTENT_TYPES: Record<string, string> = {
 };
 
 /** 浏览器端模块/样式等文本资源：每次请求都向服务器再验证（命中 ETag 返回 304） */
-const REVALIDATE_EXTENSIONS = ['.html', '.css', '.js', '.mjs', '.json'];
+const REVALIDATE_EXTENSIONS = ['.html', '.css', '.js', '.mjs', '.ts', '.json'];
 
 /** static/vendor/ 下的第三方文件目录名带版本号，内容不可变，可强缓存 */
 const IMMUTABLE_PREFIX = '/vendor/';
@@ -54,7 +58,7 @@ const IMMUTABLE_PREFIX = '/vendor/';
  * 压缩比通常有 4~8 倍，是这条链路上性价比最高的优化。
  * 图片/字体本身就是压缩格式，再压一次只会浪费 CPU。
  */
-const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.css', '.js', '.mjs', '.json', '.svg', '.map']);
+const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.css', '.js', '.mjs', '.ts', '.json', '.svg', '.map']);
 
 /** 小于这个体积不值得压缩（握手与解压开销大于收益） */
 const COMPRESSION_MIN_BYTES = 1024;
@@ -62,6 +66,87 @@ const COMPRESSION_MIN_BYTES = 1024;
 /** 压缩结果缓存：key = 文件路径 + mtime + size，文件一改自动失效 */
 interface CompressedAsset { mtimeMs: number; size: number; body: Buffer }
 const compressionCache = new Map<string, { br?: CompressedAsset; gzip?: CompressedAsset }>();
+
+/**
+ * .ts 类型擦除结果缓存：key = 文件路径，值为「读这份文件时的 mtime + size」与擦除后的字节。
+ *
+ * 为什么按 mtime+size 而不是内容哈希：无构建步骤的前端每次请求都要再验证（no-cache），
+ * 每个模块都会被反复读取；mtime+size 一次 statSync 即可判定，命中时零解析开销，
+ * 而文件一改（编辑器保存）就必然同时变 mtime 与 size 中至少一个，失效可靠。
+ */
+interface StrippedAsset { mtimeMs: number; size: number; body: Buffer }
+const strippedTypeScriptCache = new Map<string, StrippedAsset>();
+
+/** 首次调用 stripTypeScriptTypes 会发一次 ExperimentalWarning，只拦这一次 */
+let typeStripWarningHandled = false;
+
+/**
+ * 判定「是不是 stripTypeScriptTypes 那条 ExperimentalWarning」。
+ *
+ * `process.emitWarning` 有两种调用形状，必须都覆盖：
+ *  - `emitWarning(message: string, type?: string, ...)` —— Node 内部对这条警告用的是这种，
+ *    类型在**第二个**参数里，`warning instanceof Error` 为 false；
+ *  - `emitWarning(warning: Error, ...)` —— 自定义警告类走这种，类型在 `warning.name` 里。
+ * 只处理其中一种会让拦截静默失效（实测踩过：日志里仍出现该警告）。
+ */
+function isStripExperimentalWarning(warning: string | Error, type?: string): boolean {
+    const message = warning instanceof Error ? warning.message : String(warning);
+    const warningType = warning instanceof Error ? warning.name : (type || '');
+    return warningType === 'ExperimentalWarning' && message.includes('stripTypeScriptTypes');
+}
+
+/**
+ * 用 Node 内置的 `stripTypeScriptTypes`（mode: 'strip'）擦除 .ts 的类型标注。
+ *
+ * 为什么是 strip 而不是 transform：
+ * transform 会改写代码结构（enum / 命名空间 / 构造函数参数属性），
+ * 而我们只需要「浏览器能跑的同一份源码」——strip 保留行列位置、零结构改动，
+ * 源码在浏览器 devtools 里与磁盘上的 .ts 逐行对齐，调试体验最好。
+ * 代价是不支持 enum 与构造函数参数属性，前端源码约定只用可擦除语法。
+ *
+ * 关于 ExperimentalWarning：Node 只在**首次**调用时同步发出一次
+ * `ExperimentalWarning: stripTypeScriptTypes is an experimental feature`。
+ * 这条警告对用户没有任何可行动信息，却会出现在启动日志里造成误解，
+ * 因此在这一次调用期间临时接管 `process.emitWarning`（只丢弃这一条，
+ * 其他警告原样透传），调用结束立刻恢复原函数。
+ */
+function stripTypesForBrowser(source: string, filePath: string): string {
+    if (typeStripWarningHandled) {
+        return stripTypeScriptTypes(source, { mode: 'strip', sourceUrl: filePath });
+    }
+    typeStripWarningHandled = true;
+
+    const originalEmitWarning = process.emitWarning;
+    const patchedEmitWarning = function patchedEmitWarning(
+        this: NodeJS.Process,
+        warning: string | Error,
+        ...rest: unknown[]
+    ): void {
+        const warningType = typeof rest[0] === 'string' ? rest[0] : undefined;
+        if (isStripExperimentalWarning(warning, warningType)) return;
+        (originalEmitWarning as (...args: unknown[]) => void).apply(this, [warning, ...rest]);
+    };
+    process.emitWarning = patchedEmitWarning as typeof process.emitWarning;
+    try {
+        // 警告在本次调用内同步发出（Node 26 实测），因此 finally 里恢复即可
+        return stripTypeScriptTypes(source, { mode: 'strip', sourceUrl: filePath });
+    } finally {
+        process.emitWarning = originalEmitWarning;
+    }
+}
+
+/** 读 .ts 并擦除类型；结果按 mtime+size 缓存 */
+function readTypeStrippedFile(filePath: string, stat: { mtimeMs: number; size: number }): Buffer {
+    const cached = strippedTypeScriptCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        return cached.body;
+    }
+
+    const source = readFileSync(filePath, 'utf8');
+    const body = Buffer.from(stripTypesForBrowser(source, filePath), 'utf8');
+    strippedTypeScriptCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, body });
+    return body;
+}
 
 /** 按 q 值挑出客户端更偏好的编码；返回实际要用的编码或 null */
 function negotiateEncoding(acceptEncoding: string | undefined): 'br' | 'gzip' | null {
@@ -88,14 +173,25 @@ function negotiateEncoding(acceptEncoding: string | undefined): 'br' | 'gzip' | 
     return null;
 }
 
+/**
+ * 读取要下发给浏览器的原始字节。
+ * `.ts` 走服务端类型擦除（浏览器不认 TypeScript），其余原样读出。
+ */
+function readAssetBody(filePath: string, stat: { mtimeMs: number; size: number }, ext: string): Buffer {
+    if (ext === '.ts') {
+        return readTypeStrippedFile(filePath, stat);
+    }
+    return readFileSync(filePath);
+}
+
 /** 取得（必要时生成）压缩后的内容；命中缓存时零 CPU 开销 */
-function compressedBody(filePath: string, stat: { mtimeMs: number; size: number }, encoding: 'br' | 'gzip'): Buffer {
+function compressedBody(filePath: string, stat: { mtimeMs: number; size: number }, encoding: 'br' | 'gzip', ext: string): Buffer {
     const cached = compressionCache.get(filePath);
     const slot = cached?.[encoding];
     if (slot && slot.mtimeMs === stat.mtimeMs && slot.size === stat.size) {
         return slot.body;
     }
-    const raw = readFileSync(filePath);
+    const raw = readAssetBody(filePath, stat, ext);
     const body = encoding === 'br'
         ? brotliCompressSync(raw, {
             params: {
@@ -188,7 +284,7 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse, r
         }
 
         if (encoding) {
-            const body = compressedBody(filePath, stat, encoding);
+            const body = compressedBody(filePath, stat, encoding, ext);
             headers['Content-Encoding'] = encoding;
             headers['Vary'] = 'Accept-Encoding';
             headers['Content-Length'] = String(body.length);
@@ -200,7 +296,7 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse, r
         // 未压缩时也带上 Vary，避免中间缓存把压缩版与原始版串味
         if (COMPRESSIBLE_EXTENSIONS.has(ext)) headers['Vary'] = 'Accept-Encoding';
         res.writeHead(200, headers);
-        res.end(readFileSync(filePath));
+        res.end(readAssetBody(filePath, stat, ext));
         return true;
     }
     return false;
@@ -224,6 +320,15 @@ export async function handleUIApiRequests(
     currentConfig: Record<string, unknown>,
     providerPoolManager: ProviderPoolManager | null
 ): Promise<boolean> {
+    // 模型用量统计 API（核心服务，非插件）。
+    // 必须排在下面的 `isUIApiPath` session 门禁之前：该接口的鉴权是 dual
+    // （后台 session token **或** REQUIRED_API_KEY），只用 API Key 的调用方
+    // （scripts/cache-hit-benchmark.mjs、外部脚本）不持有 session cookie，
+    // 若先过 session 门禁会直接被 401 拦掉。这也是迁移前插件路由的位置语义。
+    if (await handleModelUsageStatsRoutes(method, pathParam, req, res, { REQUIRED_API_KEY: currentConfig.REQUIRED_API_KEY as string | undefined })) {
+        return true;
+    }
+
     // 处理登录接口
     if (method === 'POST' && pathParam === '/api/login') {
         return await auth.handleLoginRequest(req, res);

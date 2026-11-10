@@ -8,14 +8,6 @@
     "downloadUrl": "https://raw.githubusercontent.com/justlovemaki/AIClient-2-API/main/plugins/api-potluck.zip"
   },
   {
-    "id": "model-usage-stats",
-    "name": "模型用量统计",
-    "version": "1.0.0",
-    "minSystemVersion": "2.8.0",
-    "description": "全自动统计 Provider 和 Model 维度的请求次数、Token 消耗，并提供直观的可视化仪表盘和趋势图。",
-    "downloadUrl": "https://raw.githubusercontent.com/justlovemaki/AIClient-2-API/main/plugins/model-usage-stats.zip"
-  },
-  {
     "id": "ai-monitor",
     "name": "AI 实时监控",
     "version": "1.0.0",

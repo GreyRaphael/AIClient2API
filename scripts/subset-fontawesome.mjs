@@ -17,7 +17,7 @@ import subsetFont from 'subset-font';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FA = path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free');
 const STATIC = path.join(ROOT, 'static');
-const SCAN_EXT = new Set(['.html', '.js', '.mjs', '.css']);
+const SCAN_EXT = new Set(['.html', '.js', '.mjs', '.ts', '.css']);
 const SKIP_DIRS = new Set(['vendor', 'node_modules']);
 
 function walk(dir, out = []) {

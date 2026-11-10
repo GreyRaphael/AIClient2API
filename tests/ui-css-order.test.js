@@ -22,7 +22,7 @@ function stylesheetOrder(htmlFile) {
 
 const indexOf = (list, needle) => list.findIndex((href) => href.endsWith(needle));
 
-const PAGES = ['index.html', 'login.html', 'potluck.html', 'potluck-user.html', 'model-usage-stats.html'];
+const PAGES = ['index.html', 'login.html', 'potluck.html', 'potluck-user.html'];
 
 describe('样式表分层顺序', () => {
     test('控制台：HTML 内联的组件样式都必须早于 mobile.css', () => {
@@ -77,10 +77,11 @@ describe('样式表分层顺序', () => {
     });
 
     test('插件独立页：页面样式晚于 base.css / shared.css', () => {
+        // model-usage-stats 已迁进控制台主菜单，不再有独立页与独立页样式表；
+        // 它的样式按控制台约定走 ui/styles/components/section-model-usage-stats.css。
         for (const [htmlFile, pageCss] of [
             ['potluck.html', 'ui/styles/pages/potluck.css'],
-            ['potluck-user.html', 'ui/styles/pages/potluck-user.css'],
-            ['model-usage-stats.html', 'ui/styles/pages/model-usage-stats.css']
+            ['potluck-user.html', 'ui/styles/pages/potluck-user.css']
         ]) {
             const order = stylesheetOrder(htmlFile);
             const base = indexOf(order, 'ui/styles/base.css');

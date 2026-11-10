@@ -1,12 +1,15 @@
 /**
- * 独立页（login / potluck / potluck-user / model-usage-stats）的统一启动器。
+ * 独立页（login / potluck / potluck-user）的统一启动器。
  *
- * 这四个页面各自写了一份 `boot()`：initTheme → 取 #page → render 主组件 →
- * 挂 ToastHost → 挂 ConfirmDialogHost。前三个**归一化后 md5 完全相同**，
- * login 只少一个 confirm 根（因为它的 confirm-root 是 0 个）。
- * 五个 HTML 又各自手抄了一遍容器 div —— 漏写一个就是运行时静默失败。
+ * 这几个页面各自写了一份 `boot()`：initTheme → 取 #page → render 主组件 →
+ * 挂 ToastHost → 挂 ConfirmDialogHost；login 只少一个 confirm 根
+ * （因为它的 confirm-root 是 0 个）。
+ *
+ * 它们的 HTML 又各自手抄了一遍容器 div —— 漏写一个就是运行时静默失败。
  *
  * 这里把「哪些宿主挂到哪个容器」收敛成一处，页面只声明自己要什么。
+ *
+ * 注意：model-usage-stats 已从独立页迁进控制台主菜单（section），不再走本模块。
  */
 import { html, render } from '../html.js';
 import { ToastHost } from '../components/Toast.js';

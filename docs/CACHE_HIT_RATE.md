@@ -2,7 +2,7 @@
 
 - 状态：当前有效
 - 更新：2026-11-05
-- 范围：`src/utils/common.ts`、`src/utils/proxy-utils.ts`、`src/utils/usage-normalizer.ts`、`src/converters/utils.ts`、`src/providers/**`、`model-usage-stats` 插件
+- 范围：`src/utils/common.ts`、`src/utils/proxy-utils.ts`、`src/utils/usage-normalizer.ts`、`src/converters/utils.ts`、`src/providers/**`、`src/services/usage-stats/**`（模型用量统计，核心功能）
 - 相关文档：[跨协议转译架构](./CROSS_PROTOCOL_ARCHITECTURE.md)、[Trae 通道指南](./TRAE_CHANNELS_UPSTREAM_GUIDE.md)
 
 ---
@@ -262,7 +262,7 @@ grep "Request Finalized" logs/app-*.log \
 | Codex 0-Hop 请求改写 | `src/providers/openai/codex-core.ts` |
 | Zed 直通 payload 构建 | `src/providers/zed/zed-payload-builders.ts` |
 | Anthropic 语义转换 | `src/converters/utils.ts`（`anthropicUsageFromInclusiveInput`） |
-| 统计入库 | `src/plugins/model-usage-stats/stats-manager.js` |
+| 统计入库 | `src/services/usage-stats/stats-manager.ts` |
 | 桥接计划（判断是否走 Converter） | `src/handlers/request-pipeline.ts`（`resolveBridgePlan`） |
 
 ---
@@ -405,8 +405,8 @@ node scripts/cache-hit-benchmark.mjs --rounds 13 --model <你的模型> --min-ra
 脚本会：
 1. 直接 `POST /v1/chat/completions`，第 N 轮把前面 N-1 轮的问答累积进 `messages`（即本文的「逐轮增长历史」实验设计）；
 2. 每轮后读 `/api/model-usage-stats` 取**本次增量** `cachedTokens/promptTokens`；
-   若该插件未启用或缺管理凭据，自动降级为解析响应体里的 `usage`（含
-   `prompt_tokens_details.cached_tokens`），并在输出中说明当前用的是哪种口径；
+   该接口是网关核心功能（非插件），但需要管理凭据；缺少凭据时自动降级为解析响应体里的
+   `usage`（含 `prompt_tokens_details.cached_tokens`），并在输出中说明当前用的是哪种口径；
 3. 打印与上表同格式的逐轮表格 + 总计；
 4. 总命中率低于 `--min-rate` 时以非 0 退出 —— 因此**可以直接进 CI 当回归门禁**。
 

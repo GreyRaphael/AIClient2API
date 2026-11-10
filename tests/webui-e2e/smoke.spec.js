@@ -758,20 +758,19 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
-    test('插件页：描述中的插件页面链接可点击跳转（potluck / model-usage-stats）', async ({ authedPage: page, problems }) => {
+    test('插件页：描述中的插件页面链接可点击跳转（potluck）', async ({ authedPage: page, problems }) => {
         await page.goto('/#plugins');
         await expect(page.locator('section#plugins.active')).toBeVisible();
         await expect(page.locator('#pluginsList .plugin-card').first()).toBeVisible();
 
         // 插件描述是富文本，用相对路径指向插件自身的独立页面。
         // sanitizeHtml 曾把相对路径 href 整个删掉，导致这些入口退化成不可点击的纯文本。
+        // 注意：model-usage-stats 已从插件迁为核心功能（主菜单 section），
+        // 不再有 model-usage-stats.html 这个插件页，因此只剩 potluck 两页。
         const potluck = page.locator('#pluginsList .plugin-description a', { hasText: 'potluck.html' }).first();
         await expect(potluck).toHaveAttribute('href', 'potluck.html');
         await expect(potluck).toHaveAttribute('target', '_blank');
         await expect(potluck).toHaveAttribute('rel', /noopener/);
-
-        const stats = page.locator('#pluginsList .plugin-description a', { hasText: 'model-usage-stats.html' }).first();
-        await expect(stats).toHaveAttribute('href', 'model-usage-stats.html');
 
         // 所有插件描述里的站内链接都不应被清洗成无 href 的裸 <a>
         const hrefsMissing = await page.evaluate(() => [...document.querySelectorAll('#pluginsList .plugin-description a')]
@@ -829,6 +828,76 @@ test.describe('console shell', () => {
         await page.locator('.confirm-dialog .btn-danger').click();
         await page.waitForURL(/login\.html/);
         expect(await page.evaluate(() => localStorage.getItem('authToken'))).toBeNull();
+    });
+
+    test('模型用量统计：主菜单 section 的汇总卡片、日历与明细表格', async ({ authedPage: page, problems }) => {
+        // 该功能已从插件独立页迁为核心功能的主菜单 section，不再需要手填访问凭证
+        // （走控制台 session token），因此这里只 mock 数据接口。
+        const now = new Date().toISOString();
+        const totals = {
+            requestCount: 10, promptTokens: 1000, cachedTokens: 400,
+            completionTokens: 200, totalTokens: 1200,
+            qps: 1, maxQps: 2, rpm: 3, maxRpm: 4, tps: 5, maxTps: 6,
+            lastUsedAt: now
+        };
+        const payload = {
+            success: true,
+            data: {
+                updatedAt: now,
+                range: {},
+                summary: totals,
+                byModel: [{
+                    provider: 'gemini-antigravity', model: 'gemini-3.8-flash-medium', ...totals
+                }],
+                byProvider: [{
+                    provider: 'gemini-antigravity', modelCount: 1, ...totals
+                }],
+                calendar: [{
+                    date: now.slice(0, 10), requestCount: 10,
+                    totalTokens: 1200, promptTokens: 1000, cachedTokens: 400, modelCount: 1
+                }],
+                dates: [now.slice(0, 10)]
+            }
+        };
+        await page.route('**/api/model-usage-stats', (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(payload)
+        }));
+
+        await page.goto('/#model-usage-stats');
+        await expect(page.locator('section#model-usage-stats.active')).toBeVisible();
+
+        // ① 左侧「选择日期」卡片：日历渲染出格子，且带「历史累计」「重置统计」两个动作
+        const calendarCard = page.locator('#model-usage-stats .usage-stats-calendar-card');
+        await expect(calendarCard).toBeVisible();
+        await expect(calendarCard.locator('.calendar-day').first()).toBeVisible();
+
+        // ② 右侧汇总卡片：5 项指标都有数值与进度条
+        const summaryCard = page.locator('#model-usage-stats .usage-stats-summary-card');
+        await expect(summaryCard).toBeVisible();
+        await expect(summaryCard.locator('.usage-stats-summary-item')).toHaveCount(5);
+        await expect(summaryCard.locator('.usage-stats-bar-fill').first()).toBeVisible();
+        // 请求数 10 与总 Token 1.2K 走不同格式化分支，各断言一次
+        await expect(summaryCard).toContainText('10');
+        await expect(summaryCard).toContainText('1.2K');
+
+        // ③ 明细表格：默认按模型，能看到 provider 与 model 两列
+        const table = page.locator('#model-usage-stats .usage-table');
+        await expect(table).toBeVisible();
+        await expect(table.locator('tbody')).toContainText('gemini-antigravity');
+        await expect(table.locator('tbody')).toContainText('gemini-3.8-flash-medium');
+
+        // ④ 切到「按 Provider」：Model 列换成「模型数」列
+        // 注意：分组切换按钮在表格卡片顶部的工具栏里（不是 <table> 内部），
+        // 因此从卡片作用域定位，表头断言仍落在 <table> 上。
+        const tableCard = page.locator('#model-usage-stats .usage-stats-table-card');
+        await tableCard.locator('.seg-btn', { hasText: '按 Provider' }).click();
+        await expect(table.locator('thead')).not.toContainText('Model');
+        await expect(table.locator('thead')).toContainText('模型数');
+        await expect(table.locator('tbody tr')).toHaveCount(1);
+
+        expect(problems).toEqual([]);
     });
 });
 
@@ -940,73 +1009,6 @@ test.describe('plugin pages', () => {
         expect(problems).toEqual([]);
     });
 
-    test('模型用量统计页：凭证加载、汇总与明细', async ({ page, problems }) => {
-        const now = new Date().toISOString();
-        const summary = {
-            requestCount: 10, promptTokens: 1000, cachedTokens: 100,
-            completionTokens: 200, totalTokens: 1300,
-            qps: 1, maxQps: 2, rpm: 3, maxRpm: 4, tps: 5, maxTps: 6,
-            lastUsedAt: now
-        };
-        await page.route('**/api/model-usage-stats', (route) => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-                success: true,
-                data: {
-                    summary,
-                    providers: {
-                        'gemini-antigravity': {
-                            summary,
-                            models: {
-                                'gemini-3.8-flash-medium': {
-                                    requestCount: 10,
-                                    promptTokens: 1000,
-                                    cachedTokens: 100,
-                                    completionTokens: 200,
-                                    totalTokens: 1300,
-                                    lastUsedAt: now
-                                }
-                            }
-                        }
-                    },
-                    // 默认视图读 daily[dateKey].models；键格式为 "provider:model"。
-                    // 只给 totalTokens/requestCount 而不给 models，表格会渲染成
-                    // 「没有匹配的数据」——这是 mock 数据不完整，不是页面缺陷。
-                    daily: {
-                        [now.slice(0, 10)]: {
-                            totalTokens: 1000,
-                            requestCount: 5,
-                            models: {
-                                'gemini-antigravity:gemini-3.8-flash-medium': {
-                                    requestCount: 10,
-                                    promptTokens: 1000,
-                                    cachedTokens: 100,
-                                    completionTokens: 200,
-                                    totalTokens: 1300,
-                                    lastUsedAt: now
-                                }
-                            }
-                        }
-                    },
-                    updatedAt: now
-                }
-            })
-        }));
-
-        await page.goto('/model-usage-stats.html');
-        await page.locator('#credentialValue').fill('e2e-credential');
-        await page.locator('#connectBtn').click();
-        await expect(page.locator('.providers')).toContainText('gemini-antigravity');
-        await expect(page.locator('tbody')).toContainText('gemini-3.8-flash-medium');
-        await expect(page.locator('.calendar-day').first()).toBeVisible();
-
-        await page.getByRole('button', { name: /重置 Token/ }).click();
-        await expect(page.locator('.confirm-dialog')).toBeVisible();
-        await page.locator('.confirm-dialog .btn-secondary').click();
-        await expect(page.locator('.confirm-dialog')).toHaveCount(0);
-        expect(problems).toEqual([]);
-    });
 });
 
 

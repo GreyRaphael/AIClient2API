@@ -19,6 +19,9 @@ describe('sanitizeHtml 链接策略', () => {
     test('允许站内相对路径（插件 staticPaths 依赖此行为）', () => {
         // 插件描述里用相对路径指向自身页面，如 "管理端：<a href=\"potluck.html\">"。
         // 这些必须保留 href，否则插件页入口会变成不可点击的纯文本。
+        // 注意：这里校验的是「路径形状」而非目标文件是否存在 —— 白名单只看形式，
+        // 例如 model-usage-stats.html 已随功能迁进主菜单而删除，但它作为相对路径
+        // 仍必须被判为安全（否则策略会随具体页面的增删而漂移）。
         for (const href of [
             'potluck.html',
             'potluck-user.html',

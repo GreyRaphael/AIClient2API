@@ -1,12 +1,18 @@
 /**
  * 三个插件共用 SQLite 存储层的行为测试。
  *
- * 覆盖 getPoolDb 的基础设施（连接复用、失效句柄自检、事务回滚、JSON 迁移备份）
+ * 覆盖 getPoolDb 的基础设施（连接复用、失效句柄自检、事务回滚）
  * 以及各插件的表读写契约。
+ *
+ * 注意：历史上的 JSON → SQLite 一次性迁移辅助（`backupLegacyJson` /
+ * `readLegacyJson` / 各插件里的 `migrateFromLegacyJson`）已按 spec §6 整体删除，
+ * 对应测试用例也一并移除 —— 不再有"迁移"这个行为需要覆盖。
+ * model-usage-stats 已迁出插件体系成为核心服务，其存储契约用例
+ * 只在 tests/model-usage-stats-daily-models.test.js 里覆盖新路径。
  */
 
 import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from '@jest/globals';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -66,87 +72,17 @@ describe('shared sqlite-store', () => {
         store.closeDatabase(reopened);
     });
 
-    test('backupLegacyJson 把文件移出项目目录', async () => {
+    test('JSON 迁移辅助已彻底删除（spec §6）', async () => {
         const store = await import('../src/plugins/shared/sqlite-store.js');
-        const legacy = path.join(sandbox, 'legacy.json');
-        writeFileSync(legacy, '{"a":1}');
-        const backup = store.backupLegacyJson(legacy, 'unit-test');
-        expect(backup).not.toBeNull();
-        expect(existsSync(legacy)).toBe(false);
-        try { rmSync(backup, { force: true }); } catch { /* noop */ }
-    });
+        // 这两个导出是旧 JSON→SQLite 迁移专用，已删除；
+        // 保留断言防止有人重新加回来把"迁移"那套复杂度带回仓库。
+        expect(store.backupLegacyJson).toBeUndefined();
+        expect(store.readLegacyJson).toBeUndefined();
 
-    test('readLegacyJson 对缺失/损坏文件返回 null', async () => {
-        const store = await import('../src/plugins/shared/sqlite-store.js');
-        expect(store.readLegacyJson(path.join(sandbox, 'nope.json'))).toBeNull();
-        const bad = path.join(sandbox, 'bad.json');
-        writeFileSync(bad, '{not json');
-        expect(store.readLegacyJson(bad)).toBeNull();
-    });
-});
-
-describe('model-usage-stats sqlite schema', () => {
-    test('单表四种聚合：按日/累计 × 按模型/按 Provider', async () => {
-        const db = await import('../src/plugins/model-usage-stats/stats-db.js');
-        db.setDatabaseDir(sandbox);
-
-        db.recordUsage({ provider: 'p1', model: 'm1', date: '2026-03-01',
-            usage: { promptTokens: 100, completionTokens: 10, cachedTokens: 60, totalTokens: 110 } });
-        db.recordUsage({ provider: 'p1', model: 'm2', date: '2026-03-01',
-            usage: { promptTokens: 50, completionTokens: 5, cachedTokens: 0, totalTokens: 55 } });
-        db.recordUsage({ provider: 'p2', model: 'm1', date: '2026-03-02',
-            usage: { promptTokens: 30, completionTokens: 3, cachedTokens: 0, totalTokens: 33 } });
-
-        // 单日
-        const day = db.queryStats({ date: '2026-03-01' });
-        expect(day.summary.requestCount).toBe(2);
-        expect(day.byModel.length).toBe(2);
-        expect(day.byProvider.length).toBe(1);
-        expect(day.byProvider[0].provider).toBe('p1');
-
-        // 累计
-        const all = db.queryStats();
-        expect(all.summary.requestCount).toBe(3);
-        expect(all.byProvider.length).toBe(2);
-        // 按 Provider 聚合后 p1 应含两个模型
-        const p1 = all.byProvider.find((r) => r.provider === 'p1');
-        expect(p1.totalTokens).toBe(165);
-
-        // 日历
-        const cal = db.queryCalendar();
-        expect(cal.map((d) => d.date)).toEqual(['2026-03-01', '2026-03-02']);
-        expect(cal[0].modelCount).toBe(2);
-
-        db.clearTokenStats();
-        const afterClear = db.queryStats();
-        expect(afterClear.summary.totalTokens).toBe(0);
-        expect(afterClear.summary.requestCount).toBe(3);
-
-        db.shutdown();
-    });
-
-    test('旧 JSON 会被迁移进 SQLite 并移出项目目录', async () => {
-        const legacyDir = path.join(sandbox, 'configs');
-        const { mkdirSync } = await import('node:fs');
-        mkdirSync(legacyDir, { recursive: true });
-        writeFileSync(path.join(legacyDir, 'model-usage-stats.json'), JSON.stringify({
-            daily: {
-                '2026-04-01': {
-                    models: {
-                        'prov:m9': { requestCount: 2, promptTokens: 40, completionTokens: 4, cachedTokens: 20, totalTokens: 44 }
-                    }
-                }
-            }
-        }));
-
-        const db = await import('../src/plugins/model-usage-stats/stats-db.js');
-        db.setDatabaseDir(legacyDir);
-        const stats = db.queryStats({ date: '2026-04-01' });
-        expect(stats.summary.requestCount).toBe(2);
-        expect(stats.summary.cachedTokens).toBe(20);
-        // 迁移后旧 JSON 不应留在项目目录
-        expect(existsSync(path.join(legacyDir, 'model-usage-stats.json'))).toBe(false);
-        db.shutdown();
+        // 仍需保留的基础设施导出
+        expect(typeof store.openDatabase).toBe('function');
+        expect(typeof store.withTransaction).toBe('function');
+        expect(typeof store.closeDatabase).toBe('function');
     });
 });
 
@@ -203,5 +139,23 @@ describe('api-potluck sqlite keys', () => {
         db.clearAllKeys();
         expect(Object.keys(db.loadAllKeys())).toEqual([]);
         db.shutdown();
+    });
+
+    test('不再从 JSON 迁移（spec §6）', async () => {
+        const db = await import('../src/plugins/api-potluck/potluck-db.js');
+        expect(db.migrateFromLegacyJson).toBeUndefined();
+    });
+});
+
+describe('model-usage-stats 已迁出插件存储层', () => {
+    test('插件目录已删除，存储层只剩核心服务的单表契约', async () => {
+        // 旧路径必须不存在：迁移后任何残留引用都会在运行时炸掉
+        await expect(import('../src/plugins/model-usage-stats/stats-db.js')).rejects.toThrow();
+
+        // 新路径由 tests/model-usage-stats-daily-models.test.js 全面覆盖，
+        // 这里只确认它能被独立导入（模块可达性）。
+        const core = await import('../src/services/usage-stats/stats-db.ts');
+        expect(typeof core.recordUsage).toBe('function');
+        expect(typeof core.queryStats).toBe('function');
     });
 });

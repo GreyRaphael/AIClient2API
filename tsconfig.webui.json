@@ -10,7 +10,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": []
+    "types": [],
+    // 浏览器不做扩展名补全，且 .ts 由服务端运行时擦除后直出，
+    // 因此 static/ui 下的相对 import 必须写完整扩展名（.js 或 .ts）。
+    "allowImportingTsExtensions": true
   },
-  "include": ["static/ui/**/*.js"]
+  "include": ["static/ui/**/*.js", "static/ui/**/*.ts"]
 }

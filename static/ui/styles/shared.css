@@ -281,3 +281,93 @@ input:checked + .toggle-slider {
 input:checked + .toggle-slider::before {
     transform: translateX(24px);
 }
+
+/* ==========================================================================
+   日历热力图（StatsCalendar）
+   ==========================================================================
+
+   归属说明：StatsCalendar 是被三处复用的组件 —— 控制台的模型用量统计 section，
+   以及 potluck / potluck-user 两个独立页。它此前把样式散在 plugin-shared.css 里
+   （只有两个独立页加载），因此迁进控制台时格子高度为 0、整块不可见。
+   收敛到 shared.css 是唯一被所有页面加载的层（index.html / potluck.html /
+   potluck-user.html 都引它），与 .btn / .form-group 这些共享原子同一个理由。
+
+   规则用 `#model-usage-stats` 前缀限定作用域吗？不需要：这里的类名（calendar-*）
+   是全项目唯一的一组，且只服务这一个组件，不存在与其它组件撞名的风险；
+   反而是带前缀会让 potluck 两页失配。这也是 ui-css-scoping 把共享原子类
+   排除在"必须加前缀"之外的同一条理由。
+   ========================================================================== */
+
+.calendar-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(7, 11px);
+    gap: 2px;
+    min-width: max-content;
+    padding: 2px;
+}
+
+.calendar-day {
+    width: 11px;
+    height: 11px;
+    /* 2px 是刻意的：格子本身只有 11px，再大的圆角会把它推向圆形。
+       迁移到 shared.css 时曾误用 --radius-sm(6px)，11px 方块直接变成圆点
+       （用户可见的视觉回归）。ui-design-scale 只约束 6/8/12/16px 这几个
+       等价于 --radius-* 的字面量，2px 不在其列，按原样保留。 */
+    border-radius: 2px;
+    background: var(--bg-secondary);
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.calendar-day-clickable {
+    cursor: pointer;
+}
+
+.calendar-day:hover {
+    transform: scale(1.2);
+    z-index: 10;
+    outline: 1px solid var(--primary-color);
+}
+
+.calendar-day-clickable:hover {
+    outline: 2px solid var(--primary-color);
+}
+
+.calendar-day-selected {
+    outline: 2px solid var(--primary-color);
+    box-shadow: 0 0 0 2px var(--bg-primary) inset;
+    transform: scale(1.15);
+    z-index: 5;
+}
+
+.calendar-day[data-level="0"] { background: var(--bg-secondary); }
+.calendar-day[data-level="1"] { background: var(--calendar-level-1); }
+.calendar-day[data-level="2"] { background: var(--calendar-level-2); }
+.calendar-day[data-level="3"] { background: var(--calendar-level-3); }
+.calendar-day[data-level="4"] { background: var(--calendar-level-4); }
+
+.calendar-footer {
+    margin-top: var(--space-5);
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-align: right;
+}
+
+.calendar-tooltip {
+    position: fixed;
+    padding: var(--space-3) var(--space-5);
+    background: var(--neutral-shadow-85);
+    /* 必须是 --white：tooltip 底色恒为深色（见上一行），文字不能在暗色主题下翻转 */
+    color: var(--white);
+    font-size: 0.6875rem;
+    /* 4px 与原始插件页样式逐字一致；不要改成 --radius-sm(6px) */
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 1000;
+    display: none;
+    box-shadow: var(--shadow-lg);
+    white-space: pre-line;
+    line-height: 1.4;
+}

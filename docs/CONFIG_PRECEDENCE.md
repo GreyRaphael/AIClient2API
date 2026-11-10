@@ -12,7 +12,7 @@
 | `configs/plugins.json` | 插件启用状态 | 运行时配置，默认不提交 |
 | `configs/model-capability-cache.json` | 上游模型发现结果缓存 | 运行时缓存，默认不提交 |
 | `configs/usage-cache.json` | 用量查询缓存 | 运行时缓存，默认不提交 |
-| `configs/model-usage-stats.json` | 请求/Token 统计 | 运行时统计，默认不提交 |
+| `configs/model-usage-stats.db` | 请求/Token 统计（SQLite，核心功能，非插件） | 运行时统计，默认不提交 |
 | `configs/*.example` | 上述配置的结构示例 | 提交 |
 
 ## 2. 开关读取顺序

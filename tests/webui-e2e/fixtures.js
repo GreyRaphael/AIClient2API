@@ -2,10 +2,12 @@ import { test as base, expect } from '@playwright/test';
 
 export const E2E_PASSWORD = 'e2e-pass';
 
-/** 管理控制台的全部页面（hash 路由），顺序与侧边栏一致 */
+/** 管理控制台的全部 section（hash 路由），顺序与侧边栏一致 */
 export const SECTIONS = [
     'dashboard', 'access', 'config', 'providers',
-    'custom-models', 'upload-config', 'usage', 'plugins', 'playground', 'logs'
+    'custom-models', 'upload-config', 'usage', 'plugins', 'playground',
+    // model-usage-stats 已从插件迁为核心功能，加入主菜单并紧挨在 logs 之前
+    'model-usage-stats', 'logs'
 ];
 
 /**

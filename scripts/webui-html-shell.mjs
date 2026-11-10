@@ -90,8 +90,7 @@ export const HTML_PAGES = [
     'index.html',
     'login.html',
     'potluck.html',
-    'potluck-user.html',
-    'model-usage-stats.html'
+    'potluck-user.html'
 ];
 
 export const STATIC_ROOT = path.join(ROOT, 'static');

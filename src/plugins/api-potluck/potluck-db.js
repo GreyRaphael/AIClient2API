@@ -20,15 +20,9 @@
 
 import path from 'node:path';
 import logger from '../../utils/logger.ts';
-import {
-    openDatabase,
-    withTransaction,
-    backupLegacyJson,
-    readLegacyJson
-} from '../shared/sqlite-store.js';
+import { openDatabase, withTransaction } from '../shared/sqlite-store.js';
 
 const DEFAULT_DB = path.join(process.cwd(), 'configs', 'api-potluck.db');
-const DEFAULT_JSON = path.join(process.cwd(), 'configs', 'api-potluck-keys.json');
 
 /** @type {import('node:sqlite').DatabaseSync|null} */
 let db = null;
@@ -56,45 +50,10 @@ function dbFile() {
     return baseDirOverride ? path.join(baseDirOverride, 'api-potluck.db') : DEFAULT_DB;
 }
 
-function legacyJsonFile() {
-    return baseDirOverride ? path.join(baseDirOverride, 'api-potluck-keys.json') : DEFAULT_JSON;
-}
-
-/** 旧 JSON → 逐 Key 写入 */
-function migrateFromLegacyJson(database) {
-    const jsonPath = legacyJsonFile();
-    const store = readLegacyJson(jsonPath);
-    if (!store) return 0;
-
-    const keys = store?.keys && typeof store.keys === 'object' ? store.keys : {};
-    const entries = Object.entries(keys);
-    if (entries.length === 0) {
-        logger.info('[API Potluck] Legacy JSON contained no keys; skipping migration');
-        backupLegacyJson(jsonPath, 'api-potluck');
-        return 0;
-    }
-
-    const stmt = database.prepare(`
-        INSERT INTO potluck_key (key_id, data, updated_at) VALUES (?, ?, ?)
-        ON CONFLICT(key_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
-    `);
-    const now = new Date().toISOString();
-    withTransaction(database, () => {
-        for (const [keyId, keyData] of entries) {
-            stmt.run(keyId, JSON.stringify(keyData), now);
-        }
-    });
-
-    backupLegacyJson(jsonPath, 'api-potluck');
-    logger.info(`[API Potluck] Migrated ${entries.length} key(s) from legacy JSON to SQLite`);
-    return entries.length;
-}
-
 function ensureDb() {
     if (initialized && db) return db;
     db = openDatabase(dbFile());
     db.exec(SCHEMA);
-    migrateFromLegacyJson(db);
     initialized = true;
     return db;
 }

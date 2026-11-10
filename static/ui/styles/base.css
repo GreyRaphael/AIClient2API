@@ -165,6 +165,14 @@
     
     /* 按钮颜色 */
     --btn-primary-hover: #047857;
+
+    /* 日历热力图 5 档（GitHub 风格）。抽成令牌是因为它同时被
+       plugin-shared.css（potluck 独立页）与 section-model-usage-stats.css
+       （控制台主菜单）使用，两处必须同步；暗色主题在下方单独给值。 */
+    --calendar-level-1: #9be9a8;
+    --calendar-level-2: #40c463;
+    --calendar-level-3: #30a14e;
+    --calendar-level-4: #216e39;
 }
 
 /* CSS变量 - 暗黑主题 */
@@ -270,6 +278,11 @@
     
     /* 按钮颜色 */
     --btn-primary-hover: #047857;
+    /* 日历热力图 5 档（暗色）：色阶反向提亮，保证在深底上仍可区分 */
+    --calendar-level-1: #0e4429;
+    --calendar-level-2: #006d32;
+    --calendar-level-3: #26a641;
+    --calendar-level-4: #39d353;
 }
 
 /* 基础样式 */

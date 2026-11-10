@@ -116,4 +116,40 @@ describe('静态资源压缩', () => {
         expect(res.headers['Content-Encoding']).toBeUndefined();
         expect(res.body.toString('utf8')).toBe(SOURCE);
     });
+
+    test('.ts 参与压缩，且解压后是「擦除类型后」的内容', async () => {
+        // 压缩必须在类型擦除之后进行：压的是真正要发给浏览器的 JS。
+        // 完整擦除覆盖见 tests/usage-stats-static-ts.test.js，这里只锁压缩链路。
+        const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const sandbox = mkdtempSync(path.join(tmpdir(), 'ui-ts-br-'));
+        const originalCwd = process.cwd();
+        const source = `interface Row { provider: string; model: string }\n`
+            + `export function keyOf(row: Row): string { return row.provider + ':' + row.model; }\n`
+            // 必须超过 COMPRESSION_MIN_BYTES(1024)：小于该阈值时 serveStaticFiles 会跳过压缩
+            + Array.from({ length: 40 }, (_, i) => `// padding line ${i} for the compression threshold`).join('\n');
+
+        try {
+            mkdirSync(path.join(sandbox, 'static', 'ui'), { recursive: true });
+            writeFileSync(path.join(sandbox, 'static', 'ui', 'probe.ts'), source);
+            process.chdir(sandbox);
+
+            const plain = createResponse();
+            await serveStaticFiles('/ui/probe.ts', plain, request('identity'));
+            expect(plain.headers['Content-Encoding']).toBeUndefined();
+            const stripped = plain.body.toString('utf8');
+            expect(stripped).not.toContain('interface Row');
+
+            const br = createResponse();
+            await serveStaticFiles('/ui/probe.ts', br, request('br'));
+            expect(br.headers['Content-Encoding']).toBe('br');
+            expect(br.headers['Vary']).toBe('Accept-Encoding');
+            // 解压出来必须等于擦除后的字节（而不是磁盘上的 .ts 原文）
+            expect(brotliDecompressSync(br.body).toString('utf8')).toBe(stripped);
+            expect(br.body.length).toBeLessThan(plain.body.length);
+        } finally {
+            process.chdir(originalCwd);
+            rmSync(sandbox, { recursive: true, force: true });
+        }
+    });
 });

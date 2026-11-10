@@ -18,6 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import type { ProviderStatus } from '../providers/provider-types.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { recordUnaryUsage, finalizeRequest } from './usage-stats/stats-manager.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 
@@ -315,17 +316,28 @@ export async function handleImageGenerationRequest(
 
         // 监控钩子：先触发一元响应钩子记录 usage，再触发内容生成完成钩子结算
         if (currentConfig._monitorRequestId) {
+            const imageMonitorRequestId = currentConfig._monitorRequestId as string;
+            const imageNativeResponse = responses.length === 1 ? responses[0] : responses;
+            // 核心用量记账（非插件）：内部已 try/catch，记账失败不影响图片返回
+            recordUnaryUsage({
+                requestId: imageMonitorRequestId,
+                model,
+                provider: toProvider,
+                fromProvider,
+                nativeResponse: imageNativeResponse,
+                clientResponse
+            });
             try {
                 const { getPluginManager } = await import('../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
                     await pluginManager.executeHook('onUnaryResponse', {
-                        nativeResponse: responses.length === 1 ? responses[0] : responses,
+                        nativeResponse: imageNativeResponse,
                         clientResponse,
                         fromProvider,
                         toProvider,
                         model,
-                        requestId: currentConfig._monitorRequestId
+                        requestId: imageMonitorRequestId
                     });
 
                     await pluginManager.executeHook('onContentGenerated', {
@@ -340,6 +352,19 @@ export async function handleImageGenerationRequest(
                 }
             } catch (e) {
                 logger.error('[Image Generation] Hook error:', getErrorMessage(e));
+            }
+
+            // 结算放在 hook 之外的独立 try/catch：插件被禁用/抛错时统计仍然要落库
+            try {
+                finalizeRequest({
+                    requestId: imageMonitorRequestId,
+                    model,
+                    provider: toProvider,
+                    fromProvider,
+                    isStream: false
+                });
+            } catch (e) {
+                logger.warn('[Image Generation] Usage stats finalize failed silently:', getErrorMessage(e));
             }
         }
 
@@ -676,17 +701,28 @@ export async function handleImageEditsRequest(
 
         // 监控钩子：先触发一元响应钩子记录 usage，再触发内容生成完成钩子结算
         if (currentConfig._monitorRequestId) {
+            const imageMonitorRequestId = currentConfig._monitorRequestId as string;
+            const imageNativeResponse = responses.length === 1 ? responses[0] : responses;
+            // 核心用量记账（非插件）：内部已 try/catch，记账失败不影响图片返回
+            recordUnaryUsage({
+                requestId: imageMonitorRequestId,
+                model,
+                provider: toProvider,
+                fromProvider,
+                nativeResponse: imageNativeResponse,
+                clientResponse
+            });
             try {
                 const { getPluginManager } = await import('../core/plugin-manager.ts');
                 const pluginManager = getPluginManager();
                 if (pluginManager) {
                     await pluginManager.executeHook('onUnaryResponse', {
-                        nativeResponse: responses.length === 1 ? responses[0] : responses,
+                        nativeResponse: imageNativeResponse,
                         clientResponse,
                         fromProvider,
                         toProvider,
                         model,
-                        requestId: currentConfig._monitorRequestId
+                        requestId: imageMonitorRequestId
                     });
 
                     await pluginManager.executeHook('onContentGenerated', {
@@ -701,6 +737,19 @@ export async function handleImageEditsRequest(
                 }
             } catch (e) {
                 logger.error('[Image Edits] Hook error:', getErrorMessage(e));
+            }
+
+            // 结算放在 hook 之外的独立 try/catch：插件被禁用/抛错时统计仍然要落库
+            try {
+                finalizeRequest({
+                    requestId: imageMonitorRequestId,
+                    model,
+                    provider: toProvider,
+                    fromProvider,
+                    isStream: false
+                });
+            } catch (e) {
+                logger.warn('[Image Edits] Usage stats finalize failed silently:', getErrorMessage(e));
             }
         }
 

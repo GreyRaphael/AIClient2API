@@ -4,8 +4,9 @@
  * 将各上游协议（OpenAI / Claude / Gemini / OpenAI Responses 等）返回的
  * usage 字段统一归一化为 { promptTokens, completionTokens, totalTokens, cachedTokens }。
  *
- * 供 api-potluck、model-usage-stats 等统计插件以及各 provider core 复用，
- * 避免多处复制粘贴导致的修复不同步（参见 a19d505 / 9881b1b 同类 bug 的重复修复）。
+ * 供 api-potluck 等统计插件、核心的模型用量统计（src/services/usage-stats/）
+ * 以及各 provider core 复用，避免多处复制粘贴导致的修复不同步
+ * （参见 a19d505 / 9881b1b 同类 bug 的重复修复）。
  *
  * 支持的字段来源（按优先级回退）：
  * - OpenAI:        prompt_tokens / completion_tokens / total_tokens / *_tokens_details

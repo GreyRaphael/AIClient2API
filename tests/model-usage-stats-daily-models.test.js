@@ -1,19 +1,18 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import process from 'node:process';
-
 /**
- * model-usage-stats 插件：用量按 (date, provider, model) 落 SQLite。
+ * usage-stats 核心服务：用量按 (date, provider, model) 落 SQLite。
  *
- * 保护三件事（与改 SQLite 前的业务语义完全一致，只是读取方式变了）：
- *   1. finalizeRequest 会把用量按日+模型写入，且能正确累加
+ * 迁移前这是 model-usage-stats 插件的测试；迁移到 src/services/usage-stats/ 后
+ * 业务语义必须**完全不变**（spec §1「API 路径与语义不变」），因此这里逐条保住：
+ *   1. finalizeRequest 把用量按日+模型写入，且能正确累加
  *   2. 缓存命中量 / 命中率口径正确
  *   3. resetTokenStats 清空 token 但保留 requestCount
+ *   4. 按日期查询只返回该日
+ *   5. finalize 省略 provider/model 时沿用 record 阶段归一化的键（不得出现 unknown:unknown）
  *
- * 存储已从 JSON 快照改为 SQLite（configs/model-usage-stats.db）。
- * 测试切到临时 cwd，确保不写脏开发者本机的真实数据。
+ * 另外补上 spec §1 冻结的不变量：byProvider.modelCount、速率字段、DESC 排序、
+ * range 形状、calendar/dates 升序。
+ *
+ * 存储是 configs/model-usage-stats.db，测试切到临时 cwd，避免写脏真实数据。
  */
 
 jest.mock('../src/utils/logger.ts', () => ({
@@ -21,21 +20,26 @@ jest.mock('../src/utils/logger.ts', () => ({
     default: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
 }));
 
+import { describe, test, expect, beforeEach, afterEach, afterAll } from '@jest/globals';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
+import * as statsManager from '../src/services/usage-stats/stats-manager.ts';
+import * as statsDb from '../src/services/usage-stats/stats-db.ts';
+
 const ORIGINAL_CWD = process.cwd();
 let sandbox;
-let lastStatsManager = null;
 
 beforeEach(() => {
     sandbox = mkdtempSync(path.join(tmpdir(), 'stats-sandbox-'));
     process.chdir(sandbox);
-    jest.resetModules();
+    // 每个用例一个全新的库
+    statsDb.setDatabaseDir(sandbox);
 });
 
 afterEach(() => {
-    if (lastStatsManager && typeof lastStatsManager.shutdownStatsManager === 'function') {
-        try { lastStatsManager.shutdownStatsManager(); } catch { /* noop */ }
-    }
-    lastStatsManager = null;
+    statsManager.shutdownStatsManager();
     process.chdir(ORIGINAL_CWD);
     if (sandbox) {
         rmSync(sandbox, { recursive: true, force: true });
@@ -47,33 +51,38 @@ afterAll(() => {
     process.chdir(ORIGINAL_CWD);
 });
 
-async function freshStatsManager() {
-    lastStatsManager = await import('../src/plugins/model-usage-stats/stats-manager.js');
-    return lastStatsManager;
-}
-
 /** 从 byModel 里找某 provider+model 的行 */
 function findRow(rows, provider, model) {
     return (rows || []).find((row) => row.provider === provider && row.model === model);
 }
 
-describe('model-usage-stats per-model aggregation (SQLite)', () => {
-    test('finalizeRequest 把用量按日+模型写入，缓存命中量正确', async () => {
-        const statsManager = await freshStatsManager();
+/** 走完「记录用量 → finalize」的完整生命周期 */
+function runRequest({ requestId, model, provider, usage, isStream = false, fromProvider = 'openai' }) {
+    statsManager.recordUnaryUsage({
+        requestId,
+        model,
+        provider,
+        fromProvider,
+        nativeResponse: { usage },
+        clientResponse: null
+    });
+    return statsManager.finalizeRequest({ requestId, model, provider, fromProvider, isStream });
+}
 
-        statsManager.recordUnaryUsage({
+describe('usage-stats per-model aggregation (SQLite)', () => {
+    test('finalizeRequest 把用量按日+模型写入，缓存命中量正确', async () => {
+        const ok = runRequest({
             requestId: 'req-1',
             model: 'test-model',
             provider: 'test-provider',
-            fromProvider: 'openai',
-            nativeResponse: {
-                usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, prompt_tokens_details: { cached_tokens: 80 } }
-            },
-            clientResponse: null
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 10,
+                total_tokens: 110,
+                prompt_tokens_details: { cached_tokens: 80 }
+            }
         });
-        await statsManager.finalizeRequest({
-            requestId: 'req-1', model: 'test-model', provider: 'test-provider', fromProvider: 'openai', isStream: false
-        });
+        expect(ok).toBe(true);
 
         const stats = await statsManager.getStats();
 
@@ -85,48 +94,56 @@ describe('model-usage-stats per-model aggregation (SQLite)', () => {
         const row = findRow(stats.byModel, 'test-provider', 'test-model');
         expect(row).toBeDefined();
         expect(row.promptTokens).toBe(100);
+        expect(row.completionTokens).toBe(10);
         expect(row.cachedTokens).toBe(80);
+        expect(row.totalTokens).toBe(110);
+        expect(row.requestCount).toBe(1);
+        expect(typeof row.lastUsedAt).toBe('string');
         expect((row.cachedTokens / row.promptTokens) * 100).toBeCloseTo(80, 5);
 
         // 按 Provider 聚合也应有一行
         const providerRow = stats.byProvider.find((r) => r.provider === 'test-provider');
         expect(providerRow).toBeDefined();
         expect(providerRow.promptTokens).toBe(100);
+        expect(providerRow.cachedTokens).toBe(80);
     });
 
     test('同一模型多次调用会累加', async () => {
-        const statsManager = await freshStatsManager();
-
         for (const requestId of ['r1', 'r2']) {
-            statsManager.recordUnaryUsage({
-                requestId, model: 'm', provider: 'p', fromProvider: 'openai',
-                nativeResponse: { usage: { prompt_tokens: 50, completion_tokens: 5, total_tokens: 55 } },
-                clientResponse: null
+            runRequest({
+                requestId,
+                model: 'm',
+                provider: 'p',
+                usage: { prompt_tokens: 50, completion_tokens: 5, total_tokens: 55 }
             });
-            await statsManager.finalizeRequest({ requestId, model: 'm', provider: 'p', fromProvider: 'openai', isStream: false });
         }
 
         const stats = await statsManager.getStats();
         const row = findRow(stats.byModel, 'p', 'm');
         expect(row.promptTokens).toBe(100);
+        expect(row.completionTokens).toBe(10);
+        expect(row.totalTokens).toBe(110);
         expect(row.requestCount).toBe(2);
     });
 
     test('finalizeRequest 省略 provider/model 时沿用 record 阶段归一化的键', async () => {
-        const statsManager = await freshStatsManager();
-
         statsManager.recordUnaryUsage({
             requestId: 'r-norm',
             model: 'deepseek-v4',
             provider: 'trae',
             fromProvider: 'openai',
             nativeResponse: {
-                usage: { prompt_tokens: 200, completion_tokens: 40, total_tokens: 240, prompt_tokens_details: { cached_tokens: 160 } }
+                usage: {
+                    prompt_tokens: 200,
+                    completion_tokens: 40,
+                    total_tokens: 240,
+                    prompt_tokens_details: { cached_tokens: 160 }
+                }
             },
             clientResponse: null
         });
         // 不重复传 provider / model，应从 state 归一化
-        await statsManager.finalizeRequest({ requestId: 'r-norm', fromProvider: 'openai', isStream: false });
+        statsManager.finalizeRequest({ requestId: 'r-norm', fromProvider: 'openai', isStream: false });
 
         const stats = await statsManager.getStats();
         const row = findRow(stats.byModel, 'trae', 'deepseek-v4');
@@ -134,20 +151,21 @@ describe('model-usage-stats per-model aggregation (SQLite)', () => {
         expect(row.totalTokens).toBe(240);
         // 不应退化成 unknown:unknown
         expect(findRow(stats.byModel, 'unknown', 'unknown')).toBeUndefined();
+        expect(stats.byModel.some((r) => r.provider === 'unknown' || r.model === 'unknown')).toBe(false);
     });
 
     test('resetTokenStats 清空 token 但保留 requestCount', async () => {
-        const statsManager = await freshStatsManager();
-
-        statsManager.recordUnaryUsage({
+        runRequest({
             requestId: 'r-reset',
-            model: 'm2', provider: 'p2', fromProvider: 'openai',
-            nativeResponse: {
-                usage: { prompt_tokens: 300, completion_tokens: 60, total_tokens: 360, prompt_tokens_details: { cached_tokens: 100 } }
-            },
-            clientResponse: null
+            model: 'm2',
+            provider: 'p2',
+            usage: {
+                prompt_tokens: 300,
+                completion_tokens: 60,
+                total_tokens: 360,
+                prompt_tokens_details: { cached_tokens: 100 }
+            }
         });
-        await statsManager.finalizeRequest({ requestId: 'r-reset', model: 'm2', provider: 'p2', fromProvider: 'openai', isStream: false });
 
         const before = await statsManager.getStats();
         const beforeRow = findRow(before.byModel, 'p2', 'm2');
@@ -166,26 +184,155 @@ describe('model-usage-stats per-model aggregation (SQLite)', () => {
     });
 
     test('按日期查询只返回该日数据', async () => {
-        const statsManager = await freshStatsManager();
-        const db = await import('../src/plugins/model-usage-stats/stats-db.js');
-        db.setDatabaseDir(sandbox);
+        statsDb.recordUsage({
+            provider: 'p3',
+            model: 'm3',
+            date: '2026-01-01',
+            usage: { promptTokens: 10, completionTokens: 1, totalTokens: 11 }
+        });
+        statsDb.recordUsage({
+            provider: 'p3',
+            model: 'm3',
+            date: '2026-01-02',
+            usage: { promptTokens: 20, completionTokens: 2, totalTokens: 22 }
+        });
 
-        db.recordUsage({ provider: 'p3', model: 'm3', date: '2026-01-01',
-            usage: { promptTokens: 10, completionTokens: 1, totalTokens: 11 } });
-        db.recordUsage({ provider: 'p3', model: 'm3', date: '2026-01-02',
-            usage: { promptTokens: 20, completionTokens: 2, totalTokens: 22 } });
-
-        const day = db.queryStats({ date: '2026-01-01' });
+        const day = statsDb.queryStats({ date: '2026-01-01' });
         expect(day.summary.requestCount).toBe(1);
         expect(day.summary.totalTokens).toBe(11);
 
-        const all = db.queryStats();
+        const all = statsDb.queryStats();
         expect(all.summary.requestCount).toBe(2);
         expect(all.summary.totalTokens).toBe(33);
 
-        const cal = db.queryCalendar();
+        const cal = statsDb.queryCalendar();
         expect(cal.length).toBe(2);
         expect(cal.map((d) => d.date)).toEqual(['2026-01-01', '2026-01-02']);
-        db.shutdown();
+    });
+});
+
+describe('spec §1 冻结的不变量', () => {
+    test('byProvider[i].modelCount 等于该 provider 下 byModel 的行数', async () => {
+        // p1 有两个模型，p2 只有一个
+        statsDb.recordUsage({ provider: 'p1', model: 'm1', date: '2026-05-01',
+            usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } });
+        statsDb.recordUsage({ provider: 'p1', model: 'm2', date: '2026-05-01',
+            usage: { promptTokens: 50, completionTokens: 5, totalTokens: 55 } });
+        statsDb.recordUsage({ provider: 'p2', model: 'm3', date: '2026-05-01',
+            usage: { promptTokens: 30, completionTokens: 3, totalTokens: 33 } });
+
+        const stats = await statsManager.getStats();
+
+        for (const providerRow of stats.byProvider) {
+            const expected = stats.byModel.filter((m) => m.provider === providerRow.provider).length;
+            expect(providerRow.modelCount).toBe(expected);
+        }
+        expect(stats.byProvider.find((r) => r.provider === 'p1').modelCount).toBe(2);
+        expect(stats.byProvider.find((r) => r.provider === 'p2').modelCount).toBe(1);
+    });
+
+    test('summary / byModel / byProvider 都带速率字段（来自内存，不落库）', async () => {
+        runRequest({
+            requestId: 'r-rate',
+            model: 'rate-model',
+            provider: 'rate-provider',
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        });
+
+        const stats = await statsManager.getStats();
+        const row = findRow(stats.byModel, 'rate-provider', 'rate-model');
+        const providerRow = stats.byProvider.find((r) => r.provider === 'rate-provider');
+
+        for (const block of [stats.summary, row, providerRow]) {
+            for (const key of ['qps', 'tps', 'rpm', 'maxQps', 'maxTps', 'maxRpm']) {
+                expect(typeof block[key]).toBe('number');
+                expect(Number.isFinite(block[key])).toBe(true);
+            }
+        }
+
+        // 速率不落库：直接查 DB 的行里没有这些列
+        const dbRow = statsDb.queryStats().byModel.find((r) => r.model === 'rate-model');
+        expect(dbRow.qps).toBeUndefined();
+        expect(dbRow.maxQps).toBeUndefined();
+    });
+
+    test('byModel / byProvider 按 total_tokens DESC 排序', async () => {
+        statsDb.recordUsage({ provider: 'small', model: 's', date: '2026-06-01',
+            usage: { promptTokens: 10, completionTokens: 1, totalTokens: 11 } });
+        statsDb.recordUsage({ provider: 'big', model: 'b', date: '2026-06-01',
+            usage: { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 } });
+        statsDb.recordUsage({ provider: 'mid', model: 'm', date: '2026-06-01',
+            usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } });
+
+        const stats = await statsManager.getStats();
+
+        expect(stats.byModel.map((r) => r.model)).toEqual(['b', 'm', 's']);
+        expect(stats.byProvider.map((r) => r.provider)).toEqual(['big', 'mid', 'small']);
+    });
+
+    test('range 形状：省略 date 时为空对象，指定 date 时回显该日', async () => {
+        const all = await statsManager.getStats();
+        expect(all.range).toEqual({});
+        expect(Object.keys(all.range)).not.toContain('date');
+
+        const day = await statsManager.getStats({ date: '2026-07-01' });
+        expect(day.range).toEqual({ date: '2026-07-01' });
+    });
+
+    test('dates 与 calendar 均按 date 升序', async () => {
+        for (const date of ['2026-09-03', '2026-09-01', '2026-09-02']) {
+            statsDb.recordUsage({ provider: 'p', model: 'm', date,
+                usage: { promptTokens: 5, completionTokens: 1, totalTokens: 6 } });
+        }
+
+        const stats = await statsManager.getStats();
+        expect(stats.dates).toEqual(['2026-09-01', '2026-09-02', '2026-09-03']);
+        expect(stats.calendar.map((d) => d.date)).toEqual(['2026-09-01', '2026-09-02', '2026-09-03']);
+    });
+
+    test('resetStats 清空全部统计并返回最新 payload', async () => {
+        runRequest({
+            requestId: 'r-clear',
+            model: 'm-clear',
+            provider: 'p-clear',
+            usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 }
+        });
+        expect((await statsManager.getStats()).summary.requestCount).toBe(1);
+
+        const after = await statsManager.resetStats();
+        expect(after.summary.requestCount).toBe(0);
+        expect(after.summary.totalTokens).toBe(0);
+        expect(after.byModel).toEqual([]);
+        expect(after.byProvider).toEqual([]);
+        expect(after.dates).toEqual([]);
+        expect(after.calendar).toEqual([]);
+    });
+
+    test('finalizeRequest 对同一 requestId 只记账一次（防重）', async () => {
+        runRequest({
+            requestId: 'r-dup',
+            model: 'm-dup',
+            provider: 'p-dup',
+            usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 }
+        });
+        // 同一 requestId 再 finalize 一次不应再加一条
+        statsManager.finalizeRequest({ requestId: 'r-dup', model: 'm-dup', provider: 'p-dup', isStream: false });
+
+        const stats = await statsManager.getStats();
+        const row = findRow(stats.byModel, 'p-dup', 'm-dup');
+        expect(row.requestCount).toBe(1);
+        expect(row.totalTokens).toBe(11);
+    });
+
+    test('缺少 requestId 或未捕获响应时 finalize 不落库', async () => {
+        expect(statsManager.finalizeRequest({ model: 'm', provider: 'p', isStream: false })).toBe(false);
+
+        // 只 finalize 未 record → 没有响应可记账
+        expect(statsManager.finalizeRequest({
+            requestId: 'r-noresp', model: 'm-noresp', provider: 'p-noresp', isStream: false
+        })).toBe(false);
+
+        const stats = await statsManager.getStats();
+        expect(stats.byModel).toEqual([]);
     });
 });

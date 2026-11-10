@@ -22,15 +22,32 @@ describe('UI 组件 SSR 冒烟', () => {
         expect(markup).toContain('连接中');
     });
 
-    test('Sidebar 渲染 10 个导航项并标记 active', () => {
+    test('Sidebar 渲染 11 个导航项并标记 active', () => {
         const markup = render(html`<${Sidebar} current="dashboard" />`);
-        expect(markup.match(/class="nav-item/g)?.length).toBe(10);
+        expect(markup.match(/class="nav-item/g)?.length).toBe(11);
         expect(markup).toContain('href="#dashboard"');
         expect(markup).toContain('class="nav-item active"');
         expect(markup).toContain('仪表盘');
         expect(markup).toContain('data-section="logs"');
         // 使用指南页已彻底删除
         expect(markup).not.toContain('data-section="guide"');
+    });
+
+    test('Sidebar 把模型用量统计排在实时日志之前（主菜单第 10 项）', () => {
+        // model-usage-stats 从插件迁为核心功能后加入主菜单，位置紧挨「实时日志」上方。
+        const markup = render(html`<${Sidebar} current="model-usage-stats" />`);
+        expect(markup).toContain('data-section="model-usage-stats"');
+        expect(markup).toContain('href="#model-usage-stats"');
+        // 图标必须是完整字面量（FA 子集靠字面量扫描收集）
+        expect(markup).toContain('fas fa-chart-line');
+        expect(markup).toContain('nav-item active');
+
+        const order = [...markup.matchAll(/data-section="([\w-]+)"/g)].map((m) => m[1]);
+        expect(order).toHaveLength(11);
+        expect(order.indexOf('model-usage-stats')).toBe(order.indexOf('logs') - 1);
+        // 首尾不变：仪表盘仍在最前，实时日志仍在最后
+        expect(order[0]).toBe('dashboard');
+        expect(order[order.length - 1]).toBe('logs');
     });
 
     test('ToastHost 渲染 store 队列', () => {
