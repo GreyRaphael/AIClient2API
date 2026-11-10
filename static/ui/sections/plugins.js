@@ -1,17 +1,15 @@
 /**
- * 插件管理页面（Phase 2 迁移）。
- * 覆盖已安装列表、启用/禁用、卸载、市场列表、安装/更新、付费弹窗与 ZIP 上传。
+ * 插件管理页面。
+ * 覆盖已安装列表、启用/禁用、卸载与本地 ZIP 上传。
  */
 import { html, useEffect, useRef, useState, useCallback } from '../html.js';
 import { t } from '../lib/i18n.js';
 import { api } from '../lib/api.js';
-import { compareVersions } from '../lib/provider-manager-utils.js';
 import { sanitizeHtml } from '../lib/sanitize.js';
 import { toast, toastError } from '../store/toast.js';
 import { Spinner } from '../components/Spinner.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Switch } from '../components/Switch.js';
-import { Modal } from '../components/Modal.js';
 import { useEvent } from '../hooks/useEvent.js';
 import { confirmDialog } from '../store/confirm.js';
 
@@ -59,15 +57,8 @@ function PluginCard({ plugin, onToggle, onUninstall }) {
 }
 
 export default function PluginsSection() {
-    const [tab, setTab] = useState('installed');
     const [plugins, setPlugins] = useState([]);
     const [pluginsLoading, setPluginsLoading] = useState(true);
-    const [market, setMarket] = useState(/** @type {any[]|null} */ (null));
-    const [marketLoading, setMarketLoading] = useState(false);
-    const [marketUrl, setMarketUrl] = useState('');
-    const [systemVersion, setSystemVersion] = useState('0.0.0');
-    const [installingId, setInstallingId] = useState('');
-    const [paying, setPaying] = useState(/** @type {any} */ (null));
     const fileInput = useRef(/** @type {HTMLInputElement|null} */ (null));
 
     const loadPlugins = useCallback(async () => {
@@ -82,44 +73,13 @@ export default function PluginsSection() {
         }
     }, []);
 
-    const loadMarket = useCallback(async (url = marketUrl) => {
-        setMarketLoading(true);
-        try {
-            const response = await api.get('/plugins/market', url ? { url } : {});
-            setMarket(response?.plugins || []);
-            if (url) toast.success(t('common.success'), t('plugins.market.remoteUpdated'));
-        } catch (error) {
-            toastError(t('plugins.market.loadFailed', { error: error.message }));
-            setMarket([]);
-        } finally {
-            setMarketLoading(false);
-        }
-    }, [marketUrl]);
-
     useEvent('plugin_update', () => {
         void loadPlugins();
-        if (market !== null) void loadMarket();
     });
 
     useEffect(() => {
-        let alive = true;
-        api.get('/system')
-            .then((data) => {
-                if (alive) setSystemVersion(data?.appVersion || '0.0.0');
-            })
-            .catch(() => {});
         void loadPlugins();
-        return () => {
-            alive = false;
-        };
     }, [loadPlugins]);
-
-    const switchTab = (next) => {
-        setTab(next);
-        if (next === 'market' && market === null) {
-            void loadMarket();
-        }
-    };
 
     const handleToggle = async (plugin) => {
         const enabled = !plugin.enabled;
@@ -157,19 +117,6 @@ export default function PluginsSection() {
         }
     };
 
-    const handleInstall = async (plugin) => {
-        setInstallingId(plugin.id);
-        try {
-            await api.post('/plugins/install', { plugin });
-            toast.success(t('common.success'), t('plugins.install.success', { name: plugin.name }));
-            await loadPlugins();
-        } catch (error) {
-            toastError(t('plugins.install.failed', { error: error.message }));
-        } finally {
-            setInstallingId('');
-        }
-    };
-
     const handleFile = async (event) => {
         const file = event.currentTarget.files?.[0];
         event.currentTarget.value = '';
@@ -177,16 +124,14 @@ export default function PluginsSection() {
 
         const formData = new FormData();
         formData.append('file', file);
-        if (paying) formData.append('pluginId', paying.id);
 
-        toast.info(t('common.info'), t('plugins.payment.uploading'));
+        toast.info(t('common.info'), t('plugins.uploading'));
         try {
             const response = await api.postForm('/plugins/upload', formData);
             if (!response?.success) {
                 throw new Error(response?.error?.message || t('plugins.install.failed', { error: '' }));
             }
-            toast.success(t('common.success'), t('plugins.payment.success'));
-            setPaying(null);
+            toast.success(t('common.success'), t('plugins.uploadSuccess', { name: file.name }));
             await loadPlugins();
         } catch (error) {
             toastError(error.message);
@@ -203,183 +148,40 @@ export default function PluginsSection() {
                 onToggle=${handleToggle} onUninstall=${handleUninstall} />`);
     };
 
-    const renderMarketList = () => {
-        if (marketLoading) return html`<${Spinner} className="plugins-loading" text=${t('plugins.market.loading')} />`;
-        const items = market || [];
-        if (items.length === 0) {
-            return html`<${EmptyState} className="plugins-empty" icon="fa-store" message=${t('plugins.market.empty')} />`;
-        }
-        return items.map((plugin) => {
-            const installedPlugin = plugins.find((item) => item.name === plugin.id);
-            const isInstalled = !!installedPlugin;
-            const hasUpdate = isInstalled && compareVersions(plugin.version, installedPlugin.version) > 0;
-            const isIncompatible = plugin.minSystemVersion
-                && compareVersions(systemVersion, plugin.minSystemVersion) < 0;
-
-            let action;
-            if (isInstalled && !hasUpdate) {
-                action = html`<button class="btn btn-secondary btn-install" disabled>
-                    <i class="fas fa-check"></i> ${t('plugins.market.installed')}
-                </button>`;
-            } else if (hasUpdate) {
-                action = plugin.isPaid
-                    ? html`<button class="btn btn-primary btn-install"
-                        style="background: var(--warning-color); border-color: var(--warning-color)"
-                        onClick=${() => setPaying(plugin)}>
-                        <i class="fas fa-sync-alt"></i> ${t('plugins.market.updateTo', { version: plugin.version })}
-                    </button>`
-                    : html`<button class="btn btn-primary btn-install" onClick=${() => handleInstall(plugin)}>
-                        <i class="fas fa-sync-alt"></i> ${t('plugins.market.updateTo', { version: plugin.version })}
-                    </button>`;
-            } else if (isIncompatible) {
-                action = html`<button class="btn btn-secondary btn-install" disabled
-                    title=${t('plugins.market.versionIncompatible', { version: plugin.minSystemVersion })}>
-                    <i class="fas fa-exclamation-triangle"></i> ${t('plugins.market.incompatible')}
-                </button>`;
-            } else if (plugin.isPaid) {
-                action = html`<button class="btn btn-primary btn-install"
-                    style="background: var(--warning-color); border-color: var(--warning-color)"
-                    onClick=${() => setPaying(plugin)}>
-                    <i class="fas fa-shopping-cart"></i> ${t('plugins.market.buy')}
-                </button>`;
-            } else {
-                action = html`<button class="btn btn-primary btn-install" onClick=${() => handleInstall(plugin)}>
-                    <i class="fas fa-download"></i> ${t('plugins.market.install')}
-                </button>`;
-            }
-
-            return html`
-                <div class=${`plugin-card ${plugin.isPaid ? 'paid' : ''} ${isIncompatible ? 'incompatible' : ''}`}
-                    key=${plugin.id}>
-                    <div class="plugin-header">
-                        <div class="plugin-title">
-                            <h3>${plugin.name}</h3>
-                            <div style="display:flex; gap:5px; align-items:center; margin-top:4px">
-                                <span class="plugin-version">v${plugin.version}</span>
-                                ${plugin.minSystemVersion ? html`
-                                    <span class="plugin-version"
-                                        style=${`background:var(--bg-tertiary); color:${isIncompatible ? 'var(--danger-color)' : 'var(--text-tertiary)'}`}>
-                                        ${t('plugins.market.minVersion', { version: plugin.minSystemVersion })}
-                                    </span>` : null}
-                            </div>
-                            ${plugin.isPaid ? html`
-                                <span class="plugin-badge" style="background: var(--warning-bg); color: var(--warning-text); margin-top: 5px">
-                                    ${plugin.price || t('plugins.market.paid')}
-                                </span>` : null}
-                        </div>
-                    </div>
-                    ${plugin.description
-                        ? html`<div class="plugin-description" dangerouslySetInnerHTML=${{ __html: sanitizeHtml(plugin.description) }}></div>`
-                        : html`<div class="plugin-description">${t('plugins.noDescription')}</div>`}
-                    <div class="plugin-footer" style="margin-top:auto; padding-top:1rem; border-top: 1px solid var(--border-color)">
-                        ${action}
-                    </div>
-                    ${installingId === plugin.id ? html`
-                        <div class="installing-overlay">
-                            <i class="fas fa-spinner fa-spin" style="font-size: 2rem"></i>
-                            <span>${t('plugins.installing')}</span>
-                        </div>` : null}
-                </div>`;
-        });
-    };
-
     return html`
         <section id="plugins" class="section active" aria-labelledby="plugins-title">
             <h2 id="plugins-title">${t('plugins.title')}</h2>
 
-            <div class="tabs-container">
-                <div class=${`tab-item ${tab === 'installed' ? 'active' : ''}`} data-tab="installed"
-                    onClick=${() => switchTab('installed')}>${t('plugins.tabs.installed')}</div>
-                <div class=${`tab-item ${tab === 'market' ? 'active' : ''}`} data-tab="market"
-                    onClick=${() => switchTab('market')}>${t('plugins.tabs.market')}</div>
-            </div>
+            <div class="plugins-panel">
+                <p class="plugins-hint">
+                    <i class="fas fa-info-circle"></i>
+                    <span>${t('plugins.description')}</span>
+                </p>
 
-            <div id="installedTab" class=${`tab-content ${tab === 'installed' ? 'active' : ''}`}>
-                <div class="plugins-panel">
-                    <p class="plugins-hint">
-                        <i class="fas fa-info-circle"></i>
-                        <span>${t('plugins.description')}</span>
-                    </p>
-
-                    <div class="plugins-list-header">
-                        <h3>${t('plugins.listTitle')}</h3>
-                        <div class="plugins-inline-stats">
-                            <span><span>${t('plugins.stats.total')}</span> <strong id="totalPlugins">${plugins.length}</strong></span>
-                            <span><span>${t('plugins.stats.enabled')}</span> <strong id="enabledPlugins">${plugins.filter((plugin) => plugin.enabled).length}</strong></span>
-                            <span><span>${t('plugins.stats.disabled')}</span> <strong id="disabledPlugins">${plugins.filter((plugin) => !plugin.enabled).length}</strong></span>
-                        </div>
+                <div class="plugins-list-header">
+                    <h3>${t('plugins.listTitle')}</h3>
+                    <div class="plugins-inline-stats">
+                        <span><span>${t('plugins.stats.total')}</span> <strong id="totalPlugins">${plugins.length}</strong></span>
+                        <span><span>${t('plugins.stats.enabled')}</span> <strong id="enabledPlugins">${plugins.filter((plugin) => plugin.enabled).length}</strong></span>
+                        <span><span>${t('plugins.stats.disabled')}</span> <strong id="disabledPlugins">${plugins.filter((plugin) => !plugin.enabled).length}</strong></span>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button class="btn btn-secondary btn-sm" id="uploadPluginBtn" aria-label=${t('plugins.uploadBtn')}
+                            onClick=${() => fileInput.current?.click()}>
+                            <i class="fas fa-upload"></i> <span>${t('plugins.uploadBtn')}</span>
+                        </button>
+                        <input type="file" id="pluginFileInput" accept=".zip" style="display: none"
+                            ref=${fileInput} onChange=${handleFile} />
                         <button class="btn btn-primary btn-sm" id="refreshPluginsBtn" aria-label=${t('plugins.refresh')}
                             onClick=${() => void loadPlugins()}>
                             <i class="fas fa-sync-alt"></i> <span>${t('plugins.refresh')}</span>
                         </button>
                     </div>
+                </div>
 
-                    <div class="plugins-list-container">
-                        <div id="pluginsList" class="plugins-list">${renderPluginList()}</div>
-                    </div>
+                <div class="plugins-list-container">
+                    <div id="pluginsList" class="plugins-list">${renderPluginList()}</div>
                 </div>
             </div>
-
-            <div id="marketTab" class=${`tab-content ${tab === 'market' ? 'active' : ''}`}>
-                <div class="market-panel">
-                    <div class="plugins-description">
-                        <div class="highlight-note">
-                            <i class="fas fa-store"></i>
-                            <span>${t('plugins.market.description')}</span>
-                        </div>
-                    </div>
-
-                    <div class="market-controls">
-                        <div style="display:flex; gap:10px; flex:1; max-width:500px">
-                            <input id="marketUrlInput" class="form-control" style="height:38px"
-                                placeholder=${t('plugins.market.urlPlaceholder')}
-                                value=${marketUrl} onInput=${(event) => setMarketUrl(event.currentTarget.value)} />
-                            <button class="btn btn-secondary" id="refreshMarketBtn" style="white-space:nowrap"
-                                onClick=${() => void loadMarket()}>
-                                <i class="fas fa-sync-alt"></i> <span>${t('plugins.market.refresh')}</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="market-list-container">
-                        <div id="marketList" class="plugins-list">${renderMarketList()}</div>
-                    </div>
-                </div>
-            </div>
-
-            <${Modal} id="paymentModal" open=${!!paying}
-                title=${paying ? t('plugins.payment.titleWithName', { name: paying.name }) : t('plugins.payment.title')}
-                onClose=${() => setPaying(null)} width="450px">
-                <div style="text-align: center; margin-bottom: 1.5rem">
-                    <div id="paymentPrice" style="font-size: 2rem; font-weight: 700; color: var(--primary-color); margin-bottom: 0.5rem">
-                        ${paying?.price || t('plugins.payment.paidPlugin')}
-                    </div>
-                    <div id="paymentDesc" style="color: var(--text-secondary); font-size: 0.875rem">
-                        ${paying?.description || ''}
-                    </div>
-                </div>
-
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; background: var(--bg-secondary); padding: 1.5rem; border-radius: 0.5rem">
-                    ${paying?.qrCode ? html`
-                        <img id="paymentQR" src=${paying.qrCode} alt="QR Code"
-                            style="width: 200px; height: 200px; border: 1px solid var(--border-color); padding: 5px; background: white" />` : null}
-                    ${paying?.qrCode ? html`
-                        <div id="paymentQRHint" style="font-size: 0.875rem; color: var(--text-primary)">
-                            ${t('plugins.payment.scanToPay')}
-                        </div>` : null}
-                    <a id="paymentLink" href=${paying?.paymentUrl || '#'} target="_blank"
-                        class="btn btn-secondary" style="width: 100%">${t('plugins.payment.goPage')}</a>
-                </div>
-
-                <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem">
-                    <p style="font-size: 0.875rem; margin-bottom: 1rem">${t('plugins.payment.uploadGuide')}</p>
-                    <button class="btn btn-primary" style="width: 100%" id="triggerUploadBtn"
-                        onClick=${() => fileInput.current?.click()}>
-                        <i class="fas fa-upload"></i> <span>${t('plugins.payment.uploadBtn')}</span>
-                    </button>
-                    <input type="file" id="pluginFileInput" accept=".zip" style="display: none"
-                        ref=${fileInput} onChange=${handleFile} />
-                </div>
-            <//>
         </section>`;
 }

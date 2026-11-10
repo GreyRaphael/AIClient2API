@@ -711,16 +711,6 @@ export async function handleUIApiRequests(
         return await pluginApi.handleGetPlugins(req, res);
     }
 
-    // Get market plugins
-    if (method === 'GET' && pathParam === '/api/plugins/market') {
-        return await pluginApi.handleGetMarketPlugins(req, res);
-    }
-
-    // Install plugin
-    if (method === 'POST' && pathParam === '/api/plugins/install') {
-        return await pluginApi.handleInstallPlugin(req, res);
-    }
-
     // Upload plugin
     if (method === 'POST' && pathParam === '/api/plugins/upload') {
         return Boolean(await pluginApi.handleUploadPlugin(req, res));

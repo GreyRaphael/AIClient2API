@@ -2,17 +2,12 @@ import { getPluginManager } from '../core/plugin-manager.ts';
 import logger from '../utils/logger.ts';
 import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from './event-broadcast.ts';
-import { fetchMarketPlugins, installPlugin, installPluginFromBuffer } from '../services/plugin-installer.ts';
+import { installPluginFromBuffer } from '../services/plugin-installer.ts';
 import multer, { type File as MulterFile } from 'multer';
 import path from 'path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 type UploadRequest = IncomingMessage & { file?: MulterFile };
-
-interface PluginInstallPayload {
-    id: string;
-    downloadUrl: string;
-}
 
 function toError(error: unknown): Error {
     return error instanceof Error ? error : new Error(String(error));
@@ -106,74 +101,6 @@ export async function handleUploadPlugin(req: UploadRequest, res: ServerResponse
     });
 }
 
-
-/**
- * 获取插件市场列表
- */
-export async function handleGetMarketPlugins(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
-    try {
-        const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-        const updateUrl = urlObj.searchParams.get('url');
-
-        const marketPlugins = await fetchMarketPlugins(updateUrl);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ plugins: marketPlugins }));
-        return true;
-    } catch (caught) { const error = toError(caught);
-        logger.error('[UI API] Failed to fetch market plugins:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: error.message
-            }
-        }));
-        return true;
-    }
-}
-
-/**
- * 安装插件
- */
-export async function handleInstallPlugin(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
-    try {
-        const body = await getRequestBody(req);
-        const rawPlugin = body.plugin;
-        const pluginRecord = rawPlugin && typeof rawPlugin === 'object'
-            ? rawPlugin as Record<string, unknown>
-            : null;
-        const pluginId = typeof pluginRecord?.id === 'string' ? pluginRecord.id : '';
-        const downloadUrl = typeof pluginRecord?.downloadUrl === 'string' ? pluginRecord.downloadUrl : '';
-
-        if (!pluginId || !downloadUrl) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: '无效的插件信息' } }));
-            return true;
-        }
-
-        const plugin: PluginInstallPayload = { id: pluginId, downloadUrl };
-        await installPlugin(plugin);
-
-        // 广播安装成功事件
-        broadcastEvent('plugin_update', {
-            action: 'install',
-            pluginId: plugin.id,
-            timestamp: new Date().toISOString()
-        });
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: `插件 ${plugin.id} 安装成功` }));
-        return true;
-    } catch (caught) { const error = toError(caught);
-        logger.error('[UI API] Failed to install plugin:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: '插件安装失败'
-            }
-        }));
-        return true;
-    }
-}
 
 /**
  * 切换插件状态

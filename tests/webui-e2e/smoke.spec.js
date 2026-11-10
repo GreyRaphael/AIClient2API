@@ -733,7 +733,7 @@ test.describe('console shell', () => {
         const pluginCount = await page.locator('#pluginsList .plugin-card').count();
         expect(pluginCount).toBeGreaterThanOrEqual(1);
         await expect(page.locator('#totalPlugins')).toHaveText(String(pluginCount));
-        await expect(page.locator('.tab-item[data-tab="market"]')).toBeVisible();
+        await expect(page.locator('#uploadPluginBtn')).toBeVisible();
         expect(await page.evaluate(() => typeof window.togglePlugin)).toBe('undefined');
 
         const enabledBefore = Number(await page.locator('#enabledPlugins').textContent());
