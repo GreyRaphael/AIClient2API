@@ -568,10 +568,16 @@ describe('网关管线集成回归：预扣回收、上游报错退还与错误�
             km.reserveTokens(key.id, 4000)
         ]);
 
-        // 直接读取磁盘上的 JSON 文件，验证最后一次修改也已被立即持久化（而非因 isWriting 提前返回并被抹掉 isDirty）
-        const diskPath = path.join(sandbox, 'configs', 'api-potluck-keys.json');
-        const onDisk = JSON.parse(readFileSync(diskPath, 'utf8'));
-        expect(onDisk.keys[key.id].plan.tokenReserved).toBe(10000);
-        expect(onDisk.keys[key.id].plan.todayTokenUsed).toBe(10000);
+        // 直接从 SQLite 读回，验证最后一次修改也已落盘
+        // （而不是因并发写提前返回、丢掉最后一批预扣）。
+        const { DatabaseSync } = await import('node:sqlite');
+        const dbPath = path.join(sandbox, 'configs', 'api-potluck.db');
+        const db = new DatabaseSync(dbPath);
+        const row = db.prepare('SELECT data FROM potluck_key WHERE key_id = ?').get(key.id);
+        db.close();
+        expect(row).toBeDefined();
+        const onDisk = JSON.parse(String(row.data));
+        expect(onDisk.plan.tokenReserved).toBe(10000);
+        expect(onDisk.plan.todayTokenUsed).toBe(10000);
     });
 });

@@ -21,6 +21,13 @@ zed-model-metadata-cache.json
 api-potluck-keys.json
 api-potluck-data.json
 model-usage-stats.json
+# 插件 SQLite 数据库（含 WAL/SHM 边车文件）
+*.db
+*.db-wal
+*.db-shm
+ai-monitor.db
+api-potluck.db
+model-usage-stats.db
 AGENTS.md
 src/plugins-user/
 configs/pwd

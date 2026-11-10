@@ -3,11 +3,13 @@
  * 使用内存缓存 + 写锁 + 定期持久化，解决并发安全问题
  */
 
-import { atomicWriteFile, atomicWriteFileSync } from '../../utils/file-lock.ts';
-import { promises as fs } from 'fs';
+import {
+    loadAllKeys,
+    saveKeys,
+    shutdown as shutdownDb,
+    setDatabaseDir
+} from './potluck-db.js';
 import logger from '../../utils/logger.ts';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 import { RateManager } from '../../utils/rate-tracker.ts';
 import { getBeijingDateString } from '../../utils/common.ts';
@@ -22,7 +24,6 @@ import {
 } from './plans.js';
 
 // 配置文件路径
-const KEYS_STORE_FILE = path.join(process.cwd(), 'configs', 'api-potluck-keys.json');
 
 const KEY_PREFIX = 'maki_';
 
@@ -219,29 +220,22 @@ function resetUsageHistoryTokens(usageHistory) {
 function ensureLoaded() {
     if (keyStore !== null) return;
     try {
-        if (existsSync(KEYS_STORE_FILE)) {
-            const content = readFileSync(KEYS_STORE_FILE, 'utf8');
-            keyStore = normalizeStore(JSON.parse(content));
-        } else {
-            keyStore = { keys: {} };
-            syncWriteToFile();
-        }
+        // SQLite 读取：返回 { keyId: keyData }，再走与旧 JSON 相同的归一化
+        keyStore = normalizeStore({ keys: loadAllKeys() });
     } catch (error) {
-        logger.error('[API Potluck] Failed to load key store:', error.message);
+        logger.error('[API Potluck] Failed to load key store from SQLite:', error.message);
         keyStore = { keys: {} };
     }
-    
-    // 获取配置的持久化间隔
+
+    // 沿用配置的持久化间隔（现在只用于合并高频写入，不再全量重写）
     const config = getConfig();
     currentPersistInterval = config.persistInterval || DEFAULT_CONFIG.persistInterval;
-    
-    // 启动定期持久化
+
     if (!persistTimer) {
         persistTimer = setInterval(persistIfDirty, currentPersistInterval);
         if (typeof persistTimer.unref === 'function') {
             persistTimer.unref();
         }
-        // 进程退出时保存
         process.on('beforeExit', onBeforeExit);
         process.on('SIGINT', onSigInt);
         process.on('SIGTERM', onSigTerm);
@@ -249,16 +243,16 @@ function ensureLoaded() {
 }
 
 function onBeforeExit() {
-    persistIfDirty();
+    flushSync();
 }
 
 function onSigInt() {
-    persistIfDirty();
+    flushSync();
     process.exit(0);
 }
 
 function onSigTerm() {
-    persistIfDirty();
+    flushSync();
     process.exit(0);
 }
 
@@ -278,21 +272,37 @@ export function shutdownKeyManager() {
     process.off('beforeExit', onBeforeExit);
     process.off('SIGINT', onSigInt);
     process.off('SIGTERM', onSigTerm);
+    // 关闭前必须把待写入数据刷盘，否则最后一批用量丢失
+    try { flushSync(); } catch { /* 已在内部记日志 */ }
+    // 关闭 SQLite 连接（WAL 需要在退出前 checkpoint）
+    try { shutdownDb(); } catch { /* noop */ }
+    keyStore = null;
 }
 
 /**
- * 同步写入文件（仅初始化时使用）
+ * 立即把待写入的脏 key 落盘（同步）。
+ *
+ * 正常路径靠 persistTimer 防抖异步写；但进程退出 / 测试收尾必须保证数据已落盘，
+ * 否则最后一批用量会丢。这里直接调用同步写，避免 async 竞态。
  */
-function syncWriteToFile() {
-    try {
-        const dir = path.dirname(KEYS_STORE_FILE);
-        if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
+export function flushSync() {
+    if (keyStore === null) return;
+    const dirtyIds = Array.from(dirtyKeys);
+    dirtyKeys.clear();
+    if (dirtyIds.length > 0) {
+        try {
+            saveKeys(keyStore.keys || {}, dirtyIds);
+        } catch (error) {
+            logger.error('[API Potluck] Sync flush failed:', error.message);
         }
-        atomicWriteFileSync(KEYS_STORE_FILE, JSON.stringify(keyStore, null, 2), { encoding: 'utf8', mode: 0o600 });
-    } catch (error) {
-        logger.error('[API Potluck] Sync write failed:', error.message);
     }
+    isDirty = false;
+}
+
+/** 测试用：切换数据库目录沙箱，避免写脏开发者真实数据 */
+export function configureStorageDir(dir) {
+    setDatabaseDir(dir);
+    keyStore = null;
 }
 
 /**
@@ -301,21 +311,24 @@ function syncWriteToFile() {
 async function persistIfDirty() {
     if (!isDirty || keyStore === null) return;
     if (persistPromise) {
+        // 已有写入在进行中：等它结束后**必须重新检查**是否又有新的脏数据。
+        // 旧实现直接 return，导致并发期间产生的变更要等到下一次定时器才落盘
+        // （测试「并发预扣不漏写」正是锁定这条契约）。
         await persistPromise;
-        return;
+        if (!isDirty || keyStore === null) return;
     }
 
     persistPromise = (async () => {
         try {
-            const dir = path.dirname(KEYS_STORE_FILE);
-            if (!existsSync(dir)) {
-                await fs.mkdir(dir, { recursive: true });
-            }
             while (isDirty && keyStore !== null) {
                 const versionAtStart = mutationVersion;
-                const snapshot = JSON.stringify(keyStore, null, 2);
-                // 写入临时文件再重命名，并确保刷盘
-                await atomicWriteFile(KEYS_STORE_FILE, snapshot, { encoding: 'utf8', mode: 0o600 });
+                // 只写脏集合里的 key（增量），而不是整份 JSON 全量重写。
+                // 这是改用 SQLite 的主要收益：写入量与变更量成正比，而不是与总 key 数成正比。
+                const dirtyIds = Array.from(dirtyKeys);
+                dirtyKeys.clear();
+                if (dirtyIds.length > 0) {
+                    saveKeys(keyStore.keys || {}, dirtyIds);
+                }
                 if (mutationVersion === versionAtStart) {
                     isDirty = false;
                 }
@@ -333,9 +346,21 @@ async function persistIfDirty() {
 /**
  * 标记数据已修改
  */
-function markDirty() {
+/** 待写入的 key id 集合：增量持久化用 */
+const dirtyKeys = new Set();
+
+/**
+ * 标记数据已修改。
+ * 传 keyId 时只重写该 key；不传时标记全部（如批量重置）。
+ */
+function markDirty(keyId) {
     mutationVersion += 1;
     isDirty = true;
+    if (keyId) {
+        dirtyKeys.add(keyId);
+    } else {
+        for (const id of Object.keys(keyStore?.keys || {})) dirtyKeys.add(id);
+    }
 }
 
 /**
@@ -410,7 +435,7 @@ export async function createKey(name = '', dailyLimit = null) {
     };
 
     keyStore.keys[apiKey] = keyData;
-    markDirty();
+    markDirty(apiKey);
 
     await persistIfDirty(); // 创建操作立即持久化
 
@@ -462,7 +487,7 @@ export async function setKeyPlan(keyId, /** @type {{packId: string, cycleId: str
     // createPlan 会抛错（未知套餐/周期），让调用方拿到明确信息
     const plan = createPlan({ packId, cycleId, now, dailyTokenCap });
     keyData.plan = plan;
-    markDirty();
+    markDirty(keyId);
     // 套餐变更涉及计费，立即落盘
     try { await persistIfDirty(); } catch { /* 已在内部记日志 */ }
     logger.info(`[API Potluck] Plan set for ${keyId.substring(0, 12)}...: ${plan.packId}/${plan.cycleId} until ${plan.validUntil}`);
@@ -478,7 +503,7 @@ export async function updateKeyPlanRaw(keyId, plan) {
     const keyData = keyStore.keys[keyId];
     if (!keyData) return null;
     keyData.plan = normalizePlan(plan);
-    markDirty();
+    markDirty(keyId);
     try { await persistIfDirty(); } catch { /* noop */ }
     return keyData;
 }
@@ -491,7 +516,7 @@ export async function clearKeyPlan(keyId) {
     const keyData = keyStore.keys[keyId];
     if (!keyData) return null;
     keyData.plan = null;
-    markDirty();
+    markDirty(keyId);
     try { await persistIfDirty(); } catch { /* noop */ }
     return keyData;
 }
@@ -516,7 +541,7 @@ export async function renewKeyPlan(keyId, /** @type {{cycleId?: string|null, now
         dailyTokenCap: current.dailyTokenCap
     });
     keyData.plan = plan;
-    markDirty();
+    markDirty(keyId);
     try { await persistIfDirty(); } catch { /* noop */ }
     logger.info(`[API Potluck] Plan renewed for ${keyId.substring(0, 12)}...: until ${plan.validUntil}`);
     return keyData;
@@ -550,7 +575,7 @@ export async function deleteKey(keyId) {
     // 清理速率追踪器，防止内存泄漏
     rateManager.remove(`key:${keyId}`);
 
-    markDirty();
+    markDirty(keyId);
     await persistIfDirty(); // 删除操作立即持久化
     logger.info(`[API Potluck] Deleted key: ${keyId.substring(0, 12)}...`);
     return true;
@@ -563,7 +588,7 @@ export async function updateKeyLimit(keyId, newLimit) {
     ensureLoaded();
     if (!keyStore.keys[keyId]) return null;
     keyStore.keys[keyId].dailyLimit = newLimit;
-    markDirty();
+    markDirty(keyId);
     return keyStore.keys[keyId];
 }
 
@@ -581,7 +606,7 @@ export async function resetKeyUsage(keyId) {
     keyStore.keys[keyId].lastResetDate = getTodayDateString();
     if (!keyStore.keys[keyId].usageHistory) keyStore.keys[keyId].usageHistory = {};
     keyStore.keys[keyId].usageHistory[getTodayDateString()] = normalizeUsageHistoryDay();
-    markDirty();
+    markDirty(keyId);
     return keyStore.keys[keyId];
 }
 
@@ -606,7 +631,7 @@ export async function resetKeyTokenStats(keyId) {
     // 重置该 Key 的速率追踪器
     rateManager.remove(`key:${keyId}`);
 
-    markDirty();
+    markDirty(keyId);
     await persistIfDirty();
     logger.info(`[API Potluck] Reset token stats for key: ${keyId.substring(0, 12)}...`);
     return keyData;
@@ -652,7 +677,7 @@ export async function toggleKey(keyId) {
     ensureLoaded();
     if (!keyStore.keys[keyId]) return null;
     keyStore.keys[keyId].enabled = !keyStore.keys[keyId].enabled;
-    markDirty();
+    markDirty(keyId);
     return keyStore.keys[keyId];
 }
 
@@ -663,7 +688,7 @@ export async function updateKeyName(keyId, newName) {
     ensureLoaded();
     if (!keyStore.keys[keyId]) return null;
     keyStore.keys[keyId].name = newName;
-    markDirty();
+    markDirty(keyId);
     return keyStore.keys[keyId];
 }
 
@@ -767,7 +792,7 @@ export async function incrementUsage(apiKey, pName = 'unknown', mName = 'unknown
         dropDates.forEach(d => delete keyData.usageHistory[d]);
     }
 
-    markDirty();
+    markDirty(apiKey);
     
     return {
         ...keyData,
@@ -942,7 +967,7 @@ export async function reserveTokens(keyId, amount) {
 
     // 预扣必须立即落盘：进程崩溃不能丢失"已经花出去的钱"。
     // 结算可以走 5s 防抖，因为差额很小且方向可预测。
-    markDirty();
+    markDirty(keyId);
     try { await persistIfDirty(); } catch { /* 落盘失败不阻断请求，日志已在 persistIfDirty 内 */ }
 
     return { ok: true, reserved: want, remaining: remainingTokens(plan), plan };
@@ -993,7 +1018,7 @@ export async function settleTokens(keyId, reserved, actualTokens, options = {}) 
         usedReservedFallback: !hasActual
     };
 
-    markDirty();
+    markDirty(keyId);
     // 结算走已有的定时防抖持久化（persistInterval），无需额外调用
     return result;
 }
@@ -1068,7 +1093,7 @@ export async function regenerateKey(oldKeyId) {
     // 清理旧 Key 的速率追踪器
     rateManager.remove(`key:${oldKeyId}`);
 
-    markDirty();
+    markDirty(newKeyId);
     await persistIfDirty();
     
     return {

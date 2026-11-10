@@ -7,7 +7,6 @@ import {
     recordUnaryUsage,
     resetStats,
     resetTokenStats,
-    setConfigGetter,
     shutdownStatsManager,
     syncWriteToFile
 } from './stats-manager.js';
@@ -22,10 +21,9 @@ const modelUsageStatsPlugin = {
     _priority: 9000,
 
     async init(config) {
-        setConfigGetter(() => ({
-            persistInterval: config.MODEL_USAGE_STATS_PERSIST_INTERVAL || 5000
-        }));
-        logger.info('[Model Usage Stats] Initialized');
+        // SQLite 版本不再需要 persistInterval（写入即持久化），
+        // MODEL_USAGE_STATS_PERSIST_INTERVAL 已无作用，仅保留兼容读取。
+        logger.info('[Model Usage Stats] Initialized (SQLite persistence enabled)');
     },
 
     async destroy() {

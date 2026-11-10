@@ -1,27 +1,36 @@
-import { atomicWriteFile, atomicWriteFileSync } from '../../utils/file-lock.ts';
-import { promises as fs } from 'fs';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
-import path from 'path';
+/**
+ * model-usage-stats 插件：请求生命周期与用量记账。
+ *
+ * 存储已迁移到 SQLite（见 stats-db.js），本文件只保留：
+ *  - 进行中请求的暂存（同一个请求可能经历多次 onStreamChunk，需合并后再落库）；
+ *  - 速率统计（最近 60 秒的 QPS/RPM/TPS，瞬时量，不落库）；
+ *  - 对外的 API 形状（getStats / resetStats / resetTokenStats）。
+ *
+ * 与旧实现的差异：不再有「整份 JSON 快照 + 定时全量重写」。
+ * 每个请求 finalize 时直接 UPSERT 一行，进程被 kill 最多丢最后一个正在进行的请求，
+ * 而不是丢最后 5 秒内的全部写入。
+ */
+
 import logger from '../../utils/logger.ts';
 import { RateManager } from '../../utils/rate-tracker.ts';
-import { toNumber, mergeUsage, extractUsage } from '../../utils/usage-normalizer.ts';
+import { extractUsage, mergeUsage } from '../../utils/usage-normalizer.ts';
 import { getBeijingDateString } from '../../utils/common.ts';
+import {
+    recordUsage,
+    queryStats,
+    queryCalendar,
+    queryDates,
+    clearAllStats,
+    clearTokenStats,
+    shutdown as shutdownDb,
+    setDatabaseDir
+} from './stats-db.js';
 
-const STATS_STORE_FILE = path.join(process.cwd(), 'configs', 'model-usage-stats.json');
-const DEFAULT_CONFIG = {
-    persistInterval: 5000
-};
-
-let configGetter = null;
-let statsStore = null;
-let isDirty = false;
-let persistTimer = null;
-let currentPersistInterval = DEFAULT_CONFIG.persistInterval;
-let mutationVersion = 0;
-let persistPromise = null;
-
-const rateManager = new RateManager(60); // 使用 60 秒滑动窗口，更平滑
+const rateManager = new RateManager(60);
 const pendingRequests = new Map();
+
+/** 进行中请求的 TTL：超过即认为该请求已异常结束，避免 Map 无限增长 */
+const PENDING_TTL_MS = 10 * 60 * 1000;
 
 function getTraceRequestId(requestId) {
     return requestId || 'N/A';
@@ -31,243 +40,7 @@ function getTracePrefix(requestId) {
     return `[Model Usage Stats][${getTraceRequestId(requestId)}]`;
 }
 
-function createEmptyUsage() {
-    return {
-        requestCount: 0,
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        cachedTokens: 0,
-        maxQps: 0,
-        maxRpm: 0,
-        maxTps: 0,
-        lastUsedAt: null
-    };
-}
-
-function createDefaultStore() {
-    return {
-        updatedAt: null,
-        summary: createEmptyUsage(),
-        providers: {},
-        daily: {} // 新增每日统计
-    };
-}
-
-function normalizeUsageBlock(block) {
-    const empty = createEmptyUsage();
-    if (!block || typeof block !== 'object') return empty;
-    return {
-        requestCount: toNumber(block.requestCount),
-        promptTokens: toNumber(block.promptTokens),
-        completionTokens: toNumber(block.completionTokens),
-        totalTokens: toNumber(block.totalTokens),
-        cachedTokens: toNumber(block.cachedTokens),
-        maxQps: toNumber(block.maxQps),
-        maxRpm: toNumber(block.maxRpm),
-        maxTps: toNumber(block.maxTps),
-        lastUsedAt: block.lastUsedAt || null
-    };
-}
-
-function normalizeStore(store) {
-    const normalizedStore = {
-        updatedAt: store?.updatedAt || null,
-        summary: normalizeUsageBlock(store?.summary),
-        providers: {},
-        daily: {} // 新增每日统计
-    };
-
-    for (const [provider, providerStore] of Object.entries(store?.providers || {})) {
-        normalizedStore.providers[provider] = {
-            summary: normalizeUsageBlock(providerStore?.summary),
-            models: {}
-        };
-
-        for (const [model, modelStore] of Object.entries(providerStore?.models || {})) {
-            normalizedStore.providers[provider].models[model] = normalizeUsageBlock(modelStore);
-        }
-    }
-
-    if (store?.daily) {
-        for (const [date, dailyStore] of Object.entries(store.daily)) {
-            // 旧版 daily[date] 是扁平的 usage 块；新版在其上增加 `models` 子维度。
-            // 两者共存以便向后兼容：历史数据仍可直接读扁平字段。
-            const block = normalizeUsageBlock(dailyStore);
-            const models = {};
-            for (const [modelKey, modelStore] of Object.entries(dailyStore?.models || {})) {
-                models[modelKey] = normalizeUsageBlock(modelStore);
-            }
-            block.models = models;
-            normalizedStore.daily[date] = block;
-        }
-    }
-
-    return normalizedStore;
-}
-
-function getConfig() {
-    if (typeof configGetter === 'function') {
-        return configGetter();
-    }
-    return DEFAULT_CONFIG;
-}
-
-function ensureProviderStore(provider) {
-    ensureLoaded();
-    if (!statsStore.providers[provider]) {
-        statsStore.providers[provider] = {
-            summary: createEmptyUsage(),
-            models: {}
-        };
-    }
-    return statsStore.providers[provider];
-}
-
-function ensureModelStore(provider, model) {
-    const providerStore = ensureProviderStore(provider);
-    if (!providerStore.models[model]) {
-        providerStore.models[model] = createEmptyUsage();
-    }
-    return providerStore.models[model];
-}
-
-function ensureLoaded() {
-    if (statsStore !== null) return;
-
-    try {
-        if (existsSync(STATS_STORE_FILE)) {
-            const content = readFileSync(STATS_STORE_FILE, 'utf8');
-            statsStore = normalizeStore(JSON.parse(content));
-            logger.info(`[Model Usage Stats] Loaded stats store: providers=${Object.keys(statsStore.providers).length}, requests=${statsStore.summary.requestCount}, totalTokens=${statsStore.summary.totalTokens}`);
-        } else {
-            statsStore = createDefaultStore();
-            syncWriteToFile();
-            logger.info('[Model Usage Stats] Created new stats store');
-        }
-    } catch (error) {
-        logger.error('[Model Usage Stats] Failed to load stats store:', error.message);
-        statsStore = createDefaultStore();
-    }
-
-    const config = getConfig();
-    currentPersistInterval = config.persistInterval || DEFAULT_CONFIG.persistInterval;
-
-    if (!persistTimer) {
-        persistTimer = setInterval(() => {
-            persistIfDirty();
-            cleanupPendingRequests();
-        }, currentPersistInterval);
-        if (persistTimer.unref) {
-            persistTimer.unref();
-        }
-        process.on('beforeExit', onBeforeExit);
-        process.on('SIGINT', onSigInt);
-        process.on('SIGTERM', onSigTerm);
-    }
-}
-
-function onBeforeExit() {
-    syncWriteToFile();
-}
-
-function onSigInt() {
-    syncWriteToFile();
-    process.exit(0);
-}
-
-function onSigTerm() {
-    syncWriteToFile();
-    process.exit(0);
-}
-
-export function shutdownStatsManager() {
-    if (persistTimer) {
-        clearInterval(persistTimer);
-        persistTimer = null;
-    }
-    process.off('beforeExit', onBeforeExit);
-    process.off('SIGINT', onSigInt);
-    process.off('SIGTERM', onSigTerm);
-}
-
-export function syncWriteToFile() {
-    try {
-        if (!statsStore || !isDirty) return;
-        const dir = path.dirname(STATS_STORE_FILE);
-        if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
-        }
-        atomicWriteFileSync(STATS_STORE_FILE, JSON.stringify(statsStore, null, 2), { encoding: 'utf8', mode: 0o600 });
-        isDirty = false;
-        logger.info('[Model Usage Stats] Sync persisted stats store');
-    } catch (error) {
-        logger.error('[Model Usage Stats] Sync write failed:', error.message);
-    }
-}
-
-async function persistIfDirty() {
-    ensureLoaded();
-    if (!isDirty || statsStore === null) return;
-    if (persistPromise) {
-        await persistPromise;
-        return;
-    }
-
-    persistPromise = (async () => {
-        try {
-            const dir = path.dirname(STATS_STORE_FILE);
-            if (!existsSync(dir)) {
-                await fs.mkdir(dir, { recursive: true });
-            }
-
-            while (isDirty) {
-                const versionAtStart = mutationVersion;
-                const snapshot = JSON.stringify(statsStore, null, 2);
-                
-                await atomicWriteFile(STATS_STORE_FILE, snapshot, { encoding: 'utf8', mode: 0o600 });
-
-                if (mutationVersion === versionAtStart) {
-                    isDirty = false;
-                    logger.info(`[Model Usage Stats] Persisted stats store: version=${versionAtStart}, requests=${statsStore.summary.requestCount}, totalTokens=${statsStore.summary.totalTokens}`);
-                }
-            }
-        } catch (error) {
-            logger.error('[Model Usage Stats] Persist failed:', error.message);
-        } finally {
-            persistPromise = null;
-        }
-    })();
-
-    await persistPromise;
-}
-
-function markDirty() {
-    ensureLoaded();
-    statsStore.updatedAt = new Date().toISOString();
-    mutationVersion += 1;
-    isDirty = true;
-}
-
-function cleanupPendingRequests() {
-    const now = Date.now();
-    let removedCount = 0;
-    for (const [requestId, state] of pendingRequests.entries()) {
-        if (now - state.updatedAt > 10 * 60 * 1000) {
-            pendingRequests.delete(requestId);
-            removedCount += 1;
-            logger.warn(`${getTracePrefix(requestId)} Dropped stale pending request: Provider: ${state.provider} | Model: ${state.model}`);
-        }
-    }
-    if (removedCount > 0) {
-        logger.warn(`[Model Usage Stats] Cleaned stale pending requests: count=${removedCount}`);
-    }
-}
-
-
 function getPendingRequest(requestId, meta = {}) {
-    ensureLoaded();
-
     if (!pendingRequests.has(requestId)) {
         pendingRequests.set(requestId, {
             requestId,
@@ -276,12 +49,8 @@ function getPendingRequest(requestId, meta = {}) {
             fromProvider: meta.fromProvider || null,
             isStream: Boolean(meta.isStream),
             hasResponse: false,
-            usage: {
-                promptTokens: 0,
-                completionTokens: 0,
-                totalTokens: 0,
-                cachedTokens: 0
-            },
+            rateRecorded: false,
+            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 },
             updatedAt: Date.now()
         });
     }
@@ -292,42 +61,40 @@ function getPendingRequest(requestId, meta = {}) {
     state.fromProvider = meta.fromProvider || state.fromProvider;
     state.isStream = meta.isStream ?? state.isStream;
     state.updatedAt = Date.now();
-
     return state;
 }
 
-function applyUsage(target, usage, timestamp) {
-    target.requestCount += 1;
-    target.promptTokens += usage.promptTokens;
-    target.completionTokens += usage.completionTokens;
-    target.totalTokens += usage.totalTokens || (usage.promptTokens + usage.completionTokens);
-    target.cachedTokens += usage.cachedTokens;
-    target.lastUsedAt = timestamp;
+function cleanupPendingRequests() {
+    const now = Date.now();
+    let removed = 0;
+    for (const [requestId, state] of pendingRequests.entries()) {
+        if (now - state.updatedAt > PENDING_TTL_MS) {
+            pendingRequests.delete(requestId);
+            removed += 1;
+            logger.warn(`${getTracePrefix(requestId)} Dropped stale pending request: Provider: ${state.provider} | Model: ${state.model}`);
+        }
+    }
+    if (removed > 0) {
+        logger.warn(`[Model Usage Stats] Cleaned stale pending requests: count=${removed}`);
+    }
 }
 
-function resetUsageBlockTokens(block) {
-    if (!block || typeof block !== 'object') return;
-    block.promptTokens = 0;
-    block.completionTokens = 0;
-    block.totalTokens = 0;
-    block.cachedTokens = 0;
-    block.maxQps = 0;
-    block.maxRpm = 0;
-    block.maxTps = 0;
-}
+const cleanupTimer = setInterval(cleanupPendingRequests, 5 * 60 * 1000);
+if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref();
 
-export function setConfigGetter(getter) {
-    configGetter = getter;
+/** 测试用：切换数据库目录沙箱 */
+export function configureStatsStorage(dir) {
+    setDatabaseDir(dir);
 }
 
 export function recordUnaryUsage({ requestId, model, provider, fromProvider, nativeResponse, clientResponse }) {
     if (!requestId) return;
     const state = getPendingRequest(requestId, { model, provider, fromProvider, isStream: false });
-    const prevTotalTokens = state.usage.totalTokens;
-    const prevCachedTokens = state.usage.cachedTokens;
+    const prevTotal = state.usage.totalTokens;
+    const prevCached = state.usage.cachedTokens;
     state.hasResponse = true;
     state.usage = mergeUsage(state.usage, extractUsage(nativeResponse, clientResponse));
-    if (state.usage.totalTokens > prevTotalTokens || state.usage.cachedTokens > prevCachedTokens) {
+    if (state.usage.totalTokens > prevTotal || state.usage.cachedTokens > prevCached) {
         logger.info(`${getTracePrefix(requestId)} <<< Unary Usage Captured: Provider: ${state.provider} | Model: ${state.model} | Prompt: ${state.usage.promptTokens} | Completion: ${state.usage.completionTokens} | Total: ${state.usage.totalTokens} | Cached: ${state.usage.cachedTokens}`);
     }
 }
@@ -335,11 +102,11 @@ export function recordUnaryUsage({ requestId, model, provider, fromProvider, nat
 export function recordStreamChunkUsage({ requestId, model, provider, fromProvider, nativeChunk, clientChunk }) {
     if (!requestId) return;
     const state = getPendingRequest(requestId, { model, provider, fromProvider, isStream: true });
-    const prevTotalTokens = state.usage.totalTokens;
-    const prevCachedTokens = state.usage.cachedTokens;
+    const prevTotal = state.usage.totalTokens;
+    const prevCached = state.usage.cachedTokens;
     state.hasResponse = true;
     state.usage = mergeUsage(state.usage, extractUsage(nativeChunk, clientChunk));
-    if (state.usage.totalTokens > prevTotalTokens || state.usage.cachedTokens > prevCachedTokens) {
+    if (state.usage.totalTokens > prevTotal || state.usage.cachedTokens > prevCached) {
         logger.info(`${getTracePrefix(requestId)} <<< Stream Usage Captured: Provider: ${state.provider} | Model: ${state.model} | Prompt: ${state.usage.promptTokens} | Completion: ${state.usage.completionTokens} | Total: ${state.usage.totalTokens} | Cached: ${state.usage.cachedTokens}`);
     }
 }
@@ -351,14 +118,13 @@ export async function finalizeRequest({ requestId, model, provider, fromProvider
     }
 
     const state = getPendingRequest(requestId, { model, provider, fromProvider, isStream });
-    
-    // 防重逻辑：如果该请求已经处理过速率统计，则直接删除并返回
+
+    // 防重：同一请求只记账一次
     if (state.rateRecorded) {
         pendingRequests.delete(requestId);
         return true;
     }
     state.rateRecorded = true;
-
     pendingRequests.delete(requestId);
 
     if (!state.hasResponse) {
@@ -366,12 +132,10 @@ export async function finalizeRequest({ requestId, model, provider, fromProvider
         return false;
     }
 
-    const now = new Date();
-    const timestamp = now.toISOString();
+    const timestamp = new Date().toISOString();
     const dateKey = getBeijingDateString();
     const normalizedProvider = state.provider || provider || 'unknown';
     const normalizedModel = state.model || model || 'unknown';
-    
     const usage = {
         promptTokens: state.usage.promptTokens,
         completionTokens: state.usage.completionTokens,
@@ -379,125 +143,100 @@ export async function finalizeRequest({ requestId, model, provider, fromProvider
         cachedTokens: state.usage.cachedTokens
     };
 
-    applyUsage(statsStore.summary, usage, timestamp);
-    applyUsage(ensureProviderStore(normalizedProvider).summary, usage, timestamp);
-    applyUsage(ensureModelStore(normalizedProvider, normalizedModel), usage, timestamp);
+    try {
+        recordUsage({ provider: normalizedProvider, model: normalizedModel, usage, date: dateKey, timestamp });
+    } catch (error) {
+        logger.error(`${getTracePrefix(requestId)} Failed to persist usage: ${error?.message || error}`);
+        return false;
+    }
 
-    // 记录速率统计
     rateManager.record(`provider:${normalizedProvider}`, usage.totalTokens);
     rateManager.record(`model:${normalizedModel}`, usage.totalTokens);
+    const rates = rateManager.getGlobalStats();
 
-    const globalRates = rateManager.getGlobalStats();
-    
-    // 更新持久化峰值
-    const updatePeaks = (target) => {
-        target.maxQps = Math.max(target.maxQps || 0, globalRates.qps);
-        target.maxRpm = Math.max(target.maxRpm || 0, globalRates.rpm);
-        target.maxTps = Math.max(target.maxTps || 0, globalRates.tps);
-    };
-
-    updatePeaks(statsStore.summary);
-    updatePeaks(ensureProviderStore(normalizedProvider).summary);
-    updatePeaks(ensureModelStore(normalizedProvider, normalizedModel));
-
-    if (!statsStore.daily[dateKey]) {
-        statsStore.daily[dateKey] = { ...createEmptyUsage(), models: {} };
-    }
-    const dailyBlock = statsStore.daily[dateKey];
-    // 旧数据可能没有 models 容器，补齐
-    if (!dailyBlock.models || typeof dailyBlock.models !== 'object') dailyBlock.models = {};
-    applyUsage(dailyBlock, usage, timestamp);
-
-    // 按「provider:model」记录当日该模型的用量，供 UI 按天展示各模型明细。
-    // 使用已归一化的 normalizedProvider:normalizedModel 作为键，避免仅在流式/一元钩子中
-    // 传递 provider/model 而在 finalizeRequest 省略时退化为 unknown:unknown。
-    const modelKey = `${normalizedProvider}:${normalizedModel}`;
-    if (!dailyBlock.models[modelKey]) dailyBlock.models[modelKey] = createEmptyUsage();
-    applyUsage(dailyBlock.models[modelKey], usage, timestamp);
-    updatePeaks(dailyBlock);
-
-    logger.info(`${getTracePrefix(requestId)} >>> Request Finalized: Provider: ${normalizedProvider} | Model: ${normalizedModel} | Prompt: ${usage.promptTokens} | Completion: ${usage.completionTokens} | Total: ${usage.totalTokens} | Cached: ${usage.cachedTokens} | Stream: ${Boolean(state.isStream)} | QPS: ${globalRates.qps}`);
-    markDirty();
-    await persistIfDirty();
+    logger.info(`${getTracePrefix(requestId)} >>> Request Finalized: Provider: ${normalizedProvider} | Model: ${normalizedModel} | Prompt: ${usage.promptTokens} | Completion: ${usage.completionTokens} | Total: ${usage.totalTokens} | Cached: ${usage.cachedTokens} | Stream: ${Boolean(state.isStream)} | QPS: ${rates.qps}`);
     return true;
 }
 
-export async function getStats() {
-    ensureLoaded();
-    const stats = JSON.parse(JSON.stringify(statsStore));
-    
-    // 注入速率统计
-    const globalRates = rateManager.getGlobalStats();
-    stats.summary.qps = globalRates.qps;
-    stats.summary.tps = globalRates.tps;
-    stats.summary.rpm = globalRates.rpm;
-    // 峰值取持久化值和当前内存值中的较大者
-    stats.summary.maxQps = Math.max(stats.summary.maxQps || 0, globalRates.maxQps);
-    stats.summary.maxTps = Math.max(stats.summary.maxTps || 0, globalRates.maxTps);
-    stats.summary.maxRpm = Math.max(stats.summary.maxRpm || 0, globalRates.maxRpm);
+/**
+ * 把速率统计附加到任意 usage 块上。
+ * QPS/RPM/TPS 是瞬时量，来自内存 RateManager，不落库。
+ */
+function attachRates(block, scopeKey) {
+    const rates = scopeKey ? rateManager.getStats(scopeKey) : rateManager.getGlobalStats();
+    block.qps = rates.qps;
+    block.tps = rates.tps;
+    block.rpm = rates.rpm;
+    block.maxQps = rates.maxQps;
+    block.maxTps = rates.maxTps;
+    block.maxRpm = rates.maxRpm;
+    return block;
+}
 
-    for (const [provider, providerStore] of Object.entries(stats.providers || {})) {
-        const pRates = rateManager.getStats(`provider:${provider}`);
-        providerStore.summary.qps = pRates.qps;
-        providerStore.summary.tps = pRates.tps;
-        providerStore.summary.rpm = pRates.rpm;
-        providerStore.summary.maxQps = Math.max(providerStore.summary.maxQps || 0, pRates.maxQps);
-        providerStore.summary.maxTps = Math.max(providerStore.summary.maxTps || 0, pRates.maxTps);
-        providerStore.summary.maxRpm = Math.max(providerStore.summary.maxRpm || 0, pRates.maxRpm);
+/**
+ * 读取统计。
+ *
+ * 返回结构：
+ *  - summary：选中范围内的汇总（含速率）
+ *  - byModel：按 provider+model 分组的行（含速率），total 降序
+ *  - byProvider：按 provider 分组的行（含速率），total 降序
+ *  - calendar：每日汇总，供日历渲染
+ *  - dates：有数据的日期列表（升序）
+ *  - range：{ date?: string } 当前统计范围，无 date 表示历史累计
+ */
+export async function getStats(options = {}) {
+    const date = typeof options?.date === 'string' ? options.date : undefined;
+    const { summary, byModel, byProvider } = queryStats({ date });
 
-        for (const [model, modelStore] of Object.entries(providerStore.models || {})) {
-            const mRates = rateManager.getStats(`model:${model}`);
-            modelStore.qps = mRates.qps;
-            modelStore.tps = mRates.tps;
-            modelStore.rpm = mRates.rpm;
-            modelStore.maxQps = Math.max(modelStore.maxQps || 0, mRates.maxQps);
-            modelStore.maxTps = Math.max(modelStore.maxTps || 0, mRates.maxTps);
-            modelStore.maxRpm = Math.max(modelStore.maxRpm || 0, mRates.maxRpm);
-        }
+    attachRates(summary);
+
+    for (const row of byModel) {
+        attachRates(row, `model:${row.model}`);
+    }
+    for (const row of byProvider) {
+        attachRates(row, `provider:${row.provider}`);
     }
 
-    return stats;
+    // byProvider 的「模型数」是 UI 需要的一列
+    for (const row of byProvider) {
+        row.modelCount = byModel.filter((m) => m.provider === row.provider).length;
+    }
+
+    return {
+        updatedAt: new Date().toISOString(),
+        range: date ? { date } : {},
+        summary,
+        byModel,
+        byProvider,
+        calendar: queryCalendar(),
+        dates: queryDates()
+    };
 }
 
 export async function resetStats() {
-    ensureLoaded();
-    statsStore = createDefaultStore();
+    clearAllStats();
     pendingRequests.clear();
-    rateManager.clear(); // 同时重置速率统计
-    markDirty();
-    await persistIfDirty();
-    logger.warn('[Model Usage Stats] Stats store reset');
+    rateManager.clear();
     return getStats();
 }
 
 export async function resetTokenStats() {
-    ensureLoaded();
-
-    resetUsageBlockTokens(statsStore.summary);
-
-    if (statsStore.daily) {
-        for (const dayBlock of Object.values(statsStore.daily)) {
-            resetUsageBlockTokens(dayBlock);
-            if (dayBlock?.models && typeof dayBlock.models === 'object') {
-                for (const modelBlock of Object.values(dayBlock.models)) {
-                    resetUsageBlockTokens(modelBlock);
-                }
-            }
-        }
-    }
-
-    for (const providerStore of Object.values(statsStore.providers || {})) {
-        resetUsageBlockTokens(providerStore.summary);
-
-        for (const modelStore of Object.values(providerStore.models || {})) {
-            resetUsageBlockTokens(modelStore);
-        }
-    }
-
+    clearTokenStats();
     pendingRequests.clear();
-    rateManager.clear(); // 同时重置速率统计
-    markDirty();
-    await persistIfDirty();
-    logger.warn('[Model Usage Stats] Token stats reset');
+    rateManager.clear();
     return getStats();
+}
+
+export function shutdownStatsManager() {
+    clearInterval(cleanupTimer);
+    shutdownDb();
+}
+
+/** 兼容旧调用点：旧实现会把内存 store 立刻落盘，现在每次写入已即时提交 */
+export function syncWriteToFile() {
+    // no-op：SQLite 写入即持久化，无需显式 flush
+}
+
+export function setConfigGetter() {
+    // no-op：旧实现用 persistInterval 控制全量重写频率，SQLite 不需要
 }

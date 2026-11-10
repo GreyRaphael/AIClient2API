@@ -45,7 +45,18 @@ export async function handleModelUsageStatsRoutes(method, path, req, res, config
 
     try {
         if (method === 'GET' && path === '/api/model-usage-stats') {
-            const stats = await getStats();
+            // `?date=YYYY-MM-DD` 返回该日统计；省略则返回历史累计。
+            // 两个视图（按模型 / 按 Provider）与日历数据一次返回，前端无需二次请求。
+            const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+            const date = requestUrl.searchParams.get('date') || undefined;
+            if (date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                sendJson(res, 400, {
+                    success: false,
+                    error: { message: 'date 参数格式应为 YYYY-MM-DD' }
+                });
+                return true;
+            }
+            const stats = await getStats({ date });
             sendJson(res, 200, { success: true, data: stats });
             return true;
         }

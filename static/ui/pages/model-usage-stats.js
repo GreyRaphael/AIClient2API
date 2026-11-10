@@ -1,26 +1,25 @@
-/** 模型用量统计独立页（Phase 5 迁移）。 */
+/**
+ * 模型用量统计独立页。
+ *
+ * 设计目标（相对旧版的简化）：
+ *  - **一张表**，通过「按模型 / 按 Provider」切换分组维度，而不是并排三块重复内容；
+ *  - 只有两个维度：**当前范围**（日历选中某天）与**历史累计**；
+ *  - 删除「Provider 分布」「Top Models」「Provider 视图」三块 —— 它们与主表信息重复。
+ *
+ * 数据语义：`?date=YYYY-MM-DD` 取单日聚合，省略则为历史累计；
+ * 两种范围都同时返回按模型与按 Provider 的聚合行，切维度不需要重新请求。
+ */
 import { html, useEffect, useMemo, useState } from '../html.js';
 import { toggleTheme } from '../lib/theme.js';
 import { confirmDialog } from '../store/confirm.js';
 import { StatsCalendar } from '../components/StatsCalendar.js';
-import { DistributionList } from '../components/DistributionList.js';
 import { mountPage } from '../lib/page-boot.js';
 import { requestWithCredential } from '../lib/credential-api.js';
-import {
-    flattenModelUsage,
-    formatNumber,
-    formatTokenCompact,
-    formatRelativeTime
-} from '../lib/stats.js';
+import { formatNumber, formatTokenCompact } from '../lib/stats.js';
 
 const API_BASE = '/api/model-usage-stats';
 const STORAGE_KEY = 'model_usage_stats_auth';
 
-/**
- * 本页请求：凭证同时写 Authorization 与 x-api-key（后端两种都认），
- * 且 401 不跳登录页 —— 这里是用户手动填的凭证，直接提示即可。
- * 请求/解析已收敛到 lib/credential-api.js，只保留 PLUGIN_DISABLED 的业务特判。
- */
 async function requestStats(url, credential, options = {}) {
     if (!credential) throw new Error('请先输入访问凭证。');
     try {
@@ -37,42 +36,73 @@ async function requestStats(url, credential, options = {}) {
     }
 }
 
-const emptyDist = html`
-    <div class="mini-box">
-        <div class="mini-label">暂无数据</div>
-        <div class="mini-value" style="font-size:14px">等待统计写入</div>
-    </div>`;
+/** 北京时间当天，与后端 dateKey 口径一致 */
+function todayKeyBEIJING() {
+    const utc8 = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    return utc8.toISOString().split('T')[0];
+}
+
+/** 命中率：缓存命中 / 输入 token */
+function hitRate(row) {
+    const prompt = Number(row?.promptTokens || 0);
+    const cached = Number(row?.cachedTokens || 0);
+    return prompt > 0 ? (cached / prompt) * 100 : 0;
+}
 
 function ModelUsageStatsPage() {
     const [credential, setCredential] = useState('');
-    const [data, setData] = useState(/** @type {any} */ (null));
-    const [rows, setRows] = useState(/** @type {any[]} */ ([]));
     const [status, setStatus] = useState(/** @type {any} */ ({ text: '尚未加载统计数据。', type: 'info' }));
     const [connected, setConnected] = useState(false);
+    const [loading, setLoading] = useState(false);
+
+    // 范围：null = 历史累计；'YYYY-MM-DD' = 该日
+    const [rangeDate, setRangeDate] = useState(/** @type {string|null} */ (null));
+    // 分组维度
+    const [groupBy, setGroupBy] = useState(/** @type {'model'|'provider'} */ ('model'));
     const [search, setSearch] = useState('');
     const [sort, setSort] = useState('totalTokens-desc');
-    // 视图模式：'today' = 当日各模型（默认）；'date' = 日历选中的某天；'history' = 历史全部累计
-    const [viewMode, setViewMode] = useState(/** @type {'today'|'date'|'history'} */ ('today'));
-    const [selectedDate, setSelectedDate] = useState(/** @type {string|null} */ (null));
+
+    // 两个范围的数据分开缓存，切换时无需重新请求
+    const [scope, setScope] = useState(/** @type {any} */ ({ day: null, all: null }));
+    const [calendar, setCalendar] = useState(/** @type {any[]} */ ([]));
 
     const setStatusMessage = (text, type = 'info') => setStatus({ text, type });
+    const today = useMemo(() => todayKeyBEIJING(), []);
 
-    const loadData = async (credentialValue = credential) => {
+    const loadScope = async (credentialValue, date) => {
+        const query = date ? `?date=${encodeURIComponent(date)}` : '';
+        const payload = await requestStats(`${API_BASE}${query}`, credentialValue);
+        return payload?.data || payload;
+    };
+
+    const loadAll = async (credentialValue = credential) => {
+        const value = String(credentialValue || '').trim();
+        if (!value) throw new Error('请先输入访问凭证。');
+
+        setLoading(true);
         try {
-            const value = String(credentialValue || '').trim();
-            if (!value) throw new Error('请先输入访问凭证。');
-            if (value) localStorage.setItem(STORAGE_KEY, JSON.stringify({ value }));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ value }));
             setStatusMessage('正在加载统计数据...');
-            const payload = await requestStats(API_BASE, value);
-            const nextData = payload?.data || payload;
-            setData(nextData);
-            setRows(flattenModelUsage(nextData));
+
+            const [day, all] = await Promise.all([
+                loadScope(value, today),
+                loadScope(value, null)
+            ]);
+
+            setScope({ day, all });
+            setCalendar(Array.isArray(all?.calendar) ? all.calendar : []);
             setConnected(true);
-            setStatusMessage(`已加载 ${formatNumber(flattenModelUsage(nextData).length)} 条模型统计。`, 'success');
+            setStatusMessage(
+                `已加载：今日 ${formatNumber(day?.summary?.requestCount || 0)} 次请求，`
+                + `历史累计 ${formatNumber(all?.summary?.requestCount || 0)} 次。`,
+                'success'
+            );
         } catch (error) {
             console.error(error);
             setConnected(false);
             setStatusMessage(error.message, 'error');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -81,7 +111,7 @@ function ModelUsageStatsPage() {
             const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
             if (saved?.value) {
                 setCredential(saved.value);
-                void loadData(saved.value);
+                void loadAll(saved.value);
             }
         } catch {
             // ignore invalid cache
@@ -89,81 +119,53 @@ function ModelUsageStatsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const summary = data?.summary || {};
+    /** 当前范围对应的数据块 */
+    const activeScope = rangeDate
+        ? (scope.day && scope.day.range?.date === rangeDate ? scope.day : null)
+        : scope.all;
 
-    /** 当日日期键（UTC+8，与 stats-manager 的 dateKey 口径一致） */
-    const todayKey = useMemo(() => {
-        const utc8 = new Date(Date.now() + 8 * 60 * 60 * 1000);
-        return utc8.toISOString().split('T')[0];
-    }, []);
-
-    /**
-     * 根据当前视图派生出「要展示的模型行」。
-     * - today / date：读 daily[dateKey].models，按天展示各模型用量
-     * - history：读 providers[*].models，展示历史全部累计
-     * 每行统一补齐 cachedTokens 与命中率，供表格新增列使用。
-     */
-    const viewRows = useMemo(() => {
-        const makeRow = (providerName, modelName, block) => {
-            const promptTokens = Number(block?.promptTokens || 0);
-            const cachedTokens = Number(block?.cachedTokens || 0);
-            return {
-                provider: providerName,
-                model: modelName,
-                requestCount: Number(block?.requestCount || 0),
-                promptTokens,
-                completionTokens: Number(block?.completionTokens || 0),
-                cachedTokens,
-                totalTokens: Number(block?.totalTokens || 0),
-                lastUsedAt: block?.lastUsedAt || null,
-                // 命中率 = 缓存命中 token / 输入 token（分母为 0 时记 0）
-                cacheHitRate: promptTokens > 0 ? (cachedTokens / promptTokens) * 100 : 0
-            };
-        };
-
-        if (viewMode === 'history') {
-            const list = [];
-            for (const [providerName, provider] of Object.entries(data?.providers || {})) {
-                for (const [modelName, block] of Object.entries(provider?.models || {})) {
-                    list.push(makeRow(providerName, modelName, block));
-                }
-            }
-            return list;
+    /** 点日历某天：已在两个范围里缓存过的直接用，否则按需拉取 */
+    const selectDate = async (dateKey) => {
+        if (!dateKey) {
+            setRangeDate(null);
+            return;
         }
+        setRangeDate(dateKey);
+        if (scope.day && scope.day.range?.date === dateKey) return;
 
-        const dateKey = viewMode === 'date' ? selectedDate : todayKey;
-        const dayBlock = dateKey ? data?.daily?.[dateKey] : null;
-        const models = dayBlock?.models || {};
-        const list = [];
-        for (const [modelKey, block] of Object.entries(models)) {
-            // modelKey 形如 "provider:model"；用第一个冒号切分，兼容 model 名本身含冒号
-            const sep = modelKey.indexOf(':');
-            const providerName = sep === -1 ? 'unknown' : modelKey.slice(0, sep);
-            const modelName = sep === -1 ? modelKey : modelKey.slice(sep + 1);
-            list.push(makeRow(providerName, modelName, block));
-        }
-        return list;
-    }, [data, viewMode, selectedDate, todayKey]);
+        if (dateKey === today && scope.day) return;
 
-    /** 当前视图的汇总（用于顶部说明与空态提示） */
-    const viewSummary = useMemo(() => {
-        const acc = { requestCount: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, totalTokens: 0 };
-        for (const row of viewRows) {
-            acc.requestCount += row.requestCount;
-            acc.promptTokens += row.promptTokens;
-            acc.completionTokens += row.completionTokens;
-            acc.cachedTokens += row.cachedTokens;
-            acc.totalTokens += row.totalTokens;
+        setLoading(true);
+        try {
+            const day = await loadScope(credential, dateKey);
+            setScope((prev) => ({ ...prev, day }));
+        } catch (error) {
+            setStatusMessage(error.message, 'error');
+        } finally {
+            setLoading(false);
         }
-        acc.cacheHitRate = acc.promptTokens > 0 ? (acc.cachedTokens / acc.promptTokens) * 100 : 0;
-        return acc;
-    }, [viewRows]);
+    };
+
+    const summary = activeScope?.summary || {};
+
+    /** 当前维度下的表格行 */
+    const tableRows = useMemo(() => {
+        const rows = Array.isArray(activeScope?.[groupBy === 'provider' ? 'byProvider' : 'byModel'])
+            ? activeScope[groupBy === 'provider' ? 'byProvider' : 'byModel']
+            : [];
+        return rows.map((row) => ({ ...row, cacheHitRate: hitRate(row) }));
+    }, [activeScope, groupBy]);
 
     const filteredRows = useMemo(() => {
         const keyword = search.trim().toLowerCase();
         const list = keyword
-            ? viewRows.filter((row) => row.provider.toLowerCase().includes(keyword) || row.model.toLowerCase().includes(keyword))
-            : viewRows.slice();
+            ? tableRows.filter((row) => {
+                if (groupBy === 'provider') return String(row.provider || '').toLowerCase().includes(keyword);
+                return String(row.provider || '').toLowerCase().includes(keyword)
+                    || String(row.model || '').toLowerCase().includes(keyword);
+            })
+            : tableRows.slice();
+
         const [field, direction] = sort.split('-');
         list.sort((a, b) => {
             if (field === 'provider' || field === 'model') {
@@ -176,39 +178,21 @@ function ModelUsageStatsPage() {
             return direction === 'desc' ? right - left : left - right;
         });
         return list;
-    }, [viewRows, search, sort]);
-
-    const providersRaw = Object.entries(data?.providers || {})
-        .map(([name, provider]) => ({
-            name,
-            data: provider,
-            count: Object.keys(provider.models || {}).length,
-            totalTokens: Number(provider.summary?.totalTokens || 0)
-        }))
-        .sort((a, b) => b.totalTokens - a.totalTokens);
-    const providerTotals = Object.fromEntries(
-        providersRaw.map((provider) => [provider.name, provider.totalTokens])
-    );
-    const modelTotals = Object.fromEntries(
-        rows.map((row) => [`${row.provider} / ${row.model}`, Number(row.totalTokens || 0)])
-    );
+    }, [tableRows, search, sort, groupBy]);
 
     const resetData = async (tokensOnly) => {
         const confirmed = await confirmDialog({
-            title: tokensOnly ? '重置模型 Token 统计' : '重置全部模型统计',
+            title: tokensOnly ? '重置 Token 统计' : '重置全部统计',
             message: tokensOnly
-                ? '确认重置模型 Token 统计吗？这会清空输入 / 输出 / 缓存 / 总 Token，但保留请求次数与最近使用时间。'
-                : '确认重置全部模型统计吗？此操作会清空已落库的累计数据。',
+                ? '确认重置 Token 统计吗？会清空输入 / 输出 / 缓存 / 总 Token，保留请求次数与最近使用时间。'
+                : '确认重置全部统计吗？此操作会清空所有已落库的累计数据，不可恢复。',
             danger: true
         });
         if (!confirmed) return;
         try {
             setStatusMessage(tokensOnly ? '正在重置 Token 统计...' : '正在重置统计数据...');
-            const payload = await requestStats(`${API_BASE}/${tokensOnly ? 'reset-tokens' : 'reset'}`, credential, { method: 'POST' });
-            const nextData = payload?.data || payload;
-            setData(nextData);
-            setRows(flattenModelUsage(nextData));
-            setStatusMessage(tokensOnly ? '模型 Token 统计已重置。' : '统计数据已重置。', 'success');
+            await requestStats(`${API_BASE}/${tokensOnly ? 'reset-tokens' : 'reset'}`, credential, { method: 'POST' });
+            await loadAll();
         } catch (error) {
             setStatusMessage(error.message, 'error');
         }
@@ -218,7 +202,35 @@ function ModelUsageStatsPage() {
         localStorage.removeItem(STORAGE_KEY);
         setCredential('');
         setConnected(false);
+        setScope({ day: null, all: null });
+        setCalendar([]);
         setStatusMessage('已清空本地保存的凭证。');
+    };
+
+    /** 表格列定义：两个维度共用前 4 列，Provider 视图去掉 model 列并加「模型数」 */
+    const isProviderView = groupBy === 'provider';
+
+    const renderTable = () => {
+        if (filteredRows.length === 0) {
+            return html`<tr><td colspan=${isProviderView ? 7 : 8} class="empty-cell">没有匹配的数据</td></tr>`;
+        }
+        return filteredRows.map((row) => html`
+            <tr key=${isProviderView ? row.provider : `${row.provider}:${row.model}`}>
+                <td class="col-provider"><span class="provider-chip">${row.provider}</span></td>
+                ${isProviderView ? null : html`<td class="col-model mono">${row.model}</td>`}
+                ${isProviderView ? html`<td class="num">${formatNumber(row.modelCount || 0)}</td>` : null}
+                <td class="num">${formatNumber(row.requestCount)}</td>
+                <td class="num">${formatTokenCompact(row.promptTokens)}</td>
+                <td class="num">${formatTokenCompact(row.cachedTokens)}</td>
+                <td class="num">${formatTokenCompact(row.completionTokens)}</td>
+                <td class="num strong">${formatTokenCompact(row.totalTokens)}</td>
+                <td class="num">
+                    <span class=${`rate-pill ${row.cacheHitRate >= 80 ? 'rate-high' : row.cacheHitRate >= 50 ? 'rate-mid' : 'rate-low'}`}>
+                        ${row.cacheHitRate.toFixed(0)}%
+                    </span>
+                </td>
+            </tr>
+        `);
     };
 
     return html`
@@ -228,7 +240,7 @@ function ModelUsageStatsPage() {
                     <span class="brand-icon"><i class="fas fa-chart-line"></i></span>
                     <div>
                         <div class="brand-title">模型用量统计</div>
-                        <div class="brand-sub">统一查看 Provider / Model 的请求次数与 Token 累计</div>
+                        <div class="brand-sub">按天查看，或切到历史累计</div>
                     </div>
                 </div>
                 <div class="nav-actions">
@@ -244,14 +256,14 @@ function ModelUsageStatsPage() {
             <section class="hero">
                 <div class="panel hero-main">
                     <span class="eyebrow"><i class="fas fa-chart-pie"></i> 统计面板</span>
-                    <h1>模型用量统计面板</h1>
+                    <h1>模型用量统计</h1>
                     <div class="copy">
-                        通过 <code>/api/model-usage-stats</code> 查看系统已累计的请求数、输入 Token、输出 Token 和 Provider / Model 维度分布。
+                        点击日历上的任意日期查看当天明细；点「历史累计」查看全部时间的汇总。
+                        表格可在「按模型」与「按 Provider」之间切换。
                     </div>
                     <div class="meta">
-                        <span class="tag"><i class="fas fa-key"></i> 支持后台 Token 与 API Key</span>
-                        <span class="tag"><i class="fas fa-database"></i> 基于插件持久化统计</span>
-                        <span class="tag"><i class="fas fa-filter"></i> 支持搜索、排序、刷新与重置</span>
+                        <span class="tag"><i class="fas fa-database"></i> SQLite 持久化</span>
+                        <span class="tag"><i class="fas fa-filter"></i> 支持搜索与排序</span>
                     </div>
                 </div>
                 <aside class="panel auth">
@@ -259,21 +271,18 @@ function ModelUsageStatsPage() {
                         <h2 class="section-title" style="margin:0"><i class="fas fa-shield-halved"></i>访问凭证</h2>
                         <span class=${connected ? 'pill' : 'pill idle'}>${connected ? '已连接' : '未连接'}</span>
                     </div>
-                    <div class="sub">与其他管理页面一致，这里不会自动读取服务端敏感配置。输入凭证后可加载统计接口，刷新后会从本地缓存恢复。</div>
+                    <div class="sub">填入后台登录 Token 或服务 API Key，两种认证方式都会尝试。</div>
                     <div class="group">
                         <label class="label">访问凭证</label>
                         <input class="input" id="credentialValue" type="password" value=${credential}
                             placeholder="输入 Token 或 API Key"
                             onInput=${(event) => setCredential(event.currentTarget.value)}
-                            onKeyDown=${(event) => { if (event.key === 'Enter') void loadData(); }} />
-                        <div class="help">
-                            这里直接填后台登录 Token 或服务 API Key。页面会自动同时尝试
-                            <code>Authorization: Bearer</code> 和 <code>x-api-key</code> 两种方式。
-                        </div>
+                            onKeyDown=${(event) => { if (event.key === 'Enter') void loadAll(); }} />
                     </div>
                     <div class="row">
-                        <button class="btn btn-primary" id="connectBtn" onClick=${() => void loadData()}>
-                            <i class="fas fa-plug"></i><span>连接并加载</span>
+                        <button class="btn btn-primary" id="connectBtn" disabled=${loading} onClick=${() => void loadAll()}>
+                            <i class="fas ${loading ? 'fa-spinner fa-spin' : 'fa-plug'}"></i>
+                            <span>${loading ? '加载中' : '连接并加载'}</span>
                         </button>
                         <button class="btn btn-secondary" id="clearBtn" onClick=${clearCredential}>
                             <i class="fas fa-eraser"></i><span>清空凭证</span>
@@ -288,64 +297,119 @@ function ModelUsageStatsPage() {
 
             <section class="stats">
                 <article class="card green">
-                    <div class="card-label">总请求数</div>
+                    <div class="card-label">请求数</div>
                     <div class="card-value">${formatNumber(summary.requestCount)}</div>
-                    <div class="note">
-                        QPS: <span style="font-weight:700;color:var(--primary-color)">${(summary.qps || 0).toFixed(2)}</span>
-                        (峰值: <span>${(summary.maxQps || 0).toFixed(2)}</span>) |
-                        RPM: <span style="font-weight:700;color:var(--primary-color)">${(summary.rpm || 0).toFixed(2)}</span>
-                        (峰值: <span>${(summary.maxRpm || 0).toFixed(2)}</span>)
-                    </div>
+                    <div class="note">${rangeDate ? `当日 ${rangeDate}` : '历史累计'}</div>
                 </article>
-                <article class="card blue"><div class="card-label">输入 Token</div><div class="card-value">${formatTokenCompact(summary.promptTokens)}</div><div class="note">输入 token 的累计值</div></article>
-                <article class="card cyan"><div class="card-label">缓存 Token</div><div class="card-value">${formatTokenCompact(summary.cachedTokens)}</div><div class="note">缓存命中的累计值</div></article>
-                <article class="card indigo"><div class="card-label">输出 Token</div><div class="card-value">${formatTokenCompact(summary.completionTokens)}</div><div class="note">输出 token 的累计值</div></article>
+                <article class="card blue">
+                    <div class="card-label">输入 Token</div>
+                    <div class="card-value">${formatTokenCompact(summary.promptTokens)}</div>
+                    <div class="note">含缓存命中部分</div>
+                </article>
+                <article class="card cyan">
+                    <div class="card-label">缓存 Token</div>
+                    <div class="card-value">${formatTokenCompact(summary.cachedTokens)}</div>
+                    <div class="note">命中率 ${hitRate(summary).toFixed(1)}%</div>
+                </article>
+                <article class="card indigo">
+                    <div class="card-label">输出 Token</div>
+                    <div class="card-value">${formatTokenCompact(summary.completionTokens)}</div>
+                    <div class="note">模型生成部分</div>
+                </article>
                 <article class="card orange">
                     <div class="card-label">总 Token</div>
                     <div class="card-value">${formatTokenCompact(summary.totalTokens)}</div>
-                    <div class="note">
-                        TPS: <span style="font-weight:700;color:var(--primary-color)">${(summary.tps || 0).toFixed(2)}</span>
-                        (峰值: <span>${(summary.maxTps || 0).toFixed(2)}</span>) |
-                        <span>${data?.updatedAt ? `更新于 ${new Date(data.updatedAt).toLocaleString('zh-CN')}` : '等待数据'}</span>
-                    </div>
+                    <div class="note">${activeScope?.updatedAt ? `更新于 ${new Date(activeScope.updatedAt).toLocaleTimeString('zh-CN')}` : '等待数据'}</div>
                 </article>
             </section>
 
-            <section class="split">
-                <div class="panel calendar-panel" style="margin-bottom: 0;">
-                    <div class="calendar-header">
-                        <h2 class="section-title" style="margin:0; font-size: 16px;"><i class="fas fa-calendar-days"></i> Token 使用趋势 (3个月)</h2>
-                        <div class="calendar-legend" style="font-size: 10px;">
-                            <div class="level level-1"></div><div class="level level-4"></div>
-                        </div>
-                    </div>
-                    <div class="calendar-wrapper" style="justify-content: flex-start; padding: 15px 0 5px;">
-                        <${StatsCalendar}
-                            usageHistory=${data?.daily || {}}
-                            selectedDate=${viewMode === 'date' ? selectedDate : null}
-                            onSelect=${(dateKey) => { setSelectedDate(dateKey); setViewMode('date'); }} />
-                    </div>
-                    <div class="calendar-footer-note" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">
-                        点击任意方格可查看该日各模型用量；下方「历史累计」按钮可切回全量视图。
-                    </div>
+            <section class="panel calendar-panel">
+                <div class="calendar-header">
+                    <h2 class="section-title" style="margin:0; font-size: 16px;">
+                        <i class="fas fa-calendar-days"></i> 选择日期
+                    </h2>
+                    <button class=${`btn btn-sm ${rangeDate ? 'btn-secondary' : 'btn-primary'}`}
+                        onClick=${() => setRangeDate(null)}>
+                        <i class="fas fa-history"></i><span>历史累计</span>
+                    </button>
                 </div>
-                <div class="panel">
-                    <h2 class="section-title" style="font-size: 16px;"><i class="fas fa-sitemap"></i>Provider 分布</h2>
-                    <${DistributionList} data=${providerTotals} formatValue=${formatTokenCompact} empty=${emptyDist} />
+                <div class="calendar-wrapper" style="justify-content: flex-start; padding: 15px 0 5px;">
+                    <${StatsCalendar}
+                        usageHistory=${Object.fromEntries(calendar.map((day) => [day.date, day]))}
+                        selectedDate=${rangeDate}
+                        onSelect=${(dateKey) => void selectDate(dateKey)} />
                 </div>
-                <div class="panel">
-                    <h2 class="section-title" style="font-size: 16px;"><i class="fas fa-fire"></i>Top Models</h2>
-                    <${DistributionList} data=${modelTotals} formatValue=${formatTokenCompact} empty=${emptyDist} />
+                <div class="calendar-footer-note" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">
+                    点击日期查看当天数据；点「历史累计」查看全部时间汇总。
                 </div>
             </section>
 
-            <section>
-                <div class="tools">
-                    <h2 class="section-title" style="margin:0"><i class="fas fa-layer-group"></i>Provider 视图</h2>
-                    <div class="row">
-                        <button class="btn btn-secondary" onClick=${() => void loadData()}>
+            <section class="panel">
+                <div class="table-toolbar">
+                    <div class="table-title">
+                        <h2 class="section-title" style="margin:0; font-size: 16px;">
+                            <i class="fas fa-table"></i>
+                            ${rangeDate ? `${rangeDate} 明细` : '历史累计'}
+                        </h2>
+                        <span class="table-sub">${formatNumber(filteredRows.length)} 行</span>
+                    </div>
+                    <div class="table-controls">
+                        <div class="segmented" role="tablist">
+                            <button class=${`seg-btn ${isProviderView ? '' : 'active'}`}
+                                role="tab" aria-selected=${!isProviderView}
+                                onClick=${() => setGroupBy('model')}>
+                                <i class="fas fa-cube"></i><span>按模型</span>
+                            </button>
+                            <button class=${`seg-btn ${isProviderView ? 'active' : ''}`}
+                                role="tab" aria-selected=${isProviderView}
+                                onClick=${() => setGroupBy('provider')}>
+                                <i class="fas fa-sitemap"></i><span>按 Provider</span>
+                            </button>
+                        </div>
+                        <input class="input table-search" type="search" placeholder="搜索 provider / model"
+                            value=${search} onInput=${(e) => setSearch(e.currentTarget.value)} />
+                        <select class="input table-sort" value=${sort} onChange=${(e) => setSort(e.currentTarget.value)}>
+                            <option value="totalTokens-desc">总 Token ↓</option>
+                            <option value="totalTokens-asc">总 Token ↑</option>
+                            <option value="requestCount-desc">请求数 ↓</option>
+                            <option value="promptTokens-desc">输入 Token ↓</option>
+                            <option value="cachedTokens-desc">缓存 Token ↓</option>
+                            <option value="cacheHitRate-desc">命中率 ↓</option>
+                        </select>
+                        <button class="btn btn-secondary btn-sm" onClick=${() => void loadAll()} disabled=${loading}>
                             <i class="fas fa-rotate-right"></i><span>刷新</span>
                         </button>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="usage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-provider">Provider</th>
+                                ${isProviderView ? html`<th class="num">模型数</th>` : html`<th class="col-model">Model</th>`}
+                                <th class="num">请求数</th>
+                                <th class="num">输入</th>
+                                <th class="num">缓存</th>
+                                <th class="num">输出</th>
+                                <th class="num">总 Token</th>
+                                <th class="num">命中率</th>
+                            </tr>
+                        </thead>
+                        <tbody>${renderTable()}</tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel danger-zone">
+                <div class="row" style="justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-weight:600;margin-bottom:2px">重置数据</div>
+                        <div style="font-size:12px;color:var(--text-tertiary)">
+                            「重置 Token」保留请求数；「重置统计」清空全部数据。
+                        </div>
+                    </div>
+                    <div class="row">
                         <button class="btn btn-secondary" onClick=${() => void resetData(true)}>
                             <i class="fas fa-eraser"></i><span>重置 Token</span>
                         </button>
@@ -354,102 +418,9 @@ function ModelUsageStatsPage() {
                         </button>
                     </div>
                 </div>
-                <div class="providers">
-                    ${providersRaw.length === 0
-                        ? html`<div class="provider"><div class="provider-name">暂无 Provider 统计</div><div class="provider-sub">当前还没有可展示的累计数据。</div></div>`
-                        : providersRaw.map((provider) => {
-                            const providerSummary = provider.data.summary || {};
-                            return html`
-                                <article class="provider" key=${provider.name}>
-                                    <div class="provider-head">
-                                        <div>
-                                            <div class="provider-name">${provider.name}</div>
-                                            <div class="provider-sub">包含 ${formatNumber(provider.count)} 个模型</div>
-                                        </div>
-                                        <span class="provider-badge"><i class="fas fa-bolt"></i>${formatNumber(providerSummary.requestCount)} 次调用</span>
-                                    </div>
-                                    <div class="mini">
-                                        ${[
-                                            ['总 Token', formatTokenCompact(providerSummary.totalTokens)],
-                                            ['输入', formatTokenCompact(providerSummary.promptTokens)],
-                                            ['输出', formatTokenCompact(providerSummary.completionTokens)],
-                                            ['QPS / RPM', `${(providerSummary.qps || 0).toFixed(2)} / ${(providerSummary.rpm || 0).toFixed(2)}`],
-                                            ['TPS', (providerSummary.tps || 0).toFixed(2)],
-                                            ['最近使用', formatRelativeTime(providerSummary.lastUsedAt)]
-                                        ].map(([label, value]) => html`
-                                            <div class="mini-box" key=${label}>
-                                                <div class="mini-label">${label}</div>
-                                                <div class="mini-value" style=${label === '最近使用' ? 'font-size:14px' : undefined}>${value}</div>
-                                            </div>`)}
-                                    </div>
-                                </article>`;
-                        })}
-                </div>
             </section>
-
-            <section class="table-card">
-                <div class="tools">
-                    <h2 class="section-title" style="margin:0"><i class="fas fa-table"></i>模型明细</h2>
-                    <div class="tool-row">
-                        <input class="search" type="search" placeholder="搜索 provider 或 model"
-                            value=${search} onInput=${(event) => setSearch(event.currentTarget.value)} />
-                        <select class="select" value=${sort} onChange=${(event) => setSort(event.currentTarget.value)}>
-                            <option value="totalTokens-desc">按总 Token 降序</option>
-                            <option value="requestCount-desc">按请求数降序</option>
-                            <option value="promptTokens-desc">按输入 Token 降序</option>
-                            <option value="completionTokens-desc">按输出 Token 降序</option>
-                            <option value="provider-asc">按 Provider 升序</option>
-                            <option value="model-asc">按 Model 升序</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="view-switch" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0;">
-                    <button class=${'btn ' + (viewMode === 'today' ? 'btn-primary' : 'btn-secondary')}
-                        onClick=${() => { setViewMode('today'); setSelectedDate(null); }}>
-                        <i class="fas fa-calendar-alt"></i><span>当日（${todayKey}）</span>
-                    </button>
-                    <button class=${'btn ' + (viewMode === 'history' ? 'btn-primary' : 'btn-secondary')}
-                        onClick=${() => { setViewMode('history'); }}>
-                        <i class="fas fa-history"></i><span>历史累计</span>
-                    </button>
-                    ${viewMode === 'date' && selectedDate ? html`
-                        <button class="btn btn-primary" disabled>
-                            <i class="fas fa-calendar-days"></i><span>选中：${selectedDate}</span>
-                        </button>` : null}
-                    <span style="font-size:12px;color:var(--text-tertiary);">
-                        ${viewMode === 'history'
-                            ? `覆盖全部历史，共 ${formatNumber(viewRows.length)} 个模型`
-                            : `当前视图：${viewMode === 'date' ? selectedDate : todayKey}，${formatNumber(viewRows.length)} 个模型`}
-                        ${' · '}缓存命中率 ${viewSummary.cacheHitRate.toFixed(2)}%
-                    </span>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead><tr><th>Provider</th><th>Model</th><th>请求数</th><th>Prompt</th><th>Cached</th><th>缓存命中率</th><th>Completion</th><th>Total</th><th>最近使用</th></tr></thead>
-                        <tbody>
-                            ${filteredRows.length === 0
-                                ? html`<tr><td colspan="9" style="text-align:center;color:var(--text-tertiary)">没有匹配的数据</td></tr>`
-                                : filteredRows.map((row, index) => html`
-                                    <tr key=${`${row.provider}-${row.model}-${index}`}>
-                                        <td><span class="tag"><i class="fas fa-server"></i>${row.provider}</span></td>
-                                        <td>${row.model}</td>
-                                        <td class="mono">${formatNumber(row.requestCount)}</td>
-                                        <td class="mono">${formatTokenCompact(row.promptTokens)}</td>
-                                        <td class="mono">${formatTokenCompact(row.cachedTokens)}</td>
-                                        <td class=${'mono cache-rate' + (row.cacheHitRate >= 80 ? ' high' : row.promptTokens > 0 ? ' normal' : ' idle')}>
-                                            ${row.promptTokens > 0 ? row.cacheHitRate.toFixed(2) + '%' : '—'}
-                                        </td>
-                                        <td class="mono">${formatTokenCompact(row.completionTokens)}</td>
-                                        <td class="mono">${formatTokenCompact(row.totalTokens)}</td>
-                                        <td>${formatRelativeTime(row.lastUsedAt)}</td>
-                                    </tr>`)}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <p class="footer">如果上游响应没有提供 usage，调用次数仍会统计，但 token 数可能保持为 0。</p>
-        </main>`;
+        </main>
+    `;
 }
 
-void mountPage(ModelUsageStatsPage);
+mountPage(ModelUsageStatsPage);

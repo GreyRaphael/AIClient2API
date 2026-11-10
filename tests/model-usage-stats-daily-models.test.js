@@ -5,15 +5,15 @@ import path from 'node:path';
 import process from 'node:process';
 
 /**
- * model-usage-stats 插件：`daily` 现在按「provider:model」记录当日各模型用量，
- * 供统计页的「当日 / 选中某日」视图直接取用。
+ * model-usage-stats 插件：用量按 (date, provider, model) 落 SQLite。
  *
- * 保护两件事：
- *   1. 写入时 daily[date].models 会被创建并累加
- *   2. 读取（normalizeStore）时旧数据（只有扁平字段、没有 models）不会报错
+ * 保护三件事（与改 SQLite 前的业务语义完全一致，只是读取方式变了）：
+ *   1. finalizeRequest 会把用量按日+模型写入，且能正确累加
+ *   2. 缓存命中量 / 命中率口径正确
+ *   3. resetTokenStats 清空 token 但保留 requestCount
  *
- * 注意：stats-manager 把数据落在 `process.cwd()/configs/model-usage-stats.json`。
- * 测试必须切到临时目录，否则会写脏开发者本机的真实统计文件（本文件早期版本就犯过这个错）。
+ * 存储已从 JSON 快照改为 SQLite（configs/model-usage-stats.db）。
+ * 测试切到临时 cwd，确保不写脏开发者本机的真实数据。
  */
 
 jest.mock('../src/utils/logger.ts', () => ({
@@ -26,7 +26,6 @@ let sandbox;
 let lastStatsManager = null;
 
 beforeEach(() => {
-    // 每个用例独立沙箱：确保不会读到/写到仓库里的真实配置
     sandbox = mkdtempSync(path.join(tmpdir(), 'stats-sandbox-'));
     process.chdir(sandbox);
     jest.resetModules();
@@ -53,8 +52,13 @@ async function freshStatsManager() {
     return lastStatsManager;
 }
 
-describe('model-usage-stats daily per-model dimension', () => {
-    test('finalizeRequest 会把用量写入 daily[date].models', async () => {
+/** 从 byModel 里找某 provider+model 的行 */
+function findRow(rows, provider, model) {
+    return (rows || []).find((row) => row.provider === provider && row.model === model);
+}
+
+describe('model-usage-stats per-model aggregation (SQLite)', () => {
+    test('finalizeRequest 把用量按日+模型写入，缓存命中量正确', async () => {
         const statsManager = await freshStatsManager();
 
         statsManager.recordUnaryUsage({
@@ -72,19 +76,25 @@ describe('model-usage-stats daily per-model dimension', () => {
         });
 
         const stats = await statsManager.getStats();
-        const dates = Object.keys(stats.daily || {});
-        expect(dates.length).toBeGreaterThan(0);
 
-        const day = stats.daily[dates[dates.length - 1]];
-        expect(day.models).toBeDefined();
-        const entry = day.models['test-provider:test-model'];
-        expect(entry).toBeDefined();
-        expect(entry.promptTokens).toBe(100);
-        expect(entry.cachedTokens).toBe(80);
-        expect((entry.cachedTokens / entry.promptTokens) * 100).toBeCloseTo(80, 5);
+        // 日历里应有今天的记录
+        expect(stats.dates.length).toBeGreaterThan(0);
+        expect(stats.calendar.length).toBeGreaterThan(0);
+
+        // 历史累计：按模型一行
+        const row = findRow(stats.byModel, 'test-provider', 'test-model');
+        expect(row).toBeDefined();
+        expect(row.promptTokens).toBe(100);
+        expect(row.cachedTokens).toBe(80);
+        expect((row.cachedTokens / row.promptTokens) * 100).toBeCloseTo(80, 5);
+
+        // 按 Provider 聚合也应有一行
+        const providerRow = stats.byProvider.find((r) => r.provider === 'test-provider');
+        expect(providerRow).toBeDefined();
+        expect(providerRow.promptTokens).toBe(100);
     });
 
-    test('同一模型多次调用会在当日 models 下累加', async () => {
+    test('同一模型多次调用会累加', async () => {
         const statsManager = await freshStatsManager();
 
         for (const requestId of ['r1', 'r2']) {
@@ -97,13 +107,12 @@ describe('model-usage-stats daily per-model dimension', () => {
         }
 
         const stats = await statsManager.getStats();
-        const dates = Object.keys(stats.daily).sort();
-        const entry = stats.daily[dates[dates.length - 1]].models['p:m'];
-        expect(entry.promptTokens).toBe(100);
-        expect(entry.requestCount).toBe(2);
+        const row = findRow(stats.byModel, 'p', 'm');
+        expect(row.promptTokens).toBe(100);
+        expect(row.requestCount).toBe(2);
     });
 
-    test('finalizeRequest 省略 provider/model 时仍沿用 record 阶段归一化的键，且 resetTokenStats 会清空当日模型 token', async () => {
+    test('finalizeRequest 省略 provider/model 时沿用 record 阶段归一化的键', async () => {
         const statsManager = await freshStatsManager();
 
         statsManager.recordUnaryUsage({
@@ -116,27 +125,67 @@ describe('model-usage-stats daily per-model dimension', () => {
             },
             clientResponse: null
         });
-        // finalizeRequest 不重复传 provider / model，应从 state.provider / state.model 归一化
-        await statsManager.finalizeRequest({
-            requestId: 'r-norm',
-            fromProvider: 'openai',
-            isStream: false
+        // 不重复传 provider / model，应从 state 归一化
+        await statsManager.finalizeRequest({ requestId: 'r-norm', fromProvider: 'openai', isStream: false });
+
+        const stats = await statsManager.getStats();
+        const row = findRow(stats.byModel, 'trae', 'deepseek-v4');
+        expect(row).toBeDefined();
+        expect(row.totalTokens).toBe(240);
+        // 不应退化成 unknown:unknown
+        expect(findRow(stats.byModel, 'unknown', 'unknown')).toBeUndefined();
+    });
+
+    test('resetTokenStats 清空 token 但保留 requestCount', async () => {
+        const statsManager = await freshStatsManager();
+
+        statsManager.recordUnaryUsage({
+            requestId: 'r-reset',
+            model: 'm2', provider: 'p2', fromProvider: 'openai',
+            nativeResponse: {
+                usage: { prompt_tokens: 300, completion_tokens: 60, total_tokens: 360, prompt_tokens_details: { cached_tokens: 100 } }
+            },
+            clientResponse: null
         });
+        await statsManager.finalizeRequest({ requestId: 'r-reset', model: 'm2', provider: 'p2', fromProvider: 'openai', isStream: false });
 
-        const beforeReset = await statsManager.getStats();
-        const dates = Object.keys(beforeReset.daily).sort();
-        const dateKey = dates[dates.length - 1];
-        expect(beforeReset.daily[dateKey].models['trae:deepseek-v4']).toBeDefined();
-        expect(beforeReset.daily[dateKey].models['trae:deepseek-v4'].totalTokens).toBe(240);
-        expect(beforeReset.daily[dateKey].models['unknown:unknown']).toBeUndefined();
+        const before = await statsManager.getStats();
+        const beforeRow = findRow(before.byModel, 'p2', 'm2');
+        expect(beforeRow.totalTokens).toBe(360);
 
-        // 重置 Token 统计后，daily[date].models 下的 token 计数也必须同步归零（保留 requestCount）
-        const afterReset = await statsManager.resetTokenStats();
-        const resetEntry = afterReset.daily[dateKey].models['trae:deepseek-v4'];
-        expect(resetEntry.requestCount).toBe(1);
-        expect(resetEntry.promptTokens).toBe(0);
-        expect(resetEntry.completionTokens).toBe(0);
-        expect(resetEntry.totalTokens).toBe(0);
-        expect(resetEntry.cachedTokens).toBe(0);
+        await statsManager.resetTokenStats();
+        const after = await statsManager.getStats();
+        const afterRow = findRow(after.byModel, 'p2', 'm2');
+
+        // 请求数保留，token 归零
+        expect(afterRow.requestCount).toBe(1);
+        expect(afterRow.promptTokens).toBe(0);
+        expect(afterRow.completionTokens).toBe(0);
+        expect(afterRow.totalTokens).toBe(0);
+        expect(afterRow.cachedTokens).toBe(0);
+    });
+
+    test('按日期查询只返回该日数据', async () => {
+        const statsManager = await freshStatsManager();
+        const db = await import('../src/plugins/model-usage-stats/stats-db.js');
+        db.setDatabaseDir(sandbox);
+
+        db.recordUsage({ provider: 'p3', model: 'm3', date: '2026-01-01',
+            usage: { promptTokens: 10, completionTokens: 1, totalTokens: 11 } });
+        db.recordUsage({ provider: 'p3', model: 'm3', date: '2026-01-02',
+            usage: { promptTokens: 20, completionTokens: 2, totalTokens: 22 } });
+
+        const day = db.queryStats({ date: '2026-01-01' });
+        expect(day.summary.requestCount).toBe(1);
+        expect(day.summary.totalTokens).toBe(11);
+
+        const all = db.queryStats();
+        expect(all.summary.requestCount).toBe(2);
+        expect(all.summary.totalTokens).toBe(33);
+
+        const cal = db.queryCalendar();
+        expect(cal.length).toBe(2);
+        expect(cal.map((d) => d.date)).toEqual(['2026-01-01', '2026-01-02']);
+        db.shutdown();
     });
 });
