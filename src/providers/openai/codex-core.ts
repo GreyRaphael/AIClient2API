@@ -1226,24 +1226,6 @@ export class CodexApiService {
             delete result.service_tier;
         }
 
-        // 监控钩子：内部请求转换
-        if (this.config?._monitorRequestId) {
-            try {
-                const {getPluginManager} = await import('../../core/plugin-manager.ts');
-                const pluginManager = getPluginManager();
-                if (pluginManager) {
-                    await pluginManager.executeHook('onInternalRequestConverted', {
-                        requestId: this.config._monitorRequestId,
-                        internalRequest: result,
-                        converterName: 'prepareRequestBody'
-                    });
-                }
-            } catch (rawError) {
-                const e = asCodexError(rawError);
-                logger.error('[Codex] Error calling onInternalRequestConverted hook:', getErrorMessage(e));
-            }
-        }
-
         // 绑定工具名反向映射（不可枚举：不会被 axios/JSON 序列化发往上游）
         attachCodexToolNameMaps(result, toolNameMaps);
 

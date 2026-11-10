@@ -19,6 +19,7 @@ import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts'
 import type { ProviderStatus } from '../providers/provider-types.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import { recordUnaryUsage, finalizeRequest } from './usage-stats/stats-manager.ts';
+import { recordApiKeyUnaryResponse, finalizeApiKeyUsage } from './api-keys/index.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 
@@ -328,28 +329,17 @@ export async function handleImageGenerationRequest(
                 clientResponse
             });
             try {
-                const { getPluginManager } = await import('../core/plugin-manager.ts');
-                const pluginManager = getPluginManager();
-                if (pluginManager) {
-                    await pluginManager.executeHook('onUnaryResponse', {
-                        nativeResponse: imageNativeResponse,
-                        clientResponse,
-                        fromProvider,
-                        toProvider,
-                        model,
-                        requestId: imageMonitorRequestId
-                    });
-
-                    await pluginManager.executeHook('onContentGenerated', {
-                        ...currentConfig,
-                        originalRequestBody: { model, prompt, n, size, response_format },
-                        processedRequestBody: codexRequestBody,
-                        fromProvider,
-                        toProvider,
-                        model,
-                        isStream: false
-                    });
-                }
+                recordApiKeyUnaryResponse(imageMonitorRequestId, imageNativeResponse, clientResponse);
+                await finalizeApiKeyUsage({
+                    requestId: imageMonitorRequestId,
+                    apiKey: (currentConfig.apiKey || currentConfig.potluckApiKey) as string | null,
+                    reserved: Number(currentConfig.apiKeyReserved ?? currentConfig.potluckReserved) || 0,
+                    reservationToken: (currentConfig.apiKeyReservationToken || currentConfig.potluckReservationToken) as string | null,
+                    statusCode: res.statusCode,
+                    requestFailed: false,
+                    provider: toProvider,
+                    model: model
+                });
             } catch (e) {
                 logger.error('[Image Generation] Hook error:', getErrorMessage(e));
             }
@@ -713,28 +703,17 @@ export async function handleImageEditsRequest(
                 clientResponse
             });
             try {
-                const { getPluginManager } = await import('../core/plugin-manager.ts');
-                const pluginManager = getPluginManager();
-                if (pluginManager) {
-                    await pluginManager.executeHook('onUnaryResponse', {
-                        nativeResponse: imageNativeResponse,
-                        clientResponse,
-                        fromProvider,
-                        toProvider,
-                        model,
-                        requestId: imageMonitorRequestId
-                    });
-
-                    await pluginManager.executeHook('onContentGenerated', {
-                        ...currentConfig,
-                        originalRequestBody: { model, prompt, n, size, response_format },
-                        processedRequestBody: codexRequestBody,
-                        fromProvider,
-                        toProvider,
-                        model,
-                        isStream: false
-                    });
-                }
+                recordApiKeyUnaryResponse(imageMonitorRequestId, imageNativeResponse, clientResponse);
+                await finalizeApiKeyUsage({
+                    requestId: imageMonitorRequestId,
+                    apiKey: (currentConfig.apiKey || currentConfig.potluckApiKey) as string | null,
+                    reserved: Number(currentConfig.apiKeyReserved ?? currentConfig.potluckReserved) || 0,
+                    reservationToken: (currentConfig.apiKeyReservationToken || currentConfig.potluckReservationToken) as string | null,
+                    statusCode: res.statusCode,
+                    requestFailed: false,
+                    provider: toProvider,
+                    model: model
+                });
             } catch (e) {
                 logger.error('[Image Edits] Hook error:', getErrorMessage(e));
             }

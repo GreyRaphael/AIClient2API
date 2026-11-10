@@ -99,12 +99,6 @@ describe('non-pool provider service resolution', () => {
 
         tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'aiclient-non-pool-'));
         await fs.mkdir(path.join(tempDir, 'configs'), { recursive: true });
-        await fs.mkdir(path.join(tempDir, 'src'), { recursive: true });
-        await fs.symlink(
-            path.join(ROOT, 'src', 'plugins'),
-            path.join(tempDir, 'src', 'plugins'),
-            process.platform === 'win32' ? 'junction' : 'dir'
-        );
 
         appPort = await reservePort();
         const config = {

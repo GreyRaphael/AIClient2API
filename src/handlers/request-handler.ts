@@ -13,7 +13,6 @@ import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { isRegisteredProvider } from '../providers/adapter.ts';
 import { countTokensAnthropic } from '../utils/token-utils.ts';
 import { PROMPT_LOG_FILENAME } from '../core/config-manager.ts';
-import { getPluginManager } from '../core/plugin-manager.ts';
 import { authenticateGatewayRequest } from './gateway-auth.ts';
 import { randomUUID } from 'crypto';
 import { getErrorMessage } from '../utils/error.ts';
@@ -76,45 +75,18 @@ export function createRequestHandler(
                         return;
                     }
 
-                    // Serve static files for UI (除了登录页面需要认证)
-                    // 检查是否是插件静态文件
-                    const pluginManager = getPluginManager();
-                    const isPluginStatic = pluginManager.isPluginStaticPath(path);
-                    
                     // 如果 UI 已禁用，拦截所有 UI 相关的静态资源请求
                     const _isUIPath = isUIPath(path);
-                    
-                    if (!currentConfig.UI_ENABLED) {
-                        if (_isUIPath || isPluginStatic) {
-                            handleError(res, { status: 404, message: 'UI static files are disabled' }, currentConfig.MODEL_PROVIDER, null, req);
-                            return;
-                        }
+                    if (!currentConfig.UI_ENABLED && _isUIPath) {
+                        handleError(res, { status: 404, message: 'UI static files are disabled' }, currentConfig.MODEL_PROVIDER, null, req);
+                        return;
                     }
 
                     // 尝试处理 UI 相关的请求
-                    if (currentConfig.UI_ENABLED) {
-                         // 如果启用了 UI，或者请求的不是 UI 静态资源（可能是 API），则继续
-                         if (_isUIPath || isPluginStatic) {
-                            const pluginStaticOwner = isPluginStatic ? pluginManager.getPluginByStaticPath(path) : null;
-                            if (pluginStaticOwner && !pluginStaticOwner._enabled) {
-                                res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
-                                res.end(JSON.stringify({
-                                    success: false,
-                                    error: {
-                                        message: `插件未启用：${pluginStaticOwner.name}`,
-                                        code: 'PLUGIN_DISABLED'
-                                    }
-                                }));
-                                return;
-                            }
-                            const served = await serveStaticFiles(path, res, req);
-                            if (served) return;
-                        }
+                    if (currentConfig.UI_ENABLED && _isUIPath) {
+                        const served = await serveStaticFiles(path, res, req);
+                        if (served) return;
                     }
-
-                    // 执行插件路由
-                    const pluginRouteHandled = await pluginManager.executeRoutes(method, path, req, res, currentConfig);
-                    if (pluginRouteHandled) return;
 
                     // 处理 UI API 请求（即使 UI_ENABLED 为 false，API 也保持可用）
                     // 必须 try/catch：UI 处理链里有 decodeURIComponent 与动态字段取值，
@@ -221,22 +193,13 @@ export function createRequestHandler(
                         }
                     }
 
-                    // 1. 执行网关认证流程（优先执行扩展认证插件，未处理时由核心默认 API Key 鉴权兜底）
-                    const authResult = await authenticateGatewayRequest(req, res, requestUrl, currentConfig, pluginManager);
+                    // 1. 执行网关认证流程（优先校验托管 API Key，未处理时由核心默认 API Key 鉴权兜底）
+                    const authResult = await authenticateGatewayRequest(req, res, requestUrl, currentConfig);
                     if (authResult.handled) {
-                        // 认证插件已处理请求（如发送了错误响应）
                         return;
                     }
                     if (!authResult.authorized) {
-                        // 没有认证插件授权且默认 API Key 校验未通过，使用 handleError 返回 401
                         handleError(res, { status: 401, message: 'Unauthorized: API key is invalid or missing.' }, currentConfig.MODEL_PROVIDER, null, req);
-                        return;
-                    }
-                    
-                    // 2. 执行普通中间件（type!='auth' 的插件）
-                    const middlewareResult = await pluginManager.executeMiddleware(req, res, requestUrl, currentConfig);
-                    if (middlewareResult.handled) {
-                        // 中间件已处理请求
                         return;
                     }
 

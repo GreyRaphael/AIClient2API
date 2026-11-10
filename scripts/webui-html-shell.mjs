@@ -1,7 +1,7 @@
 /**
  * WebUI 页面外壳的唯一真源（import map + 主题引导脚本）。
  *
- * 这四份 HTML（index / login / potluck / potluck-user）没有构建步骤：
+ * 这三份 HTML（index / login / potluck-user）没有构建步骤：
  * 浏览器端模块解析必须靠每份 HTML 内联一份 import map；主题引导必须在 `<head>` 里同步执行，
  * 保证首屏即为暗黑主题并清理历史遗留主题。
  *
@@ -84,7 +84,6 @@ export const MARKERS = {
 export const HTML_PAGES = [
     'index.html',
     'login.html',
-    'potluck.html',
     'potluck-user.html'
 ];
 

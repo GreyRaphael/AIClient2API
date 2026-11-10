@@ -40,7 +40,7 @@ export const HELP_DATA = {
         { path: "/api/help", desc: "获取启动帮助信息 (JSON/Text)" },
         { path: "/api/example", desc: "获取 API 资源指南 (JSON/Text)" }
     ],
-    docker: "docker run -d -p 3000:3000 -v \"$(pwd)/configs:/app/configs\" -v \"$(pwd)/plugins:/app/src/plugins-user\" greyraphael/aiclient-2-api"
+    docker: "docker run -d -p 3000:3000 -v \"$(pwd)/configs:/app/configs\" greyraphael/aiclient-2-api"
 };
 
 export const API_GUIDE_DATA = [
@@ -108,9 +108,11 @@ export const API_GUIDE_DATA = [
         { method: 'POST',   path: '/api/codex/import-external-credentials', desc: '导入 CPA/sub2api Codex 凭据 (SSE 模式)' },
         { method: 'POST',   path: '/api/{type}/batch-import-tokens', desc: '批量导入 Refresh Tokens (SSE 模式)' }
     ]},
-    { group: '6. 插件、更新与扩展 (Plugin & Update)', routes: [
-        { method: 'GET',    path: '/api/plugins',                 desc: '列出系统已加载的所有插件' },
-        { method: 'POST',   path: '/api/plugins/{name}/toggle',   desc: '启用或禁用特定的插件' },
+    { group: '6. 令牌管理与扩展 (API Keys & Extensions)', routes: [
+        { method: 'GET',    path: '/api/keys',                    desc: '列出系统全部网关 API Key 与用量统计' },
+        { method: 'POST',   path: '/api/keys',                    desc: '创建新的网关 API Key' },
+        { method: 'GET',    path: '/api/keys/plans',              desc: '获取可用 Token 商业化套餐与周期' },
+        { method: 'POST',   path: '/api/keys/plan',               desc: '为指定 Key 绑定或变更商业套餐' },
         { method: 'GET',    path: '/api/custom-models',           desc: '获取已配置的自定义模型映射' },
         { method: 'POST',   path: '/api/custom-models',           desc: '新增自定义模型映射规则' },
         { method: 'PUT',    path: '/api/custom-models/{id}',      desc: '更新指定的模型映射规则' },

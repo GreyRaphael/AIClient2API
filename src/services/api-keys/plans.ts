@@ -1,20 +1,16 @@
 /**
- * API 大锅饭 - 付费套餐定义与纯函数
+ * 令牌管理 (API Keys) - 付费套餐定义与纯函数
  *
- * 设计要点（与 key-manager 的分工）：
- *   本文件只做「纯逻辑」——套餐目录、余额计算、过期判定、结算差额。
- *   所有读写 keyStore 的副作用留在 key-manager.js，便于单测直接验证不变量。
- *
- * 为什么需要「预扣 + 结算」而不是「请求后记账」：
- *   旧实现是请求前 `validateKey` 看 todayUsage、请求后才累加。
- *   并发下 N 个请求会同时通过检查（都能看到余额充足），全部完成后才一次性记账，
- *   超卖上界 ≈ 并发数 × 单请求 token 上限。按 token 售卖时这会直接亏钱。
- *   预扣把扣减提前到转发之前且同步执行（Node 单线程，内存自增天然原子），
- *   余额不足的请求在那一刻就被拒绝，不再有穿透窗口。
+ * 保留商业化逻辑：
+ * 1. 在售 Token 套餐与周期
+ * 2. 有效期与日历月顺延计算（月末不溢出）
+ * 3. 预扣/结算余额判定、过期/未生效判定、日上限判定
  */
 
+import type { BillingCycle, CreatePlanOptions, KeyPlan, TokenPack } from './types.ts';
+
 /** 在售 token 套餐：1 / 2 / 5 / 10 亿 token */
-export const TOKEN_PACKS = [
+export const TOKEN_PACKS: readonly TokenPack[] = [
     { id: 'pack_100m', label: '1 亿 Token', tokenQuota: 100_000_000 },
     { id: 'pack_200m', label: '2 亿 Token', tokenQuota: 200_000_000 },
     { id: 'pack_500m', label: '5 亿 Token', tokenQuota: 500_000_000 },
@@ -22,21 +18,21 @@ export const TOKEN_PACKS = [
 ];
 
 /** 周期：一周 / 一个月（按自然月顺延，不是固定 30 天） */
-export const BILLING_CYCLES = [
+export const BILLING_CYCLES: readonly BillingCycle[] = [
     { id: 'week', label: '一周', days: 7 },
     { id: 'month', label: '一个月', days: null } // null = 按日历月顺延
 ];
 
-const PACK_BY_ID = new Map(TOKEN_PACKS.map((pack) => [pack.id, pack]));
-const CYCLE_BY_ID = new Map(BILLING_CYCLES.map((cycle) => [cycle.id, cycle]));
+const PACK_BY_ID = new Map<string, TokenPack>(TOKEN_PACKS.map((pack) => [pack.id, pack]));
+const CYCLE_BY_ID = new Map<string, BillingCycle>(BILLING_CYCLES.map((cycle) => [cycle.id, cycle]));
 
-/** 查套餐；未知 id 返回 null，由调用方决定报错 */
-export function findPack(packId) {
+/** 查套餐；未知 id 返回 null */
+export function findPack(packId: string | null | undefined): TokenPack | null {
     return PACK_BY_ID.get(String(packId || '')) || null;
 }
 
 /** 查周期 */
-export function findCycle(cycleId) {
+export function findCycle(cycleId: string | null | undefined): BillingCycle | null {
     return CYCLE_BY_ID.get(String(cycleId || '')) || null;
 }
 
@@ -44,11 +40,8 @@ export function findCycle(cycleId) {
  * 计算周期结束时间。
  * - week：+7 天
  * - month：按日历月顺延（1/31 起一个月 = 2/28 或 2/29，不会溢出到 3 月）
- * @param {Date} from - 起始时间
- * @param {string} cycleId - 'week' | 'month'（用 string 以便运行时校验未知值）
- * @returns {Date}
  */
-export function computeValidUntil(from, cycleId) {
+export function computeValidUntil(from: Date, cycleId: string): Date {
     const start = new Date(from);
     if (Number.isNaN(start.getTime())) throw new Error('computeValidUntil: 无效起始时间');
 
@@ -69,10 +62,10 @@ export function computeValidUntil(from, cycleId) {
 }
 
 /**
- * 构造一个新的套餐对象。不写入 keyStore，由 key-manager 负责落库。
- * @param {{packId: string, cycleId: string, now?: Date, dailyTokenCap?: number|null}} input
+ * 构造一个新的套餐对象。
  */
-export function createPlan({ packId, cycleId, now = new Date(), dailyTokenCap = null }) {
+export function createPlan(options: CreatePlanOptions): KeyPlan {
+    const { packId, cycleId, now = new Date(), dailyTokenCap = null } = options;
     const pack = findPack(packId);
     if (!pack) throw new Error(`未知套餐 '${packId}'，可选：${TOKEN_PACKS.map((p) => p.id).join(', ')}`);
     const cycle = findCycle(cycleId);
@@ -90,8 +83,6 @@ export function createPlan({ packId, cycleId, now = new Date(), dailyTokenCap = 
         tokenReserved: 0,
         validFrom: start.toISOString(),
         validUntil: validUntil.toISOString(),
-        // 每日 token 速率保护：总量包必须配这个，否则用户可能一天打光整月额度并占满上游并发。
-        // null = 不限（不推荐）。
         dailyTokenCap: dailyTokenCap === null || dailyTokenCap === undefined
             ? null
             : Math.max(0, Number(dailyTokenCap) || 0),
@@ -101,49 +92,50 @@ export function createPlan({ packId, cycleId, now = new Date(), dailyTokenCap = 
 }
 
 /**
- * 归一化从磁盘读到的套餐：补齐缺失字段、保证数字非负。
- * 旧 Key 没有 plan 字段时返回 null（保持"非套餐 Key"语义）。
+ * 归一化从磁盘或存储读到的套餐：补齐缺失字段、保证数字非负。
  */
-export function normalizePlan(plan) {
+export function normalizePlan(plan: unknown): KeyPlan | null {
     if (!plan || typeof plan !== 'object') return null;
-    const num = (value) => {
+    const record = plan as Record<string, unknown>;
+    const num = (value: unknown): number => {
         const n = Number(value);
         return Number.isFinite(n) && n > 0 ? n : 0;
     };
-    const quota = num(plan.tokenQuota);
-    if (quota <= 0) return null; // 没有额度就没有套餐可言
+    const quota = num(record.tokenQuota);
+    if (quota <= 0) return null;
+
     return {
-        packId: String(plan.packId || 'custom'),
-        packLabel: String(plan.packLabel || plan.packId || '自定义'),
-        cycleId: String(plan.cycleId || 'custom'),
+        packId: String(record.packId || 'custom'),
+        packLabel: String(record.packLabel || record.packId || '自定义'),
+        cycleId: String(record.cycleId || 'custom'),
         tokenQuota: quota,
-        tokenUsed: num(plan.tokenUsed),
-        tokenReserved: num(plan.tokenReserved),
-        validFrom: plan.validFrom || null,
-        validUntil: plan.validUntil || null,
-        dailyTokenCap: plan.dailyTokenCap === null || plan.dailyTokenCap === undefined ? null : num(plan.dailyTokenCap),
-        todayTokenUsed: num(plan.todayTokenUsed),
-        lastDailyReset: plan.lastDailyReset || null
+        tokenUsed: num(record.tokenUsed),
+        tokenReserved: num(record.tokenReserved),
+        validFrom: typeof record.validFrom === 'string' ? record.validFrom : null,
+        validUntil: typeof record.validUntil === 'string' ? record.validUntil : null,
+        dailyTokenCap: record.dailyTokenCap === null || record.dailyTokenCap === undefined ? null : num(record.dailyTokenCap),
+        todayTokenUsed: num(record.todayTokenUsed),
+        lastDailyReset: typeof record.lastDailyReset === 'string' ? record.lastDailyReset : null
     };
 }
 
-/** 北京时区的日期键，与 key-manager 的 getTodayDateString 口径保持一致 */
-export function toDateKey(date = new Date()) {
+/** 北京时区的日期键 (YYYY-MM-DD) */
+export function toDateKey(date: Date = new Date()): string {
     const utc8 = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-    return utc8.toISOString().split('T')[0];
+    return utc8.toISOString().split('T')[0]!;
 }
 
 /**
  * 套餐剩余可用 token（总量额度 - 已用 - 在途预扣）。
- * 可为负：预扣多退少补时实际用量可能超出额度，此时下一次请求会被拒绝。
+ * 可为负：预扣多退少补时实际用量可能超出额度。
  */
-export function remainingTokens(plan) {
+export function remainingTokens(plan: KeyPlan | null | undefined): number {
     if (!plan) return 0;
     return plan.tokenQuota - plan.tokenUsed - plan.tokenReserved;
 }
 
 /** 是否已过期（validUntil 之前有效） */
-export function isExpired(plan, now = new Date()) {
+export function isExpired(plan: KeyPlan | null | undefined, now: Date = new Date()): boolean {
     if (!plan || !plan.validUntil) return false;
     const until = new Date(plan.validUntil).getTime();
     if (!Number.isFinite(until)) return false;
@@ -151,7 +143,7 @@ export function isExpired(plan, now = new Date()) {
 }
 
 /** 是否还没到生效时间 */
-export function isNotStarted(plan, now = new Date()) {
+export function isNotStarted(plan: KeyPlan | null | undefined, now: Date = new Date()): boolean {
     if (!plan || !plan.validFrom) return false;
     const from = new Date(plan.validFrom).getTime();
     if (!Number.isFinite(from)) return false;
@@ -159,7 +151,7 @@ export function isNotStarted(plan, now = new Date()) {
 }
 
 /** 当日已用 token（含在途预扣）是否已达日上限 */
-export function isDailyCapReached(plan, reservedToday = 0) {
-    if (!plan || !plan.dailyTokenCap) return false;
+export function isDailyCapReached(plan: KeyPlan | null | undefined, reservedToday: number = 0): boolean {
+    if (!plan || plan.dailyTokenCap === null || plan.dailyTokenCap === undefined) return false;
     return plan.todayTokenUsed + reservedToday >= plan.dailyTokenCap;
 }

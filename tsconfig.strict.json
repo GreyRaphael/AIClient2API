@@ -8,9 +8,5 @@
     "src/**/*.ts",
     "types/**/*.d.ts",
     "types/**/*.ts"
-  ],
-  "exclude": [
-    "src/plugins",
-    "src/plugins-user"
   ]
 }

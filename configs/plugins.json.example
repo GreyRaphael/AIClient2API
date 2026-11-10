@@ -1,8 +1,0 @@
-{
-  "plugins": {
-    "api-potluck": {
-      "enabled": false,
-      "description": "API 大锅饭 - Key 管理和用量统计插件"
-    }
-  }
-}

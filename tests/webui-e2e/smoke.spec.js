@@ -468,8 +468,8 @@ test.describe('console shell', () => {
         const initialCount = await page.locator('#configList .config-item-manager').count();
         expect(initialCount).toBeGreaterThan(0);
 
-        await page.locator('#configSearch').fill('plugins');
-        await expect(page.locator('#configList')).toContainText('plugins.json');
+        await page.locator('#configSearch').fill('provider');
+        await expect(page.locator('#configList')).toContainText('provider_pools.json');
 
         await page.locator('#configSearch').fill('');
         await expect(page.locator('#configList .config-item-manager').first()).toBeVisible();
@@ -726,61 +726,12 @@ test.describe('console shell', () => {
         expect(problems).toEqual([]);
     });
 
-    test('插件页：列表、统计与启用状态切换', async ({ authedPage: page, problems }) => {
-        await page.goto('/#plugins');
-        await expect(page.locator('section#plugins.active')).toBeVisible();
-        await expect(page.locator('#pluginsList .plugin-card').first()).toBeVisible();
-        const pluginCount = await page.locator('#pluginsList .plugin-card').count();
-        expect(pluginCount).toBeGreaterThanOrEqual(1);
-        await expect(page.locator('#totalPlugins')).toHaveText(String(pluginCount));
-        await expect(page.locator('#uploadPluginBtn')).toBeVisible();
-        expect(await page.evaluate(() => typeof window.togglePlugin)).toBe('undefined');
-
-        const enabledBefore = Number(await page.locator('#enabledPlugins').textContent());
-        const card = page.locator('#pluginsList .plugin-card').first();
-        const name = (await card.locator('h3').textContent())?.trim();
-        await card.locator('.toggle-switch').click();
-        await expect(page.locator('#toastContainer')).toContainText(`插件 ${name}`);
-        await expect.poll(async () => Number(await page.locator('#enabledPlugins').textContent()))
-            .not.toBe(enabledBefore);
-
-        // 恢复原状态
-        await card.locator('.toggle-switch').click();
-        await expect.poll(async () => Number(await page.locator('#enabledPlugins').textContent()))
-            .toBe(enabledBefore);
-        expect(problems).toEqual([]);
-    });
-
-    test('插件页：描述中的插件页面链接可点击跳转（potluck）', async ({ authedPage: page, problems }) => {
-        await page.goto('/#plugins');
-        await expect(page.locator('section#plugins.active')).toBeVisible();
-        await expect(page.locator('#pluginsList .plugin-card').first()).toBeVisible();
-
-        // 插件描述是富文本，用相对路径指向插件自身的独立页面。
-        // sanitizeHtml 曾把相对路径 href 整个删掉，导致这些入口退化成不可点击的纯文本。
-        // 注意：model-usage-stats 已从插件迁为核心功能（主菜单 section），
-        // 不再有 model-usage-stats.html 这个插件页，因此只剩 potluck 两页。
-        const potluck = page.locator('#pluginsList .plugin-description a', { hasText: 'potluck.html' }).first();
-        await expect(potluck).toHaveAttribute('href', 'potluck.html');
-        await expect(potluck).toHaveAttribute('target', '_blank');
-        await expect(potluck).toHaveAttribute('rel', /noopener/);
-
-        // 所有插件描述里的站内链接都不应被清洗成无 href 的裸 <a>
-        const hrefsMissing = await page.evaluate(() => [...document.querySelectorAll('#pluginsList .plugin-description a')]
-            .filter((a) => !a.getAttribute('href'))
-            .map((a) => a.textContent.trim()));
-        expect(hrefsMissing).toEqual([]);
-
-        // 实际点击验证能打开插件页面
-        const [popup] = await Promise.all([
-            page.waitForEvent('popup'),
-            potluck.click()
-        ]);
-        await popup.waitForLoadState('domcontentloaded');
-        expect(popup.url()).toContain('potluck.html');
-        await expect(popup.locator('body')).toContainText(/大锅饭|Potluck/i);
-        await popup.close();
-
+    test('令牌管理页：统计卡片与操作按钮渲染', async ({ authedPage: page, problems }) => {
+        await page.goto('/#api-keys');
+        await expect(page.locator('section#api-keys.active')).toBeVisible();
+        await expect(page.locator('.api-keys-stats-grid')).toBeVisible();
+        await expect(page.locator('#createKeyBtn')).toBeVisible();
+        await expect(page.locator('#refreshKeysBtn')).toBeVisible();
         expect(problems).toEqual([]);
     });
 
@@ -894,7 +845,7 @@ test.describe('console shell', () => {
     });
 });
 
-test.describe('plugin pages', () => {
+test.describe('standalone pages', () => {
     test('登录页：中英切换并持久化', async ({ page }) => {
         await page.goto('/login.html');
         await expect(page.locator('.logo p')).toHaveText('请登录以继续');
@@ -947,60 +898,7 @@ test.describe('plugin pages', () => {
         expect(await page.locator('.calendar-day').count()).toBeGreaterThan(80);
         expect(problems).toEqual([]);
     });
-
-    test('大锅饭管理页：统计与 Key 列表', async ({ authedPage: page, problems }) => {
-        const now = new Date().toISOString();
-        const usageHistory = {
-            [now.slice(0, 10)]: {
-                summary: { totalTokens: 1000, requestCount: 5 },
-                providers: { 'gemini-antigravity': { requestCount: 3, totalTokens: 600 } },
-                models: { 'gemini-3.8-flash-medium': { requestCount: 2, totalTokens: 400 } }
-            }
-        };
-        await page.route('**/api/potluck/keys', (route) => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-                success: true,
-                data: {
-                    keys: [{
-                        id: 'maki_e2e_full_key',
-                        name: 'E2E Key',
-                        maskedKey: 'maki_****e2e',
-                        enabled: true,
-                        todayUsage: 1,
-                        dailyLimit: 100,
-                        todayTotalTokens: 100,
-                        todayCachedTokens: 0,
-                        totalUsage: 2,
-                        totalTokens: 200,
-                        totalCachedTokens: 0,
-                        qps: 0, rpm: 0, maxQps: 0, maxRpm: 0, tps: 0, maxTps: 0,
-                        lastUsedAt: now,
-                        createdAt: now,
-                        usageHistory
-                    }],
-                    stats: {
-                        totalKeys: 1, enabledKeys: 1, todayTotalUsage: 1, totalUsage: 2,
-                        todayTotalTokens: 100, todayCachedTokens: 0, totalTokens: 200, totalCachedTokens: 0,
-                        qps: 0, maxQps: 0, rpm: 0, maxRpm: 0, tps: 0, maxTps: 0,
-                        usageHistory
-                    }
-                }
-            })
-        }));
-
-        await page.goto('/potluck.html');
-        await expect(page.locator('.stats-grid').first()).toContainText('总 Key 数');
-        await expect(page.locator('.key-card')).toContainText('E2E Key');
-        await expect(page.locator('.distribution-item').first()).toBeVisible();
-
-        await page.locator('.navbar-actions .btn-primary').click();
-        await expect(page.locator('.modal-overlay.show')).toBeVisible();
-        await page.locator('.modal-overlay.show .modal-close').click();
-        await expect(page.locator('.modal-overlay.show')).toHaveCount(0);
-        expect(problems).toEqual([]);
-    });
+});
 
 });
 

@@ -5,7 +5,7 @@ import { initApiService } from './service-manager.ts';
 import { initializeUIManagement } from './ui-manager.ts';
 import { initializeAPIManagement } from './api-manager.ts';
 import { createRequestHandler } from '../handlers/request-handler.ts';
-import { discoverPlugins, getPluginManager } from '../core/plugin-manager.ts';
+import { shutdownKeyManager } from './api-keys/index.ts';
 import { getTLSSidecar } from '../utils/tls-sidecar.ts';
 import { HEALTH_CHECK } from '../utils/constants.ts';
 import { HealthCheckScheduler } from './health-check-scheduler.ts';
@@ -133,14 +133,11 @@ function setupWorkerCommunication() {
 async function gracefulShutdown() {
     logger.info('[Server] Initiating graceful shutdown...');
 
-    // 停止所有插件
+    // 关闭令牌管理器数据库与定时器
     try {
-        const pluginManager = getPluginManager();
-        if (pluginManager) {
-            await pluginManager.destroyAll();
-        }
+        shutdownKeyManager();
     } catch (err) {
-        logger.error('[Server] Error destroying plugins:', getErrorMessage(err));
+        logger.error('[Server] Error shutting down API keys manager:', getErrorMessage(err));
     }
 
     // 停止 TLS sidecar
@@ -222,21 +219,7 @@ async function startServer() {
         }
     }
 
-    // Initialize plugin system
-    logger.info('[Initialization] Discovering and initializing plugins...');
-    await discoverPlugins();
-    const pluginManager = getPluginManager();
-    await pluginManager.initAll(CONFIG);
-    
-    // Log loaded plugins
-    const pluginList = pluginManager.getPluginList();
-    if (pluginList.length > 0) {
-        logger.info(`[Plugins] Loaded ${pluginList.length} plugin(s):`);
-        pluginList.forEach(p => {
-            const status = p.enabled ? '✓' : '✗';
-            logger.info(`  ${status} ${p.name} v${p.version} - ${p.description}`);
-        });
-    }
+
 
     // Initialize API services
     const services = await initApiService(CONFIG, true);

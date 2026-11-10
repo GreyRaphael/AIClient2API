@@ -130,7 +130,7 @@ describe('ApiClient 请求出口', () => {
         const calls = mockFetch(() => jsonResponse({ success: true }));
         const form = new FormData();
         form.append('file', 'x');
-        await api.postForm('/plugins/upload', form);
+        await api.postForm('/configs/upload', form);
         const headers = calls.at(-1).init.headers;
         expect(headers['Content-Type']).toBeUndefined();
         expect(headers.Authorization).toBe('Bearer test-token');

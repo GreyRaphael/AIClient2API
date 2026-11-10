@@ -131,7 +131,7 @@ describe('CSS 作用域化', () => {
 
     test('各 section 不再重复定义已收敛到 shared.css 的原子类', () => {
         const offenders = [];
-        for (const section of ['config', 'providers', 'custom-models', 'access', 'upload-config', 'usage', 'dashboard', 'plugins', 'playground']) {
+        for (const section of ['config', 'providers', 'custom-models', 'access', 'upload-config', 'usage', 'dashboard', 'api-keys', 'playground']) {
             const file = path.join(STYLES, 'components', `section-${section}.css`);
             if (!existsSync(file)) continue;
             for (const sel of selectors(readFileSync(file, 'utf8'))) {

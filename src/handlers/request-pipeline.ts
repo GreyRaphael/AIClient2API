@@ -12,7 +12,7 @@ import { convertData } from '../convert/convert.ts';
 import { ConverterFactory } from '../converters/ConverterFactory.ts';
 import { clearCustomTools } from '../converters/custom-tool-registry.ts';
 import { ProviderStrategyFactory } from '../utils/provider-strategy-factory.ts';
-import { getPluginManager } from '../core/plugin-manager.ts';
+import { recordApiKeyStreamChunk, recordApiKeyUnaryResponse, finalizeApiKeyUsage } from '../services/api-keys/index.ts';
 import { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from '../utils/constants.ts';
 import { getProtocolPrefix, ENDPOINT_TYPE } from '../utils/protocol.ts';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../converters/signature-vault.ts';
@@ -892,15 +892,7 @@ export async function handleStreamRequest(
                     clientChunk: chunkToSend
                 });
                 try {
-                    const pluginManager = getPluginManager();
-                    await pluginManager.executeHook('onStreamChunk', {
-                        nativeChunk,
-                        chunkToSend,
-                        fromProvider,
-                        toProvider,
-                        model,
-                        requestId: hookRequestId
-                    });
+                    recordApiKeyStreamChunk(hookRequestId, nativeChunk, chunkToSend);
                 } catch (e) {}
             }
 
@@ -1367,15 +1359,7 @@ export async function handleUnaryRequest(
                 clientResponse
             });
             try {
-                const pluginManager = getPluginManager();
-                await pluginManager.executeHook('onUnaryResponse', {
-                    nativeResponse,
-                    clientResponse,
-                    fromProvider,
-                    toProvider,
-                    model,
-                    requestId: hookRequestId
-                });
+                recordApiKeyUnaryResponse(hookRequestId, nativeResponse, clientResponse);
             } catch (e) {}
         }
 
@@ -1950,24 +1934,23 @@ export async function handleContentGenerationRequest(
         model = processedRequestBody.model;
     }
 
-    // 执行插件钩子：内容生成后
+    // 令牌管理 (API Keys) 记账与结算
     try {
-        const pluginManager = getPluginManager();
-        await pluginManager.executeHook('onContentGenerated', {
-            ...CONFIG,
-            originalRequestBody,
-            processedRequestBody,
-            fromProvider,
-            toProvider,
-            model,
-            isStream
+        await finalizeApiKeyUsage({
+            requestId: CONFIG._monitorRequestId as string | null,
+            apiKey: (CONFIG.apiKey || CONFIG.potluckApiKey) as string | null,
+            reserved: Number(CONFIG.apiKeyReserved ?? CONFIG.potluckReserved) || 0,
+            reservationToken: (CONFIG.apiKeyReservationToken || CONFIG.potluckReservationToken) as string | null,
+            statusCode: res.statusCode,
+            requestFailed: Boolean(CONFIG._requestFailed),
+            provider: toProvider,
+            model: model
         });
     } catch (e) { /* 静默失败，不影响主流程 */ }
 
-    // 核心用量结算（非插件）：必须在上面 hook 之后独立执行——
-    // 插件的 onContentGenerated 是用户可关的，用量统计不能依赖它是否被启用。
-    // requestId 直接取 CONFIG._monitorRequestId（request-handler.ts 对每个请求设置），
-    // 不再依赖已删除的插件 middleware 去补。finalizeRequest 内部 try/catch。
+    // 核心用量结算：必须独立执行
+    // requestId 直接取 CONFIG._monitorRequestId（request-handler.ts 对每个请求设置）。
+    // finalizeRequest 内部 try/catch。
     finalizeRequest({
         requestId: getPluginHookRequestId(CONFIG),
         model,

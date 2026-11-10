@@ -5,7 +5,7 @@ export const E2E_PASSWORD = 'e2e-pass';
 /** 管理控制台的全部 section（hash 路由），顺序与侧边栏一致 */
 export const SECTIONS = [
     'dashboard', 'access', 'config', 'providers',
-    'custom-models', 'upload-config', 'usage', 'plugins', 'playground',
+    'custom-models', 'upload-config', 'usage', 'api-keys', 'playground',
     // model-usage-stats 已从插件迁为核心功能，加入主菜单并紧挨在 logs 之前
     'model-usage-stats', 'logs'
 ];

@@ -20,7 +20,7 @@ export const SECTIONS = [
     { id: 'custom-models', labelKey: 'nav.customModels', icon: 'fa-cubes', load: () => import('./sections/custom-models/index.js') },
     { id: 'upload-config', labelKey: 'nav.upload', icon: 'fa-upload', load: () => import('./sections/upload-config/index.js') },
     { id: 'usage', labelKey: 'nav.usage', icon: 'fa-chart-bar', load: () => import('./sections/usage/index.js') },
-    { id: 'plugins', labelKey: 'nav.plugins', icon: 'fa-puzzle-piece', load: () => import('./sections/plugins.js') },
+    { id: 'api-keys', labelKey: 'nav.apiKeys', icon: 'fa-id-card', load: () => import('./sections/api-keys/index.ts') },
     { id: 'playground', labelKey: 'nav.playground', icon: 'fa-flask', load: () => import('./sections/playground/index.js') },
     // 模型用量统计已从插件迁为核心功能，紧挨在「实时日志」上方（常用页置底但可预期）。
     // 加载 .ts 由服务端运行时擦除类型（见 src/services/ui-manager.ts）。

@@ -193,8 +193,8 @@ describe('日历热力图：方块形状与绿色深浅（迁移回归护栏）'
     });
 
     test('日历规则归属 shared.css（控制台与 potluck 两页都加载它）', () => {
-        // 这三种页面都会加载 shared.css；塞回 plugin-shared.css 会让控制台丢失日历样式
-        for (const page of ['index.html', 'potluck.html', 'potluck-user.html']) {
+        // 这些页面都会加载 shared.css；塞回 plugin-shared.css 会让控制台丢失日历样式
+        for (const page of ['index.html', 'potluck-user.html']) {
             const html = readFileSync(path.join(process.cwd(), 'static', page), 'utf8');
             expect({ page, loadsShared: html.includes('shared.css') }).toEqual({ page, loadsShared: true });
         }

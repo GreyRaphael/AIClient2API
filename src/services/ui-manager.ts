@@ -5,16 +5,14 @@ import { stripTypeScriptTypes } from 'node:module';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import path from 'path';
 import { isUIApiPath } from '../utils/ui-utils.ts';
-import { getPluginManager } from '../core/plugin-manager.ts';
-import { resolvePluginStaticFile } from '../core/plugin-security.ts';
 import { handleModelUsageStatsRoutes } from './usage-stats/api-routes.ts';
+import { handleApiKeyUserRoutes, handleApiKeyManagementRoutes } from './api-keys/api-routes.ts';
 
 // Import UI modules
 import * as auth from '../ui-modules/auth.ts';
 import * as configApi from '../ui-modules/config-api.ts';
 import * as providerApi from '../ui-modules/provider-api.ts';
 import * as usageApi from '../ui-modules/usage-api.ts';
-import * as pluginApi from '../ui-modules/plugin-api.ts';
 import * as uploadConfigApi from '../ui-modules/upload-config-api.ts';
 import * as systemApi from '../ui-modules/system-api.ts';
 import * as updateApi from '../ui-modules/update-api.ts';
@@ -244,16 +242,6 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse, r
         filePath = '';
     }
 
-    if (!filePath || !existsSync(filePath)) {
-        // 2. 尝试从插件目录服务
-        const pluginManager = getPluginManager();
-        const plugin = pluginManager.getPluginByStaticPath(pathParam);
-        if (plugin && plugin._baseDir) {
-            const resolved = resolvePluginStaticFile(plugin, pathParam);
-            if (resolved) filePath = resolved;
-        }
-    }
-
     if (filePath && existsSync(filePath) && statSync(filePath).isFile()) {
         const ext = path.extname(filePath);
         const contentType = STATIC_CONTENT_TYPES[ext] || 'text/plain';
@@ -326,6 +314,14 @@ export async function handleUIApiRequests(
     // （scripts/cache-hit-benchmark.mjs、外部脚本）不持有 session cookie，
     // 若先过 session 门禁会直接被 401 拦掉。这也是迁移前插件路由的位置语义。
     if (await handleModelUsageStatsRoutes(method, pathParam, req, res, { REQUIRED_API_KEY: currentConfig.REQUIRED_API_KEY as string | undefined })) {
+        return true;
+    }
+
+    // 令牌管理 (API Keys) 路由：用户自助用量查询与管理员 Key 管理
+    if (await handleApiKeyUserRoutes(method, pathParam, req, res)) {
+        return true;
+    }
+    if (await handleApiKeyManagementRoutes(method, pathParam, req, res)) {
         return true;
     }
 
@@ -704,30 +700,6 @@ export async function handleUIApiRequests(
 
     if (method === 'POST' && pathParam === '/api/codex/import-external-credentials') {
         return await oauthApi.handleImportCodexExternalCredentials(req, res);
-    }
-
-    // Get plugins list
-    if (method === 'GET' && pathParam === '/api/plugins') {
-        return await pluginApi.handleGetPlugins(req, res);
-    }
-
-    // Upload plugin
-    if (method === 'POST' && pathParam === '/api/plugins/upload') {
-        return Boolean(await pluginApi.handleUploadPlugin(req, res));
-    }
-
-    // Toggle plugin status
-    const togglePluginMatch = pathParam.match(/^\/api\/plugins\/(.+)\/toggle$/);
-    if (method === 'POST' && togglePluginMatch) {
-        const pluginName = decodeURIComponent(togglePluginMatch[1]);
-        return await pluginApi.handleTogglePlugin(req, res, pluginName);
-    }
-
-    // Uninstall plugin
-    const uninstallPluginMatch = pathParam.match(/^\/api\/plugins\/(.+)$/);
-    if (method === 'DELETE' && uninstallPluginMatch) {
-        const pluginName = decodeURIComponent(uninstallPluginMatch[1]);
-        return await pluginApi.handleUninstallPlugin(req, res, pluginName);
     }
 
     // Custom models management
