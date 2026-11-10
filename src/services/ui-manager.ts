@@ -235,7 +235,9 @@ function hasMalformedPercentEncoding(pathParam: string): boolean {
  */
 export async function serveStaticFiles(pathParam: string, res: ServerResponse, req?: IncomingMessage): Promise<boolean> {
     // 1. 尝试从系统 static 目录服务（拒绝越出 static 根目录的路径）
-    const relativePath = pathParam === '/' || pathParam === '/index.html' ? 'index.html' : pathParam.replace('/static/', '');
+    const relativePath = pathParam === '/' || pathParam === '/index.html'
+        ? 'index.html'
+        : (pathParam === '/potluck-user' ? 'potluck-user.html' : pathParam.replace('/static/', ''));
     const staticRoot = getStaticRoot();
     let filePath = path.join(staticRoot, relativePath);
     if (!isInsideStaticRoot(filePath, staticRoot)) {

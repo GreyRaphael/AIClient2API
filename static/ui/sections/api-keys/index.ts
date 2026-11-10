@@ -507,7 +507,7 @@ export default function ApiKeysSection() {
         <div id="api-keys" class="api-keys-section">
             <div class="section-header">
                 <div>
-                    <h2><i class="fas fa-id-card"></i> 令牌管理 (API Keys)</h2>
+                    <h2><i class="fas fa-key"></i> 令牌管理 (API Keys)</h2>
                     <p class="section-desc">管理网关客户端访问令牌、每日限额与 Token 商业化套餐配置</p>
                 </div>
                 <div class="header-actions">

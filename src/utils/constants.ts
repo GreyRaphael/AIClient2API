@@ -69,7 +69,7 @@ export const UI_PATHS = {
     STATIC_PREFIXES: ['/static/', '/app/', '/components/', '/ui/', '/vendor/'],
     // 静态文件精确匹配路径
     // /favicon.ico 无需单列：isUIPath 的静态扩展名规则（.ico）已覆盖
-    STATIC_EXACT: ['/', '/index.html', '/login.html'],
+    STATIC_EXACT: ['/', '/index.html', '/login.html', '/potluck-user.html', '/potluck-user'],
     // API 路径前缀
     API_PREFIX: '/api/',
     // API 白名单（即使在禁用 UI 时也允许访问）

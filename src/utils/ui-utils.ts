@@ -9,8 +9,8 @@ import { UI_PATHS } from './constants.ts';
  * @returns {boolean}
  */
 export function isUIPath(path: string): boolean {
-    // 检查常见静态文件扩展名
-    const isStaticExtension = /\.(png|jpg|jpeg|gif|svg|ico)$/i.test(path);
+    // 检查常见静态文件扩展名（含 HTML/CSS/JS/图片/字体）
+    const isStaticExtension = /\.(png|jpg|jpeg|gif|svg|ico|html)$/i.test(path);
     
     return UI_PATHS.STATIC_PREFIXES.some(prefix => path.startsWith(prefix)) || 
            UI_PATHS.STATIC_EXACT.includes(path) ||

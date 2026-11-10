@@ -65,6 +65,26 @@ describe('serveStaticFiles', () => {
         await expect(serveStaticFiles('/app/', res)).resolves.toBe(false);
     });
 
+    test('独立页面 potluck-user.html 与别名 /potluck-user 能正常以 text/html 提供服务', async () => {
+        const { isUIPath } = await import('../src/utils/ui-utils.ts');
+        expect(isUIPath('/potluck-user.html')).toBe(true);
+        expect(isUIPath('/potluck-user')).toBe(true);
+
+        const res1 = createResponse();
+        const served1 = await serveStaticFiles('/potluck-user.html', res1);
+        expect(served1).toBe(true);
+        expect(res1.statusCode).toBe(200);
+        expect(res1.headers['Content-Type']).toBe('text/html');
+        expect(res1.body.toString('utf8')).toContain('API 大锅饭 - 我的用量');
+
+        const res2 = createResponse();
+        const served2 = await serveStaticFiles('/potluck-user', res2);
+        expect(served2).toBe(true);
+        expect(res2.statusCode).toBe(200);
+        expect(res2.headers['Content-Type']).toBe('text/html');
+        expect(res2.body.toString('utf8')).toContain('API 大锅饭 - 我的用量');
+    });
+
     test('.ts 源码以 text/javascript 直出（服务端擦除类型，浏览器零构建）', async () => {
         // 前端源码是 .ts，但浏览器不认 TypeScript：必须由服务端擦除类型后
         // 以 text/javascript 下发，否则模块加载会直接失败。
