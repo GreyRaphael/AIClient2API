@@ -1,16 +1,16 @@
 {
   "total": {
     "lines": {
-      "covered": 10562,
-      "total": 20534
+      "covered": 10649,
+      "total": 20619
     },
     "branches": {
-      "covered": 9754,
-      "total": 20385
+      "covered": 9790,
+      "total": 20427
     },
     "functions": {
-      "covered": 1350,
-      "total": 2333
+      "covered": 1360,
+      "total": 2339
     }
   },
   "directories": {
@@ -142,16 +142,16 @@
     },
     "src/ui-modules": {
       "lines": {
-        "covered": 436,
-        "total": 2844
+        "covered": 523,
+        "total": 2929
       },
       "branches": {
-        "covered": 238,
-        "total": 1693
+        "covered": 274,
+        "total": 1735
       },
       "functions": {
-        "covered": 76,
-        "total": 298
+        "covered": 86,
+        "total": 304
       }
     },
     "src/utils": {
