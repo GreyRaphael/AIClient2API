@@ -1,19 +1,18 @@
 import readline from 'readline';
-import { styleText } from 'node:util';
+import { styleText, parseArgs } from 'node:util';
 import { handleZedOAuth, handleZedOAuthCallback } from '../auth/zed-oauth.ts';
 import { CONFIG, initializeConfig } from '../core/config-manager.ts';
 import { getErrorMessage } from '../utils/error.ts';
 async function main() {
     await initializeConfig();
-    const args = process.argv.slice(2);
-    let email = null;
-
-    for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--email' && args[i + 1]) {
-            email = args[i + 1];
-            i++;
-        }
-    }
+    const { values } = parseArgs({
+        args: process.argv.slice(2),
+        options: {
+            email: { type: 'string' }
+        },
+        strict: false
+    });
+    const email = (values.email as string | undefined) || null;
 
     console.log('\n======================================================================');
     console.log('                 Zed 订阅转 API - 账号授权登录');

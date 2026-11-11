@@ -1,10 +1,9 @@
 /* ==========================================================================
-   独立插件页共享样式（potluck.html / potluck-user.html / model-usage-stats.html）
+   独立令牌页通用样式（potluck-user.html）
    ==========================================================================
 
-   三个独立插件页共享通用布局底座、顶栏（.navbar）、统计卡片（.stat-card）、
+   通用布局底座、顶栏（.navbar）、统计卡片（.stat-card）、
    分布条（DistributionList: .distribution-*）与日历热力图（StatsCalendar: .calendar-*）。
-   页面各自的差异样式仍留在 potluck.css / potluck-user.css / model-usage-stats.css。
    ========================================================================== */
 
 body {

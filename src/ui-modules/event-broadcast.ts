@@ -1,14 +1,10 @@
-import { existsSync } from 'fs';
+import { existsSync, createWriteStream } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
-import multer, { type File as MulterFile, type Instance as MulterInstance } from 'multer';
+import busboy from 'busboy';
+import { pipeline } from 'node:stream/promises';
 import logger from '../utils/logger.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-
-type UploadRequest = IncomingMessage & {
-    file?: MulterFile;
-    body?: Record<string, unknown>;
-};
 
 interface LogEntry {
     timestamp: string;
@@ -166,130 +162,142 @@ export function initializeUIManagement() {
     };
 }
 
-// 配置multer中间件
-const storage = multer.diskStorage({
-    destination: async (_req: IncomingMessage, _file: MulterFile, cb: (error: Error | null, destination?: string) => void): Promise<void> => {
-        try {
-            // multer在destination回调时req.body还未解析，先使用默认路径
-            // 实际的provider会在文件上传完成后从req.body中获取
-            const uploadPath = path.join(process.cwd(), 'configs', 'temp');
-            await fs.mkdir(uploadPath, { recursive: true });
-            cb(null, uploadPath);
-        } catch (caught) {
-            cb(toError(caught));
-        }
-    },
-    filename: (_req: IncomingMessage, file: MulterFile, cb: (error: Error | null, filename?: string) => void): void => {
-        const timestamp = Date.now();
-        const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-        cb(null, `${timestamp}_${sanitizedName}`);
-    }
-});
-
-const fileFilter = (_req: IncomingMessage, file: MulterFile, cb: (error: Error | null, acceptFile?: boolean) => void): void => {
-    const allowedTypes = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowedTypes.includes(ext)) {
-        cb(null, true);
-    } else {
-        cb(new Error('Unsupported file type'), false);
-    }
-};
-
-export const upload = multer({
-    storage,
-    fileFilter,
-    limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB限制
-    }
-});
+const ALLOWED_UPLOAD_EXTS = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
+const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024; // 5MB 限制
 
 /**
- * 处理 OAuth 凭据文件上传
+ * 处理 OAuth 凭据文件上传 (基于 busboy 原生流式解析，零额外依赖)
  * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
  * @param {import('node:http').ServerResponse} res - HTTP 响应对象
  * @param {Object} [options] - 可选配置
  * @param {Object} [options.providerMap] - 提供商类型映射表
  * @param {string} [options.logPrefix] - 日志前缀
  * @param {string} [options.userInfo] - 用户信息（用于日志）
- * @param {Object} [options.customUpload] - 自定义 multer 实例
  * @returns {Promise<boolean>} 始终返回 true 表示请求已处理
  */
 export function handleUploadOAuthCredentials(
-    req: UploadRequest,
+    req: IncomingMessage,
     res: ServerResponse,
     options: {
         providerMap?: Record<string, string>;
         logPrefix?: string;
         userInfo?: string;
-        customUpload?: MulterInstance | null;
+        customUpload?: unknown;
     } = {}
 ): Promise<boolean> {
     const {
         providerMap = {},
         logPrefix = '[UI API]',
-        userInfo = '',
-        customUpload = null
+        userInfo = ''
     } = options;
 
-    const uploadMiddleware = customUpload ? customUpload.single('file') : upload.single('file');
-
     return new Promise<boolean>((resolve) => {
-        uploadMiddleware(req, res, async (err: unknown) => {
-            const uploadError = toError(err);
-            if (err) {
+        const contentType = req.headers['content-type'] || '';
+        if (!contentType.includes('multipart/form-data')) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: 'Content-Type must be multipart/form-data' } }));
+            resolve(true);
+            return;
+        }
+
+        let bb: ReturnType<typeof busboy>;
+        try {
+            bb = busboy({ headers: req.headers, limits: { fileSize: MAX_UPLOAD_FILE_SIZE } });
+        } catch (err) {
+            const error = toError(err);
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message || 'File upload failed' } }));
+            resolve(true);
+            return;
+        }
+
+        let tempFilePath: string | null = null;
+        let originalName: string | null = null;
+        let storedFilename: string | null = null;
+        let rawProvider: string | null = null;
+        let uploadError: Error | null = null;
+        let fileUploadPromise: Promise<void> | null = null;
+
+        bb.on('field', (name: string, value: string) => {
+            if (name === 'provider') {
+                rawProvider = value;
+            }
+        });
+
+        bb.on('file', (name: string, fileStream: NodeJS.ReadableStream, info: { filename: string }) => {
+            if (name !== 'file' || tempFilePath) {
+                fileStream.resume();
+                return;
+            }
+
+            originalName = info.filename;
+            const ext = path.extname(originalName).toLowerCase();
+            if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
+                uploadError = new Error('Unsupported file type');
+                fileStream.resume();
+                return;
+            }
+
+            const timestamp = Date.now();
+            const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+            storedFilename = `${timestamp}_${sanitizedName}`;
+            const uploadPath = path.join(process.cwd(), 'configs', 'temp');
+            const targetTempFile = path.join(uploadPath, storedFilename);
+            tempFilePath = targetTempFile;
+
+            fileUploadPromise = (async () => {
+                await fs.mkdir(uploadPath, { recursive: true });
+                const writeStream = createWriteStream(targetTempFile);
+                await pipeline(fileStream, writeStream);
+            })().catch((err) => {
+                uploadError = toError(err);
+            });
+        });
+
+        bb.on('error', (err: unknown) => {
+            uploadError = toError(err);
+        });
+
+        bb.on('close', async () => {
+            if (fileUploadPromise) {
+                await fileUploadPromise;
+            }
+
+            if (uploadError) {
                 logger.error(`${logPrefix} File upload error:`, uploadError.message);
+                if (tempFilePath && existsSync(tempFilePath)) {
+                    await fs.unlink(tempFilePath).catch(() => {});
+                }
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: uploadError.message || 'File upload failed'
-                    }
-                }));
+                res.end(JSON.stringify({ error: { message: uploadError.message || 'File upload failed' } }));
+                resolve(true);
+                return;
+            }
+
+            if (!tempFilePath || !originalName || !storedFilename) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'No file was uploaded' } }));
                 resolve(true);
                 return;
             }
 
             try {
-                if (!req.file) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        error: {
-                            message: 'No file was uploaded'
-                        }
-                    }));
-                    resolve(true);
-                    return;
-                }
-
-                // multer执行完成后，表单字段已解析到req.body中
-                const rawProvider = req.body?.provider;
                 const providerType = rawProvider === undefined || rawProvider === null || rawProvider === ''
                     ? 'common'
                     : rawProvider;
-                // 应用提供商映射（如果有）
                 const provider = typeof providerType === 'string'
                     ? (providerMap[providerType] || providerType)
                     : providerType;
-                const tempFilePath = req.file.path;
-                const storedFilename = req.file.filename;
 
-                // 校验 provider 名称安全，只允许字母、数字、下划线和连字符，防止目录遍历与特殊字符注入
                 if (typeof provider !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(provider)) {
                     throw new Error('Invalid provider format');
                 }
-                if (!tempFilePath || !storedFilename) {
-                    throw new Error('Uploaded file metadata is incomplete');
-                }
 
-                // 根据实际的provider移动文件到正确的目录
-                let targetDir = path.join(process.cwd(), 'configs', provider);
-
+                const targetDir = path.join(process.cwd(), 'configs', provider);
                 const targetFilePath = path.join(targetDir, storedFilename);
 
-                // 安全边界防御：计算绝对路径以防止路径穿越，确保目标文件严格存在于 configs 目录内
                 const allowedBaseDir = path.resolve(process.cwd(), 'configs');
                 const absoluteTargetFilePath = path.resolve(targetFilePath);
-
                 const relativeToConfigs = path.relative(allowedBaseDir, absoluteTargetFilePath);
                 const isInsideConfigs = !path.isAbsolute(relativeToConfigs) && !relativeToConfigs.startsWith('..') && relativeToConfigs !== '..';
 
@@ -302,7 +310,6 @@ export function handleUploadOAuthCredentials(
 
                 const relativePath = path.relative(process.cwd(), targetFilePath);
 
-                // 广播更新事件
                 broadcastEvent('config_update', {
                     action: 'add',
                     filePath: relativePath,
@@ -318,16 +325,15 @@ export function handleUploadOAuthCredentials(
                     success: true,
                     message: 'File uploaded successfully',
                     filePath: relativePath,
-                    originalName: req.file.originalname,
-                    provider: provider
+                    originalName,
+                    provider
                 }));
                 resolve(true);
-
-            } catch (caught) { const error = toError(caught);
+            } catch (caught) {
+                const error = toError(caught);
                 logger.error(`${logPrefix} File upload processing error:`, error);
-                // 发生错误时确保清理上传至 configs/temp 目录的临时文件，避免堆积
-                if (req.file && req.file.path && existsSync(req.file.path)) {
-                    await fs.unlink(req.file.path).catch(() => {});
+                if (tempFilePath && existsSync(tempFilePath)) {
+                    await fs.unlink(tempFilePath).catch(() => {});
                 }
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -338,5 +344,7 @@ export function handleUploadOAuthCredentials(
                 resolve(true);
             }
         });
+
+        req.pipe(bb);
     });
 }

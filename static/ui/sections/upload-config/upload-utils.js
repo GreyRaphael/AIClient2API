@@ -67,7 +67,6 @@ export function getConfigTypeIcon(type) {
         'api-key': 'fa-lock',
         'provider-pool': 'fa-network-wired',
         'system-prompt': 'fa-file-text',
-        plugins: 'fa-plug',
         usage: 'fa-chart-line',
         config: 'fa-cog',
         database: 'fa-database'

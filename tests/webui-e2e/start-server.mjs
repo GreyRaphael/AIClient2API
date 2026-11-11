@@ -2,9 +2,9 @@
 /**
  * 为 WebUI Playwright 测试启动一个隔离的网关实例。
  *
- * 服务读取 `process.cwd()` 下的 configs/、static/、src/plugins/，因此这里创建临时工作目录：
- *   - configs/ 为临时生成（config.json、plugins.json、pwd），不会触碰仓库里用户真实的配置；
- *   - static/、src/plugins/ 以符号链接指向仓库（测试的就是当前代码）；
+ * 服务读取 `process.cwd()` 下的 configs/、static/，因此这里创建临时工作目录：
+ *   - configs/ 为临时生成（config.json、pwd），不会触碰仓库里用户真实的配置；
+ *   - static/ 以符号链接指向仓库（测试的就是当前代码）；
  *   - 设置 AICLIENT_NO_AUTO_OPEN=1，避免服务启动时弹出系统浏览器。
  */
 import { spawn } from 'node:child_process';

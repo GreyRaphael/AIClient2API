@@ -122,8 +122,6 @@ export async function analyzeOAuthFile(
                 type = 'provider-pool';
             } else if (lowerFilename.includes('system_prompt') || lowerFilename.includes('system-prompt')) {
                 type = 'system-prompt';
-            } else if (lowerFilename === 'plugins.json') {
-                type = 'plugins';
             } else if (lowerFilename === 'usage-cache.json') {
                 type = 'usage';
             } else if (lowerFilename === 'config.json') {

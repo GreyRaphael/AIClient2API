@@ -19,6 +19,7 @@
 
 import http from 'http';
 import https from 'https';
+import { parseArgs as nodeParseArgs } from 'node:util';
 import { getErrorMessage } from '../utils/error.ts';
 
 interface TestConfig {
@@ -51,54 +52,26 @@ interface TestFailure {
 }
 // 解析命令行参数
 function parseArgs(): TestConfig {
-    const args = process.argv.slice(2);
-    const config = {
-        url: 'http://localhost:3000',
-        apiKey: '123456',
-        concurrency: 10,
-        totalRequests: 100,
-        rpm: 0,
-        endpoint: '/v1/chat/completions',
-        model: 'gpt-5.5',
-        stream: false,
-        timeout: 60000,
-        verbose: false
-    };
+    const { values } = nodeParseArgs({
+        args: process.argv.slice(2),
+        options: {
+            url: { type: 'string', default: 'http://localhost:3000' },
+            'api-key': { type: 'string', default: '123456' },
+            concurrency: { type: 'string', default: '10' },
+            requests: { type: 'string', default: '100' },
+            rpm: { type: 'string', default: '0' },
+            endpoint: { type: 'string', default: '/v1/chat/completions' },
+            model: { type: 'string', default: 'gpt-5.5' },
+            stream: { type: 'boolean', default: false },
+            timeout: { type: 'string', default: '60000' },
+            verbose: { type: 'boolean', default: false },
+            help: { type: 'boolean', default: false }
+        },
+        strict: false
+    });
 
-    for (let i = 0; i < args.length; i++) {
-        switch (args[i]) {
-            case '--url':
-                config.url = args[++i];
-                break;
-            case '--api-key':
-                config.apiKey = args[++i];
-                break;
-            case '--concurrency':
-                config.concurrency = parseInt(args[++i], 10);
-                break;
-            case '--requests':
-                config.totalRequests = parseInt(args[++i], 10);
-                break;
-            case '--rpm':
-                config.rpm = parseInt(args[++i], 10);
-                break;
-            case '--endpoint':
-                config.endpoint = args[++i];
-                break;
-            case '--model':
-                config.model = args[++i];
-                break;
-            case '--stream':
-                config.stream = true;
-                break;
-            case '--timeout':
-                config.timeout = parseInt(args[++i], 10);
-                break;
-            case '--verbose':
-                config.verbose = true;
-                break;
-            case '--help':
-                console.log(`
+    if (values.help) {
+        console.log(`
 并发测试脚本 - 测试 API 服务器性能
 
 使用方法:
@@ -115,12 +88,22 @@ function parseArgs(): TestConfig {
   --timeout <ms>        请求超时时间 (默认: 60000)
   --verbose             显示详细日志
   --help                显示帮助信息
-                `);
-                process.exit(0);
-        }
+        `);
+        process.exit(0);
     }
 
-    return config;
+    return {
+        url: values.url as string,
+        apiKey: values['api-key'] as string,
+        concurrency: parseInt(values.concurrency as string, 10),
+        totalRequests: parseInt(values.requests as string, 10),
+        rpm: parseInt(values.rpm as string, 10),
+        endpoint: values.endpoint as string,
+        model: values.model as string,
+        stream: Boolean(values.stream),
+        timeout: parseInt(values.timeout as string, 10),
+        verbose: Boolean(values.verbose)
+    };
 }
 
 // 统计数据

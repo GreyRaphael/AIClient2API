@@ -1,5 +1,5 @@
 import readline from 'readline';
-import { styleText } from 'node:util';
+import { styleText, parseArgs } from 'node:util';
 import { handleTraePATLogin, TRAE_AUTH_CONFIG } from '../auth/trae-auth.ts';
 import { initializeConfig } from '../core/config-manager.ts';
 import logger from '../utils/logger.ts';
@@ -25,24 +25,19 @@ async function performLoginAndDisplay({ token, host, customName }: { token: stri
 
 async function main() {
     await initializeConfig();
-    const args = process.argv.slice(2);
+    const { values } = parseArgs({
+        args: process.argv.slice(2),
+        options: {
+            token: { type: 'string' },
+            host: { type: 'string' },
+            name: { type: 'string' },
+            help: { type: 'boolean', short: 'h' }
+        },
+        strict: false
+    });
 
-    let token = process.env.TRAECLI_PERSONAL_ACCESS_TOKEN || '';
-    let host = process.env.TRAECLI_HOST || process.env.TRAE_HOST || TRAE_AUTH_CONFIG.defaultHost;
-    let customName = '';
-
-    for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--token' && args[i + 1]) {
-            token = args[i + 1];
-            i++;
-        } else if (args[i] === '--host' && args[i + 1]) {
-            host = args[i + 1];
-            i++;
-        } else if (args[i] === '--name' && args[i + 1]) {
-            customName = args[i + 1];
-            i++;
-        } else if (args[i] === '--help' || args[i] === '-h') {
-            console.log(`
+    if (values.help) {
+        console.log(`
 使用方法:
   node src/scripts/login-trae.js [选项]
   npm run login:trae -- [选项]
@@ -53,9 +48,12 @@ async function main() {
   --name <name>     自定义节点名称 (可选)
   -h, --help        显示帮助信息
 `);
-            process.exit(0);
-        }
+        process.exit(0);
     }
+
+    const token = (values.token as string | undefined) || process.env.TRAECLI_PERSONAL_ACCESS_TOKEN || '';
+    const host = (values.host as string | undefined) || process.env.TRAECLI_HOST || process.env.TRAE_HOST || TRAE_AUTH_CONFIG.defaultHost;
+    const customName = (values.name as string | undefined) || '';
 
     console.log('\n======================================================================');
     console.log('              Trae (企业版 / SOLO) 订阅转 API - 凭据录入');

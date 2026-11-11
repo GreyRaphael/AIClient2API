@@ -13,7 +13,6 @@
     "google-auth-library": "^10.1.0",
     "http-proxy-agent": "^7.0.2",
     "https-proxy-agent": "^7.0.6",
-    "multer": "^2.0.2",
     "open": "^10.2.0",
     "socks-proxy-agent": "^8.0.5"
   },
@@ -62,7 +61,7 @@
     "metrics:types": "node scripts/type-metrics.mjs",
     "metrics:strict": "node scripts/strict-metrics.mjs",
     "check:strict": "node scripts/strict-metrics.mjs --check",
-    "verify": "npm run typecheck && npm run typecheck:webui && npm run check:strict && npm run check:any && npm run check:imports && npm run check:cycles && npm run lint:css && npm run gen:webui-html:check && npm run vendor:webui:check && npm run test:coverage -- --runInBand && npm run check:coverage && npm run test:runtime",
+    "verify": "npm run typecheck && npm run typecheck:webui && npm run check:strict && npm run check:any && npm run check:imports && npm run check:cycles && npm run lint:css && npm run gen:webui-html:check && npm run vendor:webui:check && npm test -- --runInBand && npm run test:node && npm run test:runtime",
     "help": "node src/scripts/help.ts",
     "example:api": "node src/scripts/example-api.ts",
     "login:zed": "node src/scripts/login-zed.ts",

@@ -24,7 +24,7 @@ import * as eventBroadcast from '../ui-modules/event-broadcast.ts';
 import { HELP_DATA, API_GUIDE_DATA, API_EXAMPLES, formatHelpText, formatApiGuideText } from '../utils/docs-data.ts';
 
 // Re-export from event-broadcast module
-export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials, upload } from '../ui-modules/event-broadcast.ts';
+export { broadcastEvent, initializeUIManagement, handleUploadOAuthCredentials } from '../ui-modules/event-broadcast.ts';
 
 const getStaticRoot = (): string => path.join(process.cwd(), 'static');
 

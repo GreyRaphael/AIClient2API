@@ -227,7 +227,7 @@ export async function handleUnifiedResponse(res: ServerResponse, responsePayload
     }
 }
 
-function getPluginHookRequestId(config: DynamicPayload | null | undefined): string | null {
+function getMonitorRequestId(config: DynamicPayload | null | undefined): string | null {
     return config?._monitorRequestId || null;
 }
 
@@ -975,7 +975,7 @@ export async function handleStreamRequest(
                 : nativeChunk;
 
             // 监控钩子：流式响应分块
-            const hookRequestId = getPluginHookRequestId(CONFIG);
+            const hookRequestId = getMonitorRequestId(CONFIG);
             if (hookRequestId) {
                 // 核心用量记账（非插件）：同一 requestId 的多次 chunk 由 stats-manager 合并，
                 // 内部已 try/catch，记账异常不会影响流式主流程。
@@ -1478,7 +1478,7 @@ export async function handleUnaryRequest(
         }
 
         // 监控钩子：非流式响应
-        const hookRequestId = getPluginHookRequestId(CONFIG);
+        const hookRequestId = getMonitorRequestId(CONFIG);
         if (hookRequestId) {
             // 核心用量记账（非插件）：内部已 try/catch，失败不影响主流程
             recordUnaryUsage({
@@ -2097,7 +2097,7 @@ export async function handleContentGenerationRequest(
     // requestId 直接取 CONFIG._monitorRequestId（request-handler.ts 对每个请求设置）。
     // finalizeRequest 内部 try/catch。
     finalizeRequest({
-        requestId: getPluginHookRequestId(CONFIG),
+        requestId: getMonitorRequestId(CONFIG),
         model,
         provider: toProvider,
         fromProvider,
