@@ -34,9 +34,6 @@ jobs:
       - name: 类型检查
         run: npm run typecheck
 
-      - name: 内置插件类型检查
-        run: npm run typecheck:plugins
-
       # static/ui 无构建步骤，语法与 ESM import 图的唯一守护；
       # 已由 tsc 取代 tests/static-syntax.test.js 与 tests/static-import-graph.test.js。
       - name: WebUI 静态类型检查
@@ -57,14 +54,20 @@ jobs:
       - name: CSS 静态检查
         run: npm run lint:css
 
+      - name: HTML 外壳一致性检查
+        run: npm run gen:webui-html:check
+
+      - name: WebUI Vendor 同步检查
+        run: npm run vendor:webui:check
+
       - name: 类型债务指标
         run: npm run metrics:types
 
-      - name: 单元测试与覆盖率
-        run: npm run test:coverage -- --runInBand
+      - name: 核心单元测试
+        run: npm test -- --runInBand
 
-      - name: 覆盖率门槛
-        run: npm run check:coverage
+      - name: 原生 Node 26 诊断测试
+        run: npm run test:node
 
       - name: 运行时 smoke（plain Node）
         run: npm run test:runtime

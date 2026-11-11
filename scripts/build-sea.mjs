@@ -28,7 +28,7 @@ if (!existsSync(BIN_DIR)) {
 }
 
 // 读取当前版本
-let version = '8.8.1';
+let version = '8.9.0';
 try {
     const pkg = JSON.parse(readFileSync(join(ROOT_DIR, 'package.json'), 'utf8'));
     version = pkg.version || version;

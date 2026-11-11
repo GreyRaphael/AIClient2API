@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.0] - 2026-11-11
+
+### Node 26 Migration & Architecture Refactoring
+
+- **Node 26 全面重构（Phase 1 - Phase 4）**：
+  - 运行时引擎升级至 `engines: >=26.0.0`，启用原生编译缓存（`compileCache`）。
+  - 深度利用现代标准库语法：原生 `Date/Temporal`、`RegExp.escape`、`Array.fromAsync`、`Promise.try` 与现代控制流优化。
+  - 核心存储引擎全面切至 Node 原生 `node:sqlite`（`DatabaseSync`），实现毫秒级原子事务持久化。
+  - 流式转发接入背压监控机制与 `AbortSignal.any` 级联多路信号取消。
+  - 引入原生 `diagnostics_channel` 网络诊断套件，提供高精度首包时延与吞吐链路追踪。
+  - 引入 Node 26 原生 `node:test` 测试套件，新增 `npm run build:sea` 原生单文件应用打包能力。
+  - 彻底卸载 `multer` 依赖，重构 CLI 为标准 `node:util parseArgs`。
+  - 深度精简 4000+ 行死代码、无用配置与冗余一次性测试用例。
+
+### WebUI & Heatmap Experience
+
+- **模型用量日历热力图改版**：
+  - 升级为 GitHub 风格全自然年（52~53周）排布，支持按年度智能分页与切换，解除 3 个月限制。
+  - 格子高度充分利用卡片空间自适应拉伸并严格锁定 1:1 正方形（面积提升 3.3 倍以上）。
+  - 新增月份周列精准对齐刻度、周一/周三/周五星期标尺与 5 级色度图例。
+  - 全局声明 `color-scheme: dark;`，重构纤细透明横向滚动条，彻底移除亮色主题冗余。
+
 ### Changed
 
 - **`model-usage-stats` 从插件迁为核心功能，并搬进主菜单**（紧挨「实时日志」上方）。
