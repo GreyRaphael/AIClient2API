@@ -1,5 +1,4 @@
 node_modules
-coverage/
 logs/
 logs.txt
 .serena/
@@ -8,7 +7,6 @@ CLAUDE.md
 config.json
 provider_pools.json
 custom_models.json
-plugins.json
 fetch_system_prompt.txt
 input_system_prompt.txt
 token-store.json
@@ -29,7 +27,6 @@ ai-monitor.db
 api-potluck.db
 model-usage-stats.db
 AGENTS.md
-src/plugins-user/
 configs/pwd
 configs/.master_secret
 configs/antigravity/
@@ -38,11 +35,6 @@ configs/trae/
 
 /.codegraph/
 
-
 # Playwright
 test-results/
 playwright-report/
-
-# Build artifacts (SEA & bundles)
-dist/
-bin/

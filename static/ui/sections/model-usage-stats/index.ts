@@ -281,15 +281,16 @@ export default function ModelUsageStatsSection() {
                         </span>
                     </h3>
                     <div class="usage-stats-table-controls">
-                        <div class="usage-stats-segmented" role="tablist">
+                        <div class="usage-stats-segmented" role="group"
+                            aria-label=${t('usageStats.groupBy.label')}>
                             <button class=${`seg-btn ${isProviderView ? '' : 'active'}`} type="button"
-                                role="tab" aria-selected=${!isProviderView}
+                                aria-pressed=${!isProviderView}
                                 onClick=${() => setGroupBy('model')}>
                                 <i class="fas fa-cube" aria-hidden="true"></i>
                                 <span>${t('usageStats.groupBy.model')}</span>
                             </button>
                             <button class=${`seg-btn ${isProviderView ? 'active' : ''}`} type="button"
-                                role="tab" aria-selected=${isProviderView}
+                                aria-pressed=${isProviderView}
                                 onClick=${() => setGroupBy('provider')}>
                                 <i class="fas fa-sitemap" aria-hidden="true"></i>
                                 <span>${t('usageStats.groupBy.provider')}</span>

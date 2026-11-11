@@ -682,6 +682,7 @@ export default {
     'usageStats.summary.totalTokens': 'Total Tokens',
     'usageStats.summary.hitRate': 'Cache hit rate {rate}%',
     'usageStats.summary.updatedAt': 'Updated at {time}',
+    'usageStats.groupBy.label': 'Group by',
     'usageStats.groupBy.model': 'By Model',
     'usageStats.groupBy.provider': 'By Provider',
     'usageStats.table.titleAll': 'All-time breakdown',

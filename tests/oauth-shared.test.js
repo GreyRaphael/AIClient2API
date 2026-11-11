@@ -104,4 +104,15 @@ describe('shared OAuth helpers', () => {
         const fallback = new Date(computeTokenExpiryIso('garbage')).getTime();
         expect(fallback - now).toBeGreaterThan(3590 * 1000);
     });
+
+    // 回归：Temporal Duration 只接受整数，上游偶尔返回带小数的 expires_in。
+    // 未取整时 `add({seconds: 3600.5})` 会抛 RangeError: Expected finite integer。
+    test('computeTokenExpiryIso 容忍小数 expires_in', () => {
+        const now = Date.now();
+        for (const value of [3600.5, 3599.999, '3600.4']) {
+            const expiry = new Date(computeTokenExpiryIso(value)).getTime();
+            expect(expiry - now).toBeGreaterThan(3590 * 1000);
+            expect(expiry - now).toBeLessThan(3610 * 1000);
+        }
+    });
 });

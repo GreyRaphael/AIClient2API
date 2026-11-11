@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, afterAll, jest } from '@jest/globals';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -100,24 +100,4 @@ describe('usage-cache sqlite storage', () => {
         expect(zed.cachedAt).toBe('2026-11-11T09:00:00.000Z');
     });
 
-    test('平滑迁移旧版 usage-cache.json', async () => {
-        // 在 sandbox 准备 legacy usage-cache.json
-        const legacyData = {
-            timestamp: '2026-11-10T12:00:00.000Z',
-            providers: {
-                'gemini-legacy': { providerType: 'gemini-legacy', instances: [{ id: 'i1' }] }
-            }
-        };
-        writeFileSync(path.join(sandbox, 'usage-cache.json'), JSON.stringify(legacyData));
-
-        const usageCache = await import('../src/ui-modules/usage-cache.ts');
-        usageCache.setDatabaseDir(sandbox);
-
-        // 首次访问应自动迁移
-        const migrated = await usageCache.readProviderUsageCache('gemini-legacy');
-        expect(migrated).toBeDefined();
-        expect(migrated.providerType).toBe('gemini-legacy');
-        expect(migrated.instances[0].id).toBe('i1');
-        expect(migrated.cachedAt).toBe('2026-11-10T12:00:00.000Z');
-    });
 });

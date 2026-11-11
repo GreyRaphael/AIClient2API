@@ -109,16 +109,13 @@
     align-items: stretch;
 }
 
-#model-usage-stats .calendar-scroll-area {
-    flex: 1;
-    min-height: 0;
-}
-
+/* 日历在卡片里纵向撑满：列宽/行高由组件与 shared.css 的单一 grid 决定，
+   这里只负责「填满可用高度」。gap 必须沿用 shared.css 的 2px 设计尺度 ——
+   在这里覆盖会再次让月份刻度与日期格子失去同一套轨道。 */
 #model-usage-stats .calendar-grid {
     flex: 1;
     min-height: 140px;
-    grid-template-rows: repeat(7, minmax(0, 1fr));
-    gap: 3px;
+    grid-template-rows: auto repeat(7, minmax(0, 1fr));
 }
 
 #model-usage-stats .calendar-day {

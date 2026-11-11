@@ -12,7 +12,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import deepmerge from 'deepmerge';
 import { DatabaseSync } from 'node:sqlite';
 
 jest.mock('../src/utils/logger.ts', () => ({
@@ -295,10 +294,10 @@ describe('端到端鉴权与预扣回收', () => {
         expect(after.plan.tokenUsed).toBe(20000);
     });
 
-    test('authenticateApiKeyRequest 返回的数据可安全经受 deepmerge（无循环引用）', async () => {
+    test('authenticateApiKeyRequest 返回的数据是纯数据（无循环引用，可安全并入 config）', async () => {
         const km = await freshKeyManager();
         const { authenticateApiKeyRequest } = await import('../src/services/api-keys/reservation.ts');
-        const key = await km.createKey('deepmerge-safe', 999999);
+        const key = await km.createKey('merge-safe', 999999);
         await km.setKeyPlan(key.id, { packId: 'pack_100m', cycleId: 'week' });
 
         const res = createMockRes();
@@ -311,9 +310,11 @@ describe('端到端鉴权与预扣回收', () => {
         );
         expect(auth.authorized).toBe(true);
 
-        const config = { MODEL_PROVIDER: 'test' };
-        Object.assign(config, auth.data);
-        expect(() => deepmerge(config, { uuid: 'node-1' })).not.toThrow();
+        // 循环引用会让 JSON.stringify 抛 TypeError —— 用原生能力证明 acyclic，
+        // 不再依赖已卸载的 deepmerge 传递依赖来间接验证。
+        expect(() => JSON.stringify(auth.data)).not.toThrow();
+        expect(auth.data).not.toHaveProperty('socket');
+        expect(Object.values(auth.data)).not.toContain(res);
     });
 
     test('流式首帧缓冲后 502 失败全额退还预扣', async () => {

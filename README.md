@@ -231,7 +231,7 @@ The most recommended way to use AIClient2API is to start it through an automated
 #### 🐳 Docker Quick Start (Recommended)
 
 ```bash
-docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "your_path/configs:/app/configs" -v "your_path/plugins:/app/src/plugins-user" --name aiclient2api greyraphael/aiclient-2-api
+docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "your_path/configs:/app/configs" --name aiclient2api greyraphael/aiclient-2-api
 ```
 
 **Parameter Description**:
@@ -239,7 +239,6 @@ docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 
 - `-p 3000:3000 ...`: Port mapping. 3000 is for Web UI, others are for OAuth callbacks (Antigravity: 8086, Codex: 1455, Zed: 19876-19880)
 - `--restart=always`: Container auto-restart policy
 - `-v "your_path/configs:/app/configs"`: Mount configuration directory (replace "your_path" with actual path, e.g., `/home/user/aiclient2api`)
-- `-v "your_path/plugins:/app/src/plugins-user"`: Mount user plugins directory
 - `--name aiclient2api`: Container name
 
 #### 🐳 Docker Compose Deployment
@@ -324,28 +323,13 @@ If you are running directly on your local machine (via script or Node.js) and ne
 
 ### 🧩 WebUI Development (No Build)
 
-The management console and plugin pages are native ES modules under `static/ui/` (Preact 11 + htm + signals). There is no Vite/Webpack/JSX build step.
+The management console is native ES modules under `static/ui/` (Preact 11 + htm + signals). There is no Vite/Webpack/JSX build step.
 
 - Third-party runtime files are committed under `static/vendor/`; sync with `npm run vendor:webui` and verify with `npm run vendor:webui:check`.
 - Font Awesome is shipped as a generated subset: run `npm run vendor:fa` after adding/removing icons (icon class names must appear as complete literals, e.g. `fa-server`, so the scanner can find them).
 - Type-check the frontend with `npm run typecheck:webui`.
 - Run the isolated Playwright suite with `npm run test:webui:e2e` (temporary config/data directory, separate port).
 - Do not edit `static/vendor/` by hand; update the dependency and re-run the sync scripts.
-
-### ⚠️ Plugin Permissions
-
-Custom plugins (`src/plugins-user/`) run **in the host process, with host privileges**. There is
-**no runtime sandbox**: the previous monkey-patch-based "sandbox" only intercepted module-level
-entry points (`net.connect`, `vm.runInThisContext`, …), while `net.Socket.prototype.connect` and
-`vm.compileFunction` were always reachable — giving operators a false sense of isolation.
-
-The security boundary is now the **install-time static scan**: `DANGEROUS_PLUGIN_PATTERNS` rejects
-code containing `child_process`, `spawn/exec`, embedded SSH private keys, known reverse-tunnel
-markers and known-malicious plugin signatures; archive extraction is validated for path escape and
-private-network SSRF. This only catches **known** patterns.
-
-**Install only plugins from sources you trust.** For untrusted plugins, run them in a separate
-process or container.
 
 ### 📋 Core Features
 
@@ -362,6 +346,10 @@ A functional Web management interface, including:
 **🔗 Provider Pools**: Monitor active connections, provider health statistics, enable/disable management
 
 **📁 Config Files**: Centralized OAuth credential management, supporting search filtering and file operations
+
+**🔑 API Keys**: Token management built into the gateway core. Issue, disable, regenerate and delete keys; assign commercial token packs (1 / 2 / 5 / 10 billion tokens) with weekly or calendar-month billing cycles; enforce per-day token ceilings with reserve-then-settle accounting. Backed by `node:sqlite`.
+
+**📈 Model Usage Stats**: Per-request token accounting recorded directly in the request pipeline — no plugin required. GitHub-style full-year heatmap with year paging, plus per-model / per-provider breakdown, search and cache-hit pills.
 
 **📜 Real-time Logs**: Real-time display of system and request logs, with management controls
 

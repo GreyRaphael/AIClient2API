@@ -2,6 +2,7 @@ export { MODEL_PROTOCOL_PREFIX, MODEL_PROVIDER } from './constants.ts';
 import { DEFAULT_REQUEST_BODY_MAX_BYTES } from './protocol.ts';
 export { getProtocolPrefix, ENDPOINT_TYPE, DEFAULT_REQUEST_BODY_MAX_BYTES } from './protocol.ts';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
+import { timingSafeEqual } from 'node:crypto';
 import logger from './logger.ts';
 import { getErrorMessage } from './error.ts';
 
@@ -576,6 +577,28 @@ export function getRequestBody(
 
 
 /**
+ * 恒定时间比较候选密钥与期望密钥。
+ *
+ * 安全要求（缺一不可）：
+ * - 期望密钥为空（未配置）时一律拒绝：否则「空候选密钥」会匹配「空期望密钥」，
+ *   等于把网关对所有人开放。
+ * - 候选密钥为空时直接拒绝，避免 `Bearer ` + 空白字符这类空值输入命中。
+ * - 长度不等必须先返回 false：`crypto.timingSafeEqual` 长度不等会抛 RangeError。
+ * - 真正的比较用 `timingSafeEqual`，避免按字符提前返回的时序侧信道。
+ *
+ * @param candidate 请求携带的候选凭据
+ * @param expected 配置的期望凭据
+ * @returns {boolean} 是否匹配
+ */
+function matchesSecret(candidate: string | null, expected: string | null): boolean {
+    if (!expected || !candidate) return false;
+    const actual = Buffer.from(candidate, 'utf8');
+    const wanted = Buffer.from(expected, 'utf8');
+    if (actual.length !== wanted.length) return false; // 绝不让 timingSafeEqual 抛 RangeError
+    return timingSafeEqual(actual, wanted);
+}
+
+/**
  * Checks if the request is authorized based on API key.
  * @param {import('node:http').IncomingMessage} req - The HTTP request object.
  * @param {URL} requestUrl - The parsed URL object.
@@ -583,31 +606,34 @@ export function getRequestBody(
  * @returns {boolean} True if authorized, false otherwise.
  */
 export function isAuthorized(req: http.IncomingMessage, requestUrl: URL, REQUIRED_API_KEY: string): boolean {
+    // 未配置期望密钥时拒绝一切请求，绝不退化成「空密码」
+    if (!REQUIRED_API_KEY) return false;
+
     const authHeader = getHeaderValue(req.headers, 'authorization');
     const queryKey = requestUrl.searchParams.get('key');
     const googApiKey = getHeaderValue(req.headers, 'x-goog-api-key');
     const claudeApiKey = getHeaderValue(req.headers, 'x-api-key'); // Claude-specific header
 
     // Check for Bearer token in Authorization header (OpenAI style)
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        if (token === REQUIRED_API_KEY) {
+    if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.substring(7).trim();
+        if (matchesSecret(token, REQUIRED_API_KEY)) {
             return true;
         }
     }
 
     // Check for API key in URL query parameter (Gemini style)
-    if (queryKey === REQUIRED_API_KEY) {
+    if (matchesSecret(queryKey, REQUIRED_API_KEY)) {
         return true;
     }
 
     // Check for API key in x-goog-api-key header (Gemini style)
-    if (googApiKey === REQUIRED_API_KEY) {
+    if (matchesSecret(googApiKey, REQUIRED_API_KEY)) {
         return true;
     }
 
     // Check for API key in x-api-key header (Claude style)
-    if (claudeApiKey === REQUIRED_API_KEY) {
+    if (matchesSecret(claudeApiKey, REQUIRED_API_KEY)) {
         return true;
     }
 

@@ -201,13 +201,7 @@ export function buildSummaryItems(
 }
 
 /** 北京时间当天（与后端 dateKey 口径一致），供「今日」默认范围使用 */
-export function todayKey(): string {
-    const temporal = (globalThis as { Temporal?: { Now: { plainDateISO(tz: string): { toString(): string } } } }).Temporal;
-    if (temporal) {
-        return temporal.Now.plainDateISO('Asia/Shanghai').toString();
-    }
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
-}
+export { shanghaiTodayKey as todayKey } from '../../lib/stats.js';
 
 /** 日历数据转成 StatsCalendar 需要的 usageHistory 形状 */
 export function toUsageHistory(calendar: CalendarDay[] | null | undefined): Record<string, CalendarDay> {

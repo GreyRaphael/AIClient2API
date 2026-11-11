@@ -174,7 +174,7 @@ function PotluckUserPage() {
 
                 ${showUsageStats ? html`
                     <div style="margin-bottom: 2.5rem;">
-                        <h3 class="section-title"><i class="fas fa-chart-pie"></i> 我的使用趋势与分布 (最近 3 个月)</h3>
+                        <h3 class="section-title"><i class="fas fa-chart-pie"></i> 我的使用趋势与分布 (按年度)</h3>
                         <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
                             <div class="stat-card" style="text-align: left; padding: 20px;">
                                 <div class="label" style="margin-bottom: 10px; font-weight: 600; display: flex; justify-content: space-between;">

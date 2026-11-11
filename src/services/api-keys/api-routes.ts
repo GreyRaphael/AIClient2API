@@ -1,9 +1,9 @@
 /**
  * 令牌管理 (API Keys) - 管理与用户端 HTTP 路由
  *
- * 路由支持：
- * - 核心网关标准路径：/api/keys/* 与 /api/keyuser/*
- * - 向后兼容路径：/api/potluck/* 与 /api/potluckuser/*
+ * 路由：
+ * - 管理端：/api/keys/*
+ * - 用户端自助：/api/keyuser/* 与 /api/potluckuser/*（potluck-user 独立页使用后者）
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -188,7 +188,7 @@ export async function handleApiKeyUserRoutes(
 }
 
 /**
- * 处理管理员管理 API 路由 (/api/keys/* 或 /api/potluck/*)
+ * 处理管理员管理 API 路由 (/api/keys/*)
  */
 export async function handleApiKeyManagementRoutes(
     method: string,
@@ -196,15 +196,11 @@ export async function handleApiKeyManagementRoutes(
     req: IncomingMessage,
     res: ServerResponse
 ): Promise<boolean> {
-    const isKeysApi = path.startsWith('/api/keys');
-    const isLegacyPotluck = path.startsWith('/api/potluck');
-
-    if (!isKeysApi && !isLegacyPotluck) {
+    if (!path.startsWith('/api/keys')) {
         return false;
     }
 
-    // 归一化路径：把 /api/potluck 视同 /api/keys
-    const normalizedPath = isLegacyPotluck ? path.replace('/api/potluck', '/api/keys') : path;
+    const normalizedPath = path;
 
     logger.info('[API Keys Routes] Handling request:', method, path);
 

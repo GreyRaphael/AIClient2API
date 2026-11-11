@@ -109,6 +109,29 @@ describe('authenticateGatewayRequest: 核心网关鉴权', () => {
         expect(result).toEqual({ handled: false, authorized: false });
     });
 
+    // 回归：期望密钥缺失/为空时，空的候选凭据不得匹配「空密码」。
+    // 曾经 `String(rawKey ?? '')` 把「未配置」退化成「空字符串」，
+    // 而 `===` 让空候选凭据通过，等于整个网关无鉴权。
+    test.each([
+        ['字段完全缺失', {}],
+        ['值为 null', { REQUIRED_API_KEY: null }],
+        ['值为空字符串', { REQUIRED_API_KEY: '' }]
+    ])('期望密钥%s时空候选凭据被拒绝', async (_label, emptyConfig) => {
+        const url = new URL('http://localhost:3000/v1/chat/completions?key=');
+        for (const headers of [
+            {},                                        // ?key= 空值
+            { authorization: 'Bearer ' },              // Bearer + 空格
+            { authorization: 'Bearer    ' },           // Bearer + 多个空格
+            { 'x-api-key': '' },                       // Claude 风格空值
+            { 'x-goog-api-key': '' }                   // Gemini 风格空值
+        ]) {
+            const result = await authenticateGatewayRequest(
+                createMockReq(headers), createMockRes(), url, { ...emptyConfig }
+            );
+            expect(result).toEqual({ handled: false, authorized: false });
+        }
+    });
+
     test('托管 API Key (maki_...) 认证成功放行并挂载元数据', async () => {
         const key = await createKey('test-client', 100);
         const req = createMockReq({ authorization: `Bearer ${key.id}` });

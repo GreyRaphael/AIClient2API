@@ -57,7 +57,6 @@ interface RequestTimingState {
     tcpTime?: number;
     tlsTime?: number;
     ttfbTime?: number;
-    duration?: number;
     host: string;
     method: string;
     status?: number;
@@ -96,7 +95,12 @@ class NetworkDiagnosticsManager {
     private recentSamples: NetworkDiagnosticsSample[] = [];
     private activeStates = new WeakMap<ClientRequest, RequestTimingState>();
 
-    private onClientRequestStart = (message: unknown) => {
+    /**
+     * 请求计时统一挂在 `http.client.request.created`：该事件在 socket 赋值**之前**发布，
+     * `request.once('socket')` 监听器因此还能收到 socket。挂到 `http.client.request.start`
+     * 上时 socket 早已赋值，`once('socket')` 永不触发，DNS/TCP/TLS 恒为 0。
+     */
+    private onClientRequestCreated = (message: unknown) => {
         if (!this.enabled || !message || typeof message !== 'object') return;
         const request = (message as { request?: ClientRequest }).request;
         if (!request) return;
@@ -106,17 +110,18 @@ class NetworkDiagnosticsManager {
 
         const startTime = performance.now();
         const hostHeader = request.getHeader?.('host');
-        const host = String(hostHeader || request.host || 'unknown');
-        const method = request.method || 'GET';
-
         const state: RequestTimingState = {
             startTime,
-            host,
-            method
+            host: String(hostHeader || request.host || 'unknown'),
+            method: request.method || 'GET'
         };
         this.activeStates.set(request, state);
 
         request.once('socket', (socket: Socket | TLSSocket) => {
+            // 复用 keep-alive socket 时不发生 DNS/握手，没有任何可观测耗时：
+            // 直接不采样（而不是记一条 0ms 污染均值），因此分母只统计真正握手的连接。
+            if (!socket.connecting) return;
+
             socket.once('lookup', () => {
                 state.dnsTime = Number((performance.now() - startTime).toFixed(2));
                 this.totalDnsSum += state.dnsTime;
@@ -170,7 +175,6 @@ class NetworkDiagnosticsManager {
         if (!state) return;
 
         const duration = Number((performance.now() - state.startTime).toFixed(2));
-        state.duration = duration;
         state.status = response?.statusCode || state.status || 200;
 
         this.totalDurationSum += duration;
@@ -222,7 +226,7 @@ class NetworkDiagnosticsManager {
         if (this.enabled) return;
         this.enabled = true;
         try {
-            subscribe('http.client.request.start', this.onClientRequestStart);
+            subscribe('http.client.request.created', this.onClientRequestCreated);
             subscribe('http.client.response.finish', this.onClientResponseFinish);
         } catch {
             // 安全回退，避免在不支持的环境中阻塞
@@ -233,7 +237,7 @@ class NetworkDiagnosticsManager {
         if (!this.enabled) return;
         this.enabled = false;
         try {
-            unsubscribe('http.client.request.start', this.onClientRequestStart);
+            unsubscribe('http.client.request.created', this.onClientRequestCreated);
             unsubscribe('http.client.response.finish', this.onClientResponseFinish);
         } catch {}
     }

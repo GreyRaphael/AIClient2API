@@ -91,3 +91,57 @@ describe('isSoloFamilyProviderType 是唯一判定真源', () => {
         }
     });
 });
+
+describe('TraeApiService 消费端也走真源（此前只测纯函数，漏掉了真正的调用方）', () => {
+    const { mkdtempSync, writeFileSync, rmSync } = jest.requireActual('node:fs');
+    const { tmpdir } = jest.requireActual('node:os');
+    const path = jest.requireActual('node:path');
+    let sandbox;
+
+    beforeEach(() => {
+        sandbox = mkdtempSync(path.join(tmpdir(), 'trae-hosts-'));
+    });
+
+    afterEach(() => {
+        rmSync(sandbox, { recursive: true, force: true });
+    });
+
+    test('chat_v3 的换票走认证中心，推理走个人版网关', () => {
+        const { TraeApiService } = jest.requireActual('../src/providers/trae/trae-core.ts');
+        const service = new TraeApiService({ uuid: 'u1', TRAE_CHANNEL_MODE: 'chat_v3' });
+
+        expect(service.authHost).toBe(TRAE_AUTH_CENTER_HOST);
+        expect(service.getChannelConfig().url.startsWith(TRAE_SOLO_AGENT_HOST)).toBe(true);
+    });
+
+    test('tob_raw_chat 的换票与推理同域', () => {
+        const { TraeApiService } = jest.requireActual('../src/providers/trae/trae-core.ts');
+        const service = new TraeApiService({ uuid: 'u2' });
+
+        expect(service.authHost).toBe(TRAE_AUTH_CENTER_HOST);
+        expect(service.getChannelConfig().url.startsWith(TRAE_AUTH_CENTER_HOST)).toBe(true);
+    });
+
+    /**
+     * v8.8.0 的 chat_v3 凭据文件里 auth_host 存的就是个人版推理域名，
+     * 读取时必须归一化，否则换票继续 404 且会被重新写回文件。
+     */
+    test('凭据文件里残留推理网关作为 auth_host 时归一化到认证中心', () => {
+        const { TraeApiService } = jest.requireActual('../src/providers/trae/trae-core.ts');
+        const credsPath = path.join(sandbox, 'creds.json');
+        writeFileSync(credsPath, JSON.stringify({
+            auth_host: TRAE_SOLO_AGENT_HOST,
+            agent_host: TRAE_SOLO_AGENT_HOST,
+            access_token: 'token'
+        }));
+
+        const service = new TraeApiService({
+            uuid: 'u3',
+            TRAE_CHANNEL_MODE: 'chat_v3',
+            TRAE_OAUTH_CREDS_FILE_PATH: credsPath
+        });
+
+        expect(service.authHost).toBe(TRAE_AUTH_CENTER_HOST);
+        expect(service.agentHost).toBe(TRAE_SOLO_AGENT_HOST);
+    });
+});

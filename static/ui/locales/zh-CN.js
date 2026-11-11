@@ -682,6 +682,7 @@ export default {
     'usageStats.summary.totalTokens': '总 Token',
     'usageStats.summary.hitRate': '缓存命中率 {rate}%',
     'usageStats.summary.updatedAt': '更新于 {time}',
+    'usageStats.groupBy.label': '分组维度',
     'usageStats.groupBy.model': '按模型',
     'usageStats.groupBy.provider': '按 Provider',
     'usageStats.table.titleAll': '历史累计明细',

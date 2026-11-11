@@ -3,7 +3,7 @@
  *
  * 统一整合至主控制台：
  * 1. 全局用量指标卡片与 QPS/RPM/TPS 实时监控
- * 2. 3 个月 Token 用量热力图日历与 Provider/Model 分布
+ * 2. 年度 Token 用量热力图日历与 Provider/Model 分布
  * 3. 密钥管理列表：搜索、排序、限额修改、名称修改、状态切换、重置、重新生成、删除
  * 4. 商业化套餐管理：设置套餐、续期套餐、解除套餐、每日 Token 上限控制
  */
@@ -573,7 +573,7 @@ export default function ApiKeysSection() {
                 <div class="analytics-row">
                     <div class="analytics-card">
                         <div class="card-head">
-                            <span class="card-title"><i class="fas fa-calendar-alt"></i> Token 用量日历 (最近 3 个月)</span>
+                            <span class="card-title"><i class="fas fa-calendar-alt"></i> Token 用量日历 (按年度)</span>
                             <div class="calendar-legend">
                                 <div class="level level-1"></div>
                                 <div class="level level-4"></div>

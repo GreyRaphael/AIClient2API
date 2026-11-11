@@ -900,9 +900,6 @@ test.describe('standalone pages', () => {
     });
 });
 
-});
-
-
 test.describe('mobile header', () => {
     test('390px 下汉堡菜单可开合，展开后各控件可见', async ({ authedPage: page, problems }) => {
         await page.setViewportSize({ width: 390, height: 844 });

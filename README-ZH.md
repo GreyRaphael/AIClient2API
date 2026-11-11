@@ -230,7 +230,7 @@
 #### 🐳 Docker 快捷启动 (推荐)
 
 ```bash
-docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "指定路径/configs:/app/configs" -v "指定路径/plugins:/app/src/plugins-user" --name aiclient2api greyraphael/aiclient-2-api
+docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 --restart=always -v "指定路径/configs:/app/configs" --name aiclient2api greyraphael/aiclient-2-api
 ```
 
 **参数说明**：
@@ -238,7 +238,6 @@ docker run -d -p 3000:3000 -p 8086:8086 -p 1455:1455 -p 19876-19880:19876-19880 
 - `-p 3000:3000 ...`：端口映射。3000 为 Web UI，其余为 OAuth 回调端口（Antigravity: 8086, Codex: 1455, Zed: 19876-19880）
 - `--restart=always`：容器自动重启策略
 - `-v "指定路径/configs:/app/configs"`：挂载配置目录（请将"指定路径"替换为实际路径，如 `/home/user/aiclient2api`）
-- `-v "指定路径/plugins:/app/src/plugins-user"`：挂载用户插件目录
 - `--name aiclient2api`：容器名称
 
 #### 🐳 Docker Compose 部署
@@ -323,25 +322,13 @@ docker compose up -d
 
 ### 🧩 WebUI 开发约定（免构建）
 
-管理控制台与插件独立页均为 `static/ui/` 下的原生 ES Module（Preact 11 + htm + signals），没有 Vite/Webpack/JSX 构建步骤。
+管理控制台为 `static/ui/` 下的原生 ES Module（Preact 11 + htm + signals），没有 Vite/Webpack/JSX 构建步骤。
 
 - 第三方运行时文件入库在 `static/vendor/`：`npm run vendor:webui` 同步，`npm run vendor:webui:check` 校验。
 - Font Awesome 使用生成子集：新增/删除图标后运行 `npm run vendor:fa`；图标类名必须以完整字面量出现（如 `fa-server`），否则扫描不到。
 - 前端类型检查：`npm run typecheck:webui`。
 - 隔离 E2E：`npm run test:webui:e2e`（临时配置目录 + 独立端口，不影响真实配置）。
 - 不要手工修改 `static/vendor/`；升级依赖后重新执行同步脚本。
-
-### ⚠️ 插件权限说明
-
-自定义插件（`src/plugins-user/`）与主进程**同进程、同权限**运行。宿主**不再提供运行时沙箱**：
-之前的 monkey-patch 式"沙箱"只能拦截模块级入口（`net.connect`、`vm.runInThisContext` 等），
-而 `net.Socket.prototype.connect`、`vm.compileFunction` 等路径一直可绕过，却让运维误以为插件已被隔离。
-
-因此现在的安全边界是 **安装期静态扫描**：`DANGEROUS_PLUGIN_PATTERNS` 会拒绝含
-`child_process`、`spawn/exec`、内嵌 SSH 私钥、已知反向隧道特征，以及已知恶意插件标记的代码；
-插件包解压也会做路径逃逸校验与私网 SSRF 拦截。但这**只能挡住已知模式**。
-
-**请只安装你信任来源的插件。** 需要隔离不可信插件时，请改为在独立进程/容器中运行。
 
 ### 📋 核心功能
 
@@ -358,6 +345,10 @@ docker compose up -d
 **🔗 提供商池**：监控活动连接、提供商健康统计、启用/禁用管理
 
 **📁 配置文件**：OAuth 凭据集中管理，支持搜索过滤和文件操作
+
+**🔑 令牌管理**：内建于网关核心的 Token 管理体系。签发、停用、重置、重新生成与删除密钥；可分配商业化套餐（1 / 2 / 5 / 10 亿 Token）并按一周或自然月计费周期续期；支持每日 Token 上限与预扣—结算记账。底层为 `node:sqlite`。
+
+**📈 模型用量统计**：在请求流水线内直接记账，无需任何插件。GitHub 风格全年热力图（支持年度翻页），并提供按模型 / 按 Provider 的明细、搜索与缓存命中率药丸。
 
 **📜 实时日志**：系统日志和请求日志实时显示，带管理控制
 

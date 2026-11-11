@@ -18,6 +18,8 @@ import {
     TRAE_CHANNEL_MODES,
     TRAE_CHANNEL_PRESETS,
     resolveTraeChannelMode,
+    resolveTraeAuthHost,
+    resolveTraeInferenceBaseUrl,
     isSoloFamilyChannel,
     resolveAliasTableKind
 } from './trae-channel.ts';
@@ -1229,7 +1231,6 @@ export class TraeApiService {
     credsFilePath: string | undefined;
     authHost: string;
     agentHost: string;
-    host: string;
     channelMode: string;
     _aliasKind: string;
     userId: string | null;
@@ -1249,11 +1250,8 @@ export class TraeApiService {
         this.config = config || {};
         this.uuid = this.config.uuid;
         this.credsFilePath = this.config.TRAE_OAUTH_CREDS_FILE_PATH || process.env.TRAE_OAUTH_CREDS_FILE_PATH;
-        this.authHost = (this.config.TRAE_AUTH_HOST || this.config.TRAE_HOST || this.config.TRAE_BASE_URL || TRAE_AUTH_CONFIG.defaultHost).replace(/\/+$/, '');
-        this.agentHost = (this.config.TRAE_AGENT_HOST || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
-        this.host = this.authHost;
-
-        // 解析通道模式：判定逻辑统一收编至 trae-channel.js 的 resolveTraeChannelMode
+        // 通道模式必须先于 host 解析确定：chat_v3（个人版）的推理网关与认证中心不同域，
+        // 而 resolveTraeAuthHost / resolveTraeInferenceBaseUrl 需要 providerType 才能正确分流。
         this.channelMode = resolveTraeChannelMode({
             configuredMode: this.config.TRAE_CHANNEL_MODE || process.env.TRAE_CHANNEL_MODE,
             providerType: this.config.MODEL_PROVIDER,
@@ -1262,6 +1260,16 @@ export class TraeApiService {
         if (!this.config.MODEL_PROVIDER) {
             this.config.MODEL_PROVIDER = this.channelMode === TRAE_CHANNEL_MODES.CHAT_V3 ? MODEL_PROVIDER.TRAE_CHAT_V3 : MODEL_PROVIDER.TRAE;
         }
+        // 认证中心与推理网关一律经单一真源解析：认证（ExchangeToken/取用户信息）
+        // 只认 TRAE_AUTH_CENTER_HOST，个人版推理只认 TRAE_SOLO_AGENT_HOST。
+        // 配置里的 TRAE_BASE_URL / TRAE_HOST 对 chat_v3 是推理地址，绝不能拿来当 authHost。
+        this.authHost = resolveTraeAuthHost(
+            this.config.TRAE_AUTH_HOST || this.config.TRAE_HOST || TRAE_AUTH_CONFIG.defaultHost
+        );
+        this.agentHost = resolveTraeInferenceBaseUrl(
+            this.config.MODEL_PROVIDER,
+            this.config.TRAE_AGENT_HOST || this.config.TRAE_BASE_URL
+        );
         // 别名表种类在构造后不再变化（channelMode 与 config 均固定），解析一次缓存，
         // 避免 normalizeModelName 每次调用都重建一遍 channel config
         this._aliasKind = resolveAliasTableKind(this.channelMode, () => this.getChannelConfig()?.function);
@@ -1465,9 +1473,15 @@ export class TraeApiService {
             this.userId = String(data.user_id || data.userId || '');
             this.enterpriseId = String(data.enterprise_id || data.enterpriseId || '');
             this.nickname = String(data.nickname || 'user');
-            this.authHost = (data.auth_host || data.authHost || data.host || this.authHost).replace(/\/+$/, '');
-            this.host = this.authHost;
-            this.agentHost = (data.agent_host || data.agentHost || this.config.TRAE_AGENT_HOST || this.agentHost || 'https://trae-api-cn.mchost.guru').replace(/\/+$/, '');
+            // 凭据文件里的 host 字段历史上可能写入推理网关地址（v8.8.0 的 chat_v3 默认值），
+            // 换票只认认证中心，必须过真源归一化，否则会拿到 404。
+            this.authHost = resolveTraeAuthHost(
+                data.auth_host || data.authHost || data.host || this.authHost
+            );
+            const storedAgentHost = data.agent_host || data.agentHost || this.config.TRAE_AGENT_HOST;
+            if (storedAgentHost) {
+                this.agentHost = resolveTraeInferenceBaseUrl(this.config.MODEL_PROVIDER, storedAgentHost);
+            }
             this.accessToken = data.access_token || data.accessToken || null;
             this.refreshToken = data.refresh_token || data.refreshToken || null;
             this.personalAccessToken = data.personal_access_token || data.personalAccessToken || null;

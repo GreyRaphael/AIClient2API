@@ -129,7 +129,12 @@ describe('模型用量统计 section：SSR 结构', () => {
     });
 
     test('明细表格：分组切换、搜索与排序控件都在', () => {
-        expect(markup).toContain('role="tablist"');
+        // 分段控件不是 tab 面板切换（没有 aria-controls / tabpanel / roving tabindex），
+        // 所以用 role=group + aria-pressed，而不是只挂半套 ARIA tab 模式。
+        expect(markup).toContain('role="group" aria-label="分组维度"');
+        expect(markup).toContain('aria-pressed="true"');
+        expect(markup).toContain('aria-pressed="false"');
+        expect(markup).not.toContain('role="tablist"');
         expect(markup).toContain('按模型');
         expect(markup).toContain('按 Provider');
         expect(markup).toContain('usage-stats-search');
@@ -200,6 +205,24 @@ describe('日历热力图：方块形状与绿色深浅（迁移回归护栏）'
         }
         expect(shared).toContain('.calendar-grid');
         expect(shared).toContain('.calendar-day');
+    });
+
+    test('月份刻度与日期格子共用一个 grid（拆成两个会漂到 +127px）', () => {
+        // 独立的 .calendar-months 容器已不存在：月份标签是同一个 grid 的第一行，
+        // 列宽由 --calendar-weeks 单一来源决定，两者不可能再分叉。
+        expect(shared).not.toContain('.calendar-months');
+        const gridBlock = rule(shared, '.calendar-grid');
+        expect(gridBlock).toContain('grid-template-columns: repeat(var(--calendar-weeks)');
+        expect(gridBlock).toContain('gap: 2px');
+
+        // section 那侧只允许「撑满高度」，不允许再覆盖 gap / 列定义，
+        // 否则 3px 那样的覆盖会让月份轨道与日期轨道重新错开。
+        const section = readFileSync(
+            path.join(process.cwd(), 'static/ui/styles/components/section-model-usage-stats.css'), 'utf8'
+        );
+        const sectionGrid = rule(section, '#model-usage-stats .calendar-grid');
+        expect(sectionGrid).not.toContain('gap:');
+        expect(sectionGrid).not.toContain('grid-template-columns');
     });
 });
 

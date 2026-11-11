@@ -166,10 +166,14 @@ export function decodeJwtPayload(token: unknown): Record<string, unknown> | null
  * 由 token 的 `expires_in`（秒）计算绝对过期时间 ISO 字符串。
  * 使用 Node 26 原生 Temporal API 进行 Duration 增加。
  * 缺省按 3600 秒处理，与各 provider 的既有行为一致。
+ *
+ * 注意：Temporal 的 Duration 只接受整数，而上游偶尔返回带小数的 `expires_in`
+ * （如 3600.5）。必须先取整，否则 `add()` 会抛
+ * `RangeError: Temporal error: Expected finite integer`。
  */
 export function computeTokenExpiryIso(expiresIn: unknown, fallbackSeconds = 3600): string {
     const seconds = Number(expiresIn);
-    const effective = Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds;
+    const effective = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : fallbackSeconds;
     return Temporal.Now.instant().add({ seconds: effective }).toString({ fractionalSecondDigits: 3 });
 }
 

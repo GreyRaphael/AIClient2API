@@ -51,15 +51,18 @@ export async function authenticateGatewayRequest(
         return { handled: false, authorized: true };
     }
 
-    // 2. 未使用托管 Key 时，由核心网关默认 API Key 鉴权兜底
-    const rawKey = config.REQUIRED_API_KEY;
-    const requiredApiKey = typeof rawKey === 'string'
-        ? rawKey
-        : String(rawKey ?? '');
+    // 2. 未使用托管 Key 时，由核心网关默认 API Key 鉴权兜底。
+    //    期望密钥缺失或为空时直接拒绝：绝不能把「未配置」退化成「空密码」，
+    //    否则空候选凭据（`?key=`、`Bearer `、空 x-api-key）会通过校验。
+    const requiredApiKey = typeof config.REQUIRED_API_KEY === 'string'
+        ? config.REQUIRED_API_KEY
+        : '';
+    if (!requiredApiKey) {
+        return { handled: false, authorized: false };
+    }
 
-    const authorized = isAuthorized(req, requestUrl, requiredApiKey);
     return {
         handled: false,
-        authorized
+        authorized: isAuthorized(req, requestUrl, requiredApiKey)
     };
 }

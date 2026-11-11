@@ -1,5 +1,31 @@
 /** 统计页共享纯函数（potluck / potluck-user / 主菜单的模型用量统计）。 */
 
+const DAY_MS = 24 * 3600 * 1000;
+
+const SHANGHAI_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' });
+
+/**
+ * Date → 后端同一口径的 `YYYY-MM-DD`（Asia/Shanghai）。
+ *
+ * 后端按北京时间聚合（src/utils/common.ts 的 getBeijingDateString），前端任何
+ * 「今天/未来」判断都必须走这里，否则 UTC+8 以西的浏览器会把上海当天当成未来：
+ * 格子置灰且不可点，年度累计也会漏掉那一天。
+ *
+ * 「无时区的一天」用 UTC 正午实例表示：上海固定 +08:00，正午落在当天 20:00，
+ * 格式化回来必然是同一个日历日，于是浏览器时区完全不参与运算。
+ */
+export function shanghaiDateKey(date = new Date()) {
+    return SHANGHAI_DATE.format(date);
+}
+
+/** 北京时间「今天」的日期键 */
+export function shanghaiTodayKey() {
+    return shanghaiDateKey();
+}
+
+/** 「某一天」的实例：UTC 正午，与浏览器时区无关 */
+const noonOf = (year, month, day) => new Date(Date.UTC(year, month, day, 12));
+
 export function formatNumber(value) {
     return new Intl.NumberFormat('zh-CN').format(Number(value || 0));
 }
@@ -66,11 +92,17 @@ export function normalizeUsageDay(entry = {}) {
 }
 
 /**
- * 生成日历格子（UTC+8 日期键，与后端一致，GitHub 风格）。
- * 支持按年度生成（默认当年完整 52~53 周，类似 GitHub 贡献图）或按指定时间段。
+ * 生成日历格子（GitHub 风格年度热力图）。
+ *
+ * **整个网格都是上海日期**：格子边界由 UTC 正午实例推进，日期键由
+ * `shanghaiDateKey` 产出，`isFuture` 只比较两个上海日期键字符串。于是浏览器
+ * 时区（甚至 DST 切换）完全不参与运算，也就不会再出现「上海今天被当成未来」。
+ *
+ * 年度网格以周日为一行起点，首尾补满整周：多数年份 53 列，闰年且 1 月 1 日
+ * 是周六的年份（2000 / 2028 / 2056 / 2084…）需要 54 列。
  *
  * @param {Record<string, any>} usageHistory
- * @param {number | Date | { year?: number, now?: Date, mode?: 'year' | '3months' }} [options]
+ * @param {number | { year?: number, now?: Date }} [options]
  */
 export function buildCalendarDays(usageHistory = {}, options = {}) {
     const daily = {};
@@ -78,98 +110,45 @@ export function buildCalendarDays(usageHistory = {}, options = {}) {
         daily[date] = normalizeUsageDay(entry);
     });
 
-    let targetYear = null;
-    let now = new Date();
-    let mode = 'year';
+    const config = typeof options === 'number' ? { year: options } : options || {};
+    const now = config.now instanceof Date ? config.now : new Date();
+    const targetYear = Number(config.year) || Number(shanghaiDateKey(now).slice(0, 4));
 
-    if (typeof options === 'number') {
-        targetYear = options;
-    } else if (options instanceof Date) {
-        now = options;
-        mode = '3months';
-    } else if (options && typeof options === 'object') {
-        if (options.year) targetYear = Number(options.year);
-        if (options.now instanceof Date) now = options.now;
-        if (options.mode) mode = options.mode;
-    }
+    const startOfYear = noonOf(targetYear, 0, 1);
+    // 周日为第一行；首尾都补到整周，格子数必然是该年周数 x 7
+    const startDate = noonOf(targetYear, 0, 1 - startOfYear.getUTCDay());
+    const endOfYear = noonOf(targetYear, 11, 31);
+    const endDate = noonOf(targetYear, 11, 31 + (6 - endOfYear.getUTCDay()));
 
-    if (!targetYear && mode === 'year') {
-        targetYear = now.getFullYear();
-    }
+    const dayCount = Math.round((endDate.getTime() - startDate.getTime()) / DAY_MS) + 1;
 
-    const temporal = globalThis.Temporal;
-    const toDateKey = (date) => {
-        return temporal
-            ? temporal.PlainDate.from({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() }).toString()
-            : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    };
+    // 当年最大 token 数用于 1~4 级热力；reduce 而非展开数组，避免多年历史撑爆调用栈
+    const max = Object.entries(daily)
+        .reduce((peak, [date, day]) => (date.startsWith(`${targetYear}-`) ? Math.max(peak, day.totalTokens) : peak), 1000);
 
-    if (mode === '3months') {
-        const startDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate(), 12, 0, 0);
-        startDate.setDate(startDate.getDate() - startDate.getDay());
-
-        const max = Math.max(...Object.values(daily).map((day) => day.totalTokens), 1000);
-        const dayCount = Math.floor((now.getTime() - startDate.getTime()) / (24 * 3600 * 1000)) + 1;
-        const days = [];
-        let total = 0;
-
-        for (let index = 0; index < dayCount; index++) {
-            const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + index, 12, 0, 0);
-            if (date > now) break;
-
-            const dateKey = toDateKey(date);
-            const entry = daily[dateKey] || normalizeUsageDay({});
-            total += entry.totalTokens;
-
-            let level = 0;
-            if (entry.totalTokens > 0) {
-                const ratio = entry.totalTokens / max;
-                level = ratio < 0.25 ? 1 : ratio < 0.5 ? 2 : ratio < 0.75 ? 3 : 4;
-            }
-            days.push({ dateKey, ...entry, level, inSelectedYear: true, isFuture: false, outOfYear: false });
-        }
-
-        return { days, total, weeks: Math.ceil(days.length / 7), monthLabels: [], year: now.getFullYear() };
-    }
-
-    // mode === 'year' (GitHub contribution graph)
-    const startOfYear = new Date(targetYear, 0, 1, 12, 0, 0);
-    const startDayOfWeek = startOfYear.getDay(); // 0 is Sunday, ..., 6 is Saturday
-    const startDate = new Date(targetYear, 0, 1 - startDayOfWeek, 12, 0, 0);
-
-    const endOfYear = new Date(targetYear, 11, 31, 12, 0, 0);
-    const endDayOfWeek = endOfYear.getDay();
-    const endDate = new Date(targetYear, 11, 31 + (6 - endDayOfWeek), 12, 0, 0);
-
-    // 计算当年的最大 token 数，用于 1~4 级热力计算
-    const yearTokensList = Object.entries(daily)
-        .filter(([date]) => date.startsWith(`${targetYear}-`))
-        .map(([, day]) => day.totalTokens);
-    const max = Math.max(...yearTokensList, 1000);
-
-    const dayCount = Math.round((endDate.getTime() - startDate.getTime()) / (24 * 3600 * 1000)) + 1;
+    const todayKey = shanghaiDateKey(now);
     const days = [];
     let total = 0;
 
-    const todayKey = toDateKey(now);
-
     for (let index = 0; index < dayCount; index++) {
-        const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + index, 12, 0, 0);
-        const inSelectedYear = date.getFullYear() === targetYear;
-        const dateKey = toDateKey(date);
-        const isFuture = (targetYear === now.getFullYear() && dateKey > todayKey);
+        const date = new Date(startDate.getTime() + index * DAY_MS);
+        const dayOfWeek = date.getUTCDay();
+        const dateKey = shanghaiDateKey(date);
+        const inSelectedYear = dateKey.startsWith(`${targetYear}-`);
+        const isFuture = dateKey > todayKey;
         const entry = daily[dateKey] || normalizeUsageDay({});
 
         if (inSelectedYear && !isFuture) {
             total += entry.totalTokens;
         }
 
-        let level = 0;
-        if (inSelectedYear && entry.totalTokens > 0) {
-            const ratio = entry.totalTokens / max;
-            level = ratio < 0.25 ? 1 : ratio < 0.5 ? 2 : ratio < 0.75 ? 3 : 4;
-        } else if (!inSelectedYear) {
-            level = -1; // out of year
+        let level = -1; // 年外：不参与热力
+        if (inSelectedYear) {
+            level = 0;
+            if (entry.totalTokens > 0) {
+                const ratio = entry.totalTokens / max;
+                level = ratio < 0.25 ? 1 : ratio < 0.5 ? 2 : ratio < 0.75 ? 3 : 4;
+            }
         }
 
         days.push({
@@ -179,13 +158,12 @@ export function buildCalendarDays(usageHistory = {}, options = {}) {
             outOfYear: !inSelectedYear,
             inSelectedYear,
             isFuture,
-            dayOfWeek: date.getDay(),
-            month: date.getMonth()
+            dayOfWeek,
+            month: date.getUTCMonth()
         });
     }
 
     const weeks = Math.ceil(days.length / 7);
-    const monthNamesZh = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
     const monthLabels = [];
     let lastMonth = -1;
 
@@ -198,7 +176,7 @@ export function buildCalendarDays(usageHistory = {}, options = {}) {
                     monthLabels.push({
                         month: m,
                         weekIndex: w,
-                        label: monthNamesZh[m]
+                        label: `${m + 1}月`
                     });
                     lastMonth = m;
                     break;

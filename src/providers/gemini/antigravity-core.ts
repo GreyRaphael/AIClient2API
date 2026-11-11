@@ -1788,37 +1788,42 @@ export class AntigravityApiService {
 
             // Gaxios 的 timeout 是覆盖整个响应生命周期的绝对超时，不能用于流式请求的
             // “首字节”限制，否则持续正常输出的长响应也会在固定时长被中止。
-            // 这里结合客户端断连信号与首字节超时，使用 AbortSignal.any() 统一管理；
-            // 后续流读取由 parseSSEStream 的 idle watchdog 负责。
+            // 因此首字节限制只挂在「等待响应头」阶段：响应头一到就 clearTimeout 解除，
+            // 之后由 parseSSEStream 的 idle watchdog 负责空闲检测。
+            // 不能用 AbortSignal.timeout() 直接参与 AbortSignal.any()——它无法撤销，
+            // 会一直挂在响应体上把 >180s 的流从中间掐断。
+            // 客户端断连信号始终参与组合，因此断连能取消整条流（含响应体）。
             this._applySidecar(requestOptions);
 
             const firstByteTimeoutMs = this.config.ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS
                 ?? ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS;
-            const signals: AbortSignal[] = [];
             const callerSignal = body?._abortSignal || body?.signal;
+            const headerPhase = new AbortController();
+            const requestSignals: AbortSignal[] = [headerPhase.signal];
             if (callerSignal && typeof callerSignal.addEventListener === 'function') {
-                signals.push(callerSignal);
+                requestSignals.push(callerSignal);
             }
-            let firstByteSignal: AbortSignal | null = null;
-            if (firstByteTimeoutMs > 0) {
-                firstByteSignal = AbortSignal.timeout(firstByteTimeoutMs);
-                signals.push(firstByteSignal);
-            }
-            if (signals.length > 0) {
-                requestOptions.signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
-            }
+            requestOptions.signal = requestSignals.length === 1
+                ? requestSignals[0]
+                : AbortSignal.any(requestSignals);
+
+            const firstByteTimer = firstByteTimeoutMs > 0
+                ? setTimeout(() => headerPhase.abort(new Error('first byte timeout')), firstByteTimeoutMs)
+                : null;
 
             let res: DynamicPayload;
             try {
                 res = await this.authClient.request(requestOptions);
             } catch (rawError) {
-                const error = asAntigravityError(rawError);
-                if (firstByteSignal?.aborted || (requestOptions.signal?.aborted && requestOptions.signal.reason?.name === 'TimeoutError')) {
+                if (headerPhase.signal.aborted) {
                     const timeoutError = new Error(`[Antigravity] Stream first byte timeout after ${firstByteTimeoutMs}ms.`);
                     timeoutError.code = 'ETIMEDOUT';
                     throw timeoutError;
                 }
-                throw error;
+                throw asAntigravityError(rawError);
+            } finally {
+                // 响应头已到达（或请求已失败）：首字节限制到此为止，绝不能继续挂在响应体上。
+                if (firstByteTimer) clearTimeout(firstByteTimer);
             }
 
             if (res.status !== 200) {

@@ -9,7 +9,6 @@
 | `configs/config.json` | 全局开关、端口、日志、代理、fallback 链、能力覆盖 | 运行时配置，默认不提交 |
 | `configs/provider_pools.json` | provider 节点、凭据路径、并发/队列、节点级 `capabilities` | 运行时配置，默认不提交 |
 | `configs/custom_models.json` | 用户自定义模型及其归属 provider | 运行时配置，默认不提交 |
-| `configs/plugins.json` | 插件启用状态 | 运行时配置，默认不提交 |
 | `configs/model-capability-cache.json` | 上游模型发现结果缓存 | 运行时缓存，默认不提交 |
 | `configs/usage-cache.json` | 用量查询缓存 | 运行时缓存，默认不提交 |
 | `configs/model-usage-stats.db` | 请求/Token 统计（SQLite，核心功能，非插件） | 运行时统计，默认不提交 |

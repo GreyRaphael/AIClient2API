@@ -12,14 +12,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Node 26 Migration & Architecture Refactoring
 
 - **Node 26 全面重构（Phase 1 - Phase 4）**：
-  - 运行时引擎升级至 `engines: >=26.0.0`，启用原生编译缓存（`compileCache`）。
-  - 深度利用现代标准库语法：原生 `Date/Temporal`、`RegExp.escape`、`Array.fromAsync`、`Promise.try` 与现代控制流优化。
+  - 运行时引擎升级至 `engines: >=26.0.0`，启用原生编译缓存（`enableCompileCache`）。
+  - 深度利用现代标准库语法：原生 `Temporal`（替代手写日期计算）、`Array.fromAsync`、
+    `Object.groupBy`、`Array.prototype.toSorted`、`structuredClone`。
   - 核心存储引擎全面切至 Node 原生 `node:sqlite`（`DatabaseSync`），实现毫秒级原子事务持久化。
   - 流式转发接入背压监控机制与 `AbortSignal.any` 级联多路信号取消。
-  - 引入原生 `diagnostics_channel` 网络诊断套件，提供高精度首包时延与吞吐链路追踪。
-  - 引入 Node 26 原生 `node:test` 测试套件，新增 `npm run build:sea` 原生单文件应用打包能力。
+  - 引入原生 `diagnostics_channel` 网络诊断套件，提供首包时延（TTFB）与吞吐链路追踪。
+  - 引入 Node 26 原生 `node:test` 测试套件（`npm run test:node`）。
   - 彻底卸载 `multer` 依赖，重构 CLI 为标准 `node:util parseArgs`。
-  - 深度精简 4000+ 行死代码、无用配置与冗余一次性测试用例。
+  - 深度精简死代码与冗余一次性测试用例（`src/` 净减 751 行，仓库整体净减约 1 万行）。
+
+### ⚠️ Breaking Changes
+
+本版本是破坏性变更。**不提供向后兼容，也不提供数据迁移**——以下能力与数据入口均已删除。
+
+- **运行时基线收紧至 Node.js 26+**：`engines` 由 `>=24.0.0` 上调为 `>=26.0.0`。
+  入口在加载应用模块图之前校验主版本，Node 24 及更早版本会直接退出并给出升级提示。
+  本版本直接运行 `.ts` 源码，依赖 Node 原生 TypeScript 类型擦除。
+- **插件系统已彻底移除**：`src/plugins/`、`src/plugins-user/`、`src/core/plugin-manager.ts`、
+  `src/core/plugin-security.ts`、`src/services/plugin-installer.ts`、`src/ui-modules/plugin-api.ts`
+  全部删除；插件市场（远程下载与本地 ZIP 上传安装）、插件运行时沙箱、安装期静态扫描
+  （`DANGEROUS_PLUGIN_PATTERNS`）一并消失。`configs/plugins.json` 不再被任何代码读取。
+  原插件能力已由核心模块承接：
+  - **令牌管理**（`src/services/api-keys/`，原 api-potluck）：1 / 2 / 5 / 10 亿 Token 套餐、
+    有效期与自然月顺延、预扣—结算记账、每日 Token 上限。
+  - **模型用量统计**（`src/services/usage-stats/`，原 model-usage-stats）：改为请求流水线
+    内直接记账，移入控制台主菜单，不再受插件开关控制。
+- **存储引擎由 JSON 切换为 `node:sqlite`（`DatabaseSync`），且不迁移旧数据**：
+  `configs/api-potluck-keys.json`、`configs/api-potluck-data.json`、
+  `configs/model-usage-stats.json` 不再被任何代码读取，读取与迁移这些 JSON 的实现已删除。
+  从 8.8.x 升级需**重新创建令牌与统计**（旧 JSON 文件可自行留档或删除）。
+- **亮色主题已移除**：全局声明 `color-scheme: dark`，仅支持暗色主题；
+  原先主题切换写入的 `localStorage.theme` 会被主动清除。
+- **移除的 HTTP 接口**（插件管理相关，全部返回 404）：
+
+  | 方法 | 路径 |
+  |---|---|
+  | GET | `/api/plugins` |
+  | GET | `/api/plugins/market` |
+  | POST | `/api/plugins/install` |
+  | POST | `/api/plugins/upload` |
+  | POST | `/api/plugins/:name/toggle` |
+  | DELETE | `/api/plugins/:name` |
+
+- **移除的 npm script 与配置文件**：`typecheck:plugins`
+  （`tsconfig.plugins.json`、`types/plugin.d.ts` 一并删除）。
 
 ### WebUI & Heatmap Experience
 
@@ -68,14 +105,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **SEA 单文件打包能力移除**：删除 `npm run build:sea` 与 `scripts/build-sea.mjs`，
+  以及 `.gitignore` 中对应的 `dist/`、`bin/` 忽略项。原实现只产出不含业务代码的壳，
+  无法实际运行服务，随本版本一同下线。
+- **覆盖率门禁移除**：删除 `check:coverage` / `test:coverage` / `coverage:update`
+  三个 npm script，以及 `scripts/check-coverage.mjs`、`scripts/coverage-baseline.json`
+  与 `jest.config.js` 的 coverage 配置；`npm run verify` 与 CI 不再包含覆盖率步骤。
+  质量约束改由 `typecheck`、`check:strict`、`check:any`、`check:imports`、
+  `check:cycles`、`lint:css` 与 `test` 承担。
 - **三个插件的 JSON→SQLite 迁移代码与测试全部删除**（迁移窗口已过，旧 JSON 早已不存在）：
   `src/plugins/shared/sqlite-store.js` 的 `backupLegacyJson` / `readLegacyJson`，
   `api-potluck/potluck-db.js` 的 `migrateFromLegacyJson`，以及
   `tests/plugin-sqlite-storage.test.js` 里对应的 3 个迁移用例。
   另加两条反向断言，防止这些已删除的导出被重新加回。
+- **用量缓存 `usage-cache.json` 的兼容读取一并删除**：`src/ui-modules/usage-cache.ts`
+  不再读取旧 JSON，仅使用 `configs/usage-cache.db`。
 - `static/ui/lib/stats.js` 的 `flattenModelUsage`（随独立页删除后不再有调用者）。
-- `configs/plugins.json`、`configs/plugins.json.example`、`configs/market.json.example`
-  里 `model-usage-stats` 的插件与市场条目。
+- **插件市场与插件配置文件整体移出仓库**：`configs/plugins.json.example`、
+  `configs/market.json.example` 已随插件系统一并删除（当前 `configs/` 下不存在这两个文件）；
+  `model-usage-stats` 也不再作为插件或市场条目出现。
 
 ### Fixed
 

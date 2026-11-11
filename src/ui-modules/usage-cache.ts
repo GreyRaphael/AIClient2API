@@ -7,7 +7,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import logger from '../utils/logger.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
@@ -37,10 +37,6 @@ function getConfigsDir(): string {
 
 function getDbFile(): string {
     return path.join(getConfigsDir(), 'usage-cache.db');
-}
-
-function getLegacyJsonFile(): string {
-    return path.join(getConfigsDir(), 'usage-cache.json');
 }
 
 /** 供测试注入沙箱目录；会关闭已打开的连接，让下次访问重新建库 */
@@ -73,37 +69,6 @@ function ensureInitialized(): DatabaseSync {
     db.exec('PRAGMA journal_mode = WAL;');
     db.exec('PRAGMA synchronous = NORMAL;');
     db.exec(SCHEMA);
-
-    // 平滑迁移旧版 usage-cache.json（如果数据库为空且 json 存在）
-    try {
-        const countRow = db.prepare('SELECT COUNT(*) AS count FROM provider_usage_cache').get() as SqlRow | undefined;
-        const count = typeof countRow?.count === 'number' ? countRow.count : Number(countRow?.count || 0);
-        const legacyFile = getLegacyJsonFile();
-        if (count === 0 && existsSync(legacyFile)) {
-            const raw = readFileSync(legacyFile, 'utf8');
-            const parsed = JSON.parse(raw);
-            const ts = (parsed && typeof parsed.timestamp === 'string') ? parsed.timestamp : new Date().toISOString();
-            const setMeta = db.prepare('INSERT OR REPLACE INTO usage_cache_meta (k, v) VALUES (?, ?)');
-            setMeta.run('timestamp', ts);
-
-            if (parsed && parsed.providers && typeof parsed.providers === 'object') {
-                const insertStmt = db.prepare('INSERT OR REPLACE INTO provider_usage_cache (provider_type, data, updated_at) VALUES (?, ?, ?)');
-                db.exec('BEGIN IMMEDIATE');
-                try {
-                    for (const [providerType, data] of Object.entries(parsed.providers)) {
-                        insertStmt.run(providerType, JSON.stringify(data), ts);
-                    }
-                    db.exec('COMMIT');
-                    logger.info(`[Usage Cache] Migrated legacy usage-cache.json to ${dbFile}`);
-                } catch (migrationErr) {
-                    db.exec('ROLLBACK');
-                    logger.warn('[Usage Cache] Legacy migration rollback:', migrationErr);
-                }
-            }
-        }
-    } catch (e) {
-        logger.warn('[Usage Cache] Legacy migration check failed:', e);
-    }
 
     initialized = true;
     return db;

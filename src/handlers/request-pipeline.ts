@@ -696,7 +696,12 @@ export function nativePayloadHasMeaningfulContent(payload: DynamicPayload | null
  * 当底层 socket 缓冲区满（res.write 返回 false）时，暂停消费上游异步迭代器，
  * 直到下游触发 'drain' 事件或客户端断开/中止。
  * 从而将长连接常驻内存堆积由 OS TCP 窗口和套接字缓冲区控制，实现端到端背压传递。
+ *
+ * 等待 drain 必须有上限：客户端 TCP 零窗口但对端进程仍存活时，既不会触发 'drain'
+ * 也不会触发 'close'，无上限的等待会把并发插槽和上游流一起永久占住。
  */
+const WRITE_DRAIN_TIMEOUT_MS = 30_000;
+
 async function writeFrameWithBackpressure(
     res: ServerResponse,
     frame: string,
@@ -708,30 +713,46 @@ async function writeFrameWithBackpressure(
         return false;
     }
     try {
-        const canContinue = res.write(frame);
-        if (!canContinue && !res.writableEnded && !clientDisconnected.value && !signal?.aborted) {
-            if (typeof res.on === 'function') {
-                await new Promise<void>((resolve) => {
-                    const onDrain = () => { cleanup(); resolve(); };
-                    const onClose = () => { cleanup(); resolve(); };
-                    const onAbort = () => { cleanup(); resolve(); };
-                    const cleanup = () => {
-                        res.off?.('drain', onDrain);
-                        res.off?.('close', onClose);
-                        signal?.removeEventListener?.('abort', onAbort);
-                    };
-                    if (typeof res.once === 'function') {
-                        res.once('drain', onDrain);
-                        res.once('close', onClose);
-                    } else {
-                        res.on('drain', onDrain);
-                        res.on('close', onClose);
-                    }
-                    signal?.addEventListener?.('abort', onAbort, { once: true });
-                });
-            }
+        if (res.write(frame) || res.writableEnded || clientDisconnected.value || signal?.aborted) {
+            return true;
         }
-        return true;
+        if (typeof res.on !== 'function') {
+            return true;
+        }
+
+        const outcome = await new Promise<'drain' | 'closed' | 'aborted' | 'timeout'>((resolve) => {
+            const settle = (result: 'drain' | 'closed' | 'aborted' | 'timeout') => {
+                clearTimeout(timer);
+                res.off?.('drain', onDrain);
+                res.off?.('close', onClose);
+                signal?.removeEventListener?.('abort', onAbort);
+                resolve(result);
+            };
+            const onDrain = () => settle('drain');
+            const onClose = () => settle('closed');
+            const onAbort = () => settle('aborted');
+            const timer = setTimeout(() => settle('timeout'), WRITE_DRAIN_TIMEOUT_MS);
+            timer.unref?.();
+
+            if (typeof res.once === 'function') {
+                res.once('drain', onDrain);
+                res.once('close', onClose);
+            } else {
+                res.on('drain', onDrain);
+                res.on('close', onClose);
+            }
+            signal?.addEventListener?.('abort', onAbort, { once: true });
+        });
+
+        if (outcome === 'drain') {
+            return true;
+        }
+        if (outcome === 'timeout') {
+            logger.warn(`[Stream] Downstream write stalled for ${WRITE_DRAIN_TIMEOUT_MS}ms without drain or close; destroying response to release the pool slot.`);
+        }
+        clientDisconnected.value = true;
+        res.destroy?.();
+        return false;
     } catch (writeErr) {
         logger.error('[Stream] Failed to write data:', getErrorMessage(writeErr));
         clientDisconnected.value = true;
@@ -789,20 +810,11 @@ export async function handleStreamRequest(
         }
     }
 
-    const requestTimeoutMs = Number(CONFIG.REQUEST_TIMEOUT_MS || CONFIG.STREAM_TIMEOUT_MS);
-    if (requestTimeoutMs > 0) {
-        signals.push(AbortSignal.timeout(requestTimeoutMs));
-    }
-
     const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 
     const onCombinedAbort = () => {
         clientDisconnected.value = true;
-        if (combinedSignal.reason?.name === 'TimeoutError') {
-            logger.warn(`[Stream] Request timed out after ${requestTimeoutMs}ms`);
-        } else {
-            logger.info('[Stream] Client disconnected or stream aborted');
-        }
+        logger.info('[Stream] Client disconnected or stream aborted');
     };
 
     if (combinedSignal.aborted) {
@@ -1395,10 +1407,6 @@ export async function handleUnaryRequest(
         } else {
             signals.push(clientSignal);
         }
-    }
-    const timeoutMs = Number(CONFIG.REQUEST_TIMEOUT_MS);
-    if (timeoutMs > 0) {
-        signals.push(AbortSignal.timeout(timeoutMs));
     }
     const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 
