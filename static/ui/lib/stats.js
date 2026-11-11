@@ -65,43 +65,149 @@ export function normalizeUsageDay(entry = {}) {
     };
 }
 
-/** 最近三个月的日历格子（UTC+8 日期键，与后端一致）。 */
-export function buildCalendarDays(usageHistory = {}, now = new Date()) {
+/**
+ * 生成日历格子（UTC+8 日期键，与后端一致，GitHub 风格）。
+ * 支持按年度生成（默认当年完整 52~53 周，类似 GitHub 贡献图）或按指定时间段。
+ *
+ * @param {Record<string, any>} usageHistory
+ * @param {number | Date | { year?: number, now?: Date, mode?: 'year' | '3months' }} [options]
+ */
+export function buildCalendarDays(usageHistory = {}, options = {}) {
     const daily = {};
     Object.entries(usageHistory).forEach(([date, entry]) => {
         daily[date] = normalizeUsageDay(entry);
     });
 
-    const startDate = new Date(now);
-    startDate.setMonth(now.getMonth() - 3);
-    startDate.setDate(startDate.getDate() - startDate.getDay());
+    let targetYear = null;
+    let now = new Date();
+    let mode = 'year';
 
-    const max = Math.max(...Object.values(daily).map((day) => day.totalTokens), 1000);
-    const dayCount = Math.floor((now.getTime() - startDate.getTime()) / (24 * 3600 * 1000)) + 1;
+    if (typeof options === 'number') {
+        targetYear = options;
+    } else if (options instanceof Date) {
+        now = options;
+        mode = '3months';
+    } else if (options && typeof options === 'object') {
+        if (options.year) targetYear = Number(options.year);
+        if (options.now instanceof Date) now = options.now;
+        if (options.mode) mode = options.mode;
+    }
+
+    if (!targetYear && mode === 'year') {
+        targetYear = now.getFullYear();
+    }
+
+    const temporal = globalThis.Temporal;
+    const toDateKey = (date) => {
+        return temporal
+            ? temporal.PlainDate.from({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() }).toString()
+            : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+
+    if (mode === '3months') {
+        const startDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate(), 12, 0, 0);
+        startDate.setDate(startDate.getDate() - startDate.getDay());
+
+        const max = Math.max(...Object.values(daily).map((day) => day.totalTokens), 1000);
+        const dayCount = Math.floor((now.getTime() - startDate.getTime()) / (24 * 3600 * 1000)) + 1;
+        const days = [];
+        let total = 0;
+
+        for (let index = 0; index < dayCount; index++) {
+            const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + index, 12, 0, 0);
+            if (date > now) break;
+
+            const dateKey = toDateKey(date);
+            const entry = daily[dateKey] || normalizeUsageDay({});
+            total += entry.totalTokens;
+
+            let level = 0;
+            if (entry.totalTokens > 0) {
+                const ratio = entry.totalTokens / max;
+                level = ratio < 0.25 ? 1 : ratio < 0.5 ? 2 : ratio < 0.75 ? 3 : 4;
+            }
+            days.push({ dateKey, ...entry, level, inSelectedYear: true, isFuture: false, outOfYear: false });
+        }
+
+        return { days, total, weeks: Math.ceil(days.length / 7), monthLabels: [], year: now.getFullYear() };
+    }
+
+    // mode === 'year' (GitHub contribution graph)
+    const startOfYear = new Date(targetYear, 0, 1, 12, 0, 0);
+    const startDayOfWeek = startOfYear.getDay(); // 0 is Sunday, ..., 6 is Saturday
+    const startDate = new Date(targetYear, 0, 1 - startDayOfWeek, 12, 0, 0);
+
+    const endOfYear = new Date(targetYear, 11, 31, 12, 0, 0);
+    const endDayOfWeek = endOfYear.getDay();
+    const endDate = new Date(targetYear, 11, 31 + (6 - endDayOfWeek), 12, 0, 0);
+
+    // 计算当年的最大 token 数，用于 1~4 级热力计算
+    const yearTokensList = Object.entries(daily)
+        .filter(([date]) => date.startsWith(`${targetYear}-`))
+        .map(([, day]) => day.totalTokens);
+    const max = Math.max(...yearTokensList, 1000);
+
+    const dayCount = Math.round((endDate.getTime() - startDate.getTime()) / (24 * 3600 * 1000)) + 1;
     const days = [];
     let total = 0;
 
-    for (let index = 0; index < dayCount; index++) {
-        const date = new Date(startDate);
-        date.setDate(startDate.getDate() + index);
-        if (date > now) break;
+    const todayKey = toDateKey(now);
 
-        const temporal = globalThis.Temporal;
-        const dateKey = temporal
-            ? temporal.Instant.fromEpochMilliseconds(date.getTime()).toZonedDateTimeISO('Asia/Shanghai').toPlainDate().toString()
-            : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date);
+    for (let index = 0; index < dayCount; index++) {
+        const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + index, 12, 0, 0);
+        const inSelectedYear = date.getFullYear() === targetYear;
+        const dateKey = toDateKey(date);
+        const isFuture = (targetYear === now.getFullYear() && dateKey > todayKey);
         const entry = daily[dateKey] || normalizeUsageDay({});
-        total += entry.totalTokens;
+
+        if (inSelectedYear && !isFuture) {
+            total += entry.totalTokens;
+        }
 
         let level = 0;
-        if (entry.totalTokens > 0) {
+        if (inSelectedYear && entry.totalTokens > 0) {
             const ratio = entry.totalTokens / max;
             level = ratio < 0.25 ? 1 : ratio < 0.5 ? 2 : ratio < 0.75 ? 3 : 4;
+        } else if (!inSelectedYear) {
+            level = -1; // out of year
         }
-        days.push({ dateKey, ...entry, level });
+
+        days.push({
+            dateKey,
+            ...entry,
+            level,
+            outOfYear: !inSelectedYear,
+            inSelectedYear,
+            isFuture,
+            dayOfWeek: date.getDay(),
+            month: date.getMonth()
+        });
     }
 
-    return { days, total };
+    const weeks = Math.ceil(days.length / 7);
+    const monthNamesZh = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+    const monthLabels = [];
+    let lastMonth = -1;
+
+    for (let w = 0; w < weeks; w++) {
+        for (let d = 0; d < 7; d++) {
+            const day = days[w * 7 + d];
+            if (day && day.inSelectedYear) {
+                const m = day.month;
+                if (m !== lastMonth) {
+                    monthLabels.push({
+                        month: m,
+                        weekIndex: w,
+                        label: monthNamesZh[m]
+                    });
+                    lastMonth = m;
+                    break;
+                }
+            }
+        }
+    }
+
+    return { days, total, weeks, monthLabels, year: targetYear };
 }
 
 /** 聚合 usageHistory 的 provider/model 调用量。 */

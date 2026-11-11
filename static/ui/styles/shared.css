@@ -298,11 +298,160 @@ input:checked + .toggle-slider::before {
    排除在"必须加前缀"之外的同一条理由。
    ========================================================================== */
 
+.stats-calendar {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
+.calendar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.calendar-year-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.calendar-year-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    padding: 2px;
+}
+
+.calendar-year-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.calendar-year-arrow:hover:not(:disabled) {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.calendar-year-arrow:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.calendar-year-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 0 var(--space-2);
+}
+
+.calendar-year-chips {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.calendar-year-chip {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.calendar-year-chip:hover {
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+}
+
+.calendar-year-chip.active {
+    background: var(--primary-10);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.calendar-header-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.calendar-year-summary strong {
+    color: var(--primary-color);
+}
+
+.calendar-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 6px;
+    align-items: stretch;
+}
+
+.calendar-weekdays {
+    display: grid;
+    grid-template-rows: repeat(7, 1fr);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    line-height: 1;
+    text-align: right;
+    padding-top: 18px;
+    padding-right: 2px;
+    user-select: none;
+    align-items: center;
+}
+
+.calendar-scroll-area {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: auto hidden;
+    scrollbar-width: thin;
+    padding-bottom: 4px;
+}
+
+.calendar-months {
+    display: grid;
+    grid-auto-flow: column;
+    gap: 2px;
+    height: 16px;
+    line-height: 16px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-bottom: 2px;
+    user-select: none;
+    width: max-content;
+}
+
+.calendar-month-label {
+    white-space: nowrap;
+}
+
 .calendar-grid {
     display: grid;
     grid-auto-flow: column;
-    grid-template-rows: repeat(7, 11px);
-    grid-auto-columns: 11px;
+    grid-template-rows: repeat(7, 1fr);
     gap: 2px;
     width: max-content;
     min-width: max-content;
@@ -312,15 +461,21 @@ input:checked + .toggle-slider::before {
 .calendar-day {
     width: 11px;
     height: 11px;
-    /* 2px 是刻意的：格子本身只有 11px，再大的圆角会把它推向圆形。
-       迁移到 shared.css 时曾误用 --radius-sm(6px)，11px 方块直接变成圆点
-       （用户可见的视觉回归）。ui-design-scale 只约束 6/8/12/16px 这几个
-       等价于 --radius-* 的字面量，2px 不在其列，按原样保留。 */
     border-radius: 2px;
     background: var(--bg-secondary);
     position: relative;
-    cursor: pointer;
+    cursor: default;
     transition: transform 0.1s;
+    box-sizing: border-box;
+}
+
+.calendar-day.out-of-year {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.calendar-day.is-future {
+    opacity: 0.45;
 }
 
 .calendar-day-clickable {
@@ -351,11 +506,34 @@ input:checked + .toggle-slider::before {
 .calendar-day[data-level="4"] { background: var(--calendar-level-4); }
 
 .calendar-footer {
-    margin-top: var(--space-5);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: var(--space-3);
     font-size: 0.75rem;
     color: var(--text-tertiary);
-    text-align: right;
 }
+
+.calendar-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+}
+
+.calendar-legend .legend-box {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.calendar-legend .legend-box[data-level="0"] { background: var(--bg-secondary); }
+.calendar-legend .legend-box[data-level="1"] { background: var(--calendar-level-1); }
+.calendar-legend .legend-box[data-level="2"] { background: var(--calendar-level-2); }
+.calendar-legend .legend-box[data-level="3"] { background: var(--calendar-level-3); }
+.calendar-legend .legend-box[data-level="4"] { background: var(--calendar-level-4); }
 
 .calendar-tooltip {
     position: fixed;

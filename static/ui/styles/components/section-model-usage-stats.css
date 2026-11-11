@@ -34,8 +34,13 @@
 /* 两张卡片并排：等高对齐，日历自适应收缩，汇总卡片固定比例，窄屏时由下方媒体查询改为单列 */
 #model-usage-stats .usage-stats-cards {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
+    grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr);
     gap: var(--space-8);
+    align-items: stretch;
+}
+
+#model-usage-stats .usage-stats-calendar-card {
+    min-height: 330px;
 }
 
 #model-usage-stats .usage-stats-card {
@@ -90,13 +95,43 @@
 }
 
 #model-usage-stats .usage-stats-calendar-wrap {
-    overflow-x: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
     padding-bottom: var(--space-2);
-    scrollbar-width: thin;
+}
+
+#model-usage-stats .calendar-body {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+}
+
+#model-usage-stats .calendar-scroll-area {
+    flex: 1;
+    min-height: 0;
+}
+
+#model-usage-stats .calendar-grid {
+    flex: 1;
+    min-height: 140px;
+    grid-template-rows: repeat(7, minmax(0, 1fr));
+    gap: 3px;
+}
+
+#model-usage-stats .calendar-day {
+    height: 100%;
+    width: auto;
+    aspect-ratio: 1 / 1;
+    min-height: 14px;
+    max-height: 26px;
+    border-radius: 3px;
 }
 
 #model-usage-stats .usage-stats-hint {
-    margin: var(--space-6) 0 0;
+    margin: var(--space-4) 0 0;
     margin-top: auto;
     font-size: 0.6875rem;
     line-height: 1.5;
