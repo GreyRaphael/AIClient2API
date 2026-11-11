@@ -1,6 +1,7 @@
 
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
+import { parseArgs } from 'node:util';
 import { DEFAULT_REQUEST_BODY_MAX_BYTES } from '../utils/protocol.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import logger from '../utils/logger.ts';
@@ -324,42 +325,42 @@ export async function initializeConfig(
         { flag: '--ui',                   configKey: 'UI_ENABLED',            type: 'bool' }
     ];
 
-    // Parse command-line arguments using definitions
-    const flagMap = new Map(cliArgDefs.map((def: DynamicPayload) => [def.flag, def]));
-    for (let i = 0; i < args.length; i++) {
-        const def = flagMap.get(args[i]);
-        if (!def) continue;
+    // Parse command-line arguments using Node's parseArgs
+    const cliOptions: Record<string, { type: 'string' | 'boolean' }> = {};
+    for (const def of cliArgDefs) {
+        const flagName = def.flag.replace(/^--/, '');
+        cliOptions[flagName] = { type: def.type === 'flag' ? 'boolean' : 'string' };
+    }
 
-        if (def.type !== 'flag' && i + 1 >= args.length) {
-            logger.warn(`[Config Warning] ${def.flag} flag requires a value.`);
-            continue;
-        }
+    try {
+        const { values } = parseArgs({ args, options: cliOptions, strict: false, allowPositionals: true });
+        for (const def of cliArgDefs) {
+            const flagName = def.flag.replace(/^--/, '');
+            const raw = values[flagName];
+            if (raw === undefined) continue;
 
-        const rawValue = def.type === 'flag' ? null : args[++i];
-        switch (def.type) {
-            case 'flag':
-                currentConfig[def.configKey] = def.value;
-                break;
-            case 'string':
-                currentConfig[def.configKey] = rawValue;
-                break;
-            case 'stringList':
-                currentConfig[def.configKey] = (rawValue || '').split(',').map((item: string) => item.trim()).filter(Boolean);
-                break;
-            case 'int':
-                currentConfig[def.configKey] = parseInt(rawValue || '', 10);
-                break;
-            case 'bool':
-                currentConfig[def.configKey] = (rawValue || '').toLowerCase() === 'true';
-                break;
-            case 'enum':
-                if (def.validValues.includes(rawValue)) {
-                    currentConfig[def.configKey] = rawValue;
+            if (def.type === 'flag') {
+                if (raw) currentConfig[def.configKey] = def.value;
+            } else if (def.type === 'string') {
+                currentConfig[def.configKey] = String(raw);
+            } else if (def.type === 'stringList') {
+                currentConfig[def.configKey] = String(raw).split(',').map((item: string) => item.trim()).filter(Boolean);
+            } else if (def.type === 'int') {
+                const parsedInt = parseInt(String(raw), 10);
+                if (!Number.isNaN(parsedInt)) currentConfig[def.configKey] = parsedInt;
+            } else if (def.type === 'bool') {
+                currentConfig[def.configKey] = String(raw).toLowerCase() === 'true';
+            } else if (def.type === 'enum') {
+                const rawStr = String(raw);
+                if (def.validValues?.includes(rawStr)) {
+                    currentConfig[def.configKey] = rawStr;
                 } else {
-                    logger.warn(`[Config Warning] Invalid value for ${def.flag}. Expected one of: ${def.validValues.join(', ')}.`);
+                    logger.warn(`[Config Warning] Invalid value for ${def.flag}. Expected one of: ${(def.validValues || []).join(', ')}.`);
                 }
-                break;
+            }
         }
+    } catch (parseErr: unknown) {
+        logger.warn(`[Config Warning] Failed to parse CLI args: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
     }
 
     // 合并定时健康检查的 CLI 配置
