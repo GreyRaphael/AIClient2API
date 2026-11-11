@@ -410,6 +410,11 @@ export async function handleUIApiRequests(
         return await systemApi.handleGetSystem(req, res);
     }
 
+    // Get network diagnostics
+    if (method === 'GET' && pathParam === '/api/system/network-diagnostics') {
+        return await systemApi.handleGetNetworkDiagnostics(req, res);
+    }
+
     // Download today's log file
     if (method === 'GET' && pathParam === '/api/system/download-log') {
         return await systemApi.handleDownloadTodayLog(req, res);

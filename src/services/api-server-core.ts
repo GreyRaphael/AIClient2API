@@ -9,6 +9,7 @@ import { shutdownKeyManager } from './api-keys/index.ts';
 import { getTLSSidecar } from '../utils/tls-sidecar.ts';
 import { HEALTH_CHECK } from '../utils/constants.ts';
 import { HealthCheckScheduler } from './health-check-scheduler.ts';
+import { startNetworkDiagnostics } from '../utils/network-diagnostics.ts';
 
 /**
  * @license
@@ -243,6 +244,7 @@ async function startServer() {
     // 设置服务器的最大连接数
     serverInstance.maxConnections = 1000;
     serverInstance.listen(CONFIG.SERVER_PORT, CONFIG.HOST, async () => {
+        startNetworkDiagnostics();
         logger.info(`--- Unified API Server Configuration ---`);
         const configuredProviders = Array.isArray(CONFIG.DEFAULT_MODEL_PROVIDERS) && CONFIG.DEFAULT_MODEL_PROVIDERS.length > 0
             ? CONFIG.DEFAULT_MODEL_PROVIDERS

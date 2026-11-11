@@ -1,16 +1,16 @@
 {
   "total": {
     "lines": {
-      "covered": 10725,
-      "total": 20726
+      "covered": 10832,
+      "total": 20854
     },
     "branches": {
-      "covered": 9878,
-      "total": 20566
+      "covered": 9925,
+      "total": 20636
     },
     "functions": {
-      "covered": 1365,
-      "total": 2345
+      "covered": 1379,
+      "total": 2365
     }
   },
   "directories": {
@@ -128,12 +128,12 @@
     },
     "src/services": {
       "lines": {
-        "covered": 1106,
-        "total": 2422
+        "covered": 1107,
+        "total": 2425
       },
       "branches": {
-        "covered": 830,
-        "total": 2106
+        "covered": 833,
+        "total": 2110
       },
       "functions": {
         "covered": 138,
@@ -143,7 +143,7 @@
     "src/ui-modules": {
       "lines": {
         "covered": 523,
-        "total": 2929
+        "total": 2932
       },
       "branches": {
         "covered": 274,
@@ -151,21 +151,21 @@
       },
       "functions": {
         "covered": 86,
-        "total": 304
+        "total": 305
       }
     },
     "src/utils": {
       "lines": {
-        "covered": 635,
-        "total": 1318
+        "covered": 741,
+        "total": 1440
       },
       "branches": {
-        "covered": 595,
-        "total": 1328
+        "covered": 639,
+        "total": 1394
       },
       "functions": {
-        "covered": 119,
-        "total": 231
+        "covered": 133,
+        "total": 250
       }
     }
   }

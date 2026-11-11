@@ -5,6 +5,7 @@ import { existsSync, readFileSync, createReadStream } from 'fs';
 import logger from '../utils/logger.ts';
 import path from 'path';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
+import { getNetworkDiagnostics } from '../utils/network-diagnostics.ts';
 
 /**
  * 获取系统信息
@@ -29,8 +30,18 @@ export async function handleGetSystem(req: IncomingMessage, res: ServerResponse)
         nodeVersion: process.version,
         serverTime: new Date().toISOString(),
         memoryUsage: `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        networkDiagnostics: getNetworkDiagnostics()
     }));
+    return true;
+}
+
+/**
+ * 获取底层网络诊断信息
+ */
+export async function handleGetNetworkDiagnostics(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getNetworkDiagnostics()));
     return true;
 }
 

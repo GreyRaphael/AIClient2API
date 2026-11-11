@@ -42,3 +42,7 @@ configs/trae/
 # Playwright
 test-results/
 playwright-report/
+
+# Build artifacts (SEA & bundles)
+dist/
+bin/
