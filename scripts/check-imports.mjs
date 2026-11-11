@@ -15,9 +15,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.resolve(import.meta.dirname, '..');
 const SRC_DIR = path.join(ROOT, 'src');
 const SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts']);
 const RESOLVABLE_EXTENSIONS = new Set([
@@ -27,16 +26,10 @@ const RESOLVABLE_EXTENSIONS = new Set([
     '.wasm'
 ]);
 
-function walk(dir, out = []) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const entryPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            walk(entryPath, out);
-        } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-            out.push(entryPath);
-        }
-    }
-    return out;
+function walk(dir) {
+    return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name)))
+        .map((entry) => path.join(entry.parentPath || dir, entry.name));
 }
 
 /**

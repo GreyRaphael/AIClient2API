@@ -253,17 +253,18 @@ export async function getStats(options: QueryStatsOptions = {}): Promise<StatsPa
         ...withRates(row, `model:${row.model}`)
     }));
 
-    // byProvider 的「模型数」是 UI 需要的一列：等于该 provider 下 byModel 的行数
+    // byProvider 的「模型数」是 UI 需要的一列：等于该 provider 下 byModel 的行数（使用 Object.groupBy 优化检索复杂度为 O(N)）
+    const modelsByProvider = Object.groupBy(storedByModel, (model) => model.provider);
     const byProvider: ProviderRow[] = storedByProvider.map((row) => ({
         provider: row.provider,
-        modelCount: storedByModel.filter((model) => model.provider === row.provider).length,
+        modelCount: modelsByProvider[row.provider]?.length || 0,
         ...withRates(row, `provider:${row.provider}`)
     }));
 
     const calendar: CalendarDay[] = queryCalendar();
 
     return {
-        updatedAt: new Date().toISOString(),
+        updatedAt: Temporal.Now.instant().toString({ fractionalSecondDigits: 3 }),
         ...(date ? { range: { date } } : { range: {} }),
         summary: withRates(storedSummary),
         byModel,

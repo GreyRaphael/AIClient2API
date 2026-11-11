@@ -414,9 +414,7 @@ export async function initializeConfig(
 
     // Set PROMPT_LOG_FILENAME based on the determined config
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
-        const now = new Date();
-        const pad = (num: number): string => String(num).padStart(2, '0');
-        const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const timestamp = Temporal.Now.plainDateTimeISO().toString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
         PROMPT_LOG_FILENAME = `${currentConfig.PROMPT_LOG_BASE_NAME}-${timestamp}.log`;
     } else {
         PROMPT_LOG_FILENAME = ''; // Clear if not logging to file

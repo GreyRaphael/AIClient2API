@@ -3,7 +3,8 @@
  * 处理Gemini（Google）协议与其他协议之间的转换
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+const uuidv4 = randomUUID;
 import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.ts';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.ts';

@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2024",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "allowJs": true,
@@ -15,7 +15,7 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "types": ["node"],
-    "lib": ["ES2022"]
+    "lib": ["ES2024", "ESNext"]
   },
   "include": [
     "src/**/*.js",

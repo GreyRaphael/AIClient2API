@@ -11,7 +11,7 @@
 <div align="center">
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Node.js](https://img.shields.io/badge/Node.js-≥24.0.0-green.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-≥26.0.0-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-≥20.0.0-blue.svg)](https://hub.docker.com/r/greyraphael/aiclient-2-api)
 [![GitHub stars](https://img.shields.io/github/stars/GreyRaphael/AIClient2API.svg?style=flat&label=Star)](https://github.com/GreyRaphael/AIClient2API/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/GreyRaphael/AIClient2API.svg)](https://github.com/GreyRaphael/AIClient2API/issues)
@@ -225,7 +225,7 @@
 
 使用 AIClient2API 最推荐的方式是通过自动化脚本启动，并直接在 **Web UI 控制台** 进行可视化配置。
 
-> **⚠️ 环境要求**：Node.js **>= 24.0.0**。本版本起**只支持 Node.js 24+**。服务端直接运行 `.ts` 源码，依赖 Node.js 原生 TypeScript 类型擦除；Node.js 22 及更早版本无法启动服务。
+> **⚠️ 环境要求**：Node.js **>= 26.0.0**。本版本起**只支持 Node.js 26+**。服务端直接运行 `.ts` 源码，依赖 Node.js 原生 TypeScript 类型擦除；Node.js 24 及更早版本无法启动服务。
 
 #### 🐳 Docker 快捷启动 (推荐)
 
@@ -303,7 +303,7 @@ docker compose up -d
 ========================================
 
 [检查] 正在检查Node.js是否已安装...
-✅ Node.js已安装，版本: v24.0.0
+✅ Node.js已安装，版本: v26.0.0
 ✅ 找到package.json文件
 ✅ node_modules目录已存在
 ✅ 项目文件检查完成

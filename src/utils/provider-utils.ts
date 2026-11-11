@@ -4,6 +4,7 @@
  */
 
 import * as path from 'path';
+import { randomUUID } from 'node:crypto';
 import logger from './logger.ts';
 import { promises as fs } from 'fs';
 import { getProviderMappings } from '../providers/provider-registry.ts';
@@ -15,19 +16,10 @@ export const PROVIDER_MAPPINGS = getProviderMappings();
 
 /**
  * 生成 UUID
- * 兼容旧版 Node.js（<14.17.0）：如果 crypto.randomUUID 不存在则使用 Math.random 回退方案
  * @returns {string} UUID 字符串
  */
-export function generateUUID() {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID();
-    }
-    // 回退方案：使用 Math.random 生成标准 UUID v4
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
+export function generateUUID(): string {
+    return randomUUID();
 }
 
 /**

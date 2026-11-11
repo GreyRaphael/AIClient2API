@@ -11,10 +11,9 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import subsetFont from 'subset-font';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.resolve(import.meta.dirname, '..');
 const FA = path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free');
 const STATIC = path.join(ROOT, 'static');
 const SCAN_EXT = new Set(['.html', '.js', '.mjs', '.ts', '.css']);
@@ -112,7 +111,7 @@ export async function buildSubset({ extraDirs = [] } = {}) {
     return { version, icons: resolved.size, unresolved, outDir };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) {
     const result = await buildSubset();
     console.log(`Font Awesome ${result.version}: ${result.icons} icons -> ${path.relative(ROOT, result.outDir)}`);
     if (result.unresolved.length) {

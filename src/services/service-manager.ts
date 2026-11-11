@@ -1,7 +1,6 @@
 import { getServiceAdapter, serviceInstances } from '../providers/adapter.ts';
 import logger from '../utils/logger.ts';
 import { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
-import deepmerge from 'deepmerge';
 import * as fs from 'fs';
 import { PROVIDER_MAPPINGS } from '../utils/provider-utils.ts';
 import { MODEL_PROVIDER } from '../utils/constants.ts';
@@ -9,7 +8,7 @@ import { startCapabilityRefreshLoop, warmProviderCapabilities } from '../provide
 import { getProviderPoolManager, setProviderPoolManager } from '../providers/pool-context.ts';
 import { getStatusIdentifyFieldMap } from '../providers/provider-registry.ts';
 import { getErrorMessage } from '../utils/error.ts';
-import { createHash } from 'node:crypto';
+import crypto from 'node:crypto';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 
@@ -102,11 +101,12 @@ export async function initApiService(config: Record<string, any>, isReady = fals
                 }
                 
                 try {
-                    // 合并全局配置和节点配置
-                    const nodeConfig: DynamicPayload = deepmerge(config, {
+                    // 合并全局配置和节点配置（原生合并，无需 deepmerge 依赖）
+                    const nodeConfig: DynamicPayload = {
+                        ...config,
                         ...providerConfig,
                         MODEL_PROVIDER: providerType
-                    });
+                    };
                     delete nodeConfig.providerPools; // 移除 providerPools 避免递归
                     
                     // 初始化服务适配器
@@ -305,7 +305,7 @@ function buildStableIdentifyTag(raw: unknown): string | null {
 
     const base = text.replace(/\\/g, '/').split('/').pop() || '';
     if (base === '') return null;
-    return createHash('sha256').update(base).digest('hex').slice(0, 8);
+    return crypto.hash('sha256', base, 'hex').slice(0, 8);
 }
 
 /**

@@ -3,7 +3,8 @@
  * 处理Claude（Anthropic）协议与其他协议之间的转换
  */
 
-import {v4 as uuidv4} from 'uuid';
+import { randomUUID } from 'node:crypto';
+const uuidv4 = randomUUID;
 import logger from '../../utils/logger.ts';
 import {BaseConverter} from '../BaseConverter.ts';
 import {CodexConverter} from './CodexConverter.ts';
@@ -1474,7 +1475,7 @@ export class ClaudeConverter extends BaseConverter {
                 let inputSchema = tool.input_schema;
                 if (inputSchema && typeof inputSchema === 'object') {
                     // 创建副本以避免修改原始对象
-                    inputSchema = JSON.parse(JSON.stringify(inputSchema));
+                    inputSchema = structuredClone(inputSchema);
                     // 清理不需要的字段
                     delete inputSchema.$schema;
                     // 清理 URL 格式（Gemini 不支持）

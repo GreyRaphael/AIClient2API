@@ -3,7 +3,8 @@
  * 处理 OpenAI 协议与 Codex 协议之间的转换
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+const uuidv4 = randomUUID;
 import crypto from 'crypto';
 import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.ts';
@@ -841,7 +842,7 @@ export class CodexConverter extends BaseConverter {
                 return cand.length > limit ? cand.slice(0, limit) : cand;
             }
         }
-        const suffix = '_' + crypto.createHash('sha256').update(name).digest('hex').slice(0, 16);
+        const suffix = '_' + crypto.hash('sha256', name, 'hex').slice(0, 16);
         return name.slice(0, limit - suffix.length) + suffix;
     }
 

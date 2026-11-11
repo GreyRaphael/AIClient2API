@@ -154,9 +154,7 @@ export function decodeJwtPayload(token: unknown): Record<string, unknown> | null
     const parts = token.split('.');
     if (parts.length < 2) return null;
     try {
-        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-        const json = Buffer.from(padded, 'base64').toString('utf8');
+        const json = Buffer.from(parts[1], 'base64url').toString('utf8');
         const parsed: unknown = JSON.parse(json);
         return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
     } catch {
@@ -166,12 +164,13 @@ export function decodeJwtPayload(token: unknown): Record<string, unknown> | null
 
 /**
  * 由 token 的 `expires_in`（秒）计算绝对过期时间 ISO 字符串。
+ * 使用 Node 26 原生 Temporal API 进行 Duration 增加。
  * 缺省按 3600 秒处理，与各 provider 的既有行为一致。
  */
 export function computeTokenExpiryIso(expiresIn: unknown, fallbackSeconds = 3600): string {
     const seconds = Number(expiresIn);
     const effective = Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds;
-    return new Date(Date.now() + effective * 1000).toISOString();
+    return Temporal.Now.instant().add({ seconds: effective }).toString({ fractionalSecondDigits: 3 });
 }
 
 export async function closeActiveServer(

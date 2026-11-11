@@ -202,8 +202,11 @@ export function buildSummaryItems(
 
 /** 北京时间当天（与后端 dateKey 口径一致），供「今日」默认范围使用 */
 export function todayKey(): string {
-    const utc8 = new Date(Date.now() + 8 * 60 * 60 * 1000);
-    return utc8.toISOString().split('T')[0];
+    const temporal = (globalThis as { Temporal?: { Now: { plainDateISO(tz: string): { toString(): string } } } }).Temporal;
+    if (temporal) {
+        return temporal.Now.plainDateISO('Asia/Shanghai').toString();
+    }
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
 }
 
 /** 日历数据转成 StatsCalendar 需要的 usageHistory 形状 */

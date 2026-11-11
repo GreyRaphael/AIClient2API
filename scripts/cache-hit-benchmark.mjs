@@ -95,17 +95,12 @@ function printHelp() {
 `);
 }
 
-/** 单次带超时的 fetch，返回 { status, headers, body(text) }。 */
+/** 单次带超时的 fetch（使用 Node 26 原生 AbortSignal.timeout），返回 { status, headers, body(text) }。 */
 async function rawRequest(url, { method = 'GET', headers = {}, body, timeoutMs }) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        const response = await fetch(url, { method, headers, body, signal: controller.signal });
-        const text = await response.text();
-        return { status: response.status, headers: response.headers, text };
-    } finally {
-        clearTimeout(timer);
-    }
+    const signal = timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
+    const response = await fetch(url, { method, headers, body, signal });
+    const text = await response.text();
+    return { status: response.status, headers: response.headers, text };
 }
 
 function authHeaders(apiKey) {

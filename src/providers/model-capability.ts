@@ -247,10 +247,10 @@ function resolveSelectedModels(
         ? normalizeModelIds(nodeConfig.supportedModelsBaseline)
         : candidateModels;
     const baselineSet = new Set(baselineModels);
-    const newModels = candidateModels.filter((model: string) => !baselineSet.has(model));
     const candidateSet = new Set(candidateModels);
-    const selectedModels = normalizeModelIds([...supportedModels, ...newModels])
-        .filter((model: string) => candidateSet.has(model));
+    const newModels = Array.from(candidateSet.difference(baselineSet));
+    const mergedCandidates = new Set([...supportedModels, ...newModels]);
+    const selectedModels = normalizeModelIds(Array.from(mergedCandidates.intersection(candidateSet)));
 
     return {
         selectedModels,
@@ -299,7 +299,7 @@ export function resolveNodeCapability(providerType: string, nodeConfig: DynamicP
         || Object.values(entryMetadata).some((metadata) => (
             metadata !== null
             && typeof metadata === 'object'
-            && !Object.prototype.hasOwnProperty.call(metadata, 'support_images')
+            && !Object.hasOwn(metadata, 'support_images')
         ))
     );
     const stale = entry

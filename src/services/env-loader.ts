@@ -8,7 +8,7 @@
  *   这一点是替换 dotenv 时必须显式处理的差异：
  *   `process.loadEnvFile()` 在文件缺失时会抛 ENOENT，而 dotenv 只记录 error 字段。
  *
- * 支持基线为 Node.js 24+，`process.loadEnvFile` 自 Node 20.12 起可用。
+ * 支持基线为 Node.js 26+，`process.loadEnvFile` 自 Node 20.12 起可用。
  */
 
 import fs from 'node:fs';

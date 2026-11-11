@@ -41,7 +41,7 @@ export function normalizeModelMetadata(raw: unknown): ModelMetadata | null {
     if (maxOutputTokens !== undefined) metadata.max_output_tokens = maxOutputTokens;
     if (typeof record.support_images === 'boolean') metadata.support_images = record.support_images;
 
-    if (Object.prototype.hasOwnProperty.call(record, 'support_efforts')) {
+    if (Object.hasOwn(record, 'support_efforts')) {
         metadata.support_efforts = Array.isArray(record.support_efforts)
             ? normalizeSupportEfforts(record.support_efforts)
             : null;
@@ -77,8 +77,8 @@ export function mergeModelMetadata(base: ModelMetadata | undefined, patch: Model
     if (merged.context_length === undefined && patch.context_length !== undefined) merged.context_length = patch.context_length;
     if (merged.max_output_tokens === undefined && patch.max_output_tokens !== undefined) merged.max_output_tokens = patch.max_output_tokens;
     if (merged.support_images === undefined && patch.support_images !== undefined) merged.support_images = patch.support_images;
-    if (!Object.prototype.hasOwnProperty.call(merged, 'support_efforts')
-        && Object.prototype.hasOwnProperty.call(patch, 'support_efforts')) {
+    if (!Object.hasOwn(merged, 'support_efforts')
+        && Object.hasOwn(patch, 'support_efforts')) {
         merged.support_efforts = patch.support_efforts ?? null;
     }
     return merged;
@@ -94,7 +94,7 @@ export function applyModelMetadata(target: DynamicPayload, metadata: ModelMetada
     if (metadata.context_length !== undefined) target.context_length = metadata.context_length;
     if (metadata.max_output_tokens !== undefined) target.max_output_tokens = metadata.max_output_tokens;
     if (metadata.support_images !== undefined) target.support_images = metadata.support_images;
-    if (Object.prototype.hasOwnProperty.call(metadata, 'support_efforts')) {
+    if (Object.hasOwn(metadata, 'support_efforts')) {
         target.support_efforts = metadata.support_efforts ?? null;
     }
     return target;

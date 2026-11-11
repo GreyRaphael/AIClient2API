@@ -76,12 +76,12 @@ export function stripRequestedReasoningEffort(body: unknown): boolean {
     const deleteEffort = (target: unknown): boolean => {
         if (!target || typeof target !== 'object' || Array.isArray(target)) return false;
         const obj = target as Record<string, any>;
-        if (!Object.prototype.hasOwnProperty.call(obj, 'effort')) return false;
+        if (!Object.hasOwn(obj, 'effort')) return false;
         delete obj.effort;
         return true;
     };
 
-    if (Object.prototype.hasOwnProperty.call(record, 'reasoning_effort')) {
+    if (Object.hasOwn(record, 'reasoning_effort')) {
         delete record.reasoning_effort;
         stripped = true;
     }
@@ -108,7 +108,7 @@ export function stripRequestedReasoningEffort(body: unknown): boolean {
 
     const extraBody = record.extra_body;
     if (extraBody && typeof extraBody === 'object' && !Array.isArray(extraBody)) {
-        if (Object.prototype.hasOwnProperty.call(extraBody, 'reasoning_effort')) {
+        if (Object.hasOwn(extraBody, 'reasoning_effort')) {
             delete extraBody.reasoning_effort;
             stripped = true;
         }

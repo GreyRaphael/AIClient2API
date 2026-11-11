@@ -86,8 +86,10 @@ export function buildCalendarDays(usageHistory = {}, now = new Date()) {
         date.setDate(startDate.getDate() + index);
         if (date > now) break;
 
-        const utc8 = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-        const dateKey = utc8.toISOString().split('T')[0];
+        const temporal = globalThis.Temporal;
+        const dateKey = temporal
+            ? temporal.Instant.fromEpochMilliseconds(date.getTime()).toZonedDateTimeISO('Asia/Shanghai').toPlainDate().toString()
+            : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date);
         const entry = daily[dateKey] || normalizeUsageDay({});
         total += entry.totalTokens;
 

@@ -25,7 +25,7 @@ function hasAntigravityServerSideTools(tools: DynamicPayload[] | null | undefine
     return Array.isArray(tools) && tools.some((tool: DynamicPayload) => {
         if (!tool || typeof tool !== 'object') return false;
         return ANTIGRAVITY_SERVER_SIDE_TOOL_FIELDS.some((field: string) =>
-            Object.prototype.hasOwnProperty.call(tool, field)
+            Object.hasOwn(tool, field)
         );
     });
 }

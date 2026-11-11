@@ -75,13 +75,13 @@ export function normalizeProviderConfigFields<T>(data: T): T {
 
     const result: Record<string, unknown> = { ...(data as Record<string, unknown>) };
     for (const key of PROVIDER_STRING_ARRAY_CONFIG_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(result, key)) {
+        if (Object.hasOwn(result, key)) {
             result[key] = normalizeStringArrayConfigValue(result[key]);
         }
     }
 
     for (const key of PROVIDER_BOOLEAN_CONFIG_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(result, key)) {
+        if (Object.hasOwn(result, key)) {
             result[key] = normalizeBooleanConfigValue(result[key]);
         }
     }

@@ -10,9 +10,8 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.resolve(import.meta.dirname, '..');
 
 /** [import specifier, vendor 目录名, npm 包名, vendor 内文件名] */
 const VENDOR_SPECIFIERS = [

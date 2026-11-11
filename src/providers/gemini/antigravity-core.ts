@@ -10,7 +10,8 @@ import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
 import type { Readable } from 'node:stream';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+const uuidv4 = randomUUID;
 import open from 'open';
 import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
 import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.ts';
@@ -266,7 +267,7 @@ function sanitizeAgentFingerprint(text: unknown): string {
 }
 
 function normalizeAntigravityTextPart(part: DynamicPayload, isClaudeModel = false): void {
-    if (!part || typeof part !== 'object' || !Object.prototype.hasOwnProperty.call(part, 'text')) {
+    if (!part || typeof part !== 'object' || !Object.hasOwn(part, 'text')) {
         return;
     }
 
@@ -365,7 +366,7 @@ function stripAntigravityReasoningEffort(requestBody: DynamicPayload): boolean {
     if (!requestBody || typeof requestBody !== 'object') return false;
 
     let stripped = false;
-    if (Object.prototype.hasOwnProperty.call(requestBody, '_rawThinkingEffort')) {
+    if (Object.hasOwn(requestBody, '_rawThinkingEffort')) {
         delete requestBody._rawThinkingEffort;
         stripped = true;
     }
@@ -418,7 +419,7 @@ function generateStableSessionID(payload: DynamicPayload): string {
     try {
         const dsId = payload?.request?._downstreamSessionId || payload?._downstreamSessionId;
         if (dsId) {
-            const hash = crypto.createHash('sha256').update(String(dsId)).digest();
+            const hash = crypto.hash('sha256', String(dsId), 'buffer');
             const n = hash.readBigUInt64BE(0) & BigInt('0x7FFFFFFFFFFFFFFF');
             return '-' + n.toString();
         }
@@ -428,7 +429,7 @@ function generateStableSessionID(payload: DynamicPayload): string {
                 if (content && content.role === 'user' && Array.isArray(content.parts)) {
                     const text = content.parts?.[0]?.text;
                     if (text) {
-                        const hash = crypto.createHash('sha256').update(text).digest();
+                        const hash = crypto.hash('sha256', text, 'buffer');
                         // 取前8字节转换为 BigInt，然后取正数
                         const n = hash.readBigUInt64BE(0) & BigInt('0x7FFFFFFFFFFFFFFF');
                         return '-' + n.toString();
@@ -587,7 +588,7 @@ function ensureToolCallIds(contents: DynamicPayload[]): void {
 export function geminiToAntigravity(modelName: string, payload: DynamicPayload, projectId: string | null, capabilities: DynamicPayload | null = null): DynamicPayload {
     // 唯一一次全量结构化拷贝：保证不修改调用方传入的 payload（该函数是导出 API，
     // 单测会复用同一个 payload 对象连续调用两次，必须无副作用）。
-    const template = JSON.parse(JSON.stringify(payload));
+    const template = structuredClone(payload);
     return geminiToAntigravityInPlace(modelName, template, projectId, capabilities);
 }
 
@@ -2185,7 +2186,7 @@ export class AntigravityApiService {
         // 直接作为 template 交给 geminiToAntigravityInPlace 原地改写。
         // 旧实现先 deepCopy(requestBody)，再把 { request: copy } 交给 geminiToAntigravity，
         // 由后者做第二次全量 deepCopy（含 Base64 图片时是纯浪费）。
-        const processedRequestBody = ensureRolesInContents(JSON.parse(JSON.stringify(requestBody)), selectedModel);
+        const processedRequestBody = ensureRolesInContents(structuredClone(requestBody), selectedModel);
         const payload = geminiToAntigravityInPlace(actualModelName, { request: processedRequestBody }, this.projectId ?? null, capabilities);
 
         // 若选中的模型以 -high / -medium / -low 结尾，确保思考级别设置为对应等级

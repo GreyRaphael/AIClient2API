@@ -1,4 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+const uuidv4 = randomUUID;
 import type {
     OpenAIResponsesOutputItem,
     OpenAIResponsesStreamEvent,

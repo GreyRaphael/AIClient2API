@@ -11,9 +11,8 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO = path.resolve(import.meta.dirname, '..', '..');
 const PORT = Number(process.env.WEBUI_E2E_PORT || 39173);
 export const E2E_PASSWORD = 'e2e-pass';
 

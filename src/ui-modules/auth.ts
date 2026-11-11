@@ -157,7 +157,7 @@ interface TokenStore {
 function isOwnToken(token: string, tokens: Record<string, unknown> = {}): boolean {
     return typeof token === 'string'
         && token.length > 0
-        && Object.prototype.hasOwnProperty.call(tokens, token);
+        && Object.hasOwn(tokens, token);
 }
 
 /**

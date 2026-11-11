@@ -5,14 +5,13 @@
  * supported Node.js version so the process can fail fast with a clear message
  * instead of crashing inside the application module graph.
  *
- * 支持基线：Node.js >= 24.0.0。
+ * 支持基线：Node.js >= 26.0.0。
  * 注意这里做的是**真实的版本校验**，而不只是探测 `process.features.typescript`：
- * Node 22.18+ 同样具备原生类型擦除能力，仅靠特性探测会让 22.x 静默通过，
- * 从而在只面向 24+ 的代码上出现难以定位的运行时差异。
+ * 从而在只面向 26+ 的代码上出现难以定位的运行时差异。
  */
 
 /** 最低支持的 Node.js 主版本 */
-export const MIN_NODE_MAJOR = 24;
+export const MIN_NODE_MAJOR = 26;
 
 /**
  * 解析 `process.version` 的主版本号。

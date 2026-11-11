@@ -220,9 +220,7 @@ export class CodexAuth {
             .toString('base64url');
 
         // 生成 code challenge (SHA256 of verifier)
-        const challenge = crypto.createHash('sha256')
-            .update(verifier)
-            .digest('base64url');
+        const challenge = crypto.hash('sha256', verifier, 'base64url');
 
         return { verifier, challenge };
     }

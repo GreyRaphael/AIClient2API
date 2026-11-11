@@ -4,7 +4,8 @@
  * 提供各种协议转换所需的通用辅助函数
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+const uuidv4 = randomUUID;
 import logger from '../utils/logger.ts';
 import { getConfigToggle } from '../core/config-manager.ts';
 import { countTextTokens } from '../utils/token-utils.ts';
@@ -712,7 +713,7 @@ export function mergeConsecutiveSameRoleContents(
     for (const item of validItems) {
         const itemRole = String(item.role ?? '');
         const targetRole = rolePair && rolePair[itemRole] ? rolePair[itemRole] : itemRole;
-        const last = merged[merged.length - 1];
+        const last = merged.at(-1);
         if (last && last.role === targetRole) {
             last.parts.push(...item.parts);
         } else {
@@ -770,7 +771,7 @@ export function sortToolsByName<T extends ToolLike>(tools: T[]): T[] {
     if (!isSortToolsEnabled()) {
         return tools;
     }
-    return [...tools].sort((a, b) => {
+    return tools.toSorted((a, b) => {
         const nameA = a?.name || a?.function?.name || a?.function_declarations?.[0]?.name || a?.functionDeclarations?.[0]?.name || '';
         const nameB = b?.name || b?.function?.name || b?.function_declarations?.[0]?.name || b?.functionDeclarations?.[0]?.name || '';
         // 用码点比较而非 localeCompare：localeCompare 受进程 locale/ICU 影响，

@@ -3,7 +3,8 @@
  * 处理OpenAI协议与其他协议之间的转换
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+const uuidv4 = randomUUID;
 import logger from '../../utils/logger.ts';
 import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.ts';
@@ -333,36 +334,22 @@ export class OpenAIConverter extends BaseConverter {
         }
         // 合并相邻相同 role 的消息
         const mergedClaudeMessages: DynamicPayload[] = [];
-        for (let i = 0; i < claudeMessages.length; i++) {
-            const currentMessage = claudeMessages[i];
-
-            if (mergedClaudeMessages.length === 0) {
-                mergedClaudeMessages.push(currentMessage);
+        for (const currentMessage of claudeMessages) {
+            const lastMessage = mergedClaudeMessages.at(-1);
+            if (lastMessage && lastMessage.role === currentMessage.role) {
+                lastMessage.content = lastMessage.content.concat(currentMessage.content);
             } else {
-                const lastMessage = mergedClaudeMessages[mergedClaudeMessages.length - 1];
-
-                // 如果当前消息的 role 与上一条消息的 role 相同，则合并 content 数组
-                if (lastMessage.role === currentMessage.role) {
-                    lastMessage.content = lastMessage.content.concat(currentMessage.content);
-                } else {
-                    mergedClaudeMessages.push(currentMessage);
-                }
+                mergedClaudeMessages.push(currentMessage);
             }
         }
 
         // 清理最后一条 assistant 消息的尾部空白
-        if (mergedClaudeMessages.length > 0) {
-            const lastMessage = mergedClaudeMessages[mergedClaudeMessages.length - 1];
-            if (lastMessage.role === 'assistant' && Array.isArray(lastMessage.content)) {
-                // 从后往前找到最后一个 text 类型的内容块
-                for (let i = lastMessage.content.length - 1; i >= 0; i--) {
-                    const contentBlock = lastMessage.content[i];
-                    if (contentBlock.type === 'text' && contentBlock.text) {
-                        // 移除尾部空白字符
-                        contentBlock.text = contentBlock.text.trimEnd();
-                        break;
-                    }
-                }
+        const lastMessage = mergedClaudeMessages.at(-1);
+        if (lastMessage?.role === 'assistant' && Array.isArray(lastMessage.content)) {
+            // 从后往前找到最后一个 text 类型的内容块
+            const contentBlock = lastMessage.content.findLast((b: DynamicPayload) => b?.type === 'text' && b.text);
+            if (contentBlock) {
+                contentBlock.text = contentBlock.text.trimEnd();
             }
         }
 

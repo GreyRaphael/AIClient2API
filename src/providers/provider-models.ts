@@ -77,7 +77,7 @@ export function getCustomModelActualProvider(modelConfig: DynamicPayload | null 
     if (!modelConfig) {
         return '';
     }
-    if (Object.prototype.hasOwnProperty.call(modelConfig, 'actualProvider')) {
+    if (Object.hasOwn(modelConfig, 'actualProvider')) {
         return modelConfig.actualProvider || '';
     }
     return modelConfig.provider || '';

@@ -59,7 +59,7 @@ export function applyCustomModelMetadata(
         target.support_images = supportImages === 'true';
     }
 
-    if (Object.prototype.hasOwnProperty.call(customConfig, 'support_efforts')) {
+    if (Object.hasOwn(customConfig, 'support_efforts')) {
         target.support_efforts = normalizeCustomSupportEfforts(customConfig.support_efforts);
     }
 }

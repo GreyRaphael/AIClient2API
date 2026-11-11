@@ -128,7 +128,7 @@ export async function handleRevealProviderSecret(
 
     // providerType 来自 URL：JSON.parse 出的 pools 继承 Object.prototype，
     // 直接用 pools['__proto__'] 会拿到对象而不是数组，导致 .find 抛错。
-    const providers = Object.prototype.hasOwnProperty.call(providerPools, providerType)
+    const providers = Object.hasOwn(providerPools, providerType)
         ? providerPools[providerType]
         : undefined;
     const provider = Array.isArray(providers)
@@ -365,7 +365,7 @@ function normalizeModelSelectionFields(providerConfig: ProviderConfig): Provider
         delete normalized[field];
     }
 
-    if (Object.prototype.hasOwnProperty.call(normalized, 'supportedModels')) {
+    if (Object.hasOwn(normalized, 'supportedModels')) {
         if (normalized.supportedModels === null || normalized.supportedModels === undefined) {
             delete normalized.supportedModels;
         } else {
@@ -373,7 +373,7 @@ function normalizeModelSelectionFields(providerConfig: ProviderConfig): Provider
         }
     }
 
-    if (Object.prototype.hasOwnProperty.call(normalized, 'supportedModelsBaseline')) {
+    if (Object.hasOwn(normalized, 'supportedModelsBaseline')) {
         if (normalized.supportedModelsBaseline === null || normalized.supportedModelsBaseline === undefined) {
             delete normalized.supportedModelsBaseline;
         } else {

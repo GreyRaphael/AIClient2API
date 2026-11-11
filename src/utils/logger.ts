@@ -96,11 +96,7 @@ class Logger {
             }
 
             // 创建日志文件名（按本地日期）
-            const date = new Date();
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const dateStr = `${year}-${month}-${day}`;
+            const dateStr = Temporal.Now.plainDateISO().toString();
             this.currentLogFile = path.join(this.config.logDir, `app-${dateStr}.log`);
 
             // 记录打开时的既有大小，作为本地字节累加的基线（避免每次 statSync）
@@ -197,15 +193,7 @@ class Logger {
 
         // 添加本地时间戳
         if (this.config.includeTimestamp) {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            const seconds = String(now.getSeconds()).padStart(2, '0');
-            const ms = String(now.getMilliseconds()).padStart(3, '0');
-            const timestamp = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
+            const timestamp = Temporal.Now.plainDateTimeISO().toString({ fractionalSecondDigits: 3 }).replace('T', ' ');
             parts.push(`[${timestamp}]`);
         }
 

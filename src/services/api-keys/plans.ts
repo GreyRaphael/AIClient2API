@@ -45,18 +45,13 @@ export function computeValidUntil(from: Date, cycleId: string): Date {
     const start = new Date(from);
     if (Number.isNaN(start.getTime())) throw new Error('computeValidUntil: 无效起始时间');
 
+    const zdt = Temporal.Instant.fromEpochMilliseconds(start.getTime()).toZonedDateTimeISO('Asia/Shanghai');
     if (cycleId === 'week') {
-        return new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return new Date(zdt.add({ weeks: 1 }).epochMilliseconds);
     }
     if (cycleId === 'month') {
-        const result = new Date(start);
-        const originalDay = result.getDate();
-        result.setMonth(result.getMonth() + 1);
-        // 月末溢出修正：例如 1/31 +1 月会变成 3/3，这里回退到 2 月最后一天
-        if (result.getDate() !== originalDay) {
-            result.setDate(0);
-        }
-        return result;
+        // 使用 Temporal 原生日历月加法：自动处理月末溢出（例如 1/31 -> 2/28 或 2/29）
+        return new Date(zdt.add({ months: 1 }).epochMilliseconds);
     }
     throw new Error(`computeValidUntil: 未知周期 '${cycleId}'`);
 }
@@ -119,10 +114,9 @@ export function normalizePlan(plan: unknown): KeyPlan | null {
     };
 }
 
-/** 北京时区的日期键 (YYYY-MM-DD) */
+/** 北京时区的日期键 (YYYY-MM-DD)，使用 Node 26 Temporal 原生时区日期 */
 export function toDateKey(date: Date = new Date()): string {
-    const utc8 = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-    return utc8.toISOString().split('T')[0]!;
+    return Temporal.Instant.fromEpochMilliseconds(date.getTime()).toZonedDateTimeISO('Asia/Shanghai').toPlainDate().toString();
 }
 
 /**

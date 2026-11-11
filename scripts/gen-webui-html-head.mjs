@@ -15,7 +15,6 @@
  * 引用块首行的缩进会被保留，其余行按该缩进重新排版。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { HTML_PAGES, STATIC_ROOT, renderImportMap, renderThemeBoot } from './webui-html-shell.mjs';
 
@@ -126,6 +125,6 @@ function main() {
     }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) {
     main();
 }

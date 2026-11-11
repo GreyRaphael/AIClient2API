@@ -6,7 +6,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import type { Agent } from 'node:http';
-import { createHash } from 'node:crypto';
+import crypto from 'node:crypto';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import logger from './logger.ts';
 import requestContext from './context.ts';
@@ -338,7 +338,7 @@ export function toValidUUID(strOrSeed: string): string {
     if (uuidMatch) {
         return uuidMatch[1].toLowerCase();
     }
-    const hex = createHash('md5').update(raw).digest('hex');
+    const hex = crypto.hash('md5', raw, 'hex');
     const p1 = hex.slice(0, 8);
     const p2 = hex.slice(8, 12);
     const p3 = `4${hex.slice(13, 16)}`;
@@ -354,7 +354,7 @@ export function toValidUUID(strOrSeed: string): string {
 export function toTraceId(convId: string): string {
     const clean = String(convId || '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
     if (clean.length === 32) return clean;
-    return createHash('md5').update(String(convId || '')).digest('hex');
+    return crypto.hash('md5', String(convId || ''), 'hex');
 }
 
 /**

@@ -279,7 +279,7 @@ export function shortenCodexToolName(name: string): string {
                 : candidate;
         }
     }
-    const suffix = '_' + crypto.createHash('sha256').update(name).digest('hex').slice(0, 16);
+    const suffix = '_' + crypto.hash('sha256', name, 'hex').slice(0, 16);
     return name.slice(0, CODEX_TOOL_NAME_LIMIT - suffix.length) + suffix;
 }
 

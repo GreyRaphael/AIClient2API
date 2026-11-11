@@ -14,7 +14,7 @@
  * 6. 降级容错：即使重启导致 HMAC 校验失败，仍依据前缀识别剥离，绝不阻断请求。
  */
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import crypto, { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getConfigToggle } from '../core/config-manager.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
@@ -66,8 +66,8 @@ export interface MintVirtualSignatureOptions {
  * 格式: "vsig1.<base64url(sessionKeyHash|blockIndex|textHash)>.<base64url(HMAC-SHA256)>"
  */
 export function mintVirtualSignature({ sessionKey = '', blockIndex = 0, thinkingText = '' }: MintVirtualSignatureOptions = {}): string {
-    const sessionKeyHash = createHash('sha256').update(String(sessionKey || '')).digest('base64url').slice(0, 16);
-    const textHash = createHash('sha256').update(String(thinkingText || '')).digest('base64url').slice(0, 16);
+    const sessionKeyHash = crypto.hash('sha256', String(sessionKey || ''), 'base64url').slice(0, 16);
+    const textHash = crypto.hash('sha256', String(thinkingText || ''), 'base64url').slice(0, 16);
     const rawPayload = `${sessionKeyHash}|${Number(blockIndex) || 0}|${textHash}`;
     const encodedPayload = Buffer.from(rawPayload, 'utf-8').toString('base64url');
     const secret = getVaultSecret();

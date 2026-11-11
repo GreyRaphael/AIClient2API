@@ -13,14 +13,13 @@ function isRecord(value: unknown): value is UnknownRecord {
 // ==================== 时间与时区 ====================
 
 /**
- * 获取北京时间 (UTC+8) 的日期字符串 (YYYY-MM-DD)
+ * 获取北京时间 (UTC+8) 的日期字符串 (YYYY-MM-DD)。
+ * 使用 Node 26 原生 Temporal API，精准按 Asia/Shanghai 时区取当前纯日历日期，
+ * 杜绝传统通过加减毫秒数伪造 UTC 时间戳的 hack。
  * @returns {string} - YYYY-MM-DD 格式的日期字符串
  */
-export function getBeijingDateString() {
-    const now = new Date();
-    // 强制增加 8 小时偏移来模拟 UTC+8
-    const utc8Time = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-    return utc8Time.toISOString().split('T')[0];
+export function getBeijingDateString(): string {
+    return Temporal.Now.plainDateISO('Asia/Shanghai').toString();
 }
 
 // ==================== 网络错误处理 ====================

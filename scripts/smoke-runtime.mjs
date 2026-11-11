@@ -13,10 +13,11 @@
  */
 
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
+import { setTimeout as sleep } from 'node:timers/promises';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.resolve(import.meta.dirname, '..');
 const MODULES = [
     'src/converters/register-converters.ts',
     'src/services/api-keys/index.ts',
@@ -27,8 +28,6 @@ const MODULES = [
     'src/auth/index.ts',
     'src/ui-modules/update-api.ts'
 ];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function checkModuleGraph() {
     for (const relativePath of MODULES) {

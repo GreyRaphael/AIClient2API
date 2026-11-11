@@ -12,24 +12,17 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const SOURCE_EXTENSIONS = ['.ts', '.js', '.mjs', '.cjs'];
 const RESOLVE_SUFFIXES = ['', '.ts', '.js', '.mjs', '.cjs', '/index.ts', '/index.js', '/index.mjs'];
 
-function walk(dir, out = []) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const entryPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            walk(entryPath, out);
-        } else if (entry.isFile() && SOURCE_EXTENSIONS.includes(path.extname(entry.name))) {
-            out.push(entryPath);
-        }
-    }
-    return out;
+function walk(dir) {
+    return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile() && SOURCE_EXTENSIONS.includes(path.extname(entry.name)))
+        .map((entry) => path.join(entry.parentPath || dir, entry.name));
 }
 
 function resolveRelative(fromFile, specifier) {

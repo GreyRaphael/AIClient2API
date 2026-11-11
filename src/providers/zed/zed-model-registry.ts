@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { createHash } from 'crypto';
+import crypto from 'node:crypto';
 import logger from '../../utils/logger.ts';
 import { atomicWriteFile, withFileLock } from '../../utils/file-lock.ts';
 import { getErrorMessage } from '../../utils/error.ts';
@@ -34,7 +34,7 @@ function isTestEnv(): boolean {
 
 function hashAccount(accountKey: unknown): string {
     const raw = String(accountKey || 'default');
-    return createHash('sha256').update(raw).digest('hex').slice(0, 16);
+    return crypto.hash('sha256', raw, 'hex').slice(0, 16);
 }
 
 /**

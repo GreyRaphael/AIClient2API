@@ -1895,7 +1895,7 @@ export class TraeApiService {
             payload.messages = mergedMessages;
 
             if (isToB && !payload.user_input) {
-                const lastUser = [...mergedMessages].reverse().find((m: DynamicPayload) => m.role === 'user');
+                const lastUser = mergedMessages.findLast((m: DynamicPayload) => m.role === 'user');
                 if (lastUser && Array.isArray(lastUser.content)) {
                     const textItem = lastUser.content.find((c: DynamicPayload) => c.type === 'text');
                     payload.user_input = textItem?.text || '';

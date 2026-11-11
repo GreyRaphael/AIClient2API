@@ -1,3 +1,4 @@
+import { styleText } from 'node:util';
 import { API_GUIDE_DATA, API_EXAMPLES, formatApiGuideText } from '../utils/docs-data.ts';
 
 const args = process.argv.join(' ');
@@ -10,6 +11,6 @@ if (isJson) {
     }, null, 2));
 } else {
     console.log(formatApiGuideText());
-    console.log('\n\x1b[33m提示: 运行 npm run example:api -- --json 可获取结构化数据。\x1b[0m\n');
+    console.log(`\n${styleText('yellow', '提示: 运行 npm run example:api -- --json 可获取结构化数据。')}\n`);
 }
 

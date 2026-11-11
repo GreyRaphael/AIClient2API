@@ -1,4 +1,5 @@
 import readline from 'readline';
+import { styleText } from 'node:util';
 import { handleZedOAuth, handleZedOAuthCallback } from '../auth/zed-oauth.ts';
 import { CONFIG, initializeConfig } from '../core/config-manager.ts';
 import { getErrorMessage } from '../utils/error.ts';
@@ -27,7 +28,7 @@ async function main() {
         });
 
         console.log('\n请在浏览器中打开以下授权 URL (已尝试自动打开)：\n');
-        console.log(`\x1b[36m${authUrl}\x1b[0m\n`);
+        console.log(`${styleText('cyan', authUrl)}\n`);
         console.log('----------------------------------------------------------------------');
         console.log('说明：');
         console.log('1. 如果你在本地图形界面运行，浏览器已尝试自动打开，请登录并授权。');
@@ -54,7 +55,7 @@ async function main() {
         waitForCallback()
             .then((result: { userId?: string; credPath?: string; email?: string }) => {
                 if (finished) return;
-                console.log('\n\x1b[32m[SUCCESS] Zed 授权成功！\x1b[0m');
+                console.log(`\n${styleText('green', '[SUCCESS] Zed 授权成功！')}`);
                 console.log(`User ID: ${result.userId}`);
                 console.log(`凭据文件已写入: ${result.credPath}`);
                 console.log(`节点已自动挂载至 provider_pools.json (Zed - ${result.email || result.userId})\n`);
@@ -62,7 +63,7 @@ async function main() {
             })
             .catch((err: unknown) => {
                 if (finished) return;
-                console.error(`\n\x1b[31m[ERROR] 回调等待出错: ${getErrorMessage(err)}\x1b[0m\n`);
+                console.error(`\n${styleText('red', `[ERROR] 回调等待出错: ${getErrorMessage(err)}`)}\n`);
                 cleanupAndExit(1);
             });
 
@@ -74,20 +75,20 @@ async function main() {
                 try {
                     console.log('\n正在解析手动输入的回调 URL...');
                     const result = await handleZedOAuthCallback(input, authInfo.sessionId, CONFIG);
-                    console.log('\n\x1b[32m[SUCCESS] Zed 授权成功！\x1b[0m');
+                    console.log(`\n${styleText('green', '[SUCCESS] Zed 授权成功！')}`);
                     console.log(`User ID: ${result.userId}`);
                     console.log(`凭据文件已写入: ${result.credPath}`);
                     console.log(`节点已自动挂载至 provider_pools.json (Zed - ${result.email || result.userId})\n`);
                     cleanupAndExit(0);
                 } catch (err) {
-                    console.error(`\n\x1b[31m[ERROR] 手动回调解析失败: ${getErrorMessage(err)}\x1b[0m\n`);
+                    console.error(`\n${styleText('red', `[ERROR] 手动回调解析失败: ${getErrorMessage(err)}`)}\n`);
                     cleanupAndExit(1);
                 }
             }
         });
 
     } catch (err) {
-        console.error(`\n\x1b[31m[ERROR] 初始化登录失败: ${getErrorMessage(err)}\x1b[0m\n`);
+        console.error(`\n${styleText('red', `[ERROR] 初始化登录失败: ${getErrorMessage(err)}`)}\n`);
         process.exit(1);
     }
 }
