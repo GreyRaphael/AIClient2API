@@ -1,0 +1,879 @@
+import { describe, test } from 'node:test';
+import { expect, jest } from './support/harness.mjs';
+
+import fs from 'fs';
+import path from 'path';
+import { MODEL_PROVIDER } from '../src/utils/constants.ts';
+import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.ts';
+import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.ts';
+import { TraeApiService } from '../src/providers/trae/trae-core.ts';
+import { PROVIDER_MODELS } from '../src/providers/provider-models.ts';
+import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.ts';
+
+describe('Trae Provider Implementation Tests', () => {
+    test('Trae provider is properly registered and configured', () => {
+        expect(MODEL_PROVIDER.TRAE).toBe('trae');
+        expect(MODEL_PROVIDER.TRAE_CHAT_V3).toBe('trae-chat_v3');
+        expect(MODEL_PROVIDER.TRAE_SOLO_WORK_LITE).toBeUndefined();
+        expect(MODEL_PROVIDER.TRAE_AGENT_V3).toBeUndefined();
+
+        expect(getRegisteredProviders()).toContain('trae');
+        expect(getRegisteredProviders()).toContain('trae-chat_v3');
+        expect(getRegisteredProviders()).not.toContain('trae-solo_work_lite');
+        expect(getRegisteredProviders()).not.toContain('trae-agent_v3');
+        expect(PROVIDER_MODELS['trae-solo_work_lite']).toBeUndefined();
+        expect(PROVIDER_MODELS['trae-agent_v3']).toBeUndefined();
+
+        expect(getProtocolPrefix('trae')).toBe(MODEL_PROTOCOL_PREFIX.OPENAI);
+        expect(getProtocolPrefix('trae-chat_v3')).toBe(MODEL_PROTOCOL_PREFIX.OPENAI);
+
+        expect(PROVIDER_MODELS['trae']).not.toContain('auto');
+        expect(PROVIDER_MODELS['trae-chat_v3']).not.toContain('auto');
+
+        // 静态清单只保留少量冷启动 baseline，完整模型以 /auto/v1/models 发现结果为准。
+        expect(PROVIDER_MODELS['trae']).toContain('glm-5.2');
+        expect(PROVIDER_MODELS['trae-chat_v3']).toContain('qwen3.8-flash');
+    });
+
+    test('TraeApiService.prepareRequestBody formats request for ToB raw chat upstream by default', () => {
+        const traeService = new TraeApiService({
+            uuid: 'test-trae-uuid'
+        });
+
+        const openAIRequestBody = {
+            model: 'auto',
+            messages: [
+                { role: 'system', content: 'You are a helpful assistant' },
+                { role: 'user', content: 'Hello' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [{
+                        id: 'call_123',
+                        type: 'function',
+                        function: {
+                            name: 'get_weather',
+                            arguments: '{"city":"Beijing"}'
+                        }
+                    }]
+                }
+            ],
+            tool_choice: 'auto',
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'get_weather',
+                    description: 'Get weather',
+                    parameters: { type: 'object' }
+                }
+            }]
+        };
+
+        const prepared = traeService.prepareRequestBody('auto', openAIRequestBody);
+
+        expect(prepared.function).toBe('chat');
+        expect(prepared.max_mode).toBe(true);
+        expect(prepared.stream).toBe(true);
+        expect(prepared.model).toBe('glm-5.2');
+        expect(prepared.config_name).toBe('glm-5.2');
+        expect(prepared.model_name).toBe('glm-5.2__max');
+        expect(prepared.user_input).toBe('Hello');
+        expect(prepared.mode_type).toBe(0);
+        expect(prepared.access_type).toBe(4);
+        expect(typeof prepared.conversation_id).toBe('string');
+        expect(typeof prepared.tools[0].function.parameters).toBe('string');
+        expect(prepared.tools[0].function.parameters).toBe('{"type":"object"}');
+
+        // Test reasoning_effort strict mapping
+        const reqWithEffort = traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'xhigh'
+        });
+        expect(reqWithEffort.reasoning_effort_level).toBe('extra_high');
+        expect(reqWithEffort.reasoning_effort).toBeUndefined();
+
+        // 上游没有 max 档位时必须报错 unsupported
+        expect(() => traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'max'
+        })).toThrow(/unsupported/i);
+
+        const reqNone = traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'none'
+        });
+        expect(reqNone.reasoning_effort_level).toBeUndefined();
+
+        // 上游没有 minimal / medium 档位，必须报错 unsupported
+        expect(() => traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'minimal'
+        })).toThrow(/unsupported/i);
+
+        expect(() => traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody,
+            reasoning_effort: 'medium'
+        })).toThrow(/unsupported/i);
+
+        // 默认不传 reasoning_effort 时，使用上游最高档 extra_high，无特定模型硬编码
+        const reqDefaultEffort = traeService.prepareRequestBody('glm-5.3', {
+            ...openAIRequestBody
+        });
+        expect(reqDefaultEffort.reasoning_effort_level).toBe('extra_high');
+
+        // Check message formatting
+        expect(prepared.messages[0].content).toEqual([{ type: 'text', text: 'You are a helpful assistant' }]);
+        expect(prepared.messages[1].content).toEqual([{ type: 'text', text: 'Hello' }]);
+        
+        // Tool call converted to function_call
+        expect(prepared.messages[2].tool_calls[0].function_call).toEqual({
+            name: 'get_weather',
+            arguments: '{"city":"Beijing"}'
+        });
+    });
+
+    test('TraeApiService supports trae-chat_v3 provider and function', () => {
+        const chatService = new TraeApiService({
+            uuid: 'test-trae-chat',
+            MODEL_PROVIDER: 'trae-chat_v3'
+        });
+
+        const channel = chatService.getChannelConfig();
+        expect(channel.mode).toBe('chat_v3');
+        expect(channel.function).toBe('chat_v3');
+        expect(channel.url).toBe('https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat');
+
+        const prepared = chatService.prepareRequestBody('qwen3.8-flash', {
+            messages: [{ role: 'user', content: 'test' }]
+        });
+
+        expect(prepared.function).toBe('chat_v3');
+        expect(prepared.model).toBe('qwen3.8-flash');
+        expect(prepared.config_name).toBe('qwen3.8-flash');
+        expect(prepared.max_mode).toBe(true);
+    });
+
+    test('TraeApiService channel configuration presets and URL switching', () => {
+        // 1. Default ToB raw chat
+        const defaultService = new TraeApiService({ uuid: 'u1' });
+        const defaultChannel = defaultService.getChannelConfig();
+        expect(defaultChannel.mode).toBe('tob_raw_chat');
+        expect(defaultChannel.url).toBe('https://api.enterprise.trae.cn/api/ide/v2/llm_raw_chat');
+        expect(defaultChannel.function).toBe('chat');
+
+        // 2. Chat v3
+        const chatService = new TraeApiService({
+            uuid: 'u2',
+            TRAE_CHANNEL_MODE: 'chat_v3'
+        });
+        const chatChannel = chatService.getChannelConfig();
+        expect(chatChannel.mode).toBe('chat_v3');
+        expect(chatChannel.url).toBe('https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat');
+        expect(chatChannel.function).toBe('chat_v3');
+
+        // 3. Custom endpoint
+        const customService = new TraeApiService({
+            uuid: 'u3',
+            TRAE_CHANNEL_MODE: 'custom',
+            TRAE_BASE_URL: 'https://my-proxy.company.internal/custom/chat'
+        });
+        const customChannel = customService.getChannelConfig();
+        expect(customChannel.mode).toBe('custom');
+        expect(customChannel.url).toBe('https://my-proxy.company.internal/custom/chat');
+
+        // 4. Auto-inference from Chat v3 URL
+        const autoService = new TraeApiService({
+            uuid: 'u4',
+            TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat'
+        });
+        expect(autoService.channelMode).toBe('chat_v3');
+    });
+
+    test('TraeApiService correctly maps model aliases', () => {
+        const traeService = new TraeApiService({
+            uuid: 'test-trae-uuid'
+        });
+
+        const p1 = traeService.prepareRequestBody('auto', {});
+        expect(p1.model).toBe('glm-5.2');
+
+        const p2 = traeService.prepareRequestBody('qwen3.8-flash', {});
+        expect(p2.model).toBe('qwen3.8-max');
+
+        const p3 = traeService.prepareRequestBody('glm-5.3', {});
+        expect(p3.model).toBe('glm-5.3');
+
+        // Trae CLI 2.0 官方 24 个模型 Slug 与别名重定向测试
+        const p4 = traeService.prepareRequestBody('DeepSeek-V4-Pro 正式版', {});
+        expect(p4.model).toBe('DeepSeek-V4-Pro-Official');
+
+        const p5 = traeService.prepareRequestBody('deepseek-v4-pro-official', {});
+        expect(p5.model).toBe('DeepSeek-V4-Pro-Official');
+
+        const p6 = traeService.prepareRequestBody('DeepSeek-V4-Flash 正式版', {});
+        expect(p6.model).toBe('DeepSeek-V4-Flash-Official');
+
+        const p7 = traeService.prepareRequestBody('Doubao-Seed-2.1-Pro-0915', {});
+        expect(p7.model).toBe('Doubao-Seed-2.1-pro');
+
+        const p8 = traeService.prepareRequestBody('Doubao-Seed-Code', {});
+        expect(p8.model).toBe('Doubao_1_6');
+
+        const p9 = traeService.prepareRequestBody('GLM-5.3-FlashX', {});
+        expect(p9.model).toBe('glm-5.3-flashx');
+    });
+
+    test('Trae Web Auth URL generation and callback parser work as expected', async () => {
+        const { buildTraeWebLoginUrl, parseTraeCallback, handleTraeOAuth } = await import('../src/auth/trae-auth.ts');
+
+        const { loginUrl, machineId, deviceId } = buildTraeWebLoginUrl({
+            host: 'https://api.enterprise.trae.cn'
+        });
+        expect(loginUrl).toContain('https://www.trae.cn/authorization');
+        expect(loginUrl).toContain('client_id=en1oxy7wnw8j9n');
+        expect(machineId).toBeDefined();
+        expect(deviceId).toBeDefined();
+
+        // Test callback URL parsing
+        const fakeCallbackUrl = 'http://127.0.0.1:18080/authorize?refreshToken=test-rt-12345&userInfo=%7B%22UserID%22%3A%22u_999%22%2C%22ScreenName%22%3A%22testuser%22%2C%22TenantID%22%3A%22ent_888%22%7D&userJwt=%7B%22Token%22%3A%22jwt-token-xyz%22%2C%22TokenExpireAt%22%3A1735689600000%7D';
+        const parsed = parseTraeCallback(fakeCallbackUrl);
+        expect(parsed.refreshToken).toBe('test-rt-12345');
+        expect(parsed.userId).toBe('u_999');
+        expect(parsed.nickname).toBe('testuser');
+        expect(parsed.enterpriseId).toBe('ent_888');
+        expect(parsed.accessToken).toBe('jwt-token-xyz');
+
+        // Test handleTraeOAuth
+        const oauthResult = await handleTraeOAuth({}, { host: 'https://api.enterprise.trae.cn' });
+        expect(oauthResult.authUrl).toContain('https://www.trae.cn/authorization');
+        expect(oauthResult.authInfo.provider).toBe('trae');
+    });
+
+    test('TraeApiService returns fallback models when uninitialized and includes DeepSeek-V4.1-Flash', async () => {
+        const traeService = new TraeApiService({
+            uuid: 'test-trae-uuid-fallback'
+        });
+
+        const fallback = traeService._getFallbackModels();
+        expect(fallback.length).toBeGreaterThanOrEqual(2);
+        const ids = fallback.map(m => m.id);
+        expect(ids).toContain('DeepSeek-V4.1-Flash');
+        expect(ids).toContain('glm-5.2');
+
+        const deepseekModel = fallback.find(m => m.id === 'DeepSeek-V4.1-Flash');
+        expect(deepseekModel).toBeDefined();
+        expect(deepseekModel.context_window).toBe(1000000);
+
+        const modelList = await traeService.listModels();
+        expect(modelList.object).toBe('list');
+        expect(Array.isArray(modelList.data)).toBe(true);
+        expect(modelList.data.some(m => m.id === 'DeepSeek-V4.1-Flash')).toBe(true);
+    });
+
+    test('TraeApiService.generateContent aggregates streaming tool calls properly', async () => {
+        const traeService = new TraeApiService({
+            uuid: 'test-trae-uuid'
+        });
+
+        traeService.generateContentStream = async function* () {
+            yield {
+                choices: [{
+                    delta: {
+                        role: 'assistant',
+                        tool_calls: [{
+                            index: 0,
+                            id: 'call_test_1',
+                            type: 'function',
+                            function: { name: 'get_weather', arguments: '{"ci' }
+                        }]
+                    },
+                    finish_reason: null
+                }]
+            };
+            yield {
+                choices: [{
+                    delta: {
+                        tool_calls: [{
+                            index: 0,
+                            function: { arguments: 'ty":"Beijing"}' }
+                        }]
+                    },
+                    finish_reason: null
+                }]
+            };
+            yield {
+                choices: [{
+                    delta: {},
+                    finish_reason: 'tool_calls'
+                }]
+            };
+        };
+
+        const result = await traeService.generateContent('DeepSeek-V4.1-Flash', {});
+        expect(result.choices[0].finish_reason).toBe('tool_calls');
+        expect(result.choices[0].message.tool_calls).toHaveLength(1);
+        expect(result.choices[0].message.tool_calls[0].id).toBe('call_test_1');
+        expect(result.choices[0].message.tool_calls[0].function.name).toBe('get_weather');
+        expect(result.choices[0].message.tool_calls[0].function.arguments).toBe('{"city":"Beijing"}');
+    });
+
+    test('Trae provider exposes underlying technical IDs without Chinese display name pollution and with 1M context_window', async () => {
+        const traeService = new TraeApiService();
+        const res = await traeService.listModels();
+        const modelIds = res.data.map(m => m.id);
+
+        // 必须使用底层 ID（静态 baseline；完整列表以 /auto/v1/models 为准）
+        expect(modelIds).toContain('DeepSeek-V4.1-Flash');
+        expect(modelIds).toContain('glm-5.2');
+
+        // 严禁将中文显示名作为模型 ID
+        expect(modelIds).not.toContain('DeepSeek-V4-Pro 正式版');
+        expect(modelIds).not.toContain('DeepSeek-V4-Flash 正式版');
+        expect(modelIds).not.toContain('Doubao-Seed-2.1-Pro-0915');
+
+        // 验证已优雅剔除企业自定义与外部映射模型 (无 custom_ 前缀，无 gemini/claude 等外部 ID)
+        expect(modelIds.some(id => id.startsWith('custom_'))).toBe(false);
+        expect(modelIds.some(id => id.toLowerCase().includes('gemini'))).toBe(false);
+        expect(modelIds.some(id => id.toLowerCase().includes('claude'))).toBe(false);
+
+        // 验证 1M context_window 与 reasoning (全通道默认 xhigh / extra_high)
+        const deepseekModel = res.data.find(m => m.id === 'DeepSeek-V4.1-Flash');
+        expect(deepseekModel).toBeDefined();
+        expect(deepseekModel.context_window).toBe(1000000);
+        expect(deepseekModel.max_tokens).toBe(64000);
+        expect(deepseekModel.supports_thinking).toBe(true);
+        expect(deepseekModel.default_reasoning_effort).toBe('xhigh');
+        expect(deepseekModel.reasoning_effort_levels).toEqual(['low', 'high', 'xhigh']);
+    });
+
+    test('TraeApiService.normalizeModelName handles aliases, mixed casing and dynamic resolution', () => {
+        const traeService = new TraeApiService({ uuid: 'test-norm' });
+
+        expect(traeService.normalizeModelName('auto')).toBe('glm-5.2');
+        expect(traeService.normalizeModelName('AUTO')).toBe('glm-5.2');
+        expect(traeService.normalizeModelName('DeepSeek-V4-Pro 正式版')).toBe('DeepSeek-V4-Pro-Official');
+        expect(traeService.normalizeModelName('deepseek-v4-pro-official')).toBe('DeepSeek-V4-Pro-Official');
+        expect(traeService.normalizeModelName('DEEPSEEK-V4-PRO-OFFICIAL')).toBe('DeepSeek-V4-Pro-Official');
+        expect(traeService.normalizeModelName('Doubao-Seed-2.1-pro')).toBe('Doubao-Seed-2.1-pro');
+        expect(traeService.normalizeModelName('doubao-seed-2.1-turbo')).toBe('Doubao-Seed-2.1-turbo');
+        expect(traeService.normalizeModelName('deepseek-v4.1-flash')).toBe('DeepSeek-V4.1-Flash');
+        expect(traeService.normalizeModelName('GLM-5.3-FLASHX')).toBe('glm-5.3-flashx');
+        expect(traeService.normalizeModelName('kimi-k2.8')).toBe('kimi-k2.8-preview');
+        expect(traeService.normalizeModelName('KIMI-K2.8-PREVIEW')).toBe('kimi-k2.8-preview');
+    });
+
+    test('TraeApiService supports multi-account isolation without cache interference', () => {
+        const acc1 = new TraeApiService({ uuid: 'tenant-a' });
+        const acc2 = new TraeApiService({ uuid: 'tenant-b' });
+
+        const cache1 = acc1.getAccountCache();
+        const cache2 = acc2.getAccountCache();
+
+        expect(acc1.getAccountKey()).not.toBe(acc2.getAccountKey());
+        expect(cache1).not.toBe(cache2);
+
+        cache1.metadataMap.set('special-model', { id: 'special-model', name: 'special-model' });
+        expect(acc1.modelMetadataMap.has('special-model')).toBe(true);
+        expect(acc2.modelMetadataMap.has('special-model')).toBe(false);
+    });
+    test('TraeApiService.prepareRequestBody merges consecutive assistant messages to prevent 4027 error', () => {
+        const traeService = new TraeApiService({ uuid: 'test-merge-tool-calls' });
+        const requestWithSplitAssistant = {
+            model: 'deepseek-v4.1-flash',
+            messages: [
+                { role: 'user', content: 'Run two tools' },
+                {
+                    role: 'assistant',
+                    content: 'I will execute commands.',
+                    tool_calls: [{
+                        id: 'call_1',
+                        type: 'function',
+                        function: { name: 'exec', arguments: '{"cmd":"ls"}' }
+                    }]
+                },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [{
+                        id: 'call_2',
+                        type: 'function',
+                        function: { name: 'exec', arguments: '{"cmd":"pwd"}' }
+                    }]
+                },
+                { role: 'tool', tool_call_id: 'call_1', content: 'file1.txt' },
+                { role: 'tool', tool_call_id: 'call_2', content: '/app' }
+            ]
+        };
+
+        const prepared = traeService.prepareRequestBody('deepseek-v4.1-flash', requestWithSplitAssistant);
+        // Consecutive assistant messages should be merged into 1 assistant message with 2 tool_calls
+        const assistantMsgs = prepared.messages.filter(m => m.role === 'assistant');
+        expect(assistantMsgs).toHaveLength(1);
+        expect(assistantMsgs[0].tool_calls).toHaveLength(2);
+        expect(assistantMsgs[0].tool_calls[0].function_call.name).toBe('exec');
+        expect(assistantMsgs[0].tool_calls[1].function_call.name).toBe('exec');
+        // The assistant message must be immediately followed by the tool messages
+        expect(prepared.messages[1].role).toBe('assistant');
+        expect(prepared.messages[2].role).toBe('tool');
+        expect(prepared.messages[2].tool_call_id).toBe('call_1');
+        expect(prepared.messages[3].role).toBe('tool');
+        expect(prepared.messages[3].tool_call_id).toBe('call_2');
+    });
+
+    test('TraeApiService.prepareRequestBody safely serializes object and non-string tool content', () => {
+        const traeService = new TraeApiService({ uuid: 'test-serialize-content' });
+        const requestWithObjectContent = {
+            model: 'deepseek-v4.1-flash',
+            messages: [
+                { role: 'user', content: 'Execute tool' },
+                {
+                    role: 'assistant',
+                    content: 'Executing...',
+                    tool_calls: [{
+                        id: 'call_1',
+                        type: 'function',
+                        function: { name: 'get_status', arguments: '{}' }
+                    }]
+                },
+                {
+                    role: 'tool',
+                    tool_call_id: 'call_1',
+                    content: { success: true, count: 42, details: ['a', 'b'] }
+                }
+            ]
+        };
+
+        const prepared = traeService.prepareRequestBody('deepseek-v4.1-flash', requestWithObjectContent);
+        const toolMsg = prepared.messages.find(m => m.role === 'tool');
+        expect(toolMsg).toBeDefined();
+        expect(Array.isArray(toolMsg.content)).toBe(true);
+        expect(toolMsg.content[0].type).toBe('text');
+        expect(toolMsg.content[0].text).toBe(JSON.stringify({ success: true, count: 42, details: ['a', 'b'] }));
+    });
+
+    test('TraeApiService._formatTokenUsage correctly parses upstream token_usage', () => {
+        const traeService = new TraeApiService({ uuid: 'test-usage-format' });
+        const upstreamUsage = {
+            name: '',
+            prompt_tokens: 31,
+            completion_tokens: 36,
+            total_tokens: 67,
+            cache_read_input_tokens: 12,
+            reasoning_tokens: 26
+        };
+
+        const usage = traeService._formatTokenUsage(upstreamUsage);
+        expect(usage).toEqual({
+            prompt_tokens: 31,
+            completion_tokens: 36,
+            total_tokens: 67,
+            cached_tokens: 12,
+            prompt_tokens_details: {
+                cached_tokens: 12
+            },
+            completion_tokens_details: {
+                reasoning_tokens: 26
+            }
+        });
+    });
+
+    test('TraeApiService.generateContent aggregates usage from stream chunks', async () => {
+        const traeService = new TraeApiService({ uuid: 'test-usage-agg' });
+
+        traeService.generateContentStream = async function* () {
+            yield {
+                choices: [{
+                    delta: { role: 'assistant', content: 'Hello' },
+                    finish_reason: null
+                }]
+            };
+            yield {
+                choices: [{
+                    delta: {},
+                    finish_reason: 'stop'
+                }],
+                usage: {
+                    prompt_tokens: 15,
+                    completion_tokens: 25,
+                    total_tokens: 40,
+                    cached_tokens: 5,
+                    prompt_tokens_details: { cached_tokens: 5 },
+                    completion_tokens_details: { reasoning_tokens: 10 }
+                }
+            };
+        };
+
+        const result = await traeService.generateContent('deepseek-v4.1-flash', {});
+        expect(result.choices[0].finish_reason).toBe('stop');
+        expect(result.choices[0].message.content).toBe('Hello');
+        expect(result.usage).toEqual({
+            prompt_tokens: 15,
+            completion_tokens: 25,
+            total_tokens: 40,
+            cached_tokens: 5,
+            prompt_tokens_details: { cached_tokens: 5 },
+            completion_tokens_details: { reasoning_tokens: 10 }
+        });
+    });
+
+    test('TraeApiService.buildHeaders provides self-consistent fingerprints and avoids duplicate headers', async () => {
+        // 1. ToB Raw Chat: linux device with linux OS and device brand
+        const tobService = new TraeApiService({ uuid: 'tob-fp-test', TRAE_CHANNEL_MODE: 'tob_raw_chat' });
+        tobService.getToken = async () => 'test-token';
+        const tobHeaders = await tobService.buildHeaders(true);
+
+        expect(tobHeaders['X-Device-Type']).toBe('linux');
+        expect(tobHeaders['X-OS-Version']).toBe('Linux 6.8.0');
+        expect(tobHeaders['X-Device-Brand']).toBe('PC');
+        expect(tobHeaders['x-ide-function']).toBe('chat');
+        expect(tobHeaders['X-Ide-Function']).toBeUndefined();
+
+        // 2. Chat v3: windows device with Windows 11 Pro and 83DG brand
+        const chatService = new TraeApiService({ uuid: 'chat-fp-test', TRAE_CHANNEL_MODE: 'chat_v3' });
+        chatService.getToken = async () => 'test-token';
+        const chatHeaders = await chatService.buildHeaders(true);
+
+        expect(chatHeaders['X-Device-Type']).toBe('windows');
+        expect(chatHeaders['X-OS-Version']).toBe('Windows 11 Pro');
+        expect(chatHeaders['X-Device-Brand']).toBe('83DG');
+        expect(chatHeaders['x-ide-function']).toBeUndefined();
+    });
+
+    test('autoLinkProviderConfigs preserves custom host for Trae provider node', async () => {
+        const { autoLinkProviderConfigs } = await import('../src/services/service-manager.ts');
+        const os = await import('os');
+        const fixtureDir = path.join(process.cwd(), 'configs', 'trae');
+        const fixturePath = path.join(fixtureDir, 'test_fixture_custom_host.json');
+        const relativeCredPath = './configs/trae/test_fixture_custom_host.json';
+        const testPoolsPath = path.join(os.tmpdir(), `test_pools_${Date.now()}_${Math.random().toString(36).slice(2)}.json`);
+
+        fs.mkdirSync(fixtureDir, { recursive: true });
+        fs.writeFileSync(fixturePath, JSON.stringify({ accessToken: 'mock-token' }), 'utf-8');
+
+        try {
+            const mockConfig = {
+                PROVIDER_POOLS_FILE_PATH: testPoolsPath,
+                providerPools: {
+                    trae: []
+                }
+            };
+
+            await autoLinkProviderConfigs(mockConfig, {
+                onlyCurrentCred: true,
+                credPath: relativeCredPath,
+                providerType: 'trae',
+                customName: 'Custom Host Node',
+                host: 'https://api.trae.com.cn'
+            });
+
+            expect(mockConfig.providerPools.trae.length).toBe(1);
+            expect(mockConfig.providerPools.trae[0].TRAE_BASE_URL).toBe('https://api.trae.com.cn');
+            expect(mockConfig.providerPools.trae[0].customName).toBe('Custom Host Node');
+        } finally {
+            if (fs.existsSync(fixturePath)) {
+                fs.rmSync(fixturePath, { force: true });
+            }
+            if (fs.existsSync(testPoolsPath)) {
+                fs.rmSync(testPoolsPath, { force: true });
+            }
+        }
+    });
+
+    test('validateTraeProviderConfig prevents mismatched host and preserves custom mode', async () => {
+        const { validateTraeProviderConfig } = await import('../src/ui-modules/provider-api.ts');
+
+        // 1. ToB with mchost.guru should fail
+        const errTobMismatch = validateTraeProviderConfig('trae', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' });
+        expect(errTobMismatch).toContain('ToB Raw Chat 通道不能使用个人版 (mchost.guru) 地址');
+
+        // 2. Chat with enterprise.trae.cn should fail
+        const errChatMismatch = validateTraeProviderConfig('trae-chat_v3', { TRAE_BASE_URL: 'https://api.enterprise.trae.cn' });
+        expect(errChatMismatch).toContain('Chat v3 通道不能使用 ToB 企业版 (enterprise.trae.cn) 地址');
+
+        // 3. Matched host should pass (null)
+        expect(validateTraeProviderConfig('trae', { TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toBeNull();
+        expect(validateTraeProviderConfig('trae-chat_v3', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
+
+        // 4. Custom channel mode bypasses restriction
+        expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'custom', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
+
+        // 5. 显式 TRAE_CHANNEL_MODE 优先于 providerType
+        expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'chat_v3', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toBeNull();
+        expect(validateTraeProviderConfig('trae', { TRAE_CHANNEL_MODE: 'chat_v3', TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toContain('通道不能使用 ToB 企业版');
+        expect(validateTraeProviderConfig('trae-chat_v3', { TRAE_CHANNEL_MODE: 'tob_raw_chat', TRAE_BASE_URL: 'https://api.enterprise.trae.cn' })).toBeNull();
+        expect(validateTraeProviderConfig('trae-chat_v3', { TRAE_CHANNEL_MODE: 'tob_raw_chat', TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' })).toContain('ToB Raw Chat 通道不能使用个人版');
+    });
+
+    test('nativePayloadHasMeaningfulContent recognizes reasoning_content for OpenAI/Trae', () => {
+        // 1. OpenAI / Trae chunk with reasoning_content should be recognized as meaningful
+        const thinkingChunk = {
+            choices: [{
+                index: 0,
+                delta: {
+                    reasoning_content: 'Thinking about the user query...'
+                },
+                finish_reason: null
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(thinkingChunk, 'trae')).toBe(true);
+        expect(nativePayloadHasMeaningfulContent(thinkingChunk, 'openai')).toBe(true);
+
+        // 2. OpenAI / Trae chunk with reasoning field
+        const reasoningChunk = {
+            choices: [{
+                index: 0,
+                delta: {
+                    reasoning: 'Alternative reasoning field...'
+                },
+                finish_reason: null
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(reasoningChunk, 'trae')).toBe(true);
+
+        // 3. Empty delta should not be recognized as meaningful
+        const emptyChunk = {
+            choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: null
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(emptyChunk, 'trae')).toBe(false);
+
+        // 4. Gemini thought should still be bypassed to preserve Antigravity Gemini empty-thought protection
+        const geminiThinkingChunk = {
+            candidates: [{
+                content: {
+                    parts: [{
+                        thought: true,
+                        text: 'Thinking...'
+                    }]
+                }
+            }]
+        };
+        expect(nativePayloadHasMeaningfulContent(geminiThinkingChunk, 'gemini-antigravity')).toBe(false);
+    });
+
+    test('fetchRemoteModels strictly gates models: only support_thinking=true with extra_high option, default effort is maximum extra_high', async () => {
+        const traeService = new TraeApiService({ uuid: 'test-filter-uuid' });
+        traeService.getToken = async () => 'test-token';
+
+        // Mock axios to return 4 models with different reasoning_effort_config
+        const axios = (await import('axios')).default;
+        const spy = jest.spyOn(axios, 'request').mockImplementationOnce(async () => ({
+            data: {
+                function_configs: [{
+                    config_info_list: [
+                        {
+                            config_name: 'glm-5.2',
+                            config_switch: true,
+                            is_invisible_to_user: false,
+                            display_config: {
+                                display_name: 'GLM-5.2',
+                                multimodal: false
+                            },
+                            reasoning_effort_config: {
+                                support_thinking: true,
+                                options: ['light', 'high', 'extra_high'],
+                                default_level: 'light' // Upstream default is light, should be overridden by maximum extra_high
+                            }
+                        },
+                        {
+                            config_name: 'Doubao_1_6',
+                            config_switch: true,
+                            is_invisible_to_user: false,
+                            reasoning_effort_config: {
+                                support_thinking: false
+                            }
+                        },
+                        {
+                            config_name: 'qwen-3.7-plus',
+                            config_switch: true,
+                            is_invisible_to_user: false,
+                            reasoning_effort_config: {
+                                support_thinking: true,
+                                options: ['light', 'high'] // Missing extra_high, should be filtered out
+                            }
+                        },
+                        {
+                            config_name: 'DeepSeek-V4.1-Flash',
+                            config_switch: true,
+                            is_invisible_to_user: false,
+                            display_config: {
+                                display_name: 'DeepSeek-V4.1-Flash',
+                                multimodal: true
+                            },
+                            reasoning_effort_config: {
+                                support_thinking: true,
+                                reasoning_effort_level_options: ['HIGH', 'EXTRA_HIGH'],
+                                default_reasoning_effort_level: 'HIGH'
+                            }
+                        }
+                    ]
+                }]
+            }
+        }));
+
+        try {
+            const models = await traeService.fetchRemoteModels(true);
+            const modelIds = models.map(m => m.id);
+
+            // 仅保留 support_thinking=true 且 options 包含 extra_high 的模型
+            expect(modelIds).toContain('glm-5.2');
+            expect(modelIds).toContain('DeepSeek-V4.1-Flash');
+            expect(modelIds).not.toContain('Doubao_1_6');
+            expect(modelIds).not.toContain('qwen-3.7-plus');
+
+            // 默认 reasoning_effort 不再依赖上游 default_level，直接取最大档位 extra_high (OpenAI 标准层表示为 xhigh)
+            const glmModel = models.find(m => m.id === 'glm-5.2');
+            expect(glmModel.default_reasoning_effort).toBe('xhigh');
+
+            const dsModel = models.find(m => m.id === 'DeepSeek-V4.1-Flash');
+            expect(dsModel.default_reasoning_effort).toBe('xhigh');
+
+            // display_config.multimodal 映射为 support_images
+            expect(glmModel.supports_images).toBe(false);
+            expect(dsModel.supports_images).toBe(true);
+            const nodeMetadata = traeService.getNodeModelMetadata();
+            expect(nodeMetadata['glm-5.2'].support_images).toBe(false);
+            expect(nodeMetadata['DeepSeek-V4.1-Flash'].support_images).toBe(true);
+
+            // 验证在 listModels (即 /v1/models 响应) 中也完全遵循相同过滤
+            const listRes = await traeService.listModels();
+            const listIds = listRes.data.map(m => m.id);
+            expect(listIds).toEqual(modelIds);
+            expect(listIds).not.toContain('Doubao_1_6');
+            expect(listIds).not.toContain('qwen-3.7-plus');
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    describe('Trae Session Affinity and Deterministic Conversation ID', () => {
+        const RFC4122_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+        test('toValidUUID normalizes existing UUIDs and handles session- prefixed UUIDs', () => {
+            const standardUUID = 'ac9a9071-3331-44b1-94a6-ff526bfed9b2';
+            expect(TraeApiService.toValidUUID(standardUUID)).toBe(standardUUID);
+            expect(TraeApiService.toValidUUID(`session-${standardUUID}`)).toBe(standardUUID);
+            expect(TraeApiService.toValidUUID(`prefix_${standardUUID}_suffix`)).toBe(standardUUID);
+        });
+
+        test('toValidUUID derives valid RFC 4122 UUID deterministically for arbitrary strings', () => {
+            const uuid1 = TraeApiService.toValidUUID('arbitrary-conversation-seed-1');
+            const uuid2 = TraeApiService.toValidUUID('arbitrary-conversation-seed-1');
+            const uuid3 = TraeApiService.toValidUUID('arbitrary-conversation-seed-2');
+
+            expect(uuid1).toMatch(RFC4122_REGEX);
+            expect(uuid2).toMatch(RFC4122_REGEX);
+            expect(uuid1).toBe(uuid2); // 确定性一致
+            expect(uuid1).not.toBe(uuid3); // 不同种子产出不同 ID
+        });
+
+        test('extractFirstMessageSeed extracts from first user message and falls back to system message', () => {
+            const conversation = [
+                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'user', content: 'First user prompt text here' },
+                { role: 'assistant', content: 'Hello!' },
+                { role: 'user', content: 'Second user prompt' }
+            ];
+            expect(TraeApiService.extractFirstMessageSeed(conversation)).toBe('First user prompt text here');
+
+            const systemOnly = [
+                { role: 'system', content: 'System instruction only' }
+            ];
+            expect(TraeApiService.extractFirstMessageSeed(systemOnly)).toBe('System instruction only');
+
+            expect(TraeApiService.extractFirstMessageSeed([])).toBeNull();
+            expect(TraeApiService.extractFirstMessageSeed(null)).toBeNull();
+        });
+
+        test('resolveTraeConversationId prioritizes explicit IDs then _downstreamSessionId then deterministic seed', () => {
+            const bodyWithExplicit = {
+                conversation_id: 'session-ac9a9071-3331-44b1-94a6-ff526bfed9b2',
+                _downstreamSessionId: 'session-11111111-2222-3333-4444-555555555555',
+                messages: [{ role: 'user', content: 'Hello' }]
+            };
+            expect(TraeApiService.resolveTraeConversationId(bodyWithExplicit)).toBe('ac9a9071-3331-44b1-94a6-ff526bfed9b2');
+
+            const bodyWithDownstreamHeader = {
+                _downstreamSessionId: 'session-11111111-2222-3333-4444-555555555555',
+                messages: [{ role: 'user', content: 'Hello' }]
+            };
+            expect(TraeApiService.resolveTraeConversationId(bodyWithDownstreamHeader)).toBe('11111111-2222-3333-4444-555555555555');
+
+            const bodyWithMessagesOnly = {
+                messages: [
+                    { role: 'system', content: 'System' },
+                    { role: 'user', content: 'User question for conversation' }
+                ]
+            };
+            const derivedId = TraeApiService.resolveTraeConversationId(bodyWithMessagesOnly);
+            expect(derivedId).toMatch(RFC4122_REGEX);
+            // 多轮对话调用产生完全一致的 ID
+            const turn2Body = {
+                messages: [
+                    ...bodyWithMessagesOnly.messages,
+                    { role: 'assistant', content: 'Response' },
+                    { role: 'user', content: 'Follow up' }
+                ]
+            };
+            expect(TraeApiService.resolveTraeConversationId(turn2Body)).toBe(derivedId);
+        });
+
+        test('prepareRequestBody sets identical conversation_id and session_id across turns', () => {
+            const trae = new TraeApiService({ uuid: 'affinity-test-uuid' });
+            const turn1 = trae.prepareRequestBody('DeepSeek-V4.1-Flash', {
+                messages: [
+                    { role: 'system', content: 'System' },
+                    { role: 'user', content: 'Turn 1 user prompt' }
+                ]
+            });
+            const turn2 = trae.prepareRequestBody('DeepSeek-V4.1-Flash', {
+                messages: [
+                    { role: 'system', content: 'System' },
+                    { role: 'user', content: 'Turn 1 user prompt' },
+                    { role: 'assistant', content: 'Response 1' },
+                    { role: 'user', content: 'Turn 2 user prompt' }
+                ]
+            });
+
+            expect(turn1.conversation_id).toMatch(RFC4122_REGEX);
+            expect(turn1.session_id).toBe(turn1.conversation_id);
+            expect(turn2.conversation_id).toBe(turn1.conversation_id);
+            expect(turn2.session_id).toBe(turn1.session_id);
+        });
+
+        test('toTraceId derives valid 32-hex W3C traceId deterministically', () => {
+            const uuid = 'affad22a-6486-46c8-a268-46484c315c6e';
+            const traceId = TraeApiService.toTraceId(uuid);
+            expect(traceId).toBe('affad22a648646c8a26846484c315c6e');
+            expect(traceId).toHaveLength(32);
+            expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+
+            const arbitraryTraceId = TraeApiService.toTraceId('some-random-seed');
+            expect(arbitraryTraceId).toHaveLength(32);
+            expect(arbitraryTraceId).toMatch(/^[0-9a-f]{32}$/);
+            expect(TraeApiService.toTraceId('some-random-seed')).toBe(arbitraryTraceId);
+        });
+
+        test('buildHeaders with conversationId sets deterministic traceId with distinct spanId and unique request ids', async () => {
+            const trae = new TraeApiService({ uuid: 'trace-test', TRAE_CHANNEL_MODE: 'tob_raw_chat' });
+            trae.getToken = async () => 'test-token';
+            const convId = 'affad22a-6486-46c8-a268-46484c315c6e';
+
+            const headers1 = await trae.buildHeaders(true, convId);
+            const headers2 = await trae.buildHeaders(true, convId);
+
+            expect(headers1['x-flow-traceparent']).toMatch(/^00-affad22a648646c8a26846484c315c6e-[0-9a-f]{16}-01$/);
+            expect(headers2['x-flow-traceparent']).toMatch(/^00-affad22a648646c8a26846484c315c6e-[0-9a-f]{16}-01$/);
+            expect(headers1['traceparent']).toBe(headers1['x-flow-traceparent']);
+            expect(headers1['x-request-id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+            expect(headers2['x-request-id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+            expect(headers1['x-request-id']).not.toBe(headers2['x-request-id']);
+            expect(headers1['x-client-request-id']).toBe(headers1['x-request-id']);
+        });
+    });
+});
+
+

@@ -12,8 +12,10 @@ import {
 } from './representative-models.js';
 
 /**
- * Jest globalSetup：在测试用例定义前抓取网关的 `/auto/v1/models`，
+ * E2E 预加载：在测试用例定义前抓取网关的 `/auto/v1/models`，
  * 把本次要跑的模型写入缓存文件。测试代码只读取该文件，不硬编码模型数量。
+ *
+ * 由 `node --import` 在进程启动时执行（替代原来的 Jest globalSetup）。
  *
  * 模型选择优先级（从高到低）：
  * 1. `AICLIENT_E2E_MODELS=<逗号列表>`：直接使用该列表，不访问 `/auto/v1/models`。
@@ -123,3 +125,6 @@ export default async function globalSetup() {
 
     writeModelCache(matched, `Loaded representative models from ${baseUrl}/v1/models`);
 }
+
+// 作为 --import 预加载模块时直接执行（Jest globalSetup 语义）
+await globalSetup();

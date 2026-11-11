@@ -7,8 +7,15 @@ import { AUXILIARY_E2E_MODELS } from './representative-models.js';
  * globalSetup 从 `/auto/v1/models` 抓取模型列表后写入的缓存文件。
  * 测试进程通过该文件读取模型，避免在代码里硬编码 13/27 个模型。
  */
-export const MODELS_CACHE_FILE = process.env.AICLIENT_E2E_MODELS_FILE
-    || path.join(os.tmpdir(), 'aiclient-e2e-models.json');
+/**
+ * 惰性求值：环境变量在测试用例的 beforeEach 里才设置，模块顶层捕获会让
+ * 「改 env → 重新读取」变成不可能（ESM 模块记录无法清除，Jest 的
+ * resetModules 在 node:test 下没有等价物）。改为函数后无需重载模块。
+ */
+export function modelsCacheFile() {
+    return process.env.AICLIENT_E2E_MODELS_FILE
+        || path.join(os.tmpdir(), 'aiclient-e2e-models.json');
+}
 
 const SYSTEM = 'You are a helpful assistant. Follow the user instruction exactly.';
 export const E2E_SYSTEM = SYSTEM;
@@ -113,23 +120,24 @@ export function resolveModels(options = {}) {
         return selector.split(',').map((item) => item.trim()).filter(Boolean);
     }
 
-    if (!fs.existsSync(MODELS_CACHE_FILE)) {
+    const cacheFile = modelsCacheFile();
+    if (!fs.existsSync(cacheFile)) {
         throw new Error(
-            `E2E model list not found at ${MODELS_CACHE_FILE}. ` +
+            `E2E model list not found at ${cacheFile}. ` +
             'Run `npm run test:e2e` (globalSetup fetches /auto/v1/models) ' +
             'or set AICLIENT_E2E_MODELS to a comma-separated model list.'
         );
     }
 
-    let models = JSON.parse(fs.readFileSync(MODELS_CACHE_FILE, 'utf8'));
+    let models = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
     if (!Array.isArray(models) || models.length === 0) {
-        throw new Error(`E2E model list at ${MODELS_CACHE_FILE} is empty or invalid.`);
+        throw new Error(`E2E model list at ${cacheFile} is empty or invalid.`);
     }
     if (options.excludeAuxiliary === true) {
         models = models.filter((model) => !AUXILIARY_E2E_MODELS.includes(model));
         if (models.length === 0) {
             throw new Error(
-                `E2E model list at ${MODELS_CACHE_FILE} contains only auxiliary models after filtering. ` +
+                `E2E model list at ${cacheFile} contains only auxiliary models after filtering. ` +
                 'Set AICLIENT_E2E_ALL_MODELS=1 or AICLIENT_E2E_MODELS to run the general matrix.'
             );
         }

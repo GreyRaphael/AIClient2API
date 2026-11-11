@@ -19,6 +19,7 @@ import { fork } from 'child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import logger from '../utils/logger.ts';
+import { isTestEnv } from '../utils/test-env.ts';
 import * as http from 'http';
 import * as path from 'path';
 import { fileURLToPath } from 'node:url';
@@ -596,11 +597,10 @@ async function main() {
 
 // 启动主进程
 //
-// 单测（Jest）需要 import 本模块来验证鉴权纯函数，但绝不能真的 fork worker 或监听端口，
-// 因此仅在 Jest 下跳过自启动。这里刻意不判断 NODE_ENV === 'test'：用户完全可能在部署环境
-// 把 NODE_ENV 设成 test，那会导致 master 静默不启动 = 整个网关下线。JEST_WORKER_ID 只由
-// Jest 进程注入，生产环境不可能出现。
-if (process.env.JEST_WORKER_ID === undefined) {
+// 单测需要 import 本模块来验证鉴权纯函数，但绝不能真的 fork worker 或监听端口，
+// 因此仅在测试进程下跳过自启动。判据见 utils/test-env.ts：只认 Node 官方注入的
+// NODE_TEST_CONTEXT，刻意不判断 NODE_ENV === 'test'（部署环境可能误设，会导致网关静默下线）。
+if (!isTestEnv()) {
     main().catch((error: unknown) => {
         logger.error('[Master] Failed to start:', error);
         process.exit(1);

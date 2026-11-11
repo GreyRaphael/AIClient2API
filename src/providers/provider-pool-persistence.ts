@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'fs';
+import { isTestEnv } from '../utils/test-env.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import type { ProviderConfig, ProviderPools, ProviderStatusMap } from './provider-types.ts';
@@ -46,7 +47,7 @@ export class ProviderPoolPersistence {
             this.saveTimer = null;
         }
 
-        if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined) {
+        if (isTestEnv()) {
             this.pendingSaves.clear();
             return;
         }

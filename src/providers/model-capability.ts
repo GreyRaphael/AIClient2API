@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
 import logger from '../utils/logger.ts';
+import { isTestEnv } from '../utils/test-env.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import {
     getConfiguredSupportedModels,
@@ -26,7 +27,6 @@ import type { DynamicPayload } from '../../types/dynamic-payload.js';
  * 该模块是模型列表的唯一读取入口，端点、路由、健康检查都不应再自行推导模型集合。
  */
 
-
 export const CAPABILITY_SOURCE = {
     LIVE: 'live',
     PERSISTED: 'persisted',
@@ -49,10 +49,6 @@ const SOURCE_PRIORITY: Record<string, number> = {
     [CAPABILITY_SOURCE.STATIC]: 2,
     [CAPABILITY_SOURCE.BASELINE]: 1
 };
-
-function isTestEnv() {
-    return process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
-}
 
 function getBaseProviderType(providerType: string | null | undefined): string {
     if (!providerType) return '';

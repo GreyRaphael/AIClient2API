@@ -287,7 +287,7 @@ input:checked + .toggle-slider::before {
    ==========================================================================
 
    归属说明：StatsCalendar 是被三处复用的组件 —— 控制台的模型用量统计 section，
-   以及 potluck / potluck-user 两个独立页。它此前把样式散在 plugin-shared.css 里
+   以及 potluck / potluck-user 两个独立页。它此前把样式散在 pages/ 下的独立样式表里
    （只有两个独立页加载），因此迁进控制台时格子高度为 0、整块不可见。
    收敛到 shared.css 是唯一被所有页面加载的层（index.html / potluck.html /
    potluck-user.html 都引它），与 .btn / .form-group 这些共享原子同一个理由。

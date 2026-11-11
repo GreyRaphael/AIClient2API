@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { isTestEnv } from '../../utils/test-env.ts';
 import crypto from 'node:crypto';
 import logger from '../../utils/logger.ts';
 import { atomicWriteFile, withFileLock } from '../../utils/file-lock.ts';
@@ -28,9 +29,6 @@ export interface ZedModelRegistryOptions {
     accountKey?: string | null;
 }
 
-function isTestEnv(): boolean {
-    return process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
-}
 
 function hashAccount(accountKey: unknown): string {
     const raw = String(accountKey || 'default');

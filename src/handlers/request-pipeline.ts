@@ -725,21 +725,28 @@ async function writeFrameWithBackpressure(
                 clearTimeout(timer);
                 res.off?.('drain', onDrain);
                 res.off?.('close', onClose);
+                res.off?.('error', onError);
                 signal?.removeEventListener?.('abort', onAbort);
                 resolve(result);
             };
             const onDrain = () => settle('drain');
             const onClose = () => settle('closed');
+            // 下游 socket 出错时同样要解除等待，否则这里会一直挂到兜底超时。
+            const onError = () => settle('closed');
             const onAbort = () => settle('aborted');
+            // 兜底定时器不 unref：它终止的是一段等待中的 Promise，
+            // unref 会让事件循环在等待期间"无事可做"时提前退出，留下永不 settle 的 Promise。
+            // 该定时器最长 WRITE_DRAIN_TIMEOUT_MS，且每次 settle 都会 clearTimeout。
             const timer = setTimeout(() => settle('timeout'), WRITE_DRAIN_TIMEOUT_MS);
-            timer.unref?.();
 
             if (typeof res.once === 'function') {
                 res.once('drain', onDrain);
                 res.once('close', onClose);
+                res.once('error', onError);
             } else {
                 res.on('drain', onDrain);
                 res.on('close', onClose);
+                res.on('error', onError);
             }
             signal?.addEventListener?.('abort', onAbort, { once: true });
         });

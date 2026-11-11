@@ -1,0 +1,334 @@
+import { describe, test, afterEach } from 'node:test';
+import { expect, jest } from './support/harness.mjs';
+
+import {
+    AntigravityApiService,
+    getAntigravityClientVersion,
+    parseAntigravityUserAgentVersion
+} from '../src/providers/gemini/antigravity-core.ts';
+import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
+import {
+    CAPABILITY_SOURCE,
+    MemoryCapabilityStore,
+    capabilityKey,
+    resetCapabilityStore,
+    setCapabilityStore
+} from '../src/providers/model-capability.ts';
+import { CONFIG } from '../src/core/config-manager.ts';
+
+function seedNodeModels(providerType, nodesByUuid) {
+    const nodes = {};
+    for (const [uuid, models] of Object.entries(nodesByUuid)) {
+        nodes[capabilityKey(providerType, { uuid })] = {
+            providerType,
+            uuid,
+            models,
+            fetchedAt: Date.now(),
+            source: CAPABILITY_SOURCE.LIVE,
+            lastError: null,
+            consecutiveFailures: 0
+        };
+    }
+    setCapabilityStore(new MemoryCapabilityStore(nodes));
+}
+
+describe('Antigravity Provider & Pool Refactor Tests', () => {
+    afterEach(() => {
+        resetCapabilityStore();
+        delete CONFIG.customModels;
+    });
+
+    test('1. Model List Extraction strictly follows agentModelSorts and imageGenerationModelIds with node isolation', async () => {
+        const service1 = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy1.json', uuid: 'node-1' });
+        service1.authClient = {
+            request: jest.fn().mockResolvedValue({
+                data: {
+                    agentModelSorts: [
+                        {
+                            groups: [
+                                {
+                                    modelIds: [
+                                        'gemini-3.8-flash-high',
+                                        'gemini-3.8-flash-medium',
+                                        'gemini-3.8-flash-low',
+                                        'gemini-3.1-pro-high',
+                                        'claude-sonnet-5-5-high',
+                                        'claude-opus-5-5-high',
+                                        'gpt-oss-120b-medium',
+                                        'gpt-6-astra-high',
+                                        'gpt-6.1-sol-medium',
+                                        'gpt-6-astra-low'
+                                    ]
+                                }
+                            ]
+                        }
+                    ],
+                    imageGenerationModelIds: ['gemini-3.1-flash-image'],
+                    models: {
+                        'gemini-3.8-flash-high': { displayName: 'Gemini 3.8 Flash' },
+                        'gemini-3.1-pro-high': { displayName: 'Gemini 3.1 Pro (High)' },
+                        'chat_internal_test': { displayName: 'Chat Internal' },
+                        'gemini-3.8-flash-tiered': { displayName: 'Tiered Model' }
+                    }
+                }
+            })
+        };
+
+        await service1.fetchAvailableModels();
+
+        // 验证包含有效对话模型（-high, -medium）与生图模型，以及为未来准备的 GPT 系列
+        expect(service1.availableModels).toContain('gemini-3.8-flash-high');
+        expect(service1.availableModels).toContain('gemini-3.8-flash-medium');
+        expect(service1.availableModels).toContain('gemini-3.1-pro-high');
+        expect(service1.availableModels).toContain('claude-sonnet-5-5-high');
+        expect(service1.availableModels).toContain('claude-opus-5-5-high');
+        expect(service1.availableModels).toContain('gemini-3.1-flash-image');
+        expect(service1.availableModels).toContain('gpt-6-astra-high');
+        expect(service1.availableModels).toContain('gpt-6.1-sol-medium');
+
+        // 验证过滤规则：排除了 -low、oss、chat_ 辅助模型与 -tiered 伪模型
+        expect(service1.availableModels.some(m => m.includes('-low'))).toBe(false);
+        expect(service1.availableModels.some(m => m.includes('oss'))).toBe(false);
+        expect(service1.availableModels.some(m => m.startsWith('chat_'))).toBe(false);
+        expect(service1.availableModels.some(m => m.includes('-tiered'))).toBe(false);
+
+        // 验证节点隔离：全新实例 service2 的 availableModels 不受 service1 影响（无全局污染）
+        const service2 = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy2.json', uuid: 'node-2' });
+        expect(service2.availableModels).toEqual([]);
+    });
+
+
+    test('2. Claude 5.5 thinking preserves thinkingLevel: high and does NOT convert to thinkingBudget', () => {
+        const service = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        service.availableModels = ['claude-sonnet-5-5-high'];
+
+        const reqBody = {
+            contents: [{ role: 'user', parts: [{ text: 'Hello Claude 5.5' }] }],
+            generationConfig: {
+                thinkingConfig: {
+                    thinkingLevel: 'high'
+                }
+            }
+        };
+
+        const { payload } = service.buildAntigravityPayload('claude-sonnet-5-5-high', reqBody);
+        const thinkingCfg = payload.request?.generationConfig?.thinkingConfig;
+
+        expect(thinkingCfg).toBeDefined();
+        expect(thinkingCfg.thinkingLevel).toBe('high');
+        expect(thinkingCfg.includeThoughts).toBe(true);
+        expect(thinkingCfg.thinkingBudget).toBeUndefined(); // 不应被篡改为 -1 budget
+    });
+
+    test('3. Unknown models are rejected instead of silently falling back', () => {
+        // MODEL_FALLBACK_ENABLED 已被移除：未知名模型不再静默回退到默认模型，而是直接报错。
+        const service = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+
+        expect(() => service.buildAntigravityPayload(null, { contents: [] }))
+            .toThrow('[Antigravity] 模型不存在: null');
+
+        service.availableModels = ['custom-model-1', 'custom-model-2'];
+        expect(() => service.buildAntigravityPayload('definitely-not-a-model', { contents: [] }))
+            .toThrow('[Antigravity] 模型不存在: definitely-not-a-model');
+
+        // 已知模型仍然正常工作
+        const { payload } = service.buildAntigravityPayload('gemini-3.8-flash-high', { contents: [] });
+        expect(payload.model).toBe('gemini-3.8-flash-high');
+    });
+
+    test('4. ProviderPoolManager active models aggregation respects node health and disabled state', () => {
+        seedNodeModels('gemini-antigravity', {
+            'node-1': ['gemini-3.8-flash-high', 'claude-sonnet-4-6'],
+            'node-2': ['claude-sonnet-5-5-high'],
+            'node-3': ['gemini-3.1-pro-high']
+        });
+
+        const poolManager = new ProviderPoolManager({});
+        poolManager.providerStatus = {
+            'gemini-antigravity': [
+                { config: { uuid: 'node-1', isDisabled: false, isHealthy: true } },
+                { config: { uuid: 'node-2', isDisabled: true, isHealthy: true } }, // 禁用节点
+                { config: { uuid: 'node-3', isDisabled: false, isHealthy: false } } // 亚健康/离线节点
+            ]
+        };
+
+        const activeModels = poolManager.getActiveProviderModels('gemini-antigravity');
+        expect(activeModels).toEqual(expect.arrayContaining(['gemini-3.8-flash-high', 'claude-sonnet-4-6']));
+        expect(activeModels).not.toContain('claude-sonnet-5-5-high'); // 禁用节点的特有模型被剔除
+        expect(activeModels).not.toContain('gemini-3.1-pro-high'); // 不健康节点的特有模型被剔除
+
+        // 恢复 node-2 和 node-3
+        poolManager.providerStatus['gemini-antigravity'][1].config.isDisabled = false;
+        poolManager.providerStatus['gemini-antigravity'][2].config.isHealthy = true;
+        const restoredModels = poolManager.getActiveProviderModels('gemini-antigravity');
+        expect(restoredModels).toContain('claude-sonnet-5-5-high');
+        expect(restoredModels).toContain('gemini-3.1-pro-high');
+    });
+
+    test('5. ProviderPoolManager.selectProvider uses generic node capability guard', async () => {
+        seedNodeModels('gemini-antigravity', {
+            'node-a': ['gemini-3.8-flash-high'],
+            'node-b': ['claude-sonnet-5-5-high']
+        });
+
+        const poolManager = new ProviderPoolManager({});
+        const nodeA = {
+            name: 'Node A',
+            config: { uuid: 'node-a', isDisabled: false, isHealthy: true }
+        };
+        const nodeB = {
+            name: 'Node B',
+            config: { uuid: 'node-b', isDisabled: false, isHealthy: true }
+        };
+
+        poolManager.providerStatus = {
+            'gemini-antigravity': [nodeA, nodeB]
+        };
+
+        // 请求 claude-sonnet-5-5-high 时，只有 nodeB 具备能力
+        const selectedB = await poolManager.selectProvider('gemini-antigravity', 'claude-sonnet-5-5-high');
+        expect(selectedB).toBeDefined();
+        expect(selectedB.uuid).toBe('node-b');
+
+        // 请求 gemini-3.8-flash-high 时，只有 nodeA 具备能力
+        const selectedA = await poolManager.selectProvider('gemini-antigravity', 'gemini-3.8-flash-high');
+        expect(selectedA).toBeDefined();
+        expect(selectedA.uuid).toBe('node-a');
+
+        // 请求都不支持的模型时，返回 null
+        const none = await poolManager.selectProvider('gemini-antigravity', 'non-existent-model');
+        expect(none).toBeNull();
+    });
+
+    test('6. 节点候选集只来自上游发现', () => {
+        seedNodeModels('trae', {
+            'trae-node-1': ['glm-5.2', 'DeepSeek-V4.1-Flash']
+        });
+
+        const poolManager = new ProviderPoolManager({
+            trae: [{
+                uuid: 'trae-node-1',
+                isDisabled: false,
+                isHealthy: true
+            }]
+        }, { maxErrorCount: 10 });
+
+        const activeModels = poolManager.getActiveProviderModels('trae');
+        expect(activeModels).toContain('glm-5.2');
+        expect(activeModels).toContain('DeepSeek-V4.1-Flash');
+        expect(activeModels).not.toContain('auto');
+    });
+
+    test('7. 节点候选集默认全选，分组最终集并入自定义模型', () => {
+        seedNodeModels('openai-custom', {
+            'custom-bot-1': ['glm-5.2']
+        });
+
+        CONFIG.customModels = [
+            { id: 'custom-glm-model', provider: 'openai-custom', enabled: true }
+        ];
+
+        const poolManager = new ProviderPoolManager({
+            'openai-custom': [{
+                uuid: 'custom-bot-1',
+                isDisabled: false,
+                isHealthy: true,
+                checkModelName: 'glm-5.2'
+            }]
+        }, { maxErrorCount: 10 });
+
+        const activeModels = poolManager.getActiveProviderModels('openai-custom');
+        expect(activeModels).toContain('glm-5.2');
+        expect(activeModels).toContain('custom-glm-model');
+    });
+
+    test('8. Future OpenAI models (gpt-6-astra-high, gpt-6.1-sol-medium) support dynamic recognition and thinking level mapping', () => {
+        const service = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        service.availableModels = ['gpt-6-astra-high', 'gpt-6.1-sol-medium'];
+
+        const reqBody1 = {
+            contents: [{ role: 'user', parts: [{ text: 'Hello GPT-6' }] }]
+        };
+        const res1 = service.buildAntigravityPayload('gpt-6-astra-high', reqBody1);
+        expect(res1.actualModelName).toBe('gpt-6-astra-high');
+        expect(res1.payload.request?.generationConfig?.thinkingConfig?.thinkingLevel).toBe('high');
+        expect(res1.payload.request?.generationConfig?.thinkingConfig?.includeThoughts).toBe(true);
+
+        const reqBody2 = {
+            contents: [{ role: 'user', parts: [{ text: 'Hello GPT-6.1' }] }]
+        };
+        const res2 = service.buildAntigravityPayload('gpt-6.1-sol-medium', reqBody2);
+        expect(res2.actualModelName).toBe('gpt-6.1-sol-medium');
+        expect(res2.payload.request?.generationConfig?.thinkingConfig?.thinkingLevel).toBe('medium');
+        expect(res2.payload.request?.generationConfig?.thinkingConfig?.includeThoughts).toBe(true);
+    });
+
+    test('9. 客户端版本：节点配置优先，留空时回退内置默认值，并影响 User-Agent 与 ide_version', () => {
+        const defaults = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        expect(defaults.userAgent).toBe('antigravity/cli/1.4.7 linux/amd64');
+        expect(getAntigravityClientVersion({})).toBe('1.4.7');
+
+        const configured = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '1.9.9'
+        });
+        expect(configured.userAgent).toBe('antigravity/cli/1.9.9 linux/amd64');
+        expect(getAntigravityClientVersion({ ANTIGRAVITY_CLIENT_VERSION: '1.9.9' })).toBe('1.9.9');
+
+        // 旧的整段 User-Agent 配置仍然兼容
+        expect(getAntigravityClientVersion({ USER_AGENT: 'antigravity/cli/2.0.0 darwin/arm64' })).toBe('2.0.0');
+        // 同时配置时显式版本字段优先
+        expect(getAntigravityClientVersion({
+            ANTIGRAVITY_CLIENT_VERSION: '3.1.4',
+            USER_AGENT: 'antigravity/cli/2.0.0 darwin/arm64'
+        })).toBe('3.1.4');
+    });
+
+    test('10. ide_version 始终是纯版本号，且与实际发出的 User-Agent 一致', () => {
+        // 默认 UA 形如 antigravity/cli/1.4.7，历史实现会把 cli/ 前缀一起塞进 ide_version
+        const defaults = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        expect(defaults.clientVersion).toBe('1.4.7');
+        expect(defaults.clientVersion).not.toContain('cli/');
+
+        const configured = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '1.9.9'
+        });
+        expect(configured.clientVersion).toBe('1.9.9');
+
+        // 旧写法（不带 cli/ 的整段 UA）同样只取纯版本号
+        const legacy = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            USER_AGENT: 'antigravity/2.0.0 darwin/arm64'
+        });
+        expect(legacy.userAgent).toBe('antigravity/2.0.0 darwin/arm64');
+        expect(legacy.clientVersion).toBe('2.0.0');
+
+        // UA 与版本字段同时存在时，ide_version 必须跟随实际发出的 UA（保持一致）
+        const both = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '3.1.4',
+            USER_AGENT: 'antigravity/cli/2.0.0 darwin/arm64'
+        });
+        expect(both.userAgent).toBe('antigravity/cli/2.0.0 darwin/arm64');
+        expect(both.clientVersion).toBe('2.0.0');
+
+        // UA 完全不含版本信息时才回退到配置值
+        const noVersionInUa = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json',
+            ANTIGRAVITY_CLIENT_VERSION: '4.0.0',
+            USER_AGENT: 'Mozilla/5.0'
+        });
+        expect(noVersionInUa.userAgent).toBe('Mozilla/5.0');
+        expect(noVersionInUa.clientVersion).toBe('4.0.0');
+    });
+
+    test('11. parseAntigravityUserAgentVersion 剥掉 cli/ 前缀且兼容两种写法', () => {
+        expect(parseAntigravityUserAgentVersion('antigravity/cli/1.4.7 linux/amd64')).toBe('1.4.7');
+        expect(parseAntigravityUserAgentVersion('antigravity/1.4.7')).toBe('1.4.7');
+        expect(parseAntigravityUserAgentVersion('Antigravity/CLI/9.9.9 win32')).toBe('9.9.9');
+        expect(parseAntigravityUserAgentVersion('Mozilla/5.0')).toBeNull();
+        expect(parseAntigravityUserAgentVersion(undefined)).toBeNull();
+        expect(parseAntigravityUserAgentVersion(null)).toBeNull();
+    });
+});

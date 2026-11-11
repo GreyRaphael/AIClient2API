@@ -24,7 +24,11 @@ import { PASSWORD } from '../utils/constants.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 // Token存储到本地文件中
-const TOKEN_STORE_FILE = path.join(process.cwd(), 'configs', 'token-store.json');
+// 惰性求值：路径依赖 process.cwd()，而测试（以及 master 重启后的子进程）可能在
+// 导入之后才切换工作目录。模块顶层捕获会让路径永远指向导入时的那一刻。
+function tokenStoreFile(): string {
+    return path.join(process.cwd(), 'configs', 'token-store.json');
+}
 
 /**
  * 默认密码（当pwd文件不存在时使用）
@@ -182,8 +186,8 @@ function normalizeTokenStore(parsed: unknown): TokenStore {
  */
 async function readTokenStore(): Promise<TokenStore> {
     try {
-        if (existsSync(TOKEN_STORE_FILE)) {
-            const content = await fs.readFile(TOKEN_STORE_FILE, 'utf8');
+        if (existsSync(tokenStoreFile())) {
+            const content = await fs.readFile(tokenStoreFile(), 'utf8');
             return normalizeTokenStore(JSON.parse(content));
         } else {
             // 如果文件不存在，创建一个默认的token store
@@ -206,7 +210,7 @@ async function readTokenStore(): Promise<TokenStore> {
  */
 async function writeTokenStore(tokenStore: TokenStore): Promise<void> {
     try {
-        await atomicWriteFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), { encoding: 'utf8', mode: 0o600 });
+        await atomicWriteFile(tokenStoreFile(), JSON.stringify(tokenStore, null, 2), { encoding: 'utf8', mode: 0o600 });
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Token Store] Failed to write token store file:', error);
         throw error;
@@ -278,7 +282,7 @@ class TokenStoreManager {
      * - 文件被删除 → 清空缓存，保住"删 configs/token-store.json 即全员下线"的运维语义。
      */
     private async refreshIfChanged(): Promise<void> {
-        const stat = await fs.stat(TOKEN_STORE_FILE).catch(() => null);
+        const stat = await fs.stat(tokenStoreFile()).catch(() => null);
         if (!stat) {
             this.invalidate();
             return;
@@ -299,7 +303,7 @@ class TokenStoreManager {
      * stat 失败则降级为"下次重读"，不谎报缓存有效。
      */
     private async syncStat(): Promise<void> {
-        const stat = await fs.stat(TOKEN_STORE_FILE).catch(() => null);
+        const stat = await fs.stat(tokenStoreFile()).catch(() => null);
         if (!stat) {
             this.invalidate();
             return;

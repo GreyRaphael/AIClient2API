@@ -15,7 +15,6 @@ type SqlValue = string | number | bigint | null;
 type SqlRow = Record<string, SqlValue>;
 
 const DEFAULT_DB = path.join(process.cwd(), 'configs', 'api-keys.db');
-const LEGACY_POTLUCK_DB = path.join(process.cwd(), 'configs', 'api-potluck.db');
 
 let db: DatabaseSync | null = null;
 let initialized = false;
@@ -47,10 +46,6 @@ export function setDatabaseDir(dir: string | null): void {
 function dbFile(): string {
     if (baseDirOverride) {
         return path.join(baseDirOverride, 'api-keys.db');
-    }
-    // 若当前 api-keys.db 不存在但存在旧的 api-potluck.db，平滑指向旧库以继承数据
-    if (!existsSync(DEFAULT_DB) && existsSync(LEGACY_POTLUCK_DB)) {
-        return LEGACY_POTLUCK_DB;
     }
     return DEFAULT_DB;
 }
@@ -94,26 +89,6 @@ function ensureDb(): DatabaseSync {
     database.exec('PRAGMA foreign_keys = ON');
     database.exec('PRAGMA busy_timeout = 5000');
     database.exec(SCHEMA);
-
-    // 检查并兼容从旧 potluck_key 表平滑迁移
-    try {
-        const hasLegacyTable = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='potluck_key'").get();
-        if (hasLegacyTable) {
-            database.exec(`
-                INSERT OR IGNORE INTO api_key (key_id, data, updated_at)
-                SELECT key_id, data, updated_at FROM potluck_key;
-            `);
-        }
-        const hasLegacyMeta = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='potluck_meta'").get();
-        if (hasLegacyMeta) {
-            database.exec(`
-                INSERT OR IGNORE INTO api_key_meta (k, v)
-                SELECT k, v FROM potluck_meta;
-            `);
-        }
-    } catch (migrationErr) {
-        logger.warn(`[API Keys DB] Legacy table migration skipped: ${(migrationErr as Error)?.message || migrationErr}`);
-    }
 
     db = database;
     initialized = true;
