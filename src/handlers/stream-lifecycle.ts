@@ -20,6 +20,8 @@ export interface PipelineRetryContext {
     clientDisconnected?: { value: boolean };
     streamState?: StreamTerminalState;
     requestId?: string;
+    abortController?: AbortController;
+    clientSignal?: AbortSignal;
 }
 
 interface CreateStreamRetryContextOptions {
@@ -33,6 +35,8 @@ interface CreateStreamRetryContextOptions {
     anyDataSent: boolean;
     streamRequestId: string;
     streamState: StreamTerminalState;
+    abortController?: AbortController;
+    clientSignal?: AbortSignal;
 }
 
 /** 构造重试帧上下文，固定流会话键并共享连接和终止状态。 */
@@ -46,7 +50,9 @@ export function createStreamRetryContext({
     clientDisconnected,
     anyDataSent,
     streamRequestId,
-    streamState
+    streamState,
+    abortController,
+    clientSignal
 }: CreateStreamRetryContextOptions): PipelineRetryContext {
     const context: PipelineRetryContext = {
         ...(retryContext || {}),
@@ -56,7 +62,9 @@ export function createStreamRetryContext({
         clientDisconnected,
         anyDataSent,
         requestId: streamRequestId,
-        streamState
+        streamState,
+        abortController: abortController ?? retryContext?.abortController,
+        clientSignal: clientSignal ?? retryContext?.clientSignal
     };
     if (emptyResponseRetry !== undefined) {
         context.emptyResponseRetry = emptyResponseRetry;

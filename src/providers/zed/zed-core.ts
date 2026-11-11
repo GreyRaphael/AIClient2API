@@ -454,6 +454,10 @@ export class ZedApiService {
             MODEL_PROVIDER.ZED,
             downstreamSessionId ? String(downstreamSessionId) : null
         );
+        const callerSignal = (requestBody as Record<string, unknown>)?._abortSignal || (requestBody as Record<string, unknown>)?.signal;
+        if (callerSignal) {
+            (axiosConfig as unknown as Record<string, unknown>).signal = callerSignal;
+        }
 
         let response: AxiosResponse;
         try {

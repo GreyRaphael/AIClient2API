@@ -2034,6 +2034,10 @@ export class TraeApiService {
             timeout: 120000
         };
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE, payload.conversation_id);
+        const callerSignal = requestBody?._abortSignal || requestBody?.signal;
+        if (callerSignal) {
+            axiosConfig.signal = callerSignal;
+        }
 
 
 

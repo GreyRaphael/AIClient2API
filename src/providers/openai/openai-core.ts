@@ -321,6 +321,10 @@ export class OpenAIApiService {
                 url: endpoint,
                 data: cleanRequestData
             };
+            const callerSignal = requestData?._abortSignal || requestData?.signal || body?._abortSignal || body?.signal;
+            if (callerSignal) {
+                axiosConfig.signal = callerSignal;
+            }
             axiosConfig.headers = {
                     ...(axiosConfig.headers || {}),
                     ...buildSessionHeaders(downstreamSessionId)
@@ -454,6 +458,10 @@ export class OpenAIApiService {
                 data: streamRequestBody,
                 responseType: 'stream'
             };
+            const callerSignal = body?._abortSignal || body?.signal || (normalizedBody as DynamicPayload)?._abortSignal;
+            if (callerSignal) {
+                axiosConfig.signal = callerSignal;
+            }
             axiosConfig.headers = {
                     ...(axiosConfig.headers || {}),
                     ...buildSessionHeaders(downstreamSessionId)

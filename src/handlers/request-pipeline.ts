@@ -691,6 +691,54 @@ export function nativePayloadHasMeaningfulContent(payload: DynamicPayload | null
     }
 }
 
+/**
+ * 带背压感知的出站帧写入器（Phase 3 优化）。
+ * 当底层 socket 缓冲区满（res.write 返回 false）时，暂停消费上游异步迭代器，
+ * 直到下游触发 'drain' 事件或客户端断开/中止。
+ * 从而将长连接常驻内存堆积由 OS TCP 窗口和套接字缓冲区控制，实现端到端背压传递。
+ */
+async function writeFrameWithBackpressure(
+    res: ServerResponse,
+    frame: string,
+    clientDisconnected: { value: boolean },
+    signal?: AbortSignal
+): Promise<boolean> {
+    if (clientDisconnected.value || res.writableEnded || signal?.aborted) {
+        if (signal?.aborted) clientDisconnected.value = true;
+        return false;
+    }
+    try {
+        const canContinue = res.write(frame);
+        if (!canContinue && !res.writableEnded && !clientDisconnected.value && !signal?.aborted) {
+            if (typeof res.on === 'function') {
+                await new Promise<void>((resolve) => {
+                    const onDrain = () => { cleanup(); resolve(); };
+                    const onClose = () => { cleanup(); resolve(); };
+                    const onAbort = () => { cleanup(); resolve(); };
+                    const cleanup = () => {
+                        res.off?.('drain', onDrain);
+                        res.off?.('close', onClose);
+                        signal?.removeEventListener?.('abort', onAbort);
+                    };
+                    if (typeof res.once === 'function') {
+                        res.once('drain', onDrain);
+                        res.once('close', onClose);
+                    } else {
+                        res.on('drain', onDrain);
+                        res.on('close', onClose);
+                    }
+                    signal?.addEventListener?.('abort', onAbort, { once: true });
+                });
+            }
+        }
+        return true;
+    } catch (writeErr) {
+        logger.error('[Stream] Failed to write data:', getErrorMessage(writeErr));
+        clientDisconnected.value = true;
+        return false;
+    }
+}
+
 export async function handleStreamRequest(
     res: ServerResponse,
     service: DynamicPayload,
@@ -727,14 +775,56 @@ export async function handleStreamRequest(
         clientDisconnected = { value: false }; // 使用对象引用，便于在递归中共享状态
     }
 
+    // 构建流式连接生命周期与取消控制信号（AbortSignal.any()）
+    const streamAbortController = retryContext?.abortController || new AbortController();
+    const signals: AbortSignal[] = [streamAbortController.signal];
+
+    const clientSignal = retryContext?.clientSignal || (res as DynamicPayload)?.req?.signal;
+    if (clientSignal && typeof clientSignal.addEventListener === 'function') {
+        if (clientSignal.aborted) {
+            clientDisconnected.value = true;
+            try { streamAbortController.abort(clientSignal.reason); } catch {}
+        } else {
+            signals.push(clientSignal);
+        }
+    }
+
+    const requestTimeoutMs = Number(CONFIG.REQUEST_TIMEOUT_MS || CONFIG.STREAM_TIMEOUT_MS);
+    if (requestTimeoutMs > 0) {
+        signals.push(AbortSignal.timeout(requestTimeoutMs));
+    }
+
+    const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+
+    const onCombinedAbort = () => {
+        clientDisconnected.value = true;
+        if (combinedSignal.reason?.name === 'TimeoutError') {
+            logger.warn(`[Stream] Request timed out after ${requestTimeoutMs}ms`);
+        } else {
+            logger.info('[Stream] Client disconnected or stream aborted');
+        }
+    };
+
+    if (combinedSignal.aborted) {
+        onCombinedAbort();
+    } else if (typeof combinedSignal.addEventListener === 'function') {
+        combinedSignal.addEventListener('abort', onCombinedAbort, { once: true });
+    }
+
     // 监听客户端断开连接事件（命名函数，便于移除）
     const onClientClose = () => {
         clientDisconnected.value = true;
+        if (!streamAbortController.signal.aborted) {
+            try { streamAbortController.abort(new Error('Client disconnected')); } catch {}
+        }
         logger.info('[Stream] Client disconnected, stopping stream processing');
     };
     
     const onClientError = (err: Error) => {
         clientDisconnected.value = true;
+        if (!streamAbortController.signal.aborted) {
+            try { streamAbortController.abort(err); } catch {}
+        }
         logger.error('[Stream] Response stream error:', err.message);
     };
     
@@ -832,6 +922,12 @@ export async function handleStreamRequest(
             });
         }
         requestBody.model = model;
+        Object.defineProperty(requestBody, '_abortSignal', {
+            value: combinedSignal,
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
         const nativeStream = await service.generateContentStream(model, requestBody);
         
         // 如果提供者内部发生了模型回退（如 Antigravity 自动降级），同步更新本地 model 变量
@@ -989,12 +1085,10 @@ export async function handleStreamRequest(
 
                 for (const frame of framesToWrite) {
                     if (clientDisconnected.value || res.writableEnded) break;
-                    try {
-                        res.write(frame);
+                    const written = await writeFrameWithBackpressure(res, frame, clientDisconnected, combinedSignal);
+                    if (written) {
                         anyDataSent = true;
-                    } catch (writeErr) {
-                        logger.error('[Stream] Failed to write data:', getErrorMessage(writeErr));
-                        clientDisconnected.value = true;
+                    } else {
                         break;
                     }
                 }
@@ -1016,12 +1110,10 @@ export async function handleStreamRequest(
                 logger.warn(`[Stream] Upstream ended with terminal finishReason ${lastFinishReason} and no content; flushing ${terminalFrames.length} buffered frame(s) as truncated/safety response.`);
                 for (const frame of terminalFrames) {
                     if (clientDisconnected.value || res.writableEnded) break;
-                    try {
-                        res.write(frame);
+                    const written = await writeFrameWithBackpressure(res, frame, clientDisconnected, combinedSignal);
+                    if (written) {
                         anyDataSent = true;
-                    } catch (writeErr) {
-                        logger.error('[Stream] Failed to write terminal frame:', getErrorMessage(writeErr));
-                        clientDisconnected.value = true;
+                    } else {
                         break;
                     }
                 }
@@ -1100,7 +1192,9 @@ export async function handleStreamRequest(
                     clientDisconnected,
                     anyDataSent,
                     streamRequestId,
-                    streamState
+                    streamState,
+                    abortController: streamAbortController,
+                    clientSignal
                 });
 
                 // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
@@ -1183,7 +1277,9 @@ export async function handleStreamRequest(
                         clientDisconnected,
                         anyDataSent,
                         streamRequestId,
-                        streamState
+                        streamState,
+                        abortController: streamAbortController,
+                        clientSignal
                     });
 
                     // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
@@ -1249,6 +1345,9 @@ export async function handleStreamRequest(
         if (!isRetry) {
             res.off('close', onClientClose);
             res.off('error', onClientError);
+            if (typeof combinedSignal.removeEventListener === 'function') {
+                combinedSignal.removeEventListener('abort', onCombinedAbort);
+            }
         }
         
         // 只在非重试或重试失败时才发送结束标记
@@ -1286,6 +1385,32 @@ export async function handleUnaryRequest(
     const responseRequestId = retryContext?.requestId || null;
     const isRetry = currentRetry > 0 || (retryContext?.emptyResponseRetry ?? 0) > 0;
 
+    // 构建一元连接生命周期与取消控制信号（AbortSignal.any()）
+    const unaryAbortController = retryContext?.abortController || new AbortController();
+    const signals: AbortSignal[] = [unaryAbortController.signal];
+    const clientSignal = retryContext?.clientSignal || (res as DynamicPayload)?.req?.signal;
+    if (clientSignal && typeof clientSignal.addEventListener === 'function') {
+        if (clientSignal.aborted) {
+            try { unaryAbortController.abort(clientSignal.reason); } catch {}
+        } else {
+            signals.push(clientSignal);
+        }
+    }
+    const timeoutMs = Number(CONFIG.REQUEST_TIMEOUT_MS);
+    if (timeoutMs > 0) {
+        signals.push(AbortSignal.timeout(timeoutMs));
+    }
+    const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+
+    const onUnaryClose = () => {
+        if (!unaryAbortController.signal.aborted) {
+            try { unaryAbortController.abort(new Error('Client disconnected')); } catch {}
+        }
+    };
+    if (!isRetry && typeof res.on === 'function') {
+        res.on('close', onUnaryClose);
+    }
+
     let slotReleased = false;
     const releaseCurrentSlot = () => {
         if (!slotReleased && providerPoolManager && pooluuid) {
@@ -1302,6 +1427,12 @@ export async function handleUnaryRequest(
         const nativeProtocol = bridgePlan.nativeProtocol;
         injectDownstreamProtocol(requestBody, bridgePlan);
         requestBody.model = model;
+        Object.defineProperty(requestBody, '_abortSignal', {
+            value: combinedSignal,
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
         // fs.writeFile('oldRequest'+Date.now()+'.json', JSON.stringify(requestBody));
         const nativeResponse = await service.generateContent(model, requestBody);
         
@@ -1399,7 +1530,9 @@ export async function handleUnaryRequest(
                     currentRetry,
                     maxRetries,
                     emptyResponseRetry,
-                    emptyResponseStartedAt
+                    emptyResponseStartedAt,
+                    abortController: unaryAbortController,
+                    clientSignal
                 };
 
                 return await handleUnaryRequest(
@@ -1466,7 +1599,9 @@ export async function handleUnaryRequest(
                         ...(retryContext || {}),
                         CONFIG,
                         currentRetry: currentRetry + 1,
-                        maxRetries
+                        maxRetries,
+                        abortController: unaryAbortController,
+                        clientSignal
                     };
                     
                     // 递归调用，使用新的服务
@@ -1513,6 +1648,9 @@ export async function handleUnaryRequest(
         }
         await handleUnifiedResponse(res, JSON.stringify(errorResponse), false, statusCode);
     } finally {
+        if (!isRetry && typeof res.off === 'function') {
+            res.off('close', onUnaryClose);
+        }
         // 请求级状态治理：非流式响应在最外层帧结束后释放 custom tool 登记。
         if (!isRetry) {
             clearCustomTools(responseRequestId);
@@ -1912,7 +2050,14 @@ export async function handleContentGenerationRequest(
         await logConversation('input', promptText, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
         
         const credentialSwitchMaxRetries = CONFIG.CREDENTIAL_SWITCH_MAX_RETRIES || 5;
-        retryContext = { CONFIG, currentRetry: 0, maxRetries: credentialSwitchMaxRetries, requestId: conversationRequestId };
+        const clientSignal = (req as DynamicPayload)?.signal;
+        retryContext = {
+            CONFIG,
+            currentRetry: 0,
+            maxRetries: credentialSwitchMaxRetries,
+            requestId: conversationRequestId,
+            clientSignal
+        };
         // 即将交由 handleStreamRequest / handleUnaryRequest 接管插槽释放责任
         slotOwnedByPipeline = false;
     } catch (prepError) {

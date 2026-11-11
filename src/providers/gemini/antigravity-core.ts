@@ -1672,6 +1672,10 @@ export class AntigravityApiService {
             };
 
             this._applySidecar(requestOptions);
+            const callerSignal = body?._abortSignal || body?.signal;
+            if (callerSignal) {
+                requestOptions.signal = callerSignal;
+            }
             const res = await this.authClient.request(requestOptions);
             return res.data as T;
         } catch (rawError) {
@@ -1784,37 +1788,37 @@ export class AntigravityApiService {
 
             // Gaxios 的 timeout 是覆盖整个响应生命周期的绝对超时，不能用于流式请求的
             // “首字节”限制，否则持续正常输出的长响应也会在固定时长被中止。
-            // 这里使用独立 AbortController，并在响应头到达后立即清除计时器；后续流读取
-            // 由 parseSSEStream 的 idle watchdog 负责。
-            // Sidecar 配置可能同步抛错，必须在创建计时器前完成，避免遗留定时器。
+            // 这里结合客户端断连信号与首字节超时，使用 AbortSignal.any() 统一管理；
+            // 后续流读取由 parseSSEStream 的 idle watchdog 负责。
             this._applySidecar(requestOptions);
 
             const firstByteTimeoutMs = this.config.ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS
                 ?? ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS;
-            let firstByteTimer: NodeJS.Timeout | null = null;
-            let firstByteTimedOut = false;
+            const signals: AbortSignal[] = [];
+            const callerSignal = body?._abortSignal || body?.signal;
+            if (callerSignal && typeof callerSignal.addEventListener === 'function') {
+                signals.push(callerSignal);
+            }
+            let firstByteSignal: AbortSignal | null = null;
             if (firstByteTimeoutMs > 0) {
-                const firstByteController = new AbortController();
-                requestOptions.signal = firstByteController.signal;
-                firstByteTimer = setTimeout(() => {
-                    firstByteTimedOut = true;
-                    firstByteController.abort();
-                }, firstByteTimeoutMs);
+                firstByteSignal = AbortSignal.timeout(firstByteTimeoutMs);
+                signals.push(firstByteSignal);
+            }
+            if (signals.length > 0) {
+                requestOptions.signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
             }
 
             let res: DynamicPayload;
             try {
                 res = await this.authClient.request(requestOptions);
             } catch (rawError) {
-            const error = asAntigravityError(rawError);
-                if (firstByteTimedOut) {
+                const error = asAntigravityError(rawError);
+                if (firstByteSignal?.aborted || (requestOptions.signal?.aborted && requestOptions.signal.reason?.name === 'TimeoutError')) {
                     const timeoutError = new Error(`[Antigravity] Stream first byte timeout after ${firstByteTimeoutMs}ms.`);
                     timeoutError.code = 'ETIMEDOUT';
                     throw timeoutError;
                 }
                 throw error;
-            } finally {
-                if (firstByteTimer) clearTimeout(firstByteTimer);
             }
 
             if (res.status !== 200) {

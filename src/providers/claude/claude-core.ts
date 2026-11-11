@@ -148,6 +148,10 @@ export class ClaudeApiService {
                 url: endpoint,
                 data: cleanBody
             };
+            const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
+            if (callerSignal) {
+                axiosConfig.signal = callerSignal;
+            }
             axiosConfig.headers = {
                     ...((axiosConfig.headers as Record<string, string>) || {}),
                     ...buildSessionHeaders(downstreamSessionId)
@@ -235,6 +239,10 @@ export class ClaudeApiService {
                 data: { ...cleanBody, stream: true },
                 responseType: 'stream'
             };
+            const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
+            if (callerSignal) {
+                axiosConfig.signal = callerSignal;
+            }
             axiosConfig.headers = {
                     ...((axiosConfig.headers as Record<string, string>) || {}),
                     ...buildSessionHeaders(downstreamSessionId)

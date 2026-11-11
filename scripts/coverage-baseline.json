@@ -1,16 +1,16 @@
 {
   "total": {
     "lines": {
-      "covered": 10649,
-      "total": 20623
+      "covered": 10725,
+      "total": 20726
     },
     "branches": {
-      "covered": 9790,
-      "total": 20431
+      "covered": 9878,
+      "total": 20566
     },
     "functions": {
-      "covered": 1360,
-      "total": 2338
+      "covered": 1365,
+      "total": 2345
     }
   },
   "directories": {
@@ -86,30 +86,30 @@
     },
     "src/handlers": {
       "lines": {
-        "covered": 576,
-        "total": 976
+        "covered": 635,
+        "total": 1045
       },
       "branches": {
-        "covered": 562,
-        "total": 1112
+        "covered": 622,
+        "total": 1189
       },
       "functions": {
-        "covered": 55,
-        "total": 74
+        "covered": 60,
+        "total": 82
       }
     },
     "src/providers": {
       "lines": {
-        "covered": 3895,
-        "total": 6346
+        "covered": 3912,
+        "total": 6380
       },
       "branches": {
-        "covered": 3546,
-        "total": 6633
+        "covered": 3574,
+        "total": 6691
       },
       "functions": {
         "covered": 531,
-        "total": 813
+        "total": 812
       }
     },
     "src/scripts": {

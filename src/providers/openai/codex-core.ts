@@ -861,12 +861,16 @@ export class CodexApiService {
             };
 
             const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-            const axiosRequestConfig = {
+            const axiosRequestConfig: Record<string, unknown> = {
                 method: 'post',
                 url,
                 data: body,
                 ...config
             };
+            const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
+            if (callerSignal) {
+                axiosRequestConfig.signal = callerSignal;
+            }
             this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
@@ -940,12 +944,16 @@ export class CodexApiService {
             };
 
             const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-            const axiosRequestConfig = {
+            const axiosRequestConfig: Record<string, unknown> = {
                 method: 'post',
                 url,
                 data: body,
                 ...config
             };
+            const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
+            if (callerSignal) {
+                axiosRequestConfig.signal = callerSignal;
+            }
             this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
