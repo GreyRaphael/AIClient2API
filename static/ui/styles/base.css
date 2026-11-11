@@ -1,5 +1,7 @@
 /* CSS变量 - 暗黑主题（唯一主题） */
 :root {
+    color-scheme: dark;
+
     /* 主色调 */
     --primary-color: #34d399;
     --primary-hover: #10b981;
