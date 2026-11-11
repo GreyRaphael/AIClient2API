@@ -49,16 +49,13 @@ const DEFAULT_CONFIG: ApiKeyManagerConfig = {
     reserveTokensPerRequest: 20000
 };
 
-let configGetter: (() => ApiKeyManagerConfig) | null = null;
-
-export function setConfigGetter(getter: () => ApiKeyManagerConfig): void {
-    configGetter = getter;
-}
-
+/**
+ * 当前生效的令牌管理配置。
+ *
+ * 历史上有 `setConfigGetter` 注入通道，但从未有任何调用方接入，
+ * 等价于恒返回 DEFAULT_CONFIG —— 已删除该间接层。
+ */
 export function getApiKeyConfig(): ApiKeyManagerConfig {
-    if (configGetter) {
-        return configGetter();
-    }
     return DEFAULT_CONFIG;
 }
 

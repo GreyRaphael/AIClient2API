@@ -28,7 +28,8 @@ import {
     sortToolsByName,
     mimeTypeFromFilename,
     guessImageMimeTypeFromUrl,
-    parseBase64DataUrl
+    parseBase64DataUrl,
+    defaultGeminiSafetySettings
 } from '../utils.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
@@ -1340,7 +1341,7 @@ export class OpenAIConverter extends BaseConverter {
         }
 
         // 添加默认安全设置
-        geminiRequest.safetySettings = this.getDefaultSafetySettings();
+        geminiRequest.safetySettings = defaultGeminiSafetySettings();
 
         return geminiRequest;
     }
@@ -1363,15 +1364,6 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 获取默认安全设置
      */
-    getDefaultSafetySettings() {
-        return [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "OFF" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "OFF" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "OFF" },
-            { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "OFF" }
-        ];
-    }
 
     buildGeminiToolConfig(toolChoice: DynamicPayload | string | null | undefined): DynamicPayload | null {
         if (typeof toolChoice === 'string') {

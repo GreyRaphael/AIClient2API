@@ -1,5 +1,6 @@
 import { describe, test } from 'node:test';
 import { expect, jest } from './support/harness.mjs';
+import { createResponse as createBaseResponse } from './support/mock-response.mjs';
 /**
  * 静态资源压缩测试。
  *
@@ -17,20 +18,6 @@ import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { serveStaticFiles } from '../src/services/ui-manager.ts';
 
 
-function createResponse() {
-    return {
-        statusCode: null,
-        headers: null,
-        body: null,
-        writeHead(status, headers) {
-            this.statusCode = status;
-            this.headers = headers;
-        },
-        end(body) {
-            this.body = body;
-        }
-    };
-}
 
 const request = (acceptEncoding) => ({
     headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {}
@@ -40,7 +27,7 @@ const SOURCE = readFileSync(path.join(process.cwd(), 'static/ui/styles/base.css'
 
 describe('静态资源压缩', () => {
     test('br 优先于 gzip', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', res, request('gzip, deflate, br'));
 
         expect(res.statusCode).toBe(200);
@@ -51,7 +38,7 @@ describe('静态资源压缩', () => {
     });
 
     test('只支持 gzip 时用 gzip', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', res, request('gzip, deflate'));
 
         expect(res.headers['Content-Encoding']).toBe('gzip');
@@ -59,7 +46,7 @@ describe('静态资源压缩', () => {
     });
 
     test('客户端不支持压缩时返回原文，且不标注 Content-Encoding', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', res, request('identity'));
 
         expect(res.statusCode).toBe(200);
@@ -68,25 +55,25 @@ describe('静态资源压缩', () => {
     });
 
     test('压缩后体积显著小于原文', async () => {
-        const plain = createResponse();
+        const plain = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', plain, request('identity'));
-        const compressed = createResponse();
+        const compressed = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', compressed, request('br'));
 
         expect(compressed.body.length).toBeLessThan(plain.body.length / 3);
     });
 
     test('ETag 区分编码，各自的 304 独立命中', async () => {
-        const br = createResponse();
+        const br = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', br, request('br'));
-        const gz = createResponse();
+        const gz = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', gz, request('gzip'));
 
         expect(br.headers['ETag']).not.toBe(gz.headers['ETag']);
         expect(br.headers['ETag']).toContain('br');
         expect(gz.headers['ETag']).toContain('gzip');
 
-        const hit = createResponse();
+        const hit = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', hit, {
             headers: { 'accept-encoding': 'br', 'if-none-match': br.headers['ETag'] }
         });
@@ -95,7 +82,7 @@ describe('静态资源压缩', () => {
     });
 
     test('二进制资产不压缩（本身已是压缩格式）', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         const served = await serveStaticFiles('/vendor/fontawesome@6.7.2/fa-solid-subset.woff2', res, request('br, gzip'));
         expect(served).toBe(true);
         expect(res.statusCode).toBe(200);
@@ -104,14 +91,14 @@ describe('静态资源压缩', () => {
     });
 
     test('q 值能改变编码优先级', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         // br 权重低于 gzip 时应选 gzip
         await serveStaticFiles('/ui/styles/base.css', res, request('br;q=0.5, gzip;q=1.0'));
         expect(res.headers['Content-Encoding']).toBe('gzip');
     });
 
     test('无 Accept-Encoding 头时返回原文', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', res, { headers: {} });
         expect(res.headers['Content-Encoding']).toBeUndefined();
         expect(res.body.toString('utf8')).toBe(SOURCE);
@@ -134,13 +121,13 @@ describe('静态资源压缩', () => {
             writeFileSync(path.join(sandbox, 'static', 'ui', 'probe.ts'), source);
             process.chdir(sandbox);
 
-            const plain = createResponse();
+            const plain = createBaseResponse({ body: undefined });
             await serveStaticFiles('/ui/probe.ts', plain, request('identity'));
             expect(plain.headers['Content-Encoding']).toBeUndefined();
             const stripped = plain.body.toString('utf8');
             expect(stripped).not.toContain('interface Row');
 
-            const br = createResponse();
+            const br = createBaseResponse({ body: undefined });
             await serveStaticFiles('/ui/probe.ts', br, request('br'));
             expect(br.headers['Content-Encoding']).toBe('br');
             expect(br.headers['Vary']).toBe('Accept-Encoding');

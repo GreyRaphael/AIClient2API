@@ -1,27 +1,14 @@
 import { describe, test } from 'node:test';
 import { expect, jest } from './support/harness.mjs';
+import { createResponse as createBaseResponse } from './support/mock-response.mjs';
 
 import path from 'node:path';
 import { serveStaticFiles } from '../src/services/ui-manager.ts';
 
-function createResponse() {
-    return {
-        statusCode: null,
-        headers: null,
-        body: null,
-        writeHead(status, headers) {
-            this.statusCode = status;
-            this.headers = headers;
-        },
-        end(body) {
-            this.body = body;
-        }
-    };
-}
 
 describe('serveStaticFiles', () => {
     test('ES module 文件使用 JavaScript MIME，vendor 文件强缓存', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         const served = await serveStaticFiles('/vendor/preact@11.1.0/preact.mjs', res);
 
         expect(served).toBe(true);
@@ -31,7 +18,7 @@ describe('serveStaticFiles', () => {
     });
 
     test('字体文件使用 font/woff2 MIME', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         const served = await serveStaticFiles('/vendor/fontawesome@6.7.2/fa-solid-subset.woff2', res);
 
         expect(served).toBe(true);
@@ -39,13 +26,13 @@ describe('serveStaticFiles', () => {
     });
 
     test('文本资源带 ETag，If-None-Match 命中返回 304', async () => {
-        const first = createResponse();
+        const first = createBaseResponse({ body: undefined });
         await serveStaticFiles('/ui/styles/base.css', first);
         expect(first.statusCode).toBe(200);
         expect(first.headers['Cache-Control']).toBe('no-cache');
         expect(first.headers['ETag']).toMatch(/^W\//);
 
-        const second = createResponse();
+        const second = createBaseResponse({ body: undefined });
         const served = await serveStaticFiles('/ui/styles/base.css', second, { headers: { 'if-none-match': first.headers['ETag'] } });
         expect(served).toBe(true);
         expect(second.statusCode).toBe(304);
@@ -53,7 +40,7 @@ describe('serveStaticFiles', () => {
     });
 
     test('拒绝越出 static 根目录的路径', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         const served = await serveStaticFiles('/static/../package.json', res);
 
         expect(served).toBe(false);
@@ -61,7 +48,7 @@ describe('serveStaticFiles', () => {
     });
 
     test('目录路径不会抛错', async () => {
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         await expect(serveStaticFiles('/app/', res)).resolves.toBe(false);
     });
 
@@ -70,14 +57,14 @@ describe('serveStaticFiles', () => {
         expect(isUIPath('/potluck-user.html')).toBe(true);
         expect(isUIPath('/potluck-user')).toBe(true);
 
-        const res1 = createResponse();
+        const res1 = createBaseResponse({ body: undefined });
         const served1 = await serveStaticFiles('/potluck-user.html', res1);
         expect(served1).toBe(true);
         expect(res1.statusCode).toBe(200);
         expect(res1.headers['Content-Type']).toBe('text/html');
         expect(res1.body.toString('utf8')).toContain('API 大锅饭 - 我的用量');
 
-        const res2 = createResponse();
+        const res2 = createBaseResponse({ body: undefined });
         const served2 = await serveStaticFiles('/potluck-user', res2);
         expect(served2).toBe(true);
         expect(res2.statusCode).toBe(200);
@@ -89,7 +76,7 @@ describe('serveStaticFiles', () => {
         // 前端源码是 .ts，但浏览器不认 TypeScript：必须由服务端擦除类型后
         // 以 text/javascript 下发，否则模块加载会直接失败。
         // 具体擦除正确性见 tests/usage-stats-static-ts.test.js。
-        const res = createResponse();
+        const res = createBaseResponse({ body: undefined });
         const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
         const { tmpdir } = await import('node:os');
         const sandbox = mkdtempSync(path.join(tmpdir(), 'ui-ts-mime-'));

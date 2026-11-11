@@ -42,7 +42,6 @@ const responsesRequest = (requestId, tools = [CUSTOM_TOOL]) => ({
     _requestId: requestId
 });
 
-// ===== merged from cross-protocol-v4-fixes.test.js =====
 describe('v4 P1 regressions', () => {
     test('P1-1 Claude -> Responses：一个 tool_use 只产生一个 function_call item', () => {
         const converter = new ClaudeConverter();
@@ -422,10 +421,8 @@ describe('v4 P3 cleanup regressions', () => {
         expect(returned.item.name).toBe(LONG_TOOL);
     });
 
-
 });
 
-// ===== merged from cross-protocol-v4-1-0-p0-p1.test.js =====
 describe('v4.1.0 复评 P0：Codex 非流式工具链', () => {
     test('Codex -> OpenAI Chat 非流式 function_call 不抛 requestId 错误，并还原长工具名', () => {
         const converter = new CodexConverter();
@@ -667,7 +664,6 @@ describe('v4.1.0 复评 P1', () => {
     });
 });
 
-// ===== merged from cross-protocol-v4-1-1-fixes.test.js =====
 describe('v4.1.1 批次 1：Gemini 流式 finish_reason', () => {
     test('工具 chunk 不再提前写 finish_reason，最终 STOP 才写终止原因', () => {
         const converter = new GeminiConverter();
@@ -1052,7 +1048,6 @@ describe('v4.1.1 批次 8：input_file 兼容', () => {
     });
 });
 
-// ===== merged from cross-protocol-v4-1-p1.test.js =====
 describe('v4.1 P1 regressions', () => {
     test('Gemini -> OpenAI Chat：跨 chunk 的工具索引递增', () => {
         const converter = new GeminiConverter();
@@ -1167,7 +1162,6 @@ describe('v4.1 P1 regressions', () => {
     });
 });
 
-// ===== merged from cross-protocol-v4-1-p2.test.js =====
 describe('v4.1 P2 regressions', () => {
     test('Claude -> OpenAI/Responses：最终 usage 保留 message_start 的输入 token', () => {
         const openaiConverter = new ClaudeConverter();
@@ -1356,9 +1350,7 @@ describe('v4.1 P2 regressions', () => {
 
 });
 
-// ===== merged from cross-protocol-v4-1-p3.test.js =====
 describe('v4.1 P3 regressions', () => {
-
 
     test('Claude -> Responses：text 块在 content_block_stop 时完成 output_item.done', () => {
         const converter = new ClaudeConverter();

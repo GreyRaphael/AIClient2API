@@ -854,3 +854,18 @@ export function logOmittedCacheControl(location: string, itemWithCacheControl: u
         }
     }
 }
+/**
+ * Gemini 安全阈值：全关。
+ *
+ * 网关只做协议转译，内容合规由上游负责；这里统一 OFF，避免不同转换路径
+ * 各自散落一份相同数组（原先 OpenAIConverter 与 ClaudeConverter 各有一份副本）。
+ */
+export function defaultGeminiSafetySettings(): Array<{ category: string; threshold: string }> {
+    return [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'OFF' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'OFF' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'OFF' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'OFF' },
+        { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'OFF' }
+    ];
+}

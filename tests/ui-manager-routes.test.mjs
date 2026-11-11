@@ -1,5 +1,6 @@
 import { describe, test } from 'node:test';
 import { expect, jest } from './support/harness.mjs';
+import { createResponse } from './support/mock-response.mjs';
 globalThis.__MOCK_BASE__ = import.meta.url;
 
 // mock.module 会完整替换模块导出集合，缺失的命名导出会让依赖方 import 直接报错。
@@ -27,20 +28,6 @@ const { handleUIApiRequests } = await import('../src/services/ui-manager.ts');
 const providerApi = await import('../src/ui-modules/provider-api.ts');
 const auth = await import('../src/ui-modules/auth.ts');
 
-function createResponse() {
-    return {
-        statusCode: null,
-        headers: null,
-        body: '',
-        writeHead(status, headers) {
-            this.statusCode = status;
-            this.headers = headers;
-        },
-        end(body = '') {
-            this.body += body;
-        }
-    };
-}
 
 describe('UI manager route dispatch', () => {
     test('GET /api/provider-models/metadata 路由到 metadata handler', async () => {
