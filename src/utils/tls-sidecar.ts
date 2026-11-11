@@ -150,23 +150,23 @@ class TLSSidecar {
         const child = this.process;
         if (child) {
             logger.info('[TLS-Sidecar] Stopping...');
-            return new Promise<void>((resolve) => {
-                const timeout = setTimeout(() => {
-                    logger.warn('[TLS-Sidecar] Force killing');
-                    child.kill('SIGKILL');
-                    resolve();
-                }, 5000);
+            const { promise, resolve } = Promise.withResolvers<void>();
+            const timeout = setTimeout(() => {
+                logger.warn('[TLS-Sidecar] Force killing');
+                child.kill('SIGKILL');
+                resolve();
+            }, 5000);
 
-                child.once('exit', () => {
-                    clearTimeout(timeout);
-                    this.process = null;
-                    this.ready = false;
-                    logger.info('[TLS-Sidecar] Stopped');
-                    resolve();
-                });
-
-                child.kill('SIGTERM');
+            child.once('exit', () => {
+                clearTimeout(timeout);
+                this.process = null;
+                this.ready = false;
+                logger.info('[TLS-Sidecar] Stopped');
+                resolve();
             });
+
+            child.kill('SIGTERM');
+            return promise;
         }
     }
 

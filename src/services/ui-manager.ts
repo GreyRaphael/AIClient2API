@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'fs';
 import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
+import { stripVTControlCharacters } from 'node:util';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import path from 'path';
 import { isUIApiPath } from '../utils/ui-utils.ts';
@@ -667,7 +668,7 @@ export async function handleUIApiRequests(
         
         if (format === 'text') {
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(formatHelpText().replace(/\x1b\[[0-9;]*m/g, '')); // 去掉颜色代码
+            res.end(stripVTControlCharacters(formatHelpText())); // 去掉颜色代码
         } else {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(HELP_DATA));
@@ -681,7 +682,7 @@ export async function handleUIApiRequests(
 
         if (format === 'text') {
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(formatApiGuideText().replace(/\x1b\[[0-9;]*m/g, '')); // 去掉颜色代码
+            res.end(stripVTControlCharacters(formatApiGuideText())); // 去掉颜色代码
         } else {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({

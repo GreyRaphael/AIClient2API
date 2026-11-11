@@ -481,29 +481,31 @@ export class CodexAuth {
      * @returns {Promise<{code: string, state: string}>}
      */
     async waitForCallback(server: http.Server, expectedState: string): Promise<CallbackResult> {
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                server.close();
-                reject(new Error(`Authentication timeout (${Math.round(OAUTH_CALLBACK_WINDOW_MS / 60000)} minutes)`));
-            }, OAUTH_CALLBACK_WINDOW_MS);
+        const { promise, resolve, reject } = Promise.withResolvers<CallbackResult>();
 
-            server.once('auth-success', (result: CallbackResult) => {
-                clearTimeout(timeout);
-                server.close();
+        const timeout = setTimeout(() => {
+            server.close();
+            reject(new Error(`Authentication timeout (${Math.round(OAUTH_CALLBACK_WINDOW_MS / 60000)} minutes)`));
+        }, OAUTH_CALLBACK_WINDOW_MS);
 
-                if (result.state !== expectedState) {
-                    reject(new Error('State mismatch - possible CSRF attack'));
-                } else {
-                    resolve(result);
-                }
-            });
+        server.once('auth-success', (result: CallbackResult) => {
+            clearTimeout(timeout);
+            server.close();
 
-            server.once('auth-error', (error: Error) => {
-                clearTimeout(timeout);
-                server.close();
-                reject(error);
-            });
+            if (result.state !== expectedState) {
+                reject(new Error('State mismatch - possible CSRF attack'));
+            } else {
+                resolve(result);
+            }
         });
+
+        server.once('auth-error', (error: Error) => {
+            clearTimeout(timeout);
+            server.close();
+            reject(error);
+        });
+
+        return promise;
     }
 
     /**

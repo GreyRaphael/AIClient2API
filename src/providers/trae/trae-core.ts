@@ -2051,8 +2051,9 @@ export class TraeApiService {
                     errMsg = errData;
                 } else if (errData && typeof errData.on === 'function') {
                     try {
-                        const chunks: Buffer[] = [];
-                        for await (const chunk of errData) chunks.push(chunk);
+                        const chunks = await Array.fromAsync(errData as AsyncIterable<Buffer | string>, (chunk) =>
+                            Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+                        );
                         errMsg = Buffer.concat(chunks).toString('utf-8');
                     } catch {
                         errMsg = err.message;

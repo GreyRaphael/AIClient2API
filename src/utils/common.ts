@@ -172,11 +172,11 @@ export async function getNormalizedErrorResponseText(error: unknown): Promise<st
         return fallbackText;
     }
 
-    const chunks: Buffer[] = [];
     try {
-        for await (const chunk of data as unknown as AsyncIterable<unknown>) {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-        }
+        const chunks = await Array.fromAsync(
+            data as unknown as AsyncIterable<unknown>,
+            (chunk) => (Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+        );
 
         const bodyText = Buffer.concat(chunks).toString('utf8');
         if (!bodyText) return fallbackText;

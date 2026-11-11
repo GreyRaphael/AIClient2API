@@ -340,7 +340,7 @@ export function polyfillSchemaForGemini(rawSchema: unknown, options: PolyfillOpt
                         Object.assign(mergedProperties, transformedBranch.properties);
                     }
                     if (Array.isArray(transformedBranch.required)) {
-                        mergedRequired = Array.from(new Set([...mergedRequired, ...transformedBranch.required]));
+                        mergedRequired = Array.from(new Set(mergedRequired).union(new Set(transformedBranch.required)));
                     }
                     if (transformedBranch.description && !branchDescriptions.includes(transformedBranch.description)) {
                         branchDescriptions.push(transformedBranch.description);
@@ -374,13 +374,14 @@ export function polyfillSchemaForGemini(rawSchema: unknown, options: PolyfillOpt
 
             // enum 取各分支交集；父节点已有 enum 时再与父节点求交。
             if (branchEnums.length > 0) {
-                let intersection = branchEnums[0].slice();
+                let enumIntersection = new Set<JsonValue>(branchEnums[0]);
                 for (const values of branchEnums.slice(1)) {
-                    intersection = intersection.filter((value) => values.includes(value as JsonValue));
+                    enumIntersection = enumIntersection.intersection(new Set(values));
                 }
                 if (Array.isArray(node.enum)) {
-                    intersection = node.enum.filter((value) => intersection.includes(value));
+                    enumIntersection = enumIntersection.intersection(new Set(node.enum));
                 }
+                const intersection = Array.from(enumIntersection);
                 if (intersection.length > 0) {
                     node.enum = intersection;
                 } else if (!Array.isArray(node.enum)) {
@@ -475,12 +476,10 @@ export function polyfillSchemaForGemini(rawSchema: unknown, options: PolyfillOpt
                         ...mergedProperties
                     };
                     const commonRequired = requiredSets.length > 0
-                        ? [...requiredSets[0]].filter((key) => requiredSets.every((set) => set.has(key)))
+                        ? Array.from(requiredSets.reduce((acc, curr) => acc.intersection(curr)))
                         : [];
-                    node.required = Array.from(new Set([
-                        ...(Array.isArray(node.required) ? node.required : []),
-                        ...commonRequired
-                    ]));
+                    const baseRequired = Array.isArray(node.required) ? node.required : [];
+                    node.required = Array.from(new Set(baseRequired).union(new Set(commonRequired)));
                     if (node.required.length === 0) {
                         delete node.required;
                     }

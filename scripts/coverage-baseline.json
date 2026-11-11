@@ -1,23 +1,23 @@
 {
   "total": {
     "lines": {
-      "covered": 10560,
-      "total": 20527
+      "covered": 10562,
+      "total": 20534
     },
     "branches": {
       "covered": 9754,
-      "total": 20383
+      "total": 20385
     },
     "functions": {
-      "covered": 1351,
-      "total": 2335
+      "covered": 1350,
+      "total": 2333
     }
   },
   "directories": {
     "src/auth": {
       "lines": {
         "covered": 93,
-        "total": 997
+        "total": 998
       },
       "branches": {
         "covered": 71,
@@ -25,7 +25,7 @@
       },
       "functions": {
         "covered": 19,
-        "total": 111
+        "total": 110
       }
     },
     "src/bootstrap": {
@@ -58,22 +58,22 @@
     },
     "src/converters": {
       "lines": {
-        "covered": 3703,
-        "total": 4898
+        "covered": 3705,
+        "total": 4900
       },
       "branches": {
         "covered": 3824,
         "total": 6289
       },
       "functions": {
-        "covered": 398,
-        "total": 469
+        "covered": 396,
+        "total": 466
       }
     },
     "src/core": {
       "lines": {
         "covered": 96,
-        "total": 409
+        "total": 411
       },
       "branches": {
         "covered": 64,
@@ -105,11 +105,11 @@
       },
       "branches": {
         "covered": 3546,
-        "total": 6631
+        "total": 6633
       },
       "functions": {
-        "covered": 530,
-        "total": 811
+        "covered": 531,
+        "total": 813
       }
     },
     "src/scripts": {
@@ -129,7 +129,7 @@
     "src/services": {
       "lines": {
         "covered": 1106,
-        "total": 2420
+        "total": 2422
       },
       "branches": {
         "covered": 830,

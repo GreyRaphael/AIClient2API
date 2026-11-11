@@ -7,9 +7,15 @@
  * passes.
  */
 import { assertNativeTypeScriptSupport } from '../bootstrap/runtime.js';
+import { enableCompileCache } from 'node:module';
 
 try {
     assertNativeTypeScriptSupport();
+    try {
+        enableCompileCache();
+    } catch {
+        // Compile cache is best-effort
+    }
 } catch (error) {
     console.error('[Server]', error instanceof Error ? error.message : String(error));
     process.exit(1);
