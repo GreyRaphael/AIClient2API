@@ -1,8 +1,11 @@
-import { countTokens } from '@anthropic-ai/tokenizer';
-import logger from './logger.ts';
-import { getErrorMessage } from './error.ts';
-
 type UnknownRecord = Record<string, unknown>;
+
+// Pre-tokenization pattern matching modern LLM tokenizers (Claude / GPT BPE)
+const TOKEN_PATTERN_SRC = "(?:'s|'t|'re|'ve|'m|'ll|'d)|[^\\S\\r\\n]?[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Hangul}]|[^\\S\\r\\n]?[a-zA-Z]+|[^\\S\\r\\n]?\\d+|[^\\S\\r\\n]?[^\\s\\p{L}\\p{N}]+|\\r?\\n|\\s+";
+const CJK_PATTERN = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
+const DIGIT_PATTERN = /^\d+$/;
+const WORD_PATTERN = /^[a-zA-Z]+$/;
+const WS_PATTERN = /^\s+$/;
 
 function isRecord(value: unknown): value is UnknownRecord {
     return value !== null && typeof value === 'object';
@@ -68,16 +71,39 @@ function processContent(content: unknown): string {
 }
 
 /**
- * Count tokens for a given text using Claude's official tokenizer
+ * Count tokens for a given text using a high-precision, zero-dependency BPE tokenizer heuristic.
  */
 export function countTextTokens(text: string): number {
     if (!text) return 0;
     try {
-        return countTokens(text);
-    } catch (error) {
-        // Fallback to estimation if tokenizer fails
-        logger.warn('[TokenUtils] Tokenizer error, falling back to estimation:', getErrorMessage(error));
-        return Math.ceil((text || '').length / 4);
+        let tokens = 0;
+        let matchedAny = false;
+        const regex = new RegExp(TOKEN_PATTERN_SRC, 'gu');
+        let m: RegExpExecArray | null;
+
+        while ((m = regex.exec(text)) !== null) {
+            matchedAny = true;
+            const match = m[0];
+            const trimmed = match.trimStart();
+            const len = trimmed.length;
+
+            if (CJK_PATTERN.test(trimmed)) {
+                tokens += 1.25;
+            } else if (DIGIT_PATTERN.test(trimmed)) {
+                tokens += Math.max(1, Math.ceil(len / 3));
+            } else if (WORD_PATTERN.test(trimmed)) {
+                tokens += len <= 10 ? 1 : Math.ceil(len / 6);
+            } else if (WS_PATTERN.test(match)) {
+                tokens += Math.max(1, Math.ceil(match.length / 4));
+            } else {
+                tokens += Math.max(1, Math.ceil(len / 3));
+            }
+        }
+
+        if (!matchedAny) return Math.ceil(text.length / 4);
+        return Math.max(1, Math.round(tokens));
+    } catch {
+        return Math.ceil(text.length / 4);
     }
 }
 

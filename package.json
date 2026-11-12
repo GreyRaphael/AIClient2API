@@ -6,7 +6,6 @@
     "node": ">=26.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/tokenizer": "^0.0.4",
     "axios": "^1.14.0",
     "google-auth-library": "^11.3.4",
     "http-proxy-agent": "^9.1.0",
