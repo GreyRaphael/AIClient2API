@@ -148,7 +148,12 @@ Supported reasoning_effort values: [low, high, xhigh]
 | `gemini-4-argon` | Gemini 4 Argon | 1,048,576 | 65,536 | `["low", "medium", "high"]` |
 | `gemini-3.8-flash` | Gemini 3.8 Flash | 1,048,576 | 65,535 | `["low", "medium", "high"]` |
 
-### 5.4 Trae (tob_raw_chat)（13 个可用基线候选模型）
+### 5.4 Trae (tob_raw_chat)（100% 动态发现，无硬编码基线）
+
+> **2026-11 更新**：Trae / Trae chat_v3 的静态基线列表已**整体清空**，
+> 模型清单完全来自上游实时发现（`getNodeAvailableModels`）。
+> 下面表格记录的是当时抓取的原始清单，仅作字段形态参考，**不再作为可选项来源**。
+> 若上游不可用，该节点会因候选集为空而不参与模型下拉（不会回退到旧清单）。
 
 原始数据：`trae_tob_raw_chat_model_list.json`
 
@@ -174,7 +179,9 @@ Supported reasoning_effort values: [low, high, xhigh]
 | `minimax-m3.1-flash` | MiniMax-M3.1-Flash | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 | `qwen3.8-max` | Qwen3.8-Max | 1,000,000 | 64,000 | `["low", "high", "xhigh"]` |
 
-### 5.5 Trae (chat_v3)（13 个可用基线候选模型）
+### 5.5 Trae (chat_v3)（100% 动态发现，无硬编码基线）
+
+> 同 §5.4：基线已清空，模型列表只来自上游实时发现。
 
 原始数据：`trae_chat_v3_model_list.json`
 

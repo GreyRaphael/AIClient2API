@@ -64,7 +64,7 @@
 ### 5. 原生网络诊断套件
 * **原生网络诊断套件**：
   * 基于 Node.js 26 原生 `diagnostics_channel` 打造端到端轻量网络度量能力，追踪 TTFB（首包时延）与完整吞吐。
-  * 引入原生 `node:test` 零外部依赖测试套件（`npm run test:node`）。
+  * 测试套件全量迁移到原生 `node:test`（`npm test`），零外部测试依赖。
 
 ### 6. 控制台 WebUI 视觉体验重磅升级
 * **GitHub 风格全年度用量热力图**：
@@ -82,24 +82,27 @@
 
 ## 二、质量门禁与验证
 
-- **`npm run verify` 串联以下 12 个步骤**，覆盖类型、棘轮、依赖图与测试四类约束：
+- **`npm run verify` 串联以下 11 个步骤**，覆盖类型、棘轮、依赖图与测试四类约束：
 
   1. `typecheck`：TypeScript 主工程零错误
   2. `typecheck:webui`：WebUI 零构建 TypeScript 语法静态类型零错误
   3. `check:strict`：strict 棘轮保持 0 错误基线
   4. `check:any`：0 any 标注 / 0 any 断言
-  5. `check:imports`：129 个源文件运行时导入完整性 100% 通过
+  5. `check:imports`：133 个源文件运行时导入完整性 100% 通过
   6. `check:cycles`：0 循环依赖
   7. `lint:css`：Stylelint CSS 静态校验全部通过
   8. `gen:webui-html:check`：HTML 外壳与真源一致
   9. `vendor:webui:check`：第三方库静态资源同步通过
-  10. `test`：Jest 测试套件
-  11. `test:node`：Node.js 26 原生 `node:test` 网络诊断测试
-  12. `test:runtime`：原生运行时无转译直接启动冒烟测试
+  10. `test`：1098 项测试全绿（Node 26 原生 `node:test`）
+  11. `test:runtime`：原生运行时无转译直接启动冒烟测试
 
-> **说明**：覆盖率门禁（`check:coverage`）与 SEA 打包在本版本中移除，
-> 不再属于质量门禁的一部分。覆盖率门禁在本次重构后无法稳定反映真实质量
-> （其基线曾被下调且 CI 已不执行），质量约束改由上述类型、棘轮、依赖图与测试门禁共同承担。
+> **说明**：测试运行器已由 Jest 全量迁移到 Node 26 原生 `node:test`，
+> 原来的 `test:node` 独立脚本已并入 `npm test`（该脚本已删除，
+> CI 里的同名步骤也已移除）。
+> **本版本不提供覆盖率门禁**：`check:coverage` / `coverage:update` 及相关脚本
+> 均不存在。覆盖率只能证明「测试没被删」，证明不了「测试写得对」——
+> 本轮修复的 14 个缺陷全部落在有覆盖的代码里，覆盖率对其无一有效。
+> SEA 打包同样已整体移除。
 
 ---
 

@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — v8.9.0 之后精简改造的评审修复
+
+- **动态提供商空模型发现被当成成功并永久落盘**：四个动态 provider 在上游失败时
+  返回空数组而非抛错，而 `hasUsableDiscovery` 只检查 `fetchedAt>0`，
+  于是得到 `known=true` + `candidateModels=[]`，路由守卫随即拒绝**一切**模型。
+  现在空结果一律视为发现失败：不写缓存、不落盘、不覆盖已有良好清单。
+- **`_debouncedSave()` 漏传 providerType**：三处调用写成 `_debouncedSave?.()`，
+  `undefined` 入队导致真正的 providerType 从不落盘，「以账号邮箱命名」只在内存生效。
+  新增 `syncProviderIdentity()` 统一「补写账号名 + 清错误条 + 落盘」，
+  同时不再借用 `markProviderHealthy`（后者会污染 `usageCount` / `lastUsed`，破坏 LRU）。
+- **Antigravity 流式请求打挂 worker**：`readline` 的 Interface 会把 input 的 `error`
+  转发到自身，而 `finally` 里的 `rl.close()` 又摘掉它唯一的监听器；
+  「close 之后上游再 emit('error')」（node-fetch abort 的形态）于是变成
+  uncaughtException → `gracefulShutdown()` → `process.exit`。
+  现改为直接迭代 stream（`StringDecoder` 自行切行），错误从迭代器正常抛出。
+  触发条件就是用户在流式输出中途关闭标签页。
+- **「检查模型」用草稿配置污染线上节点**：控制台探测传的是尚未保存的草稿配置，
+  其 uuid 与线上节点相同，会覆写线上能力缓存、把节点标红。
+  新增 `dryRun` 探测模式：不写缓存、不落盘、不改健康状态。
+- **限流错误被误判成凭据失效**：原来用裸词 `Token`/`OAuth`/`credentials` 匹配，
+  `model token budget exceeded` 这类限流也会把节点永久标红。
+  改为结构化 401/403 状态码 + 明确的鉴权错误短语，并排除配额/限流语境。
+- **`openInBrowser` 谎报成功**：`spawn` 对 ENOENT 不同步抛出，旧实现先
+  `resolve()` 再 `unref()`，于是「系统没有浏览器」被当成成功并打出假日志。
+  现在等 `'spawn'` 事件才 resolve，`'error'` 一律 reject。
+- **超限上传返回 400 而非 413**：`handleUploadOAuthCredentials` 硬编码 `writeHead(400)`，
+  吞掉了 `MultipartError.statusCode`。
+- **UI 刷新阻塞请求路径**：`add` 在 `withFileLock` 内同步等上游（最长 15s+），
+  `GET /api/providers/:type` 冷缓存时串行等待每个节点。均改为后台触发。
+- **分词估算精度**：按真实 Claude BPE 实测标定权重（各文字系统分别取比率、
+  空白整块计权、非拉丁文字按 UTF-8 字节标定、编码块走专门分支）。
+  20 条代表性载荷平均偏差 ~6.5%（未参与调参的留出集约 11.7%，
+  不要按 6.5% 承诺精度）；此前空白类最高偏 +4900%、希腊语偏低 77%。
+  同时补回 `\p{N}` 兜底（`Ⅳ` / `٠١٢` / `१२३` 此前被整类丢弃），
+  并恢复 catch 分支的告警日志。
+
+### Changed
+
+- CI 移除已失效的 `npm run test:node` 步骤（该脚本不存在，CI 必红），
+  并去掉对 `node --test` 无效的 `--runInBand`（它会被当成文件名 glob）。
+- 测试基座修复两处失真：`jest.getTimerCount()` 此前恒返回 0（定时器泄漏断言因此恒真），
+  现在自行记账；`looseEqual` 补齐 Date / RegExp / Buffer / class 实例 / 稀疏数组语义，
+  消除 4 类静默假通过。
+- `tests/webui-fa-subset.test.mjs` 此前依赖已移除的 devDependency 而恒早退，
+  现在直接对照子集 CSS 校验；`tests/zip.test.mjs` 补齐中央目录与 EOCD 断言。
+- `potluck-user` 热力图图例的行内 `gap: 3px` 收敛到样式表（并入 2px 网格）。
+- **不提供覆盖率门禁**：`check:coverage` / `coverage:update` / `scripts/check-coverage.mjs`
+  / `scripts/coverage-baseline.json` 一律不存在，`verify` 与 CI 只以测试是否通过为准。
+  理由：本次 14 个缺陷里没有一个属于「有测试但没跑」形态，覆盖率对其全部无效；
+  而基线历史上曾与删测试同 commit 被下调，只能证明「测试没被删」，
+  证明不了「测试写得对」。真正有效的手段是对照真实执行读代码与变异测试。
+
+
 ## [v8.9.0] - 2026-11-11
 
 ### Node 26 Migration & Architecture Refactoring
@@ -18,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 核心存储引擎全面切至 Node 原生 `node:sqlite`（`DatabaseSync`），实现毫秒级原子事务持久化。
   - 流式转发接入背压监控机制与 `AbortSignal.any` 级联多路信号取消。
   - 引入原生 `diagnostics_channel` 网络诊断套件，提供首包时延（TTFB）与吞吐链路追踪。
-  - 引入 Node 26 原生 `node:test` 测试套件（`npm run test:node`）。
+  - 测试套件全量迁移到 Node 26 原生 `node:test`（`npm test`）。
   - 彻底卸载 `multer` 依赖，重构 CLI 为标准 `node:util parseArgs`。
   - 深度精简死代码与冗余一次性测试用例（`src/` 净减 751 行，仓库整体净减约 1 万行）。
 
@@ -61,9 +114,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### WebUI & Heatmap Experience
 
 - **模型用量日历热力图改版**：
-  - 升级为 GitHub 风格全自然年（52~53周）排布，支持按年度智能分页与切换，解除 3 个月限制。
+  - 升级为 GitHub 风格全自然年（53~54周）排布，支持按年度智能分页与切换，解除 3 个月限制。
   - 格子高度充分利用卡片空间自适应拉伸并严格锁定 1:1 正方形（面积提升 3.3 倍以上）。
-  - 新增月份周列精准对齐刻度、周一/周三/周五星期标尺与 5 级色度图例。
+  - 新增月份刻度、周一/周三/周五星期标尺与 5 级色度图例（月份与格子在同一个 grid 内）。
   - 全局声明 `color-scheme: dark;`，重构纤细透明横向滚动条，彻底移除亮色主题冗余。
 
 ### Changed
