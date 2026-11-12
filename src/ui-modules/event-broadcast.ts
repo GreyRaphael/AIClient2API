@@ -202,7 +202,12 @@ export async function handleUploadOAuthCredentials(
         form = await parseMultipartForm(req, { maxBytes: MAX_UPLOAD_FILE_SIZE });
     } catch (err) {
         const error = toError(err);
-        res.writeHead(400, { 'Content-Type': 'application/json' });
+        // 保留 MultipartError 携带的状态码：超限是 413 而不是 400，
+        // 客户端/监控据此区分「请求太大」与「报文坏了」。
+        const statusCode = typeof (error as { statusCode?: unknown }).statusCode === 'number'
+            ? (error as { statusCode: number }).statusCode
+            : 400;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message || 'File upload failed' } }));
         return true;
     }

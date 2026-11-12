@@ -179,6 +179,29 @@ describe('handleUploadOAuthCredentials with native form parser', () => {
         expect(data.error.message).toContain('Content-Type must be multipart/form-data');
     });
 
+    /**
+     * 回归守护：超限必须是 413，不能被降级成 400。
+     *
+     * MultipartError 自带 statusCode=413，但 handleUploadOAuthCredentials 过去
+     * 硬编码 writeHead(400)，把「请求太大」和「报文坏了」混为一谈，
+     * 客户端与监控都无法据此区分。
+     */
+    test('over-limit body returns 413, not 400', async () => {
+        const big = 'x'.repeat(6 * 1024 * 1024); // > MAX_UPLOAD_FILE_SIZE(5MB)
+        const { buffer, contentType } = createMultipartBody([
+            { name: 'provider', value: testProvider },
+            { name: 'file', filename: 'creds.json', value: big }
+        ]);
+        const req = createMockRequest({ body: buffer, contentType });
+        const res = createMockResponse();
+
+        await handleUploadOAuthCredentials(req, res);
+
+        expect(res.statusCode).toBe(413);
+        const data = JSON.parse(res.body);
+        expect(data.error.message).toContain('too large');
+    });
+
     test('rejects missing file with 400', async () => {
         const { buffer, contentType } = createMultipartBody([
             { name: 'provider', value: testProvider }

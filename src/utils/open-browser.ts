@@ -32,6 +32,12 @@ export function getBrowserOpenCommand(targetUrl: string, platform = process.plat
  * 在系统默认浏览器中打开指定 URL
  * 使用 Node.js 原生 child_process，替代第三方 'open' 库
  *
+ * 失败语义（重要）：只有当子进程真的 spawn 成功才 resolve。
+ * `spawn()` 对 ENOENT **不会同步抛出**，错误是之后才通过 'error' 事件送达；
+ * 早期实现直接 `resolve(child) + unref()`，于是「系统里没有 xdg-open」
+ * 这种失败会被当成成功，调用方打出 "[UI] Opened login page in default browser"
+ * 的假成功日志，用户却看不到任何窗口。
+ *
  * @param {string} targetUrl 目标网页 URL
  * @returns {Promise<ChildProcess>} 返回子进程实例
  */
@@ -39,21 +45,36 @@ export function openInBrowser(targetUrl: string): Promise<ChildProcess> {
     return new Promise((resolve, reject) => {
         const { command, args } = getBrowserOpenCommand(targetUrl);
 
+        let settled = false;
+        const fail = (error: Error) => {
+            if (settled) return;
+            settled = true;
+            reject(error);
+        };
+
+        let child: ChildProcess;
         try {
-            const child = spawn(command, args, {
+            child = spawn(command, args, {
                 stdio: 'ignore',
                 detached: true
             });
+        } catch (error) {
+            // 只可能是同步参数错误（ENOENT 走异步事件）
+            reject(error as Error);
+            return;
+        }
 
-            child.on('error', (err) => {
-                reject(err);
-            });
-
+        // 'spawn' 事件 = 子进程已成功启动；在这之前任何 'error' 都是失败。
+        child.once('spawn', () => {
+            if (settled) return;
+            settled = true;
+            // detach 之后父进程退出不应带走浏览器
             child.unref();
             resolve(child);
-        } catch (error) {
-            reject(error);
-        }
+        });
+        child.once('error', (error) => {
+            fail(error instanceof Error ? error : new Error(String(error)));
+        });
     });
 }
 
