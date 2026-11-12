@@ -16,7 +16,8 @@ import {
     ensureProviderCapability,
     refreshNodeCapability,
     refreshProviderCapabilities,
-    resolveNodeCapability
+    resolveNodeCapability,
+    isDynamicProvider
 } from '../providers/model-capability.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
@@ -477,7 +478,16 @@ export async function handleGetProviderType(req: IncomingMessage, res: ServerRes
     const providers = providerPools[providerType] || [];
     const sanitizedProviders = await Promise.all(providers.map(async (p: ProviderConfig) => {
         const sanitized = sanitizeProviderData(p, true);
-        const capability = resolveNodeCapabilityMeta(providerType, p);
+        let capability = resolveNodeCapabilityMeta(providerType, p);
+        if (isDynamicProvider(providerType) && (!capability?.known || capability?.stale)) {
+            try {
+                await refreshNodeCapability(providerType, p, {
+                    force: false,
+                    reason: 'ui-view'
+                });
+                capability = resolveNodeCapabilityMeta(providerType, p);
+            } catch (_) {}
+        }
         if (capability) applyCapabilityMeta(sanitized, capability);
         return sanitized;
     }));
@@ -799,12 +809,28 @@ async function _handleAddProvider(req: IncomingMessage, res: ServerResponse, cur
             providerPoolManager.initializeProviderStatus();
         }
 
+        // 初次添加动态提供商节点时，主动获取并更新上游最新 model_list
+        if (isDynamicProvider(providerType)) {
+            try {
+                await refreshNodeCapability(providerType, filteredConfig, {
+                    force: true,
+                    reason: 'node-added'
+                });
+            } catch (err: unknown) {
+                logger.warn(`[UI API] Failed to fetch models for newly added provider ${filteredConfig.uuid}:`, getErrorMessage(err));
+            }
+        }
+
+        const capability = resolveNodeCapabilityMeta(providerType, filteredConfig);
+        const sanitized = sanitizeProviderData(filteredConfig, true);
+        if (capability) applyCapabilityMeta(sanitized, capability);
+
         // 广播更新事件
         broadcastEvent('config_update', {
             action: 'add',
             filePath: filePath,
             providerType,
-            providerConfig: sanitizeProviderData(providerConfig),
+            providerConfig: sanitizeProviderData(filteredConfig),
             timestamp: new Date().toISOString()
         });
 
@@ -812,7 +838,7 @@ async function _handleAddProvider(req: IncomingMessage, res: ServerResponse, cur
         broadcastEvent('provider_update', {
             action: 'add',
             providerType,
-            providerConfig: sanitizeProviderData(providerConfig),
+            providerConfig: sanitized,
             timestamp: new Date().toISOString()
         });
 
@@ -820,7 +846,7 @@ async function _handleAddProvider(req: IncomingMessage, res: ServerResponse, cur
         res.end(JSON.stringify({
             success: true,
             message: 'Provider added successfully',
-            provider: sanitizeProviderData(providerConfig, true),
+            provider: sanitized,
             providerType
         }));
         return true;

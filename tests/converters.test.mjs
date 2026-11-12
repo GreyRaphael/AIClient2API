@@ -296,25 +296,12 @@ describe('Protocol Converters Matrix & Edge Cases', () => {
         expect(geminiReqCustom.generationConfig.imageConfig.imageSize).toBe('2K');
     });
 
-    test('Fix 8: Antigravity model list contains clean models and no tiered or internal test IDs', async () => {
+    test('Fix 8: Antigravity model list completely avoids hardcoded fallback baseline (relies 100% on dynamic discovery)', async () => {
         const { PROVIDER_MODELS } = await import('../src/providers/provider-models.ts');
         const antigravityModels = PROVIDER_MODELS['gemini-antigravity'];
 
-        // 静态清单只保留少量冷启动 baseline，完整模型以 /auto/v1/models 发现结果为准。
-        expect(antigravityModels).toContain('gemini-3.8-flash-high');
-        expect(antigravityModels).toContain('gemini-3.1-pro-high');
-        expect(antigravityModels.length).toBeGreaterThan(0);
-
-        // 确保不包含任何 tiered、medium/low/lite 降级模型或内部测试模型及重复前缀
-        expect(antigravityModels.some(m => m.includes('-tiered'))).toBe(false);
-        expect(antigravityModels.some(m => m.endsWith('-medium'))).toBe(false);
-        expect(antigravityModels.some(m => m.endsWith('-low'))).toBe(false);
-        expect(antigravityModels.some(m => m.endsWith('-lite'))).toBe(false);
-        expect(antigravityModels.some(m => m.startsWith('chat_'))).toBe(false);
-        expect(antigravityModels.some(m => m.startsWith('tab_'))).toBe(false);
-        expect(antigravityModels.includes('gemini-pro-agent')).toBe(false);
-        expect(antigravityModels.includes('gemini-claude-sonnet-4-6')).toBe(false);
-        expect(antigravityModels.includes('gemini-claude-opus-4-6-thinking')).toBe(false);
+        // 彻底放弃硬编码兜底 model_list，要么没有，要么通过上游动态发现获取
+        expect(antigravityModels).toEqual([]);
     });
 
     test('Fix 9: Forward-compatible generic flash models (3.9, 3.10, 4.0) use thinking levels and map properly', async () => {

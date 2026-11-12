@@ -62,10 +62,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         statusIdentify: true,
         dynamicModels: true,
         capabilityTtlMs: 30 * 60 * 1000,
-        staticModels: [
-            'gemini-3.8-flash-high',
-            'gemini-3.1-pro-high'
-        ],
+        staticModels: [],
         providerUtils: {
             mappingOrder: 2,
             dirName: 'antigravity',
@@ -117,10 +114,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         statusIdentify: true,
         dynamicModels: true,
         capabilityTtlMs: 30 * 60 * 1000,
-        staticModels: [
-            'gpt-5.6-luna',
-            'gpt-5.5'
-        ],
+        staticModels: [],
         providerUtils: {
             mappingOrder: 3,
             dirName: 'codex',
@@ -152,11 +146,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         credentialLabel: 'Zed',
         dynamicModels: true,
         capabilityTtlMs: 60 * 60 * 1000,
-        staticModels: [
-            'claude-sonnet-5',
-            'gpt-6-luna',
-            'gemini-3.8-flash'
-        ],
+        staticModels: [],
         providerUtils: {
             mappingOrder: 4,
             dirName: 'zed',
@@ -172,10 +162,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         protocolPrefix: MODEL_PROTOCOL_PREFIX.OPENAI,
         dynamicModels: true,
         capabilityTtlMs: 60 * 60 * 1000,
-        staticModels: [
-            'glm-5.2',
-            'DeepSeek-V4.1-Flash'
-        ],
+        staticModels: [],
         credentialPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Trae',
         providerUtils: {
@@ -195,10 +182,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
         capabilityTtlMs: 60 * 60 * 1000,
         credentialPathKey: 'TRAE_OAUTH_CREDS_FILE_PATH',
         credentialLabel: 'Trae',
-        staticModels: [
-            'glm-5.2',
-            'qwen3.8-flash'
-        ]
+        staticModels: []
     }
 ];
 

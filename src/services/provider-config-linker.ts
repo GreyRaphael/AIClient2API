@@ -15,6 +15,7 @@ import { TRAE_PROVIDER_DEFAULTS, resolveTraeInferenceBaseUrl } from '../provider
 import { MODEL_PROVIDER } from '../utils/constants.ts';
 import { getProviderPoolManager } from '../providers/pool-context.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { refreshNodeCapability, isDynamicProvider } from '../providers/model-capability.ts';
 
 /**
  * 扫描 configs 目录并自动关联未关联的配置文件到对应的提供商
@@ -45,6 +46,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
 
     let totalNewProviders = 0;
     const allNewProviders: Record<string, any[]> = {};
+    const newlyLinkedNodes: Array<{ providerType: string; provider: Record<string, any> }> = [];
 
     // 如果只关联当前凭证
     if (options.onlyCurrentCred && options.credPath) {
@@ -52,6 +54,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
         if (result) {
             totalNewProviders = 1;
             allNewProviders[result.displayName] = [result.provider];
+            newlyLinkedNodes.push({ providerType: result.providerType, provider: result.provider });
         }
     } else {
         // 遍历所有提供商映射
@@ -94,6 +97,9 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
                 config.providerPools[providerType].push(...newProviders);
                 totalNewProviders += newProviders.length;
                 allNewProviders[displayName] = newProviders;
+                for (const p of newProviders) {
+                    newlyLinkedNodes.push({ providerType, provider: p });
+                }
             }
         }
     }
@@ -144,6 +150,19 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
         manager.providerPools = config.providerPools;
         manager.initializeProviderStatus();
     }
+
+    // 针对具有动态模型发现能力的提供商节点，初次关联后立即异步触发最新 model_list 刷新
+    for (const { providerType, provider } of newlyLinkedNodes) {
+        if (isDynamicProvider(providerType)) {
+            refreshNodeCapability(providerType, provider, {
+                force: true,
+                reason: 'auto-link'
+            }).catch((err: unknown) => {
+                logger.warn(`[Auto-Link] Failed to refresh models for ${provider.uuid}:`, getErrorMessage(err));
+            });
+        }
+    }
+
     return config.providerPools;
 }
 

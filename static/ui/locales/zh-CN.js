@@ -403,6 +403,7 @@ export default {
     'modal.provider.addTitle': '添加新提供商配置',
     'modal.provider.customName': '自定义名称',
     'modal.provider.checkModelName': '检查模型名称',
+    'modal.provider.checkModelAuto': '自动选择 (默认轻量模型)',
     'modal.provider.healthCheckLabel': '健康检查',
     'modal.provider.enabled': '启用',
     'modal.provider.disabled': '禁用',

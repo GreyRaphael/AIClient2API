@@ -31,10 +31,11 @@ const PROVIDERS_PER_PAGE = 5;
  *   onUpload?: () => void,
  *   uploading?: boolean,
  *   id?: string,
- *   onRevealSecret?: (fieldKey: string) => Promise<string|null>
+ *   onRevealSecret?: (fieldKey: string) => Promise<string|null>,
+ *   modelCandidates?: string[]
  * }} props
  */
-function ProviderField({ fieldKey, definition, value, editing, onChange, onUpload, uploading, id, onRevealSecret }) {
+function ProviderField({ fieldKey, definition, value, editing, onChange, onUpload, uploading, id, onRevealSecret, modelCandidates = [] }) {
     const label = getFieldLabel(fieldKey);
     const isPassword = fieldKey.toLowerCase().includes('key') || fieldKey.toLowerCase().includes('password');
     const isOAuthPath = fieldKey.includes('OAUTH_CREDS_FILE_PATH');
@@ -47,6 +48,18 @@ function ProviderField({ fieldKey, definition, value, editing, onChange, onUploa
                 onChange=${(event) => onChange(event.currentTarget.value === 'true')}>
                 <option value="true">${t('modal.provider.enabled')}</option>
                 <option value="false">${t('modal.provider.disabled')}</option>
+            </select>`;
+    } else if (fieldKey === 'checkModelName') {
+        const options = Array.isArray(modelCandidates) ? [...modelCandidates] : [];
+        if (value && !options.includes(value)) {
+            options.unshift(value);
+        }
+        control = html`
+            <select id=${id} class="form-control" value=${value ?? ''} disabled=${!editing}
+                onChange=${(event) => onChange(event.currentTarget.value)}>
+                <option value="">${t('modal.provider.checkModelAuto')}</option>
+                ${options.map((model) => html`
+                    <option value=${model} key=${model}>${model}</option>`)}
             </select>`;
     } else if (definition?.type === 'select' && definition.options) {
         control = html`
@@ -554,6 +567,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
         const renderField = (key) => html`
             <${ProviderField} key=${key} fieldKey=${key} id=${`${node.uuid}-${key}`}
                 definition=${fieldDefinitions.get(key)}
+                modelCandidates=${selections[node.uuid]?.candidates || node.candidateModels || node.availableModels || []}
                 onRevealSecret=${async (secretField) => {
                     const result = await api.get(
                         `/providers/${encodeURIComponent(providerType)}/${node.uuid}/secret`,
@@ -801,10 +815,18 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
                 <div class="add-provider-form">
                     <h4><i class="fas fa-plus"></i> ${t('modal.provider.addTitle')}</h4>
                     <div class="form-grid">
-                        ${Object.entries(addValues).map(([key, value]) => html`
-                            <${ProviderField} key=${key} fieldKey=${key} id=${`new-${key}`} definition=${fieldDefinitions.get(key)}
-                                value=${value} editing=${true}
-                                onChange=${(next) => setAddValues((current) => ({ ...current, [key]: next }))} />`)}
+                        ${(() => {
+                            const allCandidates = Array.from(new Set([
+                                ...Object.values(selections).flatMap((s) => s?.candidates || []),
+                                ...(data?.providers || []).flatMap((p) => p.candidateModels || p.availableModels || []),
+                                ...(data?.models || [])
+                            ]));
+                            return Object.entries(addValues).map(([key, value]) => html`
+                                <${ProviderField} key=${key} fieldKey=${key} id=${`new-${key}`} definition=${fieldDefinitions.get(key)}
+                                    modelCandidates=${allCandidates}
+                                    value=${value} editing=${true}
+                                    onChange=${(next) => setAddValues((current) => ({ ...current, [key]: next }))} />`);
+                        })()}
                     </div>
                     <div class="form-actions" style="margin-top: 15px; display: flex; gap: 10px;">
                         <button class="btn btn-success" onClick=${() => void saveAdd()}>

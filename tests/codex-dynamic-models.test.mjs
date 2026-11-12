@@ -13,14 +13,9 @@ import {
 } from '../src/providers/openai/codex-core.ts';
 
 describe('Codex Dynamic Models & Remote Sync Tests', () => {
-    test('getCodexModels generates base models without virtual gpt-image-2 or -fast variants', () => {
+    test('getCodexModels returns empty array for dynamic codex provider without hardcoded baseline', () => {
         const models = getCodexModels('openai-codex-oauth');
-        expect(models).toContain('gpt-5.6-luna');
-        expect(models).not.toContain('gpt-5.6-luna-fast');
-        expect(models).toContain('gpt-5.5');
-        expect(models).not.toContain('gpt-5.5-fast');
-        expect(models).not.toContain('gpt-image-2');
-        expect(models).not.toContain('gpt-image-2-fast');
+        expect(models).toEqual([]);
     });
 
     test('CodexApiService.fetchRemoteModels parses remote models and updates cache', async () => {
@@ -89,7 +84,7 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
         mockAxiosRequest.mockRestore();
     });
 
-    test('CodexApiService.fetchRemoteModels falls back gracefully on network failure', async () => {
+    test('CodexApiService.fetchRemoteModels falls back gracefully to empty models on network failure (no hardcoded baseline)', async () => {
         const service = new CodexApiService({
             uuid: 'test-codex-uuid-fail',
             MODEL_PROVIDER: 'openai-codex-oauth'
@@ -104,10 +99,10 @@ describe('Codex Dynamic Models & Remote Sync Tests', () => {
 
         const result = await service.fetchRemoteModels(true);
         expect(Array.isArray(result)).toBe(true);
+        expect(result).toEqual([]);
 
         const models = service.getSupportedModels();
-        expect(models).toContain('gpt-5.6-luna');
-        expect(models).toContain('gpt-5.5');
+        expect(models).toEqual([]);
 
         service.stopCacheCleanup();
         mockAxiosRequest.mockRestore();

@@ -54,14 +54,14 @@ describe('Model Capability', () => {
         delete CONFIG.customModels;
     });
 
-    test('无发现记录时回退静态基线，并标记 known=false', () => {
+    test('动态提供商无发现记录时候选集为空，并标记 known=false', () => {
         const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
 
         expect(capability.source).toBe(CAPABILITY_SOURCE.BASELINE);
         expect(capability.known).toBe(false);
         expect(capability.stale).toBe(true);
-        expect(capability.candidateModels).toContain('DeepSeek-V4.1-Flash');
-        expect(capability.selectedModels).toEqual(capability.candidateModels);
+        expect(capability.candidateModels).toEqual([]);
+        expect(capability.selectedModels).toEqual([]);
         expect(capability.selectionMode).toBe('all');
     });
 
@@ -283,7 +283,7 @@ describe('Model Capability', () => {
         expect(capability.stale).toBe(true);
     });
 
-    test('冷启动刷新失败时回退静态基线，不把失败空结果当成可靠发现', async () => {
+    test('冷启动刷新失败时不把失败空结果当成可靠发现', async () => {
         const adapter = {
             getNodeAvailableModels: jest.fn().mockRejectedValue(new Error('auth failed'))
         };
@@ -293,8 +293,8 @@ describe('Model Capability', () => {
         const capability = resolveNodeCapability('trae', { uuid: 'cold-node' });
         expect(capability.known).toBe(false);
         expect(capability.source).toBe(CAPABILITY_SOURCE.BASELINE);
-        expect(capability.candidateModels.length).toBeGreaterThan(0);
-        expect(capability.selectedModels).toEqual(capability.candidateModels);
+        expect(capability.candidateModels).toEqual([]);
+        expect(capability.selectedModels).toEqual([]);
     });
 
     test('同一节点的并发刷新单飞', async () => {

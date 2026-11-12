@@ -30,9 +30,9 @@ describe('Trae Provider Implementation Tests', () => {
         expect(PROVIDER_MODELS['trae']).not.toContain('auto');
         expect(PROVIDER_MODELS['trae-chat_v3']).not.toContain('auto');
 
-        // 静态清单只保留少量冷启动 baseline，完整模型以 /auto/v1/models 发现结果为准。
-        expect(PROVIDER_MODELS['trae']).toContain('glm-5.2');
-        expect(PROVIDER_MODELS['trae-chat_v3']).toContain('qwen3.8-flash');
+        // 彻底放弃硬编码兜底 baseline，动态 provider 静态模型列表严格为空
+        expect(PROVIDER_MODELS['trae']).toEqual([]);
+        expect(PROVIDER_MODELS['trae-chat_v3']).toEqual([]);
     });
 
     test('TraeApiService.prepareRequestBody formats request for ToB raw chat upstream by default', () => {
@@ -249,25 +249,18 @@ describe('Trae Provider Implementation Tests', () => {
         expect(oauthResult.authInfo.provider).toBe('trae');
     });
 
-    test('TraeApiService returns fallback models when uninitialized and includes DeepSeek-V4.1-Flash', async () => {
+    test('TraeApiService returns empty fallback models when uninitialized (completely avoids hardcoded baseline)', async () => {
         const traeService = new TraeApiService({
             uuid: 'test-trae-uuid-fallback'
         });
 
         const fallback = traeService._getFallbackModels();
-        expect(fallback.length).toBeGreaterThanOrEqual(2);
-        const ids = fallback.map(m => m.id);
-        expect(ids).toContain('DeepSeek-V4.1-Flash');
-        expect(ids).toContain('glm-5.2');
-
-        const deepseekModel = fallback.find(m => m.id === 'DeepSeek-V4.1-Flash');
-        expect(deepseekModel).toBeDefined();
-        expect(deepseekModel.context_window).toBe(1000000);
+        expect(fallback).toEqual([]);
 
         const modelList = await traeService.listModels();
         expect(modelList.object).toBe('list');
         expect(Array.isArray(modelList.data)).toBe(true);
-        expect(modelList.data.some(m => m.id === 'DeepSeek-V4.1-Flash')).toBe(true);
+        expect(modelList.data).toEqual([]);
     });
 
     test('TraeApiService.generateContent aggregates streaming tool calls properly', async () => {
@@ -318,32 +311,71 @@ describe('Trae Provider Implementation Tests', () => {
     });
 
     test('Trae provider exposes underlying technical IDs without Chinese display name pollution and with 1M context_window', async () => {
-        const traeService = new TraeApiService();
-        const res = await traeService.listModels();
-        const modelIds = res.data.map(m => m.id);
+        const traeService = new TraeApiService({ uuid: 'test-tech-ids' });
+        traeService.getToken = async () => 'test-token';
 
-        // 必须使用底层 ID（静态 baseline；完整列表以 /auto/v1/models 为准）
-        expect(modelIds).toContain('DeepSeek-V4.1-Flash');
-        expect(modelIds).toContain('glm-5.2');
+        const axios = (await import('axios')).default;
+        const spy = jest.spyOn(axios, 'request').mockImplementationOnce(async () => ({
+            data: {
+                function_configs: [{
+                    config_info_list: [
+                        {
+                            config_name: 'glm-5.2',
+                            config_switch: true,
+                            is_invisible_to_user: false,
+                            display_config: { display_name: 'GLM-5.2 正式版' },
+                            reasoning_effort_config: {
+                                support_thinking: true,
+                                options: ['light', 'high', 'extra_high']
+                            },
+                            context_window_tokens: { max: 1000000 }
+                        },
+                        {
+                            config_name: 'DeepSeek-V4.1-Flash',
+                            config_switch: true,
+                            is_invisible_to_user: false,
+                            display_config: { display_name: 'DeepSeek-V4-Flash 正式版' },
+                            reasoning_effort_config: {
+                                support_thinking: true,
+                                options: ['low', 'high', 'extra_high']
+                            },
+                            context_window_tokens: { max: 1000000 },
+                            model_detail_list: [{ max_tokens: 64000 }]
+                        }
+                    ]
+                }]
+            }
+        }));
 
-        // 严禁将中文显示名作为模型 ID
-        expect(modelIds).not.toContain('DeepSeek-V4-Pro 正式版');
-        expect(modelIds).not.toContain('DeepSeek-V4-Flash 正式版');
-        expect(modelIds).not.toContain('Doubao-Seed-2.1-Pro-0915');
+        try {
+            const res = await traeService.listModels();
+            const modelIds = res.data.map(m => m.id);
 
-        // 验证已优雅剔除企业自定义与外部映射模型 (无 custom_ 前缀，无 gemini/claude 等外部 ID)
-        expect(modelIds.some(id => id.startsWith('custom_'))).toBe(false);
-        expect(modelIds.some(id => id.toLowerCase().includes('gemini'))).toBe(false);
-        expect(modelIds.some(id => id.toLowerCase().includes('claude'))).toBe(false);
+            // 必须使用底层 ID
+            expect(modelIds).toContain('DeepSeek-V4.1-Flash');
+            expect(modelIds).toContain('glm-5.2');
 
-        // 验证 1M context_window 与 reasoning (全通道默认 xhigh / extra_high)
-        const deepseekModel = res.data.find(m => m.id === 'DeepSeek-V4.1-Flash');
-        expect(deepseekModel).toBeDefined();
-        expect(deepseekModel.context_window).toBe(1000000);
-        expect(deepseekModel.max_tokens).toBe(64000);
-        expect(deepseekModel.supports_thinking).toBe(true);
-        expect(deepseekModel.default_reasoning_effort).toBe('xhigh');
-        expect(deepseekModel.reasoning_effort_levels).toEqual(['low', 'high', 'xhigh']);
+            // 严禁将中文显示名作为模型 ID
+            expect(modelIds).not.toContain('DeepSeek-V4-Pro 正式版');
+            expect(modelIds).not.toContain('DeepSeek-V4-Flash 正式版');
+            expect(modelIds).not.toContain('Doubao-Seed-2.1-Pro-0915');
+
+            // 验证已优雅剔除企业自定义与外部映射模型 (无 custom_ 前缀，无 gemini/claude 等外部 ID)
+            expect(modelIds.some(id => id.startsWith('custom_'))).toBe(false);
+            expect(modelIds.some(id => id.toLowerCase().includes('gemini'))).toBe(false);
+            expect(modelIds.some(id => id.toLowerCase().includes('claude'))).toBe(false);
+
+            // 验证 1M context_window 与 reasoning (全通道默认 xhigh / extra_high)
+            const deepseekModel = res.data.find(m => m.id === 'DeepSeek-V4.1-Flash');
+            expect(deepseekModel).toBeDefined();
+            expect(deepseekModel.context_window).toBe(1000000);
+            expect(deepseekModel.max_tokens).toBe(64000);
+            expect(deepseekModel.supports_thinking).toBe(true);
+            expect(deepseekModel.default_reasoning_effort).toBe('xhigh');
+            expect(deepseekModel.reasoning_effort_levels).toEqual(['low', 'high', 'xhigh']);
+        } finally {
+            spy.mockRestore();
+        }
     });
 
     test('TraeApiService.normalizeModelName handles aliases, mixed casing and dynamic resolution', () => {

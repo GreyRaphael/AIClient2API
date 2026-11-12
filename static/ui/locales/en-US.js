@@ -404,6 +404,7 @@ export default {
     'modal.provider.addTitle': 'Add New Provider Config',
     'modal.provider.customName': 'Custom Name',
     'modal.provider.checkModelName': 'Check Model Name',
+    'modal.provider.checkModelAuto': 'Auto Select (default lightweight model)',
     'modal.provider.healthCheckLabel': 'Health Check',
     'modal.provider.enabled': 'Enabled',
     'modal.provider.disabled': 'Disabled',
