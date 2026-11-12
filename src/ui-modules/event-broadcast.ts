@@ -1,8 +1,7 @@
-import { existsSync, createWriteStream } from 'fs';
+import { existsSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
-import busboy from 'busboy';
-import { pipeline } from 'node:stream/promises';
+import { parseMultipartForm } from '../utils/form-parser.ts';
 import logger from '../utils/logger.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -166,7 +165,7 @@ const ALLOWED_UPLOAD_EXTS = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
 const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024; // 5MB 限制
 
 /**
- * 处理 OAuth 凭据文件上传 (基于 busboy 原生流式解析，零额外依赖)
+ * 处理 OAuth 凭据文件上传 (基于 Node 原生 Web API 表单解析，零额外依赖)
  * @param {import('node:http').IncomingMessage} req - HTTP 请求对象
  * @param {import('node:http').ServerResponse} res - HTTP 响应对象
  * @param {Object} [options] - 可选配置
@@ -175,7 +174,7 @@ const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024; // 5MB 限制
  * @param {string} [options.userInfo] - 用户信息（用于日志）
  * @returns {Promise<boolean>} 始终返回 true 表示请求已处理
  */
-export function handleUploadOAuthCredentials(
+export async function handleUploadOAuthCredentials(
     req: IncomingMessage,
     res: ServerResponse,
     options: {
@@ -191,160 +190,111 @@ export function handleUploadOAuthCredentials(
         userInfo = ''
     } = options;
 
-    return new Promise<boolean>((resolve) => {
-        const contentType = req.headers['content-type'] || '';
-        if (!contentType.includes('multipart/form-data')) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'Content-Type must be multipart/form-data' } }));
-            resolve(true);
-            return;
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('multipart/form-data')) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Content-Type must be multipart/form-data' } }));
+        return true;
+    }
+
+    let form;
+    try {
+        form = await parseMultipartForm(req, { maxBytes: MAX_UPLOAD_FILE_SIZE });
+    } catch (err) {
+        const error = toError(err);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: error.message || 'File upload failed' } }));
+        return true;
+    }
+
+    const rawProvider = form.fields.provider || null;
+    const fileEntry = form.fileEntries.find((entry) => entry.name === 'file' && entry.file && entry.file.name);
+
+    if (!fileEntry) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'No file was uploaded' } }));
+        return true;
+    }
+
+    const originalName = fileEntry.file.name;
+    const ext = path.extname(originalName).toLowerCase();
+    if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
+        logger.error(`${logPrefix} File upload error: Unsupported file type`);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Unsupported file type' } }));
+        return true;
+    }
+
+    const timestamp = Date.now();
+    const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const storedFilename = `${timestamp}_${sanitizedName}`;
+    const uploadPath = path.join(process.cwd(), 'configs', 'temp');
+    const targetTempFile = path.join(uploadPath, storedFilename);
+    const tempFilePath = targetTempFile;
+
+    try {
+        await fs.mkdir(uploadPath, { recursive: true });
+        await fs.writeFile(targetTempFile, fileEntry.file.buffer);
+
+        const providerType = rawProvider === undefined || rawProvider === null || rawProvider === ''
+            ? 'common'
+            : rawProvider;
+        const provider = typeof providerType === 'string'
+            ? (providerMap[providerType] || providerType)
+            : providerType;
+
+        if (typeof provider !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(provider)) {
+            throw new Error('Invalid provider format');
         }
 
-        let bb: ReturnType<typeof busboy>;
-        try {
-            bb = busboy({ headers: req.headers, limits: { fileSize: MAX_UPLOAD_FILE_SIZE } });
-        } catch (err) {
-            const error = toError(err);
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message || 'File upload failed' } }));
-            resolve(true);
-            return;
+        const targetDir = path.join(process.cwd(), 'configs', provider);
+        const targetFilePath = path.join(targetDir, storedFilename);
+
+        const allowedBaseDir = path.resolve(process.cwd(), 'configs');
+        const absoluteTargetFilePath = path.resolve(targetFilePath);
+        const relativeToConfigs = path.relative(allowedBaseDir, absoluteTargetFilePath);
+        const isInsideConfigs = !path.isAbsolute(relativeToConfigs) && !relativeToConfigs.startsWith('..') && relativeToConfigs !== '..';
+
+        if (!isInsideConfigs) {
+            throw new Error('Target directory escape detected');
         }
 
-        let tempFilePath: string | null = null;
-        let originalName: string | null = null;
-        let storedFilename: string | null = null;
-        let rawProvider: string | null = null;
-        let uploadError: Error | null = null;
-        let fileUploadPromise: Promise<void> | null = null;
+        await fs.mkdir(targetDir, { recursive: true });
+        await fs.rename(tempFilePath, targetFilePath);
 
-        bb.on('field', (name: string, value: string) => {
-            if (name === 'provider') {
-                rawProvider = value;
-            }
+        const relativePath = path.relative(process.cwd(), targetFilePath);
+
+        broadcastEvent('config_update', {
+            action: 'add',
+            filePath: relativePath,
+            provider: provider,
+            timestamp: new Date().toISOString()
         });
 
-        bb.on('file', (name: string, fileStream: NodeJS.ReadableStream, info: { filename: string }) => {
-            if (name !== 'file' || tempFilePath) {
-                fileStream.resume();
-                return;
+        const userInfoStr = userInfo ? `, ${userInfo}` : '';
+        logger.info(`${logPrefix} OAuth credentials file uploaded: ${targetFilePath} (provider: ${provider}${userInfoStr})`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            message: 'File uploaded successfully',
+            filePath: relativePath,
+            originalName,
+            provider
+        }));
+        return true;
+    } catch (caught) {
+        const error = toError(caught);
+        logger.error(`${logPrefix} File upload processing error:`, error);
+        if (tempFilePath && existsSync(tempFilePath)) {
+            await fs.unlink(tempFilePath).catch(() => {});
+        }
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            error: {
+                message: 'File upload processing failed: ' + error.message
             }
-
-            originalName = info.filename;
-            const ext = path.extname(originalName).toLowerCase();
-            if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
-                uploadError = new Error('Unsupported file type');
-                fileStream.resume();
-                return;
-            }
-
-            const timestamp = Date.now();
-            const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
-            storedFilename = `${timestamp}_${sanitizedName}`;
-            const uploadPath = path.join(process.cwd(), 'configs', 'temp');
-            const targetTempFile = path.join(uploadPath, storedFilename);
-            tempFilePath = targetTempFile;
-
-            fileUploadPromise = (async () => {
-                await fs.mkdir(uploadPath, { recursive: true });
-                const writeStream = createWriteStream(targetTempFile);
-                await pipeline(fileStream, writeStream);
-            })().catch((err) => {
-                uploadError = toError(err);
-            });
-        });
-
-        bb.on('error', (err: unknown) => {
-            uploadError = toError(err);
-        });
-
-        bb.on('close', async () => {
-            if (fileUploadPromise) {
-                await fileUploadPromise;
-            }
-
-            if (uploadError) {
-                logger.error(`${logPrefix} File upload error:`, uploadError.message);
-                if (tempFilePath && existsSync(tempFilePath)) {
-                    await fs.unlink(tempFilePath).catch(() => {});
-                }
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: uploadError.message || 'File upload failed' } }));
-                resolve(true);
-                return;
-            }
-
-            if (!tempFilePath || !originalName || !storedFilename) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'No file was uploaded' } }));
-                resolve(true);
-                return;
-            }
-
-            try {
-                const providerType = rawProvider === undefined || rawProvider === null || rawProvider === ''
-                    ? 'common'
-                    : rawProvider;
-                const provider = typeof providerType === 'string'
-                    ? (providerMap[providerType] || providerType)
-                    : providerType;
-
-                if (typeof provider !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(provider)) {
-                    throw new Error('Invalid provider format');
-                }
-
-                const targetDir = path.join(process.cwd(), 'configs', provider);
-                const targetFilePath = path.join(targetDir, storedFilename);
-
-                const allowedBaseDir = path.resolve(process.cwd(), 'configs');
-                const absoluteTargetFilePath = path.resolve(targetFilePath);
-                const relativeToConfigs = path.relative(allowedBaseDir, absoluteTargetFilePath);
-                const isInsideConfigs = !path.isAbsolute(relativeToConfigs) && !relativeToConfigs.startsWith('..') && relativeToConfigs !== '..';
-
-                if (!isInsideConfigs) {
-                    throw new Error('Target directory escape detected');
-                }
-
-                await fs.mkdir(targetDir, { recursive: true });
-                await fs.rename(tempFilePath, targetFilePath);
-
-                const relativePath = path.relative(process.cwd(), targetFilePath);
-
-                broadcastEvent('config_update', {
-                    action: 'add',
-                    filePath: relativePath,
-                    provider: provider,
-                    timestamp: new Date().toISOString()
-                });
-
-                const userInfoStr = userInfo ? `, ${userInfo}` : '';
-                logger.info(`${logPrefix} OAuth credentials file uploaded: ${targetFilePath} (provider: ${provider}${userInfoStr})`);
-
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: true,
-                    message: 'File uploaded successfully',
-                    filePath: relativePath,
-                    originalName,
-                    provider
-                }));
-                resolve(true);
-            } catch (caught) {
-                const error = toError(caught);
-                logger.error(`${logPrefix} File upload processing error:`, error);
-                if (tempFilePath && existsSync(tempFilePath)) {
-                    await fs.unlink(tempFilePath).catch(() => {});
-                }
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: 'File upload processing failed: ' + error.message
-                    }
-                }));
-                resolve(true);
-            }
-        });
-
-        req.pipe(bb);
-    });
+        }));
+        return true;
+    }
 }

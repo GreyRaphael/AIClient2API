@@ -13,7 +13,7 @@ import { Readable } from 'node:stream';
 // 静态 import 会提升到 mock 注册之前，必须动态导入才能拿到被 mock 的导出
 const { getApiServiceWithFallback } = await import('../src/services/service-manager.ts');
 // api-manager 静态 import 了被 mock 的 service-manager，必须动态导入
-const { handleImageGenerationRequest } = await import('../src/services/api-manager.ts');
+const { handleImageGenerationRequest, handleImageEditsRequest } = await import('../src/services/api-manager.ts');
 await import('../src/converters/register-converters.ts');
 
 /**
@@ -35,6 +35,34 @@ const BARE_MODEL = 'gemini-3.1-flash-image';
 function createMockRequest(body) {
     const stream = Readable.from([Buffer.from(JSON.stringify(body), 'utf-8')]);
     stream.headers = { 'content-type': 'application/json' };
+    stream.method = 'POST';
+    return stream;
+}
+
+function createMultipartRequest(fields, files = []) {
+    const boundary = '----MockBoundary123';
+    const lines = [];
+    for (const [k, v] of Object.entries(fields)) {
+        lines.push(`--${boundary}`);
+        lines.push(`Content-Disposition: form-data; name="${k}"`);
+        lines.push('');
+        lines.push(v);
+    }
+    for (const file of files) {
+        lines.push(`--${boundary}`);
+        lines.push(`Content-Disposition: form-data; name="${file.name}"; filename="${file.filename || 'img.png'}"`);
+        lines.push(`Content-Type: ${file.contentType || 'image/png'}`);
+        lines.push('');
+        lines.push(file.content);
+    }
+    lines.push(`--${boundary}--`);
+    lines.push('');
+    const buf = Buffer.from(lines.join('\r\n'), 'utf-8');
+    const stream = Readable.from([buf]);
+    stream.headers = {
+        'content-type': `multipart/form-data; boundary=${boundary}`,
+        'content-length': String(buf.length)
+    };
     stream.method = 'POST';
     return stream;
 }
@@ -142,5 +170,63 @@ describe('images/generations 的 provider:model 前缀解析', () => {
 
         // actualModel 缺失时不应擅自改写（该场景由 Provider 自己报错更清晰）
         expect(modelCalls[0]).toBe(PREFIXED_MODEL);
+    });
+});
+
+describe('images/edits 的 multipart 与 provider:model 前缀解析', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    test('缺少必要字段（model、prompt 或 image）返回 400', async () => {
+        const config = { MODEL_PROVIDER: 'gemini-antigravity' };
+
+        // 缺少 model
+        const req1 = createMultipartRequest({ prompt: 'edit test' }, [{ name: 'image', content: 'fake-png' }]);
+        const res1 = createMockResponse();
+        await handleImageEditsRequest(req1, res1, config, null);
+        expect(res1.statusCode).toBe(400);
+        expect(JSON.parse(res1.body).error.message).toContain('model is required');
+
+        // 缺少 prompt
+        const req2 = createMultipartRequest({ model: PREFIXED_MODEL }, [{ name: 'image', content: 'fake-png' }]);
+        const res2 = createMockResponse();
+        await handleImageEditsRequest(req2, res2, config, null);
+        expect(res2.statusCode).toBe(400);
+        expect(JSON.parse(res2.body).error.message).toContain('prompt is required');
+
+        // 缺少 image
+        const req3 = createMultipartRequest({ model: PREFIXED_MODEL, prompt: 'edit test' }, []);
+        const res3 = createMockResponse();
+        await handleImageEditsRequest(req3, res3, config, null);
+        expect(res3.statusCode).toBe(400);
+        expect(JSON.parse(res3.body).error.message).toContain('image is required');
+    });
+
+    test('带前缀的模型 ID 不会原样传给 Provider，而是使用解析后的纯模型名', async () => {
+        const modelCalls = [];
+        getApiServiceWithFallback.mockResolvedValue({
+            service: createMockService(modelCalls),
+            serviceConfig: { MODEL_PROVIDER: 'gemini-antigravity' },
+            actualProviderType: 'gemini-antigravity',
+            isFallback: false,
+            uuid: 'test-uuid',
+            actualModel: BARE_MODEL
+        });
+
+        const req = createMultipartRequest(
+            { model: PREFIXED_MODEL, prompt: 'add a hat', n: '1' },
+            [{ name: 'image', filename: 'orig.png', content: 'fake-png-bytes' }]
+        );
+        const res = createMockResponse();
+        const config = { MODEL_PROVIDER: 'gemini-antigravity', _monitorRequestId: null };
+
+        await handleImageEditsRequest(req, res, config, null);
+        expect(modelCalls.length).toBeGreaterThan(0);
+        for (const called of modelCalls) {
+            expect(called).toBe(BARE_MODEL);
+            expect(called).not.toContain(':');
+        }
+        expect(res.statusCode).toBe(200);
     });
 });

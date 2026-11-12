@@ -12,7 +12,7 @@ import {
 } from '../handlers/request-pipeline.ts';
 import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.ts';
 import logger from '../utils/logger.ts';
-import busboy from 'busboy';
+import { parseMultipartForm, getMultipartFiles } from '../utils/form-parser.ts';
 import { convertData } from '../convert/convert.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
@@ -439,93 +439,7 @@ function extractRejectionMessage(responses: DynamicPayload[], providerProtocol: 
     return null;
 }
 
-/**
- * Parse multipart/form-data from a raw http.IncomingMessage via busboy.
- * Returns { fields: {key: string}, files: {key: file|file[]}, fileEntries: [{name, file}] }
- * File buffers are collected in memory; mask field is accepted but ignored.
- */
-function parseMultipartForm(req: IncomingMessage): Promise<any> {
-    return new Promise((resolve, reject) => {
-        const contentType = req.headers['content-type'] || '';
-        if (!contentType.includes('multipart/form-data')) {
-            return reject(new Error('Content-Type must be multipart/form-data'));
-        }
-
-        const bb = busboy({ headers: req.headers, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB cap
-        const fields: DynamicPayload = {};
-        const files: DynamicPayload = {};
-        const fileEntries: DynamicPayload[] = [];
-
-        let settled = false;
-        const rejectOnce = (err: unknown): void => {
-            if (!settled) {
-                settled = true;
-                reject(err);
-            }
-        };
-        const resolveOnce = (val: unknown): void => {
-            if (!settled) {
-                settled = true;
-                resolve(val);
-            }
-        };
-
-        bb.on('field', (name: string, value: string) => { fields[name] = value; });
-
-        bb.on('file', (name: string, stream: NodeJS.ReadableStream, info: { mimeType: string }) => {
-            const chunks: Buffer[] = [];
-            const fileEntry: { name: string; file: DynamicPayload | null } = { name, file: null };
-            fileEntries.push(fileEntry);
-            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-            stream.on('end', () => {
-                const file = { buffer: Buffer.concat(chunks), mimetype: info.mimeType };
-                fileEntry.file = file;
-                if (!files[name]) {
-                    files[name] = file;
-                } else if (Array.isArray(files[name])) {
-                    files[name].push(file);
-                } else {
-                    files[name] = [files[name], file];
-                }
-            });
-            stream.on('error', rejectOnce);
-        });
-
-        bb.on('close', () => resolveOnce({fields, files, fileEntries}));
-        bb.on('error', rejectOnce);
-
-        // 客户端提前断连时 req 不会触发 'end'，需要主动拒绝，否则 Promise 永远挂起
-        req.on('aborted', () => rejectOnce(new Error('Request aborted by client')));
-        req.on('close', () => {
-            if (!req.complete) {
-                rejectOnce(new Error('Request connection closed before body was fully received'));
-            }
-        });
-
-        req.pipe(bb);
-    });
-}
-
-function getMultipartFiles(form: DynamicPayload, fieldNames: string[]): DynamicPayload[] {
-    const acceptedNames = new Set<string>(fieldNames);
-
-    if (Array.isArray(form.fileEntries)) {
-        return form.fileEntries
-            .filter((entry: DynamicPayload) => acceptedNames.has(entry.name) && entry.file)
-            .map((entry: DynamicPayload) => entry.file);
-    }
-
-    const collected: DynamicPayload[] = [];
-    for (const name of fieldNames) {
-        const value = form.files?.[name];
-        if (Array.isArray(value)) {
-            collected.push(...value);
-        } else if (value) {
-            collected.push(value);
-        }
-    }
-    return collected;
-}
+const IMAGE_EDITS_MAX_BYTES = 20 * 1024 * 1024; // 20MB cap
 
 /**
  * Handle POST /v1/images/edits - OpenAI 标准改图接口
@@ -551,7 +465,7 @@ export async function handleImageEditsRequest(
     };
 
     try {
-        const form = await parseMultipartForm(req) as DynamicPayload;
+        const form = await parseMultipartForm(req, { maxBytes: IMAGE_EDITS_MAX_BYTES });
         const { fields, files } = form;
 
         // 由路由解析阶段回填为不含 provider 前缀的真实模型名，故用 let
