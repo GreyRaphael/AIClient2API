@@ -1,6 +1,6 @@
 import logger from '../utils/logger.ts';
 import * as http from 'http';
-import { initializeConfig, CONFIG } from '../core/config-manager.ts';
+import { initializeConfig, CONFIG, PROMPT_LOG_FILENAME } from '../core/config-manager.ts';
 import { initApiService } from './service-manager.ts';
 import { initializeUIManagement } from './ui-manager.ts';
 import { initializeAPIManagement } from './api-manager.ts';
@@ -257,7 +257,9 @@ async function startServer() {
         logger.info(`  Host: ${CONFIG.HOST}`);
         logger.info(`  Port: ${CONFIG.SERVER_PORT}`);
         logger.info(`  Required API Key: ${CONFIG.REQUIRED_API_KEY ? CONFIG.REQUIRED_API_KEY.slice(0, 4) + '****' : '(none)'}`);
-        logger.info(`  Prompt Logging: ${CONFIG.PROMPT_LOG_MODE}${CONFIG.PROMPT_LOG_FILENAME ? ` (to ${CONFIG.PROMPT_LOG_FILENAME})` : ''}`);
+        // PROMPT_LOG_FILENAME 不来自配置文件，故读模块导出而非 CONFIG 键：
+        // CONFIG 由 `Object.assign(CONFIG, currentConfig)` 填充，从来没有这个键。
+        logger.info(`  Prompt Logging: ${CONFIG.PROMPT_LOG_MODE}${PROMPT_LOG_FILENAME ? ` (to ${PROMPT_LOG_FILENAME})` : ''}`);
         logger.info(`------------------------------------------`);
         logger.info(`\nUnified API Server running on http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}`);
         logger.info(`Supports multiple API formats:`);

@@ -7,9 +7,9 @@ import {
 } from '../utils/common.ts';
 import {
     handleModelListRequest,
-    handleContentGenerationRequest,
-    markCredentialFailureOnError
+    handleContentGenerationRequest
 } from '../handlers/request-pipeline.ts';
+import { markCredentialFailureOnError } from '../handlers/pipeline/unary-handler.ts';
 import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.ts';
 import logger from '../utils/logger.ts';
 import { parseMultipartForm, getMultipartFiles } from '../utils/form-parser.ts';

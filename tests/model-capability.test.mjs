@@ -325,6 +325,42 @@ describe('Model Capability', () => {
         expect(nodeSupportsModel(capability, 'glm-5.2')).toBe(true);
     });
 
+    /**
+     * 回归守护：退避期内常规刷新不得再打上游。
+     *
+     * 这是 v8.9.3 的 Blocker：`nextRefreshAt` 退避的唯一消费点写成 `if (!force && ...)`，
+     * 而三个真实读路径都传 `force: true`，于是退避**从未生效**。失败节点因
+     * `stale` 含 `Boolean(lastError)` 而永远 stale，每次读模型列表都强制重刷，
+     * 被控制台与 SDK 轮询线性放大成「上游被自己打爆」。
+     *
+     * 断言的是**上游调用次数**而非字段值 —— 这正是原测试的盲区：
+     * `consecutiveFailures` / `nextRefreshAt` / 「next in 60s」日志当时都是对的。
+     */
+    test('退避期内 respect-backoff 刷新不再触发上游调用', async () => {
+        const calls = [];
+        const adapter = {
+            getNodeAvailableModels: jest.fn().mockImplementation(async () => {
+                calls.push(Date.now());
+                return [];
+            })
+        };
+
+        // 第 1 次：真实失败，写入 60s 退避
+        const first = await refreshNodeCapability('trae', { uuid: 'backoff-node' }, { adapter, intent: 'force' });
+        expect(first.consecutiveFailures).toBe(1);
+        expect(first.nextRefreshAt).toBeGreaterThan(Date.now());
+        expect(calls.length).toBe(1);
+
+        // 退避期内连续常规刷新：一律直接返回既有条目，不得打上游
+        await refreshNodeCapability('trae', { uuid: 'backoff-node' }, { adapter });
+        await refreshNodeCapability('trae', { uuid: 'backoff-node' }, { adapter });
+        expect(calls.length).toBe(1);
+
+        // 而 force 仍应穿透退避（用户显式「刷新上游模型」）
+        await refreshNodeCapability('trae', { uuid: 'backoff-node' }, { adapter, intent: 'force' });
+        expect(calls.length).toBe(2);
+    });
+
     /** 回归守护：一次瞬时失败不得抹掉已有的良好发现（否则会被缓存成永久不可用） */
     test('瞬时失败保留已有良好发现，只叠加失败元数据', async () => {
         await refreshNodeCapability('trae', { uuid: 'good-node' }, {
@@ -336,7 +372,7 @@ describe('Model Capability', () => {
         expect(before.models).toEqual(['DeepSeek-V4.1', 'glm-5.2']);
 
         await refreshNodeCapability('trae', { uuid: 'good-node' }, {
-            force: true,
+            intent: 'force',
             adapter: { getNodeAvailableModels: jest.fn().mockResolvedValue([]) }
         });
 
@@ -366,7 +402,7 @@ describe('Model Capability', () => {
 
         // 用同一 uuid 的草稿配置做探测，且上游直接失败
         const probe = await refreshNodeCapability('trae', { uuid: 'live-node', TYPO: true }, {
-            force: true,
+            intent: 'force',
             reason: 'ui-detect',
             dryRun: true,
             adapter: { getNodeAvailableModels: jest.fn().mockRejectedValue(new Error('credentials file not found: TYPO')) }

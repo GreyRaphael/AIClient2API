@@ -154,8 +154,9 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
     // 针对具有动态模型发现能力的提供商节点，初次关联后立即异步触发最新 model_list 刷新
     for (const { providerType, provider } of newlyLinkedNodes) {
         if (isDynamicProvider(providerType)) {
+            // 刚关联的凭据：用户期待立刻看到新模型，属显式触发，穿透退避。
             refreshNodeCapability(providerType, provider, {
-                force: true,
+                intent: 'force',
                 reason: 'auto-link'
             }).catch((err: unknown) => {
                 logger.warn(`[Auto-Link] Failed to refresh models for ${provider.uuid}:`, getErrorMessage(err));

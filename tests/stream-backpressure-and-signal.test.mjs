@@ -318,7 +318,7 @@ describe('Phase 3 Stream Backpressure & Signal Governance', () => {
     });
 
     test('propagates _abortSignal to unary request', async () => {
-        const { handleUnaryRequest } = await import('../src/handlers/request-pipeline.ts');
+        const { handleUnaryRequest } = await import('../src/handlers/pipeline/unary-handler.ts');
         const res = createMockResponse();
         const pool = createPool();
         let receivedSignal = null;

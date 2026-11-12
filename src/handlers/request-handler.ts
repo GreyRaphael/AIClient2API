@@ -1,8 +1,8 @@
 import logger from '../utils/logger.ts';
 import requestContext from '../utils/context.ts';
 import { getClientIp, getRequestBody } from '../utils/common.ts';
-import { handleError } from './request-pipeline.ts';
-import type { PipelineError } from './request-pipeline.ts';
+import { handleError } from './pipeline/error-response.ts';
+import type { PipelineError } from './pipeline/error-types.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import { handleUIApiRequests, serveStaticFiles } from '../services/ui-manager.ts';

@@ -413,7 +413,9 @@ export async function initializeConfig(
         currentConfig.customModels = [];
     }
 
-    // Set PROMPT_LOG_FILENAME based on the determined config
+    // 派生运行期值：PROMPT_LOG_FILENAME 是**运行期算出**的（含启动时间戳），
+    // 不是配置文件里的键，因此不能指望 `Object.assign(CONFIG, currentConfig)` 带上它。
+    // 需要它的地方（如启动横幅）应直接读本模块导出，不要读 CONFIG.PROMPT_LOG_FILENAME。
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
         const timestamp = Temporal.Now.plainDateTimeISO().toString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
         PROMPT_LOG_FILENAME = `${currentConfig.PROMPT_LOG_BASE_NAME}-${timestamp}.log`;

@@ -491,23 +491,42 @@ async function resolveAdapterForNode(providerType: string, nodeConfig: DynamicPa
 }
 
 /**
- * 刷新单个节点的模型能力（异步，单飞 + 退避）。
+ * 刷新意图。
  *
- * @param {string} providerType
- * @param {object} nodeConfig
- * @param {object} [options]
- * @param {boolean} [options.force] 忽略缓存
- * @param {string} [options.reason] 触发原因，仅用于日志
- * @param {object} [options.globalConfig] 全局配置（默认 CONFIG）
- * @param {object} [options.adapter] 可注入 adapter，便于测试
+ * 之前用布尔 `force` 同时表达两件事，导致「刷新是否穿透失败退避」这个语义被反着用：
+ * 读路径为了拿到新鲜数据一律传 `force: true`，于是 `nextRefreshAt` 退避永远被绕过——
+ * 失败节点会因为每次 `/v1/models` 都被迫再打一次上游，进而再次失败，
+ * 形成「失败 → 永久 stale → 每次读列表都重刷 → 再失败」的闭环。
+ *
+ * 这里把意图显式化，只有用户主动点「刷新上游模型」才是 `force`：
+ * - `respect-backoff`：常规刷新（读路径 / 定时 / 启动预热）。退避期内直接返回既有条目，不打上游。
+ * - `force`：用户显式要求重新发现。无视退避，同时穿透 adapter 自身的模型列表缓存。
+ *
+ * 为什么不保留 `cache-only` / `if-stale` 两个额外档位：`refreshNodeCapability` 只有在
+ * 调用方已经判定「需要刷新」时才会被调用（`resolveProviderCapabilityWithRefresh` 与
+ * `ensureProviderCapability` 都在 `!known || stale` 时才进来），所以「是否该刷」
+ * 由调用方决定，「退避期内是否允许打上游」才是本函数唯一的第二决策点。
+ */
+export type RefreshIntent = 'respect-backoff' | 'force';
+
+interface RefreshNodeOptions extends DynamicPayload {
+    intent?: RefreshIntent;
+    reason?: string;
+    globalConfig?: DynamicPayload;
+    adapter?: DynamicPayload | null;
+    dryRun?: boolean;
+}
+
+/**
+ * 刷新单个节点的模型能力（异步，单飞 + 退避）。
  */
 export async function refreshNodeCapability(
     providerType: string,
     nodeConfig: DynamicPayload,
-    options: DynamicPayload = {}
+    options: RefreshNodeOptions = {}
 ): Promise<DynamicPayload | null> {
     const {
-        force = false,
+        intent = 'respect-backoff',
         reason = 'manual',
         globalConfig = CONFIG,
         adapter = null,
@@ -530,7 +549,9 @@ export async function refreshNodeCapability(
     const existing = store.getEntry(key);
     const now = Date.now();
 
-    if (!force && existing?.nextRefreshAt && existing.nextRefreshAt > now) {
+    // 退避期内直接返回既有条目：不打上游、不改状态。
+    // 这是修复「失败节点被自身轮询打爆」的唯一闸门，读路径必须走这里。
+    if (intent !== 'force' && existing?.nextRefreshAt && existing.nextRefreshAt > now) {
         return existing;
     }
     if (inFlightRefreshes.has(key)) {
@@ -544,7 +565,9 @@ export async function refreshNodeCapability(
                 return existing;
             }
 
-            const result = await resolvedAdapter.getNodeAvailableModels(force);
+            // adapter 的 force 与能力层的退避是两回事：前者控制它自己的模型列表缓存，
+            // 只有能力层决定「穿透退避」时才连带穿透，否则会绕过 adapter 缓存造成额外上游压力。
+            const result = await resolvedAdapter.getNodeAvailableModels(intent === 'force');
             if (!Array.isArray(result)) {
                 return existing;
             }
@@ -668,9 +691,11 @@ export async function refreshProviderCapabilities(
 export function resolveProviderCapabilityWithRefresh(providerType: string, nodes: unknown[] = [], options: DynamicPayload = {}): DynamicPayload {
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (isBackgroundRefreshEnabled() && (!capability.known || capability.stale)) {
+        // 读路径只在「已知但过期」时补刷，且必须遵守退避：
+        // 传 force 会让退避失效，失败节点因此被每次模型列表请求反复打上游。
         refreshProviderCapabilities(providerType, nodes, {
             ...options,
-            force: true,
+            intent: 'respect-backoff',
             reason: options.reason || 'read-through'
         }).catch((error: unknown) => {
             const err = error as DynamicPayload;
@@ -688,7 +713,7 @@ export async function ensureProviderCapability(providerType: string, nodes: unkn
     const capability = resolveProviderCapability(providerType, nodes, options);
     if (capability.known) {
         if (capability.stale) {
-            refreshProviderCapabilities(providerType, nodes, { ...options, force: true, reason: options.reason || 'refresh' })
+            refreshProviderCapabilities(providerType, nodes, { ...options, intent: 'respect-backoff', reason: options.reason || 'refresh' })
                 .catch(() => {});
         }
         return capability;
@@ -701,7 +726,7 @@ export async function ensureProviderCapability(providerType: string, nodes: unkn
     if (timeoutMs > 0) {
         let timer: ReturnType<typeof setTimeout> | null = null;
         await Promise.race([
-            refreshProviderCapabilities(providerType, nodes, { ...options, force: false, reason: options.reason || 'cold-start' }),
+            refreshProviderCapabilities(providerType, nodes, { ...options, intent: 'respect-backoff', reason: options.reason || 'cold-start' }),
             new Promise<void>((resolve) => {
                 timer = setTimeout(resolve, timeoutMs);
                 if (timer.unref) timer.unref();
@@ -722,10 +747,10 @@ function getProviderNodeEntries(providerPoolManager: DynamicPayload | null | und
  * 刷新号池中所有 providerType 的启用节点（启动预热与定时任务共用）。
  */
 export async function warmProviderCapabilities(providerPoolManager: DynamicPayload | null | undefined, options: DynamicPayload = {}): Promise<void> {
-    const { force = false, reason = 'startup' } = options;
+    const { intent = 'respect-backoff', reason = 'startup' } = options;
     const entries = getProviderNodeEntries(providerPoolManager);
     await Promise.allSettled(entries.map(([providerType, nodes]) =>
-        refreshProviderCapabilities(providerType, nodes, { ...options, force, reason })
+        refreshProviderCapabilities(providerType, nodes, { ...options, intent, reason })
     ));
 }
 
@@ -745,7 +770,8 @@ export function startCapabilityRefreshLoop(providerPoolManager: DynamicPayload |
         : 15 * 60 * 1000;
 
     capabilityRefreshTimer = setInterval(() => {
-        warmProviderCapabilities(providerPoolManager, { force: true, reason: 'scheduled' })
+        // 定时任务本身已经是「周期性重试」，再传 force 会让单节点退避彻底失效。
+        warmProviderCapabilities(providerPoolManager, { intent: 'respect-backoff', reason: 'scheduled' })
             .catch((error: unknown) => logger.debug(`[ModelCapability] Scheduled refresh failed: ${(error as DynamicPayload).message}`));
     }, intervalMs);
     if (capabilityRefreshTimer.unref) capabilityRefreshTimer.unref();

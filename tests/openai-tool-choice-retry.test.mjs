@@ -4,7 +4,7 @@ import {
     OpenAIApiService,
     normalizeToolChoiceForProvider
 } from '../src/providers/openai/openai-core.ts';
-import { resolveEmptyUpstreamResponseRetry } from '../src/handlers/request-pipeline.ts';
+import { resolveEmptyUpstreamResponseRetry } from '../src/handlers/pipeline/unary-handler.ts';
 
 const weatherTool = {
     type: 'function',

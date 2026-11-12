@@ -5,8 +5,9 @@
 
 import { randomUUID } from 'node:crypto';
 const uuidv4 = randomUUID;
-import crypto from 'crypto';
 import { BaseConverter } from '../BaseConverter.ts';
+import { unwrapCodexEnvelope } from '../codex-envelope.ts';
+import { shortenToolName, buildToolNameMap } from '../tool-name.ts';
 import { StreamSessionStore } from '../stream-session.ts';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.ts';
 import { mintVirtualSignature, isSignatureVaultEnabled } from '../signature-vault.ts';
@@ -239,23 +240,23 @@ export class CodexConverter extends BaseConverter {
      * 转换响应
      */
     convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId?: string | null): CrossProtocolResponse {
-        const id = requestId || (data as DynamicPayload)?.response?.id || 'default';
-        const result = (() => {
+        const envelope = unwrapCodexEnvelope(data);
+        const id = requestId || String(envelope.data.id || '') || 'default';
+        // 程序性错误用 finally 保证状态清理，避免异常路径残留 requestStates。
+        try {
             switch (targetProtocol) {
                 case MODEL_PROTOCOL_PREFIX.OPENAI:
-                    return this.toOpenAIResponse(data, model, id);
+                    return this.toOpenAIResponse(data, model, id) as CrossProtocolResponse;
                 case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                    return this.toOpenAIResponsesResponse(data, model, id);
+                    return this.toOpenAIResponsesResponse(data, model, id) as CrossProtocolResponse;
                 case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                    return this.toClaudeResponse(data, model, id);
+                    return this.toClaudeResponse(data, model, id) as CrossProtocolResponse;
                 default:
                     throw new Error(`Unsupported target protocol: ${targetProtocol}`);
             }
-        })();
-
-        // 非流式清理状态
-        this.requestStates.delete(id);
-        return result as CrossProtocolResponse;
+        } finally {
+            this.requestStates.delete(id);
+        }
     }
 
     /**
@@ -689,42 +690,11 @@ export class CodexConverter extends BaseConverter {
             return;
         }
 
-        const limit = 64;
-        const used = new Set<string>();
-        const toolNameMap = new Map<string, string>();
-        const reverseToolNameMap = new Map<string, string>();
-
-        const baseCandidate = (n: string): string => {
-            if (n.length <= limit) return n;
-            if (n.startsWith('mcp__')) {
-                const idx = n.lastIndexOf('__');
-                if (idx > 0) {
-                    let cand = 'mcp__' + n.slice(idx + 2);
-                    return cand.length > limit ? cand.slice(0, limit) : cand;
-                }
-            }
-            return this.shortenToolName(n);
-        };
-
-        for (const n of names) {
-            let cand = baseCandidate(n);
-            let uniq = cand;
-            if (used.has(uniq)) {
-                for (let i = 1; ; i++) {
-                    const suffix = '_' + i;
-                    const allowed = limit - suffix.length;
-                    const base = cand.slice(0, Math.max(0, allowed));
-                    const tmp = base + suffix;
-                    if (!used.has(tmp)) {
-                        uniq = tmp;
-                        break;
-                    }
-                }
-            }
-            used.add(uniq);
-            toolNameMap.set(n, uniq);
-            reverseToolNameMap.set(uniq, n);
-        }
+        const shortened = buildToolNameMap(names);
+        const toolNameMap = new Map<string, string>(Object.entries(shortened));
+        const reverseToolNameMap = new Map<string, string>(
+            Object.entries(shortened).map(([original, short]) => [short, original])
+        );
 
         // 所有工具名本来就合法（无需缩短）时不必占用请求级状态。
         const needsMapping = Array.from(toolNameMap.entries()).some(([original, short]) => original !== short);
@@ -830,20 +800,10 @@ export class CodexConverter extends BaseConverter {
     }
 
     /**
-     * 缩短工具名称
+     * 缩短工具名称。实现见 `converters/tool-name.ts`（全仓唯一一份）。
      */
     shortenToolName(name: string): string {
-        const limit = 64;
-        if (name.length <= limit) return name;
-        if (name.startsWith('mcp__')) {
-            const idx = name.lastIndexOf('__');
-            if (idx > 0) {
-                let cand = 'mcp__' + name.slice(idx + 2);
-                return cand.length > limit ? cand.slice(0, limit) : cand;
-            }
-        }
-        const suffix = '_' + crypto.hash('sha256', name, 'hex').slice(0, 16);
-        return name.slice(0, limit - suffix.length) + suffix;
+        return shortenToolName(name);
     }
 
     /**
@@ -883,12 +843,14 @@ export class CodexConverter extends BaseConverter {
      * Codex → OpenAI 响应转换（非流式）
      */
     toOpenAIResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
-        const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
-            return null;
+        const parsed = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
+        const { kind, data: response } = unwrapCodexEnvelope(parsed);
+        if (kind === 'unrecognized') {
+            // 绝不返回 null：调用方会把它 JSON.stringify 成 "null" 并以 200 发出。
+            const error = new Error('[Codex] Upstream response is not a recognizable Responses payload') as DynamicPayload;
+            error.status = 502;
+            throw error;
         }
-
-        const response = root.response;
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
         const openaiResponse: DynamicPayload = {
@@ -1013,7 +975,7 @@ export class CodexConverter extends BaseConverter {
         if (response.status === 'completed') {
             openaiResponse.choices[0].finish_reason = toolCalls.length > 0 ? 'tool_calls' : 'stop';
             openaiResponse.choices[0].native_finish_reason = 'stop';
-        } else if (response.status === 'incomplete' || root.type === 'response.incomplete') {
+        } else if (response.status === 'incomplete' || kind === 'incomplete') {
             const reason = response.incomplete_details?.reason;
             openaiResponse.choices[0].finish_reason = reason === 'content_filter' ? 'content_filter' : 'length';
             openaiResponse.choices[0].native_finish_reason = openaiResponse.choices[0].finish_reason;
@@ -1030,12 +992,14 @@ export class CodexConverter extends BaseConverter {
      * Codex → OpenAI Responses 响应转换
      */
     toOpenAIResponsesResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
-        const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
-            return null;
+        const parsed = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
+        const { kind, data: response } = unwrapCodexEnvelope(parsed);
+        if (kind === 'unrecognized') {
+            // 绝不返回 null：调用方会把它 JSON.stringify 成 "null" 并以 200 发出。
+            const error = new Error('[Codex] Upstream response is not a recognizable Responses payload') as DynamicPayload;
+            error.status = 502;
+            throw error;
         }
-
-        const response = root.response;
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
         const output: DynamicPayload[] = [];
@@ -1131,7 +1095,7 @@ export class CodexConverter extends BaseConverter {
         }
 
         const responseStatus = response.status
-            || (root.type === 'response.incomplete' ? 'incomplete' : 'completed');
+            || (kind === 'incomplete' ? 'incomplete' : 'completed');
 
         // 非流式终态：释放请求级工具名映射（同 toOpenAIResponse）。
         this.releaseRequestState(requestId);
@@ -1163,12 +1127,14 @@ export class CodexConverter extends BaseConverter {
      * Codex → Claude 响应转换
      */
     toClaudeResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
-        const root = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        if (root.type !== 'response.completed' && root.type !== 'response.incomplete') {
-            return null;
+        const parsed = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
+        const { kind, data: response } = unwrapCodexEnvelope(parsed);
+        if (kind === 'unrecognized') {
+            // 绝不返回 null：调用方会把它 JSON.stringify 成 "null" 并以 200 发出。
+            const error = new Error('[Codex] Upstream response is not a recognizable Responses payload') as DynamicPayload;
+            error.status = 502;
+            throw error;
         }
-
-        const response = root.response;
         const content: DynamicPayload[] = [];
         let stopReason = "end_turn";
 
@@ -1237,7 +1203,7 @@ export class CodexConverter extends BaseConverter {
             }
         }
 
-        if (response.status === 'incomplete' || root.type === 'response.incomplete') {
+        if (response.status === 'incomplete' || kind === 'incomplete') {
             stopReason = response.incomplete_details?.reason === 'content_filter' ? 'refusal' : 'max_tokens';
         }
 

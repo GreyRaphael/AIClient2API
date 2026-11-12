@@ -23,7 +23,6 @@ import { resolveProviderCapabilityWithRefresh } from '../providers/model-capabil
 import { applyModelMetadata } from '../providers/model-metadata.ts';
 import type { ModelMetadata } from '../providers/model-metadata.ts';
 import { applyCustomModelMetadata } from '../providers/custom-model-metadata.ts';
-export { applyCustomModelMetadata };
 import { resolveSessionAffinityId } from '../utils/proxy-utils.ts';
 import { getProviderDefinition } from '../providers/provider-registry.ts';
 import {
@@ -34,14 +33,6 @@ import {
 } from '../providers/reasoning-effort.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { writeFrameWithBackpressure } from './pipeline/stream-writer.ts';
-export type { EmptyRetryOutcome } from './pipeline/unary-handler.ts';
-export {
-    handleUnaryRequest,
-    handleUnifiedResponse,
-    logConversation,
-    markCredentialFailureOnError,
-    resolveEmptyUpstreamResponseRetry
-} from './pipeline/unary-handler.ts';
 import {
     handleUnaryRequest,
     handleUnifiedResponse,
@@ -49,19 +40,6 @@ import {
     markCredentialFailureOnError,
     resolveEmptyUpstreamResponseRetry
 } from './pipeline/unary-handler.ts';
-export {
-    getMonitorRequestId,
-    extractResponseText,
-    extractPromptText,
-    TERMINAL_EMPTY_FINISH_REASONS,
-    isInStreamErrorPayload,
-    isTerminalEmptyFinishReason,
-    extractInStreamErrorMessage,
-    extractTerminalFinishReason,
-    resolveBridgePlan,
-    nativePayloadHasMeaningfulContent
-} from './pipeline/protocol-plan.ts';
-export type { BridgePlan } from './pipeline/protocol-plan.ts';
 import {
     getMonitorRequestId,
     extractResponseText,
@@ -84,14 +62,8 @@ import { getErrorMessage } from '../utils/error.ts';
 import { recordStreamChunkUsage, finalizeRequest } from '../services/usage-stats/stats-manager.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
-// 错误形状定义在 pipeline/error-types.ts（两侧共用，避免循环依赖），
-// 这里 re-export 以保持既有导入路径可用。
-export type { PipelineError } from './pipeline/error-types.ts';
+// 错误形状定义在 pipeline/error-types.ts（两侧共用，避免循环依赖）。
 import type { PipelineError } from './pipeline/error-types.ts';
-// 自定义模型路由已迁至 pipeline/model-routing.ts；re-export 保持既有导入面可用。
-export {
-    resolveCustomModelRouting
-} from './pipeline/model-routing.ts';
 import {
     resolveCustomModelRouting,
     getCustomModelEntriesForProvider,
@@ -1231,18 +1203,4 @@ function _applyCustomModelParameters(
     }
 }
 
-/**
- * 错误响应相关实现已迁至 ./pipeline/error-response.ts。
- * 这里保留 re-export，使既有的 `from './request-pipeline.ts'` 调用点无需改动
- * （测试里也直接 import 这些符号，收窄导入面属于另一件事，不在本次拆分范围）。
- */
-export {
-    handleError,
-    createErrorResponse,
-    createStreamErrorResponse,
-    resolveErrorStatusCode
-} from './pipeline/error-response.ts';
-import {
-    handleError,
-    createStreamErrorResponse
-} from './pipeline/error-response.ts';
+import { handleError, createStreamErrorResponse } from './pipeline/error-response.ts';

@@ -27,10 +27,10 @@ import {
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import { ENDPOINT_TYPE } from '../src/utils/protocol.ts';
 import {
-    applyCustomModelMetadata,
     handleModelListRequest,
     prepareReasoningEffortBeforeDispatch
 } from '../src/handlers/request-pipeline.ts';
+import { applyCustomModelMetadata } from '../src/providers/custom-model-metadata.ts';
 
 function liveEntry(models, modelMetadata = {}) {
     return {

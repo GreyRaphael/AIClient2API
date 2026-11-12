@@ -8,7 +8,7 @@ import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from '../src/utils/common.ts
 import { isRegisteredProvider, getRegisteredProviders } from '../src/providers/adapter.ts';
 import { TraeApiService } from '../src/providers/trae/trae-core.ts';
 import { PROVIDER_MODELS } from '../src/providers/provider-models.ts';
-import { nativePayloadHasMeaningfulContent } from '../src/handlers/request-pipeline.ts';
+import { nativePayloadHasMeaningfulContent } from '../src/handlers/pipeline/protocol-plan.ts';
 
 describe('Trae Provider Implementation Tests', () => {
     test('Trae provider is properly registered and configured', () => {

@@ -486,7 +486,7 @@ export async function handleGetProviderType(req: IncomingMessage, res: ServerRes
         // 本次直接用当前缓存渲染，新模型在下一次读取时自然出现。
         if (isDynamicProvider(providerType) && (!capability?.known || capability?.stale)) {
             void refreshNodeCapability(providerType, p, {
-                force: false,
+                intent: 'respect-backoff',
                 reason: 'ui-view'
             }).catch(() => { /* 后台刷新失败不影响列表渲染 */ });
         }
@@ -652,8 +652,9 @@ export async function handleRefreshProviderModels(req: IncomingMessage, res: Ser
             const nodes = providerPoolManager?.providerStatus?.[type]?.length
                 ? providerPoolManager.providerStatus[type]
                 : (providerPools[type] || []);
+            // 用户显式触发「刷新上游模型」：唯一应当穿透退避的场景。
             const entries = await refreshProviderCapabilities(type, nodes, {
-                force: true,
+                intent: 'force',
                 reason: 'manual'
             });
             results[type] = entries
@@ -703,8 +704,9 @@ export async function handleDetectProviderModels(req: IncomingMessage, res: Serv
         // 其 uuid 与线上节点相同。若走正常写入路径，用户打错一个凭据路径
         // （还没点保存）就会覆写线上节点的能力缓存、把它标红并顶替适配器实例。
         // dryRun 让本次探测既不写缓存、不落盘，也不改节点健康状态。
+        // dryRun 探测不写缓存，「检查模型」需要真实结果，故穿透退避。
         const probe = await refreshNodeCapability(providerType, nodeConfig, {
-            force: true,
+            intent: 'force',
             reason: 'ui-detect',
             dryRun: true
         });
@@ -828,7 +830,7 @@ async function _handleAddProvider(req: IncomingMessage, res: ServerResponse, cur
         // 改为后台触发：接口立即返回，候选模型通过 config_update 广播/下次读取补齐。
         if (isDynamicProvider(providerType)) {
             void refreshNodeCapability(providerType, filteredConfig, {
-                force: true,
+                intent: 'force',
                 reason: 'node-added'
             }).catch((err: unknown) => {
                 logger.warn(`[UI API] Failed to fetch models for newly added provider ${filteredConfig.uuid}: ${getErrorMessage(err)}`);

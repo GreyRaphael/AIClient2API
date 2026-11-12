@@ -10,7 +10,7 @@ import { expect, jest } from './support/harness.mjs';
  */
 
 
-import { createErrorResponse, resolveErrorStatusCode } from '../src/handlers/request-pipeline.ts';
+import { createErrorResponse, resolveErrorStatusCode } from '../src/handlers/pipeline/error-response.ts';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.ts';
 import { CodexConverter } from '../src/converters/strategies/CodexConverter.ts';
 

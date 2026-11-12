@@ -3,7 +3,8 @@ import { expect, jest } from './support/harness.mjs';
 
 import { Readable } from 'node:stream';
 import { createStreamRetryContext, writeStreamCompletion } from '../src/handlers/stream-lifecycle.ts';
-import { handleContentGenerationRequest, handleError } from '../src/handlers/request-pipeline.ts';
+import { handleContentGenerationRequest } from '../src/handlers/request-pipeline.ts';
+import { handleError } from '../src/handlers/pipeline/error-response.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../src/utils/constants.ts';
 import { ENDPOINT_TYPE } from '../src/utils/protocol.ts';
 import { serviceInstances } from '../src/providers/adapter.ts';

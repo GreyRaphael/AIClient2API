@@ -27,6 +27,7 @@ import {getConfigToggle} from '../../core/config-manager.ts';
 import {effortToGeminiThinking} from '../thinking-budget.ts';
 import { stripVirtualSignatures, isSignatureStrippingEnabled } from '../signature-vault.ts';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
+import { shortenToolName, buildToolNameMap } from '../tool-name.ts';
 import {
     isCustomTool,
     extractCustomToolInput
@@ -2222,77 +2223,20 @@ export class ClaudeConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * 应用简单缩短规则缩短工具名称
+     * 缩短工具名。实现见 `converters/tool-name.ts`（全仓唯一一份）。
+     *
+     * 历史实现直接 `name.substring(0, 64)` 且**不加内容哈希**，两个长前缀相同、
+     * 尾部不同的工具会被截成同一个名字，Codex 侧按短名反查原名时无法区分。
      */
     _shortenNameIfNeeded(name: string): string {
-        const limit = 64;
-        if (name.length <= limit) {
-            return name;
-        }
-        if (name.startsWith("mcp__")) {
-            const idx = name.lastIndexOf("__");
-            if (idx > 0) {
-                const cand = "mcp__" + name.substring(idx + 2);
-                if (cand.length > limit) {
-                    return cand.substring(0, limit);
-                }
-                return cand;
-            }
-        }
-        return name.substring(0, limit);
+        return shortenToolName(name);
     }
 
     /**
-     * 构建短名称映射以确保请求内唯一性
+     * 构建短名称映射以确保请求内唯一性。实现见 `converters/tool-name.ts`。
      */
     _buildShortNameMap(names: string[]): Record<string, string> {
-        const limit = 64;
-        const used = new Set<string>();
-        const m: Record<string, string> = {};
-
-        const baseCandidate = (n: string): string => {
-            if (n.length <= limit) {
-                return n;
-            }
-            if (n.startsWith("mcp__")) {
-                const idx = n.lastIndexOf("__");
-                if (idx > 0) {
-                    let cand = "mcp__" + n.substring(idx + 2);
-                    if (cand.length > limit) {
-                        cand = cand.substring(0, limit);
-                    }
-                    return cand;
-                }
-            }
-            return n.substring(0, limit);
-        };
-
-        const makeUnique = (cand: string): string => {
-            if (!used.has(cand)) {
-                return cand;
-            }
-            const base = cand;
-            for (let i = 1; ; i++) {
-                const suffix = "_" + i;
-                const allowed = limit - suffix.length;
-                let tmp = base;
-                if (tmp.length > (allowed < 0 ? 0 : allowed)) {
-                    tmp = tmp.substring(0, allowed < 0 ? 0 : allowed);
-                }
-                tmp = tmp + suffix;
-                if (!used.has(tmp)) {
-                    return tmp;
-                }
-            }
-        };
-
-        for (const n of names) {
-            const cand = baseCandidate(n);
-            const uniq = makeUnique(cand);
-            used.add(uniq);
-            m[n] = uniq;
-        }
-        return m;
+        return buildToolNameMap(names);
     }
 
     /**

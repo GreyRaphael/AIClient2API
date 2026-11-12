@@ -15,13 +15,13 @@ import { guessImageMimeTypeFromUrl } from "../../src/converters/utils.ts";
 import { isCustomTool } from "../../src/converters/custom-tool-registry.ts";
 import { ConverterFactory } from "../../src/converters/ConverterFactory.ts";
 import "../../src/converters/register-converters.ts";
+import { handleStreamRequest } from "../../src/handlers/request-pipeline.ts";
+import { handleUnaryRequest } from "../../src/handlers/pipeline/unary-handler.ts";
 import {
-    handleStreamRequest,
-    handleUnaryRequest,
     extractTerminalFinishReason,
     isTerminalEmptyFinishReason,
     isInStreamErrorPayload
-} from "../../src/handlers/request-pipeline.ts";
+} from "../../src/handlers/pipeline/protocol-plan.ts";
 import { extractSseStreamError } from "../e2e/e2e-helpers.js";
 
 const flat = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);

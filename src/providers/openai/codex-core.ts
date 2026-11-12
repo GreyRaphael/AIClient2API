@@ -24,6 +24,8 @@ import type { ProviderConfig } from '../provider-types.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import { getErrorMessage } from '../../utils/error.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
+import { toCodexResponseBody } from '../../converters/codex-envelope.ts';
+import { shortenToolName, buildToolNameMap } from '../../converters/tool-name.ts';
 import { decodeJwtPayload } from '../../auth/oauth-shared.ts';
 
 interface CodexServiceConfig extends ProviderConfig {
@@ -251,9 +253,6 @@ function extractSSEData(line: string): string | null {
  * 这里再次缩短是幂等空操作，不会出现双重缩短 / 双重还原。
  * ========================================================================== */
 
-/** Codex（OpenAI function call）工具名长度上限 */
-const CODEX_TOOL_NAME_LIMIT = 64;
-
 /** 绑定在请求体上的工具名映射属性名（不可枚举） */
 const CODEX_TOOL_NAME_MAP_KEY = '_codexToolNameMap';
 
@@ -265,23 +264,10 @@ interface CodexToolNameMaps {
 }
 
 /**
- * 缩短单个工具名（与 CodexConverter.shortenToolName 保持完全一致的算法）。
- * @param {string} name
- * @returns {string}
+ * 缩短单个工具名。实现见 `converters/tool-name.ts`（全仓唯一一份）。
  */
 export function shortenCodexToolName(name: string): string {
-    if (typeof name !== 'string' || name.length <= CODEX_TOOL_NAME_LIMIT) return name;
-    if (name.startsWith('mcp__')) {
-        const idx = name.lastIndexOf('__');
-        if (idx > 0) {
-            const candidate = 'mcp__' + name.slice(idx + 2);
-            return candidate.length > CODEX_TOOL_NAME_LIMIT
-                ? candidate.slice(0, CODEX_TOOL_NAME_LIMIT)
-                : candidate;
-        }
-    }
-    const suffix = '_' + crypto.hash('sha256', name, 'hex').slice(0, 16);
-    return name.slice(0, CODEX_TOOL_NAME_LIMIT - suffix.length) + suffix;
+    return shortenToolName(name);
 }
 
 /**
@@ -328,21 +314,10 @@ export function buildCodexToolNameMaps(tools: unknown, input?: unknown): CodexTo
 
     if (names.length === 0) return { toolNameMap, reverseToolNameMap };
 
-    const used = new Set<string>();
-    for (const name of names) {
-        let candidate = shortenCodexToolName(name);
-        let unique = candidate;
-        if (used.has(unique)) {
-            for (let i = 1; ; i++) {
-                const suffix = '_' + i;
-                const allowed = CODEX_TOOL_NAME_LIMIT - suffix.length;
-                unique = candidate.slice(0, Math.max(0, allowed)) + suffix;
-                if (!used.has(unique)) break;
-            }
-        }
-        used.add(unique);
-        toolNameMap.set(name, unique);
-        reverseToolNameMap.set(unique, name);
+    const shortened = buildToolNameMap(names);
+    for (const [original, short] of Object.entries(shortened)) {
+        toolNameMap.set(original, short);
+        reverseToolNameMap.set(short, original);
     }
 
     return { toolNameMap, reverseToolNameMap };
@@ -535,10 +510,13 @@ export function normalizeCodexResponsesBody(body: Record<string, unknown>): void
 }
 
 /**
- * 把 `{type:'response.completed', response:{…}}` 事件转成「双形态兼容」对象。
+ * 把 Codex 非流式事件转成标准 Responses 响应体。
  *
- * - 可枚举自有字段：标准 Responses 响应体（0-Hop 直通时 `JSON.stringify` 只输出这些）；
- * - 不可枚举 `type` / `response`：保持 CodexConverter 的 1-Hop 解包契约。
+ * 历史上这里返回「双形态兼容对象」（响应体 + 不可枚举的 `type`/`response` 壳），
+ * 但不可枚举属性无法通过任何拷贝存活，一旦上游响应被 spread / structuredClone /
+ * JSON 往返，`type` 就静默消失，converter 随即把整个响应判为非法并返回 `null`，
+ * 最终客户端收到 `200` + 响应体 `"null"`。现改为纯可枚举响应体，
+ * 形态判定由 `unwrapCodexEnvelope` 做结构性推断（见 converters/codex-envelope.ts）。
  *
  * @param {Object} completedEvent - 已 patch 完成的 completed/incomplete 事件
  * @param {string} [model] - 响应缺省模型名
@@ -548,53 +526,11 @@ export function toCodexDualShapeResponse(
     completedEvent: Record<string, unknown>,
     model?: string
 ): Record<string, unknown> {
-    const upstreamResponse = asRecord(completedEvent.response);
-    const status = typeof upstreamResponse.status === 'string'
-        ? upstreamResponse.status
-        : (completedEvent.type === 'response.incomplete' ? 'incomplete' : 'completed');
-
-    const standardResponse: Record<string, unknown> = {
-        ...upstreamResponse,
-        id: typeof upstreamResponse.id === 'string' && upstreamResponse.id
-            ? upstreamResponse.id
-            : `resp_${crypto.randomUUID().replace(/-/g, '')}`,
-        object: 'response',
-        created_at: typeof upstreamResponse.created_at === 'number'
-            ? upstreamResponse.created_at
-            : Math.floor(Date.now() / 1000),
-        model: typeof upstreamResponse.model === 'string' && upstreamResponse.model
-            ? upstreamResponse.model
-            : (model || 'unknown'),
-        status,
-        output: Array.isArray(upstreamResponse.output) ? upstreamResponse.output : [],
-        incomplete_details: upstreamResponse.incomplete_details ?? null
-    };
-    if (!isRecord(standardResponse.usage)) {
-        standardResponse.usage = {
-            input_tokens: 0,
-            input_tokens_details: { cached_tokens: 0 },
-            output_tokens: 0,
-            output_tokens_details: { reasoning_tokens: 0 },
-            total_tokens: 0
-        };
-    }
-
-    // 兼容壳：不可枚举 -> 不进入 0-Hop 出站 JSON，但 1-Hop Converter 仍可读取。
-    // `response` 用浅拷贝而非自引用，避免任何 JSON.stringify / 深拷贝工具陷入循环。
-    Object.defineProperty(standardResponse, 'type', {
-        value: completedEvent.type || 'response.completed',
-        enumerable: false,
-        configurable: true,
-        writable: true
-    });
-    Object.defineProperty(standardResponse, 'response', {
-        value: { ...standardResponse },
-        enumerable: false,
-        configurable: true,
-        writable: true
-    });
-
-    return standardResponse;
+    return toCodexResponseBody(
+        completedEvent as DynamicPayload,
+        model,
+        () => `resp_${crypto.randomUUID().replace(/-/g, '')}`
+    ) as Record<string, unknown>;
 }
 
 /**
