@@ -12,7 +12,28 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import ts from 'typescript';
+
+let isLegacyTs = false;
+let legacyTs;
+let syncApi;
+let ast;
+
+try {
+    const rawTs = await import('typescript');
+    if (typeof rawTs.default?.createSourceFile === 'function') {
+        legacyTs = rawTs.default;
+        isLegacyTs = true;
+    }
+} catch {
+    //
+}
+
+if (!isLegacyTs) {
+    [syncApi, ast] = await Promise.all([
+        import('typescript/unstable/sync'),
+        import('typescript/unstable/ast')
+    ]);
+}
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(ROOT, 'src');
@@ -35,18 +56,18 @@ function resolveRelative(fromFile, specifier) {
     return null;
 }
 
-function collectValueImports(file) {
-    const sourceFile = ts.createSourceFile(
+function collectValueImportsLegacy(file) {
+    const sourceFile = legacyTs.createSourceFile(
         file,
         fs.readFileSync(file, 'utf8'),
-        ts.ScriptTarget.Latest,
+        legacyTs.ScriptTarget.Latest,
         true,
-        file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS
+        file.endsWith('.ts') ? legacyTs.ScriptKind.TS : legacyTs.ScriptKind.JS
     );
     const deps = new Set();
 
     for (const statement of sourceFile.statements) {
-        if (ts.isImportDeclaration(statement)) {
+        if (legacyTs.isImportDeclaration(statement)) {
             if (statement.importClause?.isTypeOnly) continue;
             const specifier = statement.moduleSpecifier.text;
             const resolved = resolveRelative(file, specifier);
@@ -54,7 +75,7 @@ function collectValueImports(file) {
             continue;
         }
 
-        if (ts.isExportDeclaration(statement) && statement.moduleSpecifier) {
+        if (legacyTs.isExportDeclaration(statement) && statement.moduleSpecifier) {
             if (statement.isTypeOnly) continue;
             const specifier = statement.moduleSpecifier.text;
             const resolved = resolveRelative(file, specifier);
@@ -65,8 +86,53 @@ function collectValueImports(file) {
     return [...deps];
 }
 
+function buildGraph(files) {
+    if (isLegacyTs) {
+        return new Map(files.map((file) => [file, collectValueImportsLegacy(file)]));
+    }
+
+    const api = new syncApi.API();
+    const tsconfigPath = path.join(ROOT, 'tsconfig.json');
+    const snapshot = api.updateSnapshot({
+        openProjects: [tsconfigPath]
+    });
+    const project = snapshot.getProjects()[0];
+    const program = project.program;
+    const graph = new Map();
+
+    for (const file of files) {
+        const deps = new Set();
+        const sf = program.getSourceFile(file);
+        if (sf) {
+            for (const statement of sf.statements) {
+                if (statement.kind === ast.SyntaxKind.ImportDeclaration) {
+                    if (statement.importClause?.isTypeOnly) continue;
+                    const specifier = statement.moduleSpecifier?.text;
+                    if (specifier) {
+                        const resolved = resolveRelative(file, specifier);
+                        if (resolved) deps.add(resolved);
+                    }
+                    continue;
+                }
+
+                if (statement.kind === ast.SyntaxKind.ExportDeclaration && statement.moduleSpecifier) {
+                    if (statement.isTypeOnly) continue;
+                    const specifier = statement.moduleSpecifier?.text;
+                    if (specifier) {
+                        const resolved = resolveRelative(file, specifier);
+                        if (resolved) deps.add(resolved);
+                    }
+                }
+            }
+        }
+        graph.set(file, [...deps]);
+    }
+    api.close();
+    return graph;
+}
+
 const files = walk(SRC);
-const graph = new Map(files.map((file) => [file, collectValueImports(file)]));
+const graph = buildGraph(files);
 const state = new Map();
 const stack = [];
 const cycles = [];

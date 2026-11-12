@@ -23,7 +23,7 @@
     "preact": "11.2.0",
     "preact-render-to-string": "6.8.2",
     "stylelint": "^18.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "start": "node src/core/master.js",

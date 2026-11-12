@@ -17,7 +17,28 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import ts from 'typescript';
+
+let isLegacyTs = false;
+let legacyTs;
+let syncApi;
+let ast;
+
+try {
+    const rawTs = await import('typescript');
+    if (typeof rawTs.default?.createSourceFile === 'function') {
+        legacyTs = rawTs.default;
+        isLegacyTs = true;
+    }
+} catch {
+    //
+}
+
+if (!isLegacyTs) {
+    [syncApi, ast] = await Promise.all([
+        import('typescript/unstable/sync'),
+        import('typescript/unstable/ast')
+    ]);
+}
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(ROOT, 'src');
@@ -63,34 +84,34 @@ const unknownAssertions = countMatches(/\bas\s+unknown\b/g);
 
 const typeFiles = walk(TYPES).filter((file) => file.endsWith('.ts'));
 
-function analyzeFile(file) {
-    const sourceFile = ts.createSourceFile(
+function analyzeFileLegacy(file) {
+    const sourceFile = legacyTs.createSourceFile(
         file,
         fs.readFileSync(file, 'utf8'),
-        ts.ScriptTarget.Latest,
+        legacyTs.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS
+        legacyTs.ScriptKind.TS
     );
     let anyNodes = 0;
     let dynamicPayloadDefs = 0;
     let dynamicPayloadRefs = 0;
     const visit = (node) => {
-        if (node.kind === ts.SyntaxKind.AnyKeyword) anyNodes += 1;
-        if (ts.isTypeAliasDeclaration(node) && node.name.text === 'DynamicPayload') {
+        if (node.kind === legacyTs.SyntaxKind.AnyKeyword) anyNodes += 1;
+        if (legacyTs.isTypeAliasDeclaration(node) && node.name.text === 'DynamicPayload') {
             dynamicPayloadDefs += 1;
         }
-        if (ts.isIdentifier(node) && node.text === 'DynamicPayload') {
+        if (legacyTs.isIdentifier(node) && node.text === 'DynamicPayload') {
             dynamicPayloadRefs += 1;
         }
-        ts.forEachChild(node, visit);
+        legacyTs.forEachChild(node, visit);
     };
     visit(sourceFile);
     return { anyNodes, dynamicPayloadDefs, dynamicPayloadRefs };
 }
 
-function sumMetrics(files) {
+function sumMetricsLegacy(files) {
     return files.reduce((total, file) => {
-        const metrics = analyzeFile(file);
+        const metrics = analyzeFileLegacy(file);
         total.anyNodes += metrics.anyNodes;
         total.dynamicPayloadDefs += metrics.dynamicPayloadDefs;
         total.dynamicPayloadRefs += metrics.dynamicPayloadRefs;
@@ -98,8 +119,51 @@ function sumMetrics(files) {
     }, { anyNodes: 0, dynamicPayloadDefs: 0, dynamicPayloadRefs: 0 });
 }
 
-const srcMetrics = sumMetrics(tsFiles);
-const typeMetrics = sumMetrics(typeFiles);
+function calculateAllMetrics() {
+    if (isLegacyTs) {
+        return {
+            srcMetrics: sumMetricsLegacy(tsFiles),
+            typeMetrics: sumMetricsLegacy(typeFiles)
+        };
+    }
+
+    const api = new syncApi.API();
+    const tsconfigPath = path.join(ROOT, 'tsconfig.json');
+    const snapshot = api.updateSnapshot({
+        openProjects: [tsconfigPath]
+    });
+    const project = snapshot.getProjects()[0];
+    const program = project.program;
+
+    function countIn(files) {
+        let anyNodes = 0;
+        let dynamicPayloadDefs = 0;
+        let dynamicPayloadRefs = 0;
+        for (const file of files) {
+            const sf = program.getSourceFile(file);
+            if (!sf) continue;
+            const visit = (node) => {
+                if (node.kind === ast.SyntaxKind.AnyKeyword) anyNodes += 1;
+                if (node.kind === ast.SyntaxKind.TypeAliasDeclaration && node.name?.text === 'DynamicPayload') {
+                    dynamicPayloadDefs += 1;
+                }
+                if (node.kind === ast.SyntaxKind.Identifier && node.text === 'DynamicPayload') {
+                    dynamicPayloadRefs += 1;
+                }
+                node.forEachChild(visit);
+            };
+            visit(sf);
+        }
+        return { anyNodes, dynamicPayloadDefs, dynamicPayloadRefs };
+    }
+
+    const srcMetrics = countIn(tsFiles);
+    const typeMetrics = countIn(typeFiles);
+    api.close();
+    return { srcMetrics, typeMetrics };
+}
+
+const { srcMetrics, typeMetrics } = calculateAllMetrics();
 const srcAnyNodes = srcMetrics.anyNodes;
 const typeAnyNodes = typeMetrics.anyNodes;
 const anyNodes = srcAnyNodes + typeAnyNodes;
