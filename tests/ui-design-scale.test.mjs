@@ -104,6 +104,35 @@ describe('设计尺度', () => {
         expect(outliers).toEqual([]);
     });
 
+    /**
+     * 回归守护：JS 内联样式也必须走 2px 网格。
+     *
+     * 早先 potluck-user.js 里有 `style="gap: 3px;"`，而本文件只扫 .css，
+     * 于是 M5 声称"顺手修正 3px 间距"时漏掉了它，且任何测试都抓不到。
+     */
+    test('JS 内联 gap 同样走 2px 网格', () => {
+        const outliers = [];
+        const walk = (dir) => {
+            for (const entry of readdirSync(dir, { withFileTypes: true })) {
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    if (entry.name === 'vendor') continue;
+                    walk(full);
+                } else if (entry.name.endsWith('.js')) {
+                    const text = readFileSync(full, 'utf8');
+                    for (const m of text.matchAll(/gap:\s*([\d.]+)(px|rem)/g)) {
+                        const px = toPx(m[1], m[2]);
+                        if (Math.abs(px % 2) > 0.01) {
+                            outliers.push(`${path.relative(process.cwd(), full)}: ${m[0]}`);
+                        }
+                    }
+                }
+            }
+        };
+        walk(path.join(process.cwd(), 'static', 'ui'));
+        expect(outliers).toEqual([]);
+    });
+
     test('间距/字号尺度以 token 形式在 :root 中声明', () => {
         const root = readFileSync(path.join(STYLE_ROOT, 'base.css'), 'utf8');
         for (const name of ['--space-1', '--space-4', '--space-8', '--space-12', '--text-xs', '--text-base', '--text-xl']) {

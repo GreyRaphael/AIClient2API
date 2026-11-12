@@ -180,3 +180,21 @@
 @media (max-width: 480px) {
     .stat-card .value .dim { font-size: 1rem; }
 }
+
+/*
+ * 热力图图例的两个色块。
+ *
+ * 早先这两个色块用 inline style 写死 `width:8px;height:8px`，容器还额外写了
+ * `gap: 3px`：既绕过设计尺度（3px 不在 2px 网格上），又因为
+ * ui-design-scale 只扫 .css 文件而永远抓不到。
+ * 现在收敛到样式表，间距复用 .calendar-legend 已有的 gap: 4px。
+ */
+.calendar-legend .level {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.calendar-legend .level-1 { background: var(--calendar-level-1); }
+.calendar-legend .level-4 { background: var(--calendar-level-4); }

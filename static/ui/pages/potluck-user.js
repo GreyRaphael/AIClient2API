@@ -179,9 +179,9 @@ function PotluckUserPage() {
                             <div class="stat-card" style="text-align: left; padding: 20px;">
                                 <div class="label" style="margin-bottom: 10px; font-weight: 600; display: flex; justify-content: space-between;">
                                     <span>我的 Token 消耗趋势</span>
-                                    <div class="calendar-legend" style="gap: 3px;">
-                                        <div class="level level-1" style="width:8px;height:8px"></div>
-                                        <div class="level level-4" style="width:8px;height:8px"></div>
+                                    <div class="calendar-legend">
+                                        <div class="level level-1"></div>
+                                        <div class="level level-4"></div>
                                     </div>
                                 </div>
                                 <${StatsCalendar} usageHistory=${usageHistory} />

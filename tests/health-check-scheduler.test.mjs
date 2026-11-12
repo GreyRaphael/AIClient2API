@@ -53,14 +53,19 @@ describe('HealthCheckScheduler', () => {
     });
 
     test('重复 reload 不泄漏定时器：始终只有一个活动句柄', () => {
-        // Node 的 MockTimers 不暴露活动句柄计数，改为验证「不泄漏」的可观测后果：
-        // 反复 reload 后推进时间，回调只应被执行一次（若旧句柄泄漏会出现多次）。
+        // getTimerCount 现在是真的在记账（harness 包装了 setTimeout/clearTimeout），
+        // 所以这里可以直接断言句柄数量，而不是只看「可观测后果」。
+        // 这两条断言正是当初能抓住「reloadTimer 里漏掉 clearTimer」的守卫。
         HealthCheckScheduler.reloadTimer(INTERVAL_A);
+        expect(jest.getTimerCount()).toBe(1);
+
         HealthCheckScheduler.reloadTimer(INTERVAL_B);
         HealthCheckScheduler.reloadTimer(INTERVAL_A);
         HealthCheckScheduler.reloadTimer(INTERVAL_B);
 
-        // 暴露的活跃间隔必须是最后一次设置的值，说明旧句柄已被替换而非叠加
+        // 关键：反复 reload 之后仍只能有 1 个活动句柄（旧句柄必须被 clear）
+        expect(jest.getTimerCount()).toBe(1);
+        // 暴露的活跃间隔必须是最后一次设置的值
         expect(HealthCheckScheduler.getActiveInterval()).toBe(INTERVAL_B);
     });
 

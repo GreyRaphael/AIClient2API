@@ -74,28 +74,74 @@ function containsSubset(actual, expected) {
 function looseEqual(actual, expected) {
     // 非对称匹配器必须最先判断：它本身也是对象，会被后面的结构比较误判
     if (expected instanceof Asymmetric) return expected.matches(actual);
-    // Set / Map 需要按内容比较（assert.deepStrictEqual 会做这件事，但这里是自己实现的递归）
+
+    // 原始值：Object.is 语义（与 Jest 的 toEqual 一致：NaN 等于 NaN，+0 不等于 -0）
+    if (expected === null || typeof expected !== 'object') return Object.is(actual, expected);
+    if (actual === null || typeof actual !== 'object') return false;
+
+    // --- 内建对象按内容比较（此前一律落到 Object.is，导致同一 Date 也判不等） ---
+    if (expected instanceof Date) {
+        return actual instanceof Date && Object.is(actual.getTime(), expected.getTime());
+    }
+    if (expected instanceof RegExp) {
+        return actual instanceof RegExp
+            && actual.source === expected.source
+            && actual.flags === expected.flags;
+    }
+    // Buffer 是 Uint8Array 的子类；先于通用 ArrayBufferView 处理
+    if (Buffer.isBuffer(expected)) {
+        return Buffer.isBuffer(actual) && actual.equals(expected);
+    }
+    if (ArrayBuffer.isView(expected)) {
+        if (!ArrayBuffer.isView(actual) || actual.byteLength !== expected.byteLength) return false;
+        return Buffer.from(actual.buffer, actual.byteOffset, actual.byteLength)
+            .equals(Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength));
+    }
+    if (expected instanceof Error) {
+        return actual instanceof Error
+            && actual.name === expected.name
+            && actual.message === expected.message;
+    }
+
+    // Set / Map 需要按内容比较
     if (expected instanceof Set) {
         if (!(actual instanceof Set) || actual.size !== expected.size) return false;
         return [...expected].every((item) => [...actual].some((got) => looseEqual(got, item)));
     }
     if (expected instanceof Map) {
         if (!(actual instanceof Map) || actual.size !== expected.size) return false;
-        return [...expected].every(([k, v]) => actual.has(k) && looseEqual(actual.get(k), v));
+        return [...expected].every(([k, v]) => {
+            // 键用严格身份匹配（Jest 亦然），值递归比较
+            return actual.has(k) && looseEqual(actual.get(k), v);
+        });
     }
+
     const exp = expected;
     if (Array.isArray(exp)) {
         if (!Array.isArray(actual) || actual.length !== exp.length) return false;
-        return exp.every((item, i) => looseEqual(actual[i], item));
+        // 逐索引比较，且必须检查「自身属性」：
+        // 旧实现用 exp.every(...)，而 every 会**跳过稀疏数组的 hole**，
+        // 于是 expect([1,'完全错的值',3]).toEqual([1,,3]) 会被判为通过（Jest 会失败）。
+        for (let i = 0; i < exp.length; i++) {
+            const expHas = Object.hasOwn(exp, i);
+            const actHas = Object.hasOwn(actual, i);
+            // 一侧有 hole、另一侧没有 → 不相等（与 Jest 一致）
+            if (expHas !== actHas) return false;
+            if (expHas && !looseEqual(actual[i], exp[i])) return false;
+        }
+        return true;
     }
-    if (exp && typeof exp === 'object' && Object.getPrototypeOf(exp) === Object.prototype) {
-        if (!actual || typeof actual !== 'object') return false;
-        const aKeys = Object.keys(actual);
-        const eKeys = Object.keys(exp);
-        if (aKeys.length !== eKeys.length) return false;
-        return eKeys.every((k) => looseEqual(actual[k], exp[k]));
+
+    // 普通对象与 class 实例：比原型 + 自有可枚举键
+    if (Object.getPrototypeOf(exp) !== Object.getPrototypeOf(actual)) {
+        // 原型不同一律不等（Jest 的 toEqual 会忽略原型、toStrictEqual 不忽略；
+        // 这里选择更严格的语义，宁可让假失败暴露出来也不放过假通过）
+        return false;
     }
-    return Object.is(actual, exp);
+    const aKeys = Object.keys(actual);
+    const eKeys = Object.keys(exp);
+    if (aKeys.length !== eKeys.length) return false;
+    return eKeys.every((k) => Object.hasOwn(actual, k) && looseEqual(actual[k], exp[k]));
 }
 
 function formatValue(value) {
@@ -553,10 +599,84 @@ export const jest = {
         for (const m of allMocks) m.mockRestore?.();
         allMocks.clear();
     },
-    getTimerCount: () => 0, // Node 的 MockTimers 未暴露计数；调用点已改为不依赖它
+    /**
+     * 假定时器。Node 内置 `mock.timers`（MockTimers）转调即可，无需 sinon。
+     *
+     * 但 Node 的 MockTimers **不暴露活动定时器计数**，而 `jest.getTimerCount()`
+     * 是仓库里唯一能发现"定时器泄漏"的手段（e.g. reloadTimer 忘了 clearTimer）。
+     * 早期实现直接 `getTimerCount: () => 0`，让
+     * `expect(jest.getTimerCount()).toBe(0)` 变成恒真断言 —— 变异实验证明
+     * 删掉 clearTimer() 后测试依然全绿，等于这条防护完全失效。
+     *
+     * 这里自己记账：enable 时包一层 setTimeout/setInterval/clearTimeout/clearInterval，
+     * 只统计「尚未触发且尚未被 clear」的句柄，语义与 Jest 一致。
+     */
+    useFakeTimers: () => {
+        nodeMock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+        installTimerCounting();
+        return undefined;
+    },
+    useRealTimers: () => {
+        uninstallTimerCounting();
+        nodeMock.timers.reset();
+    },
+    advanceTimersByTime: (ms) => nodeMock.timers.tick(ms),
+    advanceTimersByTimeAsync: async (ms) => { nodeMock.timers.tick(ms); await new Promise((r) => setImmediate(r)); },
+    runAllTimers: () => nodeMock.timers.runAll(),
+    runAllTimersAsync: async () => { nodeMock.timers.runAll(); await new Promise((r) => setImmediate(r)); },
+    setSystemTime: (t) => nodeMock.timers.setTime(t instanceof Date ? t.getTime() : t),
+    clearAllTimers: () => { activeTimerHandles.clear(); nodeMock.timers.reset(); },
+    clearAllMocks: () => { for (const m of allMocks) m.mock?.resetCalls?.(); },
+    resetAllMocks: () => { for (const m of allMocks) m.mockReset?.(); allMocks.clear(); },
+    restoreAllMocks: () => {
+        for (const m of allMocks) m.mockRestore?.();
+        allMocks.clear();
+    },
+    getTimerCount: () => activeTimerHandles.size,
 
     resetModules: () => {
         // Node 没有等价 API（ESM 模块记录不可清除）。依赖它的测试应改为显式重建被测对象，
         // 这里保持静默以避免误伤，但调用点已在本仓库消除。
     }
 };
+
+// --- 活动定时器记账（服务于 jest.getTimerCount） -------------------------------
+/** @type {Set<unknown>} 尚未触发、尚未被 clear 的定时器句柄 */
+const activeTimerHandles = new Set();
+let timerCountingInstalled = false;
+const originalTimerFns = {};
+
+function installTimerCounting() {
+    if (timerCountingInstalled) return;
+    timerCountingInstalled = true;
+    for (const name of ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval']) {
+        originalTimerFns[name] = globalThis[name];
+    }
+    globalThis.setTimeout = (...args) => {
+        const handle = originalTimerFns.setTimeout(...args);
+        activeTimerHandles.add(handle);
+        return handle;
+    };
+    globalThis.setInterval = (...args) => {
+        const handle = originalTimerFns.setInterval(...args);
+        activeTimerHandles.add(handle);
+        return handle;
+    };
+    globalThis.clearTimeout = (handle) => {
+        activeTimerHandles.delete(handle);
+        return originalTimerFns.clearTimeout(handle);
+    };
+    globalThis.clearInterval = (handle) => {
+        activeTimerHandles.delete(handle);
+        return originalTimerFns.clearInterval(handle);
+    };
+}
+
+function uninstallTimerCounting() {
+    if (!timerCountingInstalled) return;
+    timerCountingInstalled = false;
+    for (const [name, fn] of Object.entries(originalTimerFns)) {
+        globalThis[name] = fn;
+    }
+    activeTimerHandles.clear();
+}

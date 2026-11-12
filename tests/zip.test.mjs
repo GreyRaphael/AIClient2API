@@ -57,7 +57,65 @@ function parseZip(buffer) {
         offset = dataStart + compressedSize;
     }
 
-    return entries;
+    // ---- 中央目录 + EOCD 校验 ----
+    // 早先的实现遇到 central dir 签名就 break，中央目录与 EOCD 从未被断言，
+    // 于是「本地头写对、中央目录写错」这类 bug 完全测不出来
+    // （真实 unzip 能读，是因为它主要依赖中央目录）。
+    const centralStart = offset;
+    const central = [];
+    while (offset + 4 <= buffer.length && buffer.readUInt32LE(offset) === 0x02014b50) {
+        const method = buffer.readUInt16LE(offset + 10);
+        const crc = buffer.readUInt32LE(offset + 16);
+        const compressedSize = buffer.readUInt32LE(offset + 20);
+        const uncompressedSize = buffer.readUInt32LE(offset + 24);
+        const nameLen = buffer.readUInt16LE(offset + 28);
+        const extraLen = buffer.readUInt16LE(offset + 30);
+        const commentLen = buffer.readUInt16LE(offset + 32);
+        const localOffset = buffer.readUInt32LE(offset + 42);
+        const name = buffer.subarray(offset + 46, offset + 46 + nameLen).toString('utf8');
+        central.push({ name, method, crc, compressedSize, uncompressedSize, localOffset });
+        offset += 46 + nameLen + extraLen + commentLen;
+    }
+
+    // EOCD (End of Central Directory) 必须是最后 22 字节
+    const eocdOffset = buffer.length - 22;
+    if (buffer.readUInt32LE(eocdOffset) !== 0x06054b50) {
+        throw new Error(`Missing EOCD signature at ${eocdOffset}`);
+    }
+    const eocd = {
+        diskNumber: buffer.readUInt16LE(eocdOffset + 4),
+        centralDisk: buffer.readUInt16LE(eocdOffset + 6),
+        entriesOnDisk: buffer.readUInt16LE(eocdOffset + 8),
+        totalEntries: buffer.readUInt16LE(eocdOffset + 10),
+        centralSize: buffer.readUInt32LE(eocdOffset + 12),
+        centralOffset: buffer.readUInt32LE(eocdOffset + 16)
+    };
+
+    if (eocd.centralOffset !== centralStart) {
+        throw new Error(`EOCD centralOffset ${eocd.centralOffset} != actual ${centralStart}`);
+    }
+    if (eocd.centralSize !== eocdOffset - centralStart) {
+        throw new Error(`EOCD centralSize ${eocd.centralSize} != actual ${eocdOffset - centralStart}`);
+    }
+    if (eocd.totalEntries !== entries.length || eocd.entriesOnDisk !== entries.length) {
+        throw new Error(`EOCD entry count ${eocd.totalEntries}/${eocd.entriesOnDisk} != actual ${entries.length}`);
+    }
+    if (central.length !== entries.length) {
+        throw new Error(`central directory has ${central.length} records but local headers ${entries.length}`);
+    }
+
+    // 中央目录条目必须与本地头逐条对应（名字/大小/CRC/偏移）
+    for (const [i, local] of entries.entries()) {
+        const rec = central.find((c) => c.name === local.name);
+        if (!rec) throw new Error(`central directory missing entry "${local.name}"`);
+        if (rec.crc !== local.crc) throw new Error(`CRC mismatch for "${local.name}"`);
+        if (rec.compressedSize !== local.compressedSize) throw new Error(`compressedSize mismatch for "${local.name}"`);
+        if (rec.uncompressedSize !== local.uncompressedSize) throw new Error(`uncompressedSize mismatch for "${local.name}"`);
+        if (rec.method !== local.method) throw new Error(`method mismatch for "${local.name}"`);
+        if (i === 0 && rec.localOffset !== 0) throw new Error('first localOffset must be 0');
+    }
+
+    return { entries, central, eocd };
 }
 
 function createMockResponse() {
@@ -84,8 +142,9 @@ describe('SimpleZip and createZipArchive', () => {
         const zip = createZipArchive([]);
         expect(Buffer.isBuffer(zip)).toBe(true);
         expect(zip.length).toBe(22); // Only EOCD
-        const entries = parseZip(zip);
+        const { entries, eocd } = parseZip(zip);
         expect(entries.length).toBe(0);
+        expect(eocd.totalEntries).toBe(0);
     });
 
     test('archives empty and non-empty files with nested paths', () => {
@@ -96,7 +155,7 @@ describe('SimpleZip and createZipArchive', () => {
         zip.addFile('binary.bin', Buffer.from([0x01, 0x02, 0x03, 0x04]));
 
         const buf = zip.toBuffer();
-        const entries = parseZip(buf);
+        const { entries } = parseZip(buf);
 
         expect(entries.length).toBe(4);
         expect(entries[0].name).toBe('empty.txt');
@@ -118,7 +177,7 @@ describe('SimpleZip and createZipArchive', () => {
         zip.addFile('测试目录\\配置文件.json', '{"status":"ok"}');
 
         const buf = zip.toBuffer();
-        const entries = parseZip(buf);
+        const { entries } = parseZip(buf);
 
         expect(entries.length).toBe(1);
         expect(entries[0].name).toBe('测试目录/配置文件.json');
@@ -164,7 +223,7 @@ describe('handleDownloadAllConfigs with native SimpleZip', () => {
         expect(res.headers['Content-Type']).toBe('application/zip');
         expect(res.headers['Content-Disposition']).toContain('configs_backup_');
 
-        const entries = parseZip(res.body);
+        const { entries } = parseZip(res.body);
         const names = entries.map((e) => e.name).sort();
 
         expect(names).toEqual(['antigravity/cred.json', 'common.json']);
