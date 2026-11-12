@@ -1084,6 +1084,54 @@ export class ProviderPoolManager {
     }
 
     /**
+     * 同步节点的账号标识（customName）并清除「上次鉴权失败」残留，然后落盘。
+     *
+     * 为什么需要单独一个方法：凭据加载成功后要做的两件事——补写账号邮箱、
+     * 清掉红色错误条——都不是「一次真实调用」，不应该影响 LRU 选点语义。
+     * 过去调用方复用 `markProviderHealthy`，而它默认 `resetUsageCount=false`
+     * 会走 `usageCount++` 分支，于是每次凭据加载/模型刷新都给用量计数 +1
+     * 并刷新 lastUsed，污染仪表盘统计与 LRU 排序。
+     *
+     * 另外：旧调用点写的是 `_debouncedSave?.()`（漏传 providerType），
+     * 导致 `undefined` 入队、真正的 providerType 从不入队、文件根本不写，
+     * 「以账号邮箱命名」只在内存里生效、重启即丢。这里把落盘收进方法内部，
+     * 调用方不再需要自己拼参数。
+     *
+     * @param providerType 提供商类型
+     * @param uuid 节点 UUID
+     * @param customName 账号标识（邮箱）；留空则不覆盖已有值
+     * @returns 是否实际改动并触发了落盘
+     */
+    syncProviderIdentity(providerType: string, uuid: string, customName?: string | null): boolean {
+        if (!providerType || !uuid) {
+            this._log('error', 'Invalid parameters in syncProviderIdentity');
+            return false;
+        }
+        const provider = this._findProvider(providerType, uuid);
+        if (!provider) return false;
+
+        let changed = false;
+        const displayName = typeof customName === 'string' ? customName.trim() : '';
+        // 只补空值：用户在控制台手工改过的名字不该被凭据里的邮箱覆盖
+        if (displayName && !provider.config.customName) {
+            provider.config.customName = displayName;
+            changed = true;
+        }
+        if (!provider.config.isHealthy || provider.config.lastErrorMessage) {
+            provider.config.isHealthy = true;
+            provider.config.errorCount = 0;
+            provider.config.lastErrorTime = null;
+            provider.config.lastErrorMessage = null;
+            changed = true;
+            this._logHealthStatusChange(providerType, provider.config, 'unhealthy', 'healthy', null);
+        }
+        if (changed) {
+            this._debouncedSave(providerType);
+        }
+        return changed;
+    }
+
+    /**
      * 重置提供商的刷新状态（needsRefresh 和 refreshCount）
      * 并将其标记为健康，以便立即投入使用
      * @param {string} providerType - 提供商类型

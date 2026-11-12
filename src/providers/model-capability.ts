@@ -140,8 +140,14 @@ export class MemoryCapabilityStore {
     toJSON() {
         const nodes: Record<string, DynamicPayload> = {};
         for (const [key, entry] of this.entries.entries()) {
-            // 只持久化“成功发现”的结果；失败元数据仅保留在内存中。
-            if (entry?.source === CAPABILITY_SOURCE.LIVE && !entry.lastError) {
+            // 只持久化「成功的非空发现」。
+            //
+            // 过去判据是 `source === LIVE && !lastError`，但一次上游失败返回空数组
+            // 也会被记成 source=LIVE / lastError=null，于是空列表被当成成功落盘，
+            // 覆盖掉磁盘上原本正确的模型清单。现在额外要求 models 非空，
+            // 失败元数据（含仅有 lastError 的条目）一律只留在内存里。
+            const hasModels = Array.isArray(entry?.models) && entry.models.length > 0;
+            if (hasModels && entry?.source === CAPABILITY_SOURCE.LIVE && !entry.lastError) {
                 nodes[key] = entry;
             }
         }
@@ -268,11 +274,19 @@ export function resolveNodeCapability(providerType: string, nodeConfig: DynamicP
     let fetchedAt = 0;
     let known = false;
 
-    // 冷启动刷新失败时，缓存里可能只有失败元数据（fetchedAt=0 且 models 为空）。
-    // 这种情况不能把“空结果”当成可靠发现，否则会遮蔽静态基线。
-    const hasUsableDiscovery = entry
-        ? ((entry.fetchedAt || 0) > 0 || (Array.isArray(entry.models) && entry.models.length > 0))
-        : false;
+    // 只有「真的拿到模型」才算可靠发现。
+    //
+    // 关键：4 个动态 provider（antigravity / codex / trae / zed）在上游失败时
+    // **不抛异常**，而是返回各自已空的 fallback 数组；它们的静态基线在本版本也已清空。
+    // 若把「空数组 + fetchedAt>0」当成可靠发现，就会得到 known=true / candidateModels=[]，
+    // 于是路由守卫（nodeSupportsModel）开始拒绝一切模型，整组节点变不可用。
+    //
+    // 判据只看 models 是否非空：fetchedAt 描述的是「新鲜度」（进 stale 计算），
+    // 不是「可用性」。因此 fetchedAt=0 但带 last-known 模型的旧条目仍然可用，
+    // 只是会被标记 stale 并触发后台刷新。
+    const hasUsableDiscovery = Boolean(entry)
+        && Array.isArray(entry?.models)
+        && (entry?.models.length ?? 0) > 0;
 
     if (hasUsableDiscovery && entry) {
         candidateModels = normalizeModelIds(entry.models || []);
@@ -385,6 +399,61 @@ export function resolveProviderCapability(providerType: string, nodes: unknown[]
 }
 
 /**
+ * 判断一个错误是否属于「凭据/鉴权失效」，用于决定要不要立刻把节点标红。
+ *
+ * 刻意不用裸词匹配：早先的实现是
+ *   /\b(401|403)\b/i || /\b(...|credentials|Token|OAuth)\b/i || code === 'ENOENT'
+ * 结果 `model token budget exceeded`、`Daily OAuth quota exhausted` 这类
+ * **限流/业务错误**也会被判成鉴权失效，于是被 markProviderUnhealthyImmediately
+ * 永久标红（而红条正是控制台新增的 UI，用户直接看到）。限流应当走 429 冷却，
+ * 不该升级成「凭据坏了」。
+ *
+ * 这里改成两类可靠信号：
+ *   1. 结构化状态码 401 / 403（上游真的拒了凭据）；
+ *   2. 明确的鉴权错误短语（整词匹配，且排除限流语境）。
+ */
+const CREDENTIAL_ERROR_PHRASES = [
+    'unauthorized',
+    'forbidden',
+    'invalid api key',
+    'invalid_api_key',
+    'incorrect api key',
+    'invalid token',
+    'invalid access token',
+    'expired token',
+    'token expired',
+    'access denied',
+    'accessdenied',
+    'authentication failed',
+    'authenticationerror',
+    'not authenticated',
+    'credentials not found',
+    'no credentials',
+    'permission denied',
+    'oauth token has been revoked',
+    'invalid_grant',
+    'invalid_client'
+];
+
+/** 出现这些词说明是配额/限流，不是凭据失效 —— 不应把节点标红 */
+const QUOTA_HINTS = ['quota', 'rate limit', 'ratelimit', 'too many requests', 'throttl', 'budget', 'capacity'];
+
+export function isCredentialFailure(error: unknown, message?: string | null): boolean {
+    const record = (error ?? {}) as DynamicPayload;
+    const text = String(message ?? record.message ?? '').toLowerCase();
+
+    if (QUOTA_HINTS.some((hint) => text.includes(hint))) return false;
+
+    // 结构化状态码优先：axios 的 response.status、以及各 provider 透传的 status/code
+    const status = Number(record.response?.status ?? record.status ?? 0);
+    if (status === 401 || status === 403) return true;
+
+    if (record.code === 'ENOENT') return true;
+
+    return CREDENTIAL_ERROR_PHRASES.some((phrase) => text.includes(phrase));
+}
+
+/**
  * 路由守卫：判断一个节点是否支持目标模型。
  * - 节点没有可靠发现结果时不做守卫（保持既有行为，避免阻断新模型）；
  * - 有发现结果时，支持 -high / -thinking 后缀兼容。
@@ -441,7 +510,12 @@ export async function refreshNodeCapability(
         force = false,
         reason = 'manual',
         globalConfig = CONFIG,
-        adapter = null
+        adapter = null,
+        // 只读探测：不写能力缓存、不动节点健康状态、不落盘。
+        // 控制台的「检查模型」用的是**尚未保存的草稿配置**，它的 uuid 与线上节点相同，
+        // 因此绝不能走正常写入路径：用户在表单里打错一个凭据路径还没来得及保存，
+        // 线上节点的能力缓存就会被覆写、健康状态被标红。
+        dryRun = false
     } = options;
 
     if (!providerType || !nodeConfig || nodeConfig.isDisabled) {
@@ -476,6 +550,18 @@ export async function refreshNodeCapability(
             }
 
             const normalizedModels = normalizeModelIds(result);
+
+            // 空结果一律视为「本次发现失败」，绝不写进缓存、更不能落盘。
+            //
+            // 上游失败时四个动态 provider 都返回空数组而非抛错（见 resolveNodeCapability
+            // 里的说明），所以「空数组」在过去会被记成 source=live / lastError=null 的
+            // 成功发现，把磁盘上原本正确的模型清单覆盖成 []，并且因为 stale=false
+            // 连后台刷新都不再触发，只能等 TTL 过期才自愈。
+            // 这里改为走失败分支：保留既有良好条目，只累加失败计数与退避。
+            if (normalizedModels.length === 0) {
+                throw new Error('上游返回了空的模型列表');
+            }
+
             let rawMetadata: unknown = null;
             if (typeof resolvedAdapter.getNodeModelMetadata === 'function') {
                 try {
@@ -496,6 +582,12 @@ export async function refreshNodeCapability(
                 consecutiveFailures: 0,
                 nextRefreshAt: 0
             };
+            // 只读探测：结果直接返回给调用方（控制台渲染候选模型下拉），
+            // 不写缓存、不落盘、不改节点健康状态。
+            if (dryRun) {
+                logger.debug(`[ModelCapability] ${key} dry-run probe: ${entry.models.length} models (${reason})`);
+                return entry;
+            }
             store.setEntry(key, entry);
             await store.flush();
             logger.info(`[ModelCapability] ${key} refreshed: ${entry.models.length} models (${reason})`);
@@ -503,13 +595,17 @@ export async function refreshNodeCapability(
             if (poolManager && nodeConfig.uuid && entry.models.length > 0) {
                 const node = (poolManager as DynamicPayload)._findProvider?.(providerType, nodeConfig.uuid);
                 if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
-                    poolManager.markProviderHealthy(providerType, nodeConfig);
+                    // 仅同步健康状态，不动 usageCount / lastUsed（见 syncProviderIdentity 注释）
+                    poolManager.syncProviderIdentity?.(providerType, nodeConfig.uuid);
                 }
             }
             return entry;
         } catch (caught) { const error = caught as DynamicPayload;
             const consecutiveFailures = (existing?.consecutiveFailures || 0) + 1;
             const backoffMs = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * Math.pow(2, consecutiveFailures - 1));
+            // 关键：失败时**保留**已有的良好发现（models / fetchedAt / source 全部沿用），
+            // 只叠加失败元数据。否则一次瞬时网络抖动就会把磁盘上正确的模型清单抹成空，
+            // 导致该节点在 TTL 到期前一直被路由守卫拒绝。
             const failureEntry = {
                 ...(existing || {
                     providerType,
@@ -522,16 +618,16 @@ export async function refreshNodeCapability(
                 consecutiveFailures,
                 nextRefreshAt: Date.now() + backoffMs
             };
+            // 只读探测：把失败信息原样带回给调用方展示，但不污染线上缓存与健康状态。
+            if (dryRun) {
+                logger.debug(`[ModelCapability] ${key} dry-run probe failed: ${failureEntry.lastError}`);
+                return failureEntry;
+            }
             store.setEntry(key, failureEntry);
             logger.warn(`[ModelCapability] ${key} refresh failed (attempt ${consecutiveFailures}), next in ${Math.round(backoffMs / 1000)}s: ${failureEntry.lastError}`);
             const poolManager = getProviderPoolManager();
-            const errorMsg = error.message || 'Capability refresh failed';
-            if (poolManager && nodeConfig?.uuid && (
-                /\b(401|403)\b/.test(errorMsg) ||
-                /\b(Unauthorized|Forbidden|AccessDenied|InvalidToken|ExpiredToken|credentials|Token|OAuth)\b/i.test(errorMsg) ||
-                error.code === 'ENOENT'
-            )) {
-                poolManager.markProviderUnhealthyImmediately(providerType, nodeConfig, errorMsg);
+            if (poolManager && nodeConfig?.uuid && isCredentialFailure(error, error.message)) {
+                poolManager.markProviderUnhealthyImmediately(providerType, nodeConfig, error.message || 'Capability refresh failed');
             }
             return failureEntry;
         } finally {

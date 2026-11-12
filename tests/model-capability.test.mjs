@@ -9,6 +9,7 @@ import {
     MemoryCapabilityStore,
     capabilityKey,
     ensureProviderCapability,
+    isCredentialFailure,
     nodeSupportsModel,
     refreshNodeCapability,
     resetCapabilityStore,
@@ -80,12 +81,19 @@ describe('Model Capability', () => {
         expect(capability.selectedModels).not.toContain('legacy-model');
     });
 
-    test('成功发现但结果为空时返回空集合，不回退基线', () => {
+    /**
+     * 回归守护：缓存里只有「空模型列表」时不得当成可靠发现。
+     *
+     * 历史实现把 fetchedAt>0 当成可靠性的唯一判据，于是上游失败返回的空数组
+     * 会得到 known=true + candidateModels=[]，路由守卫随之拒绝一切模型。
+     * 现在空列表一律回退到「未知」，known=false 让守卫放行。
+     */
+    test('缓存中只有空模型列表时不算可靠发现', () => {
         setNodeModels('trae', 'node-1', []);
 
         const capability = resolveNodeCapability('trae', { uuid: 'node-1' });
 
-        expect(capability.known).toBe(true);
+        expect(capability.known).toBe(false);
         expect(capability.candidateModels).toEqual([]);
         expect(capability.selectedModels).toEqual([]);
     });
@@ -295,6 +303,109 @@ describe('Model Capability', () => {
         expect(capability.source).toBe(CAPABILITY_SOURCE.BASELINE);
         expect(capability.candidateModels).toEqual([]);
         expect(capability.selectedModels).toEqual([]);
+    });
+
+    /**
+     * 回归守护：上游「返回空数组」不得被当成成功发现。
+     *
+     * 四个动态 provider（antigravity / codex / trae / zed）在上游失败时都不抛异常，
+     * 而是返回各自已空的 fallback 数组。若把「空数组 + fetchedAt>0」记成 source=LIVE、
+     * lastError=null 的成功发现，就会得到 known=true / candidateModels=[]，
+     * 于是 nodeSupportsModel 开始拒绝**一切**模型，整组节点不可用。
+     */
+    test('上游返回空数组时不算可靠发现，且路由守卫不拦截', async () => {
+        const adapter = { getNodeAvailableModels: jest.fn().mockResolvedValue([]) };
+
+        await refreshNodeCapability('trae', { uuid: 'empty-node' }, { adapter });
+
+        const capability = resolveNodeCapability('trae', { uuid: 'empty-node' });
+        expect(capability.known).toBe(false);
+        expect(capability.candidateModels).toEqual([]);
+        // 关键：known=false 时守卫放行，而不是把模型全拒掉
+        expect(nodeSupportsModel(capability, 'glm-5.2')).toBe(true);
+    });
+
+    /** 回归守护：一次瞬时失败不得抹掉已有的良好发现（否则会被缓存成永久不可用） */
+    test('瞬时失败保留已有良好发现，只叠加失败元数据', async () => {
+        await refreshNodeCapability('trae', { uuid: 'good-node' }, {
+            adapter: { getNodeAvailableModels: jest.fn().mockResolvedValue(['glm-5.2', 'DeepSeek-V4.1']) }
+        });
+
+        const before = resolveNodeCapability('trae', { uuid: 'good-node' });
+        expect(before.known).toBe(true);
+        expect(before.models).toEqual(['DeepSeek-V4.1', 'glm-5.2']);
+
+        await refreshNodeCapability('trae', { uuid: 'good-node' }, {
+            force: true,
+            adapter: { getNodeAvailableModels: jest.fn().mockResolvedValue([]) }
+        });
+
+        const after = resolveNodeCapability('trae', { uuid: 'good-node' });
+        expect(after.models).toEqual(['DeepSeek-V4.1', 'glm-5.2']); // 未被抹成空
+        expect(after.known).toBe(true);
+        expect(after.stale).toBe(true);                              // 但仍标记需要刷新
+        expect(after.entry?.lastError).toBeTruthy();
+    });
+
+    /**
+     * 回归守护：「检查模型」的只读探测不得污染线上节点。
+     *
+     * 控制台的「检查模型」传的是**尚未保存的草稿配置**，uuid 与线上节点相同。
+     * 若走正常写入路径，用户打错一个凭据路径（还没点保存）就会覆写线上节点的
+     * 能力缓存、把它标红，并顶替适配器实例。
+     */
+    test('dry-run 探测不写缓存、不改变线上节点状态', async () => {
+        const live = { uuid: 'live-node' };
+        await refreshNodeCapability('trae', live, {
+            reason: 'seed',
+            adapter: { getNodeAvailableModels: jest.fn().mockResolvedValue(['glm-5.2']) }
+        });
+
+        const before = resolveNodeCapability('trae', live);
+        expect(before.stale).toBe(false);
+
+        // 用同一 uuid 的草稿配置做探测，且上游直接失败
+        const probe = await refreshNodeCapability('trae', { uuid: 'live-node', TYPO: true }, {
+            force: true,
+            reason: 'ui-detect',
+            dryRun: true,
+            adapter: { getNodeAvailableModels: jest.fn().mockRejectedValue(new Error('credentials file not found: TYPO')) }
+        });
+
+        // 探测本身把错误带回给调用方展示
+        expect(probe?.lastError).toContain('TYPO');
+
+        // 线上节点不受任何影响
+        const after = resolveNodeCapability('trae', live);
+        expect(after.models).toEqual(before.models);
+        expect(after.stale).toBe(false);
+        expect(after.entry?.lastError).toBeFalsy();
+    });
+
+    /** 回归守护：空模型列表不得落盘（否则重启后仍是被污染的空缓存） */
+    test('空发现结果不会被持久化', async () => {
+        await refreshNodeCapability('trae', { uuid: 'persist-empty' }, {
+            adapter: { getNodeAvailableModels: jest.fn().mockResolvedValue([]) }
+        });
+
+        expect(activeStore.toJSON().nodes).toEqual({});
+    });
+
+    /**
+     * 回归守护：限流/配额类错误不得被判成凭据失效。
+     * 早先用裸词 `Token` / `OAuth` / `credentials` 匹配，导致
+     * `model token budget exceeded` 这类限流错误把节点永久标红。
+     */
+    test('限流与业务错误不算凭据失效，401/403 才算', () => {
+        expect(isCredentialFailure({ message: 'model token budget exceeded' })).toBe(false);
+        expect(isCredentialFailure({ message: 'Daily OAuth quota exhausted, retry tomorrow' })).toBe(false);
+        expect(isCredentialFailure({ message: 'Too many requests', response: { status: 429 } })).toBe(false);
+        expect(isCredentialFailure({ message: 'ECONNRESET while contacting provider' })).toBe(false);
+
+        expect(isCredentialFailure({ message: '401 Unauthorized' })).toBe(true);
+        expect(isCredentialFailure({ message: 'boom', response: { status: 403 } })).toBe(true);
+        expect(isCredentialFailure({ message: 'Incorrect API key provided' })).toBe(true);
+        expect(isCredentialFailure({ message: 'invalid_grant' })).toBe(true);
     });
 
     test('同一节点的并发刷新单飞', async () => {

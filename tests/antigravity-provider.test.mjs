@@ -359,7 +359,9 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
             const mockPoolManager = {
                 _findProvider: jest.fn().mockReturnValue(mockNode),
                 markProviderHealthy: jest.fn(),
-                _debouncedSave: jest.fn()
+                // 凭据加载成功后统一走 syncProviderIdentity：补写账号名 +
+                // 清错误条 + 用正确的 providerType 落盘，且不动 usageCount/LRU。
+                syncProviderIdentity: jest.fn()
             };
             setProviderPoolManager(mockPoolManager);
 
@@ -371,8 +373,11 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
             await service.loadCredentials();
 
             expect(service.accountEmail).toBe(fakeEmail);
-            expect(mockNode.config.customName).toBe(fakeEmail);
-            expect(mockPoolManager._debouncedSave).toHaveBeenCalled();
+            expect(mockPoolManager.syncProviderIdentity).toHaveBeenCalledWith(
+                expect.any(String),
+                nodeUuid,
+                fakeEmail
+            );
         } finally {
             if (fs.existsSync(tempCredPath)) {
                 fs.unlinkSync(tempCredPath);
@@ -417,5 +422,80 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
                 fs.unlinkSync(testPoolsPath);
             }
         }
+    });
+});
+
+describe('Antigravity parseSSEStream 错误传播', () => {
+    function makeService() {
+        return new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: path.join(os.tmpdir(), 'no-such-cred.json'),
+            ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS: 60000
+        });
+    }
+
+    /**
+     * 回归守护：上游出错必须从迭代器抛给调用方，而不是变成未捕获异常。
+     *
+     * 旧实现用 readline 逐行读，而 readline 的 Interface 会把 input 的 'error'
+     * 转发到自身；finally 里的 rl.close() 又摘掉自身唯一的 error 监听器。
+     * 于是「close 之后上游再 emit('error')」——即 node-fetch 的 abort()
+     * （先 reject、再 emit）撞上客户端断连——会在无监听器的 Interface 上
+     * 抛 uncaughtException，被 api-server-core 判为致命错误后
+     * gracefulShutdown() → process.exit，把整个 worker 的在途请求一起带走。
+     * 触发条件就是用户在流式输出中途关闭浏览器标签页。
+     */
+    test('上游 stream 在解析结束后再报错，不产生未捕获异常', async () => {
+        const { PassThrough } = await import('node:stream');
+        const service = makeService();
+        const stream = new PassThrough();
+
+        const uncaught = [];
+        const onUncaught = (error) => uncaught.push(error?.message ?? String(error));
+        process.on('uncaughtException', onUncaught);
+
+        const consumed = [];
+        const iterate = (async () => {
+            for await (const frame of service.parseSSEStream(stream)) consumed.push(frame);
+        })();
+
+        // 先喂满一帧，让生成器进入并推进
+        stream.write('data: {"response":{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}}\n\n');
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // 关键时序：先让解析正常结束（生成器 finally 已执行），
+        // 再由上游补发 error —— 这正是 node-fetch abort() 的形态：
+        // 它先 reject 并 finalize，随后（可能晚一拍）才 emit('error')。
+        // 旧实现此时 readline 的 Interface 已经没有 error 监听器，会抛 uncaught。
+        stream.end();
+        await expect(iterate).resolves.toBeUndefined();
+        stream.emit('error', new Error('client aborted after stream finished'));
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        process.off('uncaughtException', onUncaught);
+
+        expect(uncaught).toEqual([]);
+        expect(consumed.length).toBe(1);
+    });
+
+    /** 正常路径不得受影响：多帧、跨 chunk 切分、CRLF 都要能解析 */
+    test('正常 SSE 流（跨 chunk 切分 + CRLF）逐帧产出', async () => {
+        const { PassThrough } = await import('node:stream');
+        const service = makeService();
+        const stream = new PassThrough();
+
+        const frames = [];
+        const iterate = (async () => {
+            for await (const frame of service.parseSSEStream(stream)) frames.push(frame);
+        })();
+
+        const payload = 'data: {"response":{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}}\r\n\r\n';
+        // 故意在 JSON 中间切开，验证跨 chunk 缓冲
+        stream.write(payload.slice(0, 20));
+        stream.write(payload.slice(20));
+        stream.end();
+        await iterate;
+
+        expect(frames.length).toBe(1);
+        expect(JSON.stringify(frames[0])).toContain('hi');
     });
 });

@@ -778,16 +778,9 @@ export class CodexApiService {
             logger.info(`[Codex] Initialized with account: ${this.email} (plan: ${this.planType})`);
 
             if (poolManager && this.uuid) {
-                const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
-                if (node) {
-                    if (!node.config.customName && this.email) {
-                        node.config.customName = this.email;
-                        (poolManager as DynamicPayload)._debouncedSave?.();
-                    }
-                    if (!node.config.isHealthy || node.config.lastErrorMessage) {
-                        poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
-                    }
-                }
+                // 凭据加载成功后：补写账号邮箱 + 清掉红色错误条 + 落盘。
+                // 用 syncProviderIdentity 而不是 markProviderHealthy，避免污染 usageCount / LRU。
+                poolManager.syncProviderIdentity?.(providerType, this.uuid, this.email);
             }
         } catch (rawError) {
             const error = asCodexError(rawError);

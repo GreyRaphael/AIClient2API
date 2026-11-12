@@ -478,15 +478,17 @@ export async function handleGetProviderType(req: IncomingMessage, res: ServerRes
     const providers = providerPools[providerType] || [];
     const sanitizedProviders = await Promise.all(providers.map(async (p: ProviderConfig) => {
         const sanitized = sanitizeProviderData(p, true);
-        let capability = resolveNodeCapabilityMeta(providerType, p);
+        const capability = resolveNodeCapabilityMeta(providerType, p);
+        // 冷缓存/stale 时的刷新改为后台触发，不阻塞列表渲染。
+        // 过去这里 `await refreshNodeCapability`，打开提供商页面要为每个节点
+        // 串行等待一次上游请求（实测冷缓存下单个节点就能阻塞 3s+，
+        // antigravity 无显式超时上限），UI 表现为「页面卡住」。
+        // 本次直接用当前缓存渲染，新模型在下一次读取时自然出现。
         if (isDynamicProvider(providerType) && (!capability?.known || capability?.stale)) {
-            try {
-                await refreshNodeCapability(providerType, p, {
-                    force: false,
-                    reason: 'ui-view'
-                });
-                capability = resolveNodeCapabilityMeta(providerType, p);
-            } catch (_) {}
+            void refreshNodeCapability(providerType, p, {
+                force: false,
+                reason: 'ui-view'
+            }).catch(() => { /* 后台刷新失败不影响列表渲染 */ });
         }
         if (capability) applyCapabilityMeta(sanitized, capability);
         return sanitized;
@@ -697,25 +699,34 @@ export async function handleDetectProviderModels(req: IncomingMessage, res: Serv
             uuid: providerUuid
         };
 
-        await refreshNodeCapability(providerType, nodeConfig, {
+        // 只读探测：控制台的「检查模型」传的是**尚未保存的草稿配置**，
+        // 其 uuid 与线上节点相同。若走正常写入路径，用户打错一个凭据路径
+        // （还没点保存）就会覆写线上节点的能力缓存、把它标红并顶替适配器实例。
+        // dryRun 让本次探测既不写缓存、不落盘，也不改节点健康状态。
+        const probe = await refreshNodeCapability(providerType, nodeConfig, {
             force: true,
-            reason: 'ui-detect'
+            reason: 'ui-detect',
+            dryRun: true
         });
 
-        const capability = resolveNodeCapabilityMeta(providerType, nodeConfig);
-        const models = capability?.candidateModels || [];
-        const selectedModels = capability?.selectedModels || [];
+        // 直接拿探测结果渲染下拉，而不是回读（可能已被污染的）缓存
+        const models = probe?.lastError ? [] : (probe?.models || []);
+        const selectedModels = probe?.selectedModels || models;
+        const source = probe?.source || null;
+        const fetchedAt = probe?.fetchedAt || 0;
+        const probeError = probe?.lastError || null;
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-            success: true,
+            success: !probeError,
             providerType,
             uuid: providerUuid,
             count: models.length,
             models,
             selectedModels,
-            source: capability?.source || null,
-            fetchedAt: capability?.fetchedAt || 0
+            source,
+            fetchedAt,
+            ...(probeError ? { error: { message: probeError } } : {})
         }));
         return true;
     } catch (error: unknown) {
@@ -809,16 +820,19 @@ async function _handleAddProvider(req: IncomingMessage, res: ServerResponse, cur
             providerPoolManager.initializeProviderStatus();
         }
 
-        // 初次添加动态提供商节点时，主动获取并更新上游最新 model_list
+        // 初次添加动态提供商节点时，主动获取并更新上游最新 model_list。
+        //
+        // 刻意**不 await**：这里位于 `withFileLock(provider_pools.json)` 内部，
+        // 上游请求最长 15s（antigravity 无显式上限），同步等待会让
+        // 「添加节点」接口被上游耗时绑架，并让所有排队的写操作一起卡住。
+        // 改为后台触发：接口立即返回，候选模型通过 config_update 广播/下次读取补齐。
         if (isDynamicProvider(providerType)) {
-            try {
-                await refreshNodeCapability(providerType, filteredConfig, {
-                    force: true,
-                    reason: 'node-added'
-                });
-            } catch (err: unknown) {
-                logger.warn(`[UI API] Failed to fetch models for newly added provider ${filteredConfig.uuid}:`, getErrorMessage(err));
-            }
+            void refreshNodeCapability(providerType, filteredConfig, {
+                force: true,
+                reason: 'node-added'
+            }).catch((err: unknown) => {
+                logger.warn(`[UI API] Failed to fetch models for newly added provider ${filteredConfig.uuid}: ${getErrorMessage(err)}`);
+            });
         }
 
         const capability = resolveNodeCapabilityMeta(providerType, filteredConfig);

@@ -8,7 +8,7 @@ import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import * as readline from 'readline';
+import { StringDecoder } from 'node:string_decoder';
 import type { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 const uuidv4 = randomUUID;
@@ -1297,16 +1297,9 @@ export class AntigravityApiService {
             }
 
             if (poolManager && this.uuid) {
-                const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
-                if (node) {
-                    if (!node.config.customName && email) {
-                        node.config.customName = email;
-                        (poolManager as DynamicPayload)._debouncedSave?.();
-                    }
-                    if (!node.config.isHealthy || node.config.lastErrorMessage) {
-                        poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
-                    }
-                }
+                // 凭据加载成功后：补写账号邮箱 + 清掉红色错误条 + 落盘。
+                // 用 syncProviderIdentity 而不是 markProviderHealthy，避免污染 usageCount / LRU。
+                poolManager.syncProviderIdentity?.(providerType, this.uuid, email);
             }
         } catch (rawError) {
             const error = asAntigravityError(rawError);
@@ -1491,11 +1484,7 @@ export class AntigravityApiService {
             if (this.accountEmail && this.uuid) {
                 const poolManager = getProviderPoolManager();
                 const providerType = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY;
-                const node = (poolManager as DynamicPayload)?._findProvider?.(providerType, this.uuid);
-                if (node && !node.config.customName) {
-                    node.config.customName = this.accountEmail;
-                    (poolManager as DynamicPayload)._debouncedSave?.();
-                }
+                poolManager?.syncProviderIdentity?.(providerType, this.uuid, this.accountEmail);
             }
 
             // 优先使用 paidTier.name，其次使用默认 tier 或 free-tier
@@ -2057,14 +2046,23 @@ export class AntigravityApiService {
     }
 
     async * parseSSEStream(stream: Readable): AsyncGenerator<DynamicPayload> {
-        const rl = readline.createInterface({
-            input: stream,
-            crlfDelay: Infinity
-        });
-
-        // 空闲看门狗：SSE 建连后 gaxios 的 timeout 已不再起作用，若上游/代理静默挂住连接，
-        // `for await (line of rl)` 会永久阻塞。这里在超过空闲阈值后销毁底层流，
-        // 使迭代器结束/抛错，从而让上层能走到错误处理并释放并发插槽。
+        // 这里刻意**不用** readline。
+        //
+        // 原实现用 `readline.createInterface({ input: stream })` 逐行读，
+        // 但它有一个会打挂整个 worker 的缺陷：readline 的 Interface 自己也是
+        // 一个 EventEmitter，向上游失败时会把 input 的 'error' **转发到自身**；
+        // 而 finally 里的 `rl.close()` 又把自身仅有的 error 监听器摘掉。
+        // 于是「rl.close() 之后上游再 emit('error')」这个交错——
+        // 也就是 node-fetch 的 `abort()`（先 reject、再 emit）撞上客户端断连——
+        // 会在无监听器的 Interface 上抛出 uncaughtException。
+        // 上层 api-server-core 的处理器只放过 RETRYABLE_NETWORK_ERRORS，
+        // AbortError 不在名单里，于是 gracefulShutdown() → process.exit(0)，
+        // 把同一个 worker 上所有在途请求一起带走。
+        // 触发条件非常日常：用户在流式输出过程中关掉浏览器标签页。
+        //
+        // 改成直接迭代 stream（AsyncIterable），错误从 for-await 的 catch 里
+        // 正规抛出，不再依赖任何 EventEmitter 的隐式转发。
+        // 顺带去掉 readline 每次 createInterface 的状态机开销。
         const idleTimeoutMs = this.config.ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS
             ?? ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS;
         let idleTimer: NodeJS.Timeout | null = null;
@@ -2082,13 +2080,13 @@ export class AntigravityApiService {
             idleTimer = setTimeout(() => {
                 idleTimedOut = true;
                 logger.error(`[Antigravity Stream] No data received for ${idleTimeoutMs}ms, aborting stream.`);
-                // 销毁底层流以解除 readline 的阻塞；readline 会随之结束迭代
+                // 销毁底层流以解除 for-await 的阻塞；迭代器会随之结束/抛错
                 try { (stream as { destroy?: (err?: Error) => void }).destroy?.(new Error('Antigravity stream idle timeout')); } catch { /* 忽略 */ }
             }, idleTimeoutMs);
         };
 
-        // 必须按底层字节到达重置 idle timer，而不是等待 readline 产出完整行。
-        // 否则持续传输但迟迟没有换行的大型 SSE/base64 帧会被误判为空闲。
+        // 按底层字节到达续期：持续传输但迟迟没有换行的大型 SSE/base64 帧
+        // 不应被误判为空闲。
         const canObserveRawData = typeof stream?.on === 'function';
         const onStreamData = () => armIdleTimer();
         if (canObserveRawData) stream.on('data', onStreamData);
@@ -2127,36 +2125,71 @@ export class AntigravityApiService {
             }
         };
 
+        /** 处理一行；返回需要 yield 的帧（没有则 null） */
+        const handleLine = (line: string): AntigravityStreamFrame | null => {
+            // 非 Node stream 无法监听原始 data 事件时，退回按行续期。
+            if (!canObserveRawData) armIdleTimer();
+            lineCount++;
+            const trimmedLine = line.trim();
+            // 只在尚未产出任何 chunk 时留存原始文本：正常 SSE 流不会为此占用内存
+            if (yieldCount === 0 && trimmedLine) collectRaw(trimmedLine);
+            if (trimmedLine.startsWith('data: ')) {
+                // 原始 JSON 直接入 buffer，usageMetadata 在解析后统一清洗
+                buffer.push(trimmedLine.slice(6));
+                return null;
+            }
+            if (trimmedLine === '' && buffer.length > 0) {
+                const frame = parseStreamFrame(buffer.join('\n'), '');
+                buffer = [];
+                return frame;
+            }
+            if (trimmedLine && !trimmedLine.startsWith(':') && !sseFields.test(trimmedLine) && buffer.length > 0) {
+                // 处理不带 SSE 字段前缀且不是注释的后续行（可能是由于换行符导致的分割）
+                buffer.push(trimmedLine);
+                return null;
+            }
+            if (trimmedLine) {
+                // 非空但无法归类的行：记录下来用于诊断（限长避免日志爆炸）
+                if (droppedLines.length < 20) droppedLines.push(trimmedLine.slice(0, 500));
+            }
+            return null;
+        };
+
+        // 按行切分需要自行跨 chunk 缓冲：SSE 帧可能被 TCP 任意切分。
+        // 用 StringDecoder 而不是 chunk.toString()，避免多字节字符被切在
+        // chunk 边界上时产生替换字符（U+FFFD）。
+        const decoder = new StringDecoder('utf8');
+        let pending = '';
+
         try {
             armIdleTimer();
-            for await (let line of rl) {
-                // 非 Node stream 无法监听原始 data 事件时，退回按行续期。
-                if (!canObserveRawData) armIdleTimer();
-                lineCount++;
-                const trimmedLine = line.trim();
-                // 只在尚未产出任何 chunk 时留存原始文本：正常 SSE 流不会为此占用内存
-                if (yieldCount === 0 && trimmedLine) collectRaw(trimmedLine);
-                if (trimmedLine.startsWith('data: ')) {
-                    // 原始 JSON 直接入 buffer，usageMetadata 在解析后统一清洗
-                    buffer.push(trimmedLine.slice(6));
-                } else if (trimmedLine === '' && buffer.length > 0) {
-                    const frame = parseStreamFrame(buffer.join('\n'), '');
+            for await (const chunk of stream) {
+                pending += typeof chunk === 'string' ? chunk : decoder.write(chunk as Buffer);
+                let index: number;
+                // 统一按 \n 切；CRLF 的 \r 交给 line.trim() 处理。
+                while ((index = pending.indexOf('\n')) !== -1) {
+                    const line = pending.slice(0, index);
+                    pending = pending.slice(index + 1);
+                    const frame = handleLine(line);
                     if (frame !== null) {
                         yield frame;
                         yieldCount++;
                     }
-                    buffer = [];
-                } else if (trimmedLine && !trimmedLine.startsWith(':') && !sseFields.test(trimmedLine) && buffer.length > 0) {
-                    // 处理不带 SSE 字段前缀且不是注释的后续行（可能是由于换行符导致的分割）
-                    buffer.push(trimmedLine);
-                } else if (trimmedLine) {
-                    // 非空但无法归类的行：记录下来用于诊断（限长避免日志爆炸）
-                    if (droppedLines.length < 20) droppedLines.push(trimmedLine.slice(0, 500));
                 }
+            }
+            // 收尾：把最后一个 chunk 里残留的多字节字符与未换行的尾行处理掉
+            pending += decoder.end();
+            if (pending.length > 0) {
+                const frame = handleLine(pending);
+                if (frame !== null) {
+                    yield frame;
+                    yieldCount++;
+                }
+                pending = '';
             }
         } catch (rawError) {
             const error = asAntigravityError(rawError);
-            // 看门狗 destroy(stream) 会让 readline 迭代抛出该 destroy 错误。
+            // 看门狗 destroy(stream) 会让 for-await 抛出该 destroy 错误。
             // 归一化成带 ETIMEDOUT 的超时错误，便于上层按可重试网络错误处理。
             if (idleTimedOut) {
                 const idleError = new Error(`[Antigravity] Stream idle timeout after ${idleTimeoutMs}ms without data.`);
@@ -2170,7 +2203,6 @@ export class AntigravityApiService {
                 if (typeof stream.off === 'function') stream.off('data', onStreamData);
                 else if (typeof stream.removeListener === 'function') stream.removeListener('data', onStreamData);
             }
-            rl.close();
         }
 
         // 流已正常结束但看门狗已触发（极少数竞态）：同样按超时处理，不把截断的流当成正常结束

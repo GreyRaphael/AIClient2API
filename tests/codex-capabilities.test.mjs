@@ -95,7 +95,9 @@ describe('Codex 输出长度上限能力', () => {
             markProviderHealthy: jest.fn(),
             markProviderNeedRefresh: jest.fn(),
             markProviderUnhealthyImmediately: jest.fn(),
-            _debouncedSave: jest.fn()
+            // 凭据加载成功后统一走 syncProviderIdentity：补写账号名 + 清错误条 +
+            // 用正确的 providerType 落盘，且不动 usageCount / LRU。
+            syncProviderIdentity: jest.fn()
         };
         setProviderPoolManager(mockPoolManager);
 
@@ -108,8 +110,11 @@ describe('Codex 输出长度上限能力', () => {
         try {
             await service.loadCredentials();
             expect(service.email).toBe(fakeEmail);
-            expect(mockNode.config.customName).toBe(fakeEmail);
-            expect(mockPoolManager._debouncedSave).toHaveBeenCalled();
+            expect(mockPoolManager.syncProviderIdentity).toHaveBeenCalledWith(
+                expect.any(String),
+                nodeUuid,
+                fakeEmail
+            );
         } finally {
             clearInterval(service.cleanupInterval);
             if (fs.existsSync(tempCredPath)) {

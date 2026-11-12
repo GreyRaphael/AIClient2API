@@ -267,3 +267,89 @@ describe('ProviderPoolManager health check requests', () => {
         expect(node.lastErrorMessage).toBeNull();
     });
 });
+
+describe('ProviderPoolManager 身份同步（syncProviderIdentity）', () => {
+    let manager;
+
+    afterEach(() => {
+        stopSaveTimer(manager);
+        manager = null;
+    });
+
+    /**
+     * 回归守护：落盘必须带上真实的 providerType。
+     *
+     * 旧实现三处调用点是 `_debouncedSave?.()`（漏传 providerType），
+     * 于是 `undefined` 入队、真正的 providerType 从不入队 → flush 时匹配不到、
+     * 文件根本不写，「以账号邮箱命名」只在内存生效，重启即丢。
+     */
+    test('补写账号标识时会带上正确的 providerType 落盘', () => {
+        manager = createManager([makeNode('n1')]);
+        manager._debouncedSave = jest.fn();
+
+        const changed = manager.syncProviderIdentity('openai-custom', 'n1', 'user@example.com');
+
+        expect(changed).toBe(true);
+        expect(manager.providerStatus['openai-custom'][0].config.customName).toBe('user@example.com');
+        expect(manager._debouncedSave).toHaveBeenCalledWith('openai-custom');
+    });
+
+    /**
+     * 回归守护：同步身份不得影响 LRU 选点语义。
+     *
+     * 旧实现复用 markProviderHealthy（默认 resetUsageCount=false），
+     * 会走 usageCount++ 分支，于是每次凭据加载/模型刷新都给用量 +1
+     * 并刷新 lastUsed，污染仪表盘统计与 LRU 排序。
+     */
+    test('不污染 usageCount 与 lastUsed', () => {
+        manager = createManager([makeNode('n1')]);
+        manager._debouncedSave = jest.fn();
+
+        // 冷启动会统一清零统计数据，这里在构造之后再设初始值，
+        // 以隔离出「syncProviderIdentity 是否改动计数」这一件事。
+        const config = manager.providerStatus['openai-custom'][0].config;
+        config.usageCount = 7;
+        config.lastUsed = '2026-01-01T00:00:00.000Z';
+
+        manager.syncProviderIdentity('openai-custom', 'n1', 'user@example.com');
+
+        expect(manager.providerStatus['openai-custom'][0].config.usageCount).toBe(7);
+        expect(manager.providerStatus['openai-custom'][0].config.lastUsed).toBe('2026-01-01T00:00:00.000Z');
+    });
+
+    /** 不覆盖用户在控制台手工设置过的名字 */
+    test('节点已有 customName 时不覆盖', () => {
+        manager = createManager([makeNode('n1', { customName: '手工命名' })]);
+        manager._debouncedSave = jest.fn();
+
+        manager.syncProviderIdentity('openai-custom', 'n1', 'user@example.com');
+
+        expect(manager.providerStatus['openai-custom'][0].config.customName).toBe('手工命名');
+    });
+
+    /** 清掉红色警示条（鉴权失败残留） */
+    test('清除上次鉴权失败的健康状态与错误信息', () => {
+        manager = createManager([
+            makeNode('n1', { isHealthy: false, errorCount: 3, lastErrorMessage: 'token expired' })
+        ]);
+        manager._debouncedSave = jest.fn();
+
+        manager.syncProviderIdentity('openai-custom', 'n1', 'user@example.com');
+
+        const node = manager.providerStatus['openai-custom'][0].config;
+        expect(node.isHealthy).toBe(true);
+        expect(node.errorCount).toBe(0);
+        expect(node.lastErrorMessage).toBeNull();
+    });
+
+    /** 无需改动时不应触发多余落盘 */
+    test('没有实际改动时不落盘', () => {
+        manager = createManager([makeNode('n1', { customName: '已命名', isHealthy: true })]);
+        manager._debouncedSave = jest.fn();
+
+        const changed = manager.syncProviderIdentity('openai-custom', 'n1', 'user@example.com');
+
+        expect(changed).toBe(false);
+        expect(manager._debouncedSave).not.toHaveBeenCalled();
+    });
+});
