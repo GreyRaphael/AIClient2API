@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.1] - 2026-11-12
+
 ### Fixed — v8.9.0 之后精简改造的评审修复
 
 - **动态提供商空模型发现被当成成功并永久落盘**：四个动态 provider 在上游失败时
