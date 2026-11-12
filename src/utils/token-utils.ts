@@ -1,10 +1,10 @@
 type UnknownRecord = Record<string, unknown>;
 
 // Pre-tokenization pattern matching modern LLM tokenizers (Claude / GPT BPE)
-const TOKEN_PATTERN_SRC = "(?:'s|'t|'re|'ve|'m|'ll|'d)|[^\\S\\r\\n]?[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Hangul}]|[^\\S\\r\\n]?[a-zA-Z]+|[^\\S\\r\\n]?\\d+|[^\\S\\r\\n]?[^\\s\\p{L}\\p{N}]+|\\r?\\n|\\s+";
-const CJK_PATTERN = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
+const TOKEN_PATTERN_SRC = "(?:'s|'t|'re|'ve|'m|'ll|'d)|[^\\S\\r\\n]?[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Hangul}]|[^\\S\\r\\n]?[\\p{L}--[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Hangul}]]+|[^\\S\\r\\n]?\\d+|[^\\S\\r\\n]?[^\\s\\p{L}\\p{N}]+|\\r?\\n|\\s+";
+const CJK_PATTERN = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/v;
 const DIGIT_PATTERN = /^\d+$/;
-const WORD_PATTERN = /^[a-zA-Z]+$/;
+const WORD_PATTERN = /^[\p{L}--[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]]+$/v;
 const WS_PATTERN = /^\s+$/;
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -78,7 +78,7 @@ export function countTextTokens(text: string): number {
     try {
         let tokens = 0;
         let matchedAny = false;
-        const regex = new RegExp(TOKEN_PATTERN_SRC, 'gu');
+        const regex = new RegExp(TOKEN_PATTERN_SRC, 'gv');
         let m: RegExpExecArray | null;
 
         while ((m = regex.exec(text)) !== null) {

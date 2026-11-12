@@ -37,6 +37,24 @@ describe('token-utils: countTextTokens', () => {
         expect(ko).toBeLessThanOrEqual(8);
     });
 
+    test('counts non-ASCII alphabets and accented words (Cyrillic, Greek, Latin accents)', () => {
+        // Cyrillic (Russian)
+        expect(countTextTokens('Привет')).toBe(1);
+        expect(countTextTokens('Hello Привет')).toBe(2);
+        expect(countTextTokens('Hello Привет world')).toBe(3);
+
+        // Latin with accents (French, Spanish, German)
+        expect(countTextTokens('café')).toBe(1);
+        expect(countTextTokens('un café s\'il vous plaît')).toBeGreaterThanOrEqual(4);
+        expect(countTextTokens('el niño y el año')).toBeGreaterThanOrEqual(4);
+
+        // Greek
+        expect(countTextTokens('Γεια σας')).toBe(2);
+
+        // Mixed Latin + CJK
+        expect(countTextTokens('Hello世界')).toBe(4);
+    });
+
     test('counts mixed code, symbols and indents', () => {
         const code = `
 function add(a: number, b: number): number {
