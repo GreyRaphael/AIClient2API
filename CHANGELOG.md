@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.3] - 2026-11-12
+
+### Added — 通用 E2E 矩阵
+
+- **新增 `tests/e2e/matrix.e2e.test.mjs`**：3 个客户端协议 × 3 种场景的 E2E 矩阵，
+  每个模型跑 9 个用例。
+  - 协议：`/v1/chat/completions`、`/v1/messages`、`/v1/responses`
+  - 场景：非流式文本、流式文本、工具调用
+  - **模型列表完全来自 `/auto/v1/models`，代码中无任何具体模型名**；
+    model_list 变化时矩阵自动伸缩，无需改测试
+  - 生图模型按名字形态（含 `image`）自动排除，由 `image-generation.e2e.test.mjs` 覆盖
+  - 断言强度：文本场景断言答案含 391（17×23）、工具场景断言确实产出
+    `get_weather` 调用并校验工具名、流式场景额外断言无流内错误事件
+  - 失败原因收集式记录，单个场景失败不掩盖其余结论
+- 新增 npm script `test:e2e:matrix`。
+
+### Fixed — 所有 E2E 无法启动
+
+- **`tests/e2e/global-setup.js` 导入已改名的导出**：它仍导入
+  `MODELS_CACHE_FILE` 常量，而 `e2e-helpers.js` 已改为惰性求值的
+  `modelsCacheFile()` 函数（为支持改 env 后重新读取）。两者不匹配导致
+  `--import` 阶段就抛 `SyntaxError`，**所有 e2e（含 cross-protocol、
+  image-generation、provider-canaries）一个用例都跑不起来**。已改为调用函数。
+
+### Verified
+
+- E2E 矩阵 90/90 通过（10 模型 × 9 场景）；生图 E2E 2/2 通过；
+  单元测试 1098/1098 通过；7 项静态门禁全过。
+- 本版本无 `src/` 改动，对生产运行零影响。
+
 ## [v8.9.2] - 2026-11-12
 
 ### Changed — 请求管线解耦（纯内部重构，无行为变更）
