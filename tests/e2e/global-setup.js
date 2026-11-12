@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import {
-    MODELS_CACHE_FILE,
+    modelsCacheFile,
     buildHeaders,
     resolveApiKey,
     resolveBaseUrl
@@ -66,7 +66,7 @@ async function fetchModelPayload(baseUrl, apiKey) {
 
 /** 把模型列表写入缓存文件，并打印摘要 */
 function writeModelCache(models, label) {
-    fs.writeFileSync(MODELS_CACHE_FILE, JSON.stringify(models, null, 2));
+    fs.writeFileSync(modelsCacheFile(), JSON.stringify(models, null, 2));
     console.log(`[E2E] ${label}: ${models.length} model(s) -> ${models.join(', ')}`);
 }
 

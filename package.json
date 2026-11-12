@@ -57,6 +57,7 @@
     "test:e2e:providers": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 'tests/e2e/providers/*.e2e.test.mjs'",
     "test:e2e:images": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 tests/e2e/image-input.e2e.test.mjs",
     "test:e2e:images:generation": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 tests/e2e/image-generation.e2e.test.mjs",
-    "test:webui:e2e": "playwright test -c tests/webui-e2e/playwright.config.js"
+    "test:webui:e2e": "playwright test -c tests/webui-e2e/playwright.config.js",
+    "test:e2e:matrix": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 tests/e2e/matrix.e2e.test.mjs"
   }
 }
