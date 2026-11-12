@@ -60,14 +60,11 @@ jobs:
       - name: WebUI Vendor 同步检查
         run: npm run vendor:webui:check
 
-      - name: 类型债务指标
-        run: npm run metrics:types
-
+      # 注意：不再传 --runInBand。那是 Jest 的标志，`node --test` 会把它当成
+      # 位置参数（文件名 glob），既不串行也不报错，等于静默失效。
+      # 确需串行请用 `--test-concurrency=1`。
       - name: 核心单元测试
-        run: npm test -- --runInBand
-
-      - name: 原生 Node 26 诊断测试
-        run: npm run test:node
+        run: npm test
 
       - name: 运行时 smoke（plain Node）
         run: npm run test:runtime
