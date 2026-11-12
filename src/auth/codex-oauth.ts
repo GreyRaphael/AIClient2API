@@ -3,7 +3,7 @@ import logger from '../utils/logger.ts';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import open from 'open';
+import open from '../utils/open-browser.ts';
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';

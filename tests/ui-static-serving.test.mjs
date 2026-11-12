@@ -9,7 +9,7 @@ import { serveStaticFiles } from '../src/services/ui-manager.ts';
 describe('serveStaticFiles', () => {
     test('ES module 文件使用 JavaScript MIME，vendor 文件强缓存', async () => {
         const res = createBaseResponse({ body: undefined });
-        const served = await serveStaticFiles('/vendor/preact@11.1.0/preact.mjs', res);
+        const served = await serveStaticFiles('/vendor/preact@11.2.0/preact.mjs', res);
 
         expect(served).toBe(true);
         expect(res.statusCode).toBe(200);

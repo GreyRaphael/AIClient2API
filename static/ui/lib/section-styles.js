@@ -76,7 +76,7 @@ export function loadSectionStyles(sectionId) {
         link.addEventListener('load', resolve, { once: true });
         link.addEventListener('error', () => {
             console.warn(`[styles] 加载 section 样式失败: ${href}`);
-            resolve();
+            resolve(undefined);
         }, { once: true });
         insertLink(link);
     }))).then(() => {

@@ -46,7 +46,7 @@ export async function autoLinkProviderConfigs(config: Record<string, any>, optio
 
     let totalNewProviders = 0;
     const allNewProviders: Record<string, any[]> = {};
-    const newlyLinkedNodes: Array<{ providerType: string; provider: Record<string, any> }> = [];
+    const newlyLinkedNodes: Array<{ providerType: string; provider: Record<string, unknown> }> = [];
 
     // 如果只关联当前凭证
     if (options.onlyCurrentCred && options.credPath) {

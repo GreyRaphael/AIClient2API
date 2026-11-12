@@ -3,7 +3,7 @@ import logger from '../utils/logger.ts';
 import fs from 'fs';
 import path from 'path';
 import crypto, { randomUUID } from 'crypto';
-import open from 'open';
+import open from '../utils/open-browser.ts';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
 import { getProviderPoolManager } from '../providers/pool-context.ts';

@@ -272,7 +272,7 @@ async function startServer() {
             logger.info(`[UI] Auto-open browser disabled. Login page: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
         } else if (CONFIG.UI_ENABLED) {
             try {
-                const open = (await import('open')).default;
+                const open = (await import('../utils/open-browser.ts')).default;
                 // 作为子进程启动时，需要更长的延迟确保服务完全就绪
                 const openDelay = IS_WORKER_PROCESS ? 3000 : 1000;
                 setTimeout(() => {

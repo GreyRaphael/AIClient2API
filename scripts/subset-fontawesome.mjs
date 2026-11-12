@@ -9,9 +9,8 @@
  *
  * 依赖（devDependencies）：@fortawesome/fontawesome-free、subset-font
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import subsetFont from 'subset-font';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const FA = path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free');
@@ -66,6 +65,10 @@ function splitTopLevelRules(css) {
 const GLYPH_RULE = /^\s*((?:\.fa-[a-z0-9-]+,?)+)\{--fa:"\\([0-9a-fA-F]+)"\}\s*$/;
 
 export async function buildSubset({ extraDirs = [] } = {}) {
+    if (!existsSync(path.join(FA, 'package.json'))) {
+        throw new Error('Re-building Font Awesome subset requires @fortawesome/fontawesome-free and subset-font. Please install on demand: npm install -D @fortawesome/fontawesome-free subset-font');
+    }
+    const subsetFont = (await import('subset-font')).default;
     const version = JSON.parse(readFileSync(path.join(FA, 'package.json'), 'utf8')).version;
     const used = collectUsedFaTokens(extraDirs);
     const css = readFileSync(path.join(FA, 'css', 'all.min.css'), 'utf8').replace(/^\/\*![\s\S]*?\*\//, '');

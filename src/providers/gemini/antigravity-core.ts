@@ -12,7 +12,7 @@ import * as readline from 'readline';
 import type { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 const uuidv4 = randomUUID;
-import open from 'open';
+import open from '../../utils/open-browser.ts';
 import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
 import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.ts';
 import { getProviderModels } from '../provider-models.ts';
