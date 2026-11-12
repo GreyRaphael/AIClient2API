@@ -6,7 +6,7 @@ import { existsSync } from 'fs';
 import logger from '../utils/logger.ts';
 import { promises as fs } from 'fs';
 import path from 'path';
-import AdmZip from 'adm-zip';
+import { SimpleZip } from '../utils/zip.ts';
 import { broadcastEvent } from './event-broadcast.ts';
 import { scanConfigFiles } from './config-scanner.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
@@ -222,7 +222,7 @@ export async function handleDownloadAllConfigs(req: IncomingMessage, res: Server
             return true;
         }
 
-        const zip = new AdmZip();
+        const zip = new SimpleZip();
 
         // 递归添加目录函数
         const addDirectoryToZip = async (dirPath: string, zipPath = ''): Promise<void> => {
