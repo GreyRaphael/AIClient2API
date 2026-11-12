@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.2] - 2026-11-12
+
+### Changed — 请求管线解耦（纯内部重构，无行为变更）
+
+- **拆分 `src/handlers/request-pipeline.ts`：2641 行 → 1248 行（−53%）**。
+  该文件是仓库内改动最密集的模块（最近 40 个提交中 39 个真实修改它，
+  累计 +3510/−869），且 `handleStreamRequest` 内部有 127 行位于 5 层以上嵌套
+  （最深 7 层）。按职责拆为 `src/handlers/pipeline/` 下 6 个模块：
+
+  | 模块 | 行数 | 职责 |
+  |---|---:|---|
+  | `error-response.ts` | 476 | 错误响应构造与投递 |
+  | `unary-handler.ts` | 490 | 非流式处理 + 空响应重试预算 + 号池健康映射 |
+  | `protocol-plan.ts` | 401 | 终态原因、桥接计划、有效内容识别、文本提取 |
+  | `model-routing.ts` | 139 | 自定义模型路由与 `/v1/models` 拼装 |
+  | `stream-writer.ts` | 89 | 背压感知帧写出 + 零窗口防挂死 |
+  | `error-types.ts` | 22 | 共用的 `PipelineError` 形状（纯类型） |
+
+  拆分依据经实测：`handleUnaryRequest` 对 stream 专有符号的引用数为 0；
+  错误簇对其余文件的符号引用仅有 `PipelineError` 一处。
+  `request-pipeline.ts` 保留全部 27 个原有导出，外部导入方无需改动。
+
+- **`npm test` 显式设定并发**（默认 5，可用 `TEST_CONCURRENCY` 覆盖）。
+  实测 17.5–19.1s → 16.6–17.3s（约 6%）。同时避免行为随 Node 默认值漂移。
+
+### Fixed — 重构过程中暴露的问题
+
+- **消除一处新引入的运行时循环依赖**：`unary-handler` 反向依赖
+  `request-pipeline` 的 `extractResponseText` / `getMonitorRequestId`，
+  形成 `request-pipeline -> unary-handler -> request-pipeline`。
+  把三个「按协议选策略」的纯函数（含 `extractPromptText`）下沉到
+  `protocol-plan.ts` 后消失。
+- **恢复被误删的 `isTerminalEmptyFinishReason` re-export**：缺失导致
+  `cross-protocol-bridging.test.mjs`（109 项用例）整文件加载失败，
+  测试总数一度从 1098 掉到 990。
+
+### Notes
+
+- `handleStreamRequest` 拆分后仍为 614 行。其 2 处自递归（凭证切换 / 空响应重试）
+  需要传递 12 项状态到下一帧，强行抽出 retry-controller 会得不偿失；
+  彻底处理需先把递归改写为「循环 + 显式状态对象」的重试状态机，留待后续。
+
 ## [v8.9.1] - 2026-11-12
 
 ### Fixed — v8.9.0 之后精简改造的评审修复

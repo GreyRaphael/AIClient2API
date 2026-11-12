@@ -1,128 +1,142 @@
-# AIClient-2API 发布说明 (v8.9.1)
+# AIClient-2API 发布说明 (v8.9.2)
 
-> ## 🔧 v8.9.0 精简改造的缺陷修复版本
+> ## 🧹 请求管线解耦版本
 >
-> **版本重点**：修复 v8.9.0「大刀阔斧精简」引入与遗留的 14 项缺陷。其中 3 项会直接导致
-> 生产不可用——动态提供商整组模型被路由拦截、OAuth 节点账号名不落盘、
-> 流式请求遇到客户端断连会打挂整个 worker。无破坏性变更，可直接升级。
+> **版本重点**：把仓库内改动最密集的 2641 行 `request-pipeline.ts` 按职责拆成 6 个模块
+> （净减 53%），并显式设定测试并发。**纯内部重构，无任何行为变更**，
+> 无破坏性变更，可直接升级。
 
 ---
 
 ## ⚠️ 兼容性说明
 
-**本版本无破坏性变更**，从 v8.9.0 可直接升级，无需迁移数据或修改配置。
+**本版本无破坏性变更，也无行为变更**，从 v8.9.0 / v8.9.1 可直接升级。
 
-唯一需要注意的行为变化：
-
-- **`/count_tokens` 的估算精度提升**。该端点仍返回估算值（非精确 BPE），
-  但此前若干类别偏差极大（1000 个连续空格被算成 250 token，真实为 5；
-  希腊语等非拉丁文字系统性偏低 77%）。现在对代表性载荷的平均偏差约 6.5%。
-  Claude Code 等下游 harness 会周期调用此端点来判断上下文是否临近上限，
-  因此精度提升对长会话的 compact 判断有实际意义。
-  仍需精确值的场景请使用上游官方的 `count_tokens` 接口。
-- **不提供覆盖率门禁**。`check:coverage` / `coverage:update` 及相关脚本均不存在，
-  `verify` 与 CI 只以「测试是否通过」为准（详见下文第二节）。
+- 不涉及存储结构、配置键、HTTP 接口、环境变量的任何变化。
+- `request-pipeline.ts` 保留了全部 27 个原有导出（含新增的 5 个 re-export 项），
+  外部导入方无需改动。
+- 唯一可见变化：`npm test` 跑得更快（见下文第二节）。
 
 ---
 
-## 一、核心修复
+## 一、为什么拆这个文件
 
-### 1. 动态提供商：空模型发现被当成成功并永久落盘 🔴
+选择它作为重构目标，依据是**改动密度**而不是行数：
 
-四个动态 provider（antigravity / codex / trae / zed）在上游失败时**不抛异常**，
-而是返回各自已空的 fallback 数组。而缓存判据只检查 `fetchedAt > 0`，于是
-「一次网络抖动」被记录成「成功发现 0 个模型」，得到 `known=true` + `candidateModels=[]`。
-`nodeSupportsModel` 拿到 `known=true` 后不再放行，**整组节点从此拒绝一切模型**，
-且因 `stale=false` 连后台刷新都不再触发，只能等 TTL 过期才自愈。
+```
+src/handlers/request-pipeline.ts     最近 40 个提交中 39 个真实修改它
+                                     累计 +3510 / −869 行
+src/providers/model-capability.ts    12 个
+src/converters/.../ClaudeConverter   16 个
+```
 
-- 空结果现在一律按「发现失败」处理：不写缓存、不落盘、不覆盖已有良好清单。
-- 失败时保留已有的良好发现（models / fetchedAt / source 全部沿用），只叠加退避。
-- `toJSON()` 额外要求 `models` 非空，失败元数据只留在内存。
+40 个提交里 39 个动它，且多个提交标题本身就是修 bug（token 预扣生命周期泄漏、
+4xx/5xx 误判、重试状态泄漏、号池槽位未释放等）。同时它内部存在明显的认知负担：
 
-### 2. OAuth 节点身份：账号邮箱不落盘 🔴
+- `handleStreamRequest` 614 行、`handleUnaryRequest` 293 行、`handleError` 家族 126 行；
+- 在 stream 函数内部，**127 行代码位于 5 层以上嵌套**（最深 7 层）。
 
-三处调用写成 `_debouncedSave?.()`（漏传 `providerType`），`undefined` 入队后
-真正的类型从不落盘，文件根本不写——「以账号邮箱命名」只在内存生效，重启即丢。
-
-- 新增 `syncProviderIdentity()` 统一「补写账号名 + 清错误条 + 按正确类型落盘」。
-- 该路径不再借用 `markProviderHealthy`：后者默认 `resetUsageCount=false` 会走
-  `usageCount++` 并刷新 `lastUsed`，每次凭据加载都污染仪表盘用量与 LRU 选点。
-
-### 3. Antigravity 流式请求会打挂 worker 🔴
-
-`readline` 的 Interface 会把 input 的 `error` 转发到自身，而 `finally` 里的
-`rl.close()` 又摘掉它唯一的监听器。「close 之后上游再 emit('error')」——
-即 node-fetch 的 abort 形态（先 reject、再 emit）——于是变成 uncaughtException，
-被判定为致命错误后 `gracefulShutdown()` → `process.exit`，
-**把同一 worker 上所有在途请求一起带走**。触发条件就是用户在流式输出中途关闭标签页。
-
-- 去掉 readline，改为直接迭代 stream + `StringDecoder` 自行切行，错误从迭代器正常抛出。
-
-### 4. 「检查模型」污染线上节点 🟠
-
-控制台探测传的是**尚未保存的草稿配置**，其 uuid 与线上节点相同，走正常写入路径
-会覆写线上能力缓存、把节点标红并顶替适配器实例。用户打错一个路径（还没保存）
-就能把生产节点搞成不可用。
-
-- 新增 `dryRun` 探测模式：不写缓存、不落盘、不改健康状态。
-
-### 5. 限流错误被误判成凭据失效 🟠
-
-原来用裸词 `Token` / `OAuth` / `credentials` 匹配，于是
-`model token budget exceeded`、`Daily OAuth quota exhausted` 这类**限流**错误
-也会把节点永久标红——而红条正是控制台新增的 UI，用户直接看到。
-
-- 改为结构化 401/403 状态码 + 明确的鉴权错误短语，并排除配额/限流语境。
-
-### 6. 其他修复
-
-| 问题 | 影响 |
-|---|---|
-| `openInBrowser` 谎报成功 | `spawn` 对 ENOENT 不同步抛出，旧实现先 resolve 再 unref，于是「系统没有浏览器」被当成成功并打出假日志 |
-| 超限上传返回 400 而非 413 | 吞掉了 `MultipartError.statusCode`，客户端无法区分「请求太大」与「报文坏了」 |
-| UI 刷新阻塞请求路径 | `add` 在文件锁内同步等上游（最长 15s+）；列表页冷缓存时串行等待每个节点 |
-| 分词 `\p{N}` 兜底缺失 | `Ⅳ` / `٠١٢` / `१२३` 等字符被**整类静默丢弃**，既不计数也不报错 |
-| 分词 catch 静默降级 | 异常时无任何日志，数值悄悄变形而无人察觉 |
+这类文件的问题不在于「长」，而在于改动时的心理负担：任何一个横切改动都要在
+600 行上下文里确认自己没碰坏旁边不相关的分支。
 
 ---
 
-## 二、质量门禁与验证
+## 二、本次变更
 
-- **`npm run verify` 串联以下 11 个步骤**：
+### 1. 拆分 `request-pipeline.ts`：2641 行 → 1248 行（−53%）
 
-  1. `typecheck`：TypeScript 主工程零错误
-  2. `typecheck:webui`：WebUI 零构建 TypeScript 语法静态类型零错误
-  3. `check:strict`：strict 棘轮保持 0 错误基线
-  4. `check:any`：0 any 标注 / 0 any 断言
-  5. `check:imports`：133 个源文件运行时导入完整性 100% 通过
-  6. `check:cycles`：0 循环依赖
-  7. `lint:css`：Stylelint CSS 静态校验全部通过
-  8. `gen:webui-html:check`：HTML 外壳与真源一致
-  9. `vendor:webui:check`：第三方库静态资源同步通过
-  10. `test`：**1098 项测试全绿**（Node 26 原生 `node:test`）
-  11. `test:runtime`：原生运行时无转译直接启动冒烟测试
+拆出 6 个模块到 `src/handlers/pipeline/`：
 
-- **CI 修复**：删除已失效的 `npm run test:node` 步骤（该脚本在 Jest→node:test 迁移中
-  已删除，但 CI 仍在调用，导致 CI 必然失败）；去掉对 `node --test` 无效的
-  `--runInBand`（它会被当成文件名 glob，既不串行也不报错）；删除纯装饰性的
-  `metrics:types`（不带 `--check`，只打印不校验）。
+| 模块 | 行数 | 职责 |
+|---|---:|---|
+| `error-response.ts` | 476 | 错误响应构造与投递（`handleError` / `createErrorResponse` / 状态码解析） |
+| `unary-handler.ts` | 490 | 非流式请求处理 + 空响应重试预算 + 号池健康映射 |
+| `protocol-plan.ts` | 401 | 协议感知判定：终态原因、桥接计划（0-Hop / 1-Hop）、有效内容识别、文本提取 |
+| `model-routing.ts` | 139 | 自定义模型路由解析与 `/v1/models` 拼装 |
+| `stream-writer.ts` | 89 | 背压感知帧写出 + 零窗口防挂死 |
+| `error-types.ts` | 22 | 两侧共用的 `PipelineError` 形状（纯类型，编译后擦除） |
 
-- **测试基座修复**：`jest.getTimerCount()` 此前恒返回 0，让定时器泄漏断言
-  变成恒真（变异实验证明：删掉 `clearTimer()` 后旧基座 12/12 全绿）；
-  `looseEqual` 补齐 Date / RegExp / Buffer / class 实例 / 稀疏数组语义，
-  消除 4 类静默假通过。另修好三处「看起来是绿的」失效断言
-  （FA 子集因 devDependency 缺失恒早退、ZIP 测试从不校验中央目录、
-  设计尺度测试漏扫 JS 内联样式）。
+**两条拆分依据都经过实测，而不是凭直觉**：
 
-- **不提供覆盖率门禁**。本次 14 个缺陷全部落在**有覆盖**的代码里
-  （例如 `model-capability` 当时有 28 个测试全绿，只是断言写错了），
-  覆盖率对其无一有效；而基线历史上曾与删测试同 commit 被下调
-  （`src/providers` 从 60.63% 降到 47.26%）。覆盖率只能证明「测试没被删」，
-  证明不了「测试写得对」。真正有效的手段是对照真实执行读代码与变异测试。
+- **非流式路径与流式路径零耦合**：逐符号检查 `handleUnaryRequest` 对
+  `writeFrameWithBackpressure` / `PreContentBuffer` / `streamState` /
+  `clientDisconnected` / `anyDataSent` 等 stream 专有符号的引用数，**全为 0**，
+  因此可整体搬走而不改变语义。
+- **错误模块只依赖 `PipelineError` 的形状**：错误簇（452 行）对文件其余部分的
+  符号引用**仅有 `PipelineError` 一处**，边界天然干净。
+
+### 2. 显式设定测试并发
+
+`npm test` 默认并发设为 5（本机 4 核 + 1 个额外 worker），并支持
+`TEST_CONCURRENCY` 环境变量覆盖。三次重复实测：
+
+```
+concurrency=4（原隐式默认）   17.5 / 19.1 / 17.8 s
+concurrency=5                 16.7 / 17.3 / 16.6 s
+```
+
+稳定快约 6%。多派一个 worker 能掩盖部分文件的 I/O 等待——有 4 个测试文件要起
+真实 HTTP 服务、跑 TLS 握手、读写临时文件。
+
+**为什么没有更大的提速空间**：单文件开销有硬下限。实测空文件 265 ms、
+带 `--import` hook 256 ms、仅加载业务模块 238 ms——三者几乎一样，说明这
+~240 ms 是 node 启动 + 测试框架初始化，与加载多少代码无关。
+105 文件 ÷ 5 ≈ 5 s 是纯开销，剩余约 11.8 s 才是真实执行时间。
+（串行时总耗时 45 s，所以并行本身已经是主要收益来源。）
+
+同时把并发写进脚本，避免行为随 Node 版本默认值漂移。
 
 ---
 
-## 三、升级建议
+## 三、过程中修掉的两个真实问题
+
+重构本身就暴露了两处隐患，都已修复：
+
+1. **引入并消除了一处运行时循环依赖**。拆出 `unary-handler` 后它需要
+   `request-pipeline` 的 `extractResponseText` / `getMonitorRequestId`，
+   形成双向 import，`check:cycles` 直接报出
+   `request-pipeline -> unary-handler -> request-pipeline`。
+   把三个「按协议选策略」的纯函数（含 `extractPromptText`）下沉到
+   `protocol-plan.ts` 后循环消失——它们本就属于协议层，放在管线里是历史遗留。
+
+2. **一次过度清理导致测试从 1098 掉到 990**。曾把 `isTerminalEmptyFinishReason`
+   从 `request-pipeline` 的 re-export 列表里删掉，导致
+   `cross-protocol-bridging.test.mjs` 整文件加载失败（该文件有 109 项用例）。
+   已恢复 re-export。这也正好说明**测试数量本身就是拆分的安全网**：
+   任何导出面被误伤都会立刻变红。
+
+---
+
+## 四、没有做的事（诚实说明）
+
+`handleStreamRequest` 拆分后**仍是 614 行**。它内部有 2 处**自递归**
+（凭证切换重试、空响应重试），递归时要把 `res` / `streamState` /
+`abortController` / `clientSignal` / `clientDisconnected` / `streamRequestId`
+等 **12 项状态**打包传给下一帧。
+
+强行抽出 retry-controller 会变成「把 614 行拆成 400 行 + 一个 200 行的状态搬运层」，
+复杂度不降反升。真要处理需要先把递归改写成「循环 + 显式状态对象」的重试状态机，
+那是独立的、需要单独设计的一项工作，不在本版本范围。
+
+---
+
+## 五、质量门禁与验证
+
+- **`npm run verify` 11 个步骤全绿**：typecheck、typecheck:webui、check:strict、
+  check:any、check:imports（139 个源文件）、check:cycles（**0 循环依赖**）、
+  lint:css、gen:webui-html:check、vendor:webui:check、test、test:runtime。
+- **1098 项测试全部通过**，与重构前**数量一致**——这是本次「不改行为」的核心证据：
+  拆分为纯文件搬迁，没有任何用例因重构而新增、删除或修改。
+- **导出面运行时校验**：逐个断言 `request-pipeline.ts` 的 27 个导出在运行时可用。
+- **`check:cycles` 是本次真正的守门人**：拆模块最容易引入的就是循环依赖，
+  它在我引入后立刻报出并被我修掉。
+
+> 说明：本仓库不提供覆盖率门禁（理由见 v8.9.1 发布说明第二节）。
+> 本次重构的等效验证手段是「测试数量不变 + 导出面逐个断言 + 循环依赖检查」。
+
+---
+
+## 六、升级建议
 
 - **运行时环境要求**：Node.js >= 26.0.0（与 v8.9.0 相同）
 - **升级步骤**：
@@ -133,10 +147,9 @@
   npm start
   ```
 
-- **无需迁移**：本次不涉及存储结构、配置键或数据格式变更。
-- **建议复核**：若此前已遇到「某提供商突然全部模型不可用」或
-  「OAuth 节点重启后账号名丢失」，本次修复直接对应这两个症状；
-  升级后既有节点的缓存会被自动重建，无需手工清理 `configs/model-capability-cache.json`。
+- **无需迁移**：不涉及存储、配置或数据格式变更。
+- **对使用者无感知**：本版本不修复也不引入任何功能或行为变化。
+  若你在 v8.9.1 上运行正常，本版本同样正常，且 `npm test` 更快。
 
 ---
 
