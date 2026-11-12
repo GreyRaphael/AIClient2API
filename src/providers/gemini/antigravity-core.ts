@@ -28,6 +28,7 @@ import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import { stripRequestedReasoningEffort } from '../reasoning-effort.ts';
 import { getErrorMessage } from '../../utils/error.ts';
+import { decodeJwtPayload } from '../../auth/oauth-shared.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 /**
@@ -1281,10 +1282,30 @@ export class AntigravityApiService {
             }
             this.authClient.setCredentials(credentials);
             logger.info('[Antigravity Auth] Credentials loaded successfully from file.');
+
+            let email: string | null = null;
+            if (typeof credentials.email === 'string' && credentials.email) {
+                email = credentials.email.trim();
+            } else if (typeof credentials.id_token === 'string' && credentials.id_token) {
+                const payload = decodeJwtPayload(credentials.id_token);
+                if (typeof payload?.email === 'string' && payload.email) {
+                    email = payload.email.trim();
+                }
+            }
+            if (email) {
+                this.accountEmail = email;
+            }
+
             if (poolManager && this.uuid) {
                 const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
-                if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
-                    poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                if (node) {
+                    if (!node.config.customName && email) {
+                        node.config.customName = email;
+                        (poolManager as DynamicPayload)._debouncedSave?.();
+                    }
+                    if (!node.config.isHealthy || node.config.lastErrorMessage) {
+                        poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                    }
                 }
             }
         } catch (rawError) {
@@ -1464,6 +1485,16 @@ export class AntigravityApiService {
                 if (res?.email) {
                     this.accountEmail = res.email;
                     logger.info(`[Antigravity] Extracted account email from token info: ${this.accountEmail}`);
+                }
+            }
+
+            if (this.accountEmail && this.uuid) {
+                const poolManager = getProviderPoolManager();
+                const providerType = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY;
+                const node = (poolManager as DynamicPayload)?._findProvider?.(providerType, this.uuid);
+                if (node && !node.config.customName) {
+                    node.config.customName = this.accountEmail;
+                    (poolManager as DynamicPayload)._debouncedSave?.();
                 }
             }
 

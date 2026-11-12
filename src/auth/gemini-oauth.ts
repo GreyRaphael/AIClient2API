@@ -6,7 +6,12 @@ import path from 'path';
 import os from 'os';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
 import { autoLinkProviderConfigs } from '../services/provider-config-linker.ts';
-import { generateOAuthResponsePage, closeActiveServer as closeSharedActiveServer } from './oauth-shared.ts';
+import {
+    generateOAuthResponsePage,
+    closeActiveServer as closeSharedActiveServer,
+    decodeJwtPayload,
+    sanitizeCredentialFilenamePart
+} from './oauth-shared.ts';
 import type { ActiveServerInfo } from './oauth-shared.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getGoogleAuthProxyConfig } from '../utils/proxy-utils.ts';
@@ -125,14 +130,36 @@ async function createOAuthCallbackServer(
                     try {
                         const { tokens } = await authClient.getToken(code);
                         let finalCredPath = credPath;
-                        
+
+                        // 从 id_token 或 tokenInfo 中提取账号邮箱
+                        let accountEmail: string | null = null;
+                        if (typeof tokens.id_token === 'string' && tokens.id_token) {
+                            const payload = decodeJwtPayload(tokens.id_token);
+                            if (payload && typeof payload.email === 'string' && payload.email) {
+                                accountEmail = payload.email.trim();
+                            }
+                        }
+                        if (!accountEmail && tokens.access_token) {
+                            try {
+                                const tokenInfo = await authClient.getTokenInfo(tokens.access_token);
+                                if (tokenInfo && typeof tokenInfo.email === 'string' && tokenInfo.email) {
+                                    accountEmail = tokenInfo.email.trim();
+                                }
+                            } catch (_) {
+                                // 忽略 tokenInfo 失败
+                            }
+                        }
+
                         // 如果指定了保存到 configs 目录
                         if (options.saveToConfigs) {
                             const providerDir = typeof options.providerDir === 'string' ? options.providerDir : '';
                             const targetDir = path.join(process.cwd(), 'configs', providerDir);
                             await fs.promises.mkdir(targetDir, { recursive: true });
                             const timestamp = Date.now();
-                            const filename = `${timestamp}_oauth_creds.json`;
+                            const safeEmail = accountEmail ? sanitizeCredentialFilenamePart(accountEmail) : '';
+                            const filename = safeEmail
+                                ? `${timestamp}_antigravity-${safeEmail}_oauth_creds.json`
+                                : `${timestamp}_oauth_creds.json`;
                             finalCredPath = path.join(targetDir, filename);
                         }
 
@@ -147,13 +174,16 @@ async function createOAuthCallbackServer(
                             provider: provider,
                             credPath: finalCredPath,
                             relativePath: relativePath,
+                            email: accountEmail,
+                            accountEmail: accountEmail,
                             timestamp: new Date().toISOString()
                         });
                         
                         // 自动关联新生成的凭据到 Pools
                         await autoLinkProviderConfigs(CONFIG, {
                             onlyCurrentCred: true,
-                            credPath: relativePath
+                            credPath: relativePath,
+                            customName: accountEmail || undefined
                         });
                         
                         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -438,13 +468,27 @@ export async function batchImportGeminiTokensStream(
                 }
             }
 
+            // 提取账号邮箱
+            let accountEmail: string | null = null;
+            if (typeof token.email === 'string' && token.email) {
+                accountEmail = token.email.trim();
+            } else if (typeof token.id_token === 'string' && token.id_token) {
+                const payload = decodeJwtPayload(token.id_token);
+                if (payload && typeof payload.email === 'string' && payload.email) {
+                    accountEmail = payload.email.trim();
+                }
+            }
+
             // 生成文件路径
             const timestamp = Date.now();
             const providerDir = config.credentialsDir.replace('.', ''); // 去掉开头的点
             const targetDir = path.join(process.cwd(), 'configs', providerDir);
             await fs.promises.mkdir(targetDir, { recursive: true });
 
-            const filename = `${timestamp}_${i}_oauth_creds.json`;
+            const safeEmail = accountEmail ? sanitizeCredentialFilenamePart(accountEmail) : '';
+            const filename = safeEmail
+                ? `${timestamp}_${i}_antigravity-${safeEmail}_oauth_creds.json`
+                : `${timestamp}_${i}_oauth_creds.json`;
             const credPath = path.join(targetDir, filename);
 
             await fs.promises.writeFile(credPath, JSON.stringify(token, null, 2));
@@ -463,7 +507,8 @@ export async function batchImportGeminiTokensStream(
             // 自动关联新生成的凭据到 Pools
             await autoLinkProviderConfigs(CONFIG, {
                 onlyCurrentCred: true,
-                credPath: relativePath
+                credPath: relativePath,
+                customName: accountEmail || undefined
             });
 
         } catch (error) {

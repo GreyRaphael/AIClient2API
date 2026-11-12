@@ -24,6 +24,7 @@ import type { ProviderConfig } from '../provider-types.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import { getErrorMessage } from '../../utils/error.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
+import { decodeJwtPayload } from '../../auth/oauth-shared.ts';
 
 interface CodexServiceConfig extends ProviderConfig {
     CODEX_BASE_URL?: string;
@@ -749,6 +750,12 @@ export class CodexApiService {
             this.refreshToken = typeof credsRecord.refresh_token === 'string' ? credsRecord.refresh_token : null;
             this.accountId = typeof credsRecord.account_id === 'string' ? credsRecord.account_id : null;
             this.email = typeof credsRecord.email === 'string' ? credsRecord.email : null;
+            if (!this.email && this.idToken) {
+                const payload = decodeJwtPayload(this.idToken);
+                if (payload && typeof payload.email === 'string' && payload.email) {
+                    this.email = payload.email.trim();
+                }
+            }
             this.last_refresh = typeof credsRecord.last_refresh === 'string' ? credsRecord.last_refresh : this.last_refresh;
             this.expiresAt = typeof credsRecord.expired === 'string' ? new Date(credsRecord.expired) : null; // 注意：字段名是 expired
 
@@ -772,8 +779,14 @@ export class CodexApiService {
 
             if (poolManager && this.uuid) {
                 const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
-                if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
-                    poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                if (node) {
+                    if (!node.config.customName && this.email) {
+                        node.config.customName = this.email;
+                        (poolManager as DynamicPayload)._debouncedSave?.();
+                    }
+                    if (!node.config.isHealthy || node.config.lastErrorMessage) {
+                        poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                    }
                 }
             }
         } catch (rawError) {

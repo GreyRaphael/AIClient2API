@@ -274,6 +274,8 @@ async function linkSingleCredential(
                 options.baseUrl || options.host
             ) || traeDefaults.baseUrl;
             newProvider.customName = options.customName || traeDefaults.customName;
+        } else if (options.customName) {
+            newProvider.customName = options.customName;
         }
 
         // 添加到配置

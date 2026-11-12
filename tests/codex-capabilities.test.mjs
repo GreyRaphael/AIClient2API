@@ -4,6 +4,11 @@ import { expect, jest } from './support/harness.mjs';
 import { CodexConverter } from '../src/converters/strategies/CodexConverter.ts';
 import { CodexApiService } from '../src/providers/openai/codex-core.ts';
 import { resolveProviderCapabilities } from '../src/providers/provider-capabilities.ts';
+import { setProviderPoolManager } from '../src/providers/pool-context.ts';
+import { autoLinkProviderConfigs } from '../src/services/provider-config-linker.ts';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 describe('Codex 输出长度上限能力', () => {
     test('openai-codex-oauth 默认透传输出上限', () => {
@@ -64,6 +69,91 @@ describe('Codex 输出长度上限能力', () => {
             expect(request.max_completion_tokens).toBeUndefined();
         } finally {
             clearInterval(service.cleanupInterval);
+        }
+    });
+
+    test('Codex loadCredentials backfills node.config.customName from email', async () => {
+        const fakeEmail = 'codex-user@example.com';
+        const tempCredPath = path.join(os.tmpdir(), `test_codex_cred_${Date.now()}.json`);
+        fs.writeFileSync(tempCredPath, JSON.stringify({
+            access_token: 'fake-token',
+            refresh_token: 'fake-refresh',
+            expired: new Date(Date.now() + 3600000).toISOString(),
+            email: fakeEmail
+        }));
+
+        const nodeUuid = 'test-codex-node-1';
+        const mockNode = {
+            config: {
+                uuid: nodeUuid,
+                customName: null,
+                isHealthy: true
+            }
+        };
+        const mockPoolManager = {
+            _findProvider: jest.fn().mockReturnValue(mockNode),
+            markProviderHealthy: jest.fn(),
+            markProviderNeedRefresh: jest.fn(),
+            markProviderUnhealthyImmediately: jest.fn(),
+            _debouncedSave: jest.fn()
+        };
+        setProviderPoolManager(mockPoolManager);
+
+        const service = new CodexApiService({
+            MODEL_PROVIDER: 'openai-codex-oauth',
+            CODEX_OAUTH_CREDS_FILE_PATH: tempCredPath,
+            uuid: nodeUuid
+        });
+
+        try {
+            await service.loadCredentials();
+            expect(service.email).toBe(fakeEmail);
+            expect(mockNode.config.customName).toBe(fakeEmail);
+            expect(mockPoolManager._debouncedSave).toHaveBeenCalled();
+        } finally {
+            clearInterval(service.cleanupInterval);
+            if (fs.existsSync(tempCredPath)) {
+                fs.unlinkSync(tempCredPath);
+            }
+            setProviderPoolManager(null);
+        }
+    });
+
+    test('autoLinkProviderConfigs preserves customName in options for codex credential', async () => {
+        const fakeEmail = 'auto-linked-codex@example.com';
+        const targetDir = path.join(process.cwd(), 'configs', 'codex');
+        fs.mkdirSync(targetDir, { recursive: true });
+        const fixturePath = path.join(targetDir, `test_fixture_${Date.now()}_oauth_creds.json`);
+        fs.writeFileSync(fixturePath, JSON.stringify({
+            access_token: 'fake-token',
+            refresh_token: 'fake-refresh'
+        }));
+
+        const testPoolsPath = path.join(os.tmpdir(), `test_pools_${Date.now()}_${Math.random().toString(36).slice(2)}.json`);
+        try {
+            const mockConfig = {
+                PROVIDER_POOLS_FILE_PATH: testPoolsPath,
+                providerPools: {
+                    'openai-codex-oauth': []
+                }
+            };
+
+            const relPath = path.relative(process.cwd(), fixturePath);
+            await autoLinkProviderConfigs(mockConfig, {
+                onlyCurrentCred: true,
+                credPath: relPath,
+                customName: fakeEmail
+            });
+
+            expect(mockConfig.providerPools['openai-codex-oauth'].length).toBe(1);
+            expect(mockConfig.providerPools['openai-codex-oauth'][0].customName).toBe(fakeEmail);
+        } finally {
+            if (fs.existsSync(fixturePath)) {
+                fs.unlinkSync(fixturePath);
+            }
+            if (fs.existsSync(testPoolsPath)) {
+                fs.unlinkSync(testPoolsPath);
+            }
         }
     });
 });

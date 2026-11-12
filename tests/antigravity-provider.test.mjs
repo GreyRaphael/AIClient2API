@@ -15,6 +15,11 @@ import {
     setCapabilityStore
 } from '../src/providers/model-capability.ts';
 import { CONFIG } from '../src/core/config-manager.ts';
+import { setProviderPoolManager } from '../src/providers/pool-context.ts';
+import { autoLinkProviderConfigs } from '../src/services/provider-config-linker.ts';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 function seedNodeModels(providerType, nodesByUuid) {
     const nodes = {};
@@ -330,5 +335,87 @@ describe('Antigravity Provider & Pool Refactor Tests', () => {
         expect(parseAntigravityUserAgentVersion('Mozilla/5.0')).toBeNull();
         expect(parseAntigravityUserAgentVersion(undefined)).toBeNull();
         expect(parseAntigravityUserAgentVersion(null)).toBeNull();
+    });
+
+    test('12. loadCredentials extracts email from id_token and backfills node.config.customName when missing', async () => {
+        const fakeEmail = 'antigravity-user@example.com';
+        const fakeIdToken = `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({ email: fakeEmail })).toString('base64url')}.`;
+        const tempCredPath = path.join(os.tmpdir(), `test_antigravity_cred_${Date.now()}.json`);
+        fs.writeFileSync(tempCredPath, JSON.stringify({
+            access_token: 'fake-access-token',
+            refresh_token: 'fake-refresh-token',
+            id_token: fakeIdToken
+        }));
+
+        try {
+            const nodeUuid = 'test-ag-node-1';
+            const mockNode = {
+                config: {
+                    uuid: nodeUuid,
+                    customName: null,
+                    isHealthy: true
+                }
+            };
+            const mockPoolManager = {
+                _findProvider: jest.fn().mockReturnValue(mockNode),
+                markProviderHealthy: jest.fn(),
+                _debouncedSave: jest.fn()
+            };
+            setProviderPoolManager(mockPoolManager);
+
+            const service = new AntigravityApiService({
+                ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: tempCredPath,
+                uuid: nodeUuid
+            });
+
+            await service.loadCredentials();
+
+            expect(service.accountEmail).toBe(fakeEmail);
+            expect(mockNode.config.customName).toBe(fakeEmail);
+            expect(mockPoolManager._debouncedSave).toHaveBeenCalled();
+        } finally {
+            if (fs.existsSync(tempCredPath)) {
+                fs.unlinkSync(tempCredPath);
+            }
+            setProviderPoolManager(null);
+        }
+    });
+
+    test('13. autoLinkProviderConfigs preserves customName passed in options for antigravity credential', async () => {
+        const fakeEmail = 'auto-linked-ag@example.com';
+        const targetDir = path.join(process.cwd(), 'configs', 'antigravity');
+        fs.mkdirSync(targetDir, { recursive: true });
+        const fixturePath = path.join(targetDir, `test_fixture_${Date.now()}_oauth_creds.json`);
+        fs.writeFileSync(fixturePath, JSON.stringify({
+            access_token: 'fake-token',
+            refresh_token: 'fake-refresh'
+        }));
+
+        const testPoolsPath = path.join(os.tmpdir(), `test_pools_${Date.now()}_${Math.random().toString(36).slice(2)}.json`);
+        try {
+            const mockConfig = {
+                PROVIDER_POOLS_FILE_PATH: testPoolsPath,
+                providerPools: {
+                    'gemini-antigravity': []
+                }
+            };
+
+            const relPath = path.relative(process.cwd(), fixturePath);
+            await autoLinkProviderConfigs(mockConfig, {
+                onlyCurrentCred: true,
+                credPath: relPath,
+                customName: fakeEmail
+            });
+
+            expect(mockConfig.providerPools['gemini-antigravity'].length).toBe(1);
+            expect(mockConfig.providerPools['gemini-antigravity'][0].customName).toBe(fakeEmail);
+        } finally {
+            if (fs.existsSync(fixturePath)) {
+                fs.unlinkSync(fixturePath);
+            }
+            if (fs.existsSync(testPoolsPath)) {
+                fs.unlinkSync(testPoolsPath);
+            }
+        }
     });
 });
