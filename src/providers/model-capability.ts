@@ -3,6 +3,7 @@ import { atomicWriteFile, withFileLock } from '../utils/file-lock.ts';
 import logger from '../utils/logger.ts';
 import { isTestEnv } from '../utils/test-env.ts';
 import { CONFIG } from '../core/config-manager.ts';
+import { getProviderPoolManager } from './pool-context.ts';
 import {
     getConfiguredSupportedModels,
     getCustomModelIdsForProvider,
@@ -498,6 +499,13 @@ export async function refreshNodeCapability(
             store.setEntry(key, entry);
             await store.flush();
             logger.info(`[ModelCapability] ${key} refreshed: ${entry.models.length} models (${reason})`);
+            const poolManager = getProviderPoolManager();
+            if (poolManager && nodeConfig.uuid && entry.models.length > 0) {
+                const node = (poolManager as DynamicPayload)._findProvider?.(providerType, nodeConfig.uuid);
+                if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
+                    poolManager.markProviderHealthy(providerType, nodeConfig);
+                }
+            }
             return entry;
         } catch (caught) { const error = caught as DynamicPayload;
             const consecutiveFailures = (existing?.consecutiveFailures || 0) + 1;
@@ -516,6 +524,15 @@ export async function refreshNodeCapability(
             };
             store.setEntry(key, failureEntry);
             logger.warn(`[ModelCapability] ${key} refresh failed (attempt ${consecutiveFailures}), next in ${Math.round(backoffMs / 1000)}s: ${failureEntry.lastError}`);
+            const poolManager = getProviderPoolManager();
+            const errorMsg = error.message || 'Capability refresh failed';
+            if (poolManager && nodeConfig?.uuid && (
+                /\b(401|403)\b/.test(errorMsg) ||
+                /\b(Unauthorized|Forbidden|AccessDenied|InvalidToken|ExpiredToken|credentials|Token|OAuth)\b/i.test(errorMsg) ||
+                error.code === 'ENOENT'
+            )) {
+                poolManager.markProviderUnhealthyImmediately(providerType, nodeConfig, errorMsg);
+            }
             return failureEntry;
         } finally {
             inFlightRefreshes.delete(key);

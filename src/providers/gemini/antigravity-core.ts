@@ -1270,18 +1270,37 @@ export class AntigravityApiService {
      */
     async loadCredentials() {
         const credPath = this.oauthCredsFilePath || path.join(os.homedir(), CREDENTIALS_DIR, CREDENTIALS_FILE);
+        const poolManager = getProviderPoolManager();
+        const providerType = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY;
+
         try {
             const data = await fs.readFile(credPath, "utf8");
             const credentials = JSON.parse(data);
+            if (!credentials || (!credentials.access_token && !credentials.refresh_token)) {
+                throw new Error(`Credentials file is missing tokens: ${credPath}`);
+            }
             this.authClient.setCredentials(credentials);
             logger.info('[Antigravity Auth] Credentials loaded successfully from file.');
+            if (poolManager && this.uuid) {
+                const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
+                if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
+                    poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                }
+            }
         } catch (rawError) {
             const error = asAntigravityError(rawError);
+            const errorMsg = error.code === 'ENOENT'
+                ? `OAuth credentials file not found: ${credPath}`
+                : `Failed to load credentials: ${error.message || String(error)}`;
             if (error.code === 'ENOENT') {
                 logger.debug(`[Antigravity Auth] Credentials file not found: ${credPath}`);
             } else {
                 logger.warn(`[Antigravity Auth] Failed to load credentials from file: ${error.message}`);
             }
+            if (poolManager && this.uuid) {
+                poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+            }
+            throw new Error(errorMsg);
         }
     }
 
@@ -1709,6 +1728,13 @@ export class AntigravityApiService {
                 throw error;
             }
 
+            if (/No access, refresh token|invalid_grant/i.test(errorMessage)) {
+                const poolManager = getProviderPoolManager();
+                if (poolManager && this.uuid) {
+                    poolManager.markProviderUnhealthyImmediately(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, { uuid: this.uuid }, errorMessage);
+                }
+            }
+
             if (status === 429) {
                 const retryAfter = getRetryAfterMs(error);
                 if (retryAfter !== null) {
@@ -1882,6 +1908,13 @@ export class AntigravityApiService {
                 error.shouldSwitchCredential = true;
                 error.skipErrorCount = true;
                 throw error;
+            }
+
+            if (/No access, refresh token|invalid_grant/i.test(errorMessage)) {
+                const poolManager = getProviderPoolManager();
+                if (poolManager && this.uuid) {
+                    poolManager.markProviderUnhealthyImmediately(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, { uuid: this.uuid }, errorMessage);
+                }
             }
 
             if (status === 429) {

@@ -84,6 +84,40 @@
     background: var(--bg-primary);
 }
 
+.provider-item.has-error {
+    border-color: var(--danger-border);
+}
+
+.provider-item.has-error:hover {
+    border-color: var(--danger-color);
+}
+
+.provider-auth-alert {
+    margin-top: 0.5rem;
+    padding: 0.375rem 0.625rem;
+    background: var(--danger-10);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--danger-text);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+}
+
+.provider-auth-alert i {
+    color: var(--danger-color);
+    flex-shrink: 0;
+}
+
+.provider-auth-alert .auth-alert-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
 .provider-header {
     display: flex;
     justify-content: space-between;
@@ -1062,7 +1096,8 @@
     cursor: pointer;
     box-shadow: var(--shadow-sm);
     overflow: hidden;
-    height: 150px;
+    min-height: 150px;
+    height: auto;
 }
 
 .provider-item-card:hover {
@@ -1111,18 +1146,47 @@
     margin-top: 4px;
 }
 
-.card-status-dot.healthy {
+.card-status-dot.healthy,
+.provider-item-card.healthy .card-status-dot {
     background: var(--success-color);
     box-shadow: 0 0 6px var(--success-10);
 }
 
-.card-status-dot.unhealthy {
+.card-status-dot.unhealthy,
+.provider-item-card.unhealthy .card-status-dot {
     background: var(--danger-color);
     box-shadow: 0 0 6px var(--danger-30);
 }
 
-.card-status-dot.disabled {
+.card-status-dot.disabled,
+.provider-item-card.disabled .card-status-dot {
     background: var(--text-tertiary);
+}
+
+.card-error-text {
+    margin: 0.375rem 0;
+    padding: 0.25rem 0.5rem;
+    background: var(--danger-10);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--danger-text);
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    overflow: hidden;
+}
+
+.card-error-text i {
+    color: var(--danger-color);
+    flex-shrink: 0;
+    font-size: 0.75rem;
+}
+
+.card-error-text span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .provider-card-body {

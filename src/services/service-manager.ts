@@ -110,7 +110,13 @@ export async function initApiService(config: Record<string, any>, isReady = fals
                     delete nodeConfig.providerPools; // 移除 providerPools 避免递归
                     
                     // 初始化服务适配器
-                    getServiceAdapter(nodeConfig);
+                    const adapter = getServiceAdapter(nodeConfig);
+                    if (typeof adapter.initialize === 'function') {
+                        adapter.initialize().catch((error) => {
+                            const identifier = providerConfig.customName || providerConfig.uuid || 'unknown';
+                            logger.warn(`  ✗ Failed to initialize node credentials/discovery ${identifier}: ${getErrorMessage(error)}`);
+                        });
+                    }
                     totalInitialized++;
                     
                     const identifier = providerConfig.customName || providerConfig.uuid || 'unknown';

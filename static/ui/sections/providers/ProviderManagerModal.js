@@ -640,8 +640,8 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
                 </div>
                 <div class="provider-meta">
                     <span class="health-status">
-                        <i class=${`fas ${node.isHealthy ? 'fa-check-circle text-success' : 'fa-exclamation-triangle text-warning'}`}></i>
-                        ${t('modal.provider.healthCheckLabel')}: ${t(node.isHealthy ? 'modal.provider.status.healthy' : 'modal.provider.status.unhealthy')}
+                        <i class=${`fas ${node.isHealthy ? 'fa-check-circle text-success' : 'fa-exclamation-circle text-danger'}`}></i>
+                        ${t('modal.provider.healthCheckLabel')}: <span class=${node.isHealthy ? 'text-success' : 'text-danger'}>${t(node.isHealthy ? 'modal.provider.status.healthy' : 'modal.provider.status.unhealthy')}</span>
                     </span> |
                     <span>${t('upload.detail.status')}: ${t(node.isDisabled ? 'modal.provider.status.disabled' : 'modal.provider.status.enabled')}</span> |
                     <span>${t('modal.provider.usageCount')}: ${node.usageCount || 0}</span> |
@@ -670,7 +670,7 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
             return html`
                 <div class=${`provider-item-card ${healthClass} ${disabledClass}`} key=${node.uuid}>
                     <div class="card-header">
-                        <div class="card-status-dot"></div>
+                        <div class=${`card-status-dot ${healthClass}`}></div>
                         <div class="card-name" title=${node.customName || node.uuid}>${node.customName || node.uuid}</div>
                         ${node.needsRefresh ? html`<i class="fas fa-sync-alt fa-spin card-refresh-icon"></i>` : null}
                     </div>
@@ -682,6 +682,11 @@ export function ProviderManagerModal({ providerType, onClose, onChanged, onAuth 
                             <i class="fas fa-exclamation-circle"></i><span>${node.errorCount || 0}</span>
                         </div>
                     </div>
+                    ${!node.isHealthy && node.lastErrorMessage ? html`
+                        <div class="card-error-text" title=${node.lastErrorMessage}>
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span>${node.lastErrorMessage}</span>
+                        </div>` : null}
                     <div class="card-actions">
                         <button class=${`card-action-btn ${node.isDisabled ? 'btn-success' : 'btn-warning'}`}
                             title=${node.isDisabled ? t('modal.provider.enabled') : t('modal.provider.disabled')}

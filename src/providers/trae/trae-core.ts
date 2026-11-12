@@ -12,6 +12,7 @@ import { AnthropicSseEmitter } from '../../converters/anthropic-sse-emitter.ts';
 import { anthropicUsageFromInclusiveInput, stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 import { isSignatureVaultEnabled, mintVirtualSignature } from '../../converters/signature-vault.ts';
 import { PROVIDER_MODELS, BASE_TRAE_MODELS, BASE_TRAE_CHAT_V3_MODELS } from '../provider-models.ts';
+import { getProviderPoolManager } from '../pool-context.ts';
 import { withFileLock, atomicWriteFileSync } from '../../utils/file-lock.ts';
 import { exchangeTraeToken, TRAE_AUTH_CONFIG } from '../../auth/trae-auth.ts';
 import {
@@ -1452,8 +1453,15 @@ export class TraeApiService {
      * 读取本地凭据文件
      */
     loadCredentials(): void {
+        const poolManager = getProviderPoolManager();
+        const providerType = this.getTargetProvider();
+
         if (!this.credsFilePath) {
-            logger.warn('[Trae] No TRAE_OAUTH_CREDS_FILE_PATH specified');
+            const errorMsg = 'No TRAE_OAUTH_CREDS_FILE_PATH specified';
+            logger.warn(`[Trae] ${errorMsg}`);
+            if (poolManager && this.uuid) {
+                poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+            }
             return;
         }
 
@@ -1463,7 +1471,11 @@ export class TraeApiService {
                 : path.join(process.cwd(), this.credsFilePath);
 
             if (!fs.existsSync(resolvedPath)) {
-                logger.warn(`[Trae] Credentials file not found: ${resolvedPath}`);
+                const errorMsg = `Credentials file not found: ${resolvedPath}`;
+                logger.warn(`[Trae] ${errorMsg}`);
+                if (poolManager && this.uuid) {
+                    poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+                }
                 return;
             }
 
@@ -1490,9 +1502,28 @@ export class TraeApiService {
             this.expiresAt = Number(data.expires_at || data.expiresAt || 0);
 
             this.isInitialized = Boolean(this.accessToken || this.refreshToken || this.personalAccessToken);
+            if (!this.isInitialized) {
+                const errorMsg = `No valid token found in credentials: ${this.credsFilePath}`;
+                if (poolManager && this.uuid) {
+                    poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+                }
+                return;
+            }
+
+            if (poolManager && this.uuid) {
+                const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
+                if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
+                    poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                }
+            }
+
             logger.info(`[Trae] Loaded credentials for user: ${this.nickname} (auth: ${this.authHost}, agent: ${this.agentHost}, enterprise: ${this.enterpriseId || 'none'})`);
         } catch (caught) { const err = caught as DynamicPayload;
-            logger.error(`[Trae] Failed to load credentials from ${this.credsFilePath}: ${err.message}`);
+            const errorMsg = `Failed to load credentials from ${this.credsFilePath}: ${err.message}`;
+            logger.error(`[Trae] ${errorMsg}`);
+            if (poolManager && this.uuid) {
+                poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+            }
         }
     }
 

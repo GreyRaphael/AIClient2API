@@ -111,5 +111,20 @@
       "errorCount": 0,
       "lastErrorTime": null
     }
+  ],
+  "openai-codex-oauth": [
+    {
+      "customName": "Codex节点1",
+      "CODEX_OAUTH_CREDS_FILE_PATH": "./configs/codex/oauth_creds.json",
+      "CODEX_EMAIL": "user@example.com",
+      "uuid": "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
+      "checkHealth": false,
+      "isHealthy": true,
+      "isDisabled": false,
+      "lastUsed": null,
+      "usageCount": 0,
+      "errorCount": 0,
+      "lastErrorTime": null
+    }
   ]
 }

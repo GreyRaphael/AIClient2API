@@ -144,9 +144,11 @@ export default function ProvidersSection() {
             ? t('providers.status.empty')
             : t('providers.status.healthy', { healthy, total });
         const groupable = getGroupableProviderIds().includes(type) && !config?.registerUrl;
+        const errorNodes = nodes.filter((node) => !node.isHealthy && node.lastErrorMessage);
+        const hasError = errorNodes.length > 0;
 
         return html`
-            <div class=${`provider-item ${isEmpty ? 'empty-provider' : ''}`} data-provider-type=${type} key=${type}
+            <div class=${`provider-item ${isEmpty ? 'empty-provider' : ''} ${hasError ? 'has-error' : ''}`} data-provider-type=${type} key=${type}
                 style="cursor: pointer;" onClick=${() => setManagerType(type)}>
                 <div class="provider-header">
                     <div class="provider-name"><span class="provider-type-text">${name}</span></div>
@@ -204,6 +206,15 @@ export default function ProvidersSection() {
                         <span class="provider-stat-value">${errors}</span>
                     </div>
                 </div>
+                ${hasError ? html`
+                    <div class="provider-auth-alert" title=${errorNodes.map((n) => `${n.customName || n.uuid}: ${n.lastErrorMessage}`).join('\n')}>
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span class="auth-alert-text">
+                            ${errorNodes.length === 1
+                                ? `${errorNodes[0].customName ? `${errorNodes[0].customName}: ` : ''}${errorNodes[0].lastErrorMessage}`
+                                : `${errorNodes.length} ${t('modal.provider.nodesFailed')}: ${errorNodes[0].lastErrorMessage}`}
+                        </span>
+                    </div>` : null}
             </div>`;
     };
 

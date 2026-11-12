@@ -70,12 +70,16 @@ export function ProviderStatusPanel({ providersData, loading }) {
                     const unhealthyCount = totalCount - healthyCount - disabledCount;
                     const totalUsage = accounts.reduce((sum, account) => sum + (account.usageCount || 0), 0);
                     const totalErrors = accounts.reduce((sum, account) => sum + (account.errorCount || 0), 0);
+                    const hasAuthError = accounts.some((account) => !account.isHealthy && account.lastErrorMessage);
 
                     return html`
                         <div class="provider-status-card" style="cursor: pointer;" key=${type}
                             onClick=${() => openProviderManager(type)}>
                             <div class="provider-info">
-                                <span class="provider-name" title=${displayName}>${displayName}</span>
+                                <span class="provider-name" title=${displayName}>
+                                    ${displayName}
+                                    ${hasAuthError ? html`<i class="fas fa-exclamation-circle text-danger" title=${t('modal.provider.authErrorTip')} style="margin-left: 6px; font-size: 0.75rem;"></i>` : null}
+                                </span>
                                 <span class="provider-count" style="font-size: 0.75rem; color: var(--text-secondary);">
                                     ${healthyCount}/${totalCount}
                                 </span>
@@ -99,7 +103,8 @@ export function ProviderStatusPanel({ providersData, loading }) {
                                     const statusKey = account.isDisabled
                                         ? 'modal.provider.status.disabled'
                                         : !account.isHealthy ? 'modal.provider.status.unhealthy' : 'modal.provider.status.healthy';
-                                    const title = `${account.customName || account.uuid} (${t(statusKey)})\n${t('providers.stat.usageCount')}: ${account.usageCount || 0}\n${t('providers.stat.errorCount')}: ${account.errorCount || 0}`;
+                                    const errorTip = account.lastErrorMessage ? `\n${t('modal.provider.lastError')} ${account.lastErrorMessage}` : '';
+                                    const title = `${account.customName || account.uuid} (${t(statusKey)})${errorTip}\n${t('providers.stat.usageCount')}: ${account.usageCount || 0}\n${t('providers.stat.errorCount')}: ${account.errorCount || 0}`;
                                     return html`
                                         <span class=${`node-dot ${statusClass}`} title=${title}
                                             key=${account.uuid}

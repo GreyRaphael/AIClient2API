@@ -702,6 +702,8 @@ export class CodexApiService {
      */
     async loadCredentials() {
         const email = this.config.CODEX_EMAIL || 'default';
+        const poolManager = getProviderPoolManager();
+        const providerType = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API;
 
         try {
             let creds: Record<string, unknown>;
@@ -712,21 +714,26 @@ export class CodexApiService {
                 credsPath = this.config.CODEX_OAUTH_CREDS_FILE_PATH;
                 const exists = await this.fileExists(credsPath);
                 if (!exists) {
-                    throw new Error('Codex credentials not found. Please authenticate first using OAuth.');
+                    throw new Error(`Codex credentials file not found: ${credsPath}`);
                 }
                 creds = JSON.parse(await fs.readFile(credsPath, 'utf8'));
             } else {
                 // 从 configs/codex 目录扫描加载
                 const projectDir = process.cwd();
                 const targetDir = path.join(projectDir, 'configs', 'codex');
-                const files = await fs.readdir(targetDir);
+                let files: string[] = [];
+                try {
+                    files = await fs.readdir(targetDir);
+                } catch {
+                    files = [];
+                }
                 const matchingFile = files
                     .filter((f) => f.includes(`codex-${email}`) && f.endsWith('.json'))
                     .sort()
                     .pop(); // 获取最新的文件
 
                 if (!matchingFile) {
-                    throw new Error('Codex credentials not found. Please authenticate first using OAuth.');
+                    throw new Error(`Codex credentials not found for email '${email}'. Please authenticate first using OAuth.`);
                 }
 
                 credsPath = path.join(targetDir, matchingFile);
@@ -745,6 +752,10 @@ export class CodexApiService {
             this.last_refresh = typeof credsRecord.last_refresh === 'string' ? credsRecord.last_refresh : this.last_refresh;
             this.expiresAt = typeof credsRecord.expired === 'string' ? new Date(credsRecord.expired) : null; // 注意：字段名是 expired
 
+            if (!this.accessToken && !this.refreshToken) {
+                throw new Error(`Invalid credentials file (missing tokens): ${credsPath}`);
+            }
+
             const tokenMeta = parseCodexTokenMetadata(this.accessToken);
             this.planType = typeof tokenMeta.planType === 'string' ? tokenMeta.planType : 'unknown';
             if (!this.accountId && typeof tokenMeta.accountId === 'string') {
@@ -758,9 +769,21 @@ export class CodexApiService {
 
             this.isInitialized = true;
             logger.info(`[Codex] Initialized with account: ${this.email} (plan: ${this.planType})`);
+
+            if (poolManager && this.uuid) {
+                const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
+                if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
+                    poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                }
+            }
         } catch (rawError) {
             const error = asCodexError(rawError);
-            logger.warn(`[Codex Auth] Failed to load credentials: ${getErrorMessage(error)}`);
+            const errorMsg = getErrorMessage(error);
+            logger.warn(`[Codex Auth] Failed to load credentials: ${errorMsg}`);
+            if (poolManager && this.uuid) {
+                poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+            }
+            throw new Error(errorMsg);
         }
     }
 

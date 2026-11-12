@@ -6,6 +6,7 @@ import fs from 'fs';
 import { configureAxiosProxy } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/constants.ts';
 import { PROVIDER_MODELS } from '../provider-models.ts';
+import { getProviderPoolManager } from '../pool-context.ts';
 import { withFileLock, atomicWriteFile } from '../../utils/file-lock.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import type { ProviderCapabilities } from '../provider-capabilities.ts';
@@ -248,8 +249,15 @@ export class ZedApiService {
      * 读取本地凭据文件
      */
     loadCredentials() {
+        const poolManager = getProviderPoolManager();
+        const providerType = this.config?.MODEL_PROVIDER || MODEL_PROVIDER.ZED;
+
         if (!this.credsFilePath || !fs.existsSync(this.credsFilePath)) {
-            logger.warn(`[Zed] Creds file not found at ${this.credsFilePath}`);
+            const errorMsg = `Creds file not found at ${this.credsFilePath || 'unspecified'}`;
+            logger.warn(`[Zed] ${errorMsg}`);
+            if (poolManager && this.uuid) {
+                poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+            }
             return false;
         }
 
@@ -266,13 +274,31 @@ export class ZedApiService {
                 this.jwtExpiresAt = data.expires_at || 0;
             }
             this.isInitialized = Boolean(this.userId && this.accessToken);
+            if (!this.isInitialized) {
+                const errorMsg = `Invalid credentials file (missing userId or accessToken): ${this.credsFilePath}`;
+                if (poolManager && this.uuid) {
+                    poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+                }
+                return false;
+            }
             this.modelRegistry.setAccountKey(this.userId);
             this.modelsExpiresAt = this.modelRegistry.fetchedAt
                 ? this.modelRegistry.fetchedAt + ZED_MODELS_CACHE_TTL_MS
                 : 0;
+
+            if (poolManager && this.uuid) {
+                const node = (poolManager as DynamicPayload)._findProvider?.(providerType, this.uuid);
+                if (node && (!node.config.isHealthy || node.config.lastErrorMessage)) {
+                    poolManager.markProviderHealthy(providerType, { uuid: this.uuid });
+                }
+            }
             return this.isInitialized;
         } catch (error) {
-            logger.error(`[Zed] Error reading credentials file: ${getErrorMessage(error)}`);
+            const errorMsg = `Error reading credentials file: ${getErrorMessage(error)}`;
+            logger.error(`[Zed] ${errorMsg}`);
+            if (poolManager && this.uuid) {
+                poolManager.markProviderUnhealthyImmediately(providerType, { uuid: this.uuid }, errorMsg);
+            }
             return false;
         }
     }

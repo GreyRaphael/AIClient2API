@@ -372,6 +372,8 @@ export default {
     'modal.provider.status.unhealthy': '异常',
     'modal.provider.status.disabled': '已禁用',
     'modal.provider.status.enabled': '已启用',
+    'modal.provider.authErrorTip': '存在授权或配置异常节点',
+    'modal.provider.nodesFailed': '个节点授权/配置异常',
     'modal.provider.lastError': '最后错误:',
     'modal.provider.lastUsed': '最后使用:',
     'modal.provider.lastCheck': '最后检测:',

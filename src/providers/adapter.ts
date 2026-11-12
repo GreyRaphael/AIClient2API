@@ -124,6 +124,13 @@ export class ApiServiceAdapter {
     isExpiryDateNear(): boolean {
         throw new Error("Method 'isExpiryDateNear()' must be implemented.");
     }
+
+    /**
+     * 初始化适配器与底层服务
+     */
+    async initialize(): Promise<void> {
+        // default no-op
+    }
 }
 
 
@@ -134,6 +141,10 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
     constructor(config: DynamicPayload) {
         super();
         this.antigravityApiService = new AntigravityApiService(config);
+    }
+
+    async initialize(): Promise<void> {
+        await this.antigravityApiService.initialize();
     }
 
     async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
@@ -386,6 +397,10 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
     constructor(config: DynamicPayload) {
         super();
         this.codexApiService = new CodexApiService(config);
+    }
+
+    async initialize(): Promise<void> {
+        await this.codexApiService.initialize();
     }
 
     /** 停掉 CodexApiService 构造函数里启动的会话缓存清理定时器。 */

@@ -373,6 +373,8 @@ export default {
     'modal.provider.status.unhealthy': 'Abnormal',
     'modal.provider.status.disabled': 'Disabled',
     'modal.provider.status.enabled': 'Enabled',
+    'modal.provider.authErrorTip': 'Nodes with auth/config errors detected',
+    'modal.provider.nodesFailed': 'nodes with auth/config errors',
     'modal.provider.lastError': 'Last Error:',
     'modal.provider.lastUsed': 'Last Used:',
     'modal.provider.lastCheck': 'Last Check:',
