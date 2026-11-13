@@ -25,8 +25,10 @@ import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 import { getErrorMessage } from '../../utils/error.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 import { toCodexResponseBody } from '../../converters/codex-envelope.ts';
+import type { ErrorAugmentation } from '../../../types/error-augmentation.ts';
 import { shortenToolName, buildToolNameMap } from '../../converters/tool-name.ts';
 import { decodeJwtPayload } from '../../auth/oauth-shared.ts';
+import { isRecord } from '../../utils/type-guards.ts';
 
 interface CodexServiceConfig extends ProviderConfig {
     CODEX_BASE_URL?: string;
@@ -39,26 +41,9 @@ interface CodexServiceConfig extends ProviderConfig {
     [key: string]: unknown;
 }
 
-interface CodexErrorLike {
-    response?: { status?: number; data?: unknown };
-    code?: string;
-    message?: string;
-    credentialMarkedUnhealthy?: boolean;
-    shouldSwitchCredential?: boolean;
-    skipErrorCount?: boolean;
-    retryAfterMs?: number;
-}
+type CodexErrorLike = ErrorAugmentation & { message?: string };
 
-interface CodexTerminalError extends Error {
-    response?: { status?: number; data?: unknown };
-    shouldSwitchCredential?: boolean;
-    skipErrorCount?: boolean;
-    retryAfterMs?: number;
-}
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
-}
-
+type CodexTerminalError = Error & ErrorAugmentation;
 function asRecord(value: unknown): Record<string, unknown> {
     return isRecord(value) ? value : {};
 }

@@ -1,3 +1,4 @@
+import { sleep } from '../utils/sleep.ts';
 import {
     ENDPOINT_TYPE,
     getRequestBody,
@@ -376,7 +377,7 @@ export async function handleImageGenerationRequest(
             releaseCurrentSlot();
             const randomDelay = Math.floor(Math.random() * 10000);
             logger.info(`[Image Generation Retry] Credential marked unhealthy. Waiting ${randomDelay}ms before retry ${currentRetry + 1}/${maxRetries}...`);
-            await new Promise(resolve => setTimeout(resolve, randomDelay));
+            await sleep(randomDelay);
 
             try {
                 return await handleImageGenerationRequest(req, res, CONFIG, providerPoolManager, {

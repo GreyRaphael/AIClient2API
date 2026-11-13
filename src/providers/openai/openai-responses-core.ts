@@ -3,8 +3,11 @@ import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Agent } from 'node:http';
 import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
+import { sleep } from '../../utils/sleep.ts';
 import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
-import { MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
+import { MODEL_PROVIDER } from '../../utils/common.ts';
+import { classifyRetry, describeRetry } from '../retry.ts';
+import { isRecord } from '../../utils/type-guards.ts';
 
 interface OpenAIResponsesServiceConfig {
     OPENAI_API_KEY: string;
@@ -21,10 +24,6 @@ interface ErrorResponseDetails {
     status: number | undefined;
     data: unknown;
     message: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
 }
 
 function getErrorResponseDetails(error: unknown): ErrorResponseDetails {
@@ -121,26 +120,21 @@ export class OpenAIResponsesApiService {
                 throw error;
             }
 
-            // Handle 429 (Too Many Requests)
-            if (status === 429) {
-                const retryAfter = getRetryAfterMs(error);
-                if (retryAfter !== null) {
-                    logger.warn(`[API] Received 429 with Retry-After: ${retryAfter}ms. Throwing to upper layer.`);
-                    throw error;
-                }
-                if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    logger.info(`[API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    return this.callApi(endpoint, body, isRetry, retryCount + 1);
-                }
+            const decision = classifyRetry(error, {
+                attempt: retryCount,
+                maxRetries,
+                baseDelayMs: baseDelay,
+                nonRetryableStatuses: [401, 403]
+            });
+
+            if (decision.retryAfterMs !== null) {
+                logger.warn(`[API] Received 429 with Retry-After: ${decision.retryAfterMs}ms. Throwing to upper layer.`);
+                throw error;
             }
 
-            // Handle other retryable errors (5xx server errors)
-            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount);
-                logger.info(`[API] Received ${status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
+            if (decision.retry) {
+                logger.info(describeRetry('Responses API', decision, retryCount, maxRetries));
+                await sleep(decision.delayMs);
                 return this.callApi(endpoint, body, isRetry, retryCount + 1);
             }
 
@@ -246,27 +240,21 @@ export class OpenAIResponsesApiService {
                 throw error;
             }
 
-            // Handle 429 (Too Many Requests)
-            if (status === 429) {
-                const retryAfter = getRetryAfterMs(error);
-                if (retryAfter !== null) {
-                    logger.warn(`[API] Received 429 with Retry-After: ${retryAfter}ms during stream. Throwing to upper layer.`);
-                    throw error;
-                }
-                if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    logger.info(`[API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
-                    return;
-                }
+            const decision = classifyRetry(error, {
+                attempt: retryCount,
+                maxRetries,
+                baseDelayMs: baseDelay,
+                nonRetryableStatuses: [401, 403]
+            });
+
+            if (decision.retryAfterMs !== null) {
+                logger.warn(`[API] Received 429 with Retry-After: ${decision.retryAfterMs}ms during stream. Throwing to upper layer.`);
+                throw error;
             }
 
-            // Handle other retryable errors (5xx server errors)
-            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount);
-                logger.info(`[API] Received ${status} server error during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
+            if (decision.retry) {
+                logger.info(describeRetry('Responses API', decision, retryCount, maxRetries, ' during stream'));
+                await sleep(decision.delayMs);
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }

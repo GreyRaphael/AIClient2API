@@ -15,7 +15,7 @@
  *   the `Record<string, any>` escape hatch cannot grow silently.
  */
 
-import fs from 'node:fs';
+import fs, { globSync } from 'node:fs';
 import path from 'node:path';
 
 let isLegacyTs = false;
@@ -44,10 +44,10 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const TYPES = path.join(ROOT, 'types');
 
+/** 递归列出目录下所有文件（Node 26 内置 glob，无需手写 walk）。 */
 function walk(dir) {
-    return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => path.join(entry.parentPath || dir, entry.name));
+    // globSync 默认只返回文件（不返回目录），故无需 withFileTypes 过滤。
+    return globSync('**/*', { cwd: dir }).map((relative) => path.join(dir, relative));
 }
 
 const files = walk(SRC);

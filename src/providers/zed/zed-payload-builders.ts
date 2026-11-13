@@ -13,13 +13,10 @@ import {
 } from './zed-model-metadata.ts';
 import type { ZedModelMetadata } from './zed-model-metadata.ts';
 import type { ZedProvider } from './zed-protocol.ts';
+import { isRecord } from '../../utils/type-guards.ts';
 
 export type { ZedProvider } from './zed-protocol.ts';
 export type ZedRequest = DynamicPayload;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
-}
 
 function resolveZedThreadId(requestBody?: ZedRequest): string {
     const dsId = requestBody?._downstreamSessionId || requestBody?.downstreamSessionId;

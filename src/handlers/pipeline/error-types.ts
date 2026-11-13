@@ -7,16 +7,9 @@
  */
 
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
+import type { ErrorAugmentation } from '../../../types/error-augmentation.ts';
 
-export type PipelineError = DynamicPayload & {
-    statusCode?: number;
-    status?: number;
-    code?: string | number;
-    response?: DynamicPayload;
-    isEmptyUpstreamResponse?: boolean;
+export type PipelineError = DynamicPayload & ErrorAugmentation & {
     /** 标记「调用方请求错误」，handleError 会映射为 4xx 而非 5xx */
     clientError?: boolean;
-    skipErrorCount?: boolean;
-    shouldSwitchCredential?: boolean;
-    credentialMarkedUnhealthy?: boolean;
 };

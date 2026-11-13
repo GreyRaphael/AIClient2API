@@ -1,4 +1,5 @@
 import logger from './logger.ts';
+import { sleep } from './sleep.ts';
 import { writeFileSync, renameSync, unlinkSync, openSync, fsyncSync, closeSync, promises as pfs } from 'fs';
 
 type AtomicWriteOptions = string | { encoding?: BufferEncoding; mode?: number };
@@ -72,7 +73,7 @@ async function retryRename(src: string, dest: string, retries = 5, delay = 100):
             const code = (err as NodeJS.ErrnoException).code;
             const isLocked = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
             if (isLocked && i < retries - 1) {
-                await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+                await sleep(delay * (i + 1));
                 continue;
             }
             throw err;

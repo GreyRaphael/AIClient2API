@@ -3,8 +3,10 @@ import type { AxiosInstance } from 'axios';
 import type { Agent } from 'node:http';
 import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
+import { sleep } from '../../utils/sleep.ts';
 import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
-import { isRetryableNetworkError, MODEL_PROVIDER, getRetryAfterMs } from '../../utils/common.ts';
+import { MODEL_PROVIDER } from '../../utils/common.ts';
+import { classifyRetry, describeRetry } from '../retry.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
@@ -366,43 +368,28 @@ export class OpenAIApiService {
             const errorCode = error.code;
             const errorMessage = error.message || '';
 
-            // 检查是否为可重试的网络错误
-            const isNetworkError = isRetryableNetworkError(error);
-
             if (status === 401 || status === 403) {
                 logger.error(`[OpenAI API] Received ${status}. API Key might be invalid or expired.`);
                 throw error;
             }
 
-            // Handle 429 (Too Many Requests)
-            if (status === 429) {
-                const retryAfter = getRetryAfterMs(error);
-                if (retryAfter !== null) {
-                    logger.warn(`[OpenAI API] Received 429 with Retry-After: ${retryAfter}ms. Throwing to upper layer.`);
-                    throw error;
-                }
-                if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    logger.info(`[OpenAI API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
-                }
+            const decision = classifyRetry(error, {
+                attempt: retryCount,
+                maxRetries,
+                baseDelayMs: baseDelay,
+                nonRetryableStatuses: [401, 403]
+            });
+
+            if (decision.retryAfterMs !== null) {
+                logger.warn(`[OpenAI API] Received 429 with Retry-After: ${decision.retryAfterMs}ms. Throwing to upper layer.`);
+                throw error;
             }
 
-            // Handle other retryable errors (5xx server errors)
-            if (status >= 500 && status < 600 && retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount);
-                logger.info(`[OpenAI API] Received ${status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
-            }
-
-            // Handle network errors (ECONNRESET, ETIMEDOUT, etc.) with exponential backoff
-            if (isNetworkError && retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount);
+            if (decision.retry) {
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                logger.info(`[OpenAI API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
+                logger.info(describeRetry('OpenAI API', decision, retryCount, maxRetries,
+                    decision.kind === 'network' ? ` (${errorIdentifier})` : ''));
+                await sleep(decision.delayMs);
                 return this.callApi(endpoint, body, isRetry, retryCount + 1, fallbackTried);
             }
 
@@ -566,45 +553,28 @@ export class OpenAIApiService {
                 throw error;
             }
 
-            // 检查是否为可重试的网络错误
-            const isNetworkError = isRetryableNetworkError(error);
-
             if (status === 401 || status === 403) {
                 logger.error(`[OpenAI API] Received ${status} during stream. API Key might be invalid or expired.`);
                 throw error;
             }
 
-            // Handle 429 (Too Many Requests)
-            if (status === 429) {
-                const retryAfter = getRetryAfterMs(error);
-                if (retryAfter !== null) {
-                    logger.warn(`[OpenAI API] Received 429 with Retry-After: ${retryAfter}ms during stream. Throwing to upper layer.`);
-                    throw error;
-                }
-                if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    logger.info(`[OpenAI API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
-                    return;
-                }
+            const decision = classifyRetry(error, {
+                attempt: retryCount,
+                maxRetries,
+                baseDelayMs: baseDelay,
+                nonRetryableStatuses: [401, 403]
+            });
+
+            if (decision.retryAfterMs !== null) {
+                logger.warn(`[OpenAI API] Received 429 with Retry-After: ${decision.retryAfterMs}ms during stream. Throwing to upper layer.`);
+                throw error;
             }
 
-            // Handle other retryable errors (5xx server errors)
-            if (status >= 500 && status < 600 && retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount);
-                logger.info(`[OpenAI API] Received ${status} server error during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
-                return;
-            }
-
-            // Handle network errors (ECONNRESET, ETIMEDOUT, etc.) with exponential backoff
-            if (isNetworkError && retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount);
+            if (decision.retry) {
                 const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                logger.info(`[OpenAI API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
+                logger.info(describeRetry('OpenAI API', decision, retryCount, maxRetries,
+                    decision.kind === 'network' ? ` (${errorIdentifier}) during stream` : ' during stream'));
+                await sleep(decision.delayMs);
                 yield* this.streamApi(endpoint, body, isRetry, retryCount + 1);
                 return;
             }

@@ -1,6 +1,7 @@
 import { inferZedProvider, isZedProvider } from './zed-protocol.ts';
 import type { ZedProvider } from './zed-protocol.ts';
 import { pickMaxEffort } from '../reasoning-effort.ts';
+import { isRecord } from '../../utils/type-guards.ts';
 
 export type { ZedProvider } from './zed-protocol.ts';
 
@@ -29,10 +30,6 @@ export interface ZedModelMetadata {
     supports_server_side_compaction: boolean;
     supports_streaming_tools: boolean;
     supports_parallel_tool_calls: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
 }
 
 export function isEnabledZedModel(value: unknown): value is Record<string, unknown> & { id: string } {

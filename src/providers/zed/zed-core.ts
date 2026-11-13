@@ -22,6 +22,7 @@ import type { ZedProvider } from './zed-protocol.ts';
 import { normalizeZedModelMetadata } from './zed-model-metadata.ts';
 import type { ZedModelMetadata } from './zed-model-metadata.ts';
 import { normalizeSupportEfforts } from '../reasoning-effort.ts';
+import { isRecord } from '../../utils/type-guards.ts';
 
 interface ZedServiceConfig extends ProviderConfig {
     ZED_OAUTH_CREDS_FILE_PATH?: string;
@@ -39,9 +40,6 @@ interface ZedAuthParams {
     config?: ZedServiceConfig;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
-}
 export const ZED_TOKEN_URL = 'https://cloud.zed.dev/client/llm_tokens';
 export const ZED_COMPLETIONS_URL = 'https://cloud.zed.dev/completions';
 export const ZED_MODELS_URL = 'https://cloud.zed.dev/models';

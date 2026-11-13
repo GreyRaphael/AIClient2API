@@ -8,18 +8,15 @@
  */
 
 import { spawn } from 'child_process';
+import { sleep } from './sleep.ts';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 import logger from './logger.ts';
 import http from 'http';
 import { getErrorMessage } from './error.ts';
+import { isRecord } from './type-guards.ts';
 
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return value !== null && typeof value === 'object';
-}
 let __dirname = process.cwd();
 try {
     // Node.js 20.11+ 提供 import.meta.dirname，无需再经过 fileURLToPath
@@ -194,7 +191,7 @@ class TLSSidecar {
      * @param {string} [proxyUrl] - 上游代理 URL（可选）
      * @returns {Object} 修改后的 axios 配置
      */
-    wrapAxiosConfig(axiosConfig: UnknownRecord, proxyUrl: string | null): UnknownRecord {
+    wrapAxiosConfig(axiosConfig: Record<string, unknown>, proxyUrl: string | null): Record<string, unknown> {
         if (!this.isReady() || !this.baseUrl) {
             return axiosConfig; // sidecar 不可用，原样返回
         }
@@ -296,10 +293,6 @@ class TLSSidecar {
             this.healthCheckTimer = null;
         }
     }
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // 单例

@@ -15,6 +15,7 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 import { getTLSSidecar } from './tls-sidecar.ts';
 import { NETWORK } from './constants.ts';
 import { getErrorMessage } from './error.ts';
+import { isRecord } from './type-guards.ts';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -495,10 +496,6 @@ interface ProxyConfig {
 interface NodeProxyBinding {
     getProxyUrl: (providerType: string, uuid: unknown) => unknown;
     clientIp?: unknown;
-}
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return value !== null && typeof value === 'object';
 }
 
 function getNodeProxyBinding(value: unknown): NodeProxyBinding | null {

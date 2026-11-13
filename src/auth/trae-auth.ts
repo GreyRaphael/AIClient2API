@@ -21,6 +21,7 @@ import {
 } from '../providers/trae/trae-channel.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
+import { isRecord } from '../utils/type-guards.ts';
 
 export const TRAE_AUTH_CONFIG = {
     // 单一真源在 trae-channel（TRAE_AUTH_CENTER_HOST），此处仅为兼容既有引用
@@ -63,9 +64,6 @@ interface TraeCallbackData {
     expiresAt: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
-}
 function getStringField(record: Record<string, unknown>, key: string): string {
     const value = record[key];
     return typeof value === 'string' ? value : '';

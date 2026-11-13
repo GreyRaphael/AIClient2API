@@ -33,6 +33,8 @@
  * 但它是 inclusive 的。
  */
 
+import { isRecord } from './type-guards.ts';
+
 export interface NormalizedUsage {
     promptTokens: number;
     completionTokens: number;
@@ -41,10 +43,6 @@ export interface NormalizedUsage {
 }
 
 type UnknownRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return value !== null && typeof value === 'object';
-}
 
 export function toNumber(value: unknown): number {
     const num = Number(value);

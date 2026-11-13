@@ -1,4 +1,5 @@
 type UnknownRecord = Record<string, unknown>;
+import { isPlainRecord } from '../utils/type-guards.ts';
 
 interface NormalizedCodexCredential {
     source: string;
@@ -19,10 +20,6 @@ interface NormalizedCodexCredential {
     access_token_only?: boolean;
 }
 
-function isPlainObject(value: unknown): value is UnknownRecord {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function cleanString(value: unknown): string {
     return typeof value === 'string' ? value.trim() : '';
 }
@@ -36,7 +33,7 @@ function parseJwtPayload(token: unknown): UnknownRecord | null {
 
     try {
         const payload: unknown = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-        return isPlainObject(payload) ? payload : null;
+        return isPlainRecord(payload) ? payload : null;
     } catch {
         return null;
     }
@@ -44,12 +41,12 @@ function parseJwtPayload(token: unknown): UnknownRecord | null {
 
 function getAuthClaims(claims: UnknownRecord): UnknownRecord {
     const authClaims = claims['https://api.openai.com/auth'];
-    return isPlainObject(authClaims) ? authClaims : {};
+    return isPlainRecord(authClaims) ? authClaims : {};
 }
 
 function getProfileClaims(claims: UnknownRecord): UnknownRecord {
     const profileClaims = claims['https://api.openai.com/profile'];
-    return isPlainObject(profileClaims) ? profileClaims : {};
+    return isPlainRecord(profileClaims) ? profileClaims : {};
 }
 
 function expiryFromValues({ expired, expiresAt, expires_at, expires_in, claims }: {
@@ -106,7 +103,7 @@ function normalizeCredential(
     index: number,
     exportedAt: string | null = null
 ): NormalizedCodexCredential {
-    if (!isPlainObject(raw)) {
+    if (!isPlainRecord(raw)) {
         return {
             error: '凭据必须是 JSON 对象',
             source,
@@ -114,8 +111,8 @@ function normalizeCredential(
         };
     }
 
-    const nestedCredentials = isPlainObject(raw.credentials) ? raw.credentials : {};
-    const nestedExtra = isPlainObject(raw.extra) ? raw.extra : {};
+    const nestedCredentials = isPlainRecord(raw.credentials) ? raw.credentials : {};
+    const nestedExtra = isPlainRecord(raw.extra) ? raw.extra : {};
     const data: UnknownRecord = { ...raw, ...nestedCredentials };
 
     const accessToken = cleanString(data.access_token);
@@ -195,10 +192,10 @@ export function normalizeSub2ApiCodexCredentials(payload: unknown): NormalizedCo
 
     if (Array.isArray(payload)) {
         accounts = payload;
-    } else if (isPlainObject(payload) && Array.isArray(payload.accounts)) {
+    } else if (isPlainRecord(payload) && Array.isArray(payload.accounts)) {
         accounts = payload.accounts;
         exportedAt = cleanString(payload.exported_at) || null;
-    } else if (isPlainObject(payload) && isPlainObject(payload.credentials)) {
+    } else if (isPlainRecord(payload) && isPlainRecord(payload.credentials)) {
         accounts = [payload];
     } else {
         throw new Error('sub2api 数据必须是完整导出对象、账号数组或单个账号对象');
@@ -207,7 +204,7 @@ export function normalizeSub2ApiCodexCredentials(payload: unknown): NormalizedCo
     const results: NormalizedCodexCredential[] = [];
 
     accounts.forEach((account, index) => {
-        if (!isPlainObject(account)) {
+        if (!isPlainRecord(account)) {
             results.push({
                 error: '账号条目必须是 JSON 对象',
                 source: 'sub2api',
@@ -217,7 +214,7 @@ export function normalizeSub2ApiCodexCredentials(payload: unknown): NormalizedCo
         }
 
         if (account.platform && account.platform !== 'openai') {
-            const extra = isPlainObject(account.extra) ? account.extra : {};
+            const extra = isPlainRecord(account.extra) ? account.extra : {};
             results.push({
                 skipped: true,
                 source: 'sub2api',

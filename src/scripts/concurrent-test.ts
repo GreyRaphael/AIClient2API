@@ -18,6 +18,7 @@
  */
 
 import http from 'http';
+import { sleep } from '../utils/sleep.ts';
 import https from 'https';
 import { parseArgs as nodeParseArgs } from 'node:util';
 import { getErrorMessage } from '../utils/error.ts';
@@ -401,7 +402,7 @@ async function main() {
         if (config.rpm > 0) {
             const delay = (60000 / config.rpm) * (i - 1);
             tasks.push(
-                new Promise(resolve => setTimeout(resolve, delay))
+                sleep(delay)
                     .then(() => controller.run(() => sendRequest(config, requestId)))
                     .then((result) => {
                         stats.recordSuccess(result.responseTime);

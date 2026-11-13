@@ -12,6 +12,7 @@
  */
 
 import type { ChildProcess } from 'node:child_process';
+import { sleep } from '../utils/sleep.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 
@@ -286,7 +287,7 @@ async function restartWorker() {
         await stopWorker(true);
 
         // 等待一小段时间确保端口释放
-        await new Promise<void>((resolve) => setTimeout(resolve, config.restartDelay));
+        await sleep(config.restartDelay);
 
         startWorker();
         workerStatus.isRestarting = false;

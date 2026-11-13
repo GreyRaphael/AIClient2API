@@ -1,4 +1,5 @@
 import http from 'http';
+import { sleep } from '../utils/sleep.ts';
 import logger from '../utils/logger.ts';
 import fs from 'fs';
 import path from 'path';
@@ -17,6 +18,7 @@ import type { ActiveServerInfo } from './oauth-shared.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { getProxyConfigForProvider, defaultHttpAgent, defaultHttpsAgent } from '../utils/proxy-utils.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { isRecord } from '../utils/type-guards.ts';
 
 /**
  * 回调服务器的监听窗口（毫秒）。
@@ -122,9 +124,6 @@ declare global {
     var codexOAuthSessions: Map<string, CodexOAuthSession> | undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
-}
 function getErrorCode(error: unknown): unknown {
     return isRecord(error) ? error.code : undefined;
 }
@@ -994,7 +993,7 @@ export async function refreshCodexTokensWithRetry(refreshToken: string, config: 
             if (i < maxRetries - 1) {
                 // 指数退避
                 const delay = Math.min(1000 * Math.pow(2, i), 10000);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await sleep(delay);
             }
         }
     }

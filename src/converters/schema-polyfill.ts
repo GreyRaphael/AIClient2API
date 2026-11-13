@@ -88,19 +88,10 @@ export function getSchemaPolyfillMaxDesc() {
 }
 
 /**
- * 深拷贝辅助函数
- * @param {any} obj
- * @returns {any}
+ * 深拷贝。JSON Schema 只含 JSON 可表达的值（对象/数组/字符串/数字/布尔/null），
+ * 因此直接用 Node 内置 `structuredClone`，无需自写递归。
  */
-function deepClone<T>(obj: T): T {
-    if (obj === null || typeof obj !== 'object') return obj;
-    if (Array.isArray(obj)) return obj.map(deepClone) as unknown as T;
-    const copy = {};
-    for (const key of Object.keys(obj)) {
-        (copy as Record<string, unknown>)[key] = deepClone((obj as Record<string, unknown>)[key]);
-    }
-    return copy as T;
-}
+const deepClone = <T>(obj: T): T => structuredClone(obj);
 
 /**
  * 解码 JSON Pointer 片段 (~1 -> /, ~0 -> ~)

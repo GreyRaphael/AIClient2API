@@ -2,6 +2,7 @@ type UnknownRecord = Record<string, unknown>;
 
 import logger from './logger.ts';
 import { getErrorMessage } from './error.ts';
+import { isRecord } from './type-guards.ts';
 
 // BPE 预分词模式（对齐 Claude / GPT 的切分规则）。
 // 用 `v` 标志的集合差集把 CJK 从 \p{L} 里剔除，让 CJK 单独成支路：
@@ -78,9 +79,6 @@ function utf8ByteLength(text: string): number {
     return Buffer.byteLength(text, 'utf8');
 }
 
-function isRecord(value: unknown): value is UnknownRecord {
-    return value !== null && typeof value === 'object';
-}
 function getPartText(part: unknown): string {
     if (typeof part === 'string') return part;
     if (isRecord(part)) {

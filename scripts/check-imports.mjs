@@ -13,7 +13,7 @@
  * use at runtime.
  */
 
-import fs from 'node:fs';
+import fs, { globSync } from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -26,10 +26,11 @@ const RESOLVABLE_EXTENSIONS = new Set([
     '.wasm'
 ]);
 
+/** 递归列出目录下的源文件（Node 26 内置 glob，无需手写 walk）。 */
 function walk(dir) {
-    return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
-        .filter((entry) => entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name)))
-        .map((entry) => path.join(entry.parentPath || dir, entry.name));
+    const patterns = [...SOURCE_EXTENSIONS].map((ext) => `**/*${ext}`);
+    return patterns.flatMap((pattern) => globSync(pattern, { cwd: dir }))
+        .map((relative) => path.join(dir, relative));
 }
 
 /**

@@ -10,7 +10,7 @@
  * - 普通 import / export ... from 计入。
  */
 
-import fs from 'node:fs';
+import fs, { globSync } from 'node:fs';
 import path from 'node:path';
 
 let isLegacyTs = false;
@@ -40,10 +40,10 @@ const SRC = path.join(ROOT, 'src');
 const SOURCE_EXTENSIONS = ['.ts', '.js', '.mjs', '.cjs'];
 const RESOLVE_SUFFIXES = ['', '.ts', '.js', '.mjs', '.cjs', '/index.ts', '/index.js', '/index.mjs'];
 
+/** 递归列出目录下的源文件（Node 26 内置 glob，无需手写 walk）。 */
 function walk(dir) {
-    return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
-        .filter((entry) => entry.isFile() && SOURCE_EXTENSIONS.includes(path.extname(entry.name)))
-        .map((entry) => path.join(entry.parentPath || dir, entry.name));
+    return globSync(`**/*{${SOURCE_EXTENSIONS.join(',')}}`, { cwd: dir })
+        .map((relative) => path.join(dir, relative));
 }
 
 function resolveRelative(fromFile, specifier) {

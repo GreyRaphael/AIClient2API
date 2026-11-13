@@ -285,7 +285,9 @@ function extractUpstreamErrorDetail(error: PipelineError): string {
     if (typeof data === 'string') {
         raw = data;
     } else if (typeof data === 'object') {
-        raw = data.error?.message || data.message || data.errmsg || '';
+        // 上游错误体形状由各 provider 决定，这里只挑最常见的三个字段。
+        const body = data as { error?: { message?: string }; message?: string; errmsg?: string };
+        raw = body.error?.message || body.message || body.errmsg || '';
     }
     if (!raw) return '';
     const compact = String(raw).replace(/\s+/g, ' ').trim();

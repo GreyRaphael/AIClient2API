@@ -13,6 +13,7 @@
  */
 
 import { promises as fs } from 'fs';
+import { sleep } from '../../utils/sleep.ts';
 import logger from '../../utils/logger.ts';
 import { getErrorMessage } from '../../utils/error.ts';
 import { convertData } from '../../convert/convert.ts';
@@ -170,7 +171,7 @@ export async function resolveEmptyUpstreamResponseRetry(
 
     logger.warn(`${logPrefix} ${providerLabel} empty response detected (no text/tool/thinking content). Retrying with the same request body (${attemptsMade + 1}/${emptyRetryMax})...`);
     if (emptyRetryDelayMs > 0) {
-        await new Promise(resolve => setTimeout(resolve, emptyRetryDelayMs));
+        await sleep(emptyRetryDelayMs);
     }
 
     try {
@@ -407,7 +408,7 @@ export async function handleUnaryRequest(
             // 增加10秒内的随机等待时间，避免所有请求同时切换凭证
             const randomDelay = Math.floor(Math.random() * 10000); // 0-10000毫秒
             logger.info(`[Unary Retry] Credential marked unhealthy. Waiting ${randomDelay}ms before retry ${currentRetry + 1}/${maxRetries} with different credential...`);
-            await new Promise(resolve => setTimeout(resolve, randomDelay));
+            await sleep(randomDelay);
             
             try {
                 // 动态导入以避免循环依赖

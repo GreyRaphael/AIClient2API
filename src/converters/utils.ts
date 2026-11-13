@@ -13,6 +13,7 @@ import type { GeminiUsageMetadata } from '../../types/protocols/gemini.js';
 import type { OpenAIUsage } from '../../types/protocols/openai.js';
 import type { ClaudeUsage } from '../../types/protocols/claude.js';
 import type { OpenAIResponsesUsage } from '../../types/protocols/responses.js';
+import { isPlainRecord } from '../utils/type-guards.ts';
 
 interface AnthropicUsageOptions {
     inputTokens?: number;
@@ -45,9 +46,6 @@ interface OpenAIStreamIdentityStore {
     set(key: string, value: unknown): unknown;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 // mapFinishReason / sanitizeToolId 已下沉至共享底层模块（供 providers 层复用），此处再导出以保持兼容
 export { mapFinishReason, sanitizeToolId } from '../utils/protocol-utils.ts';
@@ -206,7 +204,7 @@ export function applyEstimatedReasoningTokens(
     const outputTokens = Number(record[outputKey]);
     if (!Number.isFinite(outputTokens) || outputTokens <= 0) return usage;
 
-    const existingDetails = isRecord(record[detailsKey]) ? record[detailsKey] : {};
+    const existingDetails = isPlainRecord(record[detailsKey]) ? record[detailsKey] : {};
     const existing = Number(existingDetails.reasoning_tokens ?? 0);
     const estimated = existing > 0
         ? existing
@@ -377,7 +375,7 @@ export function extractTextFromMessageContent(content: unknown): string {
     }
     if (Array.isArray(content)) {
         return content
-            .filter((part): part is { text: string } => isRecord(part) && part.type === 'text' && typeof part.text === 'string')
+            .filter((part): part is { text: string } => isPlainRecord(part) && part.type === 'text' && typeof part.text === 'string')
             .map((part) => part.text)
             .join('\n');
     }
@@ -707,7 +705,7 @@ export function mergeConsecutiveSameRoleContents(
         return [];
     }
 
-    const validItems = contents.filter((item): item is Record<string, unknown> & { parts: unknown[] } => isRecord(item) && Array.isArray(item.parts) && item.parts.length > 0);
+    const validItems = contents.filter((item): item is Record<string, unknown> & { parts: unknown[] } => isPlainRecord(item) && Array.isArray(item.parts) && item.parts.length > 0);
     const merged: Array<{ role: string; parts: unknown[] }> = [];
 
     for (const item of validItems) {
@@ -846,7 +844,7 @@ export function stabilizeToolsForPrefixCache<T extends ToolLike>(tools: T[]): T[
 const cacheControlWarnedLocations = new Set();
 
 export function logOmittedCacheControl(location: string, itemWithCacheControl: unknown): void {
-    if (isRecord(itemWithCacheControl) && itemWithCacheControl.cache_control) {
+    if (isPlainRecord(itemWithCacheControl) && itemWithCacheControl.cache_control) {
         logger.debug(`[CacheControl] cache_control omitted during conversion at ${location} (${JSON.stringify(itemWithCacheControl.cache_control)})`);
         if (!cacheControlWarnedLocations.has(location)) {
             cacheControlWarnedLocations.add(location);

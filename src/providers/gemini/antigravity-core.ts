@@ -2,6 +2,7 @@
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import { OAuth2Client } from 'google-auth-library';
 import logger from '../../utils/logger.ts';
+import { sleep } from '../../utils/sleep.ts';
 import * as http from 'http';
 import * as https from 'https';
 import * as crypto from 'crypto';
@@ -14,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 const uuidv4 = randomUUID;
 import open from '../../utils/open-browser.ts';
 import { configureTLSSidecar } from '../../utils/proxy-utils.ts';
-import { formatExpiryTime, isRetryableNetworkError, formatExpiryLog, getRetryAfterMs, normalizeProviderErrorMessage } from '../../utils/common.ts';
+import { formatExpiryTime, formatExpiryLog, normalizeProviderErrorMessage } from '../../utils/common.ts';
 import { getProviderModels } from '../provider-models.ts';
 import { handleGeminiAntigravityOAuth } from '../../auth/gemini-oauth.ts';
 import { getProxyConfigForProvider, getGoogleAuthProxyConfig, isTLSSidecarEnabledForProvider } from '../../utils/proxy-utils.ts';
@@ -22,6 +23,8 @@ import { polyfillAndCleanSchemaForGemini } from '../../converters/schema-polyfil
 import { getProviderPoolManager } from '../pool-context.ts';
 import { getConfigToggle } from '../../core/config-manager.ts';
 import { MODEL_PROVIDER } from '../../utils/common.ts';
+import { classifyRetry, describeRetry } from '../retry.ts';
+import type { ErrorAugmentation } from '../../../types/error-augmentation.ts';
 import { normalizeAntigravityToolConfig } from './antigravity-tool-config.ts';
 import { mapOpenAISizeToGeminiImageConfig } from '../../converters/strategies/OpenAIConverter.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
@@ -30,6 +33,7 @@ import { stripRequestedReasoningEffort } from '../reasoning-effort.ts';
 import { getErrorMessage } from '../../utils/error.ts';
 import { decodeJwtPayload } from '../../auth/oauth-shared.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
+import { isRecord } from '../../utils/type-guards.ts';
 
 /**
  * Antigravity SSE 帧的具名形状。
@@ -111,19 +115,8 @@ interface AntigravityServiceConfig extends Record<string, any> {
     ANTIGRAVITY_CLIENT_VERSION?: string;
 }
 
-interface AntigravityErrorLike {
-    response?: { status?: number; data?: unknown };
-    code?: string;
-    message?: string;
-    credentialMarkedUnhealthy?: boolean;
-    shouldSwitchCredential?: boolean;
-    skipErrorCount?: boolean;
-    retryAfterMs?: number;
-}
+type AntigravityErrorLike = ErrorAugmentation & { message?: string };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object';
-}
 function asAntigravityError(error: unknown): AntigravityErrorLike {
     return isRecord(error) ? error as AntigravityErrorLike : {};
 }
@@ -181,6 +174,19 @@ const ANTIGRAVITY_EMPTY_TEXT_PLACEHOLDER = '.';
 // 流式请求超时相关常量（仅作用于 Antigravity 流式链路）
 const ANTIGRAVITY_STREAM_FIRST_BYTE_TIMEOUT_MS = 180000;
 const ANTIGRAVITY_STREAM_IDLE_TIMEOUT_MS = 300000;
+
+/**
+ * 429 的最大重试次数（独立于 REQUEST_MAX_RETRIES）。
+ *
+ * 这里**显式**记录一个历史约定：antigravity 在 429 时只重试 2 次就交给上层切换凭证，
+ * 而其它 provider 用完整的 REQUEST_MAX_RETRIES。原先这个 2 是散落在两份重试代码里的
+ * 字面量 `Math.min(maxRetries, 2)`，既没有注释也没有测试，看起来像 bug。
+ * 保留该行为（限流场景下快速换号比反复退避更有效），但把它变成有名字的常量。
+ */
+const ANTIGRAVITY_RATE_LIMIT_RETRIES = 2;
+
+/** 单次退避上限：antigravity 的 429 退避历史上最多 3s，这里沿用。 */
+const ANTIGRAVITY_MAX_BACKOFF_MS = 3000;
 
 // 上游偶尔以非 SSE 的 JSON 数组返回整个响应，需缓存原始行才能回退解析。
 const ANTIGRAVITY_RAW_FALLBACK_MAX_LINES = 20000;
@@ -1523,7 +1529,7 @@ export class AntigravityApiService {
             let retryCount = 0;
 
             while (!lroResponse.done && retryCount < MAX_RETRIES) {
-                await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+                await sleep(2000);
                 lroResponse = await this.callApi<DynamicPayload>('onboardUser', onboardRequest);
                 retryCount++;
             }
@@ -1723,9 +1729,6 @@ export class AntigravityApiService {
             const errorCode = error.code;
             const errorMessage = error.message || '';
 
-            // 检查是否为可重试的网络错误
-            const isNetworkError = isRetryableNetworkError(error);
-
             logger.error(`[Antigravity API] Error calling (Status: ${status}, Code: ${errorCode}):`, error.message);
 
             if ((status === 401) && !isRetry) {
@@ -1755,49 +1758,47 @@ export class AntigravityApiService {
                 }
             }
 
-            if (status === 429) {
-                const retryAfter = getRetryAfterMs(error);
-                if (retryAfter !== null) {
-                    await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
-                    logger.warn(`[Antigravity API] Received 429 with Retry-After: ${retryAfter}ms. Throwing to upper layer.`);
-                    throw error;
-                }
-                if (baseURLIndex + 1 < this.baseURLs.length) {
-                    logger.info(`[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`);
-                    return this.callApi(method, body, isRetry, retryCount, baseURLIndex + 1);
-                } else if (retryCount < Math.min(maxRetries, 2)) {
-                    const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
-                    logger.info(`[Antigravity API] Received 429 (Too Many Requests). No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    return this.callApi(method, body, isRetry, retryCount + 1, 0);
-                } else {
-                    await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
-                    error.shouldSwitchCredential = true;
-                    throw error;
-                }
+            const decision = classifyRetry(error, {
+                attempt: retryCount,
+                maxRetries,
+                baseDelayMs: baseDelay,
+                maxDelayMs: ANTIGRAVITY_MAX_BACKOFF_MS,
+                // 429 历史上只重试 2 次（见 ANTIGRAVITY_RATE_LIMIT_RETRIES 注释）。
+                maxRetriesForKind: { 'rate-limited': ANTIGRAVITY_RATE_LIMIT_RETRIES },
+                nonRetryableStatuses: [401, 403]
+            });
+
+            if (decision.retryAfterMs !== null) {
+                await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
+                logger.warn(`[Antigravity API] Received 429 with Retry-After: ${decision.retryAfterMs}ms. Throwing to upper layer.`);
+                throw error;
             }
 
-            // Handle network errors - try next base URL first, then retry with backoff
-            if (isNetworkError) {
-                if (baseURLIndex + 1 < this.baseURLs.length) {
-                    const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                    logger.info(`[Antigravity API] Network error (${errorIdentifier}) on ${baseURL}. Trying next base URL...`);
-                    return this.callApi(method, body, isRetry, retryCount, baseURLIndex + 1);
-                } else if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                    logger.info(`[Antigravity API] Network error (${errorIdentifier}). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    return this.callApi(method, body, isRetry, retryCount + 1, 0);
-                }
+            // 先轮换 base URL（同一个 token 在多个边缘节点上的限流状态可能不同），
+            // 全部轮完才退避；这与其它 provider 的重试顺序不同，故留在本函数内。
+            if (baseURLIndex + 1 < this.baseURLs.length && (decision.kind === 'rate-limited' || decision.kind === 'network')) {
+                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+                logger.info(decision.kind === 'rate-limited'
+                    ? `[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`
+                    : `[Antigravity API] Network error (${errorIdentifier}) on ${baseURL}. Trying next base URL...`);
+                return this.callApi(method, body, isRetry, retryCount, baseURLIndex + 1);
             }
 
-            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
-                await normalizeProviderErrorMessage(error, { status, context: 'callApi' });
-                const delay = baseDelay * Math.pow(2, retryCount);
-                logger.info(`[Antigravity API] Server error ${status}. Retrying in ${delay}ms...`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                return this.callApi(method, body, isRetry, retryCount + 1, baseURLIndex);
+            if (decision.retry) {
+                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+                if (decision.kind === 'server-error' || decision.kind === 'rate-limited') {
+                    await normalizeProviderErrorMessage(error, { status: decision.status, context: 'callApi' });
+                }
+                logger.info(describeRetry('Antigravity API', decision, retryCount,
+                    decision.kind === 'rate-limited' ? ANTIGRAVITY_RATE_LIMIT_RETRIES : maxRetries,
+                    decision.kind === 'network' ? ` (${errorIdentifier})` : ''));
+                await sleep(decision.delayMs);
+                return this.callApi(method, body, isRetry, retryCount + 1, decision.kind === 'network' ? 0 : baseURLIndex);
+            }
+
+            if (decision.kind === 'rate-limited') {
+                await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
+                error.shouldSwitchCredential = true;
             }
 
             throw error;
@@ -1897,9 +1898,6 @@ export class AntigravityApiService {
             const errorCode = error.code;
             const errorMessage = error.message || '';
 
-            // 检查是否为可重试的网络错误
-            const isNetworkError = isRetryableNetworkError(error);
-
             logger.error(`[Antigravity API] Error during stream (Status: ${status}, Code: ${errorCode}):`, error.message);
 
             // 已经向上层产出过数据时，绝不能在 provider 内重做整个请求。旧逻辑会把
@@ -1937,54 +1935,46 @@ export class AntigravityApiService {
                 }
             }
 
-            if (status === 429) {
-                const retryAfter = getRetryAfterMs(error);
-                if (retryAfter !== null) {
-                    await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
-                    logger.warn(`[Antigravity API] Received 429 with Retry-After: ${retryAfter}ms during stream. Throwing to upper layer.`);
-                    throw error;
-                }
-                if (baseURLIndex + 1 < this.baseURLs.length) {
-                    logger.info(`[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`);
-                    yield* this.streamApi(method, body, isRetry, retryCount, baseURLIndex + 1);
-                    return;
-                } else if (retryCount < Math.min(maxRetries, 2)) {
-                    const delay = Math.min(baseDelay * Math.pow(2, retryCount), 3000);
-                    logger.info(`[Antigravity API] Received 429 (Too Many Requests) during stream. No Retry-After found. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${Math.min(maxRetries, 2)})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    yield* this.streamApi(method, body, isRetry, retryCount + 1, 0);
-                    return;
-                } else {
-                    await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
-                    error.shouldSwitchCredential = true;
-                    throw error;
-                }
+            const decision = classifyRetry(error, {
+                attempt: retryCount,
+                maxRetries,
+                baseDelayMs: baseDelay,
+                maxDelayMs: ANTIGRAVITY_MAX_BACKOFF_MS,
+                maxRetriesForKind: { 'rate-limited': ANTIGRAVITY_RATE_LIMIT_RETRIES },
+                nonRetryableStatuses: [401, 403]
+            });
+
+            if (decision.retryAfterMs !== null) {
+                await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
+                logger.warn(`[Antigravity API] Received 429 with Retry-After: ${decision.retryAfterMs}ms during stream. Throwing to upper layer.`);
+                throw error;
             }
 
-            // Handle network errors - try next base URL first, then retry with backoff
-            if (isNetworkError) {
-                if (baseURLIndex + 1 < this.baseURLs.length) {
-                    const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                    logger.info(`[Antigravity API] Network error (${errorIdentifier}) on ${baseURL} during stream. Trying next base URL...`);
-                    yield* this.streamApi(method, body, isRetry, retryCount, baseURLIndex + 1);
-                    return;
-                } else if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                    logger.info(`[Antigravity API] Network error (${errorIdentifier}) during stream. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                    yield* this.streamApi(method, body, isRetry, retryCount + 1, 0);
-                    return;
-                }
-            }
-
-            if (status !== undefined && status >= 500 && status < 600 && retryCount < maxRetries) {
-                await normalizeProviderErrorMessage(error, { status, context: 'stream' });
-                const delay = baseDelay * Math.pow(2, retryCount);
-                logger.info(`[Antigravity API] Server error ${status} during stream. Retrying in ${delay}ms...`);
-                await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                yield* this.streamApi(method, body, isRetry, retryCount + 1, baseURLIndex);
+            if (baseURLIndex + 1 < this.baseURLs.length && (decision.kind === 'rate-limited' || decision.kind === 'network')) {
+                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+                logger.info(decision.kind === 'rate-limited'
+                    ? `[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`
+                    : `[Antigravity API] Network error (${errorIdentifier}) on ${baseURL} during stream. Trying next base URL...`);
+                yield* this.streamApi(method, body, isRetry, retryCount, baseURLIndex + 1);
                 return;
+            }
+
+            if (decision.retry) {
+                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+                if (decision.kind === 'server-error' || decision.kind === 'rate-limited') {
+                    await normalizeProviderErrorMessage(error, { status: decision.status, context: 'stream' });
+                }
+                logger.info(describeRetry('Antigravity API', decision, retryCount,
+                    decision.kind === 'rate-limited' ? ANTIGRAVITY_RATE_LIMIT_RETRIES : maxRetries,
+                    decision.kind === 'network' ? ` (${errorIdentifier}) during stream` : ' during stream'));
+                await sleep(decision.delayMs);
+                yield* this.streamApi(method, body, isRetry, retryCount + 1, decision.kind === 'network' ? 0 : baseURLIndex);
+                return;
+            }
+
+            if (decision.kind === 'rate-limited') {
+                await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
+                error.shouldSwitchCredential = true;
             }
 
             throw error;

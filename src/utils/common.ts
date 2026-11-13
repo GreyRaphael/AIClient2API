@@ -5,12 +5,8 @@ import * as http from 'http'; // Add http for IncomingMessage and ServerResponse
 import { timingSafeEqual } from 'node:crypto';
 import logger from './logger.ts';
 import { getErrorMessage } from './error.ts';
+import { isRecord } from './type-guards.ts';
 
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return value !== null && typeof value === 'object';
-}
 // ==================== 时间与时区 ====================
 
 /**
