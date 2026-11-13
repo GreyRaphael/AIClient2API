@@ -24,8 +24,8 @@ export type { CalendarDay, StatsPayload, StoredUsage, UsageTotals };
 /** 表格分组维度 */
 export type GroupBy = 'model' | 'provider';
 
-/** 排序字段：值均为可数值比较的列；provider/model 走 localeCompare */
-export type SortField = 'totalTokens' | 'requestCount' | 'promptTokens' | 'cachedTokens' | 'cacheHitRate';
+/** 排序字段：数值列直接取数值，时间列转为毫秒时间戳；同值时 provider/model 走 localeCompare */
+export type SortField = 'totalTokens' | 'requestCount' | 'promptTokens' | 'cachedTokens' | 'cacheHitRate' | 'lastUsedAt';
 export type SortDirection = 'asc' | 'desc';
 
 /** 表格行的统一形状（两种维度合并后交给渲染） */
@@ -145,6 +145,15 @@ export function filterRows(rows: TableRow[], keyword: string, groupBy: GroupBy):
     });
 }
 
+function sortValue(row: TableRow, field: SortField): number {
+    if (field === 'lastUsedAt') {
+        if (!row.lastUsedAt) return 0;
+        const ts = Date.parse(row.lastUsedAt);
+        return Number.isFinite(ts) ? ts : 0;
+    }
+    return toNumber(row[field]);
+}
+
 /**
  * 排序。`sort` 的取值形如 `totalTokens-desc`（与旧页面的 select 值一致）。
  * 数值列降序时 NaN 已在上游归零，不会出现 a-b 为 NaN 导致顺序抖动。
@@ -156,8 +165,8 @@ export function sortRows(rows: TableRow[], sort: string): TableRow[] {
     const factor = direction === 'asc' ? 1 : -1;
 
     return rows.slice().sort((left, right) => {
-        const leftValue = toNumber(left[field]);
-        const rightValue = toNumber(right[field]);
+        const leftValue = sortValue(left, field);
+        const rightValue = sortValue(right, field);
         if (leftValue === rightValue) {
             // 同值时按 provider+model 稳定排序，避免每次渲染顺序漂移
             return `${left.provider}/${left.model}`.localeCompare(`${right.provider}/${right.model}`);

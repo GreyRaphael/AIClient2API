@@ -362,6 +362,11 @@
     font-size: 0.6875rem;
 }
 
+#model-usage-stats .usage-table td.col-last-used {
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+
 #model-usage-stats .usage-table .empty-cell {
     padding: var(--space-12) var(--space-8);
     text-align: center;

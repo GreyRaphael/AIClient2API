@@ -826,20 +826,24 @@ test.describe('console shell', () => {
         await expect(summaryCard).toContainText('10');
         await expect(summaryCard).toContainText('1.2K');
 
-        // ③ 明细表格：默认按模型，能看到 provider 与 model 两列
+        // ③ 明细表格：默认按模型，能看到 provider、model 与上次请求时间列
         const table = page.locator('#model-usage-stats .usage-table');
         await expect(table).toBeVisible();
+        await expect(table.locator('thead')).toContainText('上次请求时间');
         await expect(table.locator('tbody')).toContainText('gemini-antigravity');
         await expect(table.locator('tbody')).toContainText('gemini-3.8-flash-medium');
+        await expect(table.locator('tbody .col-last-used').first()).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
 
-        // ④ 切到「按 Provider」：Model 列换成「模型数」列
+        // ④ 切到「按 Provider」：Model 列换成「模型数」列，上次请求时间列仍保留
         // 注意：分组切换按钮在表格卡片顶部的工具栏里（不是 <table> 内部），
         // 因此从卡片作用域定位，表头断言仍落在 <table> 上。
         const tableCard = page.locator('#model-usage-stats .usage-stats-table-card');
         await tableCard.locator('.seg-btn', { hasText: '按 Provider' }).click();
         await expect(table.locator('thead')).not.toContainText('Model');
         await expect(table.locator('thead')).toContainText('模型数');
+        await expect(table.locator('thead')).toContainText('上次请求时间');
         await expect(table.locator('tbody tr')).toHaveCount(1);
+        await expect(table.locator('tbody .col-last-used').first()).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
 
         expect(problems).toEqual([]);
     });

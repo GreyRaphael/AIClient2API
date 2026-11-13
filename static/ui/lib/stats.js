@@ -64,6 +64,7 @@ export function formatRelativeTime(iso) {
 }
 
 export function formatDateTime(date) {
+    if (date === null || date === undefined || date === '') return '--';
     const value = date instanceof Date ? date : new Date(date);
     if (Number.isNaN(value.getTime())) return '--';
     const pad = (n) => String(n).padStart(2, '0');

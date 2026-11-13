@@ -704,10 +704,12 @@ export default {
     'usageStats.column.completionTokens': '输出',
     'usageStats.column.totalTokens': '总 Token',
     'usageStats.column.hitRate': '命中率',
+    'usageStats.column.lastUsedAt': '上次请求时间',
     'usageStats.sort.totalDesc': '总 Token ↓',
     'usageStats.sort.totalAsc': '总 Token ↑',
     'usageStats.sort.requestDesc': '请求数 ↓',
     'usageStats.sort.promptDesc': '输入 Token ↓',
     'usageStats.sort.cachedDesc': '缓存 Token ↓',
     'usageStats.sort.rateDesc': '命中率 ↓',
+    'usageStats.sort.lastUsedDesc': '上次请求时间 ↓',
 };

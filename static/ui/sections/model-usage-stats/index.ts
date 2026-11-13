@@ -20,7 +20,7 @@ import { t } from '../../lib/i18n.js';
 import { api } from '../../lib/api.js';
 import { confirmDialog } from '../../store/confirm.js';
 import { toastError } from '../../store/toast.js';
-import { formatNumber, formatTokenCompact } from '../../lib/stats.js';
+import { formatDateTime, formatNumber, formatTokenCompact } from '../../lib/stats.js';
 import { StatsCalendar } from '../../components/StatsCalendar.js';
 import {
     buildSummaryItems,
@@ -48,7 +48,8 @@ const SORT_OPTIONS = [
     { value: 'requestCount-desc', labelKey: 'usageStats.sort.requestDesc' },
     { value: 'promptTokens-desc', labelKey: 'usageStats.sort.promptDesc' },
     { value: 'cachedTokens-desc', labelKey: 'usageStats.sort.cachedDesc' },
-    { value: 'cacheHitRate-desc', labelKey: 'usageStats.sort.rateDesc' }
+    { value: 'cacheHitRate-desc', labelKey: 'usageStats.sort.rateDesc' },
+    { value: 'lastUsedAt-desc', labelKey: 'usageStats.sort.lastUsedDesc' }
 ];
 
 export default function ModelUsageStatsSection() {
@@ -162,7 +163,7 @@ export default function ModelUsageStatsSection() {
     const calendar = useMemo(() => toUsageHistory(active?.calendar ?? cache.all?.calendar), [active, cache.all]);
 
     const isProviderView = groupBy === 'provider';
-    const columnCount = isProviderView ? 7 : 8;
+    const columnCount = 9;
     const scopeLabel = rangeDate ?? t('usageStats.scope.allTime');
     const rate = hitRate(active?.summary);
 
@@ -190,6 +191,9 @@ export default function ModelUsageStatsSection() {
                     <span class=${`rate-pill rate-${hitRateTone(row.cacheHitRate)}`}>
                         ${row.cacheHitRate.toFixed(0)}%
                     </span>
+                </td>
+                <td class="num col-last-used mono" title=${row.lastUsedAt || ''}>
+                    ${formatDateTime(row.lastUsedAt)}
                 </td>
             </tr>`);
     };
@@ -324,6 +328,7 @@ export default function ModelUsageStatsSection() {
                                 <th class="num">${t('usageStats.column.completionTokens')}</th>
                                 <th class="num">${t('usageStats.column.totalTokens')}</th>
                                 <th class="num">${t('usageStats.column.hitRate')}</th>
+                                <th class="num col-last-used">${t('usageStats.column.lastUsedAt')}</th>
                             </tr>
                         </thead>
                         <tbody>${renderRows()}</tbody>

@@ -703,10 +703,12 @@ export default {
     'usageStats.column.completionTokens': 'Output',
     'usageStats.column.totalTokens': 'Total Tokens',
     'usageStats.column.hitRate': 'Hit Rate',
+    'usageStats.column.lastUsedAt': 'Last Request',
     'usageStats.sort.totalDesc': 'Total Tokens ↓',
     'usageStats.sort.totalAsc': 'Total Tokens ↑',
     'usageStats.sort.requestDesc': 'Requests ↓',
     'usageStats.sort.promptDesc': 'Input Tokens ↓',
     'usageStats.sort.cachedDesc': 'Cached Tokens ↓',
     'usageStats.sort.rateDesc': 'Hit Rate ↓',
+    'usageStats.sort.lastUsedDesc': 'Last Request ↓',
 };

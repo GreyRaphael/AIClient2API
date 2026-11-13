@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import render from 'preact-render-to-string';
 import { html } from '@ui/html.js';
+import { formatDateTime } from '@ui/lib/stats.js';
 import ModelUsageStatsSection from '@ui/sections/model-usage-stats/index.ts';
 import {
     buildSummaryItems,
@@ -125,7 +126,7 @@ describe('模型用量统计 section：SSR 结构', () => {
     test('明细表格：表头列齐全且顺序符合契约', () => {
         expect(markup).toContain('class="usage-table"');
         expect(tableHeaders(markup)).toEqual([
-            'Provider', 'Model', '请求数', '输入', '缓存', '输出', '总 Token', '命中率'
+            'Provider', 'Model', '请求数', '输入', '缓存', '输出', '总 Token', '命中率', '上次请求时间'
         ]);
     });
 
@@ -140,14 +141,14 @@ describe('模型用量统计 section：SSR 结构', () => {
         expect(markup).toContain('按 Provider');
         expect(markup).toContain('usage-stats-search');
         expect(markup).toContain('usage-stats-sort');
-        // 排序下拉的 6 个选项（总 Token / 请求数 / 输入 / 缓存 / 命中率 升降序）
-        expect((markup.match(/<option /g) || []).length).toBe(6);
+        // 排序下拉的 7 个选项（总 Token / 请求数 / 输入 / 缓存 / 命中率 / 上次请求时间 升降序）
+        expect((markup.match(/<option /g) || []).length).toBe(7);
     });
 
     test('首帧空数据不崩：表格给出加载态占位而非空 tbody', () => {
         // SSR 不跑 useEffect，booting=true → 表格里应有一行带 colspan 的占位
         expect(markup).toContain('empty-cell');
-        expect(markup).toContain('colspan="8"');
+        expect(markup).toContain('colspan="9"');
         expect(() => render(html`<${ModelUsageStatsSection} />`)).not.toThrow();
     });
 });
@@ -341,6 +342,17 @@ describe('模型用量统计 usage-utils：筛选与排序', () => {
         expect(sortRows(rows, 'cacheHitRate-desc').map((row) => row.cacheHitRate)).toEqual([50, 1.1111111111111112]);
     });
 
+    test('按 lastUsedAt 排序，缺省与无效时间戳视为最旧', () => {
+        const dated = [
+            { ...rows[0], key: 'a', provider: 'p1', model: 'm-null', lastUsedAt: null },
+            { ...rows[0], key: 'b', provider: 'p1', model: 'm-old', lastUsedAt: '2026-04-01T08:00:00.000Z' },
+            { ...rows[0], key: 'c', provider: 'p1', model: 'm-new', lastUsedAt: '2026-04-02T12:30:00.000Z' },
+            { ...rows[0], key: 'd', provider: 'p1', model: 'm-invalid', lastUsedAt: 'not-a-date' }
+        ];
+        expect(sortRows(dated, 'lastUsedAt-desc').map((row) => row.key)).toEqual(['c', 'b', 'd', 'a']);
+        expect(sortRows(dated, 'lastUsedAt-asc').map((row) => row.key)).toEqual(['d', 'a', 'b', 'c']);
+    });
+
     test('排序不改原数组，且同值时顺序稳定', () => {
         const before = rows.map((row) => row.key);
         sortRows(rows, 'requestCount-desc');
@@ -403,5 +415,16 @@ describe('模型用量统计 usage-utils：汇总与日历', () => {
         // 非数组 / 缺 date 的项都安全跳过
         expect(toUsageHistory(null)).toEqual({});
         expect(toUsageHistory([{ requestCount: 1 }])).toEqual({});
+    });
+
+    test('formatDateTime 处理空值/非法值兜底与 ISO 时间格式化', () => {
+        expect(formatDateTime(null)).toBe('--');
+        expect(formatDateTime(undefined)).toBe('--');
+        expect(formatDateTime('')).toBe('--');
+        expect(formatDateTime('not-a-date')).toBe('--');
+
+        const local = new Date(2026, 3, 2, 9, 5, 7);
+        expect(formatDateTime(local)).toBe('2026-04-02 09:05:07');
+        expect(formatDateTime(local.toISOString())).toBe('2026-04-02 09:05:07');
     });
 });
