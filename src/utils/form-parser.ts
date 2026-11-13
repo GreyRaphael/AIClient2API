@@ -20,9 +20,9 @@ export interface MultipartParserOptions {
 }
 
 export class MultipartError extends Error {
-    statusCode: number;
+    override statusCode: number;
     clientError: boolean;
-    code?: string;
+    override code?: string;
 
     constructor(message: string, statusCode = 400, code?: string) {
         super(message);

@@ -400,7 +400,7 @@ export async function handleStreamRequest(
                 }
 
                 // 序列化本 chunk 的出站帧（在有效内容出现前会先进入首内容前缓冲）
-                const outFrames = [];
+                const outFrames: string[] = [];
                 if (addEvent) {
                     const eventType = chunk.type || (isInStreamErrorPayload(chunk) ? 'error' : '');
                     if (eventType) {
@@ -410,7 +410,7 @@ export async function handleStreamRequest(
                 outFrames.push(`data: ${JSON.stringify(chunk)}\n\n`);
 
                 // 首内容前缓冲：有效内容出现前不直接下发，缓存起来以便上游空转时无损重试
-                const framesToWrite = [];
+                const framesToWrite: string[] = [];
                 if (!sawMeaningfulContent) {
                     const buffered = preContentBuffer.push(outFrames);
                     if (buffered.overflowed) {

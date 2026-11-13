@@ -237,11 +237,11 @@ export async function handleZedOAuth(currentConfig: DynamicPayload = CONFIG, opt
  * 手动处理 Zed 回调（用于无头服务器模式或 UI 手动粘贴回调 URL / 参数）
  */
 export async function handleZedOAuthCallback(rawInput: string | Record<string, unknown>, sessionId: string | null = null, currentConfig = CONFIG) {
-    let session = null;
+    let session: ZedSession | null = null;
     let targetSessionId = sessionId;
 
     if (sessionId && activeSessions.has(sessionId)) {
-        session = activeSessions.get(sessionId);
+        session = activeSessions.get(sessionId) ?? null;
     } else {
         // 如果未指定 sessionId，寻找第一个 active session
         for (const [id, s] of activeSessions.entries()) {

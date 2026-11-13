@@ -40,7 +40,8 @@ import {
 import type {
     CrossProtocolRequest,
     CrossProtocolResponse,
-    CrossProtocolStreamChunk
+    CrossProtocolStreamChunk,
+    ConverterResult
 } from '../../../types/protocols/common.js';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -84,7 +85,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     openaiChatStreamStates: StreamSessionStore;
 
     constructor() {
-        super(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
+        super();
         this.codexConverter = new CodexConverter();
         this.claudeStreamStates = new StreamSessionStore();
         this.openaiChatStreamStates = new StreamSessionStore();
@@ -94,7 +95,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
      * 清理该请求在 Responses 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: string | null | undefined): void {
+    override resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.claudeStreamStates.delete(requestId);
         this.openaiChatStreamStates.delete(requestId);
@@ -139,12 +140,12 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换流式响应块到目标协议
      */
-    convertStreamChunk(chunk: CrossProtocolStreamChunk, toProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, toProtocol: string, model?: string, requestId?: string): ConverterResult {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toOpenAIStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toClaudeStreamChunk(chunk, model, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${toProtocol}`);
         }

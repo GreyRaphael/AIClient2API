@@ -215,7 +215,7 @@ async function linkSingleCredential(
         }
 
         // 根据文件路径确定提供商类型
-        let matchedMapping = null;
+        let matchedMapping: (typeof PROVIDER_MAPPINGS)[number] | null = null;
         for (const mapping of PROVIDER_MAPPINGS) {
             const configsPath = path.join(process.cwd(), 'configs', mapping.dirName);
             // 检查文件是否在该提供商的配置目录下

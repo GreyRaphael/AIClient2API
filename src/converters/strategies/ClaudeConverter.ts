@@ -35,7 +35,8 @@ import {
 import type {
     CrossProtocolRequest,
     CrossProtocolResponse,
-    CrossProtocolStreamChunk
+    CrossProtocolStreamChunk,
+    ConverterResult
 } from '../../../types/protocols/common.js';
 import type { OpenAIUsage } from '../../../types/protocols/openai.js';
 import type { ClaudeUsage } from '../../../types/protocols/claude.js';
@@ -56,7 +57,7 @@ export class ClaudeConverter extends BaseConverter {
     openAIResponsesStreamStates: StreamSessionStore;
 
     constructor() {
-        super('claude');
+        super();
         // Codex 转换器实例；请求级工具名映射在 CodexConverter 模块内跨实例共享
         this.codexConverter = new CodexConverter();
         // OpenAI 流式输出侧的稳定 chunk 标识（同一 requestId 的流共享 id/created）
@@ -68,7 +69,7 @@ export class ClaudeConverter extends BaseConverter {
      * 清理该请求在 Claude 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: string | null | undefined): void {
+    override resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.openaiStreamStates.delete(requestId);
         this.openAIResponsesStreamStates.delete(requestId);
@@ -109,11 +110,11 @@ export class ClaudeConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): ConverterResult {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI: {
                 const converted = this.toOpenAIStreamChunk(chunk, model, requestId);
-                return converted as CrossProtocolStreamChunk;
+                return converted;
             }
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);

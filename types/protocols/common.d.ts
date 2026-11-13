@@ -56,6 +56,20 @@ export type CrossProtocolStreamChunk =
     | OpenAIResponsesStreamEvent;
 
 /**
+ * 转换器返回值：单帧或帧数组。
+ *
+ * 一个上游 chunk 展开成多个下游事件是常态（Claude 的 content_block_start +
+ * content_block_delta、Responses 的 response.created + response.output_item.added）。
+ * 历史上接口声明返回单帧、实现返回数组，靠 10 处 `as CrossProtocolStreamChunk` 掩盖，
+ * 消费侧则必须自己 `Array.isArray()` 归一化。这里让类型说真话。
+ */
+export type ConverterResult =
+    | CrossProtocolPayload
+    | CrossProtocolPayload[]
+    | null
+    | void;
+
+/**
  * 跨协议通用载荷
  */
 export type CrossProtocolPayload =

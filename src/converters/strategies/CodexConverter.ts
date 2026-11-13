@@ -20,7 +20,8 @@ import {
 import type {
     CrossProtocolRequest,
     CrossProtocolResponse,
-    CrossProtocolStreamChunk
+    CrossProtocolStreamChunk,
+    ConverterResult
 } from '../../../types/protocols/common.js';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -91,7 +92,7 @@ export class CodexConverter extends BaseConverter {
     requestStates: StreamSessionStore;
 
     constructor() {
-        super('codex');
+        super();
         this.streamSessions = new StreamSessionStore(); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
         this.requestStates = sharedRequestStates; // 请求级工具名映射（跨实例共享，按 requestId 隔离）
     }
@@ -102,7 +103,7 @@ export class CodexConverter extends BaseConverter {
      * 请求级状态由 {@link releaseRequestState} 在请求真正结束后统一释放。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: string | null | undefined): void {
+    override resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.streamSessions.delete(requestId);
     }
@@ -262,14 +263,14 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): ConverterResult {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toOpenAIStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toClaudeStreamChunk(chunk, model, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }

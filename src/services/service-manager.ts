@@ -213,7 +213,7 @@ export async function getApiServiceWithFallback(
     let serviceConfig = config;
     let actualProviderType = config.MODEL_PROVIDER;
     let isFallback = false;
-    let selectedUuid = null;
+    let selectedUuid: string | null = null;
     let actualModel = actualModelName;
     
     const isPoolable = PROVIDER_MAPPINGS.some(m => m.providerType === config.MODEL_PROVIDER);
@@ -242,7 +242,7 @@ export async function getApiServiceWithFallback(
 
             actualProviderType = selectedType;
             isFallback = fallbackUsed;
-            selectedUuid = selectedProviderConfig.uuid;
+            selectedUuid = selectedProviderConfig.uuid ?? null;
             actualModel = actualModelName;
         } else {
             const errorMsg = `[API Service] No healthy provider found in pool for ${config.MODEL_PROVIDER}${actualModelName ? ` supporting model: ${actualModelName}` : ''}`;

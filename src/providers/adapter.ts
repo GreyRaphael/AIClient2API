@@ -143,11 +143,11 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         this.antigravityApiService = new AntigravityApiService(config);
     }
 
-    async initialize(): Promise<void> {
+    override async initialize(): Promise<void> {
         await this.antigravityApiService.initialize();
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    override async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         if (!this.antigravityApiService.isInitialized) {
             logger.warn("antigravityApiService not initialized, attempting to re-initialize...");
             await this.antigravityApiService.initialize();
@@ -155,7 +155,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         return this.antigravityApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    override async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         if (!this.antigravityApiService.isInitialized) {
             logger.warn("antigravityApiService not initialized, attempting to re-initialize...");
             await this.antigravityApiService.initialize();
@@ -163,7 +163,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         yield* this.antigravityApiService.generateContentStream(model, requestBody);
     }
 
-    async listModels() {
+    override async listModels() {
         if (!this.antigravityApiService.isInitialized) {
             logger.warn("antigravityApiService not initialized, attempting to re-initialize...");
             await this.antigravityApiService.initialize();
@@ -171,7 +171,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         return this.antigravityApiService.listModels();
     }
 
-    async refreshToken() {
+    override async refreshToken() {
         if (!this.antigravityApiService.isInitialized) {
             await this.antigravityApiService.initialize();
         }
@@ -183,7 +183,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         return false;
     }
 
-    async forceRefreshToken() {
+    override async forceRefreshToken() {
         if (!this.antigravityApiService.isInitialized) {
             await this.antigravityApiService.initialize();
         }
@@ -192,7 +192,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         return true;
     }
 
-    isExpiryDateNear() {
+    override isExpiryDateNear() {
         return this.antigravityApiService.isExpiryDateNear();
     }
 
@@ -201,7 +201,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
      * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false): Promise<string[]> {
+    override async getNodeAvailableModels(force = false): Promise<string[]> {
         if (!this.antigravityApiService.isInitialized) {
             await this.antigravityApiService.initialize();
         } else if (force || !Array.isArray(this.antigravityApiService.availableModels) || this.antigravityApiService.availableModels.length === 0) {
@@ -212,7 +212,7 @@ export class AntigravityApiServiceAdapter extends ApiServiceAdapter {
         return this.antigravityApiService.availableModels || [];
     }
 
-    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+    override async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
         if (typeof this.antigravityApiService.getNodeModelMetadata !== 'function') return null;
         return this.antigravityApiService.getNodeModelMetadata();
     }
@@ -239,20 +239,20 @@ export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
         this.openAIApiService = new OpenAIApiService(config);
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    override async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         // The adapter now expects the requestBody to be in the native OpenAI format.
         // The conversion logic is handled upstream in the server.
         return this.openAIApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    override async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         // The adapter now expects the requestBody to be in the native OpenAI format.
         const stream = this.openAIApiService.generateContentStream(model, requestBody);
         // The stream is yielded directly without conversion.
         yield* stream;
     }
 
-    async listModels() {
+    override async listModels() {
         // The adapter now returns the native model list from the underlying service.
         return this.openAIApiService.listModels();
     }
@@ -261,7 +261,7 @@ export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
      * 获取节点可用模型（托管 provider 在 supportedModels 为空时用于自动发现）
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels() {
+    override async getNodeAvailableModels() {
         const payload = await this.openAIApiService.listModels();
         const list = Array.isArray(payload)
             ? payload
@@ -269,17 +269,17 @@ export class OpenAIApiServiceAdapter extends ApiServiceAdapter {
         return list.map((item: DynamicPayload) => item?.id || item?.name).filter(Boolean);
     }
 
-    async refreshToken() {
+    override async refreshToken() {
         // OpenAI API keys are typically static and do not require refreshing.
         return false;
     }
 
-    async forceRefreshToken() {
+    override async forceRefreshToken() {
         // OpenAI API keys are typically static and do not require refreshing.
         return false;
     }
 
-    isExpiryDateNear() {
+    override isExpiryDateNear() {
         return false;
     }
 }
@@ -295,18 +295,18 @@ export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
         );
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    override async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         // The adapter expects the requestBody to be in the OpenAI Responses format.
         return this.openAIResponsesApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    override async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         // The adapter expects the requestBody to be in the OpenAI Responses format.
         const stream = this.openAIResponsesApiService.generateContentStream(model, requestBody);
         yield* stream;
     }
 
-    async listModels() {
+    override async listModels() {
         // The adapter returns the native model list from the underlying service.
         return this.openAIResponsesApiService.listModels();
     }
@@ -315,7 +315,7 @@ export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
      * 获取节点可用模型（托管 provider 在 supportedModels 为空时用于自动发现）
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels() {
+    override async getNodeAvailableModels() {
         const payload = await this.openAIResponsesApiService.listModels();
         const list = Array.isArray(payload)
             ? payload
@@ -323,17 +323,17 @@ export class OpenAIResponsesApiServiceAdapter extends ApiServiceAdapter {
         return list.map((item: DynamicPayload) => item?.id || item?.name).filter(Boolean);
     }
 
-    async refreshToken() {
+    override async refreshToken() {
         // OpenAI API keys are typically static and do not require refreshing.
         return false;
     }
 
-    async forceRefreshToken() {
+    override async forceRefreshToken() {
         // OpenAI API keys are typically static and do not require refreshing.
         return false;
     }
 
-    isExpiryDateNear() {
+    override isExpiryDateNear() {
         return false;
     }
 }
@@ -349,18 +349,18 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
         );
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    override async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         // The adapter now expects the requestBody to be in the native Claude format.
         return this.claudeApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    override async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         // The adapter now expects the requestBody to be in the native Claude format.
         const stream = this.claudeApiService.generateContentStream(model, requestBody);
         yield* stream;
     }
 
-    async listModels() {
+    override async listModels() {
         // The adapter now returns the native model list from the underlying service.
         return this.claudeApiService.listModels();
     }
@@ -369,7 +369,7 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
      * 获取节点可用模型（托管 provider 在 supportedModels 为空时用于自动发现）
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels() {
+    override async getNodeAvailableModels() {
         const payload = await this.claudeApiService.listModels();
         const list = Array.isArray(payload)
             ? payload
@@ -377,15 +377,15 @@ export class ClaudeApiServiceAdapter extends ApiServiceAdapter {
         return list.map((item: DynamicPayload) => item?.id || item?.name).filter(Boolean);
     }
 
-    async refreshToken() {
+    override async refreshToken() {
         return false;
     }
 
-    async forceRefreshToken() {
+    override async forceRefreshToken() {
         return false;
     }
 
-    isExpiryDateNear() {
+    override isExpiryDateNear() {
         return false;
     }
 }
@@ -399,16 +399,16 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         this.codexApiService = new CodexApiService(config);
     }
 
-    async initialize(): Promise<void> {
+    override async initialize(): Promise<void> {
         await this.codexApiService.initialize();
     }
 
     /** 停掉 CodexApiService 构造函数里启动的会话缓存清理定时器。 */
-    dispose(): void {
+    override dispose(): void {
         this.codexApiService?.stopCacheCleanup?.();
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    override async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         if (!this.codexApiService.isInitialized) {
             logger.warn("codexApiService not initialized, attempting to re-initialize...");
             await this.codexApiService.initialize();
@@ -416,7 +416,7 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         return this.codexApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    override async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         if (!this.codexApiService.isInitialized) {
             logger.warn("codexApiService not initialized, attempting to re-initialize...");
             await this.codexApiService.initialize();
@@ -424,7 +424,7 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         yield* this.codexApiService.generateContentStream(model, requestBody);
     }
 
-    async listModels(force = false): Promise<DynamicPayload> {
+    override async listModels(force = false): Promise<DynamicPayload> {
         return this.codexApiService.listModels(force);
     }
 
@@ -432,19 +432,19 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
      * 获取节点实际支持的可用模型列表（隔离自各账号自身的配额与上游返回）
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false): Promise<string[]> {
+    override async getNodeAvailableModels(force = false): Promise<string[]> {
         if (!this.codexApiService.isInitialized) {
             await this.codexApiService.initialize();
         }
         return this.codexApiService.getNodeAvailableModels(force);
     }
 
-    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+    override async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
         if (typeof this.codexApiService.getNodeModelMetadata !== 'function') return null;
         return this.codexApiService.getNodeModelMetadata();
     }
 
-    async refreshToken() {
+    override async refreshToken() {
         if (!this.codexApiService.isInitialized) {
             await this.codexApiService.initialize();
         }
@@ -456,7 +456,7 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         return false;
     }
 
-    async forceRefreshToken() {
+    override async forceRefreshToken() {
         if (!this.codexApiService.isInitialized) {
             await this.codexApiService.initialize();
         }
@@ -465,7 +465,7 @@ export class CodexApiServiceAdapter extends ApiServiceAdapter {
         return true;
     }
 
-    isExpiryDateNear() {
+    override isExpiryDateNear() {
         return this.codexApiService.isExpiryDateNear();
     }
 
@@ -494,15 +494,15 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
         this.zedApiService = new ZedApiService(config);
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    override async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         return this.zedApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    override async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         yield* this.zedApiService.generateContentStream(model, requestBody);
     }
 
-    async listModels() {
+    override async listModels() {
         return this.zedApiService.listModels();
     }
 
@@ -511,7 +511,7 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
      * @param {boolean} [force=false] 是否强制刷新
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false): Promise<string[]> {
+    override async getNodeAvailableModels(force = false): Promise<string[]> {
         if (force && typeof this.zedApiService.fetchRemoteModels === 'function') {
             await this.zedApiService.fetchRemoteModels(true);
         }
@@ -522,12 +522,12 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
         return list.map((model: DynamicPayload) => model?.id || model?.name).filter(Boolean);
     }
 
-    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+    override async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
         if (typeof this.zedApiService.getNodeModelMetadata !== 'function') return null;
         return this.zedApiService.getNodeModelMetadata();
     }
 
-    async refreshToken() {
+    override async refreshToken() {
         if (this.isExpiryDateNear()) {
             logger.info('[Zed] Expiry date is near, refreshing LLM token...');
             await this.zedApiService.getToken(true);
@@ -536,13 +536,13 @@ export class ZedApiServiceAdapter extends ApiServiceAdapter {
         return false;
     }
 
-    async forceRefreshToken() {
+    override async forceRefreshToken() {
         logger.info('[Zed] Force refreshing LLM token...');
         await this.zedApiService.getToken(true);
         return true;
     }
 
-    isExpiryDateNear() {
+    override isExpiryDateNear() {
         return this.zedApiService.isExpiryDateNear();
     }
 }
@@ -558,15 +558,15 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
         this.traeApiService = new TraeApiService(config);
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    override async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         return this.traeApiService.generateContent(model, requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    override async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         yield* this.traeApiService.generateContentStream(model, requestBody);
     }
 
-    async listModels() {
+    override async listModels() {
         return this.traeApiService.listModels();
     }
 
@@ -575,7 +575,7 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
      * @param {boolean} [force=false] 是否强制忽略缓存
      * @returns {Promise<Array<string>>}
      */
-    async getNodeAvailableModels(force = false): Promise<string[]> {
+    override async getNodeAvailableModels(force = false): Promise<string[]> {
         if (force && typeof this.traeApiService.fetchRemoteModels === 'function') {
             await this.traeApiService.fetchRemoteModels(true);
         }
@@ -583,12 +583,12 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
         return (res?.data || []).map((m: DynamicPayload) => m.id).filter(Boolean);
     }
 
-    async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
+    override async getNodeModelMetadata(): Promise<Record<string, DynamicPayload> | null> {
         if (typeof this.traeApiService.getNodeModelMetadata !== 'function') return null;
         return this.traeApiService.getNodeModelMetadata();
     }
 
-    async refreshToken() {
+    override async refreshToken() {
         if (this.isExpiryDateNear()) {
             logger.info('[Trae] Expiry date is near, refreshing token...');
             await this.traeApiService.getToken(true);
@@ -597,13 +597,13 @@ export class TraeApiServiceAdapter extends ApiServiceAdapter {
         return false;
     }
 
-    async forceRefreshToken() {
+    override async forceRefreshToken() {
         logger.info('[Trae] Force refreshing token...');
         await this.traeApiService.getToken(true);
         return true;
     }
 
-    isExpiryDateNear() {
+    override isExpiryDateNear() {
         return this.traeApiService.isExpiryDateNear();
     }
 }

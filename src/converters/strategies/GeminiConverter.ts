@@ -25,7 +25,8 @@ import {
 } from '../custom-tool-registry.ts';
 import type {
     CrossProtocolResponse,
-    CrossProtocolStreamChunk
+    CrossProtocolStreamChunk,
+    ConverterResult
 } from '../../../types/protocols/common.js';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -204,7 +205,7 @@ export class GeminiConverter extends BaseConverter {
     openaiStreamStates: StreamSessionStore;
 
     constructor() {
-        super('gemini');
+        super();
         this.openAIResponsesStreamStates = new StreamSessionStore();
         this.claudeStreamStates = new StreamSessionStore();
         // OpenAI 流式输出侧的稳定 chunk 标识（同一 requestId 的流共享 id/created）
@@ -215,7 +216,7 @@ export class GeminiConverter extends BaseConverter {
      * 清理该请求在 Gemini 上游响应方向上的流式状态。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: string | null | undefined): void {
+    override resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.openAIResponsesStreamStates.delete(requestId);
         this.claudeStreamStates.delete(requestId);
@@ -249,14 +250,14 @@ export class GeminiConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): ConverterResult {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
-                return this.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toOpenAIStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toClaudeStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }

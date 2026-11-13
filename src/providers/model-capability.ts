@@ -190,7 +190,7 @@ export class FileCapabilityStore extends MemoryCapabilityStore {
         }
     }
 
-    async flush() {
+    override async flush() {
         this._writeChain = this._writeChain
             .then(() => withFileLock(this.filePath, () => atomicWriteFile(
                 this.filePath,

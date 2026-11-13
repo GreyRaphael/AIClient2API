@@ -49,7 +49,8 @@ import {
 import type {
     CrossProtocolRequest,
     CrossProtocolResponse,
-    CrossProtocolStreamChunk
+    CrossProtocolStreamChunk,
+    ConverterResult
 } from '../../../types/protocols/common.js';
 import type { OpenAIUsage } from '../../../types/protocols/openai.js';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
@@ -76,7 +77,7 @@ export class OpenAIConverter extends BaseConverter {
     claudeStreamStates: StreamSessionStore;
 
     constructor() {
-        super('openai');
+        super();
         // Codex 转换器实例；请求级工具名映射在 CodexConverter 模块内跨实例共享
         this.codexConverter = new CodexConverter();
         this.openAIResponsesStreamStates = new StreamSessionStore();
@@ -88,7 +89,7 @@ export class OpenAIConverter extends BaseConverter {
      * 注意：不清理 CodexConverter 的 requestStates（工具名映射需跨重试复用）。
      * @param {string|null|undefined} requestId
      */
-    resetStreamState(requestId: string | null | undefined): void {
+    override resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.openAIResponsesStreamStates.delete(requestId);
         this.claudeStreamStates.delete(requestId);
@@ -138,14 +139,14 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 转换流式响应块
      */
-    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): CrossProtocolStreamChunk {
+    convertStreamChunk(chunk: CrossProtocolStreamChunk, targetProtocol: string, model?: string, requestId?: string): ConverterResult {
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                return this.toClaudeStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.toClaudeStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
                 return this.toOpenAIResponsesStreamChunk(chunk, model, requestId);
             case MODEL_PROTOCOL_PREFIX.CODEX:
-                return this.codexConverter.toOpenAIStreamChunk(chunk, model, requestId) as CrossProtocolStreamChunk;
+                return this.codexConverter.toOpenAIStreamChunk(chunk, model, requestId);
             default:
                 throw new Error(`Unsupported target protocol: ${targetProtocol}`);
         }

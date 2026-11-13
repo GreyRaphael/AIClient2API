@@ -12,22 +12,29 @@ import { BaseConverter } from '../src/converters/BaseConverter.ts';
 import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.ts';
 
 describe('BaseConverter contract', () => {
-    class ExampleConverter extends BaseConverter {}
+    /**
+     * 契约从「运行时抛异常」改成了 TS `abstract`：
+     * 忘记实现会变成编译错误，而不是等到某个请求走到那条路径才炸。
+     * 运行时这里只验证默认实现存在且可安全调用。
+     */
+    class ExampleConverter extends BaseConverter {
+        convertRequest() { return {}; }
+        convertResponse() { return {}; }
+        convertStreamChunk() { return {}; }
+    }
 
-    test('requires subclass construction and preserves the protocol name', () => {
-        expect(() => new BaseConverter('example')).toThrow('BaseConverter是抽象类');
-        const converter = new ExampleConverter('example');
-
-        expect(converter.getProtocolName()).toBe('example');
+    test('resetStreamState 有默认空实现，子类可不覆写', () => {
+        const converter = new ExampleConverter();
         expect(() => converter.resetStreamState('request-1')).not.toThrow();
+        expect(() => converter.resetStreamState(null)).not.toThrow();
+        expect(() => converter.resetStreamState()).not.toThrow();
     });
 
-    test('requires subclasses to implement conversion methods', () => {
-        const converter = new ExampleConverter('example');
-
-        expect(() => converter.convertRequest({}, 'openai')).toThrow('convertRequest方法必须被子类实现');
-        expect(() => converter.convertResponse({}, 'openai')).toThrow('convertResponse方法必须被子类实现');
-        expect(() => converter.convertStreamChunk({}, 'openai')).toThrow('convertStreamChunk方法必须被子类实现');
+    test('抽象方法由子类实现后可正常调用', () => {
+        const converter = new ExampleConverter();
+        expect(converter.convertRequest({}, 'openai')).toEqual({});
+        expect(converter.convertResponse({}, 'openai')).toEqual({});
+        expect(converter.convertStreamChunk({}, 'openai')).toEqual({});
     });
 });
 
