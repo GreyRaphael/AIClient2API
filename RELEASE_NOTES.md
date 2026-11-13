@@ -1,159 +1,63 @@
-# AIClient-2API 发布说明 (v8.9.3)
+# AIClient-2API 发布说明 (v8.9.4)
 
-> ## 🧪 E2E 测试矩阵版本
+> ## 🔧 缺陷修复与 Node 26 / TS 7 架构精简版本
 >
-> **版本重点**：新增一套**模型列表驱动**的通用 E2E 矩阵——3 个客户端协议 × 3 种场景，
-> 每个模型自动跑 9 个用例。同时修复了一处让**所有 E2E 都无法启动**的既有缺陷。
-> 纯测试改动，不涉及运行时代码，无破坏性变更。
+> **版本重点**：围绕 v8.9.3 代码评审开展系统性治理——修复 5 个高优先级缺陷与残余边界 Bug，
+> 清理跨模块死代码与冗余封装，并将核心请求管线、转换器与调度结构充分收敛到
+> **Node.js 26** 与 **TypeScript 7** 原生能力。
 
 ---
 
-## ⚠️ 兼容性说明
+## ⚠️ 升级与兼容性说明
 
-**本版本无破坏性变更，也无运行时行为变更**，从 v8.9.0 / v8.9.1 / v8.9.2 可直接升级。
-
-- 不涉及存储结构、配置键、HTTP 接口、环境变量的任何变化。
-- 唯一新增的是 npm script `test:e2e:matrix`，以及一条既有测试脚本的修复。
-- 对生产运行的服务**零影响**：本版本没有改动任何 `src/` 下的代码。
+- **运行时要求**：Node.js >= 26.0.0（与 v8.9.x 系列一致）。
+- **兼容性**：无破坏性 HTTP API 或配置文件格式变更，可直接从 v8.9.0 ~ v8.9.3 升级。
 
 ---
 
-## 一、新增：通用 E2E 矩阵
+## 一、核心缺陷修复（Stability & Bug Fixes）
 
-### 1. 矩阵定义
+1. **模型能力刷新退避与 Antigravity 重试边界收敛**
+   - 区分能力刷新意图 `'respect-backoff' | 'force'`：常规模型查询与后台预热严格遵守退避窗口，仅显式触发刷新时强制穿透，避免失败节点在每次 `/v1/models` 请求时反复打满上游。
+   - 在 `antigravity-core.ts` 抽取 `#prepareRetryStep` 统一 `callApi` 与 `streamApi` 重试步进，修正 `429` 重试次数上限并在限流与网络错误重试时重置 `baseURLIndex`，同步修正 `retry.ts` 的 `limitFor` 上限钳位。
 
-每个模型跑 **3 × 3 = 9** 个用例：
+2. **Codex 响应信封显式契约（告别静默 `null`）**
+   - 移除易在对象拷贝/序列化后丢失的不可枚举属性与 `_codexToolNameMap` 隐式挂载；新增 `unwrapCodexEnvelope` / `requireCodexEnvelope`，对未识别上游响应直接抛出 `502`，并收窄 `CodexConverter` 同步转换返回契约。
 
-| 维度 | 取值 |
+3. **超长工具名截断与碰撞哈希统一**
+   - 将分散的 5 份截断逻辑统一到 `src/converters/tool-name.ts`，修复超长 `mcp__` 工具名碰撞后哈希截取异常及 `buildToolNameMap` 去重后缀超过 64 字符上限的溢出隐患。
+
+4. **其他稳定性细节**
+   - 修复 `--log-prompts file` 启动横幅未正确读取运行时派生日志文件名的问题。
+   - 收口 `provider-api.ts` 与 `access-api.ts` 的文件路径与并发文件锁（`withProviderPoolsLock` / `providerPoolsPath`），统一使用 `resolveErrorStatusCode` 解析异常状态码。
+
+---
+
+## 二、Node 26 / TypeScript 7 工程化与结构重整
+
+- **连接生命周期与流式管线解耦**：
+  - 将 12 个位置参数收敛为 `RequestHandlerContext`。
+  - 为 `StreamAbortScope` 实现原生 `Disposable`（`[Symbol.dispose]()`），结合 Node 26 `using` 声明、Native `AbortSignal.any()` 与 `createSlotReleaser` 统一管理客户端断连中止与并发槽位释放。
+  - 将 `handleStreamRequest` 拆分为 `openUpstreamStream`、`pumpUpstreamStream`、`buildOutboundFrames`、`flushFramesWithBackpressure`、`finalizeUpstreamOutcome` 与 `handleStreamFailureRetry`。
+- **转换器与路由收敛**：
+  - `OpenAIResponsesConverter.toClaudeStreamChunk` 迁移到 `AnthropicSseEmitter`（`multi` 模式），消除手写块状态与签名拼接逻辑。
+  - `ui-manager.ts` 管理路由改写为有序声明式路由表 `UI_ROUTES`；`provider-pool-manager.ts` 移除冗余镜像字段改为 `get` 访问器委托；`trae-core.ts` 为账户缓存增加 256 项 LRU 上界并拆分 `prepareRequestBody`。
+- **类型契约与死代码清理**：
+  - `ApiServiceAdapter` 与 `BaseConverter` 改为真正的编译期 `abstract class` 契约；删除死文件 `types/converters.d.ts`、无用导出与冗余参数（`noUnusedParameters` 纳入 `tsconfig` 归零），`any` AST 节点基线由 `98` 收紧至 `94`（`: any` / `as any` / `strict` 错误均为 `0`）。
+  - 统一 `vendor:fa:check` 字体子集校验并消除冗余 CSS 与过时 shim。
+
+---
+
+## 三、全量验证结果
+
+| 检查项 | 结果 |
 |---|---|
-| **3 个客户端入口协议** | `/v1/chat/completions`（OpenAI Chat）<br>`/v1/messages`（Anthropic Messages）<br>`/v1/responses`（OpenAI Responses） |
-| **3 种交互场景** | 非流式文本<br>流式文本<br>工具调用 |
-
-覆盖的核心价值在于**跨协议转译**：客户端用三种不同协议发请求，网关要正确翻译成
-上游 Provider 的原生协议（gemini / claude / openai / codex / trae），
-再把响应翻译回客户端期望的协议。任何一环的字段映射错了，对应用例就会失败。
-
-### 2. 通用性：模型列表驱动，不硬编码
-
-这是本次设计的核心目标——**模型列表完全来自 `/auto/v1/models`**，
-测试代码里不出现任何具体模型名。
-
-下次 `model_list` 增删模型、或某个 Provider 改了模型名，**不需要改测试文件**，
-矩阵会按新列表自动伸缩。
-
-已实测验证的三种变化：
-
-| 场景 | 结果 |
-|---|---|
-| 全量 11 个模型 | 排除生图后 10 个 → **90 个用例，90/90 通过** |
-| 显式指定 2 个模型 | 自动生成 **18 个用例，18/18 通过** |
-| 混入生图模型 | 自动排除并打印说明，其余照跑，**9/9 通过** |
-
-生图模型通过 `isImageOnlyModel()` 按**名字形态**（含 `image`）排除，
-而不是硬编码一份清单——上游新增生图模型时同样会被自动排除，
-由 `image-generation.e2e.test.mjs` 负责覆盖。
-
-### 3. 断言强度
-
-刻意避免「只要能返回字就算通过」这种弱断言：
-
-- **文本场景**：断言答案确实包含 `391`（17 × 23 的正确答案）。
-  模型答错、或转译过程中丢了内容，都会失败。
-- **工具场景**：断言确实产出了 `get_weather` 工具调用，并校验工具名。
-  仅返回一句「我不能调用工具」的纯文本会失败。
-- **流式场景**：额外断言流内没有错误事件（`streamError`），
-  避免「HTTP 200 但流里塞了 error 帧」被当成成功。
-
-失败原因采用**收集式**而非遇错即断：单个场景失败不会掩盖其余场景的结论，
-一次跑完就能看到完整矩阵报告。
-
-### 4. 运行方式
-
-```bash
-npm run test:e2e:matrix                        # 默认收敛模型集
-AICLIENT_E2E_ALL_MODELS=1 npm run test:e2e:matrix   # 全量模型
-AICLIENT_E2E_MODELS=a:b,c:d npm run test:e2e:matrix # 只跑指定模型
-```
-
----
-
-## 二、修复：所有 E2E 都无法启动的既有缺陷
-
-`tests/e2e/global-setup.js` 仍在导入 `MODELS_CACHE_FILE` 常量，
-但 `tests/e2e/e2e-helpers.js` 早已把它改成**惰性求值的 `modelsCacheFile()` 函数**
-（目的是支持测试中修改 env 后重新读取，因为 ESM 模块记录无法清除）。
-
-两者不匹配的后果是：`node --import ./tests/e2e/global-setup.js` 在
-**模块解析阶段就抛 `SyntaxError: does not provide an export named 'MODELS_CACHE_FILE'`**，
-**一个用例都跑不起来**——包括原有的 `cross-protocol.e2e.test.mjs`、
-`image-generation.e2e.test.mjs`、`provider-canaries.e2e.test.mjs` 全部无法启动。
-
-已改为调用函数。这个缺陷不是本次改动引入的，是此前把常量重构为函数时漏改了调用方。
-
----
-
-## 三、验证结果
-
-| 项目 | 结果 |
-|---|---|
-| E2E 矩阵（10 模型 × 9 场景） | **90 / 90 通过** |
-| 生图 E2E（text-to-image、image-to-image） | **2 / 2 通过**（均真实产出图片） |
-| 单元测试 | **1098 / 1098 通过**，未受影响 |
-| `typecheck` / `typecheck:webui` | 通过 |
-| `check:strict`（strict 棘轮） | 0 错误 |
-| `check:any`（any 棘轮） | 0 any |
-| `check:imports` | 通过 |
-| `check:cycles` | 0 循环依赖 |
-| `lint:css` | 通过 |
-
-矩阵实际覆盖的 10 个模型（由 `/auto/v1/models` 自动得出，非硬编码）：
-
-```
-openai-custom:deepseek-v4.1-flash
-openaiResponses-custom:deepseek-flash
-claude-custom:deepseek-flash
-gemini-antigravity:claude-sonnet-5-5-medium
-gemini-antigravity:gemini-3.8-flash-medium
-openai-codex-oauth:gpt-6-luna
-trae:DeepSeek-V4.1-Flash-1017
-trae:glm-5.3-flashx
-trae-chat_v3:deepseek-v4.1-flash
-trae-chat_v3:glm-5.3-flashx
-```
-
----
-
-## 四、已知限制（诚实说明）
-
-- **未验证组合入口**：`npm run test:e2e`（同时含 matrix + cross-protocol + image）
-  没有完整跑过。原因是它需要真实上游、耗时较长。
-  各自单独跑通已验证（matrix 90/90、image 2/2）。
-  若要跑组合入口，注意 `--test-timeout=300000`（5 分钟）对 90 个用例串行
-  （约 90 秒）+ 现有 e2e 可能偏紧，必要时调大该值。
-- **E2E 依赖真实上游**：需要网关在运行、有可用凭据、且各 Provider 配额充足。
-  配额耗尽时用例会失败，这是上游状态而非代码缺陷。
-- **本版本不含运行时改动**：若你在 v8.9.2 上运行正常，升级到 v8.9.3 对运行的服务
-  没有任何影响，唯一的收益是 E2E 能跑了、且多了一套矩阵覆盖。
-
----
-
-## 五、升级建议
-
-- **运行时环境要求**：Node.js >= 26.0.0（与 v8.9.0 相同）
-- **升级步骤**：
-
-  ```bash
-  git pull
-  npm ci --ignore-scripts
-  npm start
-  ```
-
-- **无需迁移**：不涉及存储、配置或数据格式变更。
-- **新增可选验证**：升级后如需跑完整 E2E，先确保网关已启动并配好凭据，然后：
-
-  ```bash
-  npm run test:e2e:matrix
-  ```
+| `typecheck` / `typecheck:webui` | 通过（0 错误） |
+| `check:strict` / `check:any` | 0 严格错误；0 `any` 注解（94 AST nodes） |
+| `check:imports` / `check:cycles` | 142 个文件全部通过（0 循环依赖） |
+| `lint:css` / `gen:webui-html:check` / `vendor:webui:check` / `vendor:fa:check` | 全部通过 |
+| 核心单元测试与回归测试（`npm test`） | **1122 / 1122 通过**（250 个套件） |
+| 运行时冒烟测试（`npm run test:runtime`） | 通过 |
 
 ---
 

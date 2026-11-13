@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.4] - 2026-11-13
+
+### Fixed — 稳定性与边界缺陷修复
+
+- **模型能力刷新退避与 Antigravity 重试收敛**：
+  - 将 `ModelCapability` 刷新语义区分 `'respect-backoff' | 'force'`，防止读路径/预热绕过 `nextRefreshAt` 退避打爆上游；同步与 adapter 自身缓存解耦。
+  - 统一 `antigravity-core.ts` 中 `callApi` / `streamApi` 重试逻辑（`#prepareRetryStep`），修正 `429` 重试上限 `Math.min(maxRetries, ANTIGRAVITY_RATE_LIMIT_RETRIES)` 并在限流与网络重试时重置 `baseURLIndex = 0`，`retry.ts` 补齐 `limitFor` 上限钳位。
+- **Codex 响应信封契约与工具名碰撞修复**：
+  - 新增 `src/converters/codex-envelope.ts`（`unwrapCodexEnvelope` / `requireCodexEnvelope`），消除不可枚举属性在拷贝后丢失导致的静默返回 `null` 问题，无法识别时明确抛 `502`，并收窄 `CodexConverter` 同步响应返回类型。
+  - 收敛 5 份工具名截断逻辑到 `src/converters/tool-name.ts`，修复超长 `mcp__` 工具名碰撞哈希及去重后缀超出 `64` 字符上限的溢出问题。
+- **启动横幅日志文件名显示**：修复 `PROMPT_LOG_FILENAME` 从运行时模块导出读取，使 `--log-prompts file` 启动横幅正常打印日志路径。
+
+### Changed — 架构整理与 Node 26 / TS 7 深化
+
+- **契约收紧与死代码清理**：
+  - `ApiServiceAdapter` 与 `BaseConverter` 改为编译期抽象契约（`abstract class`），收窄 `convertRequest` / `convertResponse` / `convertStreamChunk` 返回签名；删除 `types/converters.d.ts`、无用导出、冗余 re-export shim、死 CSS 与 88 处未使用参数（`noUnusedParameters` 纳入 `tsconfig` 归零），并将 `any` AST 节点棘轮收紧至 `94`（`: any` / `as any` / `strict` 错误均为 `0`）。
+  - 统一复用到公共能力：`AbortSignal.any()`、`crypto.hash`、`Set.prototype.intersection/difference`、类型守卫 (`src/utils/type-guards.ts`)、`resolveErrorStatusCode`、`providerPoolsPath()`、`withProviderPoolsLock()`；清理 `provider-api.ts` 与 `access-api.ts` 重复锁样板，锁定 Font Awesome 子集校验（`vendor:fa:check`）。
+- **请求管线、生命周期与转换器重构**：
+  - 引入 `RequestHandlerContext` 替代 12 个位置参数；`StreamAbortScope` 实现 Node 26 原生 `Disposable`（`[Symbol.dispose]()`），在 `request-pipeline.ts`、`unary-handler.ts`、`api-manager.ts` 统一使用 `using` 自动解绑及 `createSlotReleaser`；拆分 `handleStreamRequest` 为高内聚小步骤。
+  - `codex-core.ts` 消除 `_codexToolNameMap` 隐式不可枚举属性；`OpenAIResponsesConverter.toClaudeStreamChunk` 迁移至 `AnthropicSseEmitter`；`ui-manager.ts` 路由分发改用有序声明式路由表 `UI_ROUTES`；`provider-pool-manager.ts` 移除冗余字段改为 `get` 委托；`trae-core.ts` 增加 `traeAccountCacheMap` 256 项 LRU 上界并拆分 `prepareRequestBody`。
+
+### Verified
+
+- `npm run verify` 全量通过：`typecheck` / `typecheck:webui`、`check:strict`（`0`）、`check:any`（`94` AST nodes / `0` any）、`check:imports` & `check:cycles`（`142` 文件 `0` 环）、`lint:css` / `gen:webui-html:check` / `vendor:webui:check` / `vendor:fa:check`、单元测试 **`1122/1122`（250 套件）通过**、`smoke-runtime` 通过。
+
 ## [v8.9.3] - 2026-11-12
 
 ### Added — 通用 E2E 矩阵
