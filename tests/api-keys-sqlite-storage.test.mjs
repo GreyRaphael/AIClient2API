@@ -9,7 +9,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { DatabaseSync } from 'node:sqlite';
 
 jest.mock('../src/utils/logger.ts', () => ({
     __esModule: true,
@@ -68,17 +67,8 @@ describe('api-keys sqlite store', () => {
         db.saveKeys({ maki_k1: updatedK1, maki_k2: undefined }, ['maki_k2']);
         expect(Object.keys(db.loadAllKeys())).toEqual(['maki_k1']);
 
-        // 测试 Meta API
-        db.setMeta('schema_version', '1.0');
-        expect(db.getMeta('schema_version')).toBe('1.0');
-        db.setMeta('schema_version', null);
-        expect(db.getMeta('schema_version')).toBeNull();
-
-        // 单独 deleteKeyFromDb
-        db.deleteKeyFromDb('maki_k1');
+        db.saveKeys({ maki_k1: undefined }, ['maki_k1']);
         expect(Object.keys(db.loadAllKeys())).toEqual([]);
-
-        db.clearAllKeys();
         db.shutdown();
     });
 

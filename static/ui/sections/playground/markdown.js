@@ -41,7 +41,7 @@ export function renderMarkdown(input) {
     text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
     const renderedVideos = new Set();
-    text = text.replace(/\[!\[([^\]]*)\]\(([^)]+)\)\]\((https?:\/\/[^)]+)\)/g, (match, alt, thumbUrl, videoUrl) => {
+    text = text.replace(/\[!\[([^\]]*)\]\(([^)]+)\)\]\((https?:\/\/[^)]+)\)/g, (match, alt, _thumbUrl, videoUrl) => {
         if (!isSafeVideoUrl(videoUrl)) return match;
         renderedVideos.add(videoUrl);
         return renderVideoPlayer(videoUrl, alt || 'Play Video');

@@ -18,7 +18,7 @@ import { RateManager } from '../../utils/rate-tracker.ts';
 import { extractUsage, mergeUsage } from '../../utils/usage-normalizer.ts';
 import type { NormalizedUsage } from '../../utils/usage-normalizer.ts';
 import { getBeijingDateString } from '../../utils/common.ts';
-import { recordUsage, queryStats, queryCalendar, queryDates, clearAllStats, clearTokenStats, shutdown as shutdownDb, setDatabaseDir } from './stats-db.ts';
+import { recordUsage, queryStats, queryCalendar, queryDates, clearAllStats, clearTokenStats, shutdown as shutdownDb } from './stats-db.ts';
 import type {
     CalendarDay,
     FinalizeRequestParams,
@@ -101,11 +101,6 @@ function cleanupPendingRequests(): void {
 
 const cleanupTimer = setInterval(cleanupPendingRequests, 5 * 60 * 1000);
 if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref();
-
-/** 测试用：切换数据库目录沙箱 */
-export function configureStatsStorage(dir: string | null): void {
-    setDatabaseDir(dir);
-}
 
 /**
  * 记录非流式响应的用量。

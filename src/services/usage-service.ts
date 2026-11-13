@@ -4,11 +4,9 @@
  */
 
 
-import { getProviderPoolManager } from './service-manager.ts';
 import { serviceInstances } from '../providers/adapter.ts';
 import { MODEL_PROVIDER } from '../utils/common.ts';
 import { getProviderModels } from '../providers/provider-models.ts';
-import { getErrorMessage } from '../utils/error.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 /**
  * 用量查询服务类
@@ -71,51 +69,6 @@ export class UsageService {
     }
 
     /**
-     * 获取所有提供商的用量信息
-     * @returns {Promise<Object>} 所有提供商的用量信息
-     */
-    async getAllUsage(): Promise<Record<string, any[]>> {
-        const results: Record<string, any[]> = {};
-        const poolManager = getProviderPoolManager();
-        
-        for (const providerType of Object.keys(this.providerHandlers)) {
-            try {
-                // 检查是否有号池配置
-                if (poolManager) {
-                    const pools = poolManager.providerPools?.[providerType] || [];
-                    if (pools && pools.length > 0) {
-                        results[providerType] = [];
-                        for (const pool of pools) {
-                            try {
-                                const usage = await this.getFormattedUsage(providerType, pool.uuid);
-                                results[providerType].push({
-                                    uuid: pool.uuid,
-                                    usage
-                                });
-                            } catch (error) {
-                                results[providerType].push({
-                                    uuid: pool.uuid,
-                                    error: getErrorMessage(error)
-                                });
-                            }
-                        }
-                    }
-                }
-                
-                // 如果没有号池配置，尝试获取单个实例的用量
-                if (!results[providerType] || results[providerType].length === 0) {
-                    const usage = await this.getFormattedUsage(providerType, null);
-                    results[providerType] = [{ uuid: 'default', usage }];
-                }
-            } catch (error) {
-                results[providerType] = [{ uuid: 'default', error: getErrorMessage(error) }];
-            }
-        }
-        
-        return results;
-    }
-
-    /**
      * 从适配器获取原始用量数据（统一内部方法）
      * @private
      */
@@ -162,14 +115,6 @@ export class UsageService {
      */
     async getCodexUsage(uuid: string | null = null) {
         return this._getRawUsageFromAdapter(MODEL_PROVIDER.CODEX_API, uuid);
-    }
-
-    /**
-     * 获取支持用量查询的提供商列表
-     * @returns {Array<string>} 支持的提供商类型列表
-     */
-    getSupportedProviders() {
-        return Object.keys(this.providerHandlers);
     }
 }
 

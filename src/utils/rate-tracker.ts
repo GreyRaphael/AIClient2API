@@ -201,18 +201,4 @@ export class RateManager {
         const tracker = this.trackers.get(key);
         return tracker ? tracker.getStats() : { qps: 0, tps: 0, rpm: 0, maxQps: 0, maxTps: 0, maxRpm: 0 };
     }
-
-    /**
-     * 获取所有统计
-     */
-    getAllStats(): { global: RateStats; items: Record<string, RateStats> } {
-        const result: { global: RateStats; items: Record<string, RateStats> } = {
-            global: this.globalTracker.getStats(),
-            items: {}
-        };
-        for (const [key, tracker] of this.trackers.entries()) {
-            result.items[key] = tracker.getStats();
-        }
-        return result;
-    }
 }

@@ -18,17 +18,13 @@
  */
 
 /**
- * section -> 需要加载的样式文件（相对 static 根）。
- *
- * 各 section 只有一份 section-<id>.css（由 stylesFor(sectionId) 按约定拼出）。
+ * 各 section 专属样式路径按约定 `/ui/styles/components/section-${sectionId}.css` 拼接。
  * 跨 section 共享的表单原子（.form-group / .password-input-wrapper / .password-toggle /
  * .toggle-switch / .toggle-slider 等）已全部上收到 shared.css，无需再跨 section 引用。
  */
-const SECTION_STYLES = {};
-
 /** @param {string} sectionId */
 function stylesFor(sectionId) {
-    return SECTION_STYLES[sectionId] || [`/ui/styles/components/section-${sectionId}.css`];
+    return [`/ui/styles/components/section-${sectionId}.css`];
 }
 
 /** 已请求过的 section 样式，避免重复插入（也避免同一份 CSS 反复触发下载） */
@@ -86,10 +82,4 @@ export function loadSectionStyles(sectionId) {
 
     pending.set(sectionId, promise);
     return promise;
-}
-
-/** 测试用：复位内部状态 */
-export function __resetSectionStyles() {
-    loaded.clear();
-    pending.clear();
 }

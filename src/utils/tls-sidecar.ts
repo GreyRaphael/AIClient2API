@@ -177,14 +177,6 @@ class TLSSidecar {
     }
 
     /**
-     * 获取 sidecar base URL
-     * @returns {string|null}
-     */
-    getBaseUrl(): string | null {
-        return this.isReady() ? this.baseUrl : null;
-    }
-
-    /**
      * 为 axios 配置 sidecar 代理
      * 将目标 URL 改为 sidecar 地址，原始目标通过 header 传递
      *

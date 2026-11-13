@@ -16,13 +16,3 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-
-/** 非空字符串。 */
-export function isNonEmptyString(value: unknown): value is string {
-    return typeof value === 'string' && value.length > 0;
-}
-
-/** 有限数字（排除 NaN / Infinity）。 */
-export function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}

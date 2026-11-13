@@ -50,10 +50,8 @@ function parseJsonList(text) {
     return list;
 }
 
-function defaultTraeHost(providerType) {
-    // Trae 企业版与个人版 (chat_v3) 的 OAuth 换票与 PAT 鉴权端点均位于统一认证中心
-    return 'https://api.enterprise.trae.cn';
-}
+// Trae 企业版与个人版 (chat_v3) 的 OAuth 换票与 PAT 鉴权端点均位于统一认证中心
+const DEFAULT_TRAE_HOST = 'https://api.enterprise.trae.cn';
 
 export function AuthDialog({ providerType, onClose, onCompleted }) {
     const methods = AUTH_METHODS[providerType] || [];
@@ -67,7 +65,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
     const [email, setEmail] = useState('');
     const [trae, setTrae] = useState({
         token: '',
-        host: defaultTraeHost(providerType),
+        host: DEFAULT_TRAE_HOST,
         name: ''
     });
     const [batchText, setBatchText] = useState('');

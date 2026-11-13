@@ -9,7 +9,6 @@
  */
 
 import { html, useEffect, useMemo, useState } from '../../html.js';
-import { t } from '../../lib/i18n.js';
 import { api } from '../../lib/api.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import { confirmDialog } from '../../store/confirm.js';

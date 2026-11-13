@@ -4,7 +4,6 @@ import logger from '../utils/logger.ts';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import open from '../utils/open-browser.ts';
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import { broadcastEvent } from '../ui-modules/event-broadcast.ts';
@@ -24,10 +23,10 @@ import { isRecord } from '../utils/type-guards.ts';
  * 回调服务器的监听窗口（毫秒）。
  * 用户需要在浏览器里完成授权，给足 10 分钟。
  */
-const OAUTH_CALLBACK_WINDOW_MS = 10 * 60 * 1000;
+export const OAUTH_CALLBACK_WINDOW_MS = 10 * 60 * 1000;
 
 /** 会话轮询间隔（毫秒）。 */
-const OAUTH_POLL_INTERVAL_MS = 3000;
+export const OAUTH_POLL_INTERVAL_MS = 3000;
 
 /**
  * 轮询次数上限。
@@ -38,7 +37,7 @@ const OAUTH_POLL_INTERVAL_MS = 3000;
  * handleCodexOAuthCallback 会抛 "Invalid or expired OAuth session" —— 用户看到成功页
  * 却拿到错误。
  */
-const OAUTH_MAX_POLL_COUNT = Math.ceil(OAUTH_CALLBACK_WINDOW_MS / OAUTH_POLL_INTERVAL_MS);
+export const OAUTH_MAX_POLL_COUNT = Math.ceil(OAUTH_CALLBACK_WINDOW_MS / OAUTH_POLL_INTERVAL_MS);
 
 interface CodexAuthConfig {
     CODEX_OAUTH_CREDS_FILE_PATH?: string;
@@ -314,71 +313,6 @@ export class CodexAuth {
     }
 
     /**
-     * 启动 OAuth 流程
-     * @returns {Promise<Object>} 返回 tokens
-     */
-    async startOAuthFlow() {
-        const pkce = this.generatePKCECodes();
-        const state = crypto.randomBytes(16).toString('hex');
-
-        logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Starting OAuth flow...`);
-
-        // 启动本地回调服务器
-        const server = await this.startCallbackServer();
-
-        // 构建授权 URL
-        const authUrl = new URL(CODEX_OAUTH_CONFIG.authUrl);
-        authUrl.searchParams.set('client_id', CODEX_OAUTH_CONFIG.clientId);
-        authUrl.searchParams.set('response_type', 'code');
-        authUrl.searchParams.set('redirect_uri', CODEX_OAUTH_CONFIG.redirectUri);
-        authUrl.searchParams.set('scope', CODEX_OAUTH_CONFIG.scopes);
-        authUrl.searchParams.set('state', state);
-        authUrl.searchParams.set('code_challenge', pkce.challenge);
-        authUrl.searchParams.set('code_challenge_method', 'S256');
-        authUrl.searchParams.set('prompt', 'login');
-        authUrl.searchParams.set('id_token_add_organizations', 'true');
-        authUrl.searchParams.set('codex_cli_simplified_flow', 'true');
-
-        logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Opening browser for authentication...`);
-        logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} If browser doesn't open, visit: ${authUrl.toString()}`);
-
-        try {
-            await open(authUrl.toString());
-        } catch (error) {
-            logger.warn(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to open browser automatically:`, getErrorMessage(error));
-        }
-
-        // 等待回调
-        const result = await this.waitForCallback(server, state);
-
-        // 用 code 换取 tokens
-        const tokens = await this.exchangeCodeForTokens(result.code, pkce.verifier);
-
-        // 解析 JWT 提取账户信息
-        const claims = this.parseJWT(tokens.id_token || '');
-
-        // 保存凭据（遵循 CLIProxyAPI 格式）
-        const credentials: CodexCredentialRecord = {
-            id_token: tokens.id_token || '',
-            access_token: tokens.access_token || '',
-            refresh_token: tokens.refresh_token || '',
-            account_id: claims['https://api.openai.com/auth']?.chatgpt_account_id || claims.sub || '',
-            last_refresh: new Date().toISOString(),
-            email: claims.email,
-            type: 'codex',
-            expired: new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString()
-        };
-
-        await this.saveCredentials(credentials);
-
-        logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Authentication successful!`);
-        logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Email: ${credentials.email}`);
-        logger.info(`${CODEX_OAUTH_CONFIG.logPrefix} Account ID: ${credentials.account_id}`);
-
-        return credentials;
-    }
-
-    /**
      * 启动回调服务器
      * @returns {Promise<http.Server>}
      */
@@ -471,40 +405,6 @@ export class CodexAuth {
                 }
             });
         });
-    }
-
-    /**
-     * 等待 OAuth 回调
-     * @param {import('node:http').Server} server
-     * @param {string} expectedState
-     * @returns {Promise<{code: string, state: string}>}
-     */
-    async waitForCallback(server: http.Server, expectedState: string): Promise<CallbackResult> {
-        const { promise, resolve, reject } = Promise.withResolvers<CallbackResult>();
-
-        const timeout = setTimeout(() => {
-            server.close();
-            reject(new Error(`Authentication timeout (${Math.round(OAUTH_CALLBACK_WINDOW_MS / 60000)} minutes)`));
-        }, OAUTH_CALLBACK_WINDOW_MS);
-
-        server.once('auth-success', (result: CallbackResult) => {
-            clearTimeout(timeout);
-            server.close();
-
-            if (result.state !== expectedState) {
-                reject(new Error('State mismatch - possible CSRF attack'));
-            } else {
-                resolve(result);
-            }
-        });
-
-        server.once('auth-error', (error: Error) => {
-            clearTimeout(timeout);
-            server.close();
-            reject(error);
-        });
-
-        return promise;
     }
 
     /**
@@ -641,88 +541,6 @@ export class CodexAuth {
         } catch (error) {
             logger.error(`${CODEX_OAUTH_CONFIG.logPrefix} Failed to save credentials:`, getErrorMessage(error));
             throw new Error(`Failed to save credentials: ${getErrorMessage(error)}`);
-        }
-    }
-
-    /**
-     * 加载凭据
-     * @param {string} email
-     * @returns {Promise<Object|null>}
-     */
-    async loadCredentials(email: string | null = null): Promise<Record<string, unknown> | null> {
-        // 优先使用配置中指定的路径，否则从 configs/codex 目录加载
-        let credsPath: string;
-        if (this.config.CODEX_OAUTH_CREDS_FILE_PATH) {
-            credsPath = this.config.CODEX_OAUTH_CREDS_FILE_PATH;
-        } else {
-            // 从 configs/codex 目录加载（与其他供应商一致）
-            const projectDir = process.cwd();
-            const targetDir = path.join(projectDir, 'configs', 'codex');
-
-            // 扫描目录找到匹配的凭据文件
-            try {
-                const files = await fs.promises.readdir(targetDir);
-                const emailPattern = email || 'default';
-                const matchingFile = files
-                    .filter(f => f.includes(`codex-${emailPattern}`) && f.endsWith('.json'))
-                    .sort()
-                    .pop(); // 获取最新的文件
-
-                if (matchingFile) {
-                    credsPath = path.join(targetDir, matchingFile);
-                } else {
-                    return null;
-                }
-            } catch (error) {
-                if (getErrorCode(error) === 'ENOENT') {
-                    return null;
-                }
-                throw error;
-            }
-        }
-
-        try {
-            const data = await fs.promises.readFile(credsPath, 'utf8');
-            return JSON.parse(data);
-        } catch (error) {
-            if (getErrorCode(error) === 'ENOENT') {
-                return null; // 文件不存在
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * 检查凭据文件是否存在
-     * @param {string} email
-     * @returns {Promise<boolean>}
-     */
-    async credentialsExist(email: string | null = null): Promise<boolean> {
-        // 优先使用配置中指定的路径，否则从 configs/codex 目录检查
-        let credsPath: string;
-        if (this.config.CODEX_OAUTH_CREDS_FILE_PATH) {
-            credsPath = this.config.CODEX_OAUTH_CREDS_FILE_PATH;
-        } else {
-            const projectDir = process.cwd();
-            const targetDir = path.join(projectDir, 'configs', 'codex');
-
-            try {
-                const files = await fs.promises.readdir(targetDir);
-                const emailPattern = email || 'default';
-                const hasMatch = files.some(f =>
-                    f.includes(`codex-${emailPattern}`) && f.endsWith('.json')
-                );
-                return hasMatch;
-            } catch (error) {
-                return false;
-            }
-        }
-
-        try {
-            await fs.promises.access(credsPath);
-            return true;
-        } catch {
-            return false;
         }
     }
 

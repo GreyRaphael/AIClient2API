@@ -26,10 +26,6 @@ CREATE TABLE IF NOT EXISTS api_key (
     data       TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS api_key_meta (
-    k TEXT PRIMARY KEY,
-    v TEXT
-);
 `;
 
 export function setDatabaseDir(dir: string | null): void {
@@ -136,34 +132,6 @@ export function saveKeys(keys: Record<string, ApiKeyRecord | undefined>, keyIds:
             insertStmt.run(keyId, JSON.stringify(data), now);
         }
     });
-}
-
-/** 删除单个 Key */
-export function deleteKeyFromDb(keyId: string): void {
-    const database = ensureDb();
-    database.prepare('DELETE FROM api_key WHERE key_id = ?').run(keyId);
-}
-
-/** 清空全部 Key */
-export function clearAllKeys(): void {
-    const database = ensureDb();
-    database.exec('DELETE FROM api_key');
-}
-
-/** 写入 meta 键值对 */
-export function setMeta(k: string, v: string | null): void {
-    const database = ensureDb();
-    database.prepare(`
-        INSERT INTO api_key_meta (k, v) VALUES (?, ?)
-        ON CONFLICT(k) DO UPDATE SET v = excluded.v
-    `).run(String(k), v == null ? null : String(v));
-}
-
-/** 读取 meta 键值对 */
-export function getMeta(k: string): string | null {
-    const database = ensureDb();
-    const row = database.prepare('SELECT v FROM api_key_meta WHERE k = ?').get(String(k)) as SqlRow | undefined;
-    return row && row.v != null ? String(row.v) : null;
 }
 
 /** 关闭数据库 */

@@ -14,8 +14,6 @@ const number = (id, labelKey, extra = {}) => ({ type: 'number', id, labelKey, ..
 
 const text = (id, labelKey, extra = {}) => ({ type: 'text', id, labelKey, ...extra });
 
-const textarea = (id, labelKey, extra = {}) => ({ type: 'textarea', id, labelKey, rows: 4, ...extra });
-
 export const FIELD_DEFS = {
     REQUIRED_API_KEY: { type: 'password', id: 'apiKey', labelKey: 'config.apiKey', placeholderKey: 'config.apiKeyPlaceholder' },
     HOST: text('host', 'config.host', { placeholderKey: 'config.hostPlaceholder' }),
@@ -100,12 +98,6 @@ export function ConfigField({ def, value, onChange, extra, reveal }) {
                 ${def.options.map((option) => html`
                     <option value=${option} key=${option}>${t(`${def.labelPrefix}.${option}`)}</option>`)}
             </select>`;
-    } else if (def.type === 'textarea') {
-        control = html`
-            <textarea id=${def.id} class="form-control" rows=${def.rows || 4}
-                placeholder=${def.placeholderKey ? t(def.placeholderKey) : undefined}
-                value=${value}
-                onInput=${(event) => onChange(event.currentTarget.value)}></textarea>`;
     } else if (def.type === 'password') {
         control = html`<${PasswordInput} id=${def.id} value=${value} onChange=${onChange}
             inputClassName="form-control" withToggleWrapper=${true} extra=${extra} reveal=${reveal} />`;

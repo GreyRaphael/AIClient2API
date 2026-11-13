@@ -134,51 +134,12 @@ class Logger {
     }
 
     /**
-     * 设置请求上下文 (不推荐直接使用，建议使用 runWithContext)
-     * @param {string} requestId - 请求ID
-     * @param {Object} context - 上下文信息
-     */
-    setRequestContext(requestId: string | null | undefined, context: Record<string, unknown> = {}): string {
-        const resolvedRequestId = requestId || randomUUID().substring(0, 8);
-        const fullContext: LoggerContext = { ...context, requestId: resolvedRequestId, _createdAt: Date.now() };
-        this.asyncStorage.enterWith(fullContext);
-        return resolvedRequestId;
-    }
-
-    /**
      * 获取当前请求ID
      * @returns {string} 请求ID
      */
     getCurrentRequestId(): string | undefined {
         const store = this.asyncStorage.getStore();
         return store?.requestId;
-    }
-
-    /**
-     * 获取当前请求上下文
-     * @param {string} requestId - 请求ID (已弃用，优先从当前异步环境获取)
-     * @returns {Object} 上下文信息
-     */
-    getRequestContext(requestId?: string | null): LoggerContext {
-        const store = this.asyncStorage.getStore();
-        if (store) {
-            return store;
-        }
-        return requestId ? { requestId } : {};
-    }
-
-    /**
-     * 清除请求上下文 (AsyncLocalStorage 会在异步操作结束时自动清除)
-     */
-    clearRequestContext() {
-        // 不需要手动清除
-    }
-
-
-    /**
-     * 已弃用：AsyncLocalStorage 自动管理生命周期，不再需要手动清理
-     */
-    _ensureContextCleanup() {
     }
 
     /**
@@ -369,22 +330,6 @@ class Logger {
     error(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
         this.log('error', args, requestId);
-    }
-
-    /**
-     * 创建带请求ID的日志记录器
-     * @param {string} requestId - 请求ID
-     * @returns {Object} 带请求上下文的日志方法
-     */
-    withRequest(requestId?: string | null) {
-        const resolvedRequestId = requestId || this.getCurrentRequestId() || null;
-
-        return {
-            debug: (...args: unknown[]) => this.log('debug', args, resolvedRequestId),
-            info: (...args: unknown[]) => this.log('info', args, resolvedRequestId),
-            warn: (...args: unknown[]) => this.log('warn', args, resolvedRequestId),
-            error: (...args: unknown[]) => this.log('error', args, resolvedRequestId)
-        };
     }
 
     /**
