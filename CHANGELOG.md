@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.6] - 2026-11-13
+
+### Changed — 类型系统收口、模块拆解与结构简化
+
+- **全仓严格模式收敛与 `ui-modules` 解耦**：
+  - 删除 `tsconfig.strict.json`、`scripts/strict-baseline.json` 与 `scripts/strict-metrics.mjs`，将严格编译选项并入主配置 [tsconfig.json](tsconfig.json) 并精简 `ci.yml` / `package.json` 门禁流程；同时在 `tsconfig.webui.json` 启用 `noUnusedLocals` 与 `noUnusedParameters`。
+  - 清理转换器、提供商、工具类与 API 模块中的残留 JSDoc `any` 类型注解，使全仓保持 `: any` / `as any` 零增量（`any` AST nodes 收敛至 `92`）。
+  - 提取共享 HTTP 请求/响应与校验辅助模块 [src/ui-modules/http-helpers.ts](src/ui-modules/http-helpers.ts)，并将臃肿的 [src/ui-modules/provider-api.ts](src/ui-modules/provider-api.ts)（1446 行拆减后为 886 行）拆分为 [provider-health-models.ts](src/ui-modules/provider-health-models.ts)、[provider-pools-store.ts](src/ui-modules/provider-pools-store.ts) 与 [provider-secrets.ts](src/ui-modules/provider-secrets.ts)。
+
+- **Provider 传输/SSE 复用与大型核心文件拆分**：
+  - 提取共享流式 SSE 行解码与排空调度工具 [src/utils/sse-stream.ts](src/utils/sse-stream.ts) 及共享 Axios transport / 错误处理辅助 [src/providers/provider-http.ts](src/providers/provider-http.ts)，统一简化 `claude-core.ts`、`openai-core.ts`、`openai-responses-core.ts`、`codex-core.ts` 与 `zed-core.ts` 的请求与 SSE 处理路径。
+  - 将 `TraeApiService` 协议辅助拆入 [src/providers/trae/trae-protocols.ts](src/providers/trae/trae-protocols.ts)，将 `Antigravity` 纯消息/工具转换拆入 [src/providers/gemini/antigravity-transforms.ts](src/providers/gemini/antigravity-transforms.ts)，并优化 Trae 非流式响应构造与转换器复用。
+
+- **Dead Code 清理**：
+  - 清理前后端确认无调用的导出、空实现与过时兼容逻辑：移除 [src/auth/codex-oauth.ts](src/auth/codex-oauth.ts) 无用 CLI OAuth 残留（导出回调窗口常量供测试直接导入）、[src/services/api-keys/key-db.ts](src/services/api-keys/key-db.ts) 未使用的 `api_key_meta` 表与 4 个方法、[src/services/usage-service.ts](src/services/usage-service.ts) 与 `stats-manager.ts` 未用导出、[src/utils/logger.ts](src/utils/logger.ts) 空请求上下文接口、`rate-tracker.ts` / `tls-sidecar.ts` / `type-guards.ts` 无调用导出，以及 `static/ui/` 多处冗余辅助函数与样式表字典。
+
+### Fixed & Style — WebUI 视觉一致性美化与测试套件整理
+
+- **基于 Playwright 全菜单巡检的 WebUI 视觉与响应式美化**：
+  - 统一 `custom-models`、`upload-config`、`usage`、`logs`、`model-usage-stats`、`providers` 与 `playground` 等面板卡片边框/圆角/分段控件/输入框尺寸与间距；清理 `section-providers.css` 失效样式规则，修复工具栏搜索框伸展与移动端按钮换行挤压。
+  - 优化移动端（390px）导航图标对齐、`h2` 标题左内边距与 `playground` 底部输入区紧凑度；改进独立页 [potluck-user.js](static/ui/pages/potluck-user.js) 与 `potluck-shared.css` 卡片排版与日历横向滚动，并润色两处中文文案（`自动关联 OAuth` 等）。
+
+- **测试套件轻量清理与超长回归文件拆分**：
+  - 精简 [tests/support/harness.mjs](tests/support/harness.mjs) 中被覆盖的重复定时器键及仓库零调用的 Jest 兼容 stub/matcher；移除过时的 `jest.resetModules()` / `jest.doMock()` 用法。
+  - 删除已被真实浏览器 E2E 覆盖的静态源码/CSS 正则测试块，将 16 个无 mock 冲突的细碎单测按模块高内聚整合为 [error-handling.test.mjs](tests/error-handling.test.mjs)、[stream-utilities.test.mjs](tests/stream-utilities.test.mjs)、[webui-core-helpers.test.mjs](tests/webui-core-helpers.test.mjs)、[webui-section-helpers.test.mjs](tests/webui-section-helpers.test.mjs) 等测试文件（`.test.mjs` 文件总数由 115 收敛至 100）。
+  - 将 2,651 行的 `cross-protocol-bridging.test.mjs`（109 条回归用例）按主题拆分为 [bridging-core-converters.test.mjs](tests/regressions/bridging-core-converters.test.mjs)（48 条）、[bridging-edge-cases.test.mjs](tests/regressions/bridging-edge-cases.test.mjs)（35 条）与 [bridging-stream-and-gating.test.mjs](tests/regressions/bridging-stream-and-gating.test.mjs)（26 条）。
+
+### Verified
+
+- `npm run verify` 全量通过：`typecheck` / `typecheck:webui`（含 WebUI `noUnusedLocals` + `noUnusedParameters`）、`check:any`（`0` annotations / `0` assertions / `92` AST nodes）、`check:imports` & `check:cycles`（`150` 文件 `0` 环）、`lint:css` / `gen:webui-html:check` / `vendor:webui:check` / `vendor:fa:check`、单元测试 **`1113/1113`（249 套件）通过**、`smoke-runtime` 通过。
+- WebUI Playwright E2E（指定本地缓存 `chromium_headless_shell-1248` 执行 `tests/webui-e2e/playwright.config.js`）：**40/40 通过**。
+
 ## [v8.9.5] - 2026-11-13
 
 ### Added — WebUI 模型用量统计增强
