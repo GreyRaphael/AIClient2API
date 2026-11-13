@@ -26,7 +26,7 @@ export interface CustomToolInput {
     format?: DynamicPayload;
 }
 
-const registry = new StreamSessionStore({ label: 'custom-tool-registry' });
+const registry = new StreamSessionStore();
 
 /**
  * 从工具对象中读取名称。兼容 Responses / Chat / Claude 三种形状。

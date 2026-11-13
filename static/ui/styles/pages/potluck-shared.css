@@ -156,12 +156,6 @@ body {
     justify-content: center;
 }
 
-/* 缓存命中率列：>=80% 高亮，0 值置灰。颜色一律走设计令牌，避免内联硬编码。 */
-.cache-rate { font-weight: 600; }
-.cache-rate.high { color: var(--primary-color); }
-.cache-rate.normal { color: inherit; }
-.cache-rate.idle { color: var(--text-tertiary); }
-
 @media (max-width: 768px) {
     .navbar-inner { padding: 0 1rem; }
     .main-container { padding: 1.25rem 1rem; }

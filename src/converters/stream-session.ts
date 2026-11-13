@@ -25,8 +25,6 @@ export interface StreamSessionOptions {
     ttlMs?: number;
     /** 定期清扫间隔；传 0 禁用定时器 */
     sweepIntervalMs?: number;
-    /** 日志/调试标识 */
-    label?: string;
     /** 时钟注入（测试用） */
     now?: () => number;
 }
@@ -45,7 +43,6 @@ export class StreamSessionStore<T = any> {
     constructor({
         ttlMs = DEFAULT_TTL_MS,
         sweepIntervalMs = DEFAULT_SWEEP_INTERVAL_MS,
-        label = 'stream-session',
         now = Date.now
     }: StreamSessionOptions = {}) {
         this._ttlMs = ttlMs;

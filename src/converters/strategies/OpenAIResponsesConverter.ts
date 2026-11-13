@@ -81,15 +81,13 @@ function extractResponsesReasoningText(item: DynamicPayload): string {
 export class OpenAIResponsesConverter extends BaseConverter {
     codexConverter: CodexConverter;
     claudeStreamStates: StreamSessionStore;
-    codexResponsesStreamStates: StreamSessionStore;
     openaiChatStreamStates: StreamSessionStore;
 
     constructor() {
         super(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
         this.codexConverter = new CodexConverter();
-        this.claudeStreamStates = new StreamSessionStore({ label: 'responses-converter-claude-stream' });
-        this.codexResponsesStreamStates = new StreamSessionStore({ label: 'responses-converter-codex-stream' });
-        this.openaiChatStreamStates = new StreamSessionStore({ label: 'responses-converter-openai-chat-stream' });
+        this.claudeStreamStates = new StreamSessionStore();
+        this.openaiChatStreamStates = new StreamSessionStore();
     }
 
     /**
@@ -99,7 +97,6 @@ export class OpenAIResponsesConverter extends BaseConverter {
     resetStreamState(requestId: string | null | undefined): void {
         if (!requestId) return;
         this.claudeStreamStates.delete(requestId);
-        this.codexResponsesStreamStates.delete(requestId);
         this.openaiChatStreamStates.delete(requestId);
     }
 

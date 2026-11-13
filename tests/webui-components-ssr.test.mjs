@@ -10,7 +10,6 @@ import { EmptyState } from '@ui/components/EmptyState.js';
 import { Switch } from '@ui/components/Switch.js';
 import { CopyButton } from '@ui/components/CopyButton.js';
 import { toasts } from '@ui/store/toast.js';
-import { sanitizeHtml } from '@ui/lib/sanitize.js';
 import { Modal } from '@ui/components/Modal.js';
 import { ConfirmDialogHost } from '@ui/components/ConfirmDialog.js';
 import { Pagination } from '@ui/components/Pagination.js';
@@ -81,11 +80,6 @@ describe('UI 组件 SSR 冒烟', () => {
         expect(render(html`<${ConfirmDialogHost} />`)).toBe('');
         const pager = render(html`<${Pagination} page=${2} pageSize=${10} total=${35} onChange=${() => {}} />`);
         expect(pager).toContain('第 2/4 页');
-    });
-
-    test('sanitizeHtml 在 Node 环境退化为纯文本', () => {
-        expect(sanitizeHtml('<a href="https://x">t</a><br><script>bad()</script>')).toContain('t');
-        expect(sanitizeHtml('<a href="https://x">t</a><br>')).not.toContain('<a');
     });
 
     test('CopyButton 保留文本与按钮结构', () => {

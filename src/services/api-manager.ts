@@ -59,7 +59,6 @@ export async function handleAPIRequests(
     req: IncomingMessage,
     res: ServerResponse,
     currentConfig: DynamicPayload,
-    apiService: DynamicPayload | null,
     providerPoolManager: ProviderPoolManager | null,
     promptLogFilename: string
 ): Promise<boolean> {
@@ -68,7 +67,7 @@ export async function handleAPIRequests(
     // Route model list requests
     if (method === 'GET') {
         if (path === '/v1/models') {
-            await handleModelListRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_MODEL_LIST, currentConfig, providerPoolManager as DynamicPayload, currentConfig.uuid);
+            await handleModelListRequest(res, ENDPOINT_TYPE.OPENAI_MODEL_LIST, currentConfig, providerPoolManager as DynamicPayload);
             return true;
         }
     }
@@ -86,15 +85,15 @@ export async function handleAPIRequests(
     // Route content generation requests
     if (method === 'POST') {
         if (path === '/v1/chat/completions') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_CHAT, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, currentConfig.uuid, path);
+            await handleContentGenerationRequest(req, res, null, ENDPOINT_TYPE.OPENAI_CHAT, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, null);
             return true;
         }
         if (path === '/v1/responses') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_RESPONSES, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, currentConfig.uuid, path);
+            await handleContentGenerationRequest(req, res, null, ENDPOINT_TYPE.OPENAI_RESPONSES, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, null);
             return true;
         }
         if (path === '/v1/messages') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, currentConfig.uuid, path);
+            await handleContentGenerationRequest(req, res, null, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, providerPoolManager as DynamicPayload, null);
             return true;
         }
     }

@@ -13,6 +13,7 @@
     "socks-proxy-agent": "^10.1.0"
   },
   "devDependencies": {
+    "@fortawesome/fontawesome-free": "6.7.2",
     "@playwright/test": "1.65.0",
     "@preact/signals": "2.11.4",
     "@preact/signals-core": "1.14.5",
@@ -21,6 +22,7 @@
     "preact": "11.2.0",
     "preact-render-to-string": "6.8.2",
     "stylelint": "^18.0.0",
+    "subset-font": "2.9.0",
     "typescript": "^7.0.2"
   },
   "scripts": {
@@ -37,7 +39,7 @@
     "metrics:types": "node scripts/type-metrics.mjs",
     "metrics:strict": "node scripts/strict-metrics.mjs",
     "check:strict": "node scripts/strict-metrics.mjs --check",
-    "verify": "npm run typecheck && npm run typecheck:webui && npm run check:strict && npm run check:any && npm run check:imports && npm run check:cycles && npm run lint:css && npm run gen:webui-html:check && npm run vendor:webui:check && npm test && npm run test:runtime",
+    "verify": "npm run typecheck && npm run typecheck:webui && npm run check:strict && npm run check:any && npm run check:imports && npm run check:cycles && npm run lint:css && npm run gen:webui-html:check && npm run vendor:webui:check && npm run vendor:fa:check && npm test && npm run test:runtime",
     "help": "node src/scripts/help.ts",
     "example:api": "node src/scripts/example-api.ts",
     "login:zed": "node src/scripts/login-zed.ts",
@@ -58,6 +60,7 @@
     "test:e2e:images": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 tests/e2e/image-input.e2e.test.mjs",
     "test:e2e:images:generation": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 tests/e2e/image-generation.e2e.test.mjs",
     "test:webui:e2e": "playwright test -c tests/webui-e2e/playwright.config.js",
-    "test:e2e:matrix": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 tests/e2e/matrix.e2e.test.mjs"
+    "test:e2e:matrix": "node --experimental-test-module-mocks --import ./tests/support/register-ui-alias.mjs --import ./tests/e2e/global-setup.js --test --test-timeout=300000 tests/e2e/matrix.e2e.test.mjs",
+    "vendor:fa:check": "node scripts/subset-fontawesome.mjs --check"
   }
 }

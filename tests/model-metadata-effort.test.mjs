@@ -432,16 +432,13 @@ describe('capability metadata aggregation and /v1/models payload', () => {
 
         const res = { writeHead: jest.fn(), end: jest.fn() };
         await handleModelListRequest(
-            {},
             res,
-            null,
             ENDPOINT_TYPE.OPENAI_MODEL_LIST,
             { MODEL_PROVIDER: 'trae' },
             {
                 providerStatus: { trae: [{ uuid: 'n1', isDisabled: false, isHealthy: true }] },
                 providerPools: {}
-            },
-            null
+            }
         );
 
         const payload = JSON.parse(res.end.mock.calls[0][0]);

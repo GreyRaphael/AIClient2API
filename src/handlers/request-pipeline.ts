@@ -82,8 +82,8 @@ import {
  * 整条响应只有 thinking。管道据此在有效内容出现前缓冲出站帧，空转时丢弃缓冲并无损重试。
  * 可被 CONFIG 同名键覆盖，便于测试把上限调小。
  */
-export const PRE_CONTENT_BUFFER_MAX_FRAMES = 2000;
-export const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
+const PRE_CONTENT_BUFFER_MAX_FRAMES = 2000;
+const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
 
 
 
@@ -718,13 +718,10 @@ export async function handleStreamRequest(
  * @param {string} pooluuid - The selected provider UUID.
  */
 export async function handleModelListRequest(
-    req: IncomingMessage,
     res: ServerResponse,
-    service: DynamicPayload | null,
     endpointType: string,
     CONFIG: DynamicPayload,
-    providerPoolManager: DynamicPayload,
-    pooluuid: string | null
+    providerPoolManager: DynamicPayload
 ): Promise<void> {
     const clientProviderMap = {
         [ENDPOINT_TYPE.OPENAI_MODEL_LIST]: MODEL_PROTOCOL_PREFIX.OPENAI,
@@ -876,8 +873,7 @@ export async function handleContentGenerationRequest(
     CONFIG: DynamicPayload,
     PROMPT_LOG_FILENAME: string,
     providerPoolManager: DynamicPayload,
-    pooluuid: string | null,
-    requestPath: string | null = null
+    pooluuid: string | null
 ) {
     const originalRequestBody = await getRequestBody(req, { maxBytes: CONFIG.REQUEST_BODY_MAX_BYTES }) as DynamicPayload;
 

@@ -60,8 +60,8 @@ export class ClaudeConverter extends BaseConverter {
         // Codex 转换器实例；请求级工具名映射在 CodexConverter 模块内跨实例共享
         this.codexConverter = new CodexConverter();
         // OpenAI 流式输出侧的稳定 chunk 标识（同一 requestId 的流共享 id/created）
-        this.openaiStreamStates = new StreamSessionStore({ label: 'claude-converter-openai-stream' });
-        this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'claude-converter-responses-stream' });
+        this.openaiStreamStates = new StreamSessionStore();
+        this.openAIResponsesStreamStates = new StreamSessionStore();
     }
 
     /**
@@ -2497,4 +2497,3 @@ export class ClaudeConverter extends BaseConverter {
     }
 }
 
-export default ClaudeConverter;

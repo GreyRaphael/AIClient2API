@@ -1120,24 +1120,6 @@
     border-color: var(--danger-color);
 }
 
-.provider-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-}
-
-.provider-card-title {
-    font-weight: 600;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1;
-}
-
 .card-status-dot {
     width: 10px;
     height: 10px;
@@ -1187,50 +1169,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.provider-card-body {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    overflow: hidden;
-}
-
-.provider-card-meta-item {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.provider-card-meta-item i {
-    width: 14px;
-    text-align: center;
-    color: var(--text-tertiary);
-}
-
-.provider-card-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--border-color);
-    margin-top: auto;
-}
-
-.provider-card-usage {
-    font-size: 0.6875rem;
-    color: var(--text-tertiary);
-}
-
-.provider-card-actions {
-    display: flex;
-    gap: 0.25rem;
 }
 
 .card-action-btn {
@@ -1392,11 +1330,6 @@
         font-size: 0.8125rem;
     }
 
-    .models-grid {
-        grid-template-columns: 1fr !important;
-        gap: 0.5rem;
-    }
-
     .model-item {
         padding: 0.625rem;
         border-radius: var(--radius-sm);
@@ -1405,11 +1338,6 @@
     .model-name {
         font-size: 0.8125rem;
         word-break: break-word;
-    }
-
-    .model-meta {
-        font-size: 0.6875rem;
-        margin-top: 0.25rem;
     }
 
     .provider-modal-content {

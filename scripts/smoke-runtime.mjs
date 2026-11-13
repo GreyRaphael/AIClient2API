@@ -25,7 +25,6 @@ const MODULES = [
     'src/providers/provider-pool-manager.ts',
     'src/handlers/request-pipeline.ts',
     'src/services/service-manager.ts',
-    'src/auth/index.ts',
     'src/ui-modules/update-api.ts'
 ];
 

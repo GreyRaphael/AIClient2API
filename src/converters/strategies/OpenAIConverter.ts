@@ -79,8 +79,8 @@ export class OpenAIConverter extends BaseConverter {
         super('openai');
         // Codex 转换器实例；请求级工具名映射在 CodexConverter 模块内跨实例共享
         this.codexConverter = new CodexConverter();
-        this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'openai-converter-responses-stream' });
-        this.claudeStreamStates = new StreamSessionStore({ label: 'openai-converter-claude-stream' });
+        this.openAIResponsesStreamStates = new StreamSessionStore();
+        this.claudeStreamStates = new StreamSessionStore();
     }
 
     /**
@@ -2059,4 +2059,3 @@ export function mapOpenAISizeToGeminiImageConfig(
     return { aspectRatio, imageSize };
 }
 
-export default OpenAIConverter;

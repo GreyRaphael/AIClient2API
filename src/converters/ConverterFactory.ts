@@ -61,38 +61,9 @@ export class ConverterFactory {
         return new ConverterClass();
     }
 
-    /**
-     * 清除所有缓存的转换器
-     */
-    static clearCache(): void {
-        this.#converters.clear();
-    }
 
-    /**
-     * 清除特定协议的转换器缓存
-     * @param protocolPrefix - 协议前缀
-     */
-    static clearConverterCache(protocolPrefix: string): void {
-        this.#converters.delete(protocolPrefix);
-    }
 
-    /**
-     * 获取所有已注册的协议
-     * @returns 协议前缀数组
-     */
-    static getRegisteredProtocols(): string[] {
-        return Array.from(this.#converterClasses.keys());
-    }
 
-    /**
-     * 检查协议是否已注册
-     * @param protocolPrefix - 协议前缀
-     * @returns 是否已注册
-     */
-    static isProtocolRegistered(protocolPrefix: string): boolean {
-        return this.#converterClasses.has(protocolPrefix);
-    }
 }
 
 // 导出工厂类
-export default ConverterFactory;

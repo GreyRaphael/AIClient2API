@@ -381,7 +381,6 @@ body {
 
 /* 文本辅助类 */
 .text-success { color: var(--success-color) !important; }
-.text-warning { color: var(--warning-color) !important; }
 .text-danger { color: var(--danger-color) !important; }
 
 /* 动画 */

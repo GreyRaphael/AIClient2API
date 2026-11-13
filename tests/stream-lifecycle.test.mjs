@@ -173,8 +173,7 @@ describe('stream lifecycle', () => {
                 config,
                 '',
                 providerPoolManager,
-                null,
-                '/v1/chat/completions'
+                null
             )).rejects.toThrow(/reasoning_effort 'invalid-effort-value' is unsupported/);
         } finally {
             delete serviceInstances['zednode-1'];

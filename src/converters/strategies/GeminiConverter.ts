@@ -205,10 +205,10 @@ export class GeminiConverter extends BaseConverter {
 
     constructor() {
         super('gemini');
-        this.openAIResponsesStreamStates = new StreamSessionStore({ label: 'gemini-converter-responses-stream' });
-        this.claudeStreamStates = new StreamSessionStore({ label: 'gemini-converter-claude-stream' });
+        this.openAIResponsesStreamStates = new StreamSessionStore();
+        this.claudeStreamStates = new StreamSessionStore();
         // OpenAI 流式输出侧的稳定 chunk 标识（同一 requestId 的流共享 id/created）
-        this.openaiStreamStates = new StreamSessionStore({ label: 'gemini-converter-openai-stream' });
+        this.openaiStreamStates = new StreamSessionStore();
     }
 
     /**
@@ -1080,4 +1080,3 @@ export class GeminiConverter extends BaseConverter {
 
 }
 
-export default GeminiConverter;

@@ -84,7 +84,7 @@ function resolveReasoningEffort(source: DynamicPayload | null | undefined): unkn
 // 请求侧工具名映射必须跨 CodexConverter 实例共享：
 // 请求转换可能由 OpenAIConverter / OpenAIResponsesConverter / ClaudeConverter 内的实例登记，
 // 响应转换则由 ConverterFactory 的 CodexConverter 单例查询。按 requestId 隔离并带 TTL 回收。
-const sharedRequestStates = new StreamSessionStore({ label: 'codex-converter-request' });
+const sharedRequestStates = new StreamSessionStore();
 
 export class CodexConverter extends BaseConverter {
     streamSessions: StreamSessionStore;
@@ -92,7 +92,7 @@ export class CodexConverter extends BaseConverter {
 
     constructor() {
         super('codex');
-        this.streamSessions = new StreamSessionStore({ label: 'codex-converter' }); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
+        this.streamSessions = new StreamSessionStore(); // 用于存储流式状态，key 为响应 ID 或临时标识（带 TTL，异常中断自动回收）
         this.requestStates = sharedRequestStates; // 请求级工具名映射（跨实例共享，按 requestId 隔离）
     }
 

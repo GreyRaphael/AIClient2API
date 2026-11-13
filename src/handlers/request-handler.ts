@@ -228,12 +228,9 @@ export function createRequestHandler(
                         }
                     }
 
-                    // 获取或选择 API Service 实例（延迟到 handleAPIRequests 内按需解析）
-                    const apiService: DynamicPayload | null = null;
-
                     try {
-                        // Handle API requests
-                        const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, providerPoolManager, PROMPT_LOG_FILENAME);
+                        // Handle API requests（service 由管线内部按需解析，不再从这一层透传）
+                        const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, providerPoolManager, PROMPT_LOG_FILENAME);
                         if (apiHandled) return;
 
                         // Fallback for unmatched routes
