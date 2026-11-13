@@ -33,9 +33,12 @@ export function shortenToolName(name: string): string {
         const lastSeparator = name.lastIndexOf('__');
         if (lastSeparator > 0) {
             const mcpCandidate = `mcp__${name.slice(lastSeparator + 2)}`;
-            return mcpCandidate.length > TOOL_NAME_LIMIT
-                ? mcpCandidate.slice(0, TOOL_NAME_LIMIT)
-                : mcpCandidate;
+            if (mcpCandidate.length <= TOOL_NAME_LIMIT) {
+                return mcpCandidate;
+            }
+            // 去掉 server 名后仍超限时，基于完整原名追加哈希后缀，防止长后缀 mcp__ 工具相互碰撞。
+            const suffix = `_${hash('sha256', name, 'hex').slice(0, HASH_SUFFIX_LENGTH)}`;
+            return mcpCandidate.slice(0, TOOL_NAME_LIMIT - suffix.length) + suffix;
         }
     }
 
@@ -57,7 +60,8 @@ export function buildToolNameMap(names: readonly string[]): Record<string, strin
     const unique = (candidate: string): string => {
         if (!used.has(candidate)) return candidate;
         for (let index = 1; ; index += 1) {
-            const suffixed = `${candidate}_${index}`;
+            const indexSuffix = `_${index}`;
+            const suffixed = `${candidate.slice(0, TOOL_NAME_LIMIT - indexSuffix.length)}${indexSuffix}`;
             if (!used.has(suffixed)) return suffixed;
         }
     };

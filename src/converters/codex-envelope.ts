@@ -17,6 +17,7 @@
  * 也不放进 CodexConverter（0-Hop 路径不经过它）。
  */
 
+import { isPlainRecord } from '../utils/type-guards.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 export type CodexEnvelopeKind = 'completed' | 'incomplete' | 'unrecognized';
@@ -27,8 +28,8 @@ export interface CodexEnvelope {
     data: DynamicPayload;
 }
 
-const isObject = (value: unknown): value is DynamicPayload =>
-    value !== null && typeof value === 'object' && !Array.isArray(value);
+const asPayloadRecord = (value: unknown): DynamicPayload | null =>
+    isPlainRecord(value) ? (value as DynamicPayload) : null;
 
 /** 判断一个对象是否已经就是 Responses 响应体本身（而非事件包装）。 */
 function looksLikeResponsesBody(value: DynamicPayload): boolean {
@@ -46,21 +47,21 @@ function looksLikeResponsesBody(value: DynamicPayload): boolean {
  * 4. 其余 → `unrecognized`，交给调用方报错（**绝不返回 null**）。
  */
 export function unwrapCodexEnvelope(raw: unknown): CodexEnvelope {
-    const root = isObject(raw) ? raw : {};
+    const root = asPayloadRecord(raw) ?? {};
 
     if (root.type === 'response.completed' || root.type === 'response.incomplete') {
-        const inner = isObject(root.response) ? root.response : root;
+        const inner = asPayloadRecord(root.response) ?? root;
         return {
             kind: root.type === 'response.completed' ? 'completed' : 'incomplete',
             data: inner
         };
     }
 
-    if (isObject(root.response)) {
-        const inner = root.response;
+    const innerResponse = asPayloadRecord(root.response);
+    if (innerResponse) {
         return {
-            kind: inner.status === 'incomplete' ? 'incomplete' : 'completed',
-            data: inner
+            kind: innerResponse.status === 'incomplete' ? 'incomplete' : 'completed',
+            data: innerResponse
         };
     }
 
@@ -75,6 +76,20 @@ export function unwrapCodexEnvelope(raw: unknown): CodexEnvelope {
 }
 
 /**
+ * 与 {@link unwrapCodexEnvelope} 相同，但拒绝无法识别的载荷（抛 502 错误），
+ * 确保无论是 0-Hop 还是 1-Hop 路径都绝不把非法载荷伪造成 200 空响应。
+ */
+export function requireCodexEnvelope(raw: unknown): { kind: 'completed' | 'incomplete'; data: DynamicPayload } {
+    const envelope = unwrapCodexEnvelope(raw);
+    if (envelope.kind === 'unrecognized') {
+        const error = new Error('[Codex] Upstream response is not a recognizable Responses payload') as DynamicPayload;
+        error.status = 502;
+        throw error;
+    }
+    return envelope as { kind: 'completed' | 'incomplete'; data: DynamicPayload };
+}
+
+/**
  * 构造 Codex 非流式出站对象。
  *
  * 返回**纯可枚举**的标准 Responses 响应体：0-Hop 直通直接 `JSON.stringify` 即可；
@@ -86,7 +101,7 @@ export function toCodexResponseBody(
     model?: string,
     idFactory: () => string = () => `resp_${Date.now().toString(36)}`
 ): DynamicPayload {
-    const envelope = unwrapCodexEnvelope(completedEvent);
+    const envelope = requireCodexEnvelope(completedEvent);
     const upstream = envelope.data;
     const status = typeof upstream.status === 'string'
         ? upstream.status
@@ -105,7 +120,7 @@ export function toCodexResponseBody(
         incomplete_details: upstream.incomplete_details ?? null
     };
 
-    if (!isObject(body.usage)) {
+    if (!isPlainRecord(body.usage)) {
         body.usage = {
             input_tokens: 0,
             input_tokens_details: { cached_tokens: 0 },

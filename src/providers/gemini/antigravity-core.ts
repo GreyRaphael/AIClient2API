@@ -467,9 +467,10 @@ function generateProjectID() {
  * 规范化 Thinking Budget
  * @param {string} modelName - 模型名称
  * @param {number} budget - 原始 budget 值
+ * @param {number} budget - 原始 thinking budget
  * @returns {number} 规范化后的 budget
  */
-function normalizeThinkingBudget(_modelName: unknown, budget: number): number {
+function normalizeThinkingBudget(budget: number): number {
     if (budget === -1) return -1;
     if (budget < DEFAULT_THINKING_MIN) return DEFAULT_THINKING_MIN;
     if (budget > DEFAULT_THINKING_MAX) return DEFAULT_THINKING_MAX;
@@ -517,7 +518,7 @@ function normalizeAntigravityThinking(modelName: unknown, payload: DynamicPayloa
 
     if (budget === undefined) return payload;
 
-    let normalizedBudget = normalizeThinkingBudget(modelName, budget);
+    let normalizedBudget = normalizeThinkingBudget(budget);
 
     // 确保 thinking budget < max_tokens (对所有模型生效，不仅是 Claude)
     const maxTokens = payload?.request?.generationConfig?.maxOutputTokens || payload?.request?.generationConfig?.max_output_tokens;
@@ -1694,9 +1695,113 @@ export class AntigravityApiService {
         return { models: formattedModels };
     }
 
+    /**
+     * 统一处理 callApi / streamApi 的失败判定与退避步进，返回下一次递归的
+     * `{ retryCount, baseURLIndex }`；不可重试或已耗尽额度时直接抛出规范化后的错误。
+     */
+    async #prepareRetryStep(
+        rawError: unknown,
+        options: {
+            context: 'callApi' | 'stream';
+            baseURL: string;
+            baseURLIndex: number;
+            retryCount: number;
+            maxRetries: number;
+            baseDelay: number;
+            isRetry: boolean;
+        }
+    ): Promise<{ retryCount: number; baseURLIndex: number }> {
+        const { context, baseURL, baseURLIndex, retryCount, maxRetries, baseDelay, isRetry } = options;
+        const error = asAntigravityError(rawError);
+        const status = error.response?.status;
+        const errorCode = error.code;
+        const errorMessage = error.message || '';
+        const logAction = context === 'callApi' ? 'Error calling' : 'Error during stream';
+        const streamSuffix = context === 'stream' ? ' during stream' : '';
+
+        logger.error(`[Antigravity API] ${logAction} (Status: ${status}, Code: ${errorCode}):`, error.message);
+
+        if (status === 401 && !isRetry) {
+            logger.info(`[Antigravity API] Received 401 Unauthorized${streamSuffix}. Triggering background refresh via PoolManager...`);
+            await normalizeProviderErrorMessage(error, { status: 401, context });
+
+            // 标记当前凭证为不健康（会自动进入刷新队列）
+            const poolManager = getProviderPoolManager();
+            if (poolManager && this.uuid) {
+                logger.info(`[Antigravity] Marking credential ${this.uuid} as needs refresh. Reason: 401 Unauthorized${context === 'stream' ? ' in stream' : ''}`);
+                poolManager.markProviderNeedRefresh(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, {
+                    uuid: this.uuid
+                });
+                error.credentialMarkedUnhealthy = true;
+            }
+
+            // Mark error for credential switch without recording error count
+            error.shouldSwitchCredential = true;
+            error.skipErrorCount = true;
+            throw error;
+        }
+
+        if (/No access, refresh token|invalid_grant/i.test(errorMessage)) {
+            const poolManager = getProviderPoolManager();
+            if (poolManager && this.uuid) {
+                poolManager.markProviderUnhealthyImmediately(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, { uuid: this.uuid }, errorMessage);
+            }
+        }
+
+        const rateLimitRetries = Math.min(maxRetries, ANTIGRAVITY_RATE_LIMIT_RETRIES);
+        const decision = classifyRetry(error, {
+            attempt: retryCount,
+            maxRetries,
+            baseDelayMs: baseDelay,
+            maxDelayMs: ANTIGRAVITY_MAX_BACKOFF_MS,
+            // 429 最多重试 min(REQUEST_MAX_RETRIES, ANTIGRAVITY_RATE_LIMIT_RETRIES) 次。
+            maxRetriesForKind: { 'rate-limited': rateLimitRetries },
+            nonRetryableStatuses: [401, 403]
+        });
+
+        if (decision.retryAfterMs !== null) {
+            await normalizeProviderErrorMessage(error, { status: 429, context });
+            logger.warn(`[Antigravity API] Received 429 with Retry-After: ${decision.retryAfterMs}ms${streamSuffix}. Throwing to upper layer.`);
+            throw error;
+        }
+
+        // 先轮换 base URL（同一个 token 在多个边缘节点上的限流状态可能不同），
+        // 全部轮完才退避；这与其它 provider 的重试顺序不同，故留在本类内。
+        if (baseURLIndex + 1 < this.baseURLs.length && (decision.kind === 'rate-limited' || decision.kind === 'network')) {
+            const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+            logger.info(decision.kind === 'rate-limited'
+                ? `[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`
+                : `[Antigravity API] Network error (${errorIdentifier}) on ${baseURL}${streamSuffix}. Trying next base URL...`);
+            return { retryCount, baseURLIndex: baseURLIndex + 1 };
+        }
+
+        if (decision.retry) {
+            const errorIdentifier = errorCode || errorMessage.substring(0, 50);
+            if (decision.kind === 'server-error' || decision.kind === 'rate-limited') {
+                await normalizeProviderErrorMessage(error, { status: decision.status, context });
+            }
+            logger.info(describeRetry('Antigravity API', decision, retryCount,
+                decision.kind === 'rate-limited' ? rateLimitRetries : maxRetries,
+                decision.kind === 'network' ? ` (${errorIdentifier})${streamSuffix}` : streamSuffix));
+            await sleep(decision.delayMs);
+            return {
+                retryCount: retryCount + 1,
+                // 所有 base URL 都试完并退避后，429 与网络错误同样回到 index 0 重试整组节点
+                baseURLIndex: (decision.kind === 'rate-limited' || decision.kind === 'network') ? 0 : baseURLIndex
+            };
+        }
+
+        if (decision.kind === 'rate-limited') {
+            await normalizeProviderErrorMessage(error, { status: 429, context });
+            error.shouldSwitchCredential = true;
+        }
+
+        throw error;
+    }
+
     async callApi<T = unknown>(method: string, body: DynamicPayload, isRetry = false, retryCount = 0, baseURLIndex = 0): Promise<T> {
-        const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
-        const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
+        const maxRetries = this.config.REQUEST_MAX_RETRIES ?? 3;
+        const baseDelay = this.config.REQUEST_BASE_DELAY ?? 1000;
 
         if (baseURLIndex >= this.baseURLs.length) {
             throw new Error('All Antigravity base URLs failed');
@@ -1724,90 +1829,22 @@ export class AntigravityApiService {
             const res = await this.authClient.request(requestOptions);
             return res.data as T;
         } catch (rawError) {
-            const error = asAntigravityError(rawError);
-            const status = error.response?.status;
-            const errorCode = error.code;
-            const errorMessage = error.message || '';
-
-            logger.error(`[Antigravity API] Error calling (Status: ${status}, Code: ${errorCode}):`, error.message);
-
-            if ((status === 401) && !isRetry) {
-                logger.info('[Antigravity API] Received 401 Unauthorized. Triggering background refresh via PoolManager...');
-                await normalizeProviderErrorMessage(error, { status: 401, context: 'callApi' });
-
-                // 标记当前凭证为不健康（会自动进入刷新队列）
-                const poolManager = getProviderPoolManager();
-                if (poolManager && this.uuid) {
-                    logger.info(`[Antigravity] Marking credential ${this.uuid} as needs refresh. Reason: 401 Unauthorized`);
-                    poolManager.markProviderNeedRefresh(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, {
-                        uuid: this.uuid
-                    });
-                    error.credentialMarkedUnhealthy = true;
-                }
-
-                // Mark error for credential switch without recording error count
-                error.shouldSwitchCredential = true;
-                error.skipErrorCount = true;
-                throw error;
-            }
-
-            if (/No access, refresh token|invalid_grant/i.test(errorMessage)) {
-                const poolManager = getProviderPoolManager();
-                if (poolManager && this.uuid) {
-                    poolManager.markProviderUnhealthyImmediately(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, { uuid: this.uuid }, errorMessage);
-                }
-            }
-
-            const decision = classifyRetry(error, {
-                attempt: retryCount,
+            const next = await this.#prepareRetryStep(rawError, {
+                context: 'callApi',
+                baseURL,
+                baseURLIndex,
+                retryCount,
                 maxRetries,
-                baseDelayMs: baseDelay,
-                maxDelayMs: ANTIGRAVITY_MAX_BACKOFF_MS,
-                // 429 历史上只重试 2 次（见 ANTIGRAVITY_RATE_LIMIT_RETRIES 注释）。
-                maxRetriesForKind: { 'rate-limited': ANTIGRAVITY_RATE_LIMIT_RETRIES },
-                nonRetryableStatuses: [401, 403]
+                baseDelay,
+                isRetry
             });
-
-            if (decision.retryAfterMs !== null) {
-                await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
-                logger.warn(`[Antigravity API] Received 429 with Retry-After: ${decision.retryAfterMs}ms. Throwing to upper layer.`);
-                throw error;
-            }
-
-            // 先轮换 base URL（同一个 token 在多个边缘节点上的限流状态可能不同），
-            // 全部轮完才退避；这与其它 provider 的重试顺序不同，故留在本函数内。
-            if (baseURLIndex + 1 < this.baseURLs.length && (decision.kind === 'rate-limited' || decision.kind === 'network')) {
-                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                logger.info(decision.kind === 'rate-limited'
-                    ? `[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`
-                    : `[Antigravity API] Network error (${errorIdentifier}) on ${baseURL}. Trying next base URL...`);
-                return this.callApi(method, body, isRetry, retryCount, baseURLIndex + 1);
-            }
-
-            if (decision.retry) {
-                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                if (decision.kind === 'server-error' || decision.kind === 'rate-limited') {
-                    await normalizeProviderErrorMessage(error, { status: decision.status, context: 'callApi' });
-                }
-                logger.info(describeRetry('Antigravity API', decision, retryCount,
-                    decision.kind === 'rate-limited' ? ANTIGRAVITY_RATE_LIMIT_RETRIES : maxRetries,
-                    decision.kind === 'network' ? ` (${errorIdentifier})` : ''));
-                await sleep(decision.delayMs);
-                return this.callApi(method, body, isRetry, retryCount + 1, decision.kind === 'network' ? 0 : baseURLIndex);
-            }
-
-            if (decision.kind === 'rate-limited') {
-                await normalizeProviderErrorMessage(error, { status: 429, context: 'callApi' });
-                error.shouldSwitchCredential = true;
-            }
-
-            throw error;
+            return this.callApi(method, body, isRetry, next.retryCount, next.baseURLIndex);
         }
     }
 
     async * streamApi(method: string, body: DynamicPayload, isRetry = false, retryCount = 0, baseURLIndex = 0): AsyncGenerator<DynamicPayload> {
-        const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
-        const baseDelay = this.config.REQUEST_BASE_DELAY || 1000;
+        const maxRetries = this.config.REQUEST_MAX_RETRIES ?? 3;
+        const baseDelay = this.config.REQUEST_BASE_DELAY ?? 1000;
 
         if (baseURLIndex >= this.baseURLs.length) {
             throw new Error('All Antigravity base URLs failed');
@@ -1894,90 +1931,26 @@ export class AntigravityApiService {
             }
         } catch (rawError) {
             const error = asAntigravityError(rawError);
-            const status = error.response?.status;
-            const errorCode = error.code;
-            const errorMessage = error.message || '';
-
-            logger.error(`[Antigravity API] Error during stream (Status: ${status}, Code: ${errorCode}):`, error.message);
-
-            // 已经向上层产出过数据时，绝不能在 provider 内重做整个请求。旧逻辑会把
-            // 第二次生成拼接到已发送的前缀后，导致重复、错位或最终截断。把错误交给
-            // common.js，由其按“已发送数据不可重试”的规则安全结束响应。
             if (hasYielded) {
+                // 已经向上层产出过数据时，绝不能在 provider 内重做整个请求。旧逻辑会把
+                // 第二次生成拼接到已发送的前缀后，导致重复、错位或最终截断。把错误交给
+                // common.js，由其按“已发送数据不可重试”的规则安全结束响应。
+                logger.error(`[Antigravity API] Error during stream (Status: ${error.response?.status}, Code: ${error.code}):`, error.message);
                 logger.warn('[Antigravity API] Stream failed after partial output; skipping internal retry.');
                 throw error;
             }
 
-            if ((status === 401) && !isRetry) {
-                logger.info('[Antigravity API] Received 401 Unauthorized during stream. Triggering background refresh via PoolManager...');
-                await normalizeProviderErrorMessage(error, { status: 401, context: 'stream' });
-
-                // 标记当前凭证为不健康（会自动进入刷新队列）
-                const poolManager = getProviderPoolManager();
-                if (poolManager && this.uuid) {
-                    logger.info(`[Antigravity] Marking credential ${this.uuid} as needs refresh. Reason: 401 Unauthorized in stream`);
-                    poolManager.markProviderNeedRefresh(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, {
-                        uuid: this.uuid
-                    });
-                    error.credentialMarkedUnhealthy = true;
-                }
-
-                // Mark error for credential switch without recording error count
-                error.shouldSwitchCredential = true;
-                error.skipErrorCount = true;
-                throw error;
-            }
-
-            if (/No access, refresh token|invalid_grant/i.test(errorMessage)) {
-                const poolManager = getProviderPoolManager();
-                if (poolManager && this.uuid) {
-                    poolManager.markProviderUnhealthyImmediately(this.config.MODEL_PROVIDER || MODEL_PROVIDER.ANTIGRAVITY, { uuid: this.uuid }, errorMessage);
-                }
-            }
-
-            const decision = classifyRetry(error, {
-                attempt: retryCount,
+            const next = await this.#prepareRetryStep(error, {
+                context: 'stream',
+                baseURL,
+                baseURLIndex,
+                retryCount,
                 maxRetries,
-                baseDelayMs: baseDelay,
-                maxDelayMs: ANTIGRAVITY_MAX_BACKOFF_MS,
-                maxRetriesForKind: { 'rate-limited': ANTIGRAVITY_RATE_LIMIT_RETRIES },
-                nonRetryableStatuses: [401, 403]
+                baseDelay,
+                isRetry
             });
-
-            if (decision.retryAfterMs !== null) {
-                await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
-                logger.warn(`[Antigravity API] Received 429 with Retry-After: ${decision.retryAfterMs}ms during stream. Throwing to upper layer.`);
-                throw error;
-            }
-
-            if (baseURLIndex + 1 < this.baseURLs.length && (decision.kind === 'rate-limited' || decision.kind === 'network')) {
-                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                logger.info(decision.kind === 'rate-limited'
-                    ? `[Antigravity API] Rate limited on ${baseURL}. Trying next base URL...`
-                    : `[Antigravity API] Network error (${errorIdentifier}) on ${baseURL} during stream. Trying next base URL...`);
-                yield* this.streamApi(method, body, isRetry, retryCount, baseURLIndex + 1);
-                return;
-            }
-
-            if (decision.retry) {
-                const errorIdentifier = errorCode || errorMessage.substring(0, 50);
-                if (decision.kind === 'server-error' || decision.kind === 'rate-limited') {
-                    await normalizeProviderErrorMessage(error, { status: decision.status, context: 'stream' });
-                }
-                logger.info(describeRetry('Antigravity API', decision, retryCount,
-                    decision.kind === 'rate-limited' ? ANTIGRAVITY_RATE_LIMIT_RETRIES : maxRetries,
-                    decision.kind === 'network' ? ` (${errorIdentifier}) during stream` : ' during stream'));
-                await sleep(decision.delayMs);
-                yield* this.streamApi(method, body, isRetry, retryCount + 1, decision.kind === 'network' ? 0 : baseURLIndex);
-                return;
-            }
-
-            if (decision.kind === 'rate-limited') {
-                await normalizeProviderErrorMessage(error, { status: 429, context: 'stream' });
-                error.shouldSwitchCredential = true;
-            }
-
-            throw error;
+            yield* this.streamApi(method, body, isRetry, next.retryCount, next.baseURLIndex);
+            return;
         }
     }
 

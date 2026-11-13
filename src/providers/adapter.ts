@@ -36,22 +36,14 @@ export function getRegisteredProviders(): string[] {
 
 // 定义AI服务适配器接口
 // 所有的服务适配器都应该实现这些方法
-export class ApiServiceAdapter {
-    constructor() {
-        if (new.target === ApiServiceAdapter) {
-            throw new TypeError("Cannot construct ApiServiceAdapter instances directly");
-        }
-    }
-
+export abstract class ApiServiceAdapter {
     /**
      * 生成内容
      * @param {string} model - 模型名称
      * @param {object} requestBody - 请求体
      * @returns {Promise<object>} - API响应
      */
-    async generateContent(_model: string, _requestBody: DynamicPayload): Promise<DynamicPayload> {
-        throw new Error("Method 'generateContent()' must be implemented.");
-    }
+    abstract generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload>;
 
     /**
      * 流式生成内容
@@ -59,33 +51,25 @@ export class ApiServiceAdapter {
      * @param {object} requestBody - 请求体
      * @returns {AsyncIterable<object>} - API响应流
      */
-    async *generateContentStream(_model: string, _requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
-        throw new Error("Method 'generateContentStream()' must be implemented.");
-    }
+    abstract generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown>;
 
     /**
      * 列出可用模型
      * @returns {Promise<object>} - 模型列表
      */
-    async listModels(): Promise<DynamicPayload> {
-        throw new Error("Method 'listModels()' must be implemented.");
-    }
+    abstract listModels(): Promise<DynamicPayload>;
 
     /**
      * 刷新认证令牌
      * @returns {Promise<boolean>} - 是否执行了实际的刷新操作
      */
-    async refreshToken(): Promise<boolean> {
-        throw new Error("Method 'refreshToken()' must be implemented.");
-    }
+    abstract refreshToken(): Promise<boolean>;
 
     /**
      * 强制刷新认证令牌（不判断是否接近过期）
      * @returns {Promise<boolean>} - 是否执行了实际的刷新操作
      */
-    async forceRefreshToken(): Promise<boolean> {
-        throw new Error("Method 'forceRefreshToken()' must be implemented.");
-    }
+    abstract forceRefreshToken(): Promise<boolean>;
 
     /**
      * 获取节点专属的可用模型列表（若提供商不区分节点或未探测则返回 null）
@@ -121,9 +105,7 @@ export class ApiServiceAdapter {
      * 判断日期是否接近过期
      * @returns {boolean}
      */
-    isExpiryDateNear(): boolean {
-        throw new Error("Method 'isExpiryDateNear()' must be implemented.");
-    }
+    abstract isExpiryDateNear(): boolean;
 
     /**
      * 初始化适配器与底层服务

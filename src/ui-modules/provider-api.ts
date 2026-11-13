@@ -29,16 +29,17 @@ import type {
     GlobalConfigLike
 } from '../providers/provider-types.ts';
 import { getErrorMessage } from '../utils/error.ts';
+import { isRecord } from '../utils/type-guards.ts';
 
 /** provider_pools.json 的默认路径（缺失配置时回退）。 */
 const DEFAULT_PROVIDER_POOLS_PATH = 'configs/provider_pools.json';
 
 function isProviderConfig(value: unknown): value is ProviderConfig {
-    return value !== null && typeof value === 'object';
+    return isRecord(value);
 }
 
 /** 解析当前配置里的号池文件路径。 */
-function providerPoolsPath(currentConfig: GlobalConfigLike): string {
+export function providerPoolsPath(currentConfig: GlobalConfigLike): string {
     return currentConfig.PROVIDER_POOLS_FILE_PATH || DEFAULT_PROVIDER_POOLS_PATH;
 }
 
@@ -54,12 +55,12 @@ function providerPoolsPath(currentConfig: GlobalConfigLike): string {
  */
 async function withProviderPoolsLock<T>(
     currentConfig: GlobalConfigLike,
-    operation: (filePath: string) => Promise<T>,
+    operation: (filePath: string, checkValidity: () => void) => Promise<T>,
     onError?: (error: unknown) => T
 ): Promise<T> {
     const filePath = providerPoolsPath(currentConfig);
     try {
-        return await withFileLock(filePath, () => operation(filePath));
+        return await withFileLock(filePath, (checkValidity: () => void) => operation(filePath, checkValidity));
     } catch (error) {
         if (onError) return onError(error);
         throw error;
@@ -241,12 +242,8 @@ export function validateTraeProviderConfig(providerType: string, config: Provide
     return null;
 }
 
-function getProviderPoolsFilePath(currentConfig: GlobalConfigLike): string {
-    return providerPoolsPath(currentConfig);
-}
-
 function loadProviderPools(currentConfig: GlobalConfigLike, providerPoolManager: ProviderPoolManager | null): ProviderPools {
-    const filePath = getProviderPoolsFilePath(currentConfig);
+    const filePath = providerPoolsPath(currentConfig);
 
     if (providerPoolManager?.providerPools) {
         return providerPoolManager.providerPools;
@@ -1614,14 +1611,12 @@ export async function handleHealthCheck(res: ServerResponse, currentConfig: Glob
         }
 
         // 保存更新后的状态到文件 - 使用文件锁
-        const filePath = providerPoolsPath(currentConfig);
-
-        await withFileLock(filePath, async (checkValidity: () => void) => {
+        const filePath = await withProviderPoolsLock(currentConfig, async (lockedPath, checkValidity) => {
             let currentPools: ProviderPools = {};
             // 读取现有配置，保留未知字段
-            if (existsSync(filePath)) {
+            if (existsSync(lockedPath)) {
                 try {
-                    const fileContent = readFileSync(filePath, 'utf-8');
+                    const fileContent = readFileSync(lockedPath, 'utf-8');
                     currentPools = JSON.parse(fileContent) as ProviderPools;
                 } catch (readError: unknown) {
                     logger.warn('[UI API] Failed to read existing provider pools for health check merge:', getErrorMessage(readError));
@@ -1634,7 +1629,8 @@ export async function handleHealthCheck(res: ServerResponse, currentConfig: Glob
             // 更新当前 providerType 的所有节点
             currentPools[providerType] = providerPoolManager.providerStatus[providerType].map((ps: ProviderStatus) => ps.config);
 
-            await atomicWriteFile(filePath, JSON.stringify(currentPools, null, 2), 'utf-8');
+            await atomicWriteFile(lockedPath, JSON.stringify(currentPools, null, 2), 'utf-8');
+            return lockedPath;
         });
 
         const successCount = results.filter((r) => r.success === true).length;
@@ -1700,8 +1696,7 @@ export async function handleSingleProviderHealthCheck(res: ServerResponse, curre
         }
 
         // 使用文件锁进行持久化，防止并发写入冲突
-        const poolFilePath = providerPoolsPath(currentConfig);
-        const filePath = await withFileLock(poolFilePath, async () => {
+        const filePath = await withProviderPoolsLock(currentConfig, async () => {
             return persistProviderStatusToFile(currentConfig, providerPoolManager);
         }) as string;
 
@@ -1849,9 +1844,9 @@ export async function handleQuickLinkProvider(req: IncomingMessage, res: ServerR
         // Save to file only if there were successful links
         const successCount = results.filter((r) => r.success).length;
         if (successCount > 0) {
-            await withFileLock(poolsFilePath, async () => {
-                await atomicWriteFile(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf-8');
-                return poolsFilePath;
+            await withProviderPoolsLock(currentConfig, async (lockedPoolsPath) => {
+                await atomicWriteFile(lockedPoolsPath, JSON.stringify(providerPools, null, 2), 'utf-8');
+                return lockedPoolsPath;
             });
 
         // Update provider pool manager if available

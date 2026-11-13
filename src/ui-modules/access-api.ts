@@ -3,11 +3,8 @@ import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts'
 
 
 import { existsSync, readFileSync } from 'fs';
+import { providerPoolsPath } from './provider-api.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
-
-function getProviderPoolsFilePath(currentConfig: DynamicPayload): string {
-    return currentConfig.PROVIDER_POOLS_FILE_PATH || 'configs/provider_pools.json';
-}
 
 function getDefaultProviders(currentConfig: DynamicPayload): string[] {
     if (Array.isArray(currentConfig.DEFAULT_MODEL_PROVIDERS) && currentConfig.DEFAULT_MODEL_PROVIDERS.length > 0) {
@@ -40,7 +37,7 @@ function collectProviderStatus(
         }
     }
 
-    const filePath = getProviderPoolsFilePath(currentConfig);
+    const filePath = providerPoolsPath(currentConfig);
     if (existsSync(filePath)) {
         try {
             const poolsData = JSON.parse(readFileSync(filePath, 'utf-8'));
@@ -114,7 +111,7 @@ export function buildAccessInfoPayload(
         apiKey: currentConfig.REQUIRED_API_KEY || '',
         hasApiKey: Boolean(currentConfig.REQUIRED_API_KEY),
         defaultProviders,
-        providerPoolsFilePath: getProviderPoolsFilePath(currentConfig),
+        providerPoolsFilePath: providerPoolsPath(currentConfig),
         supportedProviders,
         providers: providerSummaries
     };

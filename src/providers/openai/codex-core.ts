@@ -230,16 +230,12 @@ function extractSSEData(line: string): string | null {
  *
  * 背景：当下游是 `/v1/responses` 时，管道不再经 CodexConverter（needsConversion=false），
  * CodexConverter.requestStates 不会被填充，因此工具名缩短映射必须由 CodexApiService 自己持有：
- * - `prepareRequestBody` 生成缩短映射（>64 字符 -> mcp__ 前缀/哈希后缀），绑定在请求体的
- *   不可枚举属性 `_codexToolNameMap` 上（不会被 axios 序列化到上游）；
- * - `parseSSEStream` / `parseNonStreamResponse` 用其中的反向映射还原原始工具名。
+ * - `#prepareRequest` 生成缩短映射（>64 字符 -> mcp__ 前缀/哈希后缀），显式返回 `{ body, reverseToolNameMap }`；
+ * - `parseSSEStream` / `parseNonStreamResponse` 直接消费该反向映射还原原始工具名，不依赖请求体上的隐藏字段。
  *
  * 1-Hop 路径（chat/claude 下游）工具名已由 CodexConverter 缩短过（<=64），
  * 这里再次缩短是幂等空操作，不会出现双重缩短 / 双重还原。
  * ========================================================================== */
-
-/** 绑定在请求体上的工具名映射属性名（不可枚举） */
-const CODEX_TOOL_NAME_MAP_KEY = '_codexToolNameMap';
 
 interface CodexToolNameMaps {
     /** 原始名 -> 缩短名 */
@@ -354,28 +350,6 @@ function applyCodexToolNameShorts(body: Record<string, unknown>, toolNameMap: Ma
             return item;
         });
     }
-}
-
-/** 读取请求体上绑定的工具名反向映射（非枚举，不会被序列化到上游）。 */
-function getCodexReverseToolNameMap(body: unknown): Map<string, string> | null {
-    const maps = isRecord(body) ? (body as Record<string, unknown>)[CODEX_TOOL_NAME_MAP_KEY] : null;
-    return isRecord(maps) && maps.reverseToolNameMap instanceof Map
-        ? maps.reverseToolNameMap as Map<string, string>
-        : null;
-}
-
-/**
- * 把反向工具名映射绑定到请求体（不可枚举）。
- * @param {Object} body
- * @param {Object} maps
- */
-function attachCodexToolNameMaps(body: Record<string, unknown>, maps: CodexToolNameMaps): void {
-    Object.defineProperty(body, CODEX_TOOL_NAME_MAP_KEY, {
-        value: maps,
-        enumerable: false,
-        configurable: true,
-        writable: true
-    });
 }
 
 /** 还原单个工具名。 */
@@ -800,7 +774,7 @@ export class CodexApiService {
         }
 
         const url = `${this.baseUrl}/responses`;
-        const body = await this.prepareRequestBody(selectedModel, requestBody, true);
+        const { body, reverseToolNameMap } = await this.#prepareRequest(selectedModel, requestBody, true);
         const headers = this.buildHeaders(typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key : null, true);
 
         try {
@@ -825,7 +799,7 @@ export class CodexApiService {
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
-            return this.parseNonStreamResponse(response.data, getCodexReverseToolNameMap(body), selectedModel) as T;
+            return this.parseNonStreamResponse(response.data, reverseToolNameMap, selectedModel) as T;
         } catch (rawError) {
             const error = asCodexError(rawError);
             if (error.response?.status === 401) {
@@ -883,7 +857,7 @@ export class CodexApiService {
         }
 
         const url = `${this.baseUrl}/responses`;
-        const body = await this.prepareRequestBody(selectedModel, requestBody, true);
+        const { body, reverseToolNameMap } = await this.#prepareRequest(selectedModel, requestBody, true);
         const headers = this.buildHeaders(typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key : null, true);
 
         try {
@@ -908,7 +882,7 @@ export class CodexApiService {
 
             const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
 
-            yield* this.parseSSEStream(response.data, getCodexReverseToolNameMap(body));
+            yield* this.parseSSEStream(response.data, reverseToolNameMap);
         } catch (rawError) {
             const error = asCodexError(rawError);
             if (error.response?.status === 401) {
@@ -985,9 +959,22 @@ export class CodexApiService {
     }
 
     /**
-     * 准备请求体
+     * 准备请求体（对外兼容入口，供单测直接检查请求体形状）
      */
     async prepareRequestBody(model: string, requestBody: Record<string, unknown>, stream: boolean): Promise<Record<string, unknown>> {
+        const { body } = await this.#prepareRequest(model, requestBody, stream);
+        return body;
+    }
+
+    /**
+     * 组装上游 Responses 请求体并显式返回超长工具名的反向映射，
+     * 避免通过不可枚举属性在方法间隐式传参。
+     */
+    async #prepareRequest(
+        model: string,
+        requestBody: Record<string, unknown>,
+        stream: boolean
+    ): Promise<{ body: Record<string, unknown>; reverseToolNameMap: Map<string, string> | null }> {
         // 提取 metadata 并从请求体中移除，避免透传到上游
         const metadata = asRecord(requestBody.metadata);
 
@@ -1010,8 +997,7 @@ export class CodexApiService {
         const imageSize = cleanedBody._imageSize;
 
         // 清理以 _ 开头的内部属性（如 _downstreamSessionId），避免上游报 400 Unsupported parameter。
-        // _codexToolNameMap 必须保留到后续工具名还原。
-        deleteInternalFields(cleanedBody as Record<string, unknown>, ['_codexToolNameMap']);
+        deleteInternalFields(cleanedBody as Record<string, unknown>);
 
         // 0-Hop 直通入口：下游 /v1/responses 的标准 Responses 请求体不再经 CodexConverter，
         // 方言清洗（input 字符串包装、type:'message' 补齐、system->developer、text.format 归一、
@@ -1184,10 +1170,10 @@ export class CodexApiService {
             delete result.service_tier;
         }
 
-        // 绑定工具名反向映射（不可枚举：不会被 axios/JSON 序列化发往上游）
-        attachCodexToolNameMaps(result, toolNameMaps);
-
-        return result;
+        return {
+            body: result,
+            reverseToolNameMap: toolNameMaps.reverseToolNameMap.size > 0 ? toolNameMaps.reverseToolNameMap : null
+        };
     }
 
     /**

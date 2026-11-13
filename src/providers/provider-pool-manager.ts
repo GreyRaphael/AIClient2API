@@ -30,15 +30,8 @@ export class ProviderPoolManager {
     logLevel: string;
     saveDebounceTime: number;
     persistence: ProviderPoolPersistence;
-    refreshConcurrency: { global: number; perProvider: number };
     refreshScheduler: ProviderRefreshScheduler;
-    globalRefreshWaiters: Array<() => void>;
     warmupTarget: number;
-    refreshingUuids: Set<string>;
-    refreshQueues: Record<string, RefreshQueueState>;
-    refreshBufferQueues: Record<string, Map<string, RefreshBufferEntry>>;
-    refreshBufferTimers: Record<string, NodeJS.Timeout>;
-    bufferDelay: number;
     refreshTaskTimeoutMs: number;
     selector: ProviderPoolSelector;
 
@@ -78,14 +71,7 @@ export class ProviderPoolManager {
             refreshNode: (providerType, providerStatus, force) => this._refreshNodeToken(providerType, providerStatus, force),
             dispatchRefresh: (providerType, providerStatus, force) => this._enqueueRefreshImmediate(providerType, providerStatus, force)
         });
-        this.refreshConcurrency = this.refreshScheduler.refreshConcurrency;
-        this.globalRefreshWaiters = this.refreshScheduler.globalRefreshWaiters;
         this.warmupTarget = options.globalConfig?.WARMUP_TARGET || 0;
-        this.refreshingUuids = this.refreshScheduler.refreshingUuids;
-        this.refreshQueues = this.refreshScheduler.refreshQueues;
-        this.refreshBufferQueues = this.refreshScheduler.refreshBufferQueues;
-        this.refreshBufferTimers = this.refreshScheduler.refreshBufferTimers;
-        this.bufferDelay = this.refreshScheduler.bufferDelay;
         this.refreshTaskTimeoutMs = options.globalConfig?.REFRESH_TASK_TIMEOUT_MS ?? 60000;
 
         // 用于并发选点时的原子排序辅助（自增序列）
@@ -100,6 +86,30 @@ export class ProviderPoolManager {
         });
 
         this.initializeProviderStatus();
+    }
+
+    get refreshConcurrency(): { global: number; perProvider: number } {
+        return this.refreshScheduler.refreshConcurrency;
+    }
+
+    get globalRefreshWaiters(): Array<() => void> {
+        return this.refreshScheduler.globalRefreshWaiters;
+    }
+
+    get refreshingUuids(): Set<string> {
+        return this.refreshScheduler.refreshingUuids;
+    }
+
+    get refreshQueues(): Record<string, RefreshQueueState> {
+        return this.refreshScheduler.refreshQueues;
+    }
+
+    get refreshBufferQueues(): Record<string, Map<string, RefreshBufferEntry>> {
+        return this.refreshScheduler.refreshBufferQueues;
+    }
+
+    get refreshBufferTimers(): Record<string, NodeJS.Timeout> {
+        return this.refreshScheduler.refreshBufferTimers;
     }
 
     /**

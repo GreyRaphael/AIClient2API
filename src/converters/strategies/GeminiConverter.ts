@@ -183,19 +183,6 @@ function remapFunctionCallArgs(toolName: string, args: DynamicPayload): DynamicP
 }
 
 /**
- * [FIX] 规范化工具名称
- * Gemini 有时会返回 "search" 而不是 "Grep"
- */
-function normalizeToolName(name: string | null | undefined): string | null | undefined {
-    if (!name) return name;
-    if (!isClaudeCodeToolHeuristicsEnabled()) return name;
-
-    // 注意：不再把通用名称 "search" 改名为 "Grep"。
-    // 名称映射只允许在 Claude Code 专用启发式开启时处理已知别名。
-    return name;
-}
-
-/**
  * Gemini转换器类
  * 实现Gemini协议到其他协议的转换
  */
@@ -644,7 +631,7 @@ export class GeminiConverter extends BaseConverter {
                     // 工具调用（Gemini 一次性返回完整参数：start -> input_json_delta -> stop）
                     if (part.functionCall) {
                         ensureMessageStart();
-                        const toolName = normalizeToolName(part.functionCall.name) || '';
+                        const toolName = part.functionCall.name || '';
                         const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
                         const toolId = part.functionCall.id || `${toolName}-${uuidv4().split('-')[0]}`;
 
@@ -741,7 +728,7 @@ export class GeminiConverter extends BaseConverter {
                     } else if (part.functionCall) {
                         hasToolUse = true;
                         // [FIX] 规范化工具名称和参数映射
-                        const toolName = normalizeToolName(part.functionCall.name) || '';
+                        const toolName = part.functionCall.name || '';
                         const remappedArgs = remapFunctionCallArgs(toolName, part.functionCall.args || {});
 
                         // [FIX] 使用 Gemini 提供的 id

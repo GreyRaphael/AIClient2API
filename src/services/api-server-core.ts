@@ -358,6 +358,3 @@ startServer().catch(err => {
     logger.error("[Server] Failed to start server:", err.message);
     process.exit(1);
 });
-
-// 导出用于外部调用
-export { gracefulShutdown, sendToMaster };

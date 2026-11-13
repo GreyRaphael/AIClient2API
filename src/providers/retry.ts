@@ -97,7 +97,7 @@ export function classifyRetry(error: unknown, options: ClassifyRetryOptions): Re
     const { attempt, maxRetries, baseDelayMs, maxDelayMs, maxRetriesForKind, nonRetryableStatuses } = options;
     const status = readErrorStatus(error);
 
-    const limitFor = (kind: RetryKind): number => maxRetriesForKind?.[kind] ?? maxRetries;
+    const limitFor = (kind: RetryKind): number => Math.min(maxRetries, maxRetriesForKind?.[kind] ?? maxRetries);
 
     const decision = (kind: RetryKind, retry: boolean, retryAfterMs: number | null = null): RetryDecision => ({
         kind,

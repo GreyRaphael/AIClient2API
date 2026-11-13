@@ -90,6 +90,11 @@ describe('retry 分类', () => {
         // 第 3 次（attempt 2）触顶 —— 而 5xx 在 attempt 2 时仍会重试
         expect(classifyRetry(rateLimited429(), { ...options, attempt: 2 }).retry).toBe(false);
         expect(classifyRetry(serverError500(), { ...options, attempt: 2 }).retry).toBe(true);
+
+        // maxRetries 更小（如 REQUEST_MAX_RETRIES=1）时，maxRetriesForKind 不得反向上溢
+        const strictOptions = { ...base, maxRetries: 1, maxRetriesForKind: { 'rate-limited': 2 } };
+        expect(classifyRetry(rateLimited429(), { ...strictOptions, attempt: 0 }).retry).toBe(true);
+        expect(classifyRetry(rateLimited429(), { ...strictOptions, attempt: 1 }).retry).toBe(false);
     });
 });
 

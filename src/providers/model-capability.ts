@@ -234,7 +234,6 @@ export function getCapabilityStore(): MemoryCapabilityStore {
  * - 结果始终与当前候选集取交集，确保节点候选只与上游 model_list 一致。
  */
 function resolveSelectedModels(
-    providerType: string,
     nodeConfig: DynamicPayload,
     candidateModels: string[]
 ): { selectedModels: string[]; selectionMode: 'all' | 'explicit' } {
@@ -245,7 +244,7 @@ function resolveSelectedModels(
         };
     }
 
-    const supportedModels = getConfiguredSupportedModels(providerType, nodeConfig);
+    const supportedModels = getConfiguredSupportedModels(nodeConfig);
     const baselineModels = Array.isArray(nodeConfig?.supportedModelsBaseline)
         ? normalizeModelIds(nodeConfig.supportedModelsBaseline)
         : candidateModels;
@@ -301,7 +300,7 @@ export function resolveNodeCapability(providerType: string, nodeConfig: DynamicP
         known = false;
     }
 
-    const { selectedModels, selectionMode } = resolveSelectedModels(providerType, nodeConfig, candidateModels);
+    const { selectedModels, selectionMode } = resolveSelectedModels(nodeConfig, candidateModels);
     const ttl = getTtlMs(providerType);
     // 旧版缓存只有模型 ID，或元数据缺少 support_images；动态 provider 需要重新发现一次以补齐 /v1/models 字段。
     const entryMetadata = (entry?.modelMetadata || {}) as Record<string, unknown>;
@@ -760,7 +759,7 @@ let capabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
  * 启动周期性模型能力刷新。
  * 与健康检查解耦，默认 15 分钟；测试环境自动禁用。
  */
-export function startCapabilityRefreshLoop(providerPoolManager: DynamicPayload | null | undefined, _options: DynamicPayload = {}): ReturnType<typeof setInterval> | null {
+export function startCapabilityRefreshLoop(providerPoolManager: DynamicPayload | null | undefined): ReturnType<typeof setInterval> | null {
     stopCapabilityRefreshLoop();
     if (!isBackgroundRefreshEnabled()) return null;
 

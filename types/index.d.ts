@@ -7,4 +7,3 @@ export * from './protocols/claude.js';
 export * from './protocols/gemini.js';
 export * from './protocols/responses.js';
 export * from './protocols/common.js';
-export * from './converters.js';

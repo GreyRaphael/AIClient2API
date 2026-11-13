@@ -116,8 +116,9 @@ interface TraeAccountCache {
 }
 
 const TRAE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时缓存
+const TRAE_ACCOUNT_CACHE_MAX_ENTRIES = 256;
 
-// 多租户/多账号隔离的缓存容器: Map<accountKey, { models: Array, expiresAt: number, metadataMap: Map, functionMap: Map }>
+// 多租户/多账号隔离的缓存容器（LRU 有界）: Map<accountKey, { models: Array, expiresAt: number, metadataMap: Map, functionMap: Map }>
 const traeAccountCacheMap = new Map<string, TraeAccountCache>();
 
 /**
@@ -1222,6 +1223,165 @@ function buildTraeClaudeResponse({
     };
 }
 
+function applyTraeProtocolNormalization(
+    payload: DynamicPayload,
+    requestBody: DynamicPayload,
+    downstreamProtocol: string
+): void {
+    if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
+        const responsesConverted = responsesRequestToTraeMessages(requestBody);
+        payload.messages = responsesConverted.messages;
+        if (responsesConverted.tools.length > 0) payload.tools = responsesConverted.tools;
+        else delete payload.tools;
+        delete payload.input;
+        delete payload.instructions;
+        delete payload.text;
+        delete payload.reasoning;
+        payload.tool_choice = normalizeTraeToolChoice(requestBody?.tool_choice);
+        if (payload.tool_choice === undefined) delete payload.tool_choice;
+        return;
+    }
+
+    if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
+        const claudeConverted = claudeRequestToTraeMessages(requestBody);
+        payload.messages = claudeConverted.messages;
+        if (claudeConverted.tools.length > 0) payload.tools = claudeConverted.tools;
+        else delete payload.tools;
+        const claudeToolChoice = requestBody?.tool_choice;
+        if (claudeToolChoice && typeof claudeToolChoice === 'object') {
+            const choice = claudeToolChoice as DynamicPayload;
+            if (choice.type === 'auto') payload.tool_choice = 'auto';
+            else if (choice.type === 'any') payload.tool_choice = 'required';
+            else if (choice.type === 'none') payload.tool_choice = 'none';
+            else if (choice.type === 'tool' && choice.name) payload.tool_choice = choice.name;
+            else delete payload.tool_choice;
+        }
+        // system 已被 claudeRequestToTraeMessages 拍平进 messages[0]，移除顶层重复与 max_tokens
+        delete payload.max_tokens;
+        delete payload.system;
+    }
+}
+
+function normalizeTraeMessageContent(msg: DynamicPayload): void {
+    if (typeof msg.content === 'string') {
+        msg.content = [{ type: 'text', text: msg.content }];
+    } else if (typeof msg.content === 'number' || typeof msg.content === 'boolean') {
+        msg.content = [{ type: 'text', text: String(msg.content) }];
+    } else if (typeof msg.content === 'object' && msg.content !== null && !Array.isArray(msg.content)) {
+        try {
+            msg.content = [{ type: 'text', text: JSON.stringify(msg.content) }];
+        } catch {
+            msg.content = [{ type: 'text', text: String(msg.content) }];
+        }
+    } else if (Array.isArray(msg.content)) {
+        msg.content = msg.content.map((part: DynamicPayload | string) => {
+            if (typeof part === 'string') return { type: 'text', text: part };
+            if (part && typeof part === 'object') {
+                if (part.type === 'text' && typeof part.text !== 'string') {
+                    return { type: 'text', text: JSON.stringify(part.text) };
+                }
+                return part;
+            }
+            return { type: 'text', text: String(part) };
+        });
+        if (msg.role === 'tool' && msg.content.length === 0) {
+            msg.content = [{ type: 'text', text: '' }];
+        }
+    } else if (msg.role === 'tool' && (msg.content === null || msg.content === undefined)) {
+        msg.content = [{ type: 'text', text: '' }];
+    }
+
+    if (msg.role === 'assistant' && (!msg.content || (Array.isArray(msg.content) && msg.content.length === 0))) {
+        msg.content = [{ type: 'text', text: '' }];
+    }
+}
+
+function normalizeTraeMessages(rawMessages: DynamicPayload[]): DynamicPayload[] {
+    const mergedMessages: DynamicPayload[] = [];
+    for (const rawMsg of rawMessages) {
+        if (!rawMsg) continue;
+        const msg: DynamicPayload = { ...rawMsg };
+
+        if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+            const validToolCalls: DynamicPayload[] = [];
+            for (const tc of msg.tool_calls) {
+                const callObj = { ...tc };
+                if (callObj.function && !callObj.function_call) {
+                    callObj.function_call = callObj.function;
+                    delete callObj.function;
+                }
+                if (callObj.function_call?.name) {
+                    validToolCalls.push(callObj);
+                }
+            }
+            if (validToolCalls.length > 0) msg.tool_calls = validToolCalls;
+            else delete msg.tool_calls;
+        }
+
+        // 清理历史思考残留（确保模型历史上下文不含变动或冗余字段）
+        if (msg.role === 'assistant' || msg.role === 'tool') {
+            delete msg.reasoning_content;
+            delete msg.reasoning;
+            delete msg.thinking;
+        }
+
+        normalizeTraeMessageContent(msg);
+
+        const prevMsg = mergedMessages[mergedMessages.length - 1];
+        if (prevMsg && prevMsg.role === 'assistant' && msg.role === 'assistant') {
+            if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+                if (!Array.isArray(prevMsg.tool_calls)) prevMsg.tool_calls = [];
+                prevMsg.tool_calls.push(...msg.tool_calls);
+            }
+            if (msg.content) {
+                if (!prevMsg.content) prevMsg.content = msg.content;
+                else if (Array.isArray(prevMsg.content) && Array.isArray(msg.content)) prevMsg.content.push(...msg.content);
+            }
+        } else {
+            mergedMessages.push(msg);
+        }
+    }
+    return mergedMessages;
+}
+
+function normalizeTraeToolsAndChoice(payload: DynamicPayload): void {
+    if (payload.tool_choice) {
+        if (payload.tool_choice === 'none' || payload.tool_choice?.type === 'none') {
+            delete payload.tool_choice;
+            delete payload.tools;
+            delete payload.functions;
+        } else if (typeof payload.tool_choice === 'object') {
+            if (payload.tool_choice.type === 'auto' || payload.tool_choice.type === 'required') {
+                payload.tool_choice = payload.tool_choice.type;
+            } else if (payload.tool_choice.function?.name) {
+                payload.tool_choice = payload.tool_choice.function.name;
+            }
+        }
+    }
+
+    // 归一化 tools + 前缀缓存稳定排序（trae 走 1-Hop 直通，不经过 Converter 的 sortToolsByName）
+    if (Array.isArray(payload.tools) && payload.tools.length > 0) {
+        const stabilizedTools = stabilizeToolsForPrefixCache(payload.tools as DynamicPayload[]);
+        const validTools: DynamicPayload[] = [];
+        for (const item of stabilizedTools) {
+            if (!item || typeof item !== 'object') continue;
+            const toolObj: DynamicPayload = { ...item };
+            if (toolObj.function && typeof toolObj.function === 'object') {
+                const fn: DynamicPayload = { ...(toolObj.function as DynamicPayload) };
+                if (fn.parameters && typeof fn.parameters === 'object') {
+                    try {
+                        fn.parameters = JSON.stringify(fn.parameters);
+                    } catch {}
+                }
+                toolObj.function = fn;
+                validTools.push(toolObj);
+            }
+        }
+        if (validTools.length > 0) payload.tools = validTools;
+        else delete payload.tools;
+    }
+}
+
 /**
  * Trae API Service
  * 封装与 Trae / SOLO 上游端点 (api.enterprise.trae.cn / api.trae.cn) 的交互与 SSE 转换
@@ -1394,15 +1554,25 @@ export class TraeApiService {
     getAccountCache(): TraeAccountCache {
         const key = this.getAccountKey();
         let cache = traeAccountCacheMap.get(key);
-        if (!cache) {
-            cache = {
-                models: null,
-                expiresAt: 0,
-                metadataMap: new Map(),
-                functionMap: new Map()
-            };
+        if (cache) {
+            // 刷新 LRU 位置
+            traeAccountCacheMap.delete(key);
             traeAccountCacheMap.set(key, cache);
+            return cache;
         }
+        if (traeAccountCacheMap.size >= TRAE_ACCOUNT_CACHE_MAX_ENTRIES) {
+            const oldestKey = traeAccountCacheMap.keys().next().value;
+            if (oldestKey !== undefined) {
+                traeAccountCacheMap.delete(oldestKey);
+            }
+        }
+        cache = {
+            models: null,
+            expiresAt: 0,
+            metadataMap: new Map(),
+            functionMap: new Map()
+        };
+        traeAccountCacheMap.set(key, cache);
         return cache;
     }
 
@@ -1815,188 +1985,24 @@ export class TraeApiService {
         }
 
         // ---- 三协议 1-Hop 入参归一（在统一的 messages/tools 规范化之前完成）----
-        if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES) {
-            // Responses：instructions + input -> Trae messages；扁平 tools -> Trae tools
-            const responsesConverted = responsesRequestToTraeMessages(requestBody);
-            payload.messages = responsesConverted.messages;
-            if (responsesConverted.tools.length > 0) payload.tools = responsesConverted.tools;
-            else delete payload.tools;
-            // Responses 专有字段已经转成 messages/tools，不再透传给 Trae 上游
-            delete payload.input;
-            delete payload.instructions;
-            delete payload.text;
-            delete payload.reasoning;
-            // Responses 的 tool_choice 形状与 Chat 不同，统一归一为 Trae 接受的字符串/名称
-            payload.tool_choice = normalizeTraeToolChoice(requestBody?.tool_choice);
-            if (payload.tool_choice === undefined) delete payload.tool_choice;
-        } else if (downstreamProtocol === MODEL_PROTOCOL_PREFIX.CLAUDE) {
-            // Claude：system + messages content blocks -> Trae messages；input_schema -> parameters 字符串
-            const claudeConverted = claudeRequestToTraeMessages(requestBody);
-            payload.messages = claudeConverted.messages;
-            if (claudeConverted.tools.length > 0) payload.tools = claudeConverted.tools;
-            else delete payload.tools;
-            const claudeToolChoice = requestBody?.tool_choice;
-            if (claudeToolChoice && typeof claudeToolChoice === 'object') {
-                const choice = claudeToolChoice as DynamicPayload;
-                if (choice.type === 'auto') payload.tool_choice = 'auto';
-                else if (choice.type === 'any') payload.tool_choice = 'required';
-                else if (choice.type === 'none') payload.tool_choice = 'none';
-                else if (choice.type === 'tool' && choice.name) payload.tool_choice = choice.name;
-                else delete payload.tool_choice;
-            }
-            // Claude 的 max_tokens -> Trae 不单独传递
-            delete payload.max_tokens;
-            // system 已被 claudeRequestToTraeMessages 拍平进 messages[0]，
-            // 顶层 system 属于重复透传（且会把 cache_control 等噪声带给上游），移除。
-            delete payload.system;
-        }
+        applyTraeProtocolNormalization(payload, requestBody, downstreamProtocol);
 
         if (Array.isArray(payload.messages)) {
-            const mergedMessages: DynamicPayload[] = [];
-            for (const rawMsg of payload.messages) {
-                if (!rawMsg) continue;
-                const msg = { ...rawMsg };
-
-                // 处理 assistant tool_calls
-                if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
-                    const validToolCalls: DynamicPayload[] = [];
-                    for (const tc of msg.tool_calls) {
-                        const callObj = { ...tc };
-                        if (callObj.function && !callObj.function_call) {
-                            callObj.function_call = callObj.function;
-                            delete callObj.function;
-                        }
-                        if (callObj.function_call?.name) {
-                            validToolCalls.push(callObj);
-                        }
-                    }
-                    if (validToolCalls.length > 0) {
-                        msg.tool_calls = validToolCalls;
-                    } else {
-                        delete msg.tool_calls;
-                    }
-                }
-
-                // 清理历史思考残留（确保模型历史上下文不含变动或冗余字段）
-                if (msg.role === 'assistant' || msg.role === 'tool') {
-                    delete msg.reasoning_content;
-                    delete msg.reasoning;
-                    delete msg.thinking;
-                }
-
-                // 规范化 content 为 Trae 的 [{"type": "text", "text": "..."}] 结构
-                if (typeof msg.content === 'string') {
-                    msg.content = [{ type: 'text', text: msg.content }];
-                } else if (typeof msg.content === 'number' || typeof msg.content === 'boolean') {
-                    msg.content = [{ type: 'text', text: String(msg.content) }];
-                } else if (typeof msg.content === 'object' && msg.content !== null && !Array.isArray(msg.content)) {
-                    try {
-                        msg.content = [{ type: 'text', text: JSON.stringify(msg.content) }];
-                    } catch {
-                        msg.content = [{ type: 'text', text: String(msg.content) }];
-                    }
-                } else if (Array.isArray(msg.content)) {
-                    msg.content = msg.content.map((part: DynamicPayload | string) => {
-                        if (typeof part === 'string') return { type: 'text', text: part };
-                        if (part && typeof part === 'object') {
-                            if (part.type === 'text' && typeof part.text !== 'string') {
-                                return { type: 'text', text: JSON.stringify(part.text) };
-                            }
-                            return part;
-                        }
-                        return { type: 'text', text: String(part) };
-                    });
-                    if (msg.role === 'tool' && msg.content.length === 0) {
-                        msg.content = [{ type: 'text', text: '' }];
-                    }
-                } else if (msg.role === 'tool' && (msg.content === null || msg.content === undefined)) {
-                    msg.content = [{ type: 'text', text: '' }];
-                }
-
-                if (msg.role === 'assistant' && (!msg.content || (Array.isArray(msg.content) && msg.content.length === 0))) {
-                    msg.content = [{ type: 'text', text: '' }];
-                }
-
-                // 合并连续的 assistant 消息
-                const prevMsg = mergedMessages[mergedMessages.length - 1];
-                if (prevMsg && prevMsg.role === 'assistant' && msg.role === 'assistant') {
-                    if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-                        if (!Array.isArray(prevMsg.tool_calls)) {
-                            prevMsg.tool_calls = [];
-                        }
-                        prevMsg.tool_calls.push(...msg.tool_calls);
-                    }
-                    if (msg.content) {
-                        if (!prevMsg.content) {
-                            prevMsg.content = msg.content;
-                        } else if (Array.isArray(prevMsg.content) && Array.isArray(msg.content)) {
-                            prevMsg.content.push(...msg.content);
-                        }
-                    }
-                } else {
-                    mergedMessages.push(msg);
-                }
-            }
+            const mergedMessages = normalizeTraeMessages(payload.messages);
             payload.messages = mergedMessages;
 
             if (isToB && !payload.user_input) {
                 const lastUser = mergedMessages.findLast((m: DynamicPayload) => m.role === 'user');
-                if (lastUser && Array.isArray(lastUser.content)) {
-                    const textItem = lastUser.content.find((c: DynamicPayload) => c.type === 'text');
-                    payload.user_input = textItem?.text || '';
-                } else {
-                    payload.user_input = '';
-                }
+                const textItem = lastUser && Array.isArray(lastUser.content)
+                    ? lastUser.content.find((c: DynamicPayload) => c.type === 'text')
+                    : null;
+                payload.user_input = textItem?.text || '';
             }
         } else if (isToB && !payload.user_input) {
             payload.user_input = '';
         }
 
-        // 归一化 tool_choice
-        if (payload.tool_choice) {
-            if (payload.tool_choice === 'none' || payload.tool_choice?.type === 'none') {
-                delete payload.tool_choice;
-                delete payload.tools;
-                delete payload.functions;
-            } else if (typeof payload.tool_choice === 'object') {
-                if (payload.tool_choice.type === 'auto' || payload.tool_choice.type === 'required') {
-                    payload.tool_choice = payload.tool_choice.type;
-                } else if (payload.tool_choice.function?.name) {
-                    payload.tool_choice = payload.tool_choice.function.name;
-                }
-            }
-        }
-
-        // 归一化 tools: 上游 Go 结构体 FunctionDefinition.parameters 要求必须为 JSON 字符串
-        //
-        // 这里同时做「前缀缓存稳定化」：trae 走 1-Hop 直通（resolveBridgePlan 对 trae
-        // 恒 needsConversion=false），不会经过 Converter，因此 Converter 内部的
-        // sortToolsByName 调用点对本 Provider 完全不生效。客户端（尤其 MCP / 多
-        // sub-agent 并发组装）每轮给出不同 tools 顺序时，上游按字节比对前缀会整段 miss。
-        // 实测：tools 每轮乱序时命中率 18%，稳定排序后 75%+。
-        if (Array.isArray(payload.tools) && payload.tools.length > 0) {
-            const stabilizedTools = stabilizeToolsForPrefixCache(payload.tools as DynamicPayload[]);
-            const validTools: DynamicPayload[] = [];
-            for (const item of stabilizedTools) {
-                if (!item || typeof item !== 'object') continue;
-                const toolObj: DynamicPayload = { ...item };
-                if (toolObj.function && typeof toolObj.function === 'object') {
-                    const fn: DynamicPayload = { ...(toolObj.function as DynamicPayload) };
-                    if (fn.parameters && typeof fn.parameters === 'object') {
-                        try {
-                            fn.parameters = JSON.stringify(fn.parameters);
-                        } catch { }
-                    }
-                    toolObj.function = fn;
-                    validTools.push(toolObj);
-                }
-            }
-            if (validTools.length > 0) {
-                payload.tools = validTools;
-            } else {
-                delete payload.tools;
-            }
-        }
+        normalizeTraeToolsAndChoice(payload);
 
         return payload;
     }

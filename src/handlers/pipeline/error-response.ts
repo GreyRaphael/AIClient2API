@@ -60,7 +60,7 @@ export function handleError(
     let suggestions: string[] = [];
 
     // 根据提供商获取适配的错误信息和建议
-    const providerSuggestions = _getProviderSpecificSuggestions(statusCode, provider);
+    const providerSuggestions = getProviderSpecificSuggestions(provider);
     
     // Provide detailed information and suggestions for different error types
     switch (statusCode) {
@@ -142,11 +142,10 @@ export function handleError(
 
 /**
  * 根据提供商类型获取适配的错误建议
- * @param {number} statusCode - HTTP 状态码
  * @param {string|null} provider - 提供商类型
  * @returns {Object} 包含各类错误建议的对象
  */
-function _getProviderSpecificSuggestions(_statusCode: number, provider: string | null): Record<string, string[]> {
+function getProviderSpecificSuggestions(provider: string | null): Record<string, string[]> {
     const protocolPrefix = provider ? getProtocolPrefix(provider) : null;
     
     // 默认/通用建议
@@ -318,18 +317,7 @@ function buildErrorMessageWithUpstream(error: PipelineError, statusCode: number,
  */
 export function createErrorResponse(error: PipelineError, fromProvider: string | null): DynamicPayload {
     const protocolPrefix = getProtocolPrefix(fromProvider || '');
-    // 与 handleError 保持一致的状态码解析顺序：response.status > statusCode > status > code。
-    // 之前只读 status/code，导致设置了 `statusCode` 的客户端错误被默认成 500，
-    // 进而把 type 映射成 server_error（对 4xx 语义是错的）。
-    const rawStatusCode = (error as PipelineError).response?.status
-        || (error as PipelineError).statusCode
-        || (error as PipelineError).status
-        || (error as PipelineError).code
-        || 500;
-    let statusCode = ensureValidStatusCode(rawStatusCode);
-    if ((error as PipelineError).clientError && statusCode >= 500) {
-        statusCode = 400;
-    }
+    const statusCode = resolveErrorStatusCode(error);
     const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during processing.");
     
     // 根据 HTTP 状态码映射错误类型
@@ -413,8 +401,7 @@ export function resolveErrorStatusCode(error: PipelineError): number {
 
 export function createStreamErrorResponse(error: PipelineError, fromProvider: string | null): string {
     const protocolPrefix = getProtocolPrefix(fromProvider || '');
-    const rawStatusCode = resolveErrorStatusCode(error);
-    const statusCode = ensureValidStatusCode(rawStatusCode);
+    const statusCode = resolveErrorStatusCode(error);
     const errorMessage = buildErrorMessageWithUpstream(error, statusCode, "An error occurred during streaming.");
     
     // 根据 HTTP 状态码映射错误类型

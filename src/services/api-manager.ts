@@ -3,14 +3,16 @@ import {
     ENDPOINT_TYPE,
     getRequestBody,
     getProtocolPrefix,
-    MODEL_PROTOCOL_PREFIX,
-    ensureValidStatusCode
+    MODEL_PROTOCOL_PREFIX
 } from '../utils/common.ts';
+import { resolveErrorStatusCode } from '../handlers/pipeline/error-response.ts';
+import type { PipelineError } from '../handlers/pipeline/error-types.ts';
 import {
     handleModelListRequest,
     handleContentGenerationRequest
 } from '../handlers/request-pipeline.ts';
 import { markCredentialFailureOnError } from '../handlers/pipeline/unary-handler.ts';
+import { createSlotReleaser } from '../handlers/stream-lifecycle.ts';
 import { getProviderPoolManager, getApiServiceWithFallback } from './service-manager.ts';
 import logger from '../utils/logger.ts';
 import { parseMultipartForm, getMultipartFiles } from '../utils/form-parser.ts';
@@ -41,6 +43,14 @@ interface ImageRetryContext {
 }
 const IMAGE_GEN_MAX_N = 4;
 const VALID_RESPONSE_FORMATS = new Set(['b64_json', 'url']);
+
+function sendImageErrorResponse(res: ServerResponse, error: unknown): void {
+    if (res.writableEnded) return;
+    const statusCode = resolveErrorStatusCode(error as PipelineError);
+    const errorType = statusCode < 500 ? 'invalid_request_error' : 'server_error';
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: errorType } }));
+}
 
 /**
  * Handle API authentication and routing
@@ -161,13 +171,10 @@ export async function handleImageGenerationRequest(
     const CONFIG = retryContext?.CONFIG ?? currentConfig;
     let slotProviderType: string | null = null;
     let slotUuid: string | null = null;
-    let slotReleased = false;
-    const releaseCurrentSlot = () => {
-        if (!slotReleased && providerPoolManager && slotProviderType && slotUuid) {
-            slotReleased = true;
-            providerPoolManager.releaseSlot(slotProviderType, slotUuid);
-        }
-    };
+    const releaseCurrentSlot = createSlotReleaser(providerPoolManager, () => ({
+        providerType: slotProviderType,
+        uuid: slotUuid
+    }));
     let model = '';
     let prompt = '';
     let n = 1;
@@ -361,7 +368,6 @@ export async function handleImageGenerationRequest(
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clientResponse));
     } catch (error) {
-        const err = error as Record<string, any>;
         logger.error('[Image Generation] Error:', getErrorMessage(error));
 
         const credentialMarkedUnhealthy = markCredentialFailureOnError(
@@ -392,16 +398,7 @@ export async function handleImageGenerationRequest(
             }
         }
 
-        if (!res.writableEnded) {
-            const rawStatus = err.response?.status || err.statusCode || err.status || 500;
-            let statusCode = ensureValidStatusCode(rawStatus);
-            if (err.clientError && statusCode >= 500) {
-                statusCode = 400;
-            }
-            const errorType = statusCode < 500 ? 'invalid_request_error' : 'server_error';
-            res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: errorType } }));
-        }
+        sendImageErrorResponse(res, error);
     } finally {
         // 确保并发槽在请求结束后归还（幂等）
         releaseCurrentSlot();
@@ -456,13 +453,10 @@ export async function handleImageEditsRequest(
 ): Promise<void> {
     let slotProviderType: string | null = null;
     let slotUuid: string | null = null;
-    let slotReleased = false;
-    const releaseCurrentSlot = () => {
-        if (!slotReleased && providerPoolManager && slotProviderType && slotUuid) {
-            slotReleased = true;
-            providerPoolManager.releaseSlot(slotProviderType, slotUuid);
-        }
-    };
+    const releaseCurrentSlot = createSlotReleaser(providerPoolManager, () => ({
+        providerType: slotProviderType,
+        uuid: slotUuid
+    }));
 
     try {
         const form = await parseMultipartForm(req, { maxBytes: IMAGE_EDITS_MAX_BYTES });
@@ -649,18 +643,8 @@ export async function handleImageEditsRequest(
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clientResponse));
     } catch (error) {
-        const err = error as Record<string, any>;
         logger.error('[Image Edits] Error:', getErrorMessage(error));
-        if (!res.writableEnded) {
-            const rawStatus = err.response?.status || err.statusCode || err.status || 500;
-            let statusCode = ensureValidStatusCode(rawStatus);
-            if (err.clientError && statusCode >= 500) {
-                statusCode = 400;
-            }
-            const errorType = statusCode < 500 ? 'invalid_request_error' : 'server_error';
-            res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: getErrorMessage(error), type: errorType } }));
-        }
+        sendImageErrorResponse(res, error);
     } finally {
         releaseCurrentSlot();
     }

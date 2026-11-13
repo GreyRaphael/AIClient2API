@@ -71,14 +71,6 @@ export function renderThemeBoot(indent = '') {
     return lines.map((line) => indent + line).join('\n');
 }
 
-/** 生成标记：包住需要由脚本维护的区块 */
-export const MARKERS = {
-    importmap: { start: '<!-- webui:importmap:start（由 npm run gen:webui-html 生成，勿手改）-->',
-        end: '<!-- webui:importmap:end -->' },
-    themeBoot: { start: '<!-- webui:themeboot:start（由 npm run gen:webui-html 生成，勿手改）-->',
-        end: '<!-- webui:themeboot:end -->' }
-};
-
 /** 需要维护外壳的 HTML 文件（相对 static/） */
 export const HTML_PAGES = [
     'index.html',

@@ -176,8 +176,8 @@ export interface RequestHandlerContext {
     retryContext: PipelineRetryContext | null;
 }
 
-/** 流式连接的生命周期与取消控制。 */
-export interface StreamAbortScope {
+/** 流式/一元连接的生命周期与取消控制（支持 `using` 自动释放）。 */
+export interface StreamAbortScope extends Disposable {
     /** 用于中止本次上游请求。 */
     abortController: AbortController;
     /** 上游信号 + 客户端信号的组合（供 axios/stream 使用）。 */
@@ -186,7 +186,7 @@ export interface StreamAbortScope {
     clientDisconnected: { value: boolean };
     /** 下游请求的 signal（若存在），供转换器/上层复用。 */
     clientSignal: AbortSignal | undefined;
-    /** 解绑本次注册的监听器（非首帧为 no-op）。 */
+    /** 解绑本次注册的监听器（非首帧为 no-op，幂等）。 */
     detach(): void;
 }
 
@@ -196,10 +196,31 @@ export interface CreateStreamAbortScopeOptions {
     retryContext: PipelineRetryContext | null;
     /** 是否为首帧：只有首帧注册 res 级监听器，避免重试时重复注册。 */
     isRetryFrame: boolean;
+    /** 日志前缀标识（Stream / Unary）。 */
+    label?: 'Stream' | 'Unary';
 }
 
 /**
- * 建立流式请求的连接生命周期与取消信号。
+ * 幂等的并发槽位释放器。
+ * 统一请求管道与图片接口在多分支 catch / finally 之间的单次释放逻辑。
+ */
+export function createSlotReleaser(
+    providerPoolManager: DynamicPayload | null | undefined,
+    resolveTarget: () => { providerType: string | null | undefined; uuid: string | null | undefined }
+): () => void {
+    let released = false;
+    return () => {
+        if (released || !providerPoolManager) return;
+        const { providerType, uuid } = resolveTarget();
+        if (providerType && uuid) {
+            released = true;
+            providerPoolManager.releaseSlot(providerType, uuid);
+        }
+    };
+}
+
+/**
+ * 建立流式/一元请求的连接生命周期与取消信号。
  *
  * 从 `handleStreamRequest` 抽出：这段逻辑此前混在 600 行的编排函数里，
  * 但它与「帧处理」完全正交 —— 只关心「什么情况下应当中止上游」，
@@ -209,7 +230,8 @@ export interface CreateStreamAbortScopeOptions {
 export function createStreamAbortScope({
     res,
     retryContext,
-    isRetryFrame
+    isRetryFrame,
+    label = 'Stream'
 }: CreateStreamAbortScopeOptions): StreamAbortScope {
     // 共享 clientDisconnected：重试帧继承上一帧的状态，首帧新建对象。
     const clientDisconnected = isRetryFrame
@@ -233,7 +255,9 @@ export function createStreamAbortScope({
 
     const onAbort = () => {
         clientDisconnected.value = true;
-        logger.info('[Stream] Client disconnected or stream aborted');
+        if (label === 'Stream') {
+            logger.info('[Stream] Client disconnected or stream aborted');
+        }
     };
 
     if (combinedSignal.aborted) {
@@ -247,7 +271,9 @@ export function createStreamAbortScope({
         if (!abortController.signal.aborted) {
             try { abortController.abort(new Error('Client disconnected')); } catch { /* 已中止 */ }
         }
-        logger.info('[Stream] Client disconnected, stopping stream processing');
+        if (label === 'Stream') {
+            logger.info('[Stream] Client disconnected, stopping stream processing');
+        }
     };
 
     const onClientError = (err: Error) => {
@@ -255,24 +281,33 @@ export function createStreamAbortScope({
         if (!abortController.signal.aborted) {
             try { abortController.abort(err); } catch { /* 已中止 */ }
         }
-        logger.error('[Stream] Response stream error:', err.message);
+        logger.error(`[${label}] Response stream error:`, err.message);
     };
 
     const isFirstFrame = !isRetryFrame;
-    if (isFirstFrame) {
+    if (isFirstFrame && typeof res.on === 'function') {
         res.on('close', onClientClose);
-        res.on('error', onClientError);
+        if (label === 'Stream') {
+            res.on('error', onClientError);
+        }
     }
+
+    const detach = () => {
+        if (!isFirstFrame || typeof res.off !== 'function') return;
+        res.off('close', onClientClose);
+        if (label === 'Stream') {
+            res.off('error', onClientError);
+        }
+    };
 
     return {
         abortController,
         combinedSignal,
         clientDisconnected,
         clientSignal,
-        detach() {
-            if (!isFirstFrame) return;
-            res.off('close', onClientClose);
-            res.off('error', onClientError);
+        detach,
+        [Symbol.dispose]() {
+            detach();
         }
     };
 }

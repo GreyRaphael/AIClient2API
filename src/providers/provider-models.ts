@@ -102,7 +102,7 @@ export function getCustomModelIdsForProvider(customModels: unknown, providerType
         .map((model: DynamicPayload) => model.id));
 }
 
-export function getConfiguredSupportedModels(_providerType: string, providerConfig: DynamicPayload = {}): string[] {
+export function getConfiguredSupportedModels(providerConfig: DynamicPayload = {}): string[] {
     return normalizeModelIds(providerConfig?.supportedModels);
 }
 

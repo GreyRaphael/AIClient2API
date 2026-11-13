@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 const uuidv4 = randomUUID;
 import { BaseConverter } from '../BaseConverter.ts';
-import { unwrapCodexEnvelope } from '../codex-envelope.ts';
+import { requireCodexEnvelope } from '../codex-envelope.ts';
 import { shortenToolName, buildToolNameMap } from '../tool-name.ts';
 import { StreamSessionStore } from '../stream-session.ts';
 import { AnthropicSseEmitter } from '../anthropic-sse-emitter.ts';
@@ -241,17 +241,19 @@ export class CodexConverter extends BaseConverter {
      * 转换响应
      */
     convertResponse(data: CrossProtocolResponse, targetProtocol: string, model?: string, requestId?: string | null): CrossProtocolResponse {
-        const envelope = unwrapCodexEnvelope(data);
-        const id = requestId || String(envelope.data.id || '') || 'default';
+        let id = requestId || 'default';
         // 程序性错误用 finally 保证状态清理，避免异常路径残留 requestStates。
         try {
+            if (!requestId) {
+                id = String(requireCodexEnvelope(data).data.id || '') || 'default';
+            }
             switch (targetProtocol) {
                 case MODEL_PROTOCOL_PREFIX.OPENAI:
-                    return this.toOpenAIResponse(data, model, id) as CrossProtocolResponse;
+                    return this.toOpenAIResponse(data, model, id);
                 case MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES:
-                    return this.toOpenAIResponsesResponse(data, model, id) as CrossProtocolResponse;
+                    return this.toOpenAIResponsesResponse(data, model, id);
                 case MODEL_PROTOCOL_PREFIX.CLAUDE:
-                    return this.toClaudeResponse(data, model, id) as CrossProtocolResponse;
+                    return this.toClaudeResponse(data, model, id);
                 default:
                     throw new Error(`Unsupported target protocol: ${targetProtocol}`);
             }
@@ -843,15 +845,9 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI 响应转换（非流式）
      */
-    toOpenAIResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
+    toOpenAIResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload {
         const parsed = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        const { kind, data: response } = unwrapCodexEnvelope(parsed);
-        if (kind === 'unrecognized') {
-            // 绝不返回 null：调用方会把它 JSON.stringify 成 "null" 并以 200 发出。
-            const error = new Error('[Codex] Upstream response is not a recognizable Responses payload') as DynamicPayload;
-            error.status = 502;
-            throw error;
-        }
+        const { kind, data: response } = requireCodexEnvelope(parsed);
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
         const openaiResponse: DynamicPayload = {
@@ -992,15 +988,9 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI Responses 响应转换
      */
-    toOpenAIResponsesResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
+    toOpenAIResponsesResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload {
         const parsed = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        const { kind, data: response } = unwrapCodexEnvelope(parsed);
-        if (kind === 'unrecognized') {
-            // 绝不返回 null：调用方会把它 JSON.stringify 成 "null" 并以 200 发出。
-            const error = new Error('[Codex] Upstream response is not a recognizable Responses payload') as DynamicPayload;
-            error.status = 502;
-            throw error;
-        }
+        const { kind, data: response } = requireCodexEnvelope(parsed);
         const unixTimestamp = response.created_at || Math.floor(Date.now() / 1000);
 
         const output: DynamicPayload[] = [];
@@ -1127,15 +1117,9 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → Claude 响应转换
      */
-    toClaudeResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload | null {
+    toClaudeResponse(rawJSON: DynamicPayload | string, model?: string, requestId?: string | null): DynamicPayload {
         const parsed = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON;
-        const { kind, data: response } = unwrapCodexEnvelope(parsed);
-        if (kind === 'unrecognized') {
-            // 绝不返回 null：调用方会把它 JSON.stringify 成 "null" 并以 200 发出。
-            const error = new Error('[Codex] Upstream response is not a recognizable Responses payload') as DynamicPayload;
-            error.status = 502;
-            throw error;
-        }
+        const { kind, data: response } = requireCodexEnvelope(parsed);
         const content: DynamicPayload[] = [];
         let stopReason = "end_turn";
 

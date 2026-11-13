@@ -1,6 +1,7 @@
 import logger from '../utils/logger.ts';
 import { cleanJsonSchemaProperties } from './utils.ts';
 import { getConfigToggle, getConfigPositiveInt } from '../core/config-manager.ts';
+import { isPlainRecord } from '../utils/type-guards.ts';
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -68,7 +69,7 @@ interface InjectedNode {
 }
 
 function isSchemaNode(value: unknown): value is SchemaNode {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
+    return isPlainRecord(value);
 }
 
 /**

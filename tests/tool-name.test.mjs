@@ -52,16 +52,25 @@ describe('工具名截断唯一性', () => {
         expect(shortenToolName('x'.repeat(TOOL_NAME_LIMIT))).toBe('x'.repeat(TOOL_NAME_LIMIT));
     });
 
-    test('mcp__ 前缀与末段被保留', () => {
+    test('mcp__ 前缀与末段被保留，且超长后缀带哈希避免碰撞', () => {
         const name = `mcp__server__${'t'.repeat(TOOL_NAME_LIMIT + 20)}`;
         const shortened = shortenToolName(name);
 
         expect(shortened.startsWith('mcp__')).toBe(true);
         expect(shortened.length).toBeLessThanOrEqual(TOOL_NAME_LIMIT);
+
+        // 长末段同前缀不同尾部分支：绝不能截成同一个 mcp__... 名字
+        const suffixPrefix = 'x'.repeat(TOOL_NAME_LIMIT);
+        const mcpAlpha = `mcp__srv__${suffixPrefix}_alpha`;
+        const mcpBeta = `mcp__srv__${suffixPrefix}_beta`;
+        expect(shortenToolName(mcpAlpha)).not.toBe(shortenToolName(mcpBeta));
+        expect(shortenToolName(mcpAlpha).length).toBeLessThanOrEqual(TOOL_NAME_LIMIT);
+        expect(shortenToolName(mcpBeta).length).toBeLessThanOrEqual(TOOL_NAME_LIMIT);
     });
 
-    test('同一组内短名两两不同（含本就重名的工具）', () => {
-        const map = buildToolNameMap([NAME_ALPHA, NAME_BETA, 'same_tool', 'same_tool']);
+    test('同一组内短名两两不同（含 64 字符边界重复工具名）', () => {
+        const boundaryTool = 'b'.repeat(TOOL_NAME_LIMIT);
+        const map = buildToolNameMap([NAME_ALPHA, NAME_BETA, 'same_tool', 'same_tool', boundaryTool, boundaryTool]);
         const shortNames = Object.values(map);
 
         expect(new Set(shortNames).size).toBe(shortNames.length);

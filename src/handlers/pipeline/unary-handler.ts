@@ -37,9 +37,9 @@ import {
     extractResponseText,
     getMonitorRequestId
 } from './protocol-plan.ts';
-import { createErrorResponse } from './error-response.ts';
+import { createErrorResponse, resolveErrorStatusCode } from './error-response.ts';
 import type { PipelineError } from './error-types.ts';
-import type { RequestHandlerContext } from '../stream-lifecycle.ts';
+import { createSlotReleaser, createStreamAbortScope, type RequestHandlerContext } from '../stream-lifecycle.ts';
 import type { ServerResponse } from 'node:http';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -219,35 +219,14 @@ export async function handleUnaryRequest(context: RequestHandlerContext) {
     const responseRequestId = retryContext?.requestId || null;
     const isRetry = currentRetry > 0 || (retryContext?.emptyResponseRetry ?? 0) > 0;
 
-    // 构建一元连接生命周期与取消控制信号（AbortSignal.any()）
-    const unaryAbortController = retryContext?.abortController || new AbortController();
-    const signals: AbortSignal[] = [unaryAbortController.signal];
-    const clientSignal = retryContext?.clientSignal || (res as DynamicPayload)?.req?.signal;
-    if (clientSignal && typeof clientSignal.addEventListener === 'function') {
-        if (clientSignal.aborted) {
-            try { unaryAbortController.abort(clientSignal.reason); } catch {}
-        } else {
-            signals.push(clientSignal);
-        }
-    }
-    const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+    // 构建一元连接生命周期与取消控制信号（Node 26 using + AbortSignal.any()）
+    using abortScope = createStreamAbortScope({ res, retryContext, isRetryFrame: isRetry, label: 'Unary' });
+    const { abortController: unaryAbortController, combinedSignal, clientSignal } = abortScope;
 
-    const onUnaryClose = () => {
-        if (!unaryAbortController.signal.aborted) {
-            try { unaryAbortController.abort(new Error('Client disconnected')); } catch {}
-        }
-    };
-    if (!isRetry && typeof res.on === 'function') {
-        res.on('close', onUnaryClose);
-    }
-
-    let slotReleased = false;
-    const releaseCurrentSlot = () => {
-        if (!slotReleased && providerPoolManager && pooluuid) {
-            slotReleased = true;
-            providerPoolManager.releaseSlot(toProvider, pooluuid);
-        }
-    };
+    const releaseCurrentSlot = createSlotReleaser(providerPoolManager, () => ({
+        providerType: toProvider,
+        uuid: pooluuid
+    }));
 
     try{
         // The service returns the response in its native format.
@@ -457,20 +436,9 @@ export async function handleUnaryRequest(context: RequestHandlerContext) {
         CONFIG._requestFailed = true;
         // 使用新方法创建符合 fromProvider 格式的错误响应
         const errorResponse = createErrorResponse(error as PipelineError, fromProvider);
-        const rawStatusCode = (error as PipelineError).response?.status
-            || (error as PipelineError).statusCode
-            || (error as PipelineError).status
-            || (error as PipelineError).code
-            || 500;
-        let statusCode = ensureValidStatusCode(rawStatusCode);
-        if ((error as PipelineError).clientError && statusCode >= 500) {
-            statusCode = 400;
-        }
+        const statusCode = resolveErrorStatusCode(error as PipelineError);
         await handleUnifiedResponse(res, JSON.stringify(errorResponse), false, statusCode);
     } finally {
-        if (!isRetry && typeof res.off === 'function') {
-            res.off('close', onUnaryClose);
-        }
         // 请求级状态治理：非流式响应在最外层帧结束后释放 custom tool 登记。
         if (!isRetry) {
             clearCustomTools(responseRequestId);

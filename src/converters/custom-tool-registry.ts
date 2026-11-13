@@ -61,12 +61,12 @@ export function registerCustomTools(requestId: string | null | undefined, tools:
     }
 }
 
-export function getCustomTools(requestId: string | null | undefined): Map<string, CustomToolRecord> {
+function getCustomTools(requestId: string | null | undefined): Map<string, CustomToolRecord> {
     if (!requestId) return new Map();
     return registry.get(requestId) || new Map();
 }
 
-export function getCustomTool(requestId: string | null | undefined, name: string): CustomToolRecord | null {
+function getCustomTool(requestId: string | null | undefined, name: string): CustomToolRecord | null {
     return getCustomTools(requestId).get(name) || null;
 }
 

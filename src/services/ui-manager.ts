@@ -293,15 +293,305 @@ export async function serveStaticFiles(pathParam: string, res: ServerResponse, r
     return false;
 }
 
+interface UiRouteContext {
+    method: string;
+    req: IncomingMessage;
+    res: ServerResponse;
+    currentConfig: Record<string, unknown>;
+    providerPoolManager: ProviderPoolManager | null;
+    match: RegExpMatchArray | null;
+}
+
+interface UiRouteEntry {
+    method?: string | readonly string[];
+    path: string | RegExp;
+    run: (ctx: UiRouteContext) => Promise<boolean> | boolean;
+}
+
+function sendFormattedGuideResponse(
+    req: IncomingMessage,
+    res: ServerResponse,
+    renderText: () => string,
+    jsonPayload: unknown
+): true {
+    const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+    if (url.searchParams.get('format') === 'text') {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(stripVTControlCharacters(renderText()));
+    } else {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(jsonPayload));
+    }
+    return true;
+}
+
+// 声明式有序路由表：按具体度从高到低匹配（如 supported / reset-health / health-check 必须在泛化段之前）
+const UI_ROUTES: readonly UiRouteEntry[] = [
+    {
+        method: 'POST',
+        path: '/api/upload-oauth-credentials',
+        run: async ({ req, res }) => Boolean(await eventBroadcast.handleUploadOAuthCredentials(req, res))
+    },
+    {
+        method: 'POST',
+        path: '/api/admin-password',
+        run: ({ req, res }) => configApi.handleUpdateAdminPassword(req, res)
+    },
+    {
+        method: 'GET',
+        path: '/api/config',
+        run: ({ res, currentConfig }) => configApi.handleGetConfig(res, currentConfig)
+    },
+    {
+        method: 'GET',
+        path: '/api/config/secret',
+        run: ({ req, res, currentConfig }) => configApi.handleRevealSecret(req, res, currentConfig)
+    },
+    {
+        method: 'GET',
+        path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/secret$/,
+        run: ({ req, res, currentConfig, providerPoolManager, match }) => providerApi.handleRevealProviderSecret(
+            req, res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), decodeURIComponent(match![2])
+        )
+    },
+    {
+        method: 'GET',
+        path: '/api/access-info',
+        run: ({ res, currentConfig, providerPoolManager }) => accessApi.handleGetAccessInfo(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'POST',
+        path: '/api/config',
+        run: ({ req, res, currentConfig }) => configApi.handleUpdateConfig(req, res, currentConfig)
+    },
+    { method: 'GET', path: '/api/system', run: ({ res }) => systemApi.handleGetSystem(res) },
+    { method: 'GET', path: '/api/system/network-diagnostics', run: ({ res }) => systemApi.handleGetNetworkDiagnostics(res) },
+    { method: 'GET', path: '/api/system/download-log', run: ({ res }) => systemApi.handleDownloadTodayLog(res) },
+    { method: 'POST', path: '/api/system/clear-log', run: ({ res }) => systemApi.handleClearTodayLog(res) },
+    {
+        method: 'GET',
+        path: '/api/providers',
+        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleGetProviders(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'GET',
+        path: '/api/providers/supported',
+        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleGetSupportedProviders(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'GET',
+        path: /^\/api\/providers\/([^\/]+)$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleGetProviderType(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1])
+        )
+    },
+    {
+        method: 'GET',
+        path: '/api/provider-models/metadata',
+        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleGetProviderModelMetadata(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'GET',
+        path: '/api/provider-models',
+        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleGetProviderModels(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'POST',
+        path: '/api/provider-models/refresh',
+        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleRefreshProviderModels(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'POST',
+        path: '/api/providers',
+        run: ({ req, res, currentConfig, providerPoolManager }) => providerApi.handleAddProvider(req, res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/providers\/([^\/]+)\/reset-health$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleResetProviderHealth(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1])
+        )
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/providers\/([^\/]+)\/health-check$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleHealthCheck(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1])
+        )
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/detect-models$/,
+        run: ({ req, res, currentConfig, providerPoolManager, match }) => providerApi.handleDetectProviderModels(
+            req, res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2]
+        )
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/health-check$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleSingleProviderHealthCheck(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2]
+        )
+    },
+    {
+        method: 'DELETE',
+        path: /^\/api\/providers\/([^\/]+)\/delete-unhealthy$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleDeleteUnhealthyProviders(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1])
+        )
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/providers\/([^\/]+)\/refresh-unhealthy-uuids$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleRefreshUnhealthyUuids(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1])
+        )
+    },
+    {
+        path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/(disable|enable)$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleDisableEnableProvider(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2], match![3]
+        )
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/refresh-uuid$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleRefreshProviderUuid(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2]
+        )
+    },
+    {
+        method: 'PUT',
+        path: /^\/api\/providers\/([^\/]+)\/([^\/]+)$/,
+        run: ({ req, res, currentConfig, providerPoolManager, match }) => providerApi.handleUpdateProvider(
+            req, res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2]
+        )
+    },
+    {
+        method: 'DELETE',
+        path: /^\/api\/providers\/([^\/]+)\/([^\/]+)$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleDeleteProvider(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2]
+        )
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/providers\/([^\/]+)\/generate-auth-url$/,
+        run: ({ req, res, currentConfig, match }) => oauthApi.handleGenerateAuthUrl(
+            req, res, currentConfig, decodeURIComponent(match![1])
+        )
+    },
+    { method: 'POST', path: '/api/oauth/manual-callback', run: ({ req, res }) => oauthApi.handleManualOAuthCallback(req, res) },
+    { method: 'GET', path: '/api/events', run: ({ req, res }) => eventBroadcast.handleEvents(req, res) },
+    {
+        method: 'GET',
+        path: '/api/upload-configs',
+        run: ({ res, currentConfig, providerPoolManager }) => uploadConfigApi.handleGetUploadConfigs(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'GET',
+        path: /^\/api\/upload-configs\/view\/(.+)$/,
+        run: ({ res, match }) => uploadConfigApi.handleViewConfigFile(res, decodeURIComponent(match![1]))
+    },
+    {
+        method: 'GET',
+        path: /^\/api\/upload-configs\/download\/(.+)$/,
+        run: ({ res, match }) => uploadConfigApi.handleDownloadConfigFile(res, decodeURIComponent(match![1]))
+    },
+    {
+        method: 'DELETE',
+        path: /^\/api\/upload-configs\/delete\/(.+)$/,
+        run: ({ res, match }) => uploadConfigApi.handleDeleteConfigFile(res, decodeURIComponent(match![1]))
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/upload-configs\/force-expire\/(.+)$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => uploadConfigApi.handleForceExpireConfig(
+            res, decodeURIComponent(match![1]), currentConfig, providerPoolManager
+        )
+    },
+    { method: 'GET', path: '/api/upload-configs/download-all', run: ({ res }) => uploadConfigApi.handleDownloadAllConfigs(res) },
+    {
+        method: 'DELETE',
+        path: '/api/upload-configs/delete-unbound',
+        run: ({ res, currentConfig, providerPoolManager }) => uploadConfigApi.handleDeleteUnboundConfigs(res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'POST',
+        path: '/api/quick-link-provider',
+        run: ({ req, res, currentConfig, providerPoolManager }) => providerApi.handleQuickLinkProvider(req, res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'GET',
+        path: '/api/usage',
+        run: ({ req, res, currentConfig, providerPoolManager }) => usageApi.handleGetUsage(req, res, currentConfig, providerPoolManager)
+    },
+    {
+        method: 'POST',
+        path: /^\/api\/usage\/([^\/]+)\/([^\/]+)\/reset$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => usageApi.handleResetSingleInstanceUsage(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), decodeURIComponent(match![2])
+        )
+    },
+    { method: 'GET', path: '/api/usage/supported-providers', run: ({ res }) => usageApi.handleGetSupportedProviders(res) },
+    {
+        method: 'GET',
+        path: /^\/api\/usage\/([^\/]+)$/,
+        run: ({ req, res, currentConfig, providerPoolManager, match }) => usageApi.handleGetProviderUsage(
+            req, res, currentConfig, providerPoolManager, decodeURIComponent(match![1])
+        )
+    },
+    {
+        method: 'GET',
+        path: /^\/api\/usage\/([^\/]+)\/([^\/]+)$/,
+        run: ({ res, currentConfig, providerPoolManager, match }) => usageApi.handleGetSingleInstanceUsage(
+            res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), decodeURIComponent(match![2])
+        )
+    },
+    { method: 'GET', path: '/api/check-update', run: ({ res }) => updateApi.handleCheckUpdate(res) },
+    { method: 'POST', path: '/api/update', run: ({ req, res }) => updateApi.handlePerformUpdate(req, res) },
+    { method: 'POST', path: '/api/reload-config', run: ({ res, providerPoolManager }) => configApi.handleReloadConfig(res, providerPoolManager) },
+    { method: 'POST', path: '/api/restart-service', run: ({ res }) => systemApi.handleRestartService(res) },
+    { method: 'GET', path: '/api/service-mode', run: ({ res }) => systemApi.handleGetServiceMode(res) },
+    {
+        method: 'GET',
+        path: '/api/help',
+        run: ({ req, res }) => sendFormattedGuideResponse(req, res, formatHelpText, HELP_DATA)
+    },
+    {
+        method: 'GET',
+        path: '/api/example',
+        run: ({ req, res }) => sendFormattedGuideResponse(req, res, formatApiGuideText, {
+            routes: API_GUIDE_DATA,
+            examples: API_EXAMPLES
+        })
+    },
+    { method: 'POST', path: '/api/gemini/batch-import-tokens', run: ({ req, res }) => oauthApi.handleBatchImportGeminiTokens(req, res) },
+    { method: 'POST', path: '/api/codex/batch-import-tokens', run: ({ req, res }) => oauthApi.handleBatchImportCodexTokens(req, res) },
+    { method: 'POST', path: '/api/codex/import-external-credentials', run: ({ req, res }) => oauthApi.handleImportCodexExternalCredentials(req, res) },
+    { method: 'GET', path: '/api/custom-models', run: ({ res, currentConfig }) => customModelsApi.handleGetCustomModels(res, currentConfig) },
+    { method: 'POST', path: '/api/custom-models', run: ({ req, res, currentConfig }) => customModelsApi.handleAddCustomModel(req, res, currentConfig) },
+    {
+        method: ['PUT', 'DELETE'],
+        path: /^\/api\/custom-models\/(.+)$/,
+        run: ({ method, req, res, currentConfig, match }) => {
+            const modelId = decodeURIComponent(match![1]);
+            return method === 'PUT'
+                ? customModelsApi.handleUpdateCustomModel(req, res, currentConfig, modelId)
+                : customModelsApi.handleDeleteCustomModel(res, currentConfig, modelId);
+        }
+    }
+];
+
 /**
  * Handle UI management API requests
- * @param {string} method - The HTTP method
- * @param {string} pathParam - The request path
- * @param {import('node:http').IncomingMessage} req - The HTTP request object
- * @param {import('node:http').ServerResponse} res - The HTTP response object
- * @param {Object} currentConfig - The current configuration object
- * @param {Object} providerPoolManager - The provider pool manager instance
- * @returns {Promise<boolean>} - True if the request was handled by UI API
+ * @param method - The HTTP method
+ * @param pathParam - The request path
+ * @param req - The HTTP request object
+ * @param res - The HTTP response object
+ * @param currentConfig - The current configuration object
+ * @param providerPoolManager - The provider pool manager instance
+ * @returns True if the request was handled by UI API
  */
 export async function handleUIApiRequests(
     method: string,
@@ -328,19 +618,16 @@ export async function handleUIApiRequests(
         return true;
     }
 
-    // 处理登录接口
+    // 处理登录与健康检查接口（免 session 门禁）
     if (method === 'POST' && pathParam === '/api/login') {
         return await auth.handleLoginRequest(req, res);
     }
-
-    // 健康检查接口（用于前端token验证）
     if (method === 'GET' && pathParam === '/api/health') {
         return await systemApi.handleHealthCheck(res);
     }
-    
+
     // Handle UI management API requests (需要token验证)
     if (isUIApiPath(pathParam)) {
-        // 检查token验证
         const isAuth = await auth.checkAuth(req);
         if (!isAuth) {
             res.writeHead(401, {
@@ -365,369 +652,21 @@ export async function handleUIApiRequests(
         return true;
     }
 
-    // 文件上传API
-    if (method === 'POST' && pathParam === '/api/upload-oauth-credentials') {
-        return Boolean(await eventBroadcast.handleUploadOAuthCredentials(req, res));
-    }
-
-    // Update admin password
-    if (method === 'POST' && pathParam === '/api/admin-password') {
-        return await configApi.handleUpdateAdminPassword(req, res);
-    }
-
-    // Get configuration
-    if (method === 'GET' && pathParam === '/api/config') {
-        return await configApi.handleGetConfig(res, currentConfig);
-    }
-
-    // Reveal a single masked secret from the config (eye button)
-    if (method === 'GET' && pathParam === '/api/config/secret') {
-        return await configApi.handleRevealSecret(req, res, currentConfig);
-    }
-
-    // Reveal a single masked secret of a provider node (eye button)
-    const revealProviderSecretMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/secret$/);
-    if (method === 'GET' && revealProviderSecretMatch) {
-        const providerType = decodeURIComponent(revealProviderSecretMatch[1]);
-        const providerUuid = decodeURIComponent(revealProviderSecretMatch[2]);
-        return await providerApi.handleRevealProviderSecret(
-            req, res, currentConfig, providerPoolManager, providerType, providerUuid
-        );
-    }
-
-    // Get access overview information for the simplified connection page
-    if (method === 'GET' && pathParam === '/api/access-info') {
-        return await accessApi.handleGetAccessInfo(res, currentConfig, providerPoolManager);
-    }
-
-    // Update configuration
-    if (method === 'POST' && pathParam === '/api/config') {
-        return await configApi.handleUpdateConfig(req, res, currentConfig);
-    }
-
-    // Get system information
-    if (method === 'GET' && pathParam === '/api/system') {
-        return await systemApi.handleGetSystem(res);
-    }
-
-    // Get network diagnostics
-    if (method === 'GET' && pathParam === '/api/system/network-diagnostics') {
-        return await systemApi.handleGetNetworkDiagnostics(res);
-    }
-
-    // Download today's log file
-    if (method === 'GET' && pathParam === '/api/system/download-log') {
-        return await systemApi.handleDownloadTodayLog(res);
-    }
-
-    // Clear today's log file
-    if (method === 'POST' && pathParam === '/api/system/clear-log') {
-        return await systemApi.handleClearTodayLog(res);
-    }
-
-    // Get provider pools summary
-    if (method === 'GET' && pathParam === '/api/providers') {
-        return await providerApi.handleGetProviders(res, currentConfig, providerPoolManager);
-    }
-
-    // Get supported provider types based on registered adapters
-    if (method === 'GET' && pathParam === '/api/providers/supported') {
-        return await providerApi.handleGetSupportedProviders(res, currentConfig, providerPoolManager);
-    }
-
-    // Get specific provider type details
-    const providerTypeMatch = pathParam.match(/^\/api\/providers\/([^\/]+)$/);
-    if (method === 'GET' && providerTypeMatch) {
-        const providerType = decodeURIComponent(providerTypeMatch[1]);
-        return await providerApi.handleGetProviderType(res, currentConfig, providerPoolManager, providerType);
-    }
-
-    // Get model metadata for all providers (dashboard parameter pills)
-    if (method === 'GET' && pathParam === '/api/provider-models/metadata') {
-        return await providerApi.handleGetProviderModelMetadata(res, currentConfig, providerPoolManager);
-    }
-
-    // Get available models for all providers or specific provider type
-    if (method === 'GET' && pathParam === '/api/provider-models') {
-        return await providerApi.handleGetProviderModels(res, currentConfig, providerPoolManager);
-    }
-
-    // Force refresh model capability (bypass TTL)
-    if (method === 'POST' && pathParam === '/api/provider-models/refresh') {
-        return await providerApi.handleRefreshProviderModels(res, currentConfig, providerPoolManager);
-    }
-
-    // Add new provider configuration
-    if (method === 'POST' && pathParam === '/api/providers') {
-        return await providerApi.handleAddProvider(req, res, currentConfig, providerPoolManager);
-    }
-
-    // Reset all providers health status for a specific provider type
-    // NOTE: This must be before the generic /{providerType}/{uuid} route to avoid matching 'reset-health' as UUID
-    const resetHealthMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/reset-health$/);
-    if (method === 'POST' && resetHealthMatch) {
-        const providerType = decodeURIComponent(resetHealthMatch[1]);
-        return await providerApi.handleResetProviderHealth(res, currentConfig, providerPoolManager, providerType);
-    }
-
-    // Perform health check for all providers of a specific type
-    // NOTE: This must be before the generic /{providerType}/{uuid} route to avoid matching 'health-check' as UUID
-    const healthCheckMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/health-check$/);
-    if (method === 'POST' && healthCheckMatch) {
-        const providerType = decodeURIComponent(healthCheckMatch[1]);
-        return await providerApi.handleHealthCheck(res, currentConfig, providerPoolManager, providerType);
-    }
-
-    // Detect available models for a specific provider node
-    const detectModelsMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/detect-models$/);
-    if (method === 'POST' && detectModelsMatch) {
-        const providerType = decodeURIComponent(detectModelsMatch[1]);
-        const providerUuid = detectModelsMatch[2];
-        return await providerApi.handleDetectProviderModels(req, res, currentConfig, providerPoolManager, providerType, providerUuid);
-    }
-
-    // Perform health check for a specific provider node
-    const singleHealthCheckMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/health-check$/);
-    if (method === 'POST' && singleHealthCheckMatch) {
-        const providerType = decodeURIComponent(singleHealthCheckMatch[1]);
-        const providerUuid = singleHealthCheckMatch[2];
-        return await providerApi.handleSingleProviderHealthCheck(res, currentConfig, providerPoolManager, providerType, providerUuid);
-    }
-
-    // Delete all unhealthy providers for a specific type
-    // NOTE: This must be before the generic /{providerType}/{uuid} route to avoid matching 'delete-unhealthy' as UUID
-    const deleteUnhealthyMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/delete-unhealthy$/);
-    if (method === 'DELETE' && deleteUnhealthyMatch) {
-        const providerType = decodeURIComponent(deleteUnhealthyMatch[1]);
-        return await providerApi.handleDeleteUnhealthyProviders(res, currentConfig, providerPoolManager, providerType);
-    }
-
-    // Refresh UUIDs for all unhealthy providers of a specific type
-    // NOTE: This must be before the generic /{providerType}/{uuid} route to avoid matching 'refresh-unhealthy-uuids' as UUID
-    const refreshUnhealthyUuidsMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/refresh-unhealthy-uuids$/);
-    if (method === 'POST' && refreshUnhealthyUuidsMatch) {
-        const providerType = decodeURIComponent(refreshUnhealthyUuidsMatch[1]);
-        return await providerApi.handleRefreshUnhealthyUuids(res, currentConfig, providerPoolManager, providerType);
-    }
-
-    // Disable/Enable specific provider configuration
-    const disableEnableProviderMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/(disable|enable)$/);
-    if (disableEnableProviderMatch) {
-        const providerType = decodeURIComponent(disableEnableProviderMatch[1]);
-        const providerUuid = disableEnableProviderMatch[2];
-        const action = disableEnableProviderMatch[3];
-        return await providerApi.handleDisableEnableProvider(res, currentConfig, providerPoolManager, providerType, providerUuid, action);
-    }
-
-    // Refresh UUID for specific provider configuration
-    const refreshUuidMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/refresh-uuid$/);
-    if (method === 'POST' && refreshUuidMatch) {
-        const providerType = decodeURIComponent(refreshUuidMatch[1]);
-        const providerUuid = refreshUuidMatch[2];
-        return await providerApi.handleRefreshProviderUuid(res, currentConfig, providerPoolManager, providerType, providerUuid);
-    }
-
-    // Update specific provider configuration
-    // NOTE: This generic route must be after all specific routes like /reset-health, /health-check, /delete-unhealthy
-    const updateProviderMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)$/);
-    if (method === 'PUT' && updateProviderMatch) {
-        const providerType = decodeURIComponent(updateProviderMatch[1]);
-        const providerUuid = updateProviderMatch[2];
-        return await providerApi.handleUpdateProvider(req, res, currentConfig, providerPoolManager, providerType, providerUuid);
-    }
-
-    // Delete specific provider configuration
-    if (method === 'DELETE' && updateProviderMatch) {
-        const providerType = decodeURIComponent(updateProviderMatch[1]);
-        const providerUuid = updateProviderMatch[2];
-        return await providerApi.handleDeleteProvider(res, currentConfig, providerPoolManager, providerType, providerUuid);
-    }
-
-    // Generate OAuth authorization URL for providers
-    const generateAuthUrlMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/generate-auth-url$/);
-    if (method === 'POST' && generateAuthUrlMatch) {
-        const providerType = decodeURIComponent(generateAuthUrlMatch[1]);
-        return await oauthApi.handleGenerateAuthUrl(req, res, currentConfig, providerType);
-    }
-
-    // Handle manual OAuth callback
-    if (method === 'POST' && pathParam === '/api/oauth/manual-callback') {
-        return await oauthApi.handleManualOAuthCallback(req, res);
-    }
-
-    // Server-Sent Events for real-time updates
-    if (method === 'GET' && pathParam === '/api/events') {
-        return await eventBroadcast.handleEvents(req, res);
-    }
-
-    // Get upload configuration files list
-    if (method === 'GET' && pathParam === '/api/upload-configs') {
-        return await uploadConfigApi.handleGetUploadConfigs(res, currentConfig, providerPoolManager);
-    }
-
-    // View specific configuration file
-    const viewConfigMatch = pathParam.match(/^\/api\/upload-configs\/view\/(.+)$/);
-    if (method === 'GET' && viewConfigMatch) {
-        const filePath = decodeURIComponent(viewConfigMatch[1]);
-        return await uploadConfigApi.handleViewConfigFile(res, filePath);
-    }
-
-    // Download specific configuration file
-    const downloadConfigMatch = pathParam.match(/^\/api\/upload-configs\/download\/(.+)$/);
-    if (method === 'GET' && downloadConfigMatch) {
-        const filePath = decodeURIComponent(downloadConfigMatch[1]);
-        return await uploadConfigApi.handleDownloadConfigFile(res, filePath);
-    }
-
-    // Delete specific configuration file
-    const deleteConfigMatch = pathParam.match(/^\/api\/upload-configs\/delete\/(.+)$/);
-    if (method === 'DELETE' && deleteConfigMatch) {
-        const filePath = decodeURIComponent(deleteConfigMatch[1]);
-        return await uploadConfigApi.handleDeleteConfigFile(res, filePath);
-    }
-
-    // Force expire specific configuration file
-    const forceExpireConfigMatch = pathParam.match(/^\/api\/upload-configs\/force-expire\/(.+)$/);
-    if (method === 'POST' && forceExpireConfigMatch) {
-        const filePath = decodeURIComponent(forceExpireConfigMatch[1]);
-        return await uploadConfigApi.handleForceExpireConfig(res, filePath, currentConfig, providerPoolManager);
-    }
-
-    // Download all configs as zip
-    if (method === 'GET' && pathParam === '/api/upload-configs/download-all') {
-        return await uploadConfigApi.handleDownloadAllConfigs(res);
-    }
-
-    // Delete all unbound config files
-    if (method === 'DELETE' && pathParam === '/api/upload-configs/delete-unbound') {
-        return await uploadConfigApi.handleDeleteUnboundConfigs(res, currentConfig, providerPoolManager);
-    }
-
-    // Quick link config to corresponding provider based on directory
-    if (method === 'POST' && pathParam === '/api/quick-link-provider') {
-        return await providerApi.handleQuickLinkProvider(req, res, currentConfig, providerPoolManager);
-    }
-
-    // Get usage limits for all providers
-    if (method === 'GET' && pathParam === '/api/usage') {
-        return await usageApi.handleGetUsage(req, res, currentConfig, providerPoolManager);
-    }
-
-    // Reset usage quota for a specific provider instance
-    const usageResetInstanceMatch = pathParam.match(/^\/api\/usage\/([^\/]+)\/([^\/]+)\/reset$/);
-    if (method === 'POST' && usageResetInstanceMatch) {
-        const providerType = decodeURIComponent(usageResetInstanceMatch[1]);
-        const providerUuid = decodeURIComponent(usageResetInstanceMatch[2]);
-        return await usageApi.handleResetSingleInstanceUsage(res, currentConfig, providerPoolManager, providerType, providerUuid);
-    }
-
-    // Get supported providers for usage query
-    if (method === 'GET' && pathParam === '/api/usage/supported-providers') {
-        return await usageApi.handleGetSupportedProviders(res);
-    }
-
-    // Get usage limits for a specific provider type
-    const usageProviderMatch = pathParam.match(/^\/api\/usage\/([^\/]+)$/);
-    if (method === 'GET' && usageProviderMatch) {
-        const providerType = decodeURIComponent(usageProviderMatch[1]);
-        return await usageApi.handleGetProviderUsage(req, res, currentConfig, providerPoolManager, providerType);
-    }
-
-    // Get usage limits for a specific provider instance
-    const usageInstanceMatch = pathParam.match(/^\/api\/usage\/([^\/]+)\/([^\/]+)$/);
-    if (method === 'GET' && usageInstanceMatch) {
-        const providerType = decodeURIComponent(usageInstanceMatch[1]);
-        const providerUuid = decodeURIComponent(usageInstanceMatch[2]);
-        return await usageApi.handleGetSingleInstanceUsage(res, currentConfig, providerPoolManager, providerType, providerUuid);
-    }
-
-    // Check for updates - compare local VERSION with latest git tag
-    if (method === 'GET' && pathParam === '/api/check-update') {
-        return await updateApi.handleCheckUpdate(res);
-    }
-
-    // Perform update - git fetch and checkout to latest tag
-    if (method === 'POST' && pathParam === '/api/update') {
-        return await updateApi.handlePerformUpdate(req, res);
-    }
-
-    // Reload configuration files
-    if (method === 'POST' && pathParam === '/api/reload-config') {
-        return await configApi.handleReloadConfig(res, providerPoolManager);
-    }
-
-    // Restart service (worker process)
-    if (method === 'POST' && pathParam === '/api/restart-service') {
-        return await systemApi.handleRestartService(res);
-    }
-
-    // Get service mode information
-    if (method === 'GET' && pathParam === '/api/service-mode') {
-        return await systemApi.handleGetServiceMode(res);
-    }
-
-    // Help and API guide for remote AI calling
-    if (method === 'GET' && pathParam === '/api/help') {
-        const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
-        const format = url.searchParams.get('format');
-        
-        if (format === 'text') {
-            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(stripVTControlCharacters(formatHelpText())); // 去掉颜色代码
+    for (const route of UI_ROUTES) {
+        if (route.method !== undefined) {
+            const matchesMethod = Array.isArray(route.method)
+                ? route.method.includes(method)
+                : route.method === method;
+            if (!matchesMethod) continue;
+        }
+        let match: RegExpMatchArray | null = null;
+        if (typeof route.path === 'string') {
+            if (pathParam !== route.path) continue;
         } else {
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify(HELP_DATA));
+            match = pathParam.match(route.path);
+            if (!match) continue;
         }
-        return true;
-    }
-
-    if (method === 'GET' && pathParam === '/api/example') {
-        const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
-        const format = url.searchParams.get('format');
-
-        if (format === 'text') {
-            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(stripVTControlCharacters(formatApiGuideText())); // 去掉颜色代码
-        } else {
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify({
-                routes: API_GUIDE_DATA,
-                examples: API_EXAMPLES
-            }));
-        }
-        return true;
-    }
-
-    if (method === 'POST' && pathParam === '/api/gemini/batch-import-tokens') {
-        return await oauthApi.handleBatchImportGeminiTokens(req, res);
-    }
-
-    if (method === 'POST' && pathParam === '/api/codex/batch-import-tokens') {
-        return await oauthApi.handleBatchImportCodexTokens(req, res);
-    }
-
-    if (method === 'POST' && pathParam === '/api/codex/import-external-credentials') {
-        return await oauthApi.handleImportCodexExternalCredentials(req, res);
-    }
-
-    // Custom models management
-    if (method === 'GET' && pathParam === '/api/custom-models') {
-        return await customModelsApi.handleGetCustomModels(res, currentConfig);
-    }
-
-    if (method === 'POST' && pathParam === '/api/custom-models') {
-        return await customModelsApi.handleAddCustomModel(req, res, currentConfig);
-    }
-
-    const customModelMatch = pathParam.match(/^\/api\/custom-models\/(.+)$/);
-    if (customModelMatch) {
-        const modelId = decodeURIComponent(customModelMatch[1]);
-        if (method === 'PUT') {
-            return await customModelsApi.handleUpdateCustomModel(req, res, currentConfig, modelId);
-        }
-        if (method === 'DELETE') {
-            return await customModelsApi.handleDeleteCustomModel(res, currentConfig, modelId);
-        }
+        return await route.run({ method, req, res, currentConfig, providerPoolManager, match });
     }
 
     return false;

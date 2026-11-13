@@ -78,7 +78,7 @@ describe('Codex 双形态响应对拷贝免疫', () => {
         expect('response' in body).toBe(false);
     });
 
-    test('无法识别的载荷抛 502，而不是静默返回 null', () => {
+    test('无法识别的载荷抛 502（含 convertResponse 与 toCodexResponseBody）', () => {
         const converter = new CodexConverter();
         let caught = null;
         try {
@@ -89,6 +89,16 @@ describe('Codex 双形态响应对拷贝免疫', () => {
 
         expect(caught).not.toBeNull();
         expect(caught.status).toBe(502);
+
+        let dualCaught = null;
+        try {
+            toCodexResponseBody({ totally: 'unrelated' }, 'gpt-5');
+        } catch (error) {
+            dualCaught = error;
+        }
+
+        expect(dualCaught).not.toBeNull();
+        expect(dualCaught.status).toBe(502);
     });
 
     test('unwrapCodexEnvelope 能区分 completed / incomplete / unrecognized', () => {

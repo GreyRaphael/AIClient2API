@@ -8,6 +8,7 @@ const uuidv4 = randomUUID;
 import logger from '../../utils/logger.ts';
 import { BaseConverter } from '../BaseConverter.ts';
 import { StreamSessionStore } from '../stream-session.ts';
+import { AnthropicSseEmitter } from '../anthropic-sse-emitter.ts';
 import { CodexConverter } from './CodexConverter.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import {
@@ -998,7 +999,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
     }
 
-    _responsesContentToClaudeBlocks(content: unknown, _role = 'user'): DynamicPayload[] {
+    _responsesContentToClaudeBlocks(content: unknown): DynamicPayload[] {
         if (content === null || content === undefined) {
             return [];
         }
@@ -1238,7 +1239,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                         this._pushClaudeMessage(
                             claudeRequest.messages,
                             item.role,
-                            this._responsesContentToClaudeBlocks(item.content, item.role)
+                            this._responsesContentToClaudeBlocks(item.content)
                         );
                         break;
 
@@ -1336,7 +1337,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     if (!messageId && item.id) {
                         messageId = item.id;
                     }
-                    for (const block of this._responsesContentToClaudeBlocks(item.content, 'assistant')) {
+                    for (const block of this._responsesContentToClaudeBlocks(item.content)) {
                         if (block.type === 'text') {
                             content.push(block);
                         }
@@ -1391,28 +1392,25 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
     }
 
-    _getClaudeStreamState(requestId: string | null | undefined): DynamicPayload {
+    _getClaudeStreamState(requestId: string | null | undefined, model?: string): DynamicPayload {
         const key = requestId || 'default';
         if (!this.claudeStreamStates.has(key)) {
             this.claudeStreamStates.set(key, {
-                textBlocks: new Set(),
-                toolBlocks: new Set(),
-                reasoningBlocks: new Set(),
-                // 已向客户端下发过非空文本/思考的 Responses part 键。
-                // block 已打开不等于已发送内容：content_part.added 或空 delta
-                // 后仍可能只收到 done(text)，必须补发 delta。按 part 而不是按
-                // Claude block index 记录，避免同一 output_index 的多个
-                // content part 互相抑制。
-                textSentByPart: new Set(),
-                reasoningSentByPart: new Set(),
-                stoppedBlocks: new Set(),
+                emitter: new AnthropicSseEmitter({
+                    model: model || 'unknown',
+                    blockMode: 'multi',
+                    sessionKey: requestId || 'responses',
+                    mintSignatures: true
+                }),
+                // Responses part/output 键 -> emitter block index，保证同一 output_index 下多 part 不碰撞
+                blockIndexByKey: new Map<string, number>(),
+                // 已向客户端下发过非空文本/思考的 part 键，避免 done 时重复补发 delta
+                sentByPart: new Set<string>(),
                 stopReason: 'end_turn',
-                usage: null,
-                customToolBuffers: new Map(),
-                customArgsSent: new Set(),
-                toolItemsByOutput: new Map(),
-                claudeIndexByOutput: new Map(),
-                nextClaudeIndex: 0
+                usage: null as DynamicPayload | null,
+                customToolBuffers: new Map<string, string>(),
+                customArgsSent: new Set<string>(),
+                toolItemsByOutput: new Map<string, DynamicPayload>()
             });
         }
         return this.claudeStreamStates.get(key);
@@ -1426,25 +1424,67 @@ export class OpenAIResponsesConverter extends BaseConverter {
         });
     }
 
-    _normalizeClaudeStreamIndex(chunk: DynamicPayload, state: DynamicPayload | null = null, kind: 'text' | 'reasoning' | null = null): number {
-        const outputIndex = chunk.output_index ?? chunk.content_index ?? 0;
-        if (!state) return outputIndex;
-        if (!(state.claudeIndexByOutput instanceof Map)) state.claudeIndexByOutput = new Map();
-        if (!Number.isInteger(state.nextClaudeIndex)) state.nextClaudeIndex = 0;
-        let key: string;
-        if (kind === 'text' || kind === 'reasoning') {
-            key = `${kind}:${this._responsesPartKey(chunk, kind)}`;
-        } else if (chunk.summary_index !== undefined) {
-            key = `reasoning:${this._responsesPartKey(chunk, 'reasoning')}`;
-        } else if (chunk.content_index !== undefined && chunk.output_index !== undefined) {
-            key = `text:${this._responsesPartKey(chunk, 'text')}`;
-        } else {
-            key = String(outputIndex);
+    _emitClaudeStreamDelta(state: DynamicPayload, responsesChunk: DynamicPayload, kind: 'text' | 'reasoning'): DynamicPayload[] {
+        const blockKey = `${kind}:${this._responsesPartKey(responsesChunk, kind)}`;
+        const text = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
+        const events: DynamicPayload[] = [];
+        let index = state.blockIndexByKey.get(blockKey);
+        if (index === undefined) {
+            const opened = state.emitter.openBlock(
+                kind === 'reasoning' ? 'thinking' : 'text',
+                kind === 'reasoning' ? { type: 'thinking', thinking: '' } : { type: 'text', text: '' }
+            );
+            index = opened.index;
+            state.blockIndexByKey.set(blockKey, index);
+            events.push(...opened.events);
         }
-        if (!state.claudeIndexByOutput.has(key)) {
-            state.claudeIndexByOutput.set(key, state.nextClaudeIndex++);
+        if (text.length > 0) {
+            state.sentByPart.add(blockKey);
         }
-        return state.claudeIndexByOutput.get(key);
+        events.push(
+            state.emitter.deltaAt(
+                index,
+                kind === 'reasoning' ? { type: 'thinking_delta', thinking: text } : { type: 'text_delta', text }
+            )
+        );
+        return events;
+    }
+
+    _emitClaudeStreamDone(state: DynamicPayload, responsesChunk: DynamicPayload, kind: 'text' | 'reasoning'): DynamicPayload | DynamicPayload[] | null {
+        const blockKey = `${kind}:${this._responsesPartKey(responsesChunk, kind)}`;
+        const fallbackText = kind === 'text'
+            ? (responsesChunk.delta || responsesChunk.text || responsesChunk.part?.text || '')
+            : (responsesChunk.delta || responsesChunk.text || '');
+        const events: DynamicPayload[] = [];
+        let index = state.blockIndexByKey.get(blockKey);
+        if (index === undefined) {
+            if (!fallbackText) {
+                return null;
+            }
+            const opened = state.emitter.openBlock(
+                kind === 'reasoning' ? 'thinking' : 'text',
+                kind === 'reasoning' ? { type: 'thinking', thinking: '' } : { type: 'text', text: '' }
+            );
+            index = opened.index;
+            state.blockIndexByKey.set(blockKey, index);
+            events.push(...opened.events);
+        } else if (!state.emitter.openBlocks.has(index)) {
+            return null;
+        }
+        if (fallbackText && !state.sentByPart.has(blockKey)) {
+            state.sentByPart.add(blockKey);
+            events.push(
+                state.emitter.deltaAt(
+                    index,
+                    kind === 'reasoning' ? { type: 'thinking_delta', thinking: fallbackText } : { type: 'text_delta', text: fallbackText }
+                )
+            );
+        }
+        events.push(...state.emitter.closeBlockAt(index));
+        if (events.length === 0) {
+            return null;
+        }
+        return kind === 'text' && events.length === 1 ? events[0] : events;
     }
 
     /**
@@ -1453,23 +1493,21 @@ export class OpenAIResponsesConverter extends BaseConverter {
      */
     _completeCustomToolBlock(state: DynamicPayload, outputIndex: unknown, item: DynamicPayload | null, rawInput: unknown): DynamicPayload[] {
         const key = String(outputIndex ?? 0);
-        const index = this._normalizeClaudeStreamIndex({ output_index: outputIndex ?? 0 }, state);
         const events: DynamicPayload[] = [];
         state.stopReason = 'tool_use';
         const toolItem = { ...(state.toolItemsByOutput.get(key) || {}), ...(item || {}) };
+        let index = state.blockIndexByKey.get(key);
 
-        if (!state.toolBlocks.has(index)) {
-            state.toolBlocks.add(index);
-            events.push({
-                type: 'content_block_start',
-                index,
-                content_block: {
-                    type: 'tool_use',
-                    id: toolItem.call_id || toolItem.id,
-                    name: toolItem.name,
-                    input: {}
-                }
+        if (index === undefined) {
+            const opened = state.emitter.openBlock('tool_use', {
+                type: 'tool_use',
+                id: toolItem.call_id || toolItem.id,
+                name: toolItem.name,
+                input: {}
             });
+            index = opened.index;
+            state.blockIndexByKey.set(key, index);
+            events.push(...opened.events);
         }
 
         if (!state.customArgsSent.has(key)) {
@@ -1477,20 +1515,13 @@ export class OpenAIResponsesConverter extends BaseConverter {
             const input = typeof rawInput === 'string'
                 ? rawInput
                 : (rawInput === null || rawInput === undefined ? '' : JSON.stringify(rawInput));
-            events.push({
-                type: 'content_block_delta',
-                index,
-                delta: {
-                    type: 'input_json_delta',
-                    partial_json: JSON.stringify({ input })
-                }
-            });
+            events.push(state.emitter.deltaAt(index, {
+                type: 'input_json_delta',
+                partial_json: JSON.stringify({ input })
+            }));
         }
 
-        if (!state.stoppedBlocks.has(`tool:${index}`)) {
-            state.stoppedBlocks.add(`tool:${index}`);
-            events.push({ type: 'content_block_stop', index });
-        }
+        events.push(...state.emitter.closeBlockAt(index));
         return events;
     }
 
@@ -1510,238 +1541,85 @@ export class OpenAIResponsesConverter extends BaseConverter {
             error.status = 502;
             throw error;
         }
-        const state = this._getClaudeStreamState(requestId);
+        const state = this._getClaudeStreamState(requestId, model);
 
         if (responsesChunk.type === 'response.created') {
-            return {
-                type: 'message_start',
-                message: {
-                    id: responsesChunk.response.id,
-                    type: 'message',
-                    role: 'assistant',
-                    content: [],
-                    model: model || responsesChunk.response.model,
-                    usage: {
-                        input_tokens: 0,
-                        output_tokens: 0
-                    }
-                }
-            };
+            if (responsesChunk.response?.id) {
+                state.emitter.messageId = responsesChunk.response.id;
+            }
+            if (model || responsesChunk.response?.model) {
+                state.emitter.setModel(model || responsesChunk.response.model);
+            }
+            const events = state.emitter.ensureStarted();
+            return events[0] ?? null;
         }
 
         if (responsesChunk.type === 'response.content_part.added') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
-            if (responsesChunk.part?.type === 'output_text' && !state.textBlocks.has(index)) {
-                state.textBlocks.add(index);
-                const events: DynamicPayload[] = [{
-                    type: 'content_block_start',
-                    index,
-                    content_block: {
-                        type: 'text',
-                        text: ''
-                    }
-                }];
+            const blockKey = `text:${this._responsesPartKey(responsesChunk, 'text')}`;
+            if (responsesChunk.part?.type === 'output_text' && !state.blockIndexByKey.has(blockKey)) {
+                const opened = state.emitter.openBlock('text', { type: 'text', text: '' });
+                state.blockIndexByKey.set(blockKey, opened.index);
+                const events = [...opened.events];
                 const initialText = responsesChunk.part.text;
                 if (typeof initialText === 'string' && initialText.length > 0) {
-                    state.textSentByPart.add(this._responsesPartKey(responsesChunk, 'text'));
-                    events.push({
-                        type: 'content_block_delta',
-                        index,
-                        delta: { type: 'text_delta', text: initialText }
-                    });
+                    state.sentByPart.add(blockKey);
+                    events.push(state.emitter.deltaAt(opened.index, { type: 'text_delta', text: initialText }));
                 }
                 return events.length === 1 ? events[0] : events;
             }
         }
 
         if (responsesChunk.type === 'response.output_text.delta') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
-            const text = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
-            const events: DynamicPayload[] = [];
-            if (!state.textBlocks.has(index)) {
-                state.textBlocks.add(index);
-                events.push({
-                    type: 'content_block_start',
-                    index,
-                    content_block: {
-                        type: 'text',
-                        text: ''
-                    }
-                });
-            }
-            if (text.length > 0) {
-                state.textSentByPart.add(this._responsesPartKey(responsesChunk, 'text'));
-            }
-            events.push({
-                type: 'content_block_delta',
-                index,
-                delta: {
-                    type: 'text_delta',
-                    text
-                }
-            });
-            return events;
+            return this._emitClaudeStreamDelta(state, responsesChunk, 'text');
         }
 
         if (responsesChunk.type === 'response.output_text.done' || responsesChunk.type === 'response.content_part.done') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'text');
-            if (!state.stoppedBlocks.has(`text:${index}`)) {
-                const events: DynamicPayload[] = [];
-                // 若上游只发送 done（含 text）而未发送非空 delta，先补齐 delta 再 stop。
-                // 注意：content_part.added 可能已经打开了 block，不能只看 textBlocks。
-                const fallbackText = responsesChunk.delta || responsesChunk.text || responsesChunk.part?.text || '';
-                const partKey = this._responsesPartKey(responsesChunk, 'text');
-                if (!state.textBlocks.has(index)) {
-                    if (!fallbackText) {
-                        return null;
-                    }
-                    state.textBlocks.add(index);
-                    events.push({
-                        type: 'content_block_start',
-                        index,
-                        content_block: { type: 'text', text: '' }
-                    });
-                }
-                if (fallbackText && !state.textSentByPart.has(partKey)) {
-                    state.textSentByPart.add(partKey);
-                    events.push({
-                        type: 'content_block_delta',
-                        index,
-                        delta: { type: 'text_delta', text: fallbackText }
-                    });
-                }
-                state.stoppedBlocks.add(`text:${index}`);
-                events.push({
-                    type: 'content_block_stop',
-                    index
-                });
-                return events.length === 1 ? events[0] : events;
-            }
-            return null;
+            return this._emitClaudeStreamDone(state, responsesChunk, 'text');
         }
 
         if (responsesChunk.type === 'response.reasoning_summary_text.delta' ||
             responsesChunk.type === 'response.reasoning_text.delta' ||
             responsesChunk.type === 'response.reasoning.delta' ||
             responsesChunk.type === 'response.reasoning_summary.delta') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'reasoning');
-            const thinking = typeof responsesChunk.delta === 'string' ? responsesChunk.delta : '';
-            const events: DynamicPayload[] = [];
-            if (!state.reasoningBlocks.has(index)) {
-                state.reasoningBlocks.add(index);
-                events.push({
-                    type: 'content_block_start',
-                    index,
-                    content_block: {
-                        type: 'thinking',
-                        thinking: ''
-                    }
-                });
-            }
-            if (thinking.length > 0) {
-                state.reasoningSentByPart.add(this._responsesPartKey(responsesChunk, 'reasoning'));
-            }
-            events.push({
-                type: 'content_block_delta',
-                index,
-                delta: {
-                    type: 'thinking_delta',
-                    thinking
-                }
-            });
-            return events;
+            return this._emitClaudeStreamDelta(state, responsesChunk, 'reasoning');
         }
 
         if (responsesChunk.type === 'response.reasoning_summary_text.done' ||
             responsesChunk.type === 'response.reasoning_text.done' ||
             responsesChunk.type === 'response.reasoning.done') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state, 'reasoning');
-            if (!state.stoppedBlocks.has(`reasoning:${index}`)) {
-                const events: DynamicPayload[] = [];
-                const fallbackThinking = responsesChunk.delta || responsesChunk.text || '';
-                const partKey = this._responsesPartKey(responsesChunk, 'reasoning');
-                if (!state.reasoningBlocks.has(index)) {
-                    if (!fallbackThinking) {
-                        return null;
-                    }
-                    state.reasoningBlocks.add(index);
-                    events.push({
-                        type: 'content_block_start',
-                        index,
-                        content_block: { type: 'thinking', thinking: '' }
-                    });
-                }
-                if (fallbackThinking && !state.reasoningSentByPart.has(partKey)) {
-                    state.reasoningSentByPart.add(partKey);
-                    events.push({
-                        type: 'content_block_delta',
-                        index,
-                        delta: { type: 'thinking_delta', thinking: fallbackThinking }
-                    });
-                }
-                state.stoppedBlocks.add(`reasoning:${index}`);
-                if (isSignatureVaultEnabled()) {
-                    events.push({
-                        type: 'content_block_delta',
-                        index,
-                        delta: {
-                            type: 'signature_delta',
-                            signature: mintVirtualSignature({
-                                sessionKey: requestId || 'responses',
-                                blockIndex: index,
-                                thinkingText: fallbackThinking
-                            })
-                        }
-                    });
-                }
-                events.push({
-                    type: 'content_block_stop',
-                    index
-                });
-                return events;
-            }
-            return null;
+            return this._emitClaudeStreamDone(state, responsesChunk, 'reasoning');
         }
 
         if (responsesChunk.type === 'response.function_call_arguments.delta') {
-            return {
-                type: 'content_block_delta',
-                index: this._normalizeClaudeStreamIndex(responsesChunk, state),
-                delta: {
-                    type: 'input_json_delta',
-                    partial_json: responsesChunk.delta
-                }
-            };
+            const outputKey = String(responsesChunk.output_index ?? 0);
+            const index = state.blockIndexByKey.get(outputKey) ?? (responsesChunk.output_index ?? responsesChunk.content_index ?? 0);
+            return state.emitter.deltaAt(index, {
+                type: 'input_json_delta',
+                partial_json: responsesChunk.delta
+            });
         }
 
         if (responsesChunk.type === 'response.function_call_arguments.done') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
-            if (!state.stoppedBlocks.has(`tool:${index}`)) {
-                state.stoppedBlocks.add(`tool:${index}`);
-                return {
-                    type: 'content_block_stop',
-                    index
-                };
-            }
-            return null;
+            const outputKey = String(responsesChunk.output_index ?? 0);
+            const index = state.blockIndexByKey.get(outputKey);
+            if (index === undefined) return null;
+            const closed = state.emitter.closeBlockAt(index);
+            return closed[0] ?? null;
         }
 
         if (responsesChunk.type === 'response.output_item.added' &&
             (responsesChunk.item?.type === 'function_call' || responsesChunk.item?.type === 'custom_tool_call')) {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
+            const outputKey = String(responsesChunk.output_index ?? 0);
             state.stopReason = 'tool_use';
-            state.toolBlocks.add(index);
-            state.toolItemsByOutput.set(String(responsesChunk.output_index ?? 0), responsesChunk.item);
-            return {
-                type: 'content_block_start',
-                index,
-                content_block: {
-                    type: 'tool_use',
-                    id: responsesChunk.item.call_id || responsesChunk.item.id,
-                    name: responsesChunk.item.name,
-                    input: {}
-                }
-            };
+            state.toolItemsByOutput.set(outputKey, responsesChunk.item);
+            const opened = state.emitter.openBlock('tool_use', {
+                type: 'tool_use',
+                id: responsesChunk.item.call_id || responsesChunk.item.id,
+                name: responsesChunk.item.name,
+                input: {}
+            });
+            state.blockIndexByKey.set(outputKey, opened.index);
+            return opened.events[0] ?? null;
         }
 
         if (responsesChunk.type === 'response.custom_tool_call_input.delta') {
@@ -1778,45 +1656,26 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (responsesChunk.type === 'response.output_item.done' && responsesChunk.item?.type === 'function_call') {
-            const index = this._normalizeClaudeStreamIndex(responsesChunk, state);
+            const outputKey = String(responsesChunk.output_index ?? 0);
             state.stopReason = 'tool_use';
-            if (!state.toolBlocks.has(index)) {
-                state.toolBlocks.add(index);
-                state.stoppedBlocks.add(`tool:${index}`);
+            let index = state.blockIndexByKey.get(outputKey);
+            if (index === undefined) {
                 const args = this._stringifyContentValue(this._normalizeToolInput(responsesChunk.item.arguments));
+                const opened = state.emitter.openBlock('tool_use', {
+                    type: 'tool_use',
+                    id: responsesChunk.item.call_id || responsesChunk.item.id,
+                    name: responsesChunk.item.name,
+                    input: {}
+                });
+                state.blockIndexByKey.set(outputKey, opened.index);
                 return [
-                    {
-                        type: 'content_block_start',
-                        index,
-                        content_block: {
-                            type: 'tool_use',
-                            id: responsesChunk.item.call_id || responsesChunk.item.id,
-                            name: responsesChunk.item.name,
-                            input: {}
-                        }
-                    },
-                    {
-                        type: 'content_block_delta',
-                        index,
-                        delta: {
-                            type: 'input_json_delta',
-                            partial_json: args
-                        }
-                    },
-                    {
-                        type: 'content_block_stop',
-                        index
-                    }
+                    ...opened.events,
+                    state.emitter.deltaAt(opened.index, { type: 'input_json_delta', partial_json: args }),
+                    ...state.emitter.closeBlockAt(opened.index)
                 ];
             }
-            if (!state.stoppedBlocks.has(`tool:${index}`)) {
-                state.stoppedBlocks.add(`tool:${index}`);
-                return {
-                    type: 'content_block_stop',
-                    index
-                };
-            }
-            return null;
+            const closed = state.emitter.closeBlockAt(index);
+            return closed[0] ?? null;
         }
 
         if (responsesChunk.type === 'response.output_item.done' && responsesChunk.item?.type === 'message') {
@@ -1839,6 +1698,12 @@ export class OpenAIResponsesConverter extends BaseConverter {
         }
 
         if (isTerminalResponsesEvent) {
+            if (responsesChunk.response?.id) {
+                state.emitter.messageId = responsesChunk.response.id;
+            }
+            if (model || responsesChunk.response?.model) {
+                state.emitter.setModel(model || responsesChunk.response.model);
+            }
             if (responsesChunk.type === 'response.incomplete'
                 || responsesChunk.response?.status === 'incomplete'
                 || responsesChunk.response?.incomplete_details) {
@@ -1847,74 +1712,25 @@ export class OpenAIResponsesConverter extends BaseConverter {
                     : 'max_tokens';
             }
 
-            // 终止兜底：不能假设上游一定发送 output_text.done / reasoning_summary_text.done。
-            // 若仍有未关闭块，必须在 message_delta 前补齐 content_block_stop，否则
-            // Anthropic 客户端会收到结构非法的流。
-            const events: DynamicPayload[] = [];
-            // custom tool 只收到 delta、没收到 done 时，先补齐自由文本 input。
+            // custom tool 只收到 delta、没收到 done 时，先补齐自由文本 input 再统一 finish 关块
+            const prefixEvents: DynamicPayload[] = [];
             for (const [key, input] of state.customToolBuffers.entries()) {
                 if (state.customArgsSent.has(key)) continue;
-                const index = Number(key);
-                if (!state.toolBlocks.has(index)) continue;
+                const index = state.blockIndexByKey.get(key);
+                if (index === undefined || !state.emitter.openBlocks.has(index)) continue;
                 state.customArgsSent.add(key);
-                events.push({
-                    type: 'content_block_delta',
-                    index,
-                    delta: {
-                        type: 'input_json_delta',
-                        partial_json: JSON.stringify({ input })
-                    }
-                });
-            }
-            const openBlocks: DynamicPayload[] = [];
-            for (const index of state.reasoningBlocks) {
-                if (!state.stoppedBlocks.has(`reasoning:${index}`)) openBlocks.push({ index, type: 'reasoning' });
-            }
-            for (const index of state.textBlocks) {
-                if (!state.stoppedBlocks.has(`text:${index}`)) openBlocks.push({ index, type: 'text' });
-            }
-            for (const index of state.toolBlocks) {
-                if (!state.stoppedBlocks.has(`tool:${index}`)) openBlocks.push({ index, type: 'tool' });
-            }
-            openBlocks.sort((a: DynamicPayload, b: DynamicPayload) => a.index - b.index);
-            for (const block of openBlocks) {
-                if (block.type === 'reasoning' && isSignatureVaultEnabled()) {
-                    events.push({
-                        type: 'content_block_delta',
-                        index: block.index,
-                        delta: {
-                            type: 'signature_delta',
-                            signature: mintVirtualSignature({
-                                sessionKey: requestId || 'responses',
-                                blockIndex: block.index,
-                                thinkingText: ''
-                            })
-                        }
-                    });
-                }
-                state.stoppedBlocks.add(
-                    block.type === 'reasoning' ? `reasoning:${block.index}`
-                        : block.type === 'text' ? `text:${block.index}`
-                            : `tool:${block.index}`
-                );
-                events.push({ type: 'content_block_stop', index: block.index });
+                prefixEvents.push(state.emitter.deltaAt(index, {
+                    type: 'input_json_delta',
+                    partial_json: JSON.stringify({ input })
+                }));
             }
 
             const usage = state.usage || this._mapResponsesUsageToClaude(responsesChunk.response?.usage || {});
             this.claudeStreamStates.delete(requestId || 'default');
-            events.push(
-                {
-                    type: 'message_delta',
-                    delta: {
-                        stop_reason: state.stopReason
-                    },
-                    usage
-                },
-                {
-                    type: 'message_stop'
-                }
-            );
-            return events;
+            return [
+                ...prefixEvents,
+                ...state.emitter.finish({ stopReason: state.stopReason, usage })
+            ];
         }
 
         return null;

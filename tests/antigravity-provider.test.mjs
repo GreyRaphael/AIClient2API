@@ -499,3 +499,69 @@ describe('Antigravity parseSSEStream 错误传播', () => {
         expect(JSON.stringify(frames[0])).toContain('hi');
     });
 });
+
+describe('Antigravity 429 轮换与上限回归', () => {
+    function rateLimit429Error() {
+        const err = new Error('rate limited');
+        err.response = { status: 429, headers: {} };
+        return err;
+    }
+
+    test('callApi 在全部 baseURL 429 并退避后回到首节点重试，且遵守 REQUEST_MAX_RETRIES=1', async () => {
+        const service = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: path.join(os.tmpdir(), 'no-such-cred.json'),
+            REQUEST_MAX_RETRIES: 1,
+            REQUEST_BASE_DELAY: 1
+        });
+        service.baseURLs = ['https://edge-a.example', 'https://edge-b.example'];
+
+        const calledUrls = [];
+        service.authClient = {
+            request: jest.fn(async (opts) => {
+                calledUrls.push(opts.url);
+                throw rateLimit429Error();
+            })
+        };
+
+        await expect(service.callApi('generateContent', { contents: [] })).rejects.toMatchObject({
+            shouldSwitchCredential: true
+        });
+        expect(calledUrls).toEqual([
+            'https://edge-a.example/v1internal:generateContent',
+            'https://edge-b.example/v1internal:generateContent',
+            'https://edge-a.example/v1internal:generateContent',
+            'https://edge-b.example/v1internal:generateContent'
+        ]);
+    });
+
+    test('streamApi 在全部 baseURL 429 并退避后同样回到首节点并遵守 REQUEST_MAX_RETRIES=1', async () => {
+        const service = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: path.join(os.tmpdir(), 'no-such-cred.json'),
+            REQUEST_MAX_RETRIES: 1,
+            REQUEST_BASE_DELAY: 1
+        });
+        service.baseURLs = ['https://edge-a.example', 'https://edge-b.example'];
+
+        const calledUrls = [];
+        service.authClient = {
+            request: jest.fn(async (opts) => {
+                calledUrls.push(opts.url);
+                throw rateLimit429Error();
+            })
+        };
+
+        await expect((async () => {
+            for await (const _chunk of service.streamApi('streamGenerateContent', { contents: [] })) {
+                // no chunks expected
+            }
+        })()).rejects.toMatchObject({
+            shouldSwitchCredential: true
+        });
+        expect(calledUrls).toEqual([
+            'https://edge-a.example/v1internal:streamGenerateContent',
+            'https://edge-b.example/v1internal:streamGenerateContent',
+            'https://edge-a.example/v1internal:streamGenerateContent',
+            'https://edge-b.example/v1internal:streamGenerateContent'
+        ]);
+    });
+});

@@ -57,7 +57,13 @@ import {
 } from './pipeline/protocol-plan.ts';
 import { PreContentBuffer } from './pre-content-buffer.ts';
 import { startPreContentHeartbeat } from './pre-content-heartbeat.ts';
-import { createStreamAbortScope, createStreamRetryContext, writeStreamCompletion } from './stream-lifecycle.ts';
+import {
+    createSlotReleaser,
+    createStreamAbortScope,
+    createStreamRetryContext,
+    writeStreamCompletion,
+    type StreamTerminalState
+} from './stream-lifecycle.ts';
 import type { PipelineRetryContext, RequestHandlerContext } from './stream-lifecycle.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import { recordStreamChunkUsage, finalizeRequest } from '../services/usage-stats/stats-manager.ts';
@@ -90,6 +96,468 @@ const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
 
 
 
+interface StreamPumpProgress {
+    model: string;
+    fullResponseText: string;
+    anyDataSent: boolean;
+    hasToolCall: boolean;
+    sawMeaningfulContent: boolean;
+    sawStreamError: boolean;
+    lastFinishReason: string;
+    lastFinishMessage: string;
+    readonly streamState: StreamTerminalState;
+    readonly preContentBuffer: PreContentBuffer;
+    readonly maxPreContentFrames: number;
+    readonly maxPreContentBytes: number;
+    readonly clientDisconnected: { value: boolean };
+    readonly combinedSignal: AbortSignal;
+}
+
+async function flushFramesWithBackpressure(
+    res: ServerResponse,
+    frames: string[],
+    progress: Pick<StreamPumpProgress, 'anyDataSent' | 'clientDisconnected' | 'combinedSignal'>
+): Promise<void> {
+    for (const frame of frames) {
+        if (progress.clientDisconnected.value || res.writableEnded) break;
+        const written = await writeFrameWithBackpressure(res, frame, progress.clientDisconnected, progress.combinedSignal);
+        if (!written) break;
+        progress.anyDataSent = true;
+    }
+}
+
+function writeSseErrorAndClose(
+    res: ServerResponse,
+    error: PipelineError,
+    fromProvider: string,
+    clientDisconnected: { value: boolean }
+): void {
+    const errorPayload = createStreamErrorResponse(error, fromProvider);
+    if (!clientDisconnected.value && !res.writableEnded) {
+        try {
+            res.write(errorPayload);
+            res.end();
+        } catch (writeErr) {
+            logger.error('[Stream] Failed to write error response:', getErrorMessage(writeErr));
+        }
+    }
+}
+
+async function openUpstreamStream(
+    service: DynamicPayload,
+    requestBody: DynamicPayload,
+    model: string,
+    fromProvider: string,
+    toProvider: string,
+    combinedSignal: AbortSignal
+): Promise<{
+    nativeStream: AsyncIterable<DynamicPayload>;
+    actualModel: string;
+    needsConversion: boolean;
+    nativeProtocol: string;
+    addEvent: boolean;
+}> {
+    // 桥接计划统一决定「是否需要 Converter」以及「上游是否按下游协议直接产出」：
+    // - Codex + /v1/responses：0-Hop 直通；
+    // - Trae / trae-chat_v3：三端均由 TraeApiService 1-Hop 直接产出下游协议；
+    // - 其余 Provider：声明协议不同就 1 跳转换。
+    const bridgePlan = resolveBridgePlan(fromProvider, toProvider, model);
+    const needsConversion = bridgePlan.needsConversion;
+    // 上游原生协议：直通/直出时等于下游协议，否则等于 Provider 声明协议。
+    // 后续所有「按 chunk 形状取值」的判定都必须用这个协议，而不是 toProvider 的声明协议。
+    const nativeProtocol = bridgePlan.nativeProtocol;
+    injectDownstreamProtocol(requestBody, bridgePlan);
+    // Claude / Responses 下游需要 usage，但 OpenAI Chat 流式默认不返回 usage。
+    // 仅在跨协议转换到 OpenAI 上游时要求 include_usage；用不可枚举属性传递，
+    // 避免内部标记被 JSON 序列化发送到上游。
+    if (needsConversion
+        && getProtocolPrefix(toProvider, model) === MODEL_PROTOCOL_PREFIX.OPENAI
+        && [MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]
+            .includes(getProtocolPrefix(fromProvider, model))) {
+        // 只设置内部不可枚举标记；实际 stream_options 由 OpenAIApiService 注入，
+        // 避免 fallback 到 Trae 等非 OpenAI Chat 实现时把该字段发送出去。
+        Object.defineProperty(requestBody, '_includeUsageForConversion', {
+            value: true,
+            enumerable: false,
+            configurable: true
+        });
+    }
+    requestBody.model = model;
+    Object.defineProperty(requestBody, '_abortSignal', {
+        value: combinedSignal,
+        enumerable: false,
+        configurable: true,
+        writable: true
+    });
+    const nativeStream = await service.generateContentStream(model, requestBody);
+    // 如果提供者内部发生了模型回退（如 Antigravity 自动降级），同步更新本地 model 变量
+    // 这确保了后续的监控钩子和统计插件记录的是实际使用的模型
+    const actualModel = requestBody.model && requestBody.model !== model ? requestBody.model : model;
+    const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE
+        || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
+    return { nativeStream, actualModel, needsConversion, nativeProtocol, addEvent };
+}
+
+function buildOutboundFrames(
+    chunk: DynamicPayload,
+    needsConversion: boolean,
+    addEvent: boolean,
+    progress: StreamPumpProgress
+): string[] {
+    // [FIX] 跟踪工具调用并在结束时修正 finish_reason
+    if (chunk.choices?.[0]?.delta?.tool_calls || chunk.choices?.[0]?.finish_reason === 'tool_calls') {
+        progress.hasToolCall = true;
+    }
+    if (chunk.type === 'content_block_start' && chunk.content_block?.type === 'tool_use') {
+        progress.hasToolCall = true;
+    }
+    if (chunk.type === 'message_delta' && (chunk.delta?.stop_reason === 'tool_use' || chunk.stop_reason === 'tool_use')) {
+        progress.hasToolCall = true;
+    }
+
+    // 如果之前有工具调用，且当前 chunk 是正常结束，修正为 tool_calls / tool_use
+    if (progress.hasToolCall && needsConversion) {
+        if (chunk.choices?.[0]?.finish_reason === 'stop') {
+            chunk.choices[0].finish_reason = 'tool_calls';
+        } else if (chunk.type === 'message_delta' && chunk.delta?.stop_reason === 'end_turn') {
+            chunk.delta.stop_reason = 'tool_use';
+        }
+    }
+
+    // 防止重复发送结束标志
+    // OpenAI: choices[].finish_reason / data.error
+    // Claude: message_stop / event: error
+    // OpenAI Responses: done / response.completed / response.incomplete / response.failed / error
+    // Gemini: candidates[].finishReason（如 STOP / MAX_TOKENS / SAFETY 等）
+    if (isInStreamErrorPayload(chunk)) {
+        progress.sawStreamError = true;
+        progress.sawMeaningfulContent = true;
+        progress.streamState.hasMessageStop = true;
+    } else if (
+        chunk?.choices?.some((choice: DynamicPayload) => choice?.finish_reason) ||
+        chunk?.type === 'message_stop' ||
+        chunk?.type === 'done' ||
+        chunk?.type === 'response.completed' ||
+        chunk?.type === 'response.incomplete'
+    ) {
+        progress.streamState.hasMessageStop = true;
+    }
+
+    // 序列化本 chunk 的出站帧（在有效内容出现前会先进入首内容前缓冲）
+    const outFrames: string[] = [];
+    if (addEvent) {
+        const eventType = chunk.type || (isInStreamErrorPayload(chunk) ? 'error' : '');
+        if (eventType) {
+            outFrames.push(`event: ${eventType}\n`);
+        }
+    }
+    outFrames.push(`data: ${JSON.stringify(chunk)}\n\n`);
+
+    // 首内容前缓冲：有效内容出现前不直接下发，缓存起来以便上游空转时无损重试
+    if (!progress.sawMeaningfulContent) {
+        const buffered = progress.preContentBuffer.push(outFrames);
+        if (buffered.overflowed) {
+            logger.warn(
+                `[Stream] Pre-content buffer exceeded limit (${buffered.frameCount}/${progress.maxPreContentFrames} frames, ${buffered.byteLength}/${progress.maxPreContentBytes} bytes); flushing buffered frames early.`
+            );
+            progress.sawMeaningfulContent = true;
+            return buffered.framesToWrite;
+        }
+        return [];
+    }
+    // 首个有效内容出现：先一次性冲刷此前缓存的 thinking/角色等帧
+    return [...progress.preContentBuffer.flush(), ...outFrames];
+}
+
+async function pumpUpstreamStream(
+    res: ServerResponse,
+    nativeStream: AsyncIterable<DynamicPayload>,
+    fromProvider: string,
+    toProvider: string,
+    CONFIG: DynamicPayload,
+    streamRequestId: string,
+    streamOptions: { needsConversion: boolean; nativeProtocol: string; addEvent: boolean },
+    progress: StreamPumpProgress
+): Promise<void> {
+    const { needsConversion, nativeProtocol, addEvent } = streamOptions;
+    for await (const nativeChunk of nativeStream) {
+        if (progress.clientDisconnected.value) {
+            logger.info('[Stream] Stopping iteration due to client disconnect');
+            break;
+        }
+
+        // 首内容前缓冲：在转换/下发前先判定原生 chunk 是否携带有效内容或流内错误终态。
+        // 注意：错误帧先不置 hasMessageStop；若转换器无法表达该错误（返回 null/空数组），
+        // 这里会抛出 502，让统一错误响应接管，而不是静默结束或在重试成功后误跳过终止帧。
+        const nativeIsError = isInStreamErrorPayload(nativeChunk);
+        if (nativeIsError) {
+            progress.sawStreamError = true;
+            progress.sawMeaningfulContent = true;
+        } else if (
+            !progress.sawMeaningfulContent
+            && nativePayloadHasMeaningfulContent(nativeChunk, toProvider, progress.model, nativeProtocol)
+        ) {
+            progress.sawMeaningfulContent = true;
+        }
+        // 记录上游结束原因（用于空响应诊断与“合法截断不重试”判定）。
+        // 各协议词表不同：Gemini finishReason / OpenAI finish_reason /
+        // Anthropic stop_reason / Responses incomplete_details.reason。
+        const chunkFinishReason = extractTerminalFinishReason(nativeChunk, toProvider, progress.model, nativeProtocol);
+        if (chunkFinishReason) progress.lastFinishReason = chunkFinishReason;
+        const nativeCandidate = nativeChunk?.candidates?.[0];
+        if (nativeCandidate?.finishMessage) progress.lastFinishMessage = nativeCandidate.finishMessage;
+
+        const chunkText = extractResponseText(nativeChunk, toProvider, progress.model, nativeProtocol);
+        if (chunkText && !Array.isArray(chunkText)) {
+            progress.fullResponseText += chunkText;
+            progress.streamState.fullResponseText = progress.fullResponseText;
+        }
+
+        const chunkToSend = needsConversion
+            ? convertData(nativeChunk, 'streamChunk', toProvider, fromProvider, progress.model, streamRequestId)
+            : nativeChunk;
+
+        const hookRequestId = getMonitorRequestId(CONFIG);
+        if (hookRequestId) {
+            // 核心用量记账（非插件）：同一 requestId 的多次 chunk 由 stats-manager 合并，
+            // 内部已 try/catch，记账异常不会影响流式主流程。
+            recordStreamChunkUsage({
+                requestId: hookRequestId,
+                model: progress.model,
+                provider: toProvider,
+                fromProvider,
+                nativeChunk,
+                clientChunk: chunkToSend
+            });
+            try {
+                recordApiKeyStreamChunk(hookRequestId, nativeChunk, chunkToSend);
+            } catch {}
+        }
+
+        // 上游错误帧必须能映射为下游可识别的错误事件；若转换器丢弃了错误帧，
+        // 不能当作“无内容”静默结束，否则客户端会收到空 200 流。
+        if (nativeIsError && (!chunkToSend || (Array.isArray(chunkToSend) && chunkToSend.length === 0))) {
+            const streamError: PipelineError = new Error(extractInStreamErrorMessage(nativeChunk) || 'Upstream stream error');
+            streamError.status = 502;
+            throw streamError;
+        }
+        if (nativeIsError) {
+            progress.streamState.hasMessageStop = true;
+        }
+
+        if (!chunkToSend) {
+            continue;
+        }
+
+        const chunksToSend = Array.isArray(chunkToSend) ? chunkToSend : [chunkToSend];
+        for (const chunk of chunksToSend) {
+            if (progress.clientDisconnected.value) break;
+            const framesToWrite = buildOutboundFrames(chunk, needsConversion, addEvent, progress);
+            await flushFramesWithBackpressure(res, framesToWrite, progress);
+        }
+    }
+}
+
+async function finalizeUpstreamOutcome(
+    res: ServerResponse,
+    toProvider: string,
+    pooluuid: string | null | undefined,
+    customName: string | null | undefined,
+    providerPoolManager: DynamicPayload | undefined,
+    CONFIG: DynamicPayload,
+    progress: StreamPumpProgress
+): Promise<void> {
+    // 上游流正常结束但从未产出任何「有效内容」（文本/工具调用/内联数据）：
+    // 典型如 Antigravity 的 Gemini 3 思考阶段后直接以 MALFORMED_FUNCTION_CALL（空工具调用）
+    // 或 STOP 收尾。拜首内容前缓冲所赐，此时客户端还没有收到过任何 data 帧，
+    // 可以安全地抛空响应错误并交给下面的 isEmptyUpstreamResponse 分支做小额重试；
+    // 同时避免把实际没有产出的凭证标记为健康。
+    // 客户端主动断开属于正常情况，不在此列。
+    if (!progress.sawMeaningfulContent && !progress.clientDisconnected.value) {
+        if (TERMINAL_EMPTY_FINISH_REASONS.has(progress.lastFinishReason)) {
+            const terminalFrames = progress.preContentBuffer.flush();
+            logger.warn(
+                `[Stream] Upstream ended with terminal finishReason ${progress.lastFinishReason} and no content; flushing ${terminalFrames.length} buffered frame(s) as truncated/safety response.`
+            );
+            await flushFramesWithBackpressure(res, terminalFrames, progress);
+            progress.sawMeaningfulContent = true;
+        } else {
+            logger.warn(
+                `[Stream] Upstream stream ended with no meaningful content (finishReason: ${progress.lastFinishReason || 'unknown'}${progress.lastFinishMessage ? `, finishMessage: ${progress.lastFinishMessage}` : ''}). Discarded ${progress.preContentBuffer.discard().length} buffered frame(s) and will treat as empty upstream response.`
+            );
+            throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
+        }
+    }
+
+    // 仅在真实产出有效内容且未发生流内错误的情况下才统计使用次数并将 Provider 标记为健康；
+    // 避免客户端在首字前超时断开或流内返回错误帧时误将节点记为成功
+    if (progress.sawMeaningfulContent && !progress.sawStreamError) {
+        CONFIG._requestFailed = false;
+        if (providerPoolManager && pooluuid) {
+            const customNameDisplay = customName ? `, ${customName}` : '';
+            logger.info(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}${customNameDisplay}) after successful stream request`);
+            providerPoolManager.markProviderHealthy(toProvider, { uuid: pooluuid });
+        }
+    } else if (progress.sawStreamError) {
+        CONFIG._requestFailed = true;
+    } else if (progress.clientDisconnected.value) {
+        logger.warn(
+            `[Stream] Client disconnected before any meaningful content was received from ${toProvider} (${pooluuid || 'no-uuid'}). Discarded ${progress.preContentBuffer.discard().length} buffered frame(s).`
+        );
+    }
+}
+
+async function handleStreamFailureRetry(
+    error: unknown,
+    context: RequestHandlerContext,
+    retryMeta: {
+        model: string;
+        CONFIG: DynamicPayload;
+        maxRetries: number;
+        currentRetry: number;
+        streamRequestId: string;
+        streamAbortController: AbortController;
+        clientSignal: AbortSignal | undefined;
+    },
+    releaseCurrentSlot: () => void,
+    progress: StreamPumpProgress
+): Promise<boolean> {
+    const { res, fromProvider, toProvider, providerPoolManager, pooluuid, customName, retryContext } = context;
+    const { model, CONFIG, maxRetries, currentRetry, streamRequestId, streamAbortController, clientSignal } = retryMeta;
+    const pipelineError = error as PipelineError;
+    logger.error('\n[Server] Error during stream processing:', pipelineError.stack);
+
+    if (progress.clientDisconnected.value) {
+        logger.info('[Stream] Skipping error response due to client disconnect');
+        return true;
+    }
+
+    // 如果已经发送了数据（包括 metadata），不进行重试（避免响应数据损坏或顺序错误）
+    if (progress.anyDataSent) {
+        logger.info('[Stream Retry] Cannot retry: data already sent to client');
+        CONFIG._requestFailed = true;
+        writeSseErrorAndClose(res, pipelineError, fromProvider, progress.clientDisconnected);
+        return true;
+    }
+
+    // 上游空响应（无文本/工具调用/思考内容）：使用独立的小额重试预算，
+    // 不占用凭证切换预算（CREDENTIAL_SWITCH_MAX_RETRIES），重试沿用同一份 requestBody。
+    if (pipelineError.isEmptyUpstreamResponse) {
+        releaseCurrentSlot();
+        const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
+        const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
+        const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Stream Retry]', toProvider, emptyResponseStartedAt);
+
+        if (outcome.retry && outcome.result) {
+            const { result, emptyResponseRetry } = outcome;
+            const newRetryContext = createStreamRetryContext({
+                retryContext,
+                CONFIG,
+                currentRetry,
+                maxRetries,
+                emptyResponseRetry,
+                emptyResponseStartedAt,
+                clientDisconnected: progress.clientDisconnected,
+                anyDataSent: progress.anyDataSent,
+                streamRequestId,
+                streamState: progress.streamState,
+                abortController: streamAbortController,
+                clientSignal
+            });
+
+            resetConverterStreamState(toProvider, streamRequestId, model);
+            await handleStreamRequest({
+                ...context,
+                service: result.service,
+                model: result.actualModel || model,
+                toProvider: result.actualProviderType || toProvider,
+                pooluuid: result.uuid,
+                customName: result.serviceConfig?.customName || customName,
+                retryContext: newRetryContext
+            });
+            return false;
+        }
+
+        CONFIG._requestFailed = true;
+        const giveUpReason = outcome.budgetExhausted
+            ? `exhausted the ${Number(CONFIG.EMPTY_RESPONSE_MAX_TOTAL_MS)}ms retry budget`
+            : `after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request`;
+        const giveUpError: PipelineError = new Error(
+            `${toProvider} upstream returned an empty response ${giveUpReason}. Please try again, or /clear your session if this keeps happening.`
+        );
+        giveUpError.status = 502;
+        writeSseErrorAndClose(res, giveUpError, fromProvider, progress.clientDisconnected);
+        return true;
+    }
+
+    const credentialMarkedUnhealthy = markCredentialFailureOnError(
+        error,
+        toProvider,
+        pooluuid,
+        providerPoolManager,
+        CONFIG,
+        'stream'
+    );
+
+    if (credentialMarkedUnhealthy && currentRetry < maxRetries && providerPoolManager && CONFIG) {
+        releaseCurrentSlot();
+        const randomDelay = Math.floor(Math.random() * 10000);
+        logger.info(`[Stream Retry] Credential marked unhealthy. Waiting ${randomDelay}ms before retry ${currentRetry + 1}/${maxRetries} with different credential...`);
+        await sleep(randomDelay);
+
+        try {
+            const { getApiServiceWithFallback } = await import('../services/service-manager.ts');
+            const result = await getApiServiceWithFallback(CONFIG, model, {
+                acquireSlot: true,
+                allowUnselectedModel: Boolean(CONFIG.customConfig)
+            });
+
+            if (result && result.service && result.uuid !== pooluuid) {
+                logger.info(`[Stream Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
+                const newRetryContext = createStreamRetryContext({
+                    retryContext,
+                    CONFIG,
+                    currentRetry: currentRetry + 1,
+                    maxRetries,
+                    clientDisconnected: progress.clientDisconnected,
+                    anyDataSent: progress.anyDataSent,
+                    streamRequestId,
+                    streamState: progress.streamState,
+                    abortController: streamAbortController,
+                    clientSignal
+                });
+
+                resetConverterStreamState(toProvider, streamRequestId, model);
+                await handleStreamRequest({
+                    ...context,
+                    service: result.service,
+                    model: result.actualModel || model,
+                    toProvider: result.actualProviderType || toProvider,
+                    pooluuid: result.uuid ?? null,
+                    customName: result.serviceConfig?.customName || customName,
+                    retryContext: newRetryContext
+                });
+                return false;
+            }
+
+            if (result && result.uuid && providerPoolManager) {
+                providerPoolManager.releaseSlot(result.actualProviderType || toProvider, result.uuid);
+            }
+            if (result?.uuid === pooluuid) {
+                logger.info('[Stream Retry] No alternative credential available in pool (selected same credential). Aborting switch retry.');
+            } else {
+                logger.info('[Stream Retry] No healthy credential available for retry.');
+            }
+        } catch (retryError) {
+            logger.error('[Stream Retry] Failed to get alternative service:', getErrorMessage(retryError));
+        }
+    }
+
+    CONFIG._requestFailed = true;
+    writeSseErrorAndClose(res, pipelineError, fromProvider, progress.clientDisconnected);
+    return true;
+}
+
 export async function handleStreamRequest(context: RequestHandlerContext) {
     const {
         res,
@@ -104,523 +572,127 @@ export async function handleStreamRequest(context: RequestHandlerContext) {
         customName,
         retryContext
     } = context;
-    // model 可能被上游回退改写（见下方 Antigravity 自动降级同步），故必须是 let。
-    let model = context.model;
-    let fullResponseText = '';
     let responseClosed = false;
-    let anyDataSent = retryContext?.anyDataSent || false; // 跟踪是否已向客户端发送过任何数据
-    
-    // 重试上下文：包含 CONFIG 和重试计数
-    // maxRetries: 凭证切换最大次数（跨凭证），默认 5 次
     const maxRetries = retryContext?.maxRetries ?? 5;
     const currentRetry = retryContext?.currentRetry ?? 0;
     const CONFIG = retryContext?.CONFIG || {};
     // isRetry 用于判断当前调用是否是某次重试的递归帧：既包括凭证切换重试（currentRetry），
     // 也包括上游空响应重试（emptyResponseRetry，参见 resolveEmptyUpstreamResponseRetry）。只有最外层（非重试）的调用帧才负责
     // 绑定/解绑客户端事件监听器、发送响应头、以及在 finally 中写入流结束标记 / res.end()。
-    // 如果这里遗漏了 emptyResponseRetry，递归进去的重试帧会误以为自己是最外层，
-    // 导致外层和内层重复对同一个 res 做收尾（重复 res.end()），从而抛出 "write after end"。
     const isRetry = currentRetry > 0 || (retryContext?.emptyResponseRetry ?? 0) > 0;
-    
-    // 连接生命周期与取消信号：抽到 stream-lifecycle 里，避免与帧处理逻辑纠缠。
-    const {
-        abortController: streamAbortController,
-        combinedSignal,
-        clientDisconnected,
-        clientSignal,
-        detach: detachStreamScope
-    } = createStreamAbortScope({ res, retryContext, isRetryFrame: isRetry });
+
+    // 连接生命周期与取消信号（Node 26 using + AbortSignal.any()）
+    using streamScope = createStreamAbortScope({ res, retryContext, isRetryFrame: isRetry });
+    const { abortController: streamAbortController, combinedSignal, clientDisconnected, clientSignal } = streamScope;
 
     // 只在首帧发送响应头（重试时响应头已发送）。
     if (!isRetry) {
         await handleUnifiedResponse(res, '', true);
     }
 
-    let hasToolCall = false;
     // 结束标志与完整输出文本由外层帧与重试帧共享：内层重试帧发送 message_stop /
     // response.completed 后，外层帧的 finally 不应再补发一次终止事件，且日志应记录最终成功帧的输出。
     const streamState = retryContext?.streamState || { hasMessageStop: false, fullResponseText: '' };
     streamState.fullResponseText = '';
 
-    let slotReleased = false;
-    const releaseCurrentSlot = () => {
-        if (!slotReleased && providerPoolManager && pooluuid) {
-            slotReleased = true;
-            providerPoolManager.releaseSlot(toProvider, pooluuid);
-        }
-    };
+    const releaseCurrentSlot = createSlotReleaser(providerPoolManager, () => ({
+        providerType: toProvider,
+        uuid: pooluuid
+    }));
 
-    // ---- 首内容前缓冲（pre-content buffering）----
-    // 上游（典型如 Antigravity 的 Gemini 3 思考模型）可能在思考阶段后直接以
-    // MALFORMED_FUNCTION_CALL（空工具调用）或 STOP 收尾，整条流只有 thinking，
-    // 没有任何文本/工具调用。旧逻辑只有在「一个字节都没发」时才触发空响应重试，
-    // 而 thinking 增量一旦下发 anyDataSent 即置真，这类失败会被静默放行，
-    // 客户端表现为「空 turn / 没有返回结果」。
-    // 因此在首个「有效内容」（见 nativePayloadHasMeaningfulContent）出现之前，
-    // 缓冲所有出站帧而不直接下发：
-    //   - 有效内容出现 → 一次性冲刷缓冲，恢复正常透传；
-    //   - 流结束仍无有效内容 → 缓冲帧全部丢弃，抛空响应错误走统一重试
-    //     （客户端自始至终没有收到过任何 data 帧，重试对客户端透明）；
-    //   - 缓冲期间周期性发送 SSE 注释心跳（按 SSE 规范会被客户端忽略，
-    //     且不置 anyDataSent），避免长思考导致连接假死。
-    let sawMeaningfulContent = false;
-    let sawStreamError = false;
     const maxPreContentFrames = Number(CONFIG?.PRE_CONTENT_BUFFER_MAX_FRAMES) > 0
         ? Number(CONFIG.PRE_CONTENT_BUFFER_MAX_FRAMES)
         : PRE_CONTENT_BUFFER_MAX_FRAMES;
     const maxPreContentBytes = Number(CONFIG?.PRE_CONTENT_BUFFER_MAX_BYTES) > 0
         ? Number(CONFIG.PRE_CONTENT_BUFFER_MAX_BYTES)
         : PRE_CONTENT_BUFFER_MAX_BYTES;
-    const preContentBuffer = new PreContentBuffer(maxPreContentFrames, maxPreContentBytes);
-    let lastFinishReason = '';
-    let lastFinishMessage = '';
+    const progress: StreamPumpProgress = {
+        model: context.model,
+        fullResponseText: '',
+        anyDataSent: retryContext?.anyDataSent || false,
+        hasToolCall: false,
+        sawMeaningfulContent: false,
+        sawStreamError: false,
+        lastFinishReason: '',
+        lastFinishMessage: '',
+        streamState,
+        preContentBuffer: new PreContentBuffer(maxPreContentFrames, maxPreContentBytes),
+        maxPreContentFrames,
+        maxPreContentBytes,
+        clientDisconnected,
+        combinedSignal
+    };
+
     const preContentHeartbeat = startPreContentHeartbeat({
         res,
-        shouldWrite: () => !sawMeaningfulContent && !clientDisconnected.value,
+        shouldWrite: () => !progress.sawMeaningfulContent && !clientDisconnected.value,
         onError: (heartbeatErr) => {
             logger.error('[Stream] Failed to write keep-alive:', getErrorMessage(heartbeatErr));
             clientDisconnected.value = true;
         }
     });
+    using _heartbeat = {
+        [Symbol.dispose]() {
+            clearInterval(preContentHeartbeat);
+        }
+    };
 
     // 请求与响应转换共用同一个 requestId，确保 Codex 等转换器的工具名反向映射可以命中。
     // 必须在 try 外声明：finally 的兜底收尾也需要它。
     const streamRequestId = retryContext?.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    // 重试帧可能复用同一个 requestId；清理上一次尝试遗留的流式状态，
-    // 避免重试流缺少 message_start / response.created 等生命周期首帧。
-    resetConverterStreamState(toProvider, streamRequestId, model);
+    resetConverterStreamState(toProvider, streamRequestId, progress.model);
 
     try {
-        // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
-        // The service returns a stream in its native format.
-        // 桥接计划统一决定「是否需要 Converter」以及「上游是否按下游协议直接产出」：
-        // - Codex + /v1/responses：0-Hop 直通；
-        // - Trae / trae-chat_v3：三端均由 TraeApiService 1-Hop 直接产出下游协议；
-        // - 其余 Provider：声明协议不同就 1 跳转换。
-        const bridgePlan = resolveBridgePlan(fromProvider, toProvider, model);
-        const needsConversion = bridgePlan.needsConversion;
-        // 上游原生协议：直通/直出时等于下游协议，否则等于 Provider 声明协议。
-        // 后续所有「按 chunk 形状取值」的判定都必须用这个协议，而不是 toProvider 的声明协议。
-        const nativeProtocol = bridgePlan.nativeProtocol;
-        injectDownstreamProtocol(requestBody, bridgePlan);
-        // Claude / Responses 下游需要 usage，但 OpenAI Chat 流式默认不返回 usage。
-        // 仅在跨协议转换到 OpenAI 上游时要求 include_usage；用不可枚举属性传递，
-        // 避免内部标记被 JSON 序列化发送到上游。
-        if (needsConversion
-            && getProtocolPrefix(toProvider, model) === MODEL_PROTOCOL_PREFIX.OPENAI
-            && [MODEL_PROTOCOL_PREFIX.CLAUDE, MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]
-                .includes(getProtocolPrefix(fromProvider, model))) {
-            // 只设置内部不可枚举标记；实际 stream_options 由 OpenAIApiService 注入，
-            // 避免 fallback 到 Trae 等非 OpenAI Chat 实现时把该字段发送出去。
-            Object.defineProperty(requestBody, '_includeUsageForConversion', {
-                value: true,
-                enumerable: false,
-                configurable: true
-            });
-        }
-        requestBody.model = model;
-        Object.defineProperty(requestBody, '_abortSignal', {
-            value: combinedSignal,
-            enumerable: false,
-            configurable: true,
-            writable: true
-        });
-        const nativeStream = await service.generateContentStream(model, requestBody);
-        
-        // 如果提供者内部发生了模型回退（如 Antigravity 自动降级），同步更新本地 model 变量
-        // 这确保了后续的监控钩子和统计插件记录的是实际使用的模型
-        if (requestBody.model && requestBody.model !== model) {
-            model = requestBody.model;
-        }
-        const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
+        const opened = await openUpstreamStream(
+            service,
+            requestBody,
+            progress.model,
+            fromProvider,
+            toProvider,
+            combinedSignal
+        );
+        progress.model = opened.actualModel;
 
-        for await (const nativeChunk of nativeStream) {
-            // 检查客户端是否已断开连接
-            if (clientDisconnected.value) {
-                logger.info('[Stream] Stopping iteration due to client disconnect');
-                break;
-            }
+        await pumpUpstreamStream(
+            res,
+            opened.nativeStream,
+            fromProvider,
+            toProvider,
+            CONFIG,
+            streamRequestId,
+            opened,
+            progress
+        );
 
-            // 首内容前缓冲：在转换/下发前先判定原生 chunk 是否携带有效内容或流内错误终态。
-            // 注意：错误帧先不置 hasMessageStop；若转换器无法表达该错误（返回 null/空数组），
-            // 这里会抛出 502，让统一错误响应接管，而不是静默结束或在重试成功后误跳过终止帧。
-            const nativeIsError = isInStreamErrorPayload(nativeChunk);
-            if (nativeIsError) {
-                sawStreamError = true;
-                sawMeaningfulContent = true;
-            } else if (!sawMeaningfulContent && nativePayloadHasMeaningfulContent(nativeChunk, toProvider, model, nativeProtocol)) {
-                sawMeaningfulContent = true;
-            }
-            // 记录上游结束原因（用于空响应诊断与“合法截断不重试”判定）。
-            // 各协议词表不同：Gemini finishReason / OpenAI finish_reason /
-            // Anthropic stop_reason / Responses incomplete_details.reason。
-            const chunkFinishReason = extractTerminalFinishReason(nativeChunk, toProvider, model, nativeProtocol);
-            if (chunkFinishReason) lastFinishReason = chunkFinishReason;
-            const nativeCandidate = nativeChunk?.candidates?.[0];
-            if (nativeCandidate?.finishMessage) lastFinishMessage = nativeCandidate.finishMessage;
-
-            // Extract text for logging purposes
-            const chunkText = extractResponseText(nativeChunk, toProvider, model, nativeProtocol);
-            if (chunkText && !Array.isArray(chunkText)) {
-                fullResponseText += chunkText;
-                streamState.fullResponseText = fullResponseText;
-            }
-
-            // Convert the complete chunk object to the client's format (fromProvider), if necessary.
-            const chunkToSend = needsConversion
-                ? convertData(nativeChunk, 'streamChunk', toProvider, fromProvider, model, streamRequestId)
-                : nativeChunk;
-
-            // 监控钩子：流式响应分块
-            const hookRequestId = getMonitorRequestId(CONFIG);
-            if (hookRequestId) {
-                // 核心用量记账（非插件）：同一 requestId 的多次 chunk 由 stats-manager 合并，
-                // 内部已 try/catch，记账异常不会影响流式主流程。
-                recordStreamChunkUsage({
-                    requestId: hookRequestId,
-                    model,
-                    provider: toProvider,
-                    fromProvider,
-                    nativeChunk,
-                    clientChunk: chunkToSend
-                });
-                try {
-                    recordApiKeyStreamChunk(hookRequestId, nativeChunk, chunkToSend);
-                } catch (e) {}
-            }
-
-            // 上游错误帧必须能映射为下游可识别的错误事件；若转换器丢弃了错误帧，
-            // 不能当作“无内容”静默结束，否则客户端会收到空 200 流。
-            if (nativeIsError && (!chunkToSend || (Array.isArray(chunkToSend) && chunkToSend.length === 0))) {
-                const streamError = new Error(extractInStreamErrorMessage(nativeChunk) || 'Upstream stream error');
-                streamError.status = 502;
-                throw streamError;
-            }
-            if (nativeIsError) {
-                streamState.hasMessageStop = true;
-            }
-
-            if (!chunkToSend) {
-                continue;
-            }
-
-            // 处理 chunkToSend 可能是数组或对象的情况
-            const chunksToSend = Array.isArray(chunkToSend) ? chunkToSend : [chunkToSend];
-
-            for (const chunk of chunksToSend) {
-                // 再次检查客户端连接状态
-                if (clientDisconnected.value) {
-                    break;
-                }
-                
-                // [FIX] 跟踪工具调用并在结束时修正 finish_reason
-                // OpenAI 格式
-                if (chunk.choices?.[0]?.delta?.tool_calls || chunk.choices?.[0]?.finish_reason === 'tool_calls') {
-                    hasToolCall = true;
-                }
-                // Claude 格式
-                if (chunk.type === 'content_block_start' && chunk.content_block?.type === 'tool_use') {
-                    hasToolCall = true;
-                }
-                if (chunk.type === 'message_delta' && (chunk.delta?.stop_reason === 'tool_use' || chunk.stop_reason === 'tool_use')) {
-                    hasToolCall = true;
-                }
-
-                // 如果之前有工具调用，且当前 chunk 是正常结束，修正为 tool_calls / tool_use
-                if (hasToolCall && needsConversion) {
-                    if (chunk.choices?.[0]?.finish_reason === 'stop') {
-                        chunk.choices[0].finish_reason = 'tool_calls';
-                    } else if (chunk.type === 'message_delta' && chunk.delta?.stop_reason === 'end_turn') {
-                        chunk.delta.stop_reason = 'tool_use';
-                    }
-                }
-
-                // 防止重复发送结束标志
-                // OpenAI: choices[].finish_reason / data.error
-                // Claude: message_stop / event: error
-                // OpenAI Responses: done / response.completed / response.incomplete / response.failed / error
-                // Gemini: candidates[].finishReason（如 STOP / MAX_TOKENS / SAFETY 等）
-                if (isInStreamErrorPayload(chunk)) {
-                    sawStreamError = true;
-                    sawMeaningfulContent = true;
-                    streamState.hasMessageStop = true;
-                } else if (
-                    chunk?.choices?.some((choice: DynamicPayload) => choice?.finish_reason) ||
-                    chunk?.type === 'message_stop' ||
-                    chunk?.type === 'done' ||
-                    chunk?.type === 'response.completed' ||
-                    chunk?.type === 'response.incomplete'
-                ) {
-                    streamState.hasMessageStop = true;
-                }
-
-                // 序列化本 chunk 的出站帧（在有效内容出现前会先进入首内容前缓冲）
-                const outFrames: string[] = [];
-                if (addEvent) {
-                    const eventType = chunk.type || (isInStreamErrorPayload(chunk) ? 'error' : '');
-                    if (eventType) {
-                        outFrames.push(`event: ${eventType}\n`);
-                    }
-                }
-                outFrames.push(`data: ${JSON.stringify(chunk)}\n\n`);
-
-                // 首内容前缓冲：有效内容出现前不直接下发，缓存起来以便上游空转时无损重试
-                const framesToWrite: string[] = [];
-                if (!sawMeaningfulContent) {
-                    const buffered = preContentBuffer.push(outFrames);
-                    if (buffered.overflowed) {
-                        logger.warn(
-                            `[Stream] Pre-content buffer exceeded limit (${buffered.frameCount}/${maxPreContentFrames} frames, ${buffered.byteLength}/${maxPreContentBytes} bytes); flushing buffered frames early.`
-                        );
-                        sawMeaningfulContent = true;
-                        framesToWrite.push(...buffered.framesToWrite);
-                    }
-                } else {
-                    // 首个有效内容出现：先一次性冲刷此前缓存的 thinking/角色等帧
-                    framesToWrite.push(...preContentBuffer.flush(), ...outFrames);
-                }
-
-                for (const frame of framesToWrite) {
-                    if (clientDisconnected.value || res.writableEnded) break;
-                    const written = await writeFrameWithBackpressure(res, frame, clientDisconnected, combinedSignal);
-                    if (written) {
-                        anyDataSent = true;
-                    } else {
-                        break;
-                    }
-                }
-                // logger.info(`data: ${JSON.stringify(chunk)}\n`);
-            }
-        }
-
-        // 上游流正常结束但从未产出任何「有效内容」（文本/工具调用/内联数据）：
-        // 典型如 Antigravity 的 Gemini 3 思考阶段后直接以 MALFORMED_FUNCTION_CALL（空工具调用）
-        // 或 STOP 收尾。拜首内容前缓冲所赐，此时客户端还没有收到过任何 data 帧，
-        // 可以安全地抛空响应错误并交给下面的 isEmptyUpstreamResponse 分支做小额重试；
-        // 同时避免把实际没有产出的凭证标记为健康。
-        // 客户端主动断开属于正常情况，不在此列。
-        if (!sawMeaningfulContent && !clientDisconnected.value) {
-            if (TERMINAL_EMPTY_FINISH_REASONS.has(lastFinishReason)) {
-                // MAX_TOKENS / SAFETY 等终态即使没有正文也是合法结果：
-                // 冲刷已缓冲的 finish 帧并正常收尾，避免触发空响应重试。
-                const terminalFrames = preContentBuffer.flush();
-                logger.warn(`[Stream] Upstream ended with terminal finishReason ${lastFinishReason} and no content; flushing ${terminalFrames.length} buffered frame(s) as truncated/safety response.`);
-                for (const frame of terminalFrames) {
-                    if (clientDisconnected.value || res.writableEnded) break;
-                    const written = await writeFrameWithBackpressure(res, frame, clientDisconnected, combinedSignal);
-                    if (written) {
-                        anyDataSent = true;
-                    } else {
-                        break;
-                    }
-                }
-                sawMeaningfulContent = true;
-            } else {
-                logger.warn(`[Stream] Upstream stream ended with no meaningful content (finishReason: ${lastFinishReason || 'unknown'}${lastFinishMessage ? `, finishMessage: ${lastFinishMessage}` : ''}). Discarded ${preContentBuffer.discard().length} buffered frame(s) and will treat as empty upstream response.`);
-                throw createEmptyUpstreamResponseError(customName ? `${toProvider}/${customName}` : toProvider);
-            }
-        }
-
-        // 仅在真实产出有效内容且未发生流内错误的情况下才统计使用次数并将 Provider 标记为健康；
-        // 避免客户端在首字前超时断开或流内返回错误帧时误将节点记为成功
-        if (sawMeaningfulContent && !sawStreamError) {
-            CONFIG._requestFailed = false;
-            if (providerPoolManager && pooluuid) {
-                const customNameDisplay = customName ? `, ${customName}` : '';
-                logger.info(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}${customNameDisplay}) after successful stream request`);
-                providerPoolManager.markProviderHealthy(toProvider, {
-                    uuid: pooluuid
-                });
-            }
-        } else if (sawStreamError) {
-            CONFIG._requestFailed = true;
-        } else if (clientDisconnected.value) {
-            logger.warn(`[Stream] Client disconnected before any meaningful content was received from ${toProvider} (${pooluuid || 'no-uuid'}). Discarded ${preContentBuffer.discard().length} buffered frame(s).`);
-        }
-
-    }  catch (error) {
-        logger.error('\n[Server] Error during stream processing:', (error as PipelineError).stack);
-        
-        // 如果客户端已断开，不需要发送错误响应
-        if (clientDisconnected.value) {
-            logger.info('[Stream] Skipping error response due to client disconnect');
-            responseClosed = true;
-            return;
-        }
-        
-        // 如果已经发送了数据（包括 metadata），不进行重试（避免响应数据损坏或顺序错误）
-        if (anyDataSent) {
-            logger.info(`[Stream Retry] Cannot retry: data already sent to client`);
-            CONFIG._requestFailed = true;
-            // 直接发送错误并结束
-            const errorPayload = createStreamErrorResponse(error as PipelineError, fromProvider);
-            if (!res.writableEnded) {
-                try {
-                    res.write(errorPayload);
-                    res.end();
-                } catch (writeErr) {
-                    logger.error('[Stream] Failed to write error response:', getErrorMessage(writeErr));
-                }
-            }
-            responseClosed = true;
-            return;
-        }
-
-        // 上游空响应（无文本/工具调用/思考内容）：使用独立的小额重试预算，
-        // 不占用凭证切换预算（CREDENTIAL_SWITCH_MAX_RETRIES），重试沿用同一份 requestBody，
-        // 不会让历史/token 变大。预算耗尽后直接返回明确错误，不再静默放行空的 end_turn。
-        // 任何 provider 只要抛出带 isEmptyUpstreamResponse 标记的错误都会走到这个分支。
-        if ((error as PipelineError).isEmptyUpstreamResponse) {
-            // 在申请重试节点插槽前先释放当前节点的并发插槽，防止单节点池自锁或无效占槽
-            releaseCurrentSlot();
-            const attemptsMade = retryContext?.emptyResponseRetry ?? 0;
-            const emptyResponseStartedAt = retryContext?.emptyResponseStartedAt ?? Date.now();
-            const outcome = await resolveEmptyUpstreamResponseRetry(CONFIG, model, attemptsMade, '[Stream Retry]', toProvider, emptyResponseStartedAt);
-
-            if (outcome.retry && outcome.result) {
-                const { result, emptyResponseRetry } = outcome;
-                const newRetryContext = createStreamRetryContext({
-                    retryContext,
-                    CONFIG,
-                    currentRetry,
-                    maxRetries,
-                    emptyResponseRetry,
-                    emptyResponseStartedAt,
-                    clientDisconnected,
-                    anyDataSent,
-                    streamRequestId,
-                    streamState,
-                    abortController: streamAbortController,
-                    clientSignal
-                });
-
-                // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
-                resetConverterStreamState(toProvider, streamRequestId, model);
-                return await handleStreamRequest({
-                    ...context,
-                    service: result.service,
-                    model: result.actualModel || model,
-                    toProvider: result.actualProviderType || toProvider,
-                    pooluuid: result.uuid,
-                    customName: result.serviceConfig?.customName || customName,
-                    retryContext: newRetryContext
-                });
-            }
-
-            CONFIG._requestFailed = true;
-            // budgetExhausted 区分「重试次数用完」与「墙钟预算用完」两种情况：
-            // 之前两条路径给出完全相同的错误文案，EMPTY_RESPONSE_MAX_TOTAL_MS
-            // 这个配置项（CLI flag + UI 字段）实际上没有任何可观测效果。
-            const giveUpReason = outcome.budgetExhausted
-                ? `exhausted the ${Number(CONFIG.EMPTY_RESPONSE_MAX_TOTAL_MS)}ms retry budget`
-                : `after ${attemptsMade} retr${attemptsMade === 1 ? 'y' : 'ies'} with the same request`;
-            const giveUpError = new Error(`${toProvider} upstream returned an empty response ${giveUpReason}. Please try again, or /clear your session if this keeps happening.`);
-            giveUpError.status = 502;
-            const errorPayload = createStreamErrorResponse(giveUpError, fromProvider);
-            if (!clientDisconnected.value && !res.writableEnded) {
-                try {
-                    res.write(errorPayload);
-                    res.end();
-                } catch (writeErr) {
-                    logger.error('[Stream] Failed to write error response:', getErrorMessage(writeErr));
-                }
-            }
-            responseClosed = true;
-            return;
-        }
-        
-        const credentialMarkedUnhealthy = markCredentialFailureOnError(
-            error,
+        await finalizeUpstreamOutcome(
+            res,
             toProvider,
             pooluuid,
+            customName,
             providerPoolManager,
             CONFIG,
-            'stream'
+            progress
         );
-        
-        // 凭证已被标记为不健康后，尝试切换到新凭证重试
-        // 不再依赖状态码判断，只要凭证被标记不健康且可以重试，就尝试切换
-        if (credentialMarkedUnhealthy && currentRetry < maxRetries && providerPoolManager && CONFIG) {
-            // 先释放当前失败凭证的并发插槽，避免在等待与后续重试流期间长期占槽
-            releaseCurrentSlot();
-            // 增加10秒内的随机等待时间，避免所有请求同时切换凭证
-            const randomDelay = Math.floor(Math.random() * 10000); // 0-10000毫秒
-            logger.info(`[Stream Retry] Credential marked unhealthy. Waiting ${randomDelay}ms before retry ${currentRetry + 1}/${maxRetries} with different credential...`);
-            await sleep(randomDelay);
-            
-            try {
-                // 动态导入以避免循环依赖
-                const { getApiServiceWithFallback } = await import('../services/service-manager.ts');
-                // 使用 acquireSlot: true 以占用新凭证的并发插槽
-                const result = await getApiServiceWithFallback(CONFIG, model, {
-                    acquireSlot: true,
-                    allowUnselectedModel: Boolean(CONFIG.customConfig)
-                });
-
-                if (result && result.service && result.uuid !== pooluuid) {
-                    logger.info(`[Stream Retry] Switched to new credential: ${result.uuid} (provider: ${result.actualProviderType})`);
-                    
-                    // 使用新服务重试
-                    const newRetryContext = createStreamRetryContext({
-                        retryContext,
-                        CONFIG,
-                        currentRetry: currentRetry + 1,
-                        maxRetries,
-                        clientDisconnected,
-                        anyDataSent,
-                        streamRequestId,
-                        streamState,
-                        abortController: streamAbortController,
-                        clientSignal
-                    });
-
-                    // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
-                    resetConverterStreamState(toProvider, streamRequestId, model);
-                    // 递归调用，使用新的服务
-                    return await handleStreamRequest({
-                        ...context,
-                        service: result.service,
-                        model: result.actualModel || model,
-                        toProvider: result.actualProviderType || toProvider,
-                        pooluuid: result.uuid ?? null,
-                        customName: result.serviceConfig?.customName || customName,
-                        retryContext: newRetryContext
-                    });
-                } else {
-                    if (result && result.uuid && providerPoolManager) {
-                        providerPoolManager.releaseSlot(result.actualProviderType || toProvider, result.uuid);
-                    }
-                    if (result?.uuid === pooluuid) {
-                        logger.info(`[Stream Retry] No alternative credential available in pool (selected same credential). Aborting switch retry.`);
-                    } else {
-                        logger.info(`[Stream Retry] No healthy credential available for retry.`);
-                    }
-                    throw error;
-                }
-            } catch (retryError) {
-                logger.error(`[Stream Retry] Failed to get alternative service:`, getErrorMessage(retryError));
-            }
-        }
-
-        CONFIG._requestFailed = true;
-        // 使用新方法创建符合 fromProvider 格式的流式错误响应
-        const errorPayload = createStreamErrorResponse(error as PipelineError, fromProvider);
-        if (!clientDisconnected.value && !res.writableEnded) {
-            try {
-                res.write(errorPayload);
-                res.end();
-            } catch (writeErr) {
-                logger.error('[Stream] Failed to write error response:', getErrorMessage(writeErr));
-            }
-        }
-        responseClosed = true;
+    } catch (error) {
+        responseClosed = await handleStreamFailureRetry(
+            error,
+            context,
+            {
+                model: progress.model,
+                CONFIG,
+                maxRetries,
+                currentRetry,
+                streamRequestId,
+                streamAbortController,
+                clientSignal
+            },
+            releaseCurrentSlot,
+            progress
+        );
     } finally {
-        // 停止首内容前缓冲的心跳定时器
         clearInterval(preContentHeartbeat);
 
-        // 请求级状态治理：释放本次请求登记的 custom tool 与转换器流式状态。
-        // 只在非重试帧清理——重试帧复用同一个 requestId，清早了会让重试丢失
-        // 工具名反向映射 / custom tool 还原能力。
+        // 请求级状态治理：只在非重试帧清理，避免重试帧丢失工具名反向映射。
         if (!isRetry) {
             clearCustomTools(streamRequestId);
         }
@@ -628,18 +700,15 @@ export async function handleStreamRequest(context: RequestHandlerContext) {
         // 释放并发插槽（幂等）
         releaseCurrentSlot();
 
-        // 解绑首帧注册的监听器（非首帧为 no-op，内部已保证幂等）
-        detachStreamScope();
-        
-        // 只在非重试或重试失败时才发送结束标记
-        // 如果是重试成功，递归调用会处理结束标记
+        // 在 writeStreamCompletion（可能触发 res.end() -> 'close'）之前先解绑首帧监听器
+        streamScope.detach();
+
         if (!responseClosed && !clientDisconnected.value && !isRetry) {
-            writeStreamCompletion({ res, fromProvider, streamState, streamRequestId, model });
+            writeStreamCompletion({ res, fromProvider, streamState, streamRequestId, model: progress.model });
         }
-        
-        // 只在首次请求时记录日志（避免重试时重复记录），优先读取共享 streamState 中的最终响应文本
+
         if (!isRetry) {
-            await logConversation('output', streamState.fullResponseText || fullResponseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
+            await logConversation('output', streamState.fullResponseText || progress.fullResponseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
         }
     }
 }
