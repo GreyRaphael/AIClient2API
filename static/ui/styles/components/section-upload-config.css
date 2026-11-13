@@ -1,8 +1,9 @@
 /* 配置管理页面样式 */
 .upload-config-panel {
     background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     padding: 2rem;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-xl);
     box-shadow: var(--shadow-md);
 }
 

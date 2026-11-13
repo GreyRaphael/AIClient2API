@@ -1,7 +1,8 @@
 /* 用量查询页面样式 */
 .usage-panel {
     background: var(--bg-primary);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
     box-shadow: var(--shadow-md);
     padding: 1.5rem;
 }

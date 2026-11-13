@@ -1,6 +1,15 @@
 /* 自定义模型管理 - 现代视觉设计 */
 #custom-models .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-8);
     margin-bottom: 1.5rem;
+}
+
+#custom-models .section-header h2 {
+    margin-bottom: 0;
 }
 
 #custom-models .pool-description {
@@ -12,12 +21,19 @@
     align-items: flex-start;
     text-align: left;
     gap: 0.75rem;
+    width: 100%;
     padding: 1rem 1.25rem;
     background: linear-gradient(to right, var(--primary-10), transparent);
+    border: 1px solid var(--border-color);
     border-left: 4px solid var(--primary-color);
     border-radius: var(--radius-sm) var(--radius-xl) var(--radius-xl) var(--radius-sm);
     font-size: 0.875rem;
     color: var(--text-secondary);
+}
+
+#custom-models .highlight-note span {
+    flex: 1;
+    text-align: left;
 }
 
 #custom-models .highlight-note i {

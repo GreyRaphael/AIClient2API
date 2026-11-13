@@ -175,8 +175,8 @@ function PotluckUserPage() {
                 ${showUsageStats ? html`
                     <div style="margin-bottom: 2.5rem;">
                         <h3 class="section-title"><i class="fas fa-chart-pie"></i> 我的使用趋势与分布 (按年度)</h3>
-                        <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
-                            <div class="stat-card" style="text-align: left; padding: 20px;">
+                        <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1.5rem;">
+                            <div class="stat-card" style="text-align: left; padding: 20px; justify-content: flex-start;">
                                 <div class="label" style="margin-bottom: 10px; font-weight: 600; display: flex; justify-content: space-between;">
                                     <span>我的 Token 消耗趋势</span>
                                     <div class="calendar-legend">
@@ -186,7 +186,7 @@ function PotluckUserPage() {
                                 </div>
                                 <${StatsCalendar} usageHistory=${usageHistory} />
                             </div>
-                            <div class="stat-card" style="text-align: left; padding: 20px;">
+                            <div class="stat-card" style="text-align: left; padding: 20px; justify-content: flex-start;">
                                 <div class="label" style="margin-bottom: 15px; font-weight: 600; display: flex; justify-content: space-between;">
                                     <span>常用提供商</span>
                                     <span style="color: var(--primary-color);">
@@ -195,7 +195,7 @@ function PotluckUserPage() {
                                 </div>
                                 <${DistributionList} data=${aggregated.providers} total=${aggregated.totalCalls} />
                             </div>
-                            <div class="stat-card" style="text-align: left; padding: 20px;">
+                            <div class="stat-card" style="text-align: left; padding: 20px; justify-content: flex-start;">
                                 <div class="label" style="margin-bottom: 15px; font-weight: 600; display: flex; justify-content: space-between;">
                                     <span>常用模型</span>
                                     <span style="color: var(--primary-color);">${formatNumber(aggregated.totalCalls)} 次</span>

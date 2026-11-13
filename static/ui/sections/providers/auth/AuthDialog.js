@@ -277,7 +277,7 @@ export function AuthDialog({ providerType, onClose, onCompleted }) {
     return html`
         <${Modal} open=${true} title=${title} onClose=${onClose} width="640px" footer=${footer}>
             ${step === 'method' ? html`
-                <h4>${t('oauth.modal.provider')}: ${providerType}</h4>
+                <h4>${t('oauth.modal.provider')} ${providerType}</h4>
                 <div class="auth-method-options" style="display:flex;flex-direction:column;gap:12px;">
                     ${methods.map((method) => html`
                         <button class="auth-method-btn" key=${method.method} data-method=${method.method}

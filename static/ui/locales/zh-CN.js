@@ -264,7 +264,7 @@ export default {
     'upload.count': '共 {count} 个配置文件',
     'upload.usedCount': '已关联: {count}',
     'upload.unusedCount': '未关联: {count}',
-    'upload.batchLink': '自动关联oauth',
+    'upload.batchLink': '自动关联 OAuth',
     'upload.noConfigs': '未找到匹配的配置文件',
     'upload.detail.path': '文件路径',
     'upload.detail.size': '文件大小',

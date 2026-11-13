@@ -229,6 +229,8 @@
 
 #model-usage-stats .usage-stats-segmented {
     display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
     padding: 2px;
     gap: 2px;
     background: var(--bg-tertiary);
@@ -239,7 +241,8 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-2) var(--space-6);
+    height: calc(2rem - 4px);
+    padding: 0 var(--space-6);
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;

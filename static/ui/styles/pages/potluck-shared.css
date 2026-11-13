@@ -54,6 +54,12 @@ body {
 }
 
 .stat-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 0.25rem;
+    min-width: 0;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-xl);
@@ -63,6 +69,11 @@ body {
     overflow: hidden;
     box-shadow: var(--shadow-sm);
     transition: var(--transition);
+}
+
+.stat-card .calendar-body {
+    max-width: 100%;
+    overflow-x: auto;
 }
 
 .stat-card:hover {
