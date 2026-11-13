@@ -14,7 +14,9 @@ import {
     getOpenAIStreamIdentity,
     geminiUsageToOpenAI,
     geminiUsageToResponses,
-    geminiUsageToAnthropic
+    geminiUsageToAnthropic,
+    buildResponsesMessageItemId,
+    buildResponsesFunctionItemId
 } from '../utils.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
@@ -760,11 +762,11 @@ export class GeminiConverter extends BaseConverter {
 
 
     _buildResponsesMessageItemId(responseId: string | null | undefined, index = 0): string {
-        return `msg_${responseId}_${index}`;
+        return buildResponsesMessageItemId(responseId, index);
     }
 
     _buildResponsesFunctionItemId(callId: string | null | undefined): string {
-        return callId ? `fc_${callId}` : `fc_${uuidv4().replace(/-/g, '')}`;
+        return buildResponsesFunctionItemId(callId);
     }
 
     _stringifyGeminiFunctionArgs(args: unknown): string {

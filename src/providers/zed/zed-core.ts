@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { StringDecoder } from 'string_decoder';
+import { iterSseLines } from '../../utils/sse-stream.ts';
 import logger from '../../utils/logger.ts';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
@@ -516,8 +516,6 @@ export class ZedApiService {
         }
         const stream = response.data as AsyncIterable<Buffer | string>;
 
-        let buffer = '';
-        const decoder = new StringDecoder('utf8');
         let messageStarted = false;
         let messageStopped = false;
         let responsesStarted = false;
@@ -540,86 +538,80 @@ export class ZedApiService {
             }
         };
 
-        for await (const chunk of stream) {
-            buffer += decoder.write(chunk);
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // 保留未完整的最后一行
-
-            for (const rawLine of lines) {
-                let dataStr = rawLine.trim();
-                if (!dataStr) continue;
-                if (dataStr.startsWith('data:')) {
-                    dataStr = dataStr.slice(5).trim();
-                }
-                if (dataStr === '[DONE]') {
-                    continue;
-                }
-                if (!dataStr.startsWith('{') && !dataStr.startsWith('[')) {
-                    continue;
-                }
-
-                let obj: DynamicPayload;
-                try {
-                    obj = JSON.parse(dataStr);
-                } catch {
-                    continue;
-                }
-
-                if (obj.event && typeof obj.event === 'object') {
-                    obj = obj.event;
-                }
-
-                // 1. OpenAI Responses 原生流透传 (provider === 'open_ai')
-                if (provider === 'open_ai') {
-                    if (typeof obj.type === 'string' && obj.type === 'response.created') {
-                        responsesStarted = true;
-                        yield obj;
-                        continue;
-                    }
-                    if (!responsesStarted && typeof obj.type === 'string' && obj.type.startsWith('response.') && obj.type !== 'response.failed') {
-                        responsesStarted = true;
-                        yield {
-                            type: 'response.created',
-                            response: {
-                                id: `resp_${randomUUID().replace(/-/g, '')}`,
-                                object: 'response',
-                                model,
-                                status: 'in_progress',
-                                output: []
-                            }
-                        };
-                    }
-                    yield obj;
-                    continue;
-                }
-
-                // 2. Google Gemini 原生流透传 (provider === 'google')
-                if (provider === 'google') {
-                    yield obj;
-                    continue;
-                }
-
-                // 3. Anthropic 原生规范事件透传 (provider === 'anthropic')
-                if (typeof obj.type === 'string' && (
-                    obj.type.startsWith('message_') ||
-                    obj.type.startsWith('content_block_') ||
-                    obj.type === 'ping' ||
-                    obj.type === 'error'
-                )) {
-                    if (obj.type === 'message_start') {
-                        messageStarted = true;
-                    } else if (obj.type.startsWith('content_block_') || obj.type === 'message_delta') {
-                        yield* ensureMessageStart();
-                    }
-                    if (obj.type === 'message_stop') {
-                        messageStopped = true;
-                    }
-                    yield obj;
-                    continue;
-                }
-
-                yield obj;
+        for await (const rawLine of iterSseLines(stream)) {
+            let dataStr = rawLine.trim();
+            if (!dataStr) continue;
+            if (dataStr.startsWith('data:')) {
+                dataStr = dataStr.slice(5).trim();
             }
+            if (dataStr === '[DONE]') {
+                continue;
+            }
+            if (!dataStr.startsWith('{') && !dataStr.startsWith('[')) {
+                continue;
+            }
+
+            let obj: DynamicPayload;
+            try {
+                obj = JSON.parse(dataStr);
+            } catch {
+                continue;
+            }
+
+            if (obj.event && typeof obj.event === 'object') {
+                obj = obj.event;
+            }
+
+            // 1. OpenAI Responses 原生流透传 (provider === 'open_ai')
+            if (provider === 'open_ai') {
+                if (typeof obj.type === 'string' && obj.type === 'response.created') {
+                    responsesStarted = true;
+                    yield obj;
+                    continue;
+                }
+                if (!responsesStarted && typeof obj.type === 'string' && obj.type.startsWith('response.') && obj.type !== 'response.failed') {
+                    responsesStarted = true;
+                    yield {
+                        type: 'response.created',
+                        response: {
+                            id: `resp_${randomUUID().replace(/-/g, '')}`,
+                            object: 'response',
+                            model,
+                            status: 'in_progress',
+                            output: []
+                        }
+                    };
+                }
+                yield obj;
+                continue;
+            }
+
+            // 2. Google Gemini 原生流透传 (provider === 'google')
+            if (provider === 'google') {
+                yield obj;
+                continue;
+            }
+
+            // 3. Anthropic 原生规范事件透传 (provider === 'anthropic')
+            if (typeof obj.type === 'string' && (
+                obj.type.startsWith('message_') ||
+                obj.type.startsWith('content_block_') ||
+                obj.type === 'ping' ||
+                obj.type === 'error'
+            )) {
+                if (obj.type === 'message_start') {
+                    messageStarted = true;
+                } else if (obj.type.startsWith('content_block_') || obj.type === 'message_delta') {
+                    yield* ensureMessageStart();
+                }
+                if (obj.type === 'message_stop') {
+                    messageStopped = true;
+                }
+                yield obj;
+                continue;
+            }
+
+            yield obj;
         }
 
         if (provider === 'anthropic' && messageStarted && !messageStopped) {

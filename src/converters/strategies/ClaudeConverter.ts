@@ -20,7 +20,8 @@ import {
     sortToolsByName,
     logOmittedCacheControl,
     applyEstimatedReasoningTokens,
-    defaultGeminiSafetySettings
+    defaultGeminiSafetySettings,
+    buildResponsesMessageItemId
 } from '../utils.ts';
 import {MODEL_PROTOCOL_PREFIX} from '../../utils/constants.ts';
 import {getConfigToggle} from '../../core/config-manager.ts';
@@ -1735,7 +1736,7 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     _buildResponsesMessageItemId(responseId: string | null | undefined, index = 0): string {
-        return responseId ? `msg_${responseId}_${index}` : `msg_${uuidv4().replace(/-/g, '')}`;
+        return buildResponsesMessageItemId(responseId, index);
     }
 
     /**

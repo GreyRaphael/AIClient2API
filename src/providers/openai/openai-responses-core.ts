@@ -1,13 +1,13 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Agent } from 'node:http';
-import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import { sleep } from '../../utils/sleep.ts';
-import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
+import { getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { classifyRetry, describeRetry } from '../retry.ts';
-import { isRecord } from '../../utils/type-guards.ts';
+import { iterSseLines, createStreamDrainScheduler } from '../../utils/sse-stream.ts';
+import { applySessionKeepAliveAndSidecar, getErrorResponseDetails } from '../provider-http.ts';
 
 interface OpenAIResponsesServiceConfig {
     OPENAI_API_KEY: string;
@@ -18,24 +18,6 @@ interface OpenAIResponsesServiceConfig {
     REQUEST_BASE_DELAY?: number;
     _monitorRequestId?: unknown;
     [key: string]: unknown;
-}
-
-interface ErrorResponseDetails {
-    status: number | undefined;
-    data: unknown;
-    message: string;
-}
-
-function getErrorResponseDetails(error: unknown): ErrorResponseDetails {
-    if (isRecord(error)) {
-        const response = isRecord(error.response) ? error.response : null;
-        return {
-            status: typeof response?.status === 'number' ? response.status : undefined,
-            data: response?.data,
-            message: typeof error.message === 'string' ? error.message : String(error)
-        };
-    }
-    return { status: undefined, data: undefined, message: String(error) };
 }
 
 // OpenAI Responses API specification service for interacting with third-party models
@@ -77,15 +59,14 @@ export class OpenAIResponsesApiService {
     }
 
     _applySidecar(axiosConfig: Record<string, unknown>, affinityKey?: string | null) {
-        if (affinityKey) {
-            const sessionAgents = getKeepAliveAgents(this.config, this.baseUrl, affinityKey);
-            axiosConfig.httpAgent = sessionAgents.httpAgent;
-            axiosConfig.httpsAgent = sessionAgents.httpsAgent;
-        } else {
-            if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
-            if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
-        }
-        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM_RESPONSES, this.baseUrl, affinityKey);
+        return applySessionKeepAliveAndSidecar(axiosConfig, {
+            config: this.config,
+            baseUrl: this.baseUrl,
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
+            defaultProvider: MODEL_PROVIDER.OPENAI_CUSTOM_RESPONSES,
+            affinityKey
+        });
     }
 
     async callApi<T = unknown>(endpoint: string, body: Record<string, unknown>, isRetry = false, retryCount = 0): Promise<T> {
@@ -178,53 +159,34 @@ export class OpenAIResponsesApiService {
             const response = await this.axiosInstance.request(axiosConfig as AxiosRequestConfig);
 
             const stream = response.data as AsyncIterable<Buffer | string>;
-            let buffer = '';
-            const decoder = new StringDecoder('utf8');
+            const drain = createStreamDrainScheduler(stream);
             let seenDone = false;
-            let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
-            const destroyable = stream as { destroy?: () => void; destroyed?: boolean };
 
             try {
-                for await (const chunk of stream) {
-                    buffer += decoder.write(chunk);
-                    let newlineIndex: number;
-                    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.substring(0, newlineIndex).trim();
-                        buffer = buffer.substring(newlineIndex + 1);
-
-                        if (line.startsWith('data:')) {
-                            const jsonData = line.substring(5).trim();
-                            if (jsonData === '[DONE]') {
-                                seenDone = true;
-                                if (typeof destroyable?.destroy === 'function' && !doneDrainTimer) {
-                                    doneDrainTimer = setTimeout(() => {
-                                        if (!destroyable.destroyed) {
-                                            destroyable.destroy?.();
-                                        }
-                                    }, 1000);
-                                }
-                                continue;
-                            }
-                            if (seenDone) {
-                                continue;
-                            }
-                            try {
-                                const parsedChunk: unknown = JSON.parse(jsonData);
-                                hasYielded = true;
-                                yield parsedChunk;
-                            } catch (e) {
-                                logger.warn("[OpenAIResponsesApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", jsonData);
-                            }
-                        } else if (line === '') {
-                            // Empty line, end of an event
-                        }
+                for await (const rawLine of iterSseLines(stream)) {
+                    const line = rawLine.trim();
+                    if (!line.startsWith('data:')) {
+                        continue;
+                    }
+                    const jsonData = line.substring(5).trim();
+                    if (jsonData === '[DONE]') {
+                        seenDone = true;
+                        drain.schedule();
+                        continue;
+                    }
+                    if (seenDone) {
+                        continue;
+                    }
+                    try {
+                        const parsedChunk: unknown = JSON.parse(jsonData);
+                        hasYielded = true;
+                        yield parsedChunk;
+                    } catch (e) {
+                        logger.warn("[OpenAIResponsesApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", jsonData);
                     }
                 }
             } finally {
-                if (doneDrainTimer) {
-                    clearTimeout(doneDrainTimer);
-                    doneDrainTimer = null;
-                }
+                drain.cleanup();
             }
         } catch (error) {
             const { status, message } = getErrorResponseDetails(error);

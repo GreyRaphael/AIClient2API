@@ -29,7 +29,10 @@ import {
     mimeTypeFromFilename,
     guessImageMimeTypeFromUrl,
     parseBase64DataUrl,
-    defaultGeminiSafetySettings
+    defaultGeminiSafetySettings,
+    buildResponsesMessageItemId,
+    buildResponsesFunctionItemId,
+    buildResponsesReasoningItemId
 } from '../utils.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/constants.ts';
 import { ResponsesSseEmitter } from '../responses-sse-emitter.ts';
@@ -1633,15 +1636,15 @@ export class OpenAIConverter extends BaseConverter {
      * 将OpenAI响应转换为OpenAI Responses格式
      */
     _buildResponsesMessageItemId(responseId: string | null | undefined, index = 0): string {
-        return responseId ? `msg_${responseId}_${index}` : `msg_${uuidv4().replace(/-/g, '')}`;
+        return buildResponsesMessageItemId(responseId, index);
     }
 
     _buildResponsesFunctionItemId(callId: string | null | undefined): string {
-        return callId ? `fc_${callId}` : `fc_${uuidv4().replace(/-/g, '')}`;
+        return buildResponsesFunctionItemId(callId);
     }
 
     _buildResponsesReasoningItemId(responseId: string | null | undefined, index = 0): string {
-        return responseId ? `rs_${responseId}_${index}` : `rs_${uuidv4().replace(/-/g, '')}`;
+        return buildResponsesReasoningItemId(responseId, index);
     }
 
     _buildResponsesUsageFromOpenAIUsage(usage: DynamicPayload | null | undefined): DynamicPayload {

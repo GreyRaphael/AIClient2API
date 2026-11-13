@@ -1,7 +1,7 @@
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
 import type { AxiosRequestConfig } from 'axios';
-import { StringDecoder } from 'string_decoder';
+import { iterSseLines } from '../../utils/sse-stream.ts';
 import logger from '../../utils/logger.ts';
 import crypto from 'crypto';
 import {promises as fs} from 'fs';
@@ -742,16 +742,17 @@ export class CodexApiService {
         logger.warn('[Codex] Access-token-only credential cannot be refreshed because refresh_token is empty. Re-import or re-authenticate when it expires.');
     }
 
-    /**
-     * 生成内容（非流式）
-     */
-    async generateContent<T = unknown>(model: string, requestBody: Record<string, unknown>): Promise<T> {
+    async #executeResponsesRequest(
+        model: string,
+        requestBody: Record<string, unknown>,
+        options: { responseType: 'text' | 'stream'; context: 'non-stream' | 'stream' }
+    ): Promise<{ data: unknown; reverseToolNameMap: Map<string, string> | null; selectedModel: string }> {
         if (!this.isInitialized) {
             await this.initialize();
         }
 
         let supportedModels = this.getSupportedModels();
-        let selectedModel = model;
+        const selectedModel = model;
         if (!supportedModels.includes(selectedModel)) {
             try {
                 await this.fetchRemoteModels(true);
@@ -785,7 +786,7 @@ export class CodexApiService {
                 url,
                 data: body,
                 headers,
-                responseType: 'text', // 确保以文本形式接收 SSE 流
+                responseType: options.responseType, // 'text' 时同样接收完整 SSE 文本
                 timeout: 300000 // 5 分钟超时，适应慢速模型
             };
             const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
@@ -795,13 +796,13 @@ export class CodexApiService {
             this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
 
             const response = await axios.request(axiosRequestConfig);
-
-            return this.parseNonStreamResponse(response.data, reverseToolNameMap, selectedModel) as T;
+            return { data: response.data, reverseToolNameMap, selectedModel };
         } catch (rawError) {
             const error = asCodexError(rawError);
             if (error.response?.status === 401) {
-                logger.info('[Codex] Received 401. Triggering background refresh...');
-                await normalizeProviderErrorMessage(error, { status: 401, context: 'non-stream' });
+                const suffix = options.context === 'stream' ? ' during stream' : '';
+                logger.info(`[Codex] Received 401${suffix}. Triggering background refresh...`);
+                await normalizeProviderErrorMessage(error, { status: 401, context: options.context });
 
                 // 触发后台异步刷新
                 this.triggerBackgroundRefresh();
@@ -811,93 +812,36 @@ export class CodexApiService {
                 error.shouldSwitchCredential = true;
                 error.skipErrorCount = true;
                 throw error;
-            } else {
-                if (error.response?.status) {
-                    await normalizeProviderErrorMessage(error, { status: error.response.status, context: 'non-stream' });
-                }
-                logger.error(`[Codex] Error calling non-stream API (Status: ${error.response?.status}, Code: ${error.code || 'N/A'}): ${getErrorMessage(error)}`);
-                throw error;
             }
+            if (error.response?.status) {
+                await normalizeProviderErrorMessage(error, { status: error.response.status, context: options.context });
+            }
+            const label = options.context === 'stream' ? 'streaming' : 'non-stream';
+            logger.error(`[Codex] Error calling ${label} API (Status: ${error.response?.status}, Code: ${error.code || 'N/A'}):`, getErrorMessage(error));
+            throw error;
         }
+    }
+
+    /**
+     * 生成内容（非流式）
+     */
+    async generateContent<T = unknown>(model: string, requestBody: Record<string, unknown>): Promise<T> {
+        const { data, reverseToolNameMap, selectedModel } = await this.#executeResponsesRequest(model, requestBody, {
+            responseType: 'text',
+            context: 'non-stream'
+        });
+        return this.parseNonStreamResponse(data, reverseToolNameMap, selectedModel) as T;
     }
 
     /**
      * 流式生成内容
      */
     async* generateContentStream(model: string, requestBody: Record<string, unknown>): AsyncGenerator<unknown> {
-        if (!this.isInitialized) {
-            await this.initialize();
-        }
-
-        let supportedModels = this.getSupportedModels();
-        let selectedModel = model;
-        if (!supportedModels.includes(selectedModel)) {
-            try {
-                await this.fetchRemoteModels(true);
-                supportedModels = this.getSupportedModels();
-            } catch {}
-        }
-        if (!supportedModels.includes(selectedModel)) {
-            // 未知名模型不再静默回退，直接报错
-            throw new Error(`[Codex] 模型不存在: ${selectedModel}`);
-        }
-
-        // 临时存储 monitorRequestId
-        if (requestBody._monitorRequestId) {
-            this.config._monitorRequestId = requestBody._monitorRequestId;
-            delete requestBody._monitorRequestId;
-        }
-
-        // 检查 token 是否即将过期，如果是则触发后台异步刷新
-        if (this.isExpiryDateNear()) {
-            this.triggerBackgroundRefresh();
-        }
-
-        const url = `${this.baseUrl}/responses`;
-        const { body, reverseToolNameMap } = await this.#prepareRequest(selectedModel, requestBody, true);
-        const headers = this.buildHeaders(typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key : null, true);
-
-        try {
-            const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-            const axiosRequestConfig: AxiosRequestConfig = {
-                method: 'post',
-                url,
-                data: body,
-                headers,
-                responseType: 'stream',
-                timeout: 300000 // 5 分钟超时
-            };
-            const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
-            if (callerSignal) {
-                axiosRequestConfig.signal = callerSignal as AxiosRequestConfig['signal'];
-            }
-            this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
-
-            const response = await axios.request(axiosRequestConfig);
-
-            yield* this.parseSSEStream(response.data, reverseToolNameMap);
-        } catch (rawError) {
-            const error = asCodexError(rawError);
-            if (error.response?.status === 401) {
-                logger.info('[Codex] Received 401 during stream. Triggering background refresh...');
-                await normalizeProviderErrorMessage(error, { status: 401, context: 'stream' });
-
-                // 触发后台异步刷新
-                this.triggerBackgroundRefresh();
-                error.credentialMarkedUnhealthy = true;
-
-                // Mark error for credential switch without recording error count
-                error.shouldSwitchCredential = true;
-                error.skipErrorCount = true;
-                throw error;
-            } else {
-                if (error.response?.status) {
-                    await normalizeProviderErrorMessage(error, { status: error.response.status, context: 'stream' });
-                }
-                logger.error(`[Codex] Error calling streaming API (Status: ${error.response?.status}, Code: ${error.code || 'N/A'}):`, getErrorMessage(error));
-                throw error;
-            }
-        }
+        const { data, reverseToolNameMap } = await this.#executeResponsesRequest(model, requestBody, {
+            responseType: 'stream',
+            context: 'stream'
+        });
+        yield* this.parseSSEStream(data as AsyncIterable<Buffer | string>, reverseToolNameMap);
     }
 
     /**
@@ -1362,59 +1306,13 @@ export class CodexApiService {
         stream: AsyncIterable<Buffer | string>,
         reverseToolNameMap: Map<string, string> | null = null
     ): AsyncGenerator<unknown> {
-        let buffer = '';
-        const decoder = new StringDecoder('utf8');
         const outputItemsByIndex = new Map();
         const outputItemsFallback: unknown[] = [];
 
-        for await (const chunk of stream) {
-            buffer += decoder.write(chunk);
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // 保留不完整的行
-
-            for (const line of lines) {
-                const trimmedLine = line.trim();
-                if (!trimmedLine) continue;
-                const dataStr = extractSSEData(trimmedLine);
-
-                if (dataStr && dataStr !== '[DONE]') {
-                    try {
-                        let parsed = JSON.parse(dataStr);
-
-                        const terminalError = createCodexTerminalError(parsed);
-                        if (terminalError) {
-                            logger.error('[Codex] API returned terminal error in stream:', parsed.error || parsed.response?.error || parsed);
-                            const error = terminalError;
-                            throw error;
-                        }
-
-                        // 0-Hop：还原被缩短的工具名并补全 function_call 的 id/call_id。
-                        // 必须在收集 output_item.done 之前完成，否则 completed 事件里的
-                        // output 会从收集缓存回填未还原的原始 item。
-                        parsed = patchCodexEventToolNames(parsed, reverseToolNameMap);
-
-                        if (parsed.type === 'response.output_item.done') {
-                            this.collectCodexOutputItemDone(parsed, outputItemsByIndex, outputItemsFallback);
-                        } else if (parsed.type === 'response.completed') {
-                            parsed = this.patchCodexCompletedOutput(parsed, outputItemsByIndex, outputItemsFallback);
-                        }
-
-                        yield parsed;
-                    } catch (rawError) {
-                const e = asCodexError(rawError);
-                        if (getErrorMessage(e).startsWith('Codex API error')) {
-                            throw e;
-                        }
-                        logger.error('[Codex] Failed to parse SSE data:', getErrorMessage(e));
-                    }
-                }
-            }
-        }
-
-        // 处理剩余的 buffer
-        const finalTrimmed = buffer.trim();
-        if (finalTrimmed) {
-            const dataStr = extractSSEData(finalTrimmed);
+        for await (const line of iterSseLines(stream)) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            const dataStr = extractSSEData(trimmedLine);
 
             if (dataStr && dataStr !== '[DONE]') {
                 try {
@@ -1422,11 +1320,13 @@ export class CodexApiService {
 
                     const terminalError = createCodexTerminalError(parsed);
                     if (terminalError) {
-                        logger.error('[Codex] API returned terminal error in final stream buffer:', parsed.error || parsed.response?.error || parsed);
-                        const error = terminalError;
-                        throw error;
+                        logger.error('[Codex] API returned terminal error in stream:', parsed.error || parsed.response?.error || parsed);
+                        throw terminalError;
                     }
 
+                    // 0-Hop：还原被缩短的工具名并补全 function_call 的 id/call_id。
+                    // 必须在收集 output_item.done 之前完成，否则 completed 事件里的
+                    // output 会从收集缓存回填未还原的原始 item。
                     parsed = patchCodexEventToolNames(parsed, reverseToolNameMap);
 
                     if (parsed.type === 'response.output_item.done') {
@@ -1437,11 +1337,11 @@ export class CodexApiService {
 
                     yield parsed;
                 } catch (rawError) {
-                const e = asCodexError(rawError);
+                    const e = asCodexError(rawError);
                     if (getErrorMessage(e).startsWith('Codex API error')) {
                         throw e;
                     }
-                    logger.error('[Codex] Failed to parse final SSE data:', getErrorMessage(e));
+                    logger.error('[Codex] Failed to parse SSE data:', getErrorMessage(e));
                 }
             }
         }

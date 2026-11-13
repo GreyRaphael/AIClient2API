@@ -867,3 +867,15 @@ export function defaultGeminiSafetySettings(): Array<{ category: string; thresho
         { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'OFF' }
     ];
 }
+
+export function buildResponsesMessageItemId(responseId: string | null | undefined, index = 0): string {
+    return responseId ? `msg_${responseId}_${index}` : `msg_${uuidv4().replace(/-/g, '')}`;
+}
+
+export function buildResponsesFunctionItemId(callId: string | null | undefined): string {
+    return callId ? `fc_${callId}` : `fc_${uuidv4().replace(/-/g, '')}`;
+}
+
+export function buildResponsesReasoningItemId(responseId: string | null | undefined, index = 0): string {
+    return responseId ? `rs_${responseId}_${index}` : `rs_${uuidv4().replace(/-/g, '')}`;
+}

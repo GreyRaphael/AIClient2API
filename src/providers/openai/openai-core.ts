@@ -1,14 +1,15 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import type { Agent } from 'node:http';
-import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import { sleep } from '../../utils/sleep.ts';
-import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
+import { getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { classifyRetry, describeRetry } from '../retry.ts';
 import { resolveProviderCapabilities } from '../provider-capabilities.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
+import { iterSseLines, createStreamDrainScheduler } from '../../utils/sse-stream.ts';
+import { applySessionKeepAliveAndSidecar, getErrorResponseDetails } from '../provider-http.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
 
@@ -275,15 +276,14 @@ export class OpenAIApiService {
     }
 
     _applySidecar(axiosConfig: DynamicPayload, affinityKey?: string | null): DynamicPayload {
-        if (affinityKey) {
-            const sessionAgents = getKeepAliveAgents(this.config, this.baseUrl, affinityKey);
-            axiosConfig.httpAgent = sessionAgents.httpAgent;
-            axiosConfig.httpsAgent = sessionAgents.httpsAgent;
-        } else {
-            if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
-            if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
-        }
-        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.OPENAI_CUSTOM, this.baseUrl, affinityKey);
+        return applySessionKeepAliveAndSidecar(axiosConfig, {
+            config: this.config,
+            baseUrl: this.baseUrl,
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
+            defaultProvider: MODEL_PROVIDER.OPENAI_CUSTOM,
+            affinityKey
+        });
     }
 
     async callApi(
@@ -456,84 +456,66 @@ export class OpenAIApiService {
             this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.axiosInstance.request(axiosConfig);
 
-            const stream = response.data;
-            let buffer = '';
-            const decoder = new StringDecoder('utf8');
+            const stream = response.data as AsyncIterable<Buffer | string>;
+            const drain = createStreamDrainScheduler(stream);
             // include_usage 的 usage 帧在 finish 帧之后到达。跨协议转换时先暂存 finish，
             // 等 usage 帧到达后合并，避免 Claude / Responses 下游拿到全零 usage。
             let pendingFinishChunk: DynamicPayload | null = null;
             let seenDone = false;
-            let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
 
             try {
-                for await (const chunk of stream) {
-                    buffer += decoder.write(chunk);
-                    let newlineIndex: number;
-                    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.substring(0, newlineIndex).trim();
-                        buffer = buffer.substring(newlineIndex + 1);
-
-                        if (line.startsWith('data:')) {
-                            const jsonData = line.substring(5).trim();
-                            if (jsonData === '[DONE]') {
-                                if (pendingFinishChunk) {
-                                    hasYielded = true;
-                                    yield pendingFinishChunk;
-                                    pendingFinishChunk = null;
-                                }
-                                seenDone = true;
-                                // 避免提前 return / break 导致 Node 销毁底层 keep-alive socket。
-                                // 设 1 秒安全兜底，在上游异常未关闭响应流时销毁，防止挂死。
-                                if (typeof stream?.destroy === 'function' && !doneDrainTimer) {
-                                    doneDrainTimer = setTimeout(() => {
-                                        if (!stream.destroyed) {
-                                            stream.destroy();
-                                        }
-                                    }, 1000);
-                                }
-                                continue;
-                            }
-                            if (seenDone) {
-                                continue;
-                            }
-                            try {
-                                const parsedChunk = JSON.parse(jsonData);
-                                if (shouldMergeFinishUsage && pendingFinishChunk) {
-                                    const isUsageOnly = (!Array.isArray(parsedChunk.choices) || parsedChunk.choices.length === 0)
-                                        && parsedChunk.usage;
-                                    if (isUsageOnly) {
-                                        pendingFinishChunk.usage = parsedChunk.usage;
-                                        hasYielded = true;
-                                        yield pendingFinishChunk;
-                                        pendingFinishChunk = null;
-                                        continue;
-                                    }
-                                    hasYielded = true;
-                                    yield pendingFinishChunk;
-                                    pendingFinishChunk = null;
-                                }
-
-                                const hasFinishReason = Array.isArray(parsedChunk.choices)
-                                    && parsedChunk.choices.some((choice: DynamicPayload) => choice?.finish_reason);
-                                if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
-                                    pendingFinishChunk = parsedChunk;
-                                } else {
-                                    hasYielded = true;
-                                    yield parsedChunk;
-                                }
-                            } catch (caught) { const e = caught as DynamicPayload;
-                                logger.warn("[OpenAIApiService] Failed to parse stream chunk JSON:", e.message, "Data:", jsonData);
-                            }
-                        } else if (line === '') {
-                            // Empty line, end of an event
+                for await (const rawLine of iterSseLines(stream)) {
+                    const line = rawLine.trim();
+                    if (!line.startsWith('data:')) {
+                        continue;
+                    }
+                    const jsonData = line.substring(5).trim();
+                    if (jsonData === '[DONE]') {
+                        if (pendingFinishChunk) {
+                            hasYielded = true;
+                            yield pendingFinishChunk;
+                            pendingFinishChunk = null;
                         }
+                        seenDone = true;
+                        // 避免提前 return / break 导致 Node 销毁底层 keep-alive socket。
+                        // 设 1 秒安全兜底，在上游异常未关闭响应流时销毁，防止挂死。
+                        drain.schedule();
+                        continue;
+                    }
+                    if (seenDone) {
+                        continue;
+                    }
+                    try {
+                        const parsedChunk = JSON.parse(jsonData);
+                        if (shouldMergeFinishUsage && pendingFinishChunk) {
+                            const isUsageOnly = (!Array.isArray(parsedChunk.choices) || parsedChunk.choices.length === 0)
+                                && parsedChunk.usage;
+                            if (isUsageOnly) {
+                                pendingFinishChunk.usage = parsedChunk.usage;
+                                hasYielded = true;
+                                yield pendingFinishChunk;
+                                pendingFinishChunk = null;
+                                continue;
+                            }
+                            hasYielded = true;
+                            yield pendingFinishChunk;
+                            pendingFinishChunk = null;
+                        }
+
+                        const hasFinishReason = Array.isArray(parsedChunk.choices)
+                            && parsedChunk.choices.some((choice: DynamicPayload) => choice?.finish_reason);
+                        if (shouldMergeFinishUsage && hasFinishReason && !parsedChunk.usage) {
+                            pendingFinishChunk = parsedChunk;
+                        } else {
+                            hasYielded = true;
+                            yield parsedChunk;
+                        }
+                    } catch (e) {
+                        logger.warn("[OpenAIApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", jsonData);
                     }
                 }
             } finally {
-                if (doneDrainTimer) {
-                    clearTimeout(doneDrainTimer);
-                    doneDrainTimer = null;
-                }
+                drain.cleanup();
             }
 
             // 上游未发送 [DONE] 或 usage 帧时，仍要交付已暂存的 finish 帧。
@@ -608,10 +590,9 @@ export class OpenAIApiService {
         try {
             const response = await this.axiosInstance.get('/models');
             return response.data;
-        } catch (caught) { const error = caught as DynamicPayload;
-            const status = error.response?.status;
-            const data = error.response?.data;
-            logger.error(`Error listing OpenAI models (Status: ${status}):`, data || error.message);
+        } catch (error) {
+            const { status, data, message } = getErrorResponseDetails(error);
+            logger.error(`Error listing OpenAI models (Status: ${status}):`, data || message);
             throw error;
         }
     }

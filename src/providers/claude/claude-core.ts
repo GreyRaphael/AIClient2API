@@ -1,14 +1,15 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Agent } from 'node:http';
-import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import { sleep } from '../../utils/sleep.ts';
-import { configureTLSSidecar, getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
+import { getKeepAliveAgents, buildSessionHeaders, stripInternalFields } from '../../utils/proxy-utils.ts';
 import { MODEL_PROVIDER } from '../../utils/common.ts';
 import { classifyRetry, describeRetry } from '../retry.ts';
 import { stabilizeToolsForPrefixCache } from '../../converters/utils.ts';
 import { isRecord } from '../../utils/type-guards.ts';
+import { iterSseLines, createStreamDrainScheduler } from '../../utils/sse-stream.ts';
+import { applySessionKeepAliveAndSidecar, getErrorResponseDetails } from '../provider-http.ts';
 
 interface ClaudeApiServiceConfig {
     CLAUDE_API_KEY: string;
@@ -19,13 +20,6 @@ interface ClaudeApiServiceConfig {
     REQUEST_BASE_DELAY?: number;
     _monitorRequestId?: unknown;
     [key: string]: unknown;
-}
-
-interface ErrorResponseDetails {
-    status: number | undefined;
-    data: unknown;
-    code: string | undefined;
-    message: string;
 }
 
 /**
@@ -44,19 +38,6 @@ function normalizeModelList(payload: unknown): unknown[] {
             : (typeof item.name === 'string' ? item.name : '');
         return { ...item, id, name: typeof item.name === 'string' ? item.name : id };
     }).filter(Boolean);
-}
-
-function getErrorResponseDetails(error: unknown): ErrorResponseDetails {
-    if (isRecord(error)) {
-        const response = isRecord(error.response) ? error.response : null;
-        return {
-            status: typeof response?.status === 'number' ? response.status : undefined,
-            data: response?.data,
-            code: typeof error.code === 'string' ? error.code : undefined,
-            message: typeof error.message === 'string' ? error.message : String(error)
-        };
-    }
-    return { status: undefined, data: undefined, code: undefined, message: String(error) };
 }
 
 /**
@@ -112,15 +93,14 @@ export class ClaudeApiService {
     }
 
     _applySidecar(axiosConfig: Record<string, unknown>, affinityKey?: string | null) {
-        if (affinityKey) {
-            const sessionAgents = getKeepAliveAgents(this.config, this.baseUrl, affinityKey);
-            axiosConfig.httpAgent = sessionAgents.httpAgent;
-            axiosConfig.httpsAgent = sessionAgents.httpsAgent;
-        } else {
-            if (!axiosConfig.httpAgent) axiosConfig.httpAgent = this.httpAgent;
-            if (!axiosConfig.httpsAgent) axiosConfig.httpsAgent = this.httpsAgent;
-        }
-        return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CLAUDE_CUSTOM, this.baseUrl, affinityKey);
+        return applySessionKeepAliveAndSidecar(axiosConfig, {
+            config: this.config,
+            baseUrl: this.baseUrl,
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
+            defaultProvider: MODEL_PROVIDER.CLAUDE_CUSTOM,
+            affinityKey
+        });
     }
 
     /**
@@ -234,58 +214,38 @@ export class ClaudeApiService {
             this._applySidecar(axiosConfig, downstreamSessionId ? String(downstreamSessionId) : null);
             const response = await this.client.request(axiosConfig as AxiosRequestConfig);
             const reader = response.data as AsyncIterable<Buffer | string>;
-            let buffer = '';
-            const decoder = new StringDecoder('utf8');
+            const drain = createStreamDrainScheduler(reader);
             let seenDone = false;
-            let doneDrainTimer: ReturnType<typeof setTimeout> | null = null;
-            const destroyable = reader as { destroy?: () => void; destroyed?: boolean };
+            let eventData = '';
 
             try {
-                for await (const chunk of reader) {
-                    buffer += decoder.write(chunk);
-                    let boundary: number;
-                    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-                        const eventBlock = buffer.substring(0, boundary);
-                        buffer = buffer.substring(boundary + 2);
-
-                        const lines = eventBlock.split('\n');
-                        let data = '';
-                        for (const line of lines) {
-                            if (line.startsWith('data:')) {
-                                data = line.substring(5).trim();
-                            }
+                for await (const line of iterSseLines(reader)) {
+                    if (line === '') {
+                        if (!eventData) continue;
+                        const data = eventData;
+                        eventData = '';
+                        if (seenDone) {
+                            continue;
                         }
-
-                        if (data) {
-                            if (seenDone) {
-                                continue;
+                        try {
+                            const parsedChunk: unknown = JSON.parse(data);
+                            hasYielded = true;
+                            yield parsedChunk;
+                            if (isRecord(parsedChunk) && parsedChunk.type === 'message_stop') {
+                                seenDone = true;
+                                drain.schedule();
                             }
-                            try {
-                                const parsedChunk: unknown = JSON.parse(data);
-                                hasYielded = true;
-                                yield parsedChunk;
-                                if (isRecord(parsedChunk) && parsedChunk.type === 'message_stop') {
-                                    seenDone = true;
-                                    if (typeof destroyable?.destroy === 'function' && !doneDrainTimer) {
-                                        doneDrainTimer = setTimeout(() => {
-                                            if (!destroyable.destroyed) {
-                                                destroyable.destroy?.();
-                                            }
-                                        }, 1000);
-                                    }
-                                    continue;
-                                }
-                            } catch (e) {
-                                logger.warn("[ClaudeApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", data);
-                            }
+                        } catch (e) {
+                            logger.warn("[ClaudeApiService] Failed to parse stream chunk JSON:", getErrorResponseDetails(e).message, "Data:", data);
                         }
+                        continue;
+                    }
+                    if (line.startsWith('data:')) {
+                        eventData = line.substring(5).trim();
                     }
                 }
             } finally {
-                if (doneDrainTimer) {
-                    clearTimeout(doneDrainTimer);
-                    doneDrainTimer = null;
-                }
+                drain.cleanup();
             }
         } catch (error) {
             const { status, code, message, data } = getErrorResponseDetails(error);
