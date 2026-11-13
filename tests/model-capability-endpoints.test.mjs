@@ -68,11 +68,11 @@ describe('Model capability endpoint consistency', () => {
 
     test('trae 动态模型在 /api/provider-models 与 /api/providers 节点能力中均可见', async () => {
         const allRes = createResponse();
-        await handleGetProviderModels({}, allRes, { providerPools: manager.providerPools }, manager);
+        await handleGetProviderModels(allRes, { providerPools: manager.providerPools }, manager);
         expect(parseResponse(allRes).trae).toContain(model);
 
         const providersRes = createResponse();
-        await handleGetProviders({}, providersRes, { providerPools: manager.providerPools }, manager);
+        await handleGetProviders(providersRes, { providerPools: manager.providerPools }, manager);
         const node = parseResponse(providersRes).providers.trae[0];
         expect(node.candidateModels).toContain(model);
         expect(node.selectedModels).toContain(model);
@@ -197,7 +197,7 @@ describe('Model capability endpoint consistency', () => {
         explicitManager.initializeProviderStatus();
 
         const allRes = createResponse();
-        await handleGetProviderModels({}, allRes, { providerPools: explicitManager.providerPools }, explicitManager);
+        await handleGetProviderModels(allRes, { providerPools: explicitManager.providerPools }, explicitManager);
         expect(parseResponse(allRes).trae).toContain('brand-new-model');
         expect(parseResponse(allRes).trae).not.toContain('glm-5.3');
 
@@ -210,7 +210,7 @@ describe('Model capability endpoint consistency', () => {
         ];
 
         const allRes = createResponse();
-        await handleGetProviderModels({}, allRes, { providerPools: manager.providerPools }, manager);
+        await handleGetProviderModels(allRes, { providerPools: manager.providerPools }, manager);
         const models = parseResponse(allRes).trae;
         expect(models).toContain('custom-trae-model');
         expect(models).toContain(model);
@@ -245,7 +245,7 @@ describe('Model capability endpoint consistency', () => {
         }];
 
         const res = createResponse();
-        await handleGetProviderModelMetadata({}, res, {
+        await handleGetProviderModelMetadata(res, {
             providerPools: manager.providerPools,
             customModels: CONFIG.customModels
         }, manager);

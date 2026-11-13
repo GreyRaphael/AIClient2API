@@ -70,10 +70,10 @@ describe('upload-config: 机密文件不得经单文件端点外流', () => {
     });
 
     const endpoints = [
-        ['view', (res, target) => handleViewConfigFile({}, res, target)],
-        ['download', (res, target) => handleDownloadConfigFile({}, res, target)],
-        ['delete', (res, target) => handleDeleteConfigFile({}, res, target)],
-        ['force-expire', (res, target, cfg, mgr) => handleForceExpireConfig({}, res, target, cfg, mgr)]
+        ['view', (res, target) => handleViewConfigFile(res, target)],
+        ['download', (res, target) => handleDownloadConfigFile(res, target)],
+        ['delete', (res, target) => handleDeleteConfigFile(res, target)],
+        ['force-expire', (res, target, cfg, mgr) => handleForceExpireConfig(res, target, cfg, mgr)]
     ];
 
     for (const [name, invoke] of endpoints) {
@@ -91,7 +91,7 @@ describe('upload-config: 机密文件不得经单文件端点外流', () => {
 
     test('view 对普通凭据文件仍然放行（修复没有误伤正常路径）', async () => {
         const res = createMockResponse();
-        const handled = await handleViewConfigFile({}, res, 'configs/ordinary-cred.json');
+        const handled = await handleViewConfigFile(res, 'configs/ordinary-cred.json');
 
         expect(handled).toBe(true);
         expect(res.captured.statusCode).toBe(200);
@@ -100,7 +100,7 @@ describe('upload-config: 机密文件不得经单文件端点外流', () => {
 
     test('configs/ 之外的路径仍然被拒绝', async () => {
         const res = createMockResponse();
-        await handleViewConfigFile({}, res, 'src/core/master-core.ts');
+        await handleViewConfigFile(res, 'src/core/master-core.ts');
 
         expect(res.captured.statusCode).toBe(403);
         expect(res.captured.body?.error?.message).toMatch(/configs directory/i);
@@ -108,7 +108,7 @@ describe('upload-config: 机密文件不得经单文件端点外流', () => {
 
     test('删除端点不会真的删掉 .master_secret', async () => {
         const res = createMockResponse();
-        await handleDeleteConfigFile({}, res, 'configs/.master_secret');
+        await handleDeleteConfigFile(res, 'configs/.master_secret');
 
         expect(res.captured.statusCode).toBe(403);
         expect(fs.existsSync(secretPath)).toBe(true);

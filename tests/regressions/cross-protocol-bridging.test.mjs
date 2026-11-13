@@ -1701,19 +1701,19 @@ describe('v4.1.6 P2: 终端空内容截断识别', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            undefined,
-            undefined,
-            undefined
-        );
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: undefined,
+            pooluuid: undefined,
+            customName: undefined
+        });
 
         const body = res.chunks.join('');
         expect(body).toContain('"finish_reason":"length"');
@@ -1741,20 +1741,20 @@ describe('v4.1.6 P2: 终端空内容截断识别', () => {
             }
         };
 
-        await handleUnaryRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            undefined,
-            undefined,
-            undefined,
-            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 1 }, currentRetry: 0, maxRetries: 0, requestId: 'unary-terminal-test' }
-        );
+        await handleUnaryRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: undefined,
+            pooluuid: undefined,
+            customName: undefined,
+            retryContext: { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 1 }, currentRetry: 0, maxRetries: 0, requestId: 'unary-terminal-test' }
+        });
 
         const body = JSON.parse(res.chunks.join(''));
         expect(res.statusCode).toBe(200);
@@ -1831,20 +1831,20 @@ describe('v4.1.6 P1: 流式会话状态重置', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openaiResponses',
-            'openai-custom',
-            'none',
-            '',
-            undefined,
-            undefined,
-            undefined,
-            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 1 }, currentRetry: 0, maxRetries: 0, requestId }
-        );
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openaiResponses',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: undefined,
+            pooluuid: undefined,
+            customName: undefined,
+            retryContext: { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 1 }, currentRetry: 0, maxRetries: 0, requestId }
+        });
 
         const body = res.chunks.join('');
         expect(body).toContain('event: response.created');
@@ -1868,19 +1868,19 @@ describe('v4.1.6 P1: Responses 下游兜底收尾', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openaiResponses-custom:test',
-            {},
-            'openaiResponses-custom',
-            'openaiResponses-custom',
-            'none',
-            '',
-            undefined,
-            undefined,
-            undefined
-        );
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openaiResponses-custom:test',
+            requestBody: {},
+            fromProvider: 'openaiResponses-custom',
+            toProvider: 'openaiResponses-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: undefined,
+            pooluuid: undefined,
+            customName: undefined
+        });
 
         const body = res.chunks.join('');
         expect(body).toContain('event: response.completed');
@@ -1902,26 +1902,26 @@ describe('v4.1.6 P1: Responses 下游兜底收尾', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openaiResponses-custom:test',
-            {},
-            'openaiResponses-custom',
-            'openaiResponses-custom',
-            'none',
-            '',
-            undefined,
-            undefined,
-            undefined,
-            {
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openaiResponses-custom:test',
+            requestBody: {},
+            fromProvider: 'openaiResponses-custom',
+            toProvider: 'openaiResponses-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: undefined,
+            pooluuid: undefined,
+            customName: undefined,
+            retryContext: {
                 CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 1 },
                 currentRetry: 0,
                 maxRetries: 0,
                 requestId: 'shared-terminal-state',
                 streamState
             }
-        );
+        });
 
         const body = res.chunks.join('');
         expect(body).not.toContain('event: response.completed');
@@ -2202,25 +2202,25 @@ describe('v4.1.7 Rerun P0/P1: 快速一致性与边界健壮性修复', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'gemini-antigravity:test',
-            {},
-            'openai-custom',
-            'gemini-antigravity',
-            'none',
-            '',
-            undefined,
-            undefined,
-            undefined,
-            {
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'gemini-antigravity:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'gemini-antigravity',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: undefined,
+            pooluuid: undefined,
+            customName: undefined,
+            retryContext: {
                 CONFIG: { PRE_CONTENT_BUFFER_MAX_FRAMES: 2, EMPTY_RESPONSE_MAX_RETRIES: 0 },
                 currentRetry: 0,
                 maxRetries: 0,
                 requestId: 'pre-content-cap-test'
             }
-        );
+        });
 
         const body = res.chunks.join('');
         expect(body).toContain('thought-0');
@@ -2484,20 +2484,20 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
             }
         };
 
-        await handleStreamRequest(
-            resResponses,
-            responsesService,
-            'openaiResponses-custom:test',
-            {},
-            'openaiResponses-custom',
-            'openaiResponses-custom',
-            'none',
-            '',
-            mockPool,
-            'uuid-1',
-            undefined,
-            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
-        );
+        await handleStreamRequest({
+            res: resResponses,
+            service: responsesService,
+            model: 'openaiResponses-custom:test',
+            requestBody: {},
+            fromProvider: 'openaiResponses-custom',
+            toProvider: 'openaiResponses-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: mockPool,
+            pooluuid: 'uuid-1',
+            customName: undefined,
+            retryContext: { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        });
 
         const responsesBody = resResponses.chunks.join('');
         expect(responsesCalls).toBe(1);
@@ -2518,20 +2518,20 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
             }
         };
 
-        await handleStreamRequest(
-            resClaude,
-            claudeService,
-            'zed:claude-sonnet-5-5',
-            {},
-            'claude-custom',
-            'zed',
-            'none',
-            '',
-            mockPool,
-            'uuid-2',
-            undefined,
-            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
-        );
+        await handleStreamRequest({
+            res: resClaude,
+            service: claudeService,
+            model: 'zed:claude-sonnet-5-5',
+            requestBody: {},
+            fromProvider: 'claude-custom',
+            toProvider: 'zed',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: mockPool,
+            pooluuid: 'uuid-2',
+            customName: undefined,
+            retryContext: { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        });
 
         const claudeBody = resClaude.chunks.join('');
         expect(claudeCalls).toBe(1);
@@ -2550,20 +2550,20 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
             }
         };
 
-        await handleStreamRequest(
-            resChat,
-            chatService,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            mockPool,
-            'uuid-3',
-            undefined,
-            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
-        );
+        await handleStreamRequest({
+            res: resChat,
+            service: chatService,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: mockPool,
+            pooluuid: 'uuid-3',
+            customName: undefined,
+            retryContext: { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        });
 
         const chatBody = resChat.chunks.join('');
         expect(chatCalls).toBe(1);
@@ -2589,20 +2589,20 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
             }
         };
 
-        await handleUnaryRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            null,
-            null,
-            undefined,
-            { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
-        );
+        await handleUnaryRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: null,
+            pooluuid: null,
+            customName: undefined,
+            retryContext: { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        });
 
         expect(calls).toBe(1);
         expect(res.statusCode).toBe(502);
@@ -2626,20 +2626,20 @@ describe('2026-10-23 复评残差修复：Responses->Gemini 语义、CoT 历史�
                 }
             };
 
-            await handleStreamRequest(
-                res,
-                service,
-                'gemini-3.8-flash-high',
-                {},
-                item.from,
-                'gemini-antigravity',
-                'none',
-                '',
-                null,
-                null,
-                undefined,
-                { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
-            );
+            await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'gemini-3.8-flash-high',
+            requestBody: {},
+            fromProvider: item.from,
+            toProvider: 'gemini-antigravity',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: null,
+            pooluuid: null,
+            customName: undefined,
+            retryContext: { CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 3 }, currentRetry: 0, maxRetries: 3 }
+        });
 
             const body = res.chunks.join('');
             expect(calls).toBe(1);

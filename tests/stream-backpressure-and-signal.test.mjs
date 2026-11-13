@@ -123,20 +123,20 @@ describe('Phase 3 Stream Backpressure & Signal Governance', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            pool,
-            'uuid-a',
-            undefined,
-            baseContext({ requestId: 'test-signal-propagation' })
-        );
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-a',
+            customName: undefined,
+            retryContext: baseContext({ requestId: 'test-signal-propagation' })
+        });
 
         expect(receivedSignal).toBeDefined();
         expect(receivedSignal instanceof AbortSignal).toBe(true);
@@ -165,20 +165,20 @@ describe('Phase 3 Stream Backpressure & Signal Governance', () => {
         // 客户端始终不排空，只能靠 drain 逐个解除写阻塞。
         const drainer = setInterval(() => res.drain(), 15);
         try {
-            await handleStreamRequest(
-                res,
-                service,
-                'openai-custom:test',
-                {},
-                'openai-custom',
-                'openai-custom',
-                'none',
-                '',
-                pool,
-                'uuid-backpressure',
-                undefined,
-                baseContext({ requestId: 'test-backpressure' })
-            );
+            await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-backpressure',
+            customName: undefined,
+            retryContext: baseContext({ requestId: 'test-backpressure' })
+        });
         } finally {
             clearInterval(drainer);
         }
@@ -210,20 +210,20 @@ describe('Phase 3 Stream Backpressure & Signal Governance', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            pool,
-            'uuid-disconnect',
-            undefined,
-            baseContext({ requestId: 'test-disconnect' })
-        );
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-disconnect',
+            customName: undefined,
+            retryContext: baseContext({ requestId: 'test-disconnect' })
+        });
 
         expect(upstreamSignal).toBeDefined();
         expect(upstreamSignal.aborted).toBe(true);
@@ -259,20 +259,20 @@ describe('Phase 3 Stream Backpressure & Signal Governance', () => {
             }
         })();
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            pool,
-            'uuid-parked-abort',
-            undefined,
-            baseContext({ requestId: 'test-parked-abort', clientSignal: caller.signal })
-        );
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-parked-abort',
+            customName: undefined,
+            retryContext: baseContext({ requestId: 'test-parked-abort', clientSignal: caller.signal })
+        });
         await abortWhenParked;
 
         expect(parked).toBe(false); // 从未真正 drain，靠 abort 逃出等待
@@ -297,20 +297,20 @@ describe('Phase 3 Stream Backpressure & Signal Governance', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            pool,
-            'uuid-external-abort',
-            undefined,
-            baseContext({ requestId: 'test-external-abort', clientSignal: externalController.signal })
-        );
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-external-abort',
+            customName: undefined,
+            retryContext: baseContext({ requestId: 'test-external-abort', clientSignal: externalController.signal })
+        });
 
         expect(upstreamSignal.aborted).toBe(true);
         expect(loopFinished).toBe(false);
@@ -334,20 +334,20 @@ describe('Phase 3 Stream Backpressure & Signal Governance', () => {
             }
         };
 
-        await handleUnaryRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            pool,
-            'uuid-unary',
-            undefined,
-            baseContext({ requestId: 'test-unary-signal' })
-        );
+        await handleUnaryRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-unary',
+            customName: undefined,
+            retryContext: baseContext({ requestId: 'test-unary-signal' })
+        });
 
         expect(receivedSignal).toBeDefined();
         expect(receivedSignal instanceof AbortSignal).toBe(true);
@@ -490,20 +490,20 @@ describe('Stalled downstream drain backstop', () => {
             }
         };
 
-        const pending = handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            pool,
-            'uuid-stalled',
-            undefined,
-            baseContext({ requestId: 'test-stalled-drain' })
-        );
+        const pending = handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-stalled',
+            customName: undefined,
+            retryContext: baseContext({ requestId: 'test-stalled-drain' })
+        });
 
         // 客户端始终不排空：没有 drain、没有 close，只有超时兜底能解除等待。
         // 必须先让 handleStreamRequest 跑到"注册兜底定时器"那一步（宏任务），

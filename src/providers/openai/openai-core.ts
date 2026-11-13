@@ -584,7 +584,7 @@ export class OpenAIApiService {
         }
     }
 
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    async generateContent(_model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -594,7 +594,7 @@ export class OpenAIApiService {
         return this.callApi('/chat/completions', requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload> {
+    async *generateContentStream(_model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;

@@ -106,20 +106,20 @@ describe('pipeline stream characterization', () => {
         const res = createMockResponse();
         const pool = createPool();
 
-        await handleStreamRequest(
-            res,
-            firstService,
-            'claude-sonnet-4-5',
-            { messages: [{ role: 'user', content: 'hi' }] },
-            'claude-custom',
-            'claude-custom',
-            'none',
-            '',
-            pool,
-            'uuid-a',
-            'primary',
-            { CONFIG: config, currentRetry: 0, maxRetries: 0, requestId: 'empty-retry-characterization' }
-        );
+        await handleStreamRequest({
+            res: res,
+            service: firstService,
+            model: 'claude-sonnet-4-5',
+            requestBody: { messages: [{ role: 'user', content: 'hi' }] },
+            fromProvider: 'claude-custom',
+            toProvider: 'claude-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-a',
+            customName: 'primary',
+            retryContext: { CONFIG: config, currentRetry: 0, maxRetries: 0, requestId: 'empty-retry-characterization' }
+        });
 
         const body = res.chunks.join('');
         expect(firstCalls).toBe(1);
@@ -154,25 +154,25 @@ describe('pipeline stream characterization', () => {
             }
         };
 
-        await handleStreamRequest(
-            res,
-            service,
-            'openai-custom:test',
-            {},
-            'openai-custom',
-            'openai-custom',
-            'none',
-            '',
-            pool,
-            'uuid-a',
-            undefined,
-            {
+        await handleStreamRequest({
+            res: res,
+            service: service,
+            model: 'openai-custom:test',
+            requestBody: {},
+            fromProvider: 'openai-custom',
+            toProvider: 'openai-custom',
+            promptLogMode: 'none',
+            promptLogFilename: '',
+            providerPoolManager: pool,
+            pooluuid: 'uuid-a',
+            customName: undefined,
+            retryContext: {
                 CONFIG: { EMPTY_RESPONSE_MAX_RETRIES: 1, EMPTY_RESPONSE_RETRY_DELAY_MS: 0 },
                 currentRetry: 0,
                 maxRetries: 0,
                 requestId: 'client-disconnect-characterization'
             }
-        );
+        });
 
         expect(generatorFinalized).toBe(true);
         expect(res.chunks.join('')).not.toContain('must not be sent');

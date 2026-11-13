@@ -6,7 +6,7 @@ import type { DynamicPayload } from '../../../types/dynamic-payload.js';
  * OpenAI provider strategy implementation.
  */
 class OpenAIStrategy implements ProviderStrategy {
-    extractModelAndStreamInfo(req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
+    extractModelAndStreamInfo(_req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
         return { model, isStream };

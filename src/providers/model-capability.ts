@@ -760,7 +760,7 @@ let capabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
  * 启动周期性模型能力刷新。
  * 与健康检查解耦，默认 15 分钟；测试环境自动禁用。
  */
-export function startCapabilityRefreshLoop(providerPoolManager: DynamicPayload | null | undefined, options: DynamicPayload = {}): ReturnType<typeof setInterval> | null {
+export function startCapabilityRefreshLoop(providerPoolManager: DynamicPayload | null | undefined, _options: DynamicPayload = {}): ReturnType<typeof setInterval> | null {
     stopCapabilityRefreshLoop();
     if (!isBackgroundRefreshEnabled()) return null;
 

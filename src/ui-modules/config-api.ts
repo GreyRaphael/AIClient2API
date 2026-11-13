@@ -64,7 +64,7 @@ export async function reloadConfig(providerPoolManager: ProviderPoolManager | nu
 /**
  * 获取配置
  */
-export async function handleGetConfig(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
+export async function handleGetConfig(res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
     // 白名单过滤：只返回前端需要的字段，避免泄露凭据路径、内部状态等敏感信息
     const safeConfig = {
         HOST: currentConfig.HOST,
@@ -163,14 +163,14 @@ export async function handleUpdateConfig(req: IncomingMessage, res: ServerRespon
     try {
         const body = await getRequestBody(req);
         const configPath = 'configs/config.json';
-        return await withFileLock(configPath, () => _handleUpdateConfig(req, res, currentConfig, body));
+        return await withFileLock(configPath, () => _handleUpdateConfig(res, currentConfig, body));
     } catch (caught) { const err = caught as DynamicPayload;
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, body: DynamicPayload): Promise<boolean> {
+async function _handleUpdateConfig(res: ServerResponse, currentConfig: DynamicPayload, body: DynamicPayload): Promise<boolean> {
     try {
         const newConfig = body;
 
@@ -446,7 +446,7 @@ async function _handleUpdateConfig(req: IncomingMessage, res: ServerResponse, cu
 /**
  * 重载配置文件
  */
-export async function handleReloadConfig(req: IncomingMessage, res: ServerResponse, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
+export async function handleReloadConfig(res: ServerResponse, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
     try {
         // 调用重载配置函数
         const newConfig = await reloadConfig(providerPoolManager);

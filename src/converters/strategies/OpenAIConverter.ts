@@ -1391,7 +1391,7 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 构建Gemini生成配置
      */
-    buildGeminiGenerationConfig({ temperature, max_tokens, max_completion_tokens, top_p, stop, tools, response_format }: DynamicPayload, model: string | null | undefined): DynamicPayload {
+    buildGeminiGenerationConfig({ temperature, max_tokens, max_completion_tokens, top_p, stop, response_format }: DynamicPayload, _model: string | null | undefined): DynamicPayload {
         const config: DynamicPayload = {};
         const effectiveMaxTokens = max_completion_tokens !== undefined ? max_completion_tokens : max_tokens;
         // temperature / top_p 允许显式传 0（如贪婪解码 temperature=0），不能用 checkAndAssignOrDefault 判 0 回退

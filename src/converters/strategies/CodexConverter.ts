@@ -233,7 +233,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * 转换请求
      */
-    convertRequest(data: CrossProtocolRequest, targetProtocol: string): never {
+    convertRequest(_data: CrossProtocolRequest, targetProtocol: string): never {
         throw new Error(`Unsupported target protocol: ${targetProtocol}`);
     }
 
@@ -1569,7 +1569,7 @@ export class CodexConverter extends BaseConverter {
     /**
      * Codex → OpenAI Responses 流式响应转换
      */
-    toOpenAIResponsesStreamChunk(chunk: DynamicPayload | null | undefined, model?: string, requestId?: string | null): DynamicPayload | null | undefined {
+    toOpenAIResponsesStreamChunk(chunk: DynamicPayload | null | undefined, _model?: string, requestId?: string | null): DynamicPayload | null | undefined {
         if (!chunk) {
             return chunk;
         }

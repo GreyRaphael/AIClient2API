@@ -469,7 +469,7 @@ function generateProjectID() {
  * @param {number} budget - 原始 budget 值
  * @returns {number} 规范化后的 budget
  */
-function normalizeThinkingBudget(modelName: unknown, budget: number): number {
+function normalizeThinkingBudget(_modelName: unknown, budget: number): number {
     if (budget === -1) return -1;
     if (budget < DEFAULT_THINKING_MIN) return DEFAULT_THINKING_MIN;
     if (budget > DEFAULT_THINKING_MAX) return DEFAULT_THINKING_MAX;

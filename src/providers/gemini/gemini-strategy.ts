@@ -15,7 +15,7 @@ class GeminiStrategy implements ProviderStrategy {
      * 好过让 `ProviderStrategy` 变成「有一半方法靠运行时 throw」的假接口——
      * 那正是本次把它从抽象类改成 interface 要消除的问题。
      */
-    extractModelAndStreamInfo(req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
+    extractModelAndStreamInfo(_req: unknown, requestBody: DynamicPayload): { model: string; isStream: boolean } {
         const model = typeof requestBody?.model === 'string' ? requestBody.model : '';
         const isStream = requestBody?.stream === true;
         return { model, isStream };

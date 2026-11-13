@@ -202,7 +202,7 @@ describe('handleDownloadAllConfigs with native SimpleZip', () => {
 
     test('returns 404 when configs directory does not exist', async () => {
         const res = createMockResponse();
-        const handled = await handleDownloadAllConfigs({}, res);
+        const handled = await handleDownloadAllConfigs(res);
         expect(handled).toBe(true);
         expect(res.statusCode).toBe(404);
         expect(JSON.parse(res.body.toString()).error.message).toContain('configs directory does not exist');
@@ -216,7 +216,7 @@ describe('handleDownloadAllConfigs with native SimpleZip', () => {
         await fs.writeFile(path.join(configsDir, '.master_secret'), 'SECRET_DO_NOT_LEAK');
 
         const res = createMockResponse();
-        const handled = await handleDownloadAllConfigs({}, res);
+        const handled = await handleDownloadAllConfigs(res);
 
         expect(handled).toBe(true);
         expect(res.statusCode).toBe(200);

@@ -610,7 +610,7 @@ export async function handleTraePATLogin({
  * @returns {Promise<{ authUrl: string, authInfo: Object }>}
  */
 
-export async function handleTraeOAuth(currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
+export async function handleTraeOAuth(_currentConfig: DynamicPayload = CONFIG, options: DynamicPayload = {}): Promise<DynamicPayload> {
     // 网页授权入口：个人版网关不是登录页域名，回落到 trae.cn（由 buildTraeWebLoginUrl 兜底）。
     const rawHost = options.host || TRAE_AUTH_CENTER_HOST;
     const host = isSoloAgentHost(rawHost) ? TRAE_WEB_CONSOLE_HOST : rawHost;

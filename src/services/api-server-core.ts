@@ -286,7 +286,7 @@ async function startServer() {
                         .then(() => {
                             logger.info('[UI] Opened login page in default browser');
                         })
-                        .catch(err => {
+                        .catch(_err => {
                             logger.info('[UI] Please open manually: http://' + CONFIG.HOST + ':' + CONFIG.SERVER_PORT + '/login.html');
                         });
                 }, openDelay);

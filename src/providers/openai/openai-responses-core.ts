@@ -264,7 +264,7 @@ export class OpenAIResponsesApiService {
         }
     }
 
-    async generateContent<T = unknown>(model: string, requestBody: Record<string, unknown>): Promise<T> {
+    async generateContent<T = unknown>(_model: string, requestBody: Record<string, unknown>): Promise<T> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -274,7 +274,7 @@ export class OpenAIResponsesApiService {
         return this.callApi<T>('/responses', requestBody);
     }
 
-    async *generateContentStream(model: string, requestBody: Record<string, unknown>): AsyncGenerator<unknown> {
+    async *generateContentStream(_model: string, requestBody: Record<string, unknown>): AsyncGenerator<unknown> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;

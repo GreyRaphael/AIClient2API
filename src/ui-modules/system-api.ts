@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 
 
 import { existsSync, readFileSync, createReadStream } from 'fs';
@@ -10,7 +10,7 @@ import { getNetworkDiagnostics } from '../utils/network-diagnostics.ts';
 /**
  * 获取系统信息
  */
-export async function handleGetSystem(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleGetSystem(res: ServerResponse): Promise<boolean> {
     const memUsage = process.memoryUsage();
 
     // 读取版本号
@@ -39,7 +39,7 @@ export async function handleGetSystem(req: IncomingMessage, res: ServerResponse)
 /**
  * 获取底层网络诊断信息
  */
-export async function handleGetNetworkDiagnostics(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleGetNetworkDiagnostics(res: ServerResponse): Promise<boolean> {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(getNetworkDiagnostics()));
     return true;
@@ -48,7 +48,7 @@ export async function handleGetNetworkDiagnostics(req: IncomingMessage, res: Ser
 /**
  * 下载当日日志
  */
-export async function handleDownloadTodayLog(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleDownloadTodayLog(res: ServerResponse): Promise<boolean> {
     try {
         if (!logger.currentLogFile || !existsSync(logger.currentLogFile)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -76,7 +76,7 @@ export async function handleDownloadTodayLog(req: IncomingMessage, res: ServerRe
 /**
  * 清空当日日志
  */
-export async function handleClearTodayLog(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleClearTodayLog(res: ServerResponse): Promise<boolean> {
     try {
         const success = logger.clearTodayLog();
 
@@ -116,7 +116,7 @@ export async function handleClearTodayLog(req: IncomingMessage, res: ServerRespo
 /**
  * 健康检查接口（用于前端token验证）
  */
-export async function handleHealthCheck(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleHealthCheck(res: ServerResponse): Promise<boolean> {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
     return true;
@@ -125,7 +125,7 @@ export async function handleHealthCheck(req: IncomingMessage, res: ServerRespons
 /**
  * 获取服务模式信息
  */
-export async function handleGetServiceMode(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleGetServiceMode(res: ServerResponse): Promise<boolean> {
     const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
     const masterPort = process.env.MASTER_PORT || 3100;
 
@@ -146,7 +146,7 @@ export async function handleGetServiceMode(req: IncomingMessage, res: ServerResp
 /**
  * 重启服务端点 - 支持主进程-子进程架构
  */
-export async function handleRestartService(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleRestartService(res: ServerResponse): Promise<boolean> {
     try {
         const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
 

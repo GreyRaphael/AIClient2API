@@ -333,7 +333,7 @@ export class ClaudeApiService {
      * @param {object} requestBody - Request body (Claude format).
      * @returns {Promise<object>} Claude API response (Claude compatible format).
      */
-    async generateContent<T = unknown>(model: string, requestBody: Record<string, unknown>): Promise<T> {
+    async generateContent<T = unknown>(_model: string, requestBody: Record<string, unknown>): Promise<T> {
         // 临时存储 monitorRequestId
         if (requestBody._monitorRequestId) {
             this.config._monitorRequestId = requestBody._monitorRequestId;
@@ -350,7 +350,7 @@ export class ClaudeApiService {
      * @param {object} requestBody - Request body (Claude format).
      * @returns {AsyncIterable<object>} Claude API response stream (Claude compatible format).
      */
-    async *generateContentStream(model: string, requestBody: Record<string, unknown>): AsyncGenerator<unknown> {
+    async *generateContentStream(_model: string, requestBody: Record<string, unknown>): AsyncGenerator<unknown> {
         const stream = this.streamApi('/messages', requestBody);
         for await (const chunk of stream) {
             yield chunk;

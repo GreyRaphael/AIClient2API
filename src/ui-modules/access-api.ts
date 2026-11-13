@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
 
@@ -121,7 +121,7 @@ export function buildAccessInfoPayload(
 }
 
 export async function handleGetAccessInfo(
-    req: IncomingMessage,
+    
     res: ServerResponse,
     currentConfig: DynamicPayload,
     providerPoolManager: ProviderPoolManager | null

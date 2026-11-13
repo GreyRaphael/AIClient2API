@@ -15,6 +15,9 @@
     "strictNullChecks": true,
     "noImplicitOverride": true,
     "noUnusedLocals": true,
+    // 未使用参数：原先 88 处（多为「接口要求但实现不用」）。契约要求保留的已用
+    // `_` 前缀标注（TS 对下划线开头的参数不计入），真正的死参数已删除。
+    "noUnusedParameters": true,
     "skipLibCheck": true,
     "maxNodeModuleJsDepth": 0,
     "allowImportingTsExtensions": true,

@@ -57,8 +57,8 @@ import {
 } from './pipeline/protocol-plan.ts';
 import { PreContentBuffer } from './pre-content-buffer.ts';
 import { startPreContentHeartbeat } from './pre-content-heartbeat.ts';
-import { createStreamRetryContext, writeStreamCompletion } from './stream-lifecycle.ts';
-import type { PipelineRetryContext } from './stream-lifecycle.ts';
+import { createStreamAbortScope, createStreamRetryContext, writeStreamCompletion } from './stream-lifecycle.ts';
+import type { PipelineRetryContext, RequestHandlerContext } from './stream-lifecycle.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import { recordStreamChunkUsage, finalizeRequest } from '../services/usage-stats/stats-manager.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
@@ -90,20 +90,22 @@ const PRE_CONTENT_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2MB
 
 
 
-export async function handleStreamRequest(
-    res: ServerResponse,
-    service: DynamicPayload,
-    model: string,
-    requestBody: DynamicPayload,
-    fromProvider: string,
-    toProvider: string,
-    PROMPT_LOG_MODE: string,
-    PROMPT_LOG_FILENAME: string,
-    providerPoolManager: DynamicPayload,
-    pooluuid: string | null,
-    customName: string | null,
-    retryContext: PipelineRetryContext | null = null
-) {
+export async function handleStreamRequest(context: RequestHandlerContext) {
+    const {
+        res,
+        service,
+        requestBody,
+        fromProvider,
+        toProvider,
+        promptLogMode: PROMPT_LOG_MODE,
+        promptLogFilename: PROMPT_LOG_FILENAME,
+        providerPoolManager,
+        pooluuid,
+        customName,
+        retryContext
+    } = context;
+    // model 可能被上游回退改写（见下方 Antigravity 自动降级同步），故必须是 let。
+    let model = context.model;
     let fullResponseText = '';
     let responseClosed = false;
     let anyDataSent = retryContext?.anyDataSent || false; // 跟踪是否已向客户端发送过任何数据
@@ -120,63 +122,16 @@ export async function handleStreamRequest(
     // 导致外层和内层重复对同一个 res 做收尾（重复 res.end()），从而抛出 "write after end"。
     const isRetry = currentRetry > 0 || (retryContext?.emptyResponseRetry ?? 0) > 0;
     
-    // 使用共享的 clientDisconnected 状态（如果是重试，继承上层的状态）
-    let clientDisconnected = retryContext?.clientDisconnected || { value: false };
-    if (!isRetry) {
-        clientDisconnected = { value: false }; // 使用对象引用，便于在递归中共享状态
-    }
+    // 连接生命周期与取消信号：抽到 stream-lifecycle 里，避免与帧处理逻辑纠缠。
+    const {
+        abortController: streamAbortController,
+        combinedSignal,
+        clientDisconnected,
+        clientSignal,
+        detach: detachStreamScope
+    } = createStreamAbortScope({ res, retryContext, isRetryFrame: isRetry });
 
-    // 构建流式连接生命周期与取消控制信号（AbortSignal.any()）
-    const streamAbortController = retryContext?.abortController || new AbortController();
-    const signals: AbortSignal[] = [streamAbortController.signal];
-
-    const clientSignal = retryContext?.clientSignal || (res as DynamicPayload)?.req?.signal;
-    if (clientSignal && typeof clientSignal.addEventListener === 'function') {
-        if (clientSignal.aborted) {
-            clientDisconnected.value = true;
-            try { streamAbortController.abort(clientSignal.reason); } catch {}
-        } else {
-            signals.push(clientSignal);
-        }
-    }
-
-    const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
-
-    const onCombinedAbort = () => {
-        clientDisconnected.value = true;
-        logger.info('[Stream] Client disconnected or stream aborted');
-    };
-
-    if (combinedSignal.aborted) {
-        onCombinedAbort();
-    } else if (typeof combinedSignal.addEventListener === 'function') {
-        combinedSignal.addEventListener('abort', onCombinedAbort, { once: true });
-    }
-
-    // 监听客户端断开连接事件（命名函数，便于移除）
-    const onClientClose = () => {
-        clientDisconnected.value = true;
-        if (!streamAbortController.signal.aborted) {
-            try { streamAbortController.abort(new Error('Client disconnected')); } catch {}
-        }
-        logger.info('[Stream] Client disconnected, stopping stream processing');
-    };
-    
-    const onClientError = (err: Error) => {
-        clientDisconnected.value = true;
-        if (!streamAbortController.signal.aborted) {
-            try { streamAbortController.abort(err); } catch {}
-        }
-        logger.error('[Stream] Response stream error:', err.message);
-    };
-    
-    // 只在首次请求时注册事件监听器（避免重试时重复注册）
-    if (!isRetry) {
-        res.on('close', onClientClose);
-        res.on('error', onClientError);
-    }
-
-    // 只在首次请求时发送响应头，重试时跳过（响应头已发送）
+    // 只在首帧发送响应头（重试时响应头已发送）。
     if (!isRetry) {
         await handleUnifiedResponse(res, '', true);
     }
@@ -541,20 +496,15 @@ export async function handleStreamRequest(
 
                 // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
                 resetConverterStreamState(toProvider, streamRequestId, model);
-                return await handleStreamRequest(
-                    res,
-                    result.service,
-                    result.actualModel || model,
-                    requestBody,
-                    fromProvider,
-                    result.actualProviderType || toProvider,
-                    PROMPT_LOG_MODE,
-                    PROMPT_LOG_FILENAME,
-                    providerPoolManager,
-                    result.uuid,
-                    result.serviceConfig?.customName || customName,
-                    newRetryContext
-                );
+                return await handleStreamRequest({
+                    ...context,
+                    service: result.service,
+                    model: result.actualModel || model,
+                    toProvider: result.actualProviderType || toProvider,
+                    pooluuid: result.uuid,
+                    customName: result.serviceConfig?.customName || customName,
+                    retryContext: newRetryContext
+                });
             }
 
             CONFIG._requestFailed = true;
@@ -627,20 +577,15 @@ export async function handleStreamRequest(
                     // 清理旧上游转换器的流式状态；递归帧还会按新 provider 再清理一次。
                     resetConverterStreamState(toProvider, streamRequestId, model);
                     // 递归调用，使用新的服务
-                    return await handleStreamRequest(
-                        res,
-                        result.service,
-                        result.actualModel || model,
-                        requestBody,
-                        fromProvider,
-                        result.actualProviderType || toProvider,
-                        PROMPT_LOG_MODE,
-                        PROMPT_LOG_FILENAME,
-                        providerPoolManager,
-                        result.uuid ?? null,
-                        result.serviceConfig?.customName || customName,
-                        newRetryContext
-                    );
+                    return await handleStreamRequest({
+                        ...context,
+                        service: result.service,
+                        model: result.actualModel || model,
+                        toProvider: result.actualProviderType || toProvider,
+                        pooluuid: result.uuid ?? null,
+                        customName: result.serviceConfig?.customName || customName,
+                        retryContext: newRetryContext
+                    });
                 } else {
                     if (result && result.uuid && providerPoolManager) {
                         providerPoolManager.releaseSlot(result.actualProviderType || toProvider, result.uuid);
@@ -683,14 +628,8 @@ export async function handleStreamRequest(
         // 释放并发插槽（幂等）
         releaseCurrentSlot();
 
-        // 只在首次请求时移除事件监听器（避免重试时误删）
-        if (!isRetry) {
-            res.off('close', onClientClose);
-            res.off('error', onClientError);
-            if (typeof combinedSignal.removeEventListener === 'function') {
-                combinedSignal.removeEventListener('abort', onCombinedAbort);
-            }
-        }
+        // 解绑首帧注册的监听器（非首帧为 no-op，内部已保证幂等）
+        detachStreamScope();
         
         // 只在非重试或重试失败时才发送结束标记
         // 如果是重试成功，递归调用会处理结束标记
@@ -1110,9 +1049,36 @@ export async function handleContentGenerationRequest(
     }
     
     if (isStream) {
-        await handleStreamRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, actualUuid, actualCustomName, retryContext);
+        const handlerContext: RequestHandlerContext = {
+            res,
+            service,
+            model,
+            requestBody: processedRequestBody,
+            fromProvider,
+            toProvider,
+            promptLogMode: CONFIG.PROMPT_LOG_MODE,
+            promptLogFilename: PROMPT_LOG_FILENAME,
+            providerPoolManager,
+            pooluuid: actualUuid,
+            customName: actualCustomName,
+            retryContext
+        };
+        await handleStreamRequest(handlerContext);
     } else {
-        await handleUnaryRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, actualUuid, actualCustomName, retryContext);
+        await handleUnaryRequest({
+            res,
+            service,
+            model,
+            requestBody: processedRequestBody,
+            fromProvider,
+            toProvider,
+            promptLogMode: CONFIG.PROMPT_LOG_MODE,
+            promptLogFilename: PROMPT_LOG_FILENAME,
+            providerPoolManager,
+            pooluuid: actualUuid,
+            customName: actualCustomName,
+            retryContext
+        });
     }
 
     // 同步更新模型名称（如果处理器内部或提供者发生了回退）

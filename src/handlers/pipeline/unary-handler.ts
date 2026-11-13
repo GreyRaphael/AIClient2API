@@ -39,7 +39,7 @@ import {
 } from './protocol-plan.ts';
 import { createErrorResponse } from './error-response.ts';
 import type { PipelineError } from './error-types.ts';
-import type { PipelineRetryContext } from '../stream-lifecycle.ts';
+import type { RequestHandlerContext } from '../stream-lifecycle.ts';
 import type { ServerResponse } from 'node:http';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 
@@ -195,20 +195,22 @@ export async function resolveEmptyUpstreamResponseRetry(
     }
 }
 
-export async function handleUnaryRequest(
-    res: ServerResponse,
-    service: DynamicPayload,
-    model: string,
-    requestBody: DynamicPayload,
-    fromProvider: string,
-    toProvider: string,
-    PROMPT_LOG_MODE: string,
-    PROMPT_LOG_FILENAME: string,
-    providerPoolManager: DynamicPayload,
-    pooluuid: string | null,
-    customName: string | null,
-    retryContext: PipelineRetryContext | null = null
-) {
+export async function handleUnaryRequest(context: RequestHandlerContext) {
+    const {
+        res,
+        service,
+        requestBody,
+        fromProvider,
+        toProvider,
+        promptLogMode: PROMPT_LOG_MODE,
+        promptLogFilename: PROMPT_LOG_FILENAME,
+        providerPoolManager,
+        pooluuid,
+        customName,
+        retryContext
+    } = context;
+    // model 可能被上游回退改写（见下方 Antigravity 自动降级同步），故必须是 let。
+    let model = context.model;
     // 重试上下文：包含 CONFIG 和重试计数
     // maxRetries: 凭证切换最大次数（跨凭证），默认 5 次
     const maxRetries = retryContext?.maxRetries ?? 5;
@@ -363,20 +365,15 @@ export async function handleUnaryRequest(
                     clientSignal
                 };
 
-                return await handleUnaryRequest(
-                    res,
-                    result.service,
-                    result.actualModel || model,
-                    requestBody,
-                    fromProvider,
-                    result.actualProviderType || toProvider,
-                    PROMPT_LOG_MODE,
-                    PROMPT_LOG_FILENAME,
-                    providerPoolManager,
-                    result.uuid,
-                    result.serviceConfig?.customName || customName,
-                    newRetryContext
-                );
+                return await handleUnaryRequest({
+                    ...context,
+                    service: result.service,
+                    model: result.actualModel || model,
+                    toProvider: result.actualProviderType || toProvider,
+                    pooluuid: result.uuid,
+                    customName: result.serviceConfig?.customName || customName,
+                    retryContext: newRetryContext
+                });
             }
 
             CONFIG._requestFailed = true;
@@ -433,20 +430,15 @@ export async function handleUnaryRequest(
                     };
                     
                     // 递归调用，使用新的服务
-                    return await handleUnaryRequest(
-                        res,
-                        result.service,
-                        result.actualModel || model,
-                        requestBody,
-                        fromProvider,
-                        result.actualProviderType || toProvider,
-                        PROMPT_LOG_MODE,
-                        PROMPT_LOG_FILENAME,
-                        providerPoolManager,
-                        result.uuid ?? null,
-                        result.serviceConfig?.customName || customName,
-                        newRetryContext
-                    );
+                    return await handleUnaryRequest({
+                        ...context,
+                        service: result.service,
+                        model: result.actualModel || model,
+                        toProvider: result.actualProviderType || toProvider,
+                        pooluuid: result.uuid ?? null,
+                        customName: result.serviceConfig?.customName || customName,
+                        retryContext: newRetryContext
+                    });
                 } else {
                     if (result && result.uuid && providerPoolManager) {
                         providerPoolManager.releaseSlot(result.actualProviderType || toProvider, result.uuid);

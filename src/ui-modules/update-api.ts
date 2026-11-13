@@ -729,7 +729,7 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
 /**
  * 检查更新
  */
-export async function handleCheckUpdate(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleCheckUpdate(res: ServerResponse): Promise<boolean> {
     try {
         const updateInfo = await checkForUpdates();
         res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -335,7 +335,7 @@ export async function handleUIApiRequests(
 
     // 健康检查接口（用于前端token验证）
     if (method === 'GET' && pathParam === '/api/health') {
-        return await systemApi.handleHealthCheck(req, res);
+        return await systemApi.handleHealthCheck(res);
     }
     
     // Handle UI management API requests (需要token验证)
@@ -377,7 +377,7 @@ export async function handleUIApiRequests(
 
     // Get configuration
     if (method === 'GET' && pathParam === '/api/config') {
-        return await configApi.handleGetConfig(req, res, currentConfig);
+        return await configApi.handleGetConfig(res, currentConfig);
     }
 
     // Reveal a single masked secret from the config (eye button)
@@ -397,7 +397,7 @@ export async function handleUIApiRequests(
 
     // Get access overview information for the simplified connection page
     if (method === 'GET' && pathParam === '/api/access-info') {
-        return await accessApi.handleGetAccessInfo(req, res, currentConfig, providerPoolManager);
+        return await accessApi.handleGetAccessInfo(res, currentConfig, providerPoolManager);
     }
 
     // Update configuration
@@ -407,54 +407,54 @@ export async function handleUIApiRequests(
 
     // Get system information
     if (method === 'GET' && pathParam === '/api/system') {
-        return await systemApi.handleGetSystem(req, res);
+        return await systemApi.handleGetSystem(res);
     }
 
     // Get network diagnostics
     if (method === 'GET' && pathParam === '/api/system/network-diagnostics') {
-        return await systemApi.handleGetNetworkDiagnostics(req, res);
+        return await systemApi.handleGetNetworkDiagnostics(res);
     }
 
     // Download today's log file
     if (method === 'GET' && pathParam === '/api/system/download-log') {
-        return await systemApi.handleDownloadTodayLog(req, res);
+        return await systemApi.handleDownloadTodayLog(res);
     }
 
     // Clear today's log file
     if (method === 'POST' && pathParam === '/api/system/clear-log') {
-        return await systemApi.handleClearTodayLog(req, res);
+        return await systemApi.handleClearTodayLog(res);
     }
 
     // Get provider pools summary
     if (method === 'GET' && pathParam === '/api/providers') {
-        return await providerApi.handleGetProviders(req, res, currentConfig, providerPoolManager);
+        return await providerApi.handleGetProviders(res, currentConfig, providerPoolManager);
     }
 
     // Get supported provider types based on registered adapters
     if (method === 'GET' && pathParam === '/api/providers/supported') {
-        return await providerApi.handleGetSupportedProviders(req, res, currentConfig, providerPoolManager);
+        return await providerApi.handleGetSupportedProviders(res, currentConfig, providerPoolManager);
     }
 
     // Get specific provider type details
     const providerTypeMatch = pathParam.match(/^\/api\/providers\/([^\/]+)$/);
     if (method === 'GET' && providerTypeMatch) {
         const providerType = decodeURIComponent(providerTypeMatch[1]);
-        return await providerApi.handleGetProviderType(req, res, currentConfig, providerPoolManager, providerType);
+        return await providerApi.handleGetProviderType(res, currentConfig, providerPoolManager, providerType);
     }
 
     // Get model metadata for all providers (dashboard parameter pills)
     if (method === 'GET' && pathParam === '/api/provider-models/metadata') {
-        return await providerApi.handleGetProviderModelMetadata(req, res, currentConfig, providerPoolManager);
+        return await providerApi.handleGetProviderModelMetadata(res, currentConfig, providerPoolManager);
     }
 
     // Get available models for all providers or specific provider type
     if (method === 'GET' && pathParam === '/api/provider-models') {
-        return await providerApi.handleGetProviderModels(req, res, currentConfig, providerPoolManager);
+        return await providerApi.handleGetProviderModels(res, currentConfig, providerPoolManager);
     }
 
     // Force refresh model capability (bypass TTL)
     if (method === 'POST' && pathParam === '/api/provider-models/refresh') {
-        return await providerApi.handleRefreshProviderModels(req, res, currentConfig, providerPoolManager);
+        return await providerApi.handleRefreshProviderModels(res, currentConfig, providerPoolManager);
     }
 
     // Add new provider configuration
@@ -467,7 +467,7 @@ export async function handleUIApiRequests(
     const resetHealthMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/reset-health$/);
     if (method === 'POST' && resetHealthMatch) {
         const providerType = decodeURIComponent(resetHealthMatch[1]);
-        return await providerApi.handleResetProviderHealth(req, res, currentConfig, providerPoolManager, providerType);
+        return await providerApi.handleResetProviderHealth(res, currentConfig, providerPoolManager, providerType);
     }
 
     // Perform health check for all providers of a specific type
@@ -475,7 +475,7 @@ export async function handleUIApiRequests(
     const healthCheckMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/health-check$/);
     if (method === 'POST' && healthCheckMatch) {
         const providerType = decodeURIComponent(healthCheckMatch[1]);
-        return await providerApi.handleHealthCheck(req, res, currentConfig, providerPoolManager, providerType);
+        return await providerApi.handleHealthCheck(res, currentConfig, providerPoolManager, providerType);
     }
 
     // Detect available models for a specific provider node
@@ -491,7 +491,7 @@ export async function handleUIApiRequests(
     if (method === 'POST' && singleHealthCheckMatch) {
         const providerType = decodeURIComponent(singleHealthCheckMatch[1]);
         const providerUuid = singleHealthCheckMatch[2];
-        return await providerApi.handleSingleProviderHealthCheck(req, res, currentConfig, providerPoolManager, providerType, providerUuid);
+        return await providerApi.handleSingleProviderHealthCheck(res, currentConfig, providerPoolManager, providerType, providerUuid);
     }
 
     // Delete all unhealthy providers for a specific type
@@ -499,7 +499,7 @@ export async function handleUIApiRequests(
     const deleteUnhealthyMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/delete-unhealthy$/);
     if (method === 'DELETE' && deleteUnhealthyMatch) {
         const providerType = decodeURIComponent(deleteUnhealthyMatch[1]);
-        return await providerApi.handleDeleteUnhealthyProviders(req, res, currentConfig, providerPoolManager, providerType);
+        return await providerApi.handleDeleteUnhealthyProviders(res, currentConfig, providerPoolManager, providerType);
     }
 
     // Refresh UUIDs for all unhealthy providers of a specific type
@@ -507,7 +507,7 @@ export async function handleUIApiRequests(
     const refreshUnhealthyUuidsMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/refresh-unhealthy-uuids$/);
     if (method === 'POST' && refreshUnhealthyUuidsMatch) {
         const providerType = decodeURIComponent(refreshUnhealthyUuidsMatch[1]);
-        return await providerApi.handleRefreshUnhealthyUuids(req, res, currentConfig, providerPoolManager, providerType);
+        return await providerApi.handleRefreshUnhealthyUuids(res, currentConfig, providerPoolManager, providerType);
     }
 
     // Disable/Enable specific provider configuration
@@ -516,7 +516,7 @@ export async function handleUIApiRequests(
         const providerType = decodeURIComponent(disableEnableProviderMatch[1]);
         const providerUuid = disableEnableProviderMatch[2];
         const action = disableEnableProviderMatch[3];
-        return await providerApi.handleDisableEnableProvider(req, res, currentConfig, providerPoolManager, providerType, providerUuid, action);
+        return await providerApi.handleDisableEnableProvider(res, currentConfig, providerPoolManager, providerType, providerUuid, action);
     }
 
     // Refresh UUID for specific provider configuration
@@ -524,7 +524,7 @@ export async function handleUIApiRequests(
     if (method === 'POST' && refreshUuidMatch) {
         const providerType = decodeURIComponent(refreshUuidMatch[1]);
         const providerUuid = refreshUuidMatch[2];
-        return await providerApi.handleRefreshProviderUuid(req, res, currentConfig, providerPoolManager, providerType, providerUuid);
+        return await providerApi.handleRefreshProviderUuid(res, currentConfig, providerPoolManager, providerType, providerUuid);
     }
 
     // Update specific provider configuration
@@ -540,7 +540,7 @@ export async function handleUIApiRequests(
     if (method === 'DELETE' && updateProviderMatch) {
         const providerType = decodeURIComponent(updateProviderMatch[1]);
         const providerUuid = updateProviderMatch[2];
-        return await providerApi.handleDeleteProvider(req, res, currentConfig, providerPoolManager, providerType, providerUuid);
+        return await providerApi.handleDeleteProvider(res, currentConfig, providerPoolManager, providerType, providerUuid);
     }
 
     // Generate OAuth authorization URL for providers
@@ -562,45 +562,45 @@ export async function handleUIApiRequests(
 
     // Get upload configuration files list
     if (method === 'GET' && pathParam === '/api/upload-configs') {
-        return await uploadConfigApi.handleGetUploadConfigs(req, res, currentConfig, providerPoolManager);
+        return await uploadConfigApi.handleGetUploadConfigs(res, currentConfig, providerPoolManager);
     }
 
     // View specific configuration file
     const viewConfigMatch = pathParam.match(/^\/api\/upload-configs\/view\/(.+)$/);
     if (method === 'GET' && viewConfigMatch) {
         const filePath = decodeURIComponent(viewConfigMatch[1]);
-        return await uploadConfigApi.handleViewConfigFile(req, res, filePath);
+        return await uploadConfigApi.handleViewConfigFile(res, filePath);
     }
 
     // Download specific configuration file
     const downloadConfigMatch = pathParam.match(/^\/api\/upload-configs\/download\/(.+)$/);
     if (method === 'GET' && downloadConfigMatch) {
         const filePath = decodeURIComponent(downloadConfigMatch[1]);
-        return await uploadConfigApi.handleDownloadConfigFile(req, res, filePath);
+        return await uploadConfigApi.handleDownloadConfigFile(res, filePath);
     }
 
     // Delete specific configuration file
     const deleteConfigMatch = pathParam.match(/^\/api\/upload-configs\/delete\/(.+)$/);
     if (method === 'DELETE' && deleteConfigMatch) {
         const filePath = decodeURIComponent(deleteConfigMatch[1]);
-        return await uploadConfigApi.handleDeleteConfigFile(req, res, filePath);
+        return await uploadConfigApi.handleDeleteConfigFile(res, filePath);
     }
 
     // Force expire specific configuration file
     const forceExpireConfigMatch = pathParam.match(/^\/api\/upload-configs\/force-expire\/(.+)$/);
     if (method === 'POST' && forceExpireConfigMatch) {
         const filePath = decodeURIComponent(forceExpireConfigMatch[1]);
-        return await uploadConfigApi.handleForceExpireConfig(req, res, filePath, currentConfig, providerPoolManager);
+        return await uploadConfigApi.handleForceExpireConfig(res, filePath, currentConfig, providerPoolManager);
     }
 
     // Download all configs as zip
     if (method === 'GET' && pathParam === '/api/upload-configs/download-all') {
-        return await uploadConfigApi.handleDownloadAllConfigs(req, res);
+        return await uploadConfigApi.handleDownloadAllConfigs(res);
     }
 
     // Delete all unbound config files
     if (method === 'DELETE' && pathParam === '/api/upload-configs/delete-unbound') {
-        return await uploadConfigApi.handleDeleteUnboundConfigs(req, res, currentConfig, providerPoolManager);
+        return await uploadConfigApi.handleDeleteUnboundConfigs(res, currentConfig, providerPoolManager);
     }
 
     // Quick link config to corresponding provider based on directory
@@ -618,12 +618,12 @@ export async function handleUIApiRequests(
     if (method === 'POST' && usageResetInstanceMatch) {
         const providerType = decodeURIComponent(usageResetInstanceMatch[1]);
         const providerUuid = decodeURIComponent(usageResetInstanceMatch[2]);
-        return await usageApi.handleResetSingleInstanceUsage(req, res, currentConfig, providerPoolManager, providerType, providerUuid);
+        return await usageApi.handleResetSingleInstanceUsage(res, currentConfig, providerPoolManager, providerType, providerUuid);
     }
 
     // Get supported providers for usage query
     if (method === 'GET' && pathParam === '/api/usage/supported-providers') {
-        return await usageApi.handleGetSupportedProviders(req, res);
+        return await usageApi.handleGetSupportedProviders(res);
     }
 
     // Get usage limits for a specific provider type
@@ -638,12 +638,12 @@ export async function handleUIApiRequests(
     if (method === 'GET' && usageInstanceMatch) {
         const providerType = decodeURIComponent(usageInstanceMatch[1]);
         const providerUuid = decodeURIComponent(usageInstanceMatch[2]);
-        return await usageApi.handleGetSingleInstanceUsage(req, res, currentConfig, providerPoolManager, providerType, providerUuid);
+        return await usageApi.handleGetSingleInstanceUsage(res, currentConfig, providerPoolManager, providerType, providerUuid);
     }
 
     // Check for updates - compare local VERSION with latest git tag
     if (method === 'GET' && pathParam === '/api/check-update') {
-        return await updateApi.handleCheckUpdate(req, res);
+        return await updateApi.handleCheckUpdate(res);
     }
 
     // Perform update - git fetch and checkout to latest tag
@@ -653,17 +653,17 @@ export async function handleUIApiRequests(
 
     // Reload configuration files
     if (method === 'POST' && pathParam === '/api/reload-config') {
-        return await configApi.handleReloadConfig(req, res, providerPoolManager);
+        return await configApi.handleReloadConfig(res, providerPoolManager);
     }
 
     // Restart service (worker process)
     if (method === 'POST' && pathParam === '/api/restart-service') {
-        return await systemApi.handleRestartService(req, res);
+        return await systemApi.handleRestartService(res);
     }
 
     // Get service mode information
     if (method === 'GET' && pathParam === '/api/service-mode') {
-        return await systemApi.handleGetServiceMode(req, res);
+        return await systemApi.handleGetServiceMode(res);
     }
 
     // Help and API guide for remote AI calling
@@ -712,7 +712,7 @@ export async function handleUIApiRequests(
 
     // Custom models management
     if (method === 'GET' && pathParam === '/api/custom-models') {
-        return await customModelsApi.handleGetCustomModels(req, res, currentConfig);
+        return await customModelsApi.handleGetCustomModels(res, currentConfig);
     }
 
     if (method === 'POST' && pathParam === '/api/custom-models') {
@@ -726,7 +726,7 @@ export async function handleUIApiRequests(
             return await customModelsApi.handleUpdateCustomModel(req, res, currentConfig, modelId);
         }
         if (method === 'DELETE') {
-            return await customModelsApi.handleDeleteCustomModel(req, res, currentConfig, modelId);
+            return await customModelsApi.handleDeleteCustomModel(res, currentConfig, modelId);
         }
     }
 

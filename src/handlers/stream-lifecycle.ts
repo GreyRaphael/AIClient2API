@@ -135,3 +135,144 @@ export function writeStreamCompletion({
         }
     }
 }
+
+/**
+ * 一次请求级处理的不可变上下文。
+ *
+ * 12 个位置参数（handleStreamRequest / handleUnaryRequest 逐位同构）的问题不在个数，
+ * 而在四个具体后果：
+ * 1. 递归重试时 12 行实参逐字重复两遍（request-pipeline 里两处自调用），
+ *    加一个参数要改 5 个地方，漏一处就是运行时 undefined；
+ * 2. 第 7/8 位是全局配置切片，却穿越递归层层透传；
+ * 3. 第 9-11 位同属「号池选中结果」一个概念，被拆成 3 个裸参数；
+ * 4. 测试里平铺 12 个实参，与实现强耦合。
+ *
+ * 改成对象后，递归帧只需 `{ ...ctx, retry: nextRetry }`。
+ */
+export interface RequestHandlerContext {
+    /** 下游 HTTP 响应对象。 */
+    res: ServerResponse;
+    /** 上游服务实例（已按号池选中结果解析）。 */
+    service: DynamicPayload;
+    /** 本次请求的模型名。 */
+    model: string;
+    /** 已转换、待发往上游的请求体。 */
+    requestBody: DynamicPayload;
+    /** 下游客户端协议前缀。 */
+    fromProvider: string;
+    /** 上游 provider 类型。 */
+    toProvider: string;
+    /** CONFIG.PROMPT_LOG_MODE 切片。 */
+    promptLogMode: string;
+    /** CONFIG.PROMPT_LOG_FILENAME 切片。 */
+    promptLogFilename: string;
+    /** 号池管理器。 */
+    providerPoolManager: DynamicPayload;
+    /** 号池为本次请求选中的节点 uuid。 */
+    pooluuid: string | null;
+    /** 号池为本次请求选中的节点自定义名称。 */
+    customName: string | null;
+    /** 重试帧状态；最外层为 null。 */
+    retryContext: PipelineRetryContext | null;
+}
+
+/** 流式连接的生命周期与取消控制。 */
+export interface StreamAbortScope {
+    /** 用于中止本次上游请求。 */
+    abortController: AbortController;
+    /** 上游信号 + 客户端信号的组合（供 axios/stream 使用）。 */
+    combinedSignal: AbortSignal;
+    /** 客户端是否已断开（对象引用，跨重试帧共享）。 */
+    clientDisconnected: { value: boolean };
+    /** 下游请求的 signal（若存在），供转换器/上层复用。 */
+    clientSignal: AbortSignal | undefined;
+    /** 解绑本次注册的监听器（非首帧为 no-op）。 */
+    detach(): void;
+}
+
+export interface CreateStreamAbortScopeOptions {
+    res: ServerResponse;
+    /** 递归重试帧传入上一帧的 AbortController / 客户端信号以复用连接。 */
+    retryContext: PipelineRetryContext | null;
+    /** 是否为首帧：只有首帧注册 res 级监听器，避免重试时重复注册。 */
+    isRetryFrame: boolean;
+}
+
+/**
+ * 建立流式请求的连接生命周期与取消信号。
+ *
+ * 从 `handleStreamRequest` 抽出：这段逻辑此前混在 600 行的编排函数里，
+ * 但它与「帧处理」完全正交 —— 只关心「什么情况下应当中止上游」，
+ * 且是唯一会触碰 `res.on('close'|'error')` 的地方。抽出来后
+ * 「监听器只在首帧注册」这条容易踩坑的约束有了单一归属点。
+ */
+export function createStreamAbortScope({
+    res,
+    retryContext,
+    isRetryFrame
+}: CreateStreamAbortScopeOptions): StreamAbortScope {
+    // 共享 clientDisconnected：重试帧继承上一帧的状态，首帧新建对象。
+    const clientDisconnected = isRetryFrame
+        ? (retryContext?.clientDisconnected ?? { value: false })
+        : { value: false };
+
+    const abortController = retryContext?.abortController ?? new AbortController();
+    const signals: AbortSignal[] = [abortController.signal];
+
+    const clientSignal = retryContext?.clientSignal ?? (res as { req?: { signal?: AbortSignal } }).req?.signal;
+    if (clientSignal && typeof clientSignal.addEventListener === 'function') {
+        if (clientSignal.aborted) {
+            clientDisconnected.value = true;
+            try { abortController.abort(clientSignal.reason); } catch { /* 已中止 */ }
+        } else {
+            signals.push(clientSignal);
+        }
+    }
+
+    const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+
+    const onAbort = () => {
+        clientDisconnected.value = true;
+        logger.info('[Stream] Client disconnected or stream aborted');
+    };
+
+    if (combinedSignal.aborted) {
+        onAbort();
+    } else if (typeof combinedSignal.addEventListener === 'function') {
+        combinedSignal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    const onClientClose = () => {
+        clientDisconnected.value = true;
+        if (!abortController.signal.aborted) {
+            try { abortController.abort(new Error('Client disconnected')); } catch { /* 已中止 */ }
+        }
+        logger.info('[Stream] Client disconnected, stopping stream processing');
+    };
+
+    const onClientError = (err: Error) => {
+        clientDisconnected.value = true;
+        if (!abortController.signal.aborted) {
+            try { abortController.abort(err); } catch { /* 已中止 */ }
+        }
+        logger.error('[Stream] Response stream error:', err.message);
+    };
+
+    const isFirstFrame = !isRetryFrame;
+    if (isFirstFrame) {
+        res.on('close', onClientClose);
+        res.on('error', onClientError);
+    }
+
+    return {
+        abortController,
+        combinedSignal,
+        clientDisconnected,
+        clientSignal,
+        detach() {
+            if (!isFirstFrame) return;
+            res.off('close', onClientClose);
+            res.off('error', onClientError);
+        }
+    };
+}

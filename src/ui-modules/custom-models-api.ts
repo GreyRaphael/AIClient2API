@@ -18,7 +18,7 @@ function syncRuntimeCustomModels(currentConfig: DynamicPayload, customModels: Dy
 /**
  * 获取自定义模型列表
  */
-export async function handleGetCustomModels(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
+export async function handleGetCustomModels(res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
     const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
     let customModels: DynamicPayload[] = [];
 
@@ -45,14 +45,14 @@ export async function handleAddCustomModel(req: IncomingMessage, res: ServerResp
     try {
         const body = await getRequestBody(req);
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        return await withFileLock(filePath, () => _handleAddCustomModel(req, res, currentConfig, body));
+        return await withFileLock(filePath, () => _handleAddCustomModel(res, currentConfig, body));
     } catch (caught) { const err = caught as DynamicPayload;
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleAddCustomModel(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, body: DynamicPayload): Promise<boolean> {
+async function _handleAddCustomModel(res: ServerResponse, currentConfig: DynamicPayload, body: DynamicPayload): Promise<boolean> {
     try {
         const newModel = body;
 
@@ -113,14 +113,14 @@ export async function handleUpdateCustomModel(req: IncomingMessage, res: ServerR
     try {
         const body = await getRequestBody(req);
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        return await withFileLock(filePath, () => _handleUpdateCustomModel(req, res, currentConfig, modelId, body));
+        return await withFileLock(filePath, () => _handleUpdateCustomModel(res, currentConfig, modelId, body));
     } catch (caught) { const err = caught as DynamicPayload;
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleUpdateCustomModel(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, modelId: string, body: DynamicPayload): Promise<boolean> {
+async function _handleUpdateCustomModel(res: ServerResponse, currentConfig: DynamicPayload, modelId: string, body: DynamicPayload): Promise<boolean> {
     try {
         const updatedModel = body;
 
@@ -180,17 +180,17 @@ async function _handleUpdateCustomModel(req: IncomingMessage, res: ServerRespons
 /**
  * 删除自定义模型
  */
-export async function handleDeleteCustomModel(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, modelId: string): Promise<boolean> {
+export async function handleDeleteCustomModel(res: ServerResponse, currentConfig: DynamicPayload, modelId: string): Promise<boolean> {
     try {
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        return await withFileLock(filePath, () => _handleDeleteCustomModel(req, res, currentConfig, modelId));
+        return await withFileLock(filePath, () => _handleDeleteCustomModel(res, currentConfig, modelId));
     } catch (caught) { const err = caught as DynamicPayload;
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
         return true;
     }
 }
-async function _handleDeleteCustomModel(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, modelId: string): Promise<boolean> {
+async function _handleDeleteCustomModel(res: ServerResponse, currentConfig: DynamicPayload, modelId: string): Promise<boolean> {
     try {
         const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
         let customModels: DynamicPayload[] = [];

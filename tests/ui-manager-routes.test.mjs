@@ -15,7 +15,7 @@ jest.mock('../src/ui-modules/auth.ts', () => ({
 const actualProviderApi = await import('../src/ui-modules/provider-api.ts');
 jest.mock('../src/ui-modules/provider-api.ts', () => ({
     ...actualProviderApi,
-    handleGetProviderModelMetadata: jest.fn(async (req, res) => {
+    handleGetProviderModelMetadata: jest.fn(async (res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end('{}');
         return true;
@@ -45,9 +45,8 @@ describe('UI manager route dispatch', () => {
         expect(handled).toBe(true);
         expect(auth.checkAuth).toHaveBeenCalled();
         expect(providerApi.handleGetProviderModelMetadata).toHaveBeenCalledTimes(1);
-        expect(providerApi.handleGetProviderModelMetadata.mock.calls[0].slice(0, 2)).toEqual([
-            { headers: {} },
-            res
-        ]);
+        // 该 handler 不再接收 req（它只读 provider 池，不读请求），
+        // 参数表首项即 res；这条断言同时防止 req 被无意加回来。
+        expect(providerApi.handleGetProviderModelMetadata.mock.calls[0][0]).toBe(res);
     });
 });

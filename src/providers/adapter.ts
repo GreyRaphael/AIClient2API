@@ -49,7 +49,7 @@ export class ApiServiceAdapter {
      * @param {object} requestBody - 请求体
      * @returns {Promise<object>} - API响应
      */
-    async generateContent(model: string, requestBody: DynamicPayload): Promise<DynamicPayload> {
+    async generateContent(_model: string, _requestBody: DynamicPayload): Promise<DynamicPayload> {
         throw new Error("Method 'generateContent()' must be implemented.");
     }
 
@@ -59,7 +59,7 @@ export class ApiServiceAdapter {
      * @param {object} requestBody - 请求体
      * @returns {AsyncIterable<object>} - API响应流
      */
-    async *generateContentStream(model: string, requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
+    async *generateContentStream(_model: string, _requestBody: DynamicPayload): AsyncGenerator<DynamicPayload, void, unknown> {
         throw new Error("Method 'generateContentStream()' must be implemented.");
     }
 

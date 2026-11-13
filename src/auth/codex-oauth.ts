@@ -1007,7 +1007,7 @@ export async function refreshCodexTokensWithRetry(refreshToken: string, config: 
  * @param {Object} options - 选项
  * @returns {Promise<Object>} 返回认证结果
  */
-export async function handleCodexOAuth(currentConfig: CodexAuthConfig, options: Record<string, unknown> = {}) {
+export async function handleCodexOAuth(currentConfig: CodexAuthConfig, _options: Record<string, unknown> = {}) {
     const auth = new CodexAuth(currentConfig);
 
     try {

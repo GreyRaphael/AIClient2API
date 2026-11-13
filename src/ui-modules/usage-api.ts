@@ -386,7 +386,7 @@ async function updateSingleInstanceInCache(
 /**
  * 获取支持用量查询的提供商列表
  */
-export async function handleGetSupportedProviders(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleGetSupportedProviders(res: ServerResponse): Promise<boolean> {
     try {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(supportedProviders));
@@ -500,7 +500,7 @@ export async function handleGetUsage(
  * 获取特定提供商实例的用量限制
  */
 export async function handleGetSingleInstanceUsage(
-    req: IncomingMessage,
+    
     res: ServerResponse,
     currentConfig: DynamicPayload,
     providerPoolManager: ProviderPoolManager | null,
@@ -554,7 +554,7 @@ export async function handleGetSingleInstanceUsage(
 }
 
 export async function handleResetSingleInstanceUsage(
-    req: IncomingMessage,
+    
     res: ServerResponse,
     currentConfig: DynamicPayload,
     providerPoolManager: ProviderPoolManager | null,

@@ -43,7 +43,7 @@ export abstract class BaseConverter {
      * 子类只应清理「流式状态」，不得清理请求级工具名映射、custom tool 登记等
      * 跨重试仍需复用的状态。默认空实现，兼容不持有流式状态的转换器。
      */
-    resetStreamState(requestId?: string | null): void {
+    resetStreamState(_requestId?: string | null): void {
         // 默认无流式状态可清理
     }
 }

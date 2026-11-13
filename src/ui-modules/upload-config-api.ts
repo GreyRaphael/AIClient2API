@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 
 
@@ -42,7 +42,7 @@ function checkConfigPath(fullPath: string, action: string): { denied: string | n
 /**
  * 获取上传配置文件列表
  */
-export async function handleGetUploadConfigs(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
+export async function handleGetUploadConfigs(res: ServerResponse, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
     try {
         const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -63,7 +63,7 @@ export async function handleGetUploadConfigs(req: IncomingMessage, res: ServerRe
 /**
  * 查看特定配置文件
  */
-export async function handleViewConfigFile(req: IncomingMessage, res: ServerResponse, filePath: string): Promise<boolean> {
+export async function handleViewConfigFile(res: ServerResponse, filePath: string): Promise<boolean> {
     try {
         const fullPath = path.join(process.cwd(), filePath);
 
@@ -112,7 +112,7 @@ export async function handleViewConfigFile(req: IncomingMessage, res: ServerResp
 /**
  * 下载特定配置文件
  */
-export async function handleDownloadConfigFile(req: IncomingMessage, res: ServerResponse, filePath: string): Promise<boolean> {
+export async function handleDownloadConfigFile(res: ServerResponse, filePath: string): Promise<boolean> {
     try {
         const fullPath = path.join(process.cwd(), filePath);
 
@@ -159,7 +159,7 @@ export async function handleDownloadConfigFile(req: IncomingMessage, res: Server
 /**
  * 删除特定配置文件
  */
-export async function handleDeleteConfigFile(req: IncomingMessage, res: ServerResponse, filePath: string): Promise<boolean> {
+export async function handleDeleteConfigFile(res: ServerResponse, filePath: string): Promise<boolean> {
     try {
         const fullPath = path.join(process.cwd(), filePath);
 
@@ -213,7 +213,7 @@ export async function handleDeleteConfigFile(req: IncomingMessage, res: ServerRe
 /**
  * 下载所有配置为 zip
  */
-export async function handleDownloadAllConfigs(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleDownloadAllConfigs(res: ServerResponse): Promise<boolean> {
     try {
         const configsPath = path.join(process.cwd(), 'configs');
         if (!existsSync(configsPath)) {
@@ -273,7 +273,7 @@ export async function handleDownloadAllConfigs(req: IncomingMessage, res: Server
  * 批量删除未绑定的配置文件
  * 只删除 configs/xxx/ 子目录下的未绑定配置文件
  */
-export async function handleDeleteUnboundConfigs(req: IncomingMessage, res: ServerResponse, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
+export async function handleDeleteUnboundConfigs(res: ServerResponse, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
     try {
         // 首先获取所有配置文件及其绑定状态
         const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
@@ -379,7 +379,7 @@ export async function handleDeleteUnboundConfigs(req: IncomingMessage, res: Serv
 /**
  * 强制触发凭据关联节点的令牌刷新
  */
-export async function handleForceExpireConfig(req: IncomingMessage, res: ServerResponse, filePath: string, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
+export async function handleForceExpireConfig(res: ServerResponse, filePath: string, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
     try {
         const fullPath = path.join(process.cwd(), filePath);
 

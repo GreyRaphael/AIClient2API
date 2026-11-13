@@ -146,7 +146,7 @@ export function handleError(
  * @param {string|null} provider - 提供商类型
  * @returns {Object} 包含各类错误建议的对象
  */
-function _getProviderSpecificSuggestions(statusCode: number, provider: string | null): Record<string, string[]> {
+function _getProviderSpecificSuggestions(_statusCode: number, provider: string | null): Record<string, string[]> {
     const protocolPrefix = provider ? getProtocolPrefix(provider) : null;
     
     // 默认/通用建议

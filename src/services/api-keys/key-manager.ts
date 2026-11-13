@@ -750,7 +750,7 @@ export async function incrementUsage(
     pName: string = 'unknown',
     mName: string = 'unknown',
     usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedTokens?: number } = {},
-    requestId: string | null = null
+    _requestId: string | null = null
 ): Promise<boolean> {
     const store = ensureLoaded();
     const keyData = store[apiKey];

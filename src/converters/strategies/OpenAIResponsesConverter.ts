@@ -126,7 +126,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
     /**
      * 转换响应到目标协议
      */
-    convertResponse(data: CrossProtocolResponse, toProtocol: string, model?: string, requestId: string | null = null): CrossProtocolResponse {
+    convertResponse(data: CrossProtocolResponse, toProtocol: string, model?: string, _requestId: string | null = null): CrossProtocolResponse {
         switch (toProtocol) {
             case MODEL_PROTOCOL_PREFIX.OPENAI:
                 return this.toOpenAIResponse(data, model);
@@ -998,7 +998,7 @@ export class OpenAIResponsesConverter extends BaseConverter {
         };
     }
 
-    _responsesContentToClaudeBlocks(content: unknown, role = 'user'): DynamicPayload[] {
+    _responsesContentToClaudeBlocks(content: unknown, _role = 'user'): DynamicPayload[] {
         if (content === null || content === undefined) {
             return [];
         }
