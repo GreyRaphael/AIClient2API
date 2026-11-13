@@ -6,17 +6,10 @@
     "allowJs": true,
     "checkJs": true,
     "noEmit": true,
-    "strict": false,
-    // 以下两项为增量收紧（strict 仍未整体打开）：
-    // - strictNullChecks：null/undefined 参与类型系统。打开时仅 17 处需修，成本低于预期，
-    //   且能挡住「可选字段当成必有」这类线上最常见的崩溃来源。
-    // - noImplicitOverride：覆写必须显式标注。打开时 64 处（56 处在 adapter.ts），
-    //   顺带把「到底哪些方法真在覆写」变成可 grep 的事实。
-    "strictNullChecks": true,
+    // strict 已整体开启（原 strictNullChecks / noImplicitOverride / noUnusedLocals / noUnusedParameters 已涵盖于 strict 并额外保留后三项）
+    "strict": true,
     "noImplicitOverride": true,
     "noUnusedLocals": true,
-    // 未使用参数：原先 88 处（多为「接口要求但实现不用」）。契约要求保留的已用
-    // `_` 前缀标注（TS 对下划线开头的参数不计入），真正的死参数已删除。
     "noUnusedParameters": true,
     "skipLibCheck": true,
     "maxNodeModuleJsDepth": 0,

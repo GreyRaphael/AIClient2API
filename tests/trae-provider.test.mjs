@@ -612,7 +612,7 @@ describe('Trae Provider Implementation Tests', () => {
     });
 
     test('validateTraeProviderConfig prevents mismatched host and preserves custom mode', async () => {
-        const { validateTraeProviderConfig } = await import('../src/ui-modules/provider-api.ts');
+        const { validateTraeProviderConfig } = await import('../src/ui-modules/provider-pools-store.ts');
 
         // 1. ToB with mchost.guru should fail
         const errTobMismatch = validateTraeProviderConfig('trae', { TRAE_BASE_URL: 'https://trae-api-cn.mchost.guru' });

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { handleRevealSecret } from '../src/ui-modules/config-api.ts';
-import { handleRevealProviderSecret } from '../src/ui-modules/provider-api.ts';
+import { handleRevealProviderSecret } from '../src/ui-modules/provider-secrets.ts';
 
 function createResponse() {
     return {

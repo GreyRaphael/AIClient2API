@@ -81,7 +81,7 @@ function matchesRule(rule: DynamicPayload | null | undefined, model: unknown): b
 /**
  * 只拷贝已知能力字段，忽略描述性/未知字段，避免把拼写错误当成能力。
  * @param {Object} target
- * @param {any} patch
+ * @param {unknown} patch
  */
 function applyCapabilityPatch(target: ProviderCapabilities, patch: unknown): void {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return;
@@ -96,7 +96,7 @@ function applyCapabilityPatch(target: ProviderCapabilities, patch: unknown): voi
 /**
  * 应用一段能力配置（支持 flat / models / rules 三种形式）。
  * @param {Object} target
- * @param {any} config
+ * @param {unknown} config
  * @param {string} model
  */
 function applyCapabilityConfig(target: ProviderCapabilities, config: DynamicPayload | null | undefined, model: unknown): void {
@@ -130,7 +130,7 @@ function applyCapabilityConfig(target: ProviderCapabilities, config: DynamicPayl
  * 将上游模型元数据转换为能力覆盖。
  * 支持显式 `capabilities`，以及常见的 snake_case 布尔字段。
  * @param {Object} target
- * @param {any} metadata
+ * @param {unknown} metadata
  */
 function applyMetadataCapabilities(target: ProviderCapabilities, metadata: DynamicPayload | null | undefined): void {
     if (!metadata || typeof metadata !== 'object') return;

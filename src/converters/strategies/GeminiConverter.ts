@@ -43,7 +43,7 @@ function isClaudeCodeToolHeuristicsEnabled() {
 /**
  * 归一化 Gemini inlineData（兼容 camelCase 的 inlineData 与 snake_case 的 inline_data）。
  * 上游不同网关分别使用两种命名，只认一种会丢掉图片。
- * @param {any} part
+ * @param {unknown} part
  * @returns {{mimeType: string, data: string}|null}
  */
 function normalizeInlineData(part: DynamicPayload): { mimeType: string; data: string } | null {
@@ -57,7 +57,7 @@ function normalizeInlineData(part: DynamicPayload): { mimeType: string; data: st
 
 /**
  * 将 Gemini inlineData 渲染为可被 Chat/Responses 客户端消费的 Markdown data URL。
- * @param {any} part
+ * @param {unknown} part
  * @returns {string}
  */
 function inlineDataToMarkdown(part: DynamicPayload): string {

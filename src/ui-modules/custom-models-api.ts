@@ -7,6 +7,7 @@ import { getRequestBody } from '../utils/common.ts';
 import { broadcastEvent } from './event-broadcast.ts';
 import { CONFIG } from '../core/config-manager.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
+import { sendJson, sendJsonError, sendOperationError } from './http-helpers.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 function syncRuntimeCustomModels(currentConfig: DynamicPayload, customModels: DynamicPayload[]): void {
@@ -15,27 +16,29 @@ function syncRuntimeCustomModels(currentConfig: DynamicPayload, customModels: Dy
     CONFIG.customModels = normalizedCustomModels;
 }
 
+function customModelsPath(currentConfig: DynamicPayload): string {
+    return currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
+}
+
+function readCustomModelsFile(filePath: string): DynamicPayload[] | null {
+    if (!existsSync(filePath)) return null;
+    try {
+        return JSON.parse(readFileSync(filePath, 'utf-8')) as DynamicPayload[];
+    } catch (caught) {
+        const error = caught as DynamicPayload;
+        logger.warn('[UI API] Failed to parse custom models file:', error.message);
+        return null;
+    }
+}
+
 /**
  * 获取自定义模型列表
  */
 export async function handleGetCustomModels(res: ServerResponse, currentConfig: DynamicPayload): Promise<boolean> {
-    const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-    let customModels: DynamicPayload[] = [];
-
-    try {
-        if (existsSync(filePath)) {
-            const data = readFileSync(filePath, 'utf-8');
-            customModels = JSON.parse(data);
-        } else if (Array.isArray(currentConfig.customModels)) {
-            customModels = currentConfig.customModels;
-        }
-    } catch (caught) { const error = caught as DynamicPayload;
-        logger.warn('[UI API] Failed to load custom models:', error.message);
-    }
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(customModels));
-    return true;
+    const filePath = customModelsPath(currentConfig);
+    const loaded = readCustomModelsFile(filePath);
+    const customModels = loaded ?? (Array.isArray(currentConfig.customModels) ? currentConfig.customModels : []);
+    return sendJson(res, 200, customModels);
 }
 
 /**
@@ -46,10 +49,8 @@ export async function handleAddCustomModel(req: IncomingMessage, res: ServerResp
         const body = await getRequestBody(req);
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
         return await withFileLock(filePath, () => _handleAddCustomModel(res, currentConfig, body));
-    } catch (caught) { const err = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
-        return true;
+    } catch (err) {
+        return sendOperationError(res, 500, err, 'File operation failed: ');
     }
 }
 async function _handleAddCustomModel(res: ServerResponse, currentConfig: DynamicPayload, body: DynamicPayload): Promise<boolean> {
@@ -57,28 +58,15 @@ async function _handleAddCustomModel(res: ServerResponse, currentConfig: Dynamic
         const newModel = body;
 
         if (!newModel.id) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'Model ID is required' } }));
-            return true;
+            return sendJsonError(res, 400, 'Model ID is required');
         }
 
-        const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        let customModels: DynamicPayload[] = [];
-
-        if (existsSync(filePath)) {
-            try {
-                const data = readFileSync(filePath, 'utf-8');
-                customModels = JSON.parse(data);
-            } catch (caught) { const e = caught as DynamicPayload;
-                logger.warn('[UI API] Failed to parse custom models file:', e.message);
-            }
-        }
+        const filePath = customModelsPath(currentConfig);
+        const customModels = readCustomModelsFile(filePath) ?? [];
 
         // Check for duplicates
         if (customModels.some((m: DynamicPayload) => m.id === newModel.id)) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: `Model ID '${newModel.id}' already exists` } }));
-            return true;
+            return sendJsonError(res, 400, `Model ID '${newModel.id}' already exists`);
         }
 
         customModels.push(newModel);
@@ -96,13 +84,9 @@ async function _handleAddCustomModel(res: ServerResponse, currentConfig: Dynamic
             timestamp: new Date().toISOString()
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, model: newModel }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: error.message } }));
-        return true;
+        return sendJson(res, 200, { success: true, model: newModel });
+    } catch (error) {
+        return sendOperationError(res, 500, error);
     }
 }
 
@@ -114,41 +98,26 @@ export async function handleUpdateCustomModel(req: IncomingMessage, res: ServerR
         const body = await getRequestBody(req);
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
         return await withFileLock(filePath, () => _handleUpdateCustomModel(res, currentConfig, modelId, body));
-    } catch (caught) { const err = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
-        return true;
+    } catch (err) {
+        return sendOperationError(res, 500, err, 'File operation failed: ');
     }
 }
 async function _handleUpdateCustomModel(res: ServerResponse, currentConfig: DynamicPayload, modelId: string, body: DynamicPayload): Promise<boolean> {
     try {
         const updatedModel = body;
 
-        const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        let customModels: DynamicPayload[] = [];
-
-        if (existsSync(filePath)) {
-            try {
-                const data = readFileSync(filePath, 'utf-8');
-                customModels = JSON.parse(data);
-            } catch (caught) { const e = caught as DynamicPayload;
-                logger.warn('[UI API] Failed to parse custom models file:', e.message);
-            }
-        }
+        const filePath = customModelsPath(currentConfig);
+        const customModels = readCustomModelsFile(filePath) ?? [];
 
         const index = customModels.findIndex((m: DynamicPayload) => m.id === modelId);
         if (index === -1) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'Model not found' } }));
-            return true;
+            return sendJsonError(res, 404, 'Model not found');
         }
 
         // Ensure ID stays consistent if not explicitly changing it (or handle ID change)
         if (updatedModel.id && updatedModel.id !== modelId) {
             if (customModels.some((m: DynamicPayload) => m.id === updatedModel.id)) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: `New Model ID '${updatedModel.id}' already exists` } }));
-                return true;
+                return sendJsonError(res, 400, `New Model ID '${updatedModel.id}' already exists`);
             }
         }
 
@@ -167,13 +136,9 @@ async function _handleUpdateCustomModel(res: ServerResponse, currentConfig: Dyna
             timestamp: new Date().toISOString()
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, model: customModels[index] }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: error.message } }));
-        return true;
+        return sendJson(res, 200, { success: true, model: customModels[index] });
+    } catch (error) {
+        return sendOperationError(res, 500, error);
     }
 }
 
@@ -184,31 +149,18 @@ export async function handleDeleteCustomModel(res: ServerResponse, currentConfig
     try {
         const filePath = CONFIG.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
         return await withFileLock(filePath, () => _handleDeleteCustomModel(res, currentConfig, modelId));
-    } catch (caught) { const err = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
-        return true;
+    } catch (err) {
+        return sendOperationError(res, 500, err, 'File operation failed: ');
     }
 }
 async function _handleDeleteCustomModel(res: ServerResponse, currentConfig: DynamicPayload, modelId: string): Promise<boolean> {
     try {
-        const filePath = currentConfig.CUSTOM_MODELS_FILE_PATH || 'configs/custom_models.json';
-        let customModels: DynamicPayload[] = [];
-
-        if (existsSync(filePath)) {
-            try {
-                const data = readFileSync(filePath, 'utf-8');
-                customModels = JSON.parse(data);
-            } catch (caught) { const e = caught as DynamicPayload;
-                logger.warn('[UI API] Failed to parse custom models file:', e.message);
-            }
-        }
+        const filePath = customModelsPath(currentConfig);
+        const customModels = readCustomModelsFile(filePath) ?? [];
 
         const index = customModels.findIndex((m: DynamicPayload) => m.id === modelId);
         if (index === -1) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'Model not found' } }));
-            return true;
+            return sendJsonError(res, 404, 'Model not found');
         }
 
         const deletedModel = customModels.splice(index, 1)[0];
@@ -226,12 +178,8 @@ async function _handleDeleteCustomModel(res: ServerResponse, currentConfig: Dyna
             timestamp: new Date().toISOString()
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, deletedModel }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: error.message } }));
-        return true;
+        return sendJson(res, 200, { success: true, deletedModel });
+    } catch (error) {
+        return sendOperationError(res, 500, error);
     }
 }

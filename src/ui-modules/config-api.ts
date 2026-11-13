@@ -16,6 +16,7 @@ import { HEALTH_CHECK, PASSWORD, NETWORK, RETRY } from '../utils/constants.ts';
 import { withFileLock, atomicWriteFile } from '../utils/file-lock.ts';
 import { getErrorMessage } from '../utils/error.ts';
 import { validateCredentials } from './auth.ts';
+import { NO_STORE_HEADERS, sendJson, sendJsonError, sendOperationError } from './http-helpers.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 function parseBooleanConfig(value: unknown): boolean {
@@ -110,16 +111,11 @@ export async function handleGetConfig(res: ServerResponse, currentConfig: Dynami
         REQUIRED_API_KEY: currentConfig.REQUIRED_API_KEY ? '******' : '',
         isDefaultPassword: await validateCredentials('admin123'),
     };
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(safeConfig));
-    return true;
+    return sendJson(res, 200, safeConfig);
 }
 
 /** 允许通过“眼睛”按钮回读明文的配置字段白名单（其余字段一律拒绝） */
 const REVEALABLE_CONFIG_FIELDS = new Set(['REQUIRED_API_KEY']);
-
-/** 明文响应禁止任何层级的缓存，避免密钥被浏览器/代理留档 */
-const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate, private', Pragma: 'no-cache' };
 
 /**
  * 获取脱敏敏感字段的明文（供前端“眼睛”按钮真正展示所配值）
@@ -135,24 +131,16 @@ export async function handleRevealSecret(
         const field = url.searchParams.get('field') || '';
         // 先校验白名单，再取值：避免任何未授权字段被读入局部变量
         if (!REVEALABLE_CONFIG_FIELDS.has(field)) {
-            res.writeHead(400, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
-            res.end(JSON.stringify({ error: { message: 'Unknown secret field' } }));
-            return true;
+            return sendJsonError(res, 400, 'Unknown secret field', undefined, NO_STORE_HEADERS);
         }
         const value = currentConfig[field];
         if (typeof value !== 'string') {
-            res.writeHead(400, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
-            res.end(JSON.stringify({ error: { message: 'Unknown secret field' } }));
-            return true;
+            return sendJsonError(res, 400, 'Unknown secret field', undefined, NO_STORE_HEADERS);
         }
-        res.writeHead(200, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
-        res.end(JSON.stringify({ field, value }));
-        return true;
+        return sendJson(res, 200, { field, value }, NO_STORE_HEADERS);
     } catch (error: unknown) {
         logger.error('[UI API] Failed to reveal secret:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json', ...NO_STORE_HEADERS });
-        res.end(JSON.stringify({ error: { message: 'Failed to reveal secret: ' + getErrorMessage(error) } }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to reveal secret: ', NO_STORE_HEADERS);
     }
 }
 
@@ -164,10 +152,8 @@ export async function handleUpdateConfig(req: IncomingMessage, res: ServerRespon
         const body = await getRequestBody(req);
         const configPath = 'configs/config.json';
         return await withFileLock(configPath, () => _handleUpdateConfig(res, currentConfig, body));
-    } catch (caught) { const err = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'File operation failed: ' + err.message } }));
-        return true;
+    } catch (err) {
+        return sendOperationError(res, 500, err, 'File operation failed: ');
     }
 }
 async function _handleUpdateConfig(res: ServerResponse, currentConfig: DynamicPayload, body: DynamicPayload): Promise<boolean> {
@@ -416,30 +402,24 @@ async function _handleUpdateConfig(res: ServerResponse, currentConfig: DynamicPa
             });
         } catch (caught) { const error = caught as DynamicPayload;
             logger.error('[UI API] Failed to save configuration to file:', error.message);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Failed to save configuration to file: ' + error.message,
-                    partial: true  // Indicate that memory config was updated but not saved
-                }
-            }));
-            return true;
+            return sendJsonError(
+                res,
+                500,
+                'Failed to save configuration to file: ' + error.message,
+                { partial: true } // Indicate that memory config was updated but not saved
+            );
         }
 
         // Update the global CONFIG object to reflect changes immediately
         Object.assign(CONFIG, currentConfig);
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             message: 'Configuration updated successfully',
             details: 'Configuration has been updated in both memory and config.json file'
-        }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: error.message } }));
-        return true;
+        });
+    } catch (error) {
+        return sendOperationError(res, 500, error);
     }
 }
 
@@ -459,8 +439,7 @@ export async function handleReloadConfig(res: ServerResponse, providerPoolManage
             timestamp: new Date().toISOString()
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             message: 'Configuration files reloaded successfully',
             details: {
@@ -468,17 +447,10 @@ export async function handleReloadConfig(res: ServerResponse, providerPoolManage
                 configPath: 'configs/config.json',
                 providerPoolsPath: newConfig.PROVIDER_POOLS_FILE_PATH || null
             }
-        }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        });
+    } catch (error) {
         logger.error('[UI API] Failed to reload config files:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to reload configuration files: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to reload configuration files: ');
     }
 }
 
@@ -491,25 +463,16 @@ export async function handleUpdateAdminPassword(req: IncomingMessage, res: Serve
         const { password } = body;
 
         if (!password || password.trim() === '') {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Password cannot be empty',
-                    messageCode: 'common.passwordEmpty'
-                }
-            }));
-            return true;
+            return sendJsonError(res, 400, 'Password cannot be empty', { messageCode: 'common.passwordEmpty' });
         }
 
         if (password.trim().length < PASSWORD.MIN_LENGTH) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: `Password must be at least ${PASSWORD.MIN_LENGTH} characters`,
-                    messageCode: 'common.passwordTooShort'
-                }
-            }));
-            return true;
+            return sendJsonError(
+                res,
+                400,
+                `Password must be at least ${PASSWORD.MIN_LENGTH} characters`,
+                { messageCode: 'common.passwordTooShort' }
+            );
         }
 
         // 使用 PBKDF2 哈希存储密码，避免明文写入文件
@@ -530,20 +493,12 @@ export async function handleUpdateAdminPassword(req: IncomingMessage, res: Serve
 
         logger.info('[UI API] Admin password updated successfully');
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             message: 'Admin password updated successfully'
-        }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        });
+    } catch (error) {
         logger.error('[UI API] Failed to update admin password:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to update password: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to update password: ');
     }
 }

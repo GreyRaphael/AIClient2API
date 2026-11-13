@@ -113,7 +113,7 @@ function getContentText(message: unknown): string {
 
 /**
  * Process content blocks into text
- * @param {any} content - content object or array
+ * @param {unknown} content - content object or array
  * @returns {string} processed text
  */
 function processContent(content: unknown): string {

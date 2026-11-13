@@ -1,5 +1,6 @@
 import { atomicWriteFile } from '../../utils/file-lock.ts';
 import axios from 'axios';
+import type { AxiosRequestConfig } from 'axios';
 import { StringDecoder } from 'string_decoder';
 import logger from '../../utils/logger.ts';
 import crypto from 'crypto';
@@ -570,7 +571,7 @@ export class CodexApiService {
         this.version = getCodexVersion(config);
     }
 
-    _applySidecar(axiosConfig: Record<string, unknown>, affinityKey?: string | null) {
+    _applySidecar<T extends AxiosRequestConfig | Record<string, unknown>>(axiosConfig: T, affinityKey?: string | null): T {
         return configureTLSSidecar(axiosConfig, this.config, this.config.MODEL_PROVIDER || MODEL_PROVIDER.CODEX_API, this.baseUrl, affinityKey);
     }
 
@@ -778,26 +779,22 @@ export class CodexApiService {
         const headers = this.buildHeaders(typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key : null, true);
 
         try {
-            const config: Record<string, unknown> = {
+            const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
+            const axiosRequestConfig: AxiosRequestConfig = {
+                method: 'post',
+                url,
+                data: body,
                 headers,
                 responseType: 'text', // 确保以文本形式接收 SSE 流
                 timeout: 300000 // 5 分钟超时，适应慢速模型
             };
-
-            const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-            const axiosRequestConfig: Record<string, unknown> = {
-                method: 'post',
-                url,
-                data: body,
-                ...config
-            };
             const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
             if (callerSignal) {
-                axiosRequestConfig.signal = callerSignal;
+                axiosRequestConfig.signal = callerSignal as AxiosRequestConfig['signal'];
             }
             this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
 
-            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
+            const response = await axios.request(axiosRequestConfig);
 
             return this.parseNonStreamResponse(response.data, reverseToolNameMap, selectedModel) as T;
         } catch (rawError) {
@@ -861,26 +858,22 @@ export class CodexApiService {
         const headers = this.buildHeaders(typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key : null, true);
 
         try {
-            const config: Record<string, unknown> = {
+            const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
+            const axiosRequestConfig: AxiosRequestConfig = {
+                method: 'post',
+                url,
+                data: body,
                 headers,
                 responseType: 'stream',
                 timeout: 300000 // 5 分钟超时
             };
-
-            const downstreamSessionId = (body as Record<string, unknown>)?._downstreamSessionId;
-            const axiosRequestConfig: Record<string, unknown> = {
-                method: 'post',
-                url,
-                data: body,
-                ...config
-            };
             const callerSignal = (body as Record<string, unknown>)?._abortSignal || (body as Record<string, unknown>)?.signal;
             if (callerSignal) {
-                axiosRequestConfig.signal = callerSignal;
+                axiosRequestConfig.signal = callerSignal as AxiosRequestConfig['signal'];
             }
             this._applySidecar(axiosRequestConfig, downstreamSessionId ? String(downstreamSessionId) : null);
 
-            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
+            const response = await axios.request(axiosRequestConfig);
 
             yield* this.parseSSEStream(response.data, reverseToolNameMap);
         } catch (rawError) {
@@ -1708,7 +1701,7 @@ export class CodexApiService {
                 const url = `${cleanBaseUrl}/models?client_version=${encodeURIComponent(clientVersion)}`;
                 const headers = this.buildHeaders(null, false);
 
-                const axiosRequestConfig = {
+                const axiosRequestConfig: AxiosRequestConfig = {
                     method: 'get',
                     url,
                     headers,
@@ -1716,7 +1709,7 @@ export class CodexApiService {
                 };
                 this._applySidecar(axiosRequestConfig);
 
-                const res = await axios.request(/** @type {any} */ (axiosRequestConfig));
+                const res = await axios.request(axiosRequestConfig);
                 if (res.data && Array.isArray(res.data.models)) {
                     const rawModels = res.data.models;
                     const modelIds: string[] = [];
@@ -1860,19 +1853,15 @@ export class CodexApiService {
             const url = 'https://chatgpt.com/backend-api/wham/usage';
             const headers = this.buildManagementHeaders();
 
-            const config: Record<string, unknown> = {
+            const axiosRequestConfig: AxiosRequestConfig = {
+                method: 'get',
+                url,
                 headers,
                 timeout: 30000
             };
-
-            const axiosRequestConfig = {
-                method: 'get',
-                url,
-                ...config
-            };
             this._applySidecar(axiosRequestConfig);
 
-            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
+            const response = await axios.request(axiosRequestConfig);
             return {
                 ...response.data,
                 account: this.email
@@ -1911,7 +1900,7 @@ export class CodexApiService {
                 redeem_request_id: crypto.randomUUID()
             };
 
-            const axiosRequestConfig = {
+            const axiosRequestConfig: AxiosRequestConfig = {
                 method: 'post',
                 url,
                 data: body,
@@ -1920,7 +1909,7 @@ export class CodexApiService {
             };
             this._applySidecar(axiosRequestConfig);
 
-            const response = await axios.request(/** @type {any} */ (axiosRequestConfig));
+            const response = await axios.request(axiosRequestConfig);
             const latestUsage = await this.getUsageLimits();
 
             return {

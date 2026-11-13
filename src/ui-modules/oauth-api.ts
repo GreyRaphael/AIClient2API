@@ -16,6 +16,7 @@ import {
     handleTraeOAuth,
 } from '../auth/trae-auth.ts';
 import { normalizeCodexExternalCredentials } from '../auth/codex-import-normalizer.ts';
+import { sendJson, sendJsonError, sendOperationError, sendSseEvent, SSE_HEADERS } from './http-helpers.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 const CODEX_EXTERNAL_IMPORT_BODY_LIMIT_BYTES = 5 * 1024 * 1024;
@@ -65,8 +66,7 @@ export async function handleGenerateAuthUrl(req: IncomingMessage, res: ServerRes
                     customName,
                     providerType
                 });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
+                return sendJson(res, 200, {
                     success: true,
                     directSuccess: true,
                     credPath: result.credPath,
@@ -80,8 +80,7 @@ export async function handleGenerateAuthUrl(req: IncomingMessage, res: ServerRes
                         credPath: result.credPath,
                         accountName: result.accountName
                     }
-                }));
-                return true;
+                });
             } else {
                 // 未提供 Token 时，生成浏览器 Web 授权链接
                 const result = await handleTraeOAuth(currentConfig, { ...options, providerType });
@@ -89,32 +88,17 @@ export async function handleGenerateAuthUrl(req: IncomingMessage, res: ServerRes
                 authInfo = { ...result.authInfo, provider: providerType };
             }
         } else {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: `Unsupported provider type: ${providerType}`
-                }
-            }));
-            return true;
+            return sendJsonError(res, 400, `Unsupported provider type: ${providerType}`);
         }
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             authUrl: authUrl,
             authInfo: authInfo
-        }));
-        return true;
-
-    } catch (caught) { const error = caught as DynamicPayload;
+        });
+    } catch (error) {
         logger.error(`[UI API] Failed to generate auth URL for ${providerType}:`, error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: `Failed to generate auth URL: ${error.message}`
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to generate auth URL: ');
     }
 }
 
@@ -127,12 +111,10 @@ export async function handleManualOAuthCallback(req: IncomingMessage, res: Serve
         const { provider, callbackUrl } = body;
 
         if (!provider || !callbackUrl) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 400, {
                 success: false,
                 error: 'provider and callbackUrl are required'
-            }));
-            return true;
+            });
         }
 
         logger.info(`[OAuth Manual Callback] Processing manual callback for ${provider}`);
@@ -142,10 +124,7 @@ export async function handleManualOAuthCallback(req: IncomingMessage, res: Serve
         if (provider === 'zed') {
             const { handleZedOAuthCallback } = await import('../auth/zed-oauth.ts');
             const result = await handleZedOAuthCallback(callbackUrl);
-
-            res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
-            return true;
+            return sendJson(res, result.success ? 200 : 500, result);
         }
 
         // 特殊处理 Trae OAuth / Callback 回调
@@ -156,10 +135,7 @@ export async function handleManualOAuthCallback(req: IncomingMessage, res: Serve
                 host: body.host,
                 providerType: provider
             });
-
-            res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
-            return true;
+            return sendJson(res, result.success ? 200 : 500, result);
         }
 
         // 解析回调URL
@@ -169,22 +145,17 @@ export async function handleManualOAuthCallback(req: IncomingMessage, res: Serve
         const token = url.searchParams.get('token');
 
         if (!code && !token) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 400, {
                 success: false,
                 error: 'Callback URL must contain code or token parameter'
-            }));
-            return true;
+            });
         }
 
         // 特殊处理 Codex OAuth 回调
         if (provider === 'openai-codex-oauth' && code && state) {
             const { handleCodexOAuthCallback } = await import('../auth/codex-oauth.ts');
             const result = await handleCodexOAuthCallback(code, state);
-
-            res.writeHead(result.success ? 200 : 500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
-            return true;
+            return sendJson(res, result.success ? 200 : 500, result);
         }
 
         // 通过fetch请求本地OAuth回调服务器处理
@@ -199,38 +170,33 @@ export async function handleManualOAuthCallback(req: IncomingMessage, res: Serve
 
             if (response.ok) {
                 logger.info(`[OAuth Manual Callback] Successfully processed callback for ${provider}`);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
+                sendJson(res, 200, {
                     success: true,
                     message: 'OAuth callback processed successfully'
-                }));
+                });
             } else {
                 const errorText = await response.text();
                 logger.error(`[OAuth Manual Callback] Callback processing failed:`, errorText);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
+                sendJson(res, 500, {
                     success: false,
                     error: `Callback processing failed: ${response.status}`
-                }));
+                });
             }
         } catch (caught) { const fetchError = caught as DynamicPayload;
             logger.error(`[OAuth Manual Callback] Failed to process callback:`, fetchError);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, 500, {
                 success: false,
                 error: `Failed to process callback: ${fetchError.message}`
-            }));
+            });
         }
 
         return true;
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[OAuth Manual Callback] Error:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 500, {
             success: false,
             error: error.message
-        }));
-        return true;
+        });
     }
 }
 
@@ -243,39 +209,26 @@ export async function handleBatchImportGeminiTokens(req: IncomingMessage, res: S
         const { providerType, tokens, skipDuplicateCheck } = body;
 
         if (!providerType || !tokens || !Array.isArray(tokens) || tokens.length === 0) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 400, {
                 success: false,
                 error: 'providerType and tokens array are required and must not be empty'
-            }));
-            return true;
+            });
         }
 
         logger.info(`[Gemini Batch Import] Starting batch import for ${providerType} with ${tokens.length} tokens...`);
 
         // 设置 SSE 响应头
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no'
-        });
-
-        // 发送 SSE 事件的辅助函数
-        const sendSSE = (event: string, data: unknown): void => {
-            res.write(`event: ${event}\n`);
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
-        };
+        res.writeHead(200, SSE_HEADERS);
 
         // 发送开始事件
-        sendSSE('start', { total: tokens.length });
+        sendSseEvent(res, 'start', { total: tokens.length });
 
         // 执行流式批量导入
         const result = await batchImportGeminiTokensStream(
             providerType,
             tokens,
             (progress: DynamicPayload) => {
-                sendSSE('progress', progress);
+                sendSseEvent(res, 'progress', progress);
             },
             !!skipDuplicateCheck // 默认为 false (执行去重)
         );
@@ -283,7 +236,7 @@ export async function handleBatchImportGeminiTokens(req: IncomingMessage, res: S
         logger.info(`[Gemini Batch Import] Completed: ${result.success} success, ${result.failed} failed`);
 
         // 发送完成事件
-        sendSSE('complete', {
+        sendSseEvent(res, 'complete', {
             success: true,
             total: result.total,
             successCount: result.success,
@@ -297,15 +250,13 @@ export async function handleBatchImportGeminiTokens(req: IncomingMessage, res: S
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Gemini Batch Import] Error:', error);
         if (res.headersSent) {
-            res.write(`event: error\n`);
-            res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+            sendSseEvent(res, 'error', { error: error.message });
             res.end();
         } else {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, 500, {
                 success: false,
                 error: error.message
-            }));
+            });
         }
         return true;
     }
@@ -320,38 +271,25 @@ export async function handleBatchImportCodexTokens(req: IncomingMessage, res: Se
         const { tokens, skipDuplicateCheck } = body;
 
         if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 400, {
                 success: false,
                 error: 'tokens array is required and must not be empty'
-            }));
-            return true;
+            });
         }
 
         logger.info(`[Codex Batch Import] Starting batch import with ${tokens.length} tokens...`);
 
         // 设置 SSE 响应头
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no'
-        });
-
-        // 发送 SSE 事件的辅助函数
-        const sendSSE = (event: string, data: unknown): void => {
-            res.write(`event: ${event}\n`);
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
-        };
+        res.writeHead(200, SSE_HEADERS);
 
         // 发送开始事件
-        sendSSE('start', { total: tokens.length });
+        sendSseEvent(res, 'start', { total: tokens.length });
 
         // 执行流式批量导入
         const result = await batchImportCodexTokensStream(
             tokens,
             (progress: DynamicPayload) => {
-                sendSSE('progress', progress);
+                sendSseEvent(res, 'progress', progress);
             },
             !!skipDuplicateCheck // 默认为 false (执行去重)
         );
@@ -359,7 +297,7 @@ export async function handleBatchImportCodexTokens(req: IncomingMessage, res: Se
         logger.info(`[Codex Batch Import] Completed: ${result.success} success, ${result.failed} failed`);
 
         // 发送完成事件
-        sendSSE('complete', {
+        sendSseEvent(res, 'complete', {
             success: true,
             total: result.total,
             successCount: result.success,
@@ -373,15 +311,13 @@ export async function handleBatchImportCodexTokens(req: IncomingMessage, res: Se
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Codex Batch Import] Error:', error);
         if (res.headersSent) {
-            res.write(`event: error\n`);
-            res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+            sendSseEvent(res, 'error', { error: error.message });
             res.end();
         } else {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, 500, {
                 success: false,
                 error: error.message
-            }));
+            });
         }
         return true;
     }
@@ -396,48 +332,32 @@ export async function handleImportCodexExternalCredentials(req: IncomingMessage,
         const { source, payload, skipDuplicateCheck } = body;
 
         if (!['cpa', 'sub2api'].includes(source) || payload === undefined) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 400, {
                 success: false,
                 error: 'source must be cpa or sub2api, and payload is required'
-            }));
-            return true;
+            });
         }
 
         const tokens = normalizeCodexExternalCredentials(source, payload);
         if (!Array.isArray(tokens) || tokens.length === 0) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 400, {
                 success: false,
                 error: 'No credentials found in payload'
-            }));
-            return true;
+            });
         }
 
         if (tokens.length > CODEX_EXTERNAL_IMPORT_MAX_ITEMS) {
-            res.writeHead(413, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 413, {
                 success: false,
                 error: `Too many credentials. Maximum is ${CODEX_EXTERNAL_IMPORT_MAX_ITEMS}`
-            }));
-            return true;
+            });
         }
 
         logger.info(`[Codex External Import] Starting ${source} import with ${tokens.length} item(s)...`);
 
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no'
-        });
+        res.writeHead(200, SSE_HEADERS);
 
-        const sendSSE = (event: string, data: unknown): void => {
-            res.write(`event: ${event}\n`);
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
-        };
-
-        sendSSE('start', {
+        sendSseEvent(res, 'start', {
             source,
             total: tokens.length,
             accessTokenOnlyCount: tokens.filter((token: DynamicPayload) => token.access_token_only).length
@@ -446,7 +366,7 @@ export async function handleImportCodexExternalCredentials(req: IncomingMessage,
         const result = await batchImportCodexTokensStream(
             tokens,
             (progress: DynamicPayload) => {
-                sendSSE('progress', {
+                sendSseEvent(res, 'progress', {
                     ...progress,
                     source
                 });
@@ -456,7 +376,7 @@ export async function handleImportCodexExternalCredentials(req: IncomingMessage,
 
         logger.info(`[Codex External Import] Completed ${source}: ${result.success} success, ${result.failed} failed`);
 
-        sendSSE('complete', {
+        sendSseEvent(res, 'complete', {
             success: true,
             source,
             total: result.total,
@@ -471,15 +391,13 @@ export async function handleImportCodexExternalCredentials(req: IncomingMessage,
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[Codex External Import] Error:', error);
         if (res.headersSent) {
-            res.write(`event: error\n`);
-            res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+            sendSseEvent(res, 'error', { error: error.message });
             res.end();
         } else {
-            res.writeHead(error.statusCode || 500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, error.statusCode || 500, {
                 success: false,
                 error: error.message
-            }));
+            });
         }
         return true;
     }

@@ -15,7 +15,7 @@ class RequestContext {
      * 在上下文中运行
      * @param {Object} context - 上下文数据
      * @param {Function} callback - 回调函数
-     * @returns {any}
+     * @returns {T}
      */
     run<T>(context: Record<string, unknown> | undefined, callback: () => T): T {
         return this.storage.run(context || {}, callback);
@@ -32,7 +32,7 @@ class RequestContext {
     /**
      * 设置上下文中的值
      * @param {string} key 
-     * @param {any} value 
+     * @param {unknown} value 
      */
     set(key: string, value: unknown): void {
         const store = this.storage.getStore();
@@ -44,7 +44,7 @@ class RequestContext {
     /**
      * 获取上下文中的值
      * @param {string} key 
-     * @returns {any}
+     * @returns {T | undefined}
      */
     get<T = unknown>(key: string): T | undefined {
         const store = this.storage.getStore();

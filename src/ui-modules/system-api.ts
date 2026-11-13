@@ -6,6 +6,7 @@ import logger from '../utils/logger.ts';
 import path from 'path';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 import { getNetworkDiagnostics } from '../utils/network-diagnostics.ts';
+import { sendJson, sendJsonError, sendOperationError } from './http-helpers.ts';
 
 /**
  * 获取系统信息
@@ -24,25 +25,21 @@ export async function handleGetSystem(res: ServerResponse): Promise<boolean> {
         logger.warn('[UI API] Failed to read VERSION file:', error.message);
     }
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
+    return sendJson(res, 200, {
         appVersion: appVersion,
         nodeVersion: process.version,
         serverTime: new Date().toISOString(),
         memoryUsage: `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
         uptime: process.uptime(),
         networkDiagnostics: getNetworkDiagnostics()
-    }));
-    return true;
+    });
 }
 
 /**
  * 获取底层网络诊断信息
  */
 export async function handleGetNetworkDiagnostics(res: ServerResponse): Promise<boolean> {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(getNetworkDiagnostics()));
-    return true;
+    return sendJson(res, 200, getNetworkDiagnostics());
 }
 
 /**
@@ -51,9 +48,7 @@ export async function handleGetNetworkDiagnostics(res: ServerResponse): Promise<
 export async function handleDownloadTodayLog(res: ServerResponse): Promise<boolean> {
     try {
         if (!logger.currentLogFile || !existsSync(logger.currentLogFile)) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'Today\'s log file not found' } }));
-            return true;
+            return sendJsonError(res, 404, 'Today\'s log file not found');
         }
 
         const fileName = path.basename(logger.currentLogFile);
@@ -65,11 +60,9 @@ export async function handleDownloadTodayLog(res: ServerResponse): Promise<boole
         const readStream = createReadStream(logger.currentLogFile);
         readStream.pipe(res);
         return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+    } catch (error) {
         logger.error('[UI API] Failed to download log:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'Failed to download log: ' + error.message } }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to download log: ');
     }
 }
 
@@ -89,27 +82,22 @@ export async function handleClearTodayLog(res: ServerResponse): Promise<boolean>
                 message: 'Today\'s log file has been cleared'
             });
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 200, {
                 success: true,
                 message: '当日日志已清空'
-            }));
-        } else {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                error: { message: '清空日志失败' }
-            }));
+            });
         }
-        return true;
+
+        return sendJson(res, 500, {
+            success: false,
+            error: { message: '清空日志失败' }
+        });
     } catch (caught) { const error = caught as DynamicPayload;
         logger.error('[UI API] Failed to clear log:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 500, {
             success: false,
             error: { message: 'Failed to clear log: ' + error.message }
-        }));
-        return true;
+        });
     }
 }
 
@@ -117,9 +105,7 @@ export async function handleClearTodayLog(res: ServerResponse): Promise<boolean>
  * 健康检查接口（用于前端token验证）
  */
 export async function handleHealthCheck(res: ServerResponse): Promise<boolean> {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
-    return true;
+    return sendJson(res, 200, { status: 'ok', timestamp: Date.now() });
 }
 
 /**
@@ -129,8 +115,7 @@ export async function handleGetServiceMode(res: ServerResponse): Promise<boolean
     const IS_WORKER_PROCESS = process.env.IS_WORKER_PROCESS === 'true';
     const masterPort = process.env.MASTER_PORT || 3100;
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
+    return sendJson(res, 200, {
         mode: IS_WORKER_PROCESS ? 'worker' : 'standalone',
         pid: process.pid,
         ppid: process.ppid,
@@ -139,8 +124,7 @@ export async function handleGetServiceMode(res: ServerResponse): Promise<boolean
         masterPort: IS_WORKER_PROCESS ? masterPort : null,
         nodeVersion: process.version,
         platform: process.platform
-    }));
-    return true;
+    });
 }
 
 /**
@@ -163,8 +147,7 @@ export async function handleRestartService(res: ServerResponse): Promise<boolean
                 message: 'Service restart requested, worker will be restarted by master process'
             });
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 200, {
                 success: true,
                 message: 'Restart request sent to master process',
                 mode: 'worker',
@@ -172,28 +155,20 @@ export async function handleRestartService(res: ServerResponse): Promise<boolean
                     workerPid: process.pid,
                     restartMethod: 'master_controlled'
                 }
-            }));
-        } else {
-            // 独立运行模式，无法自动重启
-            logger.info('[UI API] Service is running in standalone mode, cannot auto-restart');
-
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                message: 'Service is running in standalone mode. Please use master.js to enable auto-restart feature.',
-                mode: 'standalone',
-                hint: 'Start the service with: node src/core/master.js [args]'
-            }));
+            });
         }
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+
+        // 独立运行模式，无法自动重启
+        logger.info('[UI API] Service is running in standalone mode, cannot auto-restart');
+
+        return sendJson(res, 400, {
+            success: false,
+            message: 'Service is running in standalone mode. Please use master.js to enable auto-restart feature.',
+            mode: 'standalone',
+            hint: 'Start the service with: node src/core/master.js [args]'
+        });
+    } catch (error) {
         logger.error('[UI API] Failed to restart service:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to restart service: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to restart service: ');
     }
 }

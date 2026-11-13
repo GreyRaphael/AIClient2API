@@ -98,9 +98,9 @@ export async function fetchZedOrganizationId({ userId, accessToken, systemId, co
         timeout: 15000
     };
 
-    configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, config, MODEL_PROVIDER.ZED);
+    configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
 
-    const response = await axios.request(/** @type {any} */ (axiosConfig));
+    const response = await axios.request(axiosConfig);
     const data = response.data || {};
 
     if (data.default_organization_id) {
@@ -148,9 +148,9 @@ export async function exchangeZedToken({ userId, accessToken, systemId, organiza
         timeout: 15000
     };
 
-    configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, config, MODEL_PROVIDER.ZED);
+    configureAxiosProxy(axiosConfig, config, MODEL_PROVIDER.ZED);
 
-    const response = await axios.request(/** @type {any} */ (axiosConfig));
+    const response = await axios.request(axiosConfig);
     const token = response.data?.token;
 
     if (!token) {
@@ -473,19 +473,19 @@ export class ZedApiService {
 
         const downstreamSessionId = (requestBody as Record<string, unknown>)?._downstreamSessionId;
         configureAxiosProxy(
-            axiosConfig as unknown as Record<string, unknown>,
+            axiosConfig,
             this.config,
             MODEL_PROVIDER.ZED,
             downstreamSessionId ? String(downstreamSessionId) : null
         );
         const callerSignal = (requestBody as Record<string, unknown>)?._abortSignal || (requestBody as Record<string, unknown>)?.signal;
         if (callerSignal) {
-            (axiosConfig as unknown as Record<string, unknown>).signal = callerSignal;
+            axiosConfig.signal = callerSignal as AxiosRequestConfig['signal'];
         }
 
         let response: AxiosResponse;
         try {
-            response = await axios.request(/** @type {any} */ (axiosConfig));
+            response = await axios.request(axiosConfig);
         } catch (err) {
             const error = isRecord(err) ? err as { response?: { status?: number; data?: unknown } } : {};
             const errData = error.response?.data;
@@ -1016,9 +1016,9 @@ export class ZedApiService {
                     },
                     timeout: 15000
                 };
-                configureAxiosProxy(axiosConfig as unknown as Record<string, unknown>, this.config, MODEL_PROVIDER.ZED);
+                configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.ZED);
 
-                const res = await axios.request(/** @type {any} */ (axiosConfig));
+                const res = await axios.request(axiosConfig);
                 if (res.data && Array.isArray(res.data.models)) {
                     // 远端成功响应是权威来源：注册表整体替换并落盘，仅保留 is_latest=true 的最新模型。
                     const enabledModels = await this.modelRegistry.applyRemote(res.data.models);

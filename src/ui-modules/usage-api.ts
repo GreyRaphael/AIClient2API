@@ -10,16 +10,10 @@ import { existsSync, readFileSync } from 'fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
-
+import { NO_CACHE_HEADERS, sendJson as writeJson, sendOperationError } from './http-helpers.ts';
 
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
-    res.writeHead(statusCode, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-    });
-    res.end(JSON.stringify(payload));
+    writeJson(res, statusCode, payload, NO_CACHE_HEADERS);
 }
 
 const supportedProviders = [
@@ -388,18 +382,10 @@ async function updateSingleInstanceInCache(
  */
 export async function handleGetSupportedProviders(res: ServerResponse): Promise<boolean> {
     try {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(supportedProviders));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        return writeJson(res, 200, supportedProviders);
+    } catch (error) {
         logger.error('[Usage API] Failed to get supported providers:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to get supported providers: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to get supported providers: ');
     }
 }
 
@@ -476,23 +462,11 @@ export async function handleGetUsage(
             serverTime: new Date().toISOString()
         };
 
-        res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-        });
-        res.end(JSON.stringify(finalResults));
+        sendJson(res, 200, finalResults);
         return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+    } catch (error) {
         logger.error('[UI API] Failed to get usage:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to get usage info: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to get usage info: ');
     }
 }
 
@@ -658,22 +632,10 @@ export async function handleGetProviderUsage(
             serverTime: new Date().toISOString()
         };
 
-        res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-        });
-        res.end(JSON.stringify(finalResults));
+        sendJson(res, 200, finalResults);
         return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+    } catch (error) {
         logger.error(`[UI API] Failed to get usage for ${providerType}:`, error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: `Failed to get usage info for ${providerType}: ` + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, `Failed to get usage info for ${providerType}: `);
     }
 }

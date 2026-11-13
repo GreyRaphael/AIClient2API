@@ -125,7 +125,7 @@ class Logger {
      * 在请求上下文中运行
      * @param {string} requestId - 请求ID
      * @param {Function} callback - 回调函数
-     * @returns {any}
+     * @returns {unknown}
      */
     runWithContext<T>(requestId: string | null | undefined, callback: () => T): T {
         const resolvedRequestId = requestId || randomUUID().substring(0, 8);
@@ -337,7 +337,7 @@ class Logger {
 
     /**
      * Debug 级别日志
-     * @param {...any} args - 日志参数
+     * @param {...unknown} args - 日志参数
      */
     debug(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
@@ -346,7 +346,7 @@ class Logger {
 
     /**
      * Info 级别日志
-     * @param {...any} args - 日志参数
+     * @param {...unknown} args - 日志参数
      */
     info(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
@@ -355,7 +355,7 @@ class Logger {
 
     /**
      * Warn 级别日志
-     * @param {...any} args - 日志参数
+     * @param {...unknown} args - 日志参数
      */
     warn(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();
@@ -364,7 +364,7 @@ class Logger {
 
     /**
      * Error 级别日志
-     * @param {...any} args - 日志参数
+     * @param {...unknown} args - 日志参数
      */
     error(...args: unknown[]) {
         const requestId = this.getCurrentRequestId();

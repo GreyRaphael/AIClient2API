@@ -53,7 +53,7 @@ import type { DynamicPayload } from '../../../types/dynamic-payload.js';
  * - `summary: [{ type: "summary_text", text }]`
  * - `content: [{ type: "reasoning_text", text }]`
  * 空 summary 数组不能短路 content 的读取。
- * @param {any} item
+ * @param {unknown} item
  * @returns {string}
  */
 function extractResponsesReasoningText(item: DynamicPayload): string {

@@ -56,7 +56,7 @@ export function isRetryableNetworkError(error: unknown): boolean {
 
 /**
  * 确保状态码是有效的 HTTP 状态码
- * @param {any} code - 待检查的状态码
+ * @param {unknown} code - 待检查的状态码
  * @returns {number} - 有效的 HTTP 状态码 (100-599)，默认为 500
  */
 export function ensureValidStatusCode(code: unknown): number {

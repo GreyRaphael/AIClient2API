@@ -14,6 +14,7 @@ import { parseProxyUrl } from '../utils/proxy-utils.ts';
 import { getRequestBody } from '../utils/common.ts';
 import { isValidVersionTag } from '../utils/version-tag.ts';
 import { assertNativeTypeScriptSupport } from '../bootstrap/runtime.js';
+import { sendJson, sendOperationError } from './http-helpers.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 const execAsync = promisify(exec);
@@ -732,18 +733,10 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
 export async function handleCheckUpdate(res: ServerResponse): Promise<boolean> {
     try {
         const updateInfo = await checkForUpdates();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(updateInfo));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        return sendJson(res, 200, updateInfo);
+    } catch (error) {
         logger.error('[UI API] Failed to check for updates:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to check for updates: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to check for updates: ');
     }
 }
 
@@ -756,17 +749,9 @@ export async function handlePerformUpdate(req: IncomingMessage, res: ServerRespo
         const version = body?.version || null;
 
         const updateResult = await performUpdate(version);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(updateResult));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        return sendJson(res, 200, updateResult);
+    } catch (error) {
         logger.error('[UI API] Failed to perform update:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Update failed: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Update failed: ');
     }
 }

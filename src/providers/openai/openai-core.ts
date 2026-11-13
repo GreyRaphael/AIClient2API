@@ -15,7 +15,7 @@ import type { DynamicPayload } from '../../../types/dynamic-payload.js';
 /**
  * 判断非流式响应体是否实际上是 SSE 文本。
  * 部分 OpenAI 兼容端点无论 `stream` 取值都返回 `text/event-stream`。
- * @param {any} data
+ * @param {unknown} data
  * @returns {boolean}
  */
 function isSSEPayload(data: unknown): boolean {
@@ -26,8 +26,8 @@ function isSSEPayload(data: unknown): boolean {
 
 /**
  * 将 SSE 文本解析为 JSON chunk 列表。
- * @param {string} raw
- * @returns {Array<any>}
+ * @param {unknown} raw
+ * @returns {DynamicPayload[]}
  */
 function parseSSEChunks(raw: unknown): DynamicPayload[] {
     const chunks: DynamicPayload[] = [];
@@ -46,7 +46,7 @@ function parseSSEChunks(raw: unknown): DynamicPayload[] {
 
 /**
  * 读取工具定义中的函数名。
- * @param {any} tool
+ * @param {DynamicPayload | null | undefined} tool
  * @returns {string}
  */
 function getToolFunctionName(tool: DynamicPayload | null | undefined): string {
@@ -55,7 +55,7 @@ function getToolFunctionName(tool: DynamicPayload | null | undefined): string {
 
 /**
  * 读取“指定 function”tool_choice 中的函数名。
- * @param {any} toolChoice
+ * @param {DynamicPayload | null | undefined} toolChoice
  * @returns {string}
  */
 function getSpecificToolChoiceName(toolChoice: DynamicPayload | null | undefined): string {
@@ -116,7 +116,7 @@ export function normalizeToolChoiceForProvider(body: DynamicPayload, capabilitie
  * 判断非流式响应是否为空（空字符串 / null / 空对象 / 无 choices 的错误体）。
  * 部分 OpenAI 兼容端点会以 200/202 + `{errcode, errmsg}` 的形式返回上游超时，
  * 这类响应不应被当成正常结果进入上层空响应重试。
- * @param {any} data
+ * @param {unknown} data
  * @returns {boolean}
  */
 function isEmptyResponsePayload(data: unknown): boolean {
@@ -133,7 +133,7 @@ function isEmptyResponsePayload(data: unknown): boolean {
 /**
  * 将 Chat Completions 流式 chunk 聚合为非流式响应。
  * 处理 content / reasoning_content / tool_calls / finish_reason / usage。
- * @param {Array<any>} chunks
+ * @param {DynamicPayload[]} chunks
  * @returns {Object|null}
  */
 export function aggregateChatCompletionChunks(chunks: DynamicPayload[] | null | undefined): DynamicPayload | null {

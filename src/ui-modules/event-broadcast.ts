@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { parseMultipartForm } from '../utils/form-parser.ts';
 import logger from '../utils/logger.ts';
+import { sendJson, sendJsonError } from './http-helpers.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 interface LogEntry {
@@ -30,7 +31,7 @@ function broadcastGlobals(): EventBroadcastGlobals {
 /**
  * Helper function to broadcast events to UI clients
  * @param {string} eventType - The type of event
- * @param {any} data - The data to broadcast
+ * @param {unknown} data - The data to broadcast
  */
 export function broadcastEvent(eventType: string, data: unknown): void {
     if (broadcastGlobals().eventClients && broadcastGlobals().eventClients.length > 0) {
@@ -192,9 +193,7 @@ export async function handleUploadOAuthCredentials(
 
     const contentType = req.headers['content-type'] || '';
     if (!contentType.includes('multipart/form-data')) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'Content-Type must be multipart/form-data' } }));
-        return true;
+        return sendJsonError(res, 400, 'Content-Type must be multipart/form-data');
     }
 
     let form;
@@ -207,27 +206,21 @@ export async function handleUploadOAuthCredentials(
         const statusCode = typeof (error as { statusCode?: unknown }).statusCode === 'number'
             ? (error as { statusCode: number }).statusCode
             : 400;
-        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: error.message || 'File upload failed' } }));
-        return true;
+        return sendJsonError(res, statusCode, error.message || 'File upload failed');
     }
 
     const rawProvider = form.fields.provider || null;
     const fileEntry = form.fileEntries.find((entry) => entry.name === 'file' && entry.file && entry.file.name);
 
     if (!fileEntry) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'No file was uploaded' } }));
-        return true;
+        return sendJsonError(res, 400, 'No file was uploaded');
     }
 
     const originalName = fileEntry.file.name;
     const ext = path.extname(originalName).toLowerCase();
     if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
         logger.error(`${logPrefix} File upload error: Unsupported file type`);
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'Unsupported file type' } }));
-        return true;
+        return sendJsonError(res, 400, 'Unsupported file type');
     }
 
     const timestamp = Date.now();
@@ -279,27 +272,19 @@ export async function handleUploadOAuthCredentials(
         const userInfoStr = userInfo ? `, ${userInfo}` : '';
         logger.info(`${logPrefix} OAuth credentials file uploaded: ${targetFilePath} (provider: ${provider}${userInfoStr})`);
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             message: 'File uploaded successfully',
             filePath: relativePath,
             originalName,
             provider
-        }));
-        return true;
+        });
     } catch (caught) {
         const error = toError(caught);
         logger.error(`${logPrefix} File upload processing error:`, error);
         if (tempFilePath && existsSync(tempFilePath)) {
             await fs.unlink(tempFilePath).catch(() => {});
         }
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'File upload processing failed: ' + error.message
-            }
-        }));
-        return true;
+        return sendJsonError(res, 500, 'File upload processing failed: ' + error.message);
     }
 }

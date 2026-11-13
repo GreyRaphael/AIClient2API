@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { AxiosRequestConfig } from 'axios';
 import logger from '../../utils/logger.ts';
 import { randomUUID, randomBytes } from 'crypto';
 import { StringDecoder } from 'string_decoder';
@@ -2076,7 +2077,7 @@ export class TraeApiService {
         }
         const url = channel.url;
 
-        const axiosConfig: DynamicPayload = {
+        const axiosConfig: AxiosRequestConfig = {
             method: 'POST',
             url,
             data: payload,
@@ -2087,7 +2088,7 @@ export class TraeApiService {
         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE, payload.conversation_id);
         const callerSignal = requestBody?._abortSignal || requestBody?.signal;
         if (callerSignal) {
-            axiosConfig.signal = callerSignal;
+            axiosConfig.signal = callerSignal as AxiosRequestConfig['signal'];
         }
 
 
@@ -2095,7 +2096,7 @@ export class TraeApiService {
         logger.debug(`[Trae] Streaming request to ${url} (channel: ${channel.mode}, model: ${payload.model_name || payload.model})`);
         let response: DynamicPayload;
         try {
-            response = await axios(/** @type {any} */ (axiosConfig));
+            response = await axios(axiosConfig);
             const sock = response.request?.socket;
             logger.info(`[Trae Socket] localPort=${sock?.localPort} remoteAddress=${sock?.remoteAddress} reused=${response.request?.reusedSocket} conv=${payload.conversation_id}`);
         } catch (caught) { const err = caught as DynamicPayload;
@@ -2368,7 +2369,7 @@ export class TraeApiService {
                         agent_type: null
                     };
                     try {
-                        const axiosConfig: DynamicPayload = {
+                        const axiosConfig: AxiosRequestConfig = {
                             method: 'POST',
                             url: targetUrl,
                             data: agentBody,
@@ -2376,7 +2377,7 @@ export class TraeApiService {
                             timeout: 8000
                         };
                         configureAxiosProxy(axiosConfig, this.config, this.getTargetProvider());
-                        const res = await axios.request(/** @type {any} */ (axiosConfig));
+                        const res = await axios.request(axiosConfig);
                         for (const item of res.data?.config_info_list || []) {
                             if (item) allConfigs.push(item);
                         }
@@ -2397,7 +2398,7 @@ export class TraeApiService {
                         show_custom_model: false
                     };
                     try {
-                        const axiosConfig: DynamicPayload = {
+                        const axiosConfig: AxiosRequestConfig = {
                             method: 'POST',
                             url: targetUrl,
                             data: batchBody,
@@ -2405,7 +2406,7 @@ export class TraeApiService {
                             timeout: 8000
                         };
                         configureAxiosProxy(axiosConfig, this.config, MODEL_PROVIDER.TRAE);
-                        const res = await axios.request(/** @type {any} */ (axiosConfig));
+                        const res = await axios.request(axiosConfig);
                         for (const fc of res.data?.function_configs || []) {
                             for (const item of fc.config_info_list || []) {
                                 if (item) allConfigs.push(item);

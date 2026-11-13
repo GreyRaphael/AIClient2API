@@ -59,15 +59,15 @@ import type { DynamicPayload } from '../../types/dynamic-payload.js';
  * @param {string} toProvider - 目标模型提供商
  * @param {string} [model] - 可选的模型名称
  * @param {string} [requestId] - 可选的请求 ID
- * @returns {any} 转换后的数据
+ * @returns {unknown} 转换后的数据
  *
- * @param {any} data - 要转换的数据（请求体或响应）
+ * @param {CrossProtocolPayload} data - 要转换的数据（请求体或响应）
  * @param {string} type - 转换类型：'request', 'response', 'streamChunk'
  * @param {string} fromProvider - 源模型提供商
  * @param {string} toProvider - 目标模型提供商
  * @param {string} [model] - 可选的模型名称（用于响应转换）
  * @param {string} [requestId] - 可选的请求 ID
- * @returns {any} 转换后的数据
+ * @returns {unknown} 转换后的数据
  * @throws {Error} 如果找不到合适的转换函数
  */
 export function convertData(

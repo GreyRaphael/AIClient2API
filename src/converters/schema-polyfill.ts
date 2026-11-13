@@ -107,7 +107,7 @@ function decodeJsonPointerPart(part: string): string {
  * 在根 Schema 中根据 JSON Pointer 解析目标对象
  * @param {Object} rootSchema
  * @param {string} ref
- * @returns {any}
+ * @returns {SchemaNode | undefined}
  */
 function resolveRef(rootSchema: SchemaNode, ref: string): SchemaNode | undefined {
     if (!ref.startsWith('#/')) return undefined;
@@ -127,7 +127,7 @@ function resolveRef(rootSchema: SchemaNode, ref: string): SchemaNode | undefined
  * 将子 Schema 压缩成适合写入 description 的短摘要。
  * 仅保留模型最容易利用的结构/约束信息，避免 description 被原始 JSON 淹没。
  *
- * @param {any} schema
+ * @param {unknown} schema
  * @returns {string}
  */
 function summarizeSchemaForDescription(schema: unknown): string {

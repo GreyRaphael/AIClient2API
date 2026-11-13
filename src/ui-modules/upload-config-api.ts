@@ -9,6 +9,7 @@ import path from 'path';
 import { SimpleZip } from '../utils/zip.ts';
 import { broadcastEvent } from './event-broadcast.ts';
 import { scanConfigFiles } from './config-scanner.ts';
+import { sendJson, sendJsonError, sendOperationError } from './http-helpers.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 /**
@@ -39,24 +40,34 @@ function checkConfigPath(fullPath: string, action: string): { denied: string | n
     return { denied: null, relativePath };
 }
 
+function resolveValidatedConfigFile(
+    res: ServerResponse,
+    filePath: string,
+    action: string
+): { fullPath: string; relativePath: string } | null {
+    const fullPath = path.join(process.cwd(), filePath);
+    const { denied, relativePath } = checkConfigPath(fullPath, action);
+    if (denied) {
+        sendJsonError(res, 403, denied);
+        return null;
+    }
+    if (!existsSync(fullPath)) {
+        sendJsonError(res, 404, 'File does not exist');
+        return null;
+    }
+    return { fullPath, relativePath };
+}
+
 /**
  * 获取上传配置文件列表
  */
 export async function handleGetUploadConfigs(res: ServerResponse, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
     try {
         const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(configFiles));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        return sendJson(res, 200, configFiles);
+    } catch (error) {
         logger.error('[UI API] Failed to scan config files:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to scan config files: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to scan config files: ');
     }
 }
 
@@ -65,47 +76,23 @@ export async function handleGetUploadConfigs(res: ServerResponse, currentConfig:
  */
 export async function handleViewConfigFile(res: ServerResponse, filePath: string): Promise<boolean> {
     try {
-        const fullPath = path.join(process.cwd(), filePath);
-
-        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
-        const { denied, relativePath } = checkConfigPath(fullPath, 'view');
-        if (denied) {
-            res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: denied } }));
-            return true;
-        }
-
-        if (!existsSync(fullPath)) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'File does not exist'
-                }
-            }));
-            return true;
-        }
+        const resolved = resolveValidatedConfigFile(res, filePath, 'view');
+        if (!resolved) return true;
+        const { fullPath, relativePath } = resolved;
 
         const content = await fs.readFile(fullPath, 'utf-8');
         const stats = await fs.stat(fullPath);
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             path: relativePath,
             content: content,
             size: stats.size,
             modified: stats.mtime.toISOString(),
             name: path.basename(fullPath)
-        }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        });
+    } catch (error) {
         logger.error('[UI API] Failed to view config file:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to view config file: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to view config file: ');
     }
 }
 
@@ -114,25 +101,9 @@ export async function handleViewConfigFile(res: ServerResponse, filePath: string
  */
 export async function handleDownloadConfigFile(res: ServerResponse, filePath: string): Promise<boolean> {
     try {
-        const fullPath = path.join(process.cwd(), filePath);
-
-        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
-        const { denied } = checkConfigPath(fullPath, 'download');
-        if (denied) {
-            res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: denied } }));
-            return true;
-        }
-
-        if (!existsSync(fullPath)) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'File does not exist'
-                }
-            }));
-            return true;
-        }
+        const resolved = resolveValidatedConfigFile(res, filePath, 'download');
+        if (!resolved) return true;
+        const { fullPath } = resolved;
 
         const content = await fs.readFile(fullPath);
         const fileName = path.basename(fullPath);
@@ -144,15 +115,9 @@ export async function handleDownloadConfigFile(res: ServerResponse, filePath: st
         });
         res.end(content);
         return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+    } catch (error) {
         logger.error('[UI API] Failed to download config file:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to download config file: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to download config file: ');
     }
 }
 
@@ -161,26 +126,9 @@ export async function handleDownloadConfigFile(res: ServerResponse, filePath: st
  */
 export async function handleDeleteConfigFile(res: ServerResponse, filePath: string): Promise<boolean> {
     try {
-        const fullPath = path.join(process.cwd(), filePath);
-
-        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
-        const { denied, relativePath } = checkConfigPath(fullPath, 'delete');
-        if (denied) {
-            res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: denied } }));
-            return true;
-        }
-
-        if (!existsSync(fullPath)) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'File does not exist'
-                }
-            }));
-            return true;
-        }
-
+        const resolved = resolveValidatedConfigFile(res, filePath, 'delete');
+        if (!resolved) return true;
+        const { fullPath, relativePath } = resolved;
 
         await fs.unlink(fullPath);
 
@@ -191,22 +139,14 @@ export async function handleDeleteConfigFile(res: ServerResponse, filePath: stri
             timestamp: new Date().toISOString()
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             message: 'File deleted successfully',
             filePath: relativePath
-        }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        });
+    } catch (error) {
         logger.error('[UI API] Failed to delete config file:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to delete config file: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to delete config file: ');
     }
 }
 
@@ -217,9 +157,7 @@ export async function handleDownloadAllConfigs(res: ServerResponse): Promise<boo
     try {
         const configsPath = path.join(process.cwd(), 'configs');
         if (!existsSync(configsPath)) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'configs directory does not exist' } }));
-            return true;
+            return sendJsonError(res, 404, 'configs directory does not exist');
         }
 
         const zip = new SimpleZip();
@@ -257,15 +195,9 @@ export async function handleDownloadAllConfigs(res: ServerResponse): Promise<boo
 
         logger.info(`[UI API] All configs downloaded as zip: ${filename}`);
         return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+    } catch (error) {
         logger.error('[UI API] Failed to download all configs:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to download zip: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to download zip: ');
     }
 }
 
@@ -299,14 +231,12 @@ export async function handleDeleteUnboundConfigs(res: ServerResponse, currentCon
         });
 
         if (unboundConfigs.length === 0) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 200, {
                 success: true,
                 message: 'No unbound config files to delete',
                 deletedCount: 0,
                 deletedFiles: []
-            }));
-            return true;
+            });
         }
 
         const deletedFiles: string[] = [];
@@ -354,25 +284,17 @@ export async function handleDeleteUnboundConfigs(res: ServerResponse, currentCon
             });
         }
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             message: `Deleted ${deletedFiles.length} unbound config files`,
             deletedCount: deletedFiles.length,
             deletedFiles: deletedFiles,
             failedCount: failedFiles.length,
             failedFiles: failedFiles
-        }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        });
+    } catch (error) {
         logger.error('[UI API] Failed to delete unbound configs:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to delete unbound configs: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to delete unbound configs: ');
     }
 }
 
@@ -381,25 +303,9 @@ export async function handleDeleteUnboundConfigs(res: ServerResponse, currentCon
  */
 export async function handleForceExpireConfig(res: ServerResponse, filePath: string, currentConfig: DynamicPayload, providerPoolManager: ProviderPoolManager | null): Promise<boolean> {
     try {
-        const fullPath = path.join(process.cwd(), filePath);
-
-        // 安全检查：目录归属 + 机密文件排除（见 checkConfigPath）
-        const { denied, relativePath } = checkConfigPath(fullPath, 'access');
-        if (denied) {
-            res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: denied } }));
-            return true;
-        }
-
-        if (!existsSync(fullPath)) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'File does not exist'
-                }
-            }));
-            return true;
-        }
+        const resolved = resolveValidatedConfigFile(res, filePath, 'access');
+        if (!resolved) return true;
+        const { relativePath } = resolved;
 
         // 触发即时刷新逻辑
         let refreshCount = 0;
@@ -427,22 +333,14 @@ export async function handleForceExpireConfig(res: ServerResponse, filePath: str
             timestamp: new Date().toISOString()
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 200, {
             success: true,
             message: refreshCount > 0 ? `Triggered refresh for ${refreshCount} node(s)` : 'No active nodes found for this credential',
             filePath: relativePath,
             refreshTriggered: refreshCount > 0
-        }));
-        return true;
-    } catch (caught) { const error = caught as DynamicPayload;
+        });
+    } catch (error) {
         logger.error('[UI API] Failed to force refresh config:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: {
-                message: 'Failed to force refresh config: ' + error.message
-            }
-        }));
-        return true;
+        return sendOperationError(res, 500, error, 'Failed to force refresh config: ');
     }
 }

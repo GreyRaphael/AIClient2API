@@ -12,9 +12,9 @@ jest.mock('../src/ui-modules/auth.ts', () => ({
     handleLoginRequest: jest.fn(async () => true)
 }));
 
-const actualProviderApi = await import('../src/ui-modules/provider-api.ts');
-jest.mock('../src/ui-modules/provider-api.ts', () => ({
-    ...actualProviderApi,
+const actualProviderHealthModels = await import('../src/ui-modules/provider-health-models.ts');
+jest.mock('../src/ui-modules/provider-health-models.ts', () => ({
+    ...actualProviderHealthModels,
     handleGetProviderModelMetadata: jest.fn(async (res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end('{}');
@@ -25,7 +25,7 @@ jest.mock('../src/ui-modules/provider-api.ts', () => ({
 // ui-manager 静态 import 了被 mock 的模块；ESM 静态 import 会提升到 mock 注册之前，
 // 必须动态导入才能拿到打过 mock 的模块图。
 const { handleUIApiRequests } = await import('../src/services/ui-manager.ts');
-const providerApi = await import('../src/ui-modules/provider-api.ts');
+const providerHealthModels = await import('../src/ui-modules/provider-health-models.ts');
 const auth = await import('../src/ui-modules/auth.ts');
 
 
@@ -44,9 +44,9 @@ describe('UI manager route dispatch', () => {
 
         expect(handled).toBe(true);
         expect(auth.checkAuth).toHaveBeenCalled();
-        expect(providerApi.handleGetProviderModelMetadata).toHaveBeenCalledTimes(1);
+        expect(providerHealthModels.handleGetProviderModelMetadata).toHaveBeenCalledTimes(1);
         // 该 handler 不再接收 req（它只读 provider 池，不读请求），
         // 参数表首项即 res；这条断言同时防止 req 被无意加回来。
-        expect(providerApi.handleGetProviderModelMetadata.mock.calls[0][0]).toBe(res);
+        expect(providerHealthModels.handleGetProviderModelMetadata.mock.calls[0][0]).toBe(res);
     });
 });

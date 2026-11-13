@@ -31,16 +31,13 @@ jobs:
       - name: 安装依赖
         run: npm ci --ignore-scripts
 
-      - name: 类型检查
+      - name: 类型检查（含 strict）
         run: npm run typecheck
 
       # static/ui 无构建步骤，语法与 ESM import 图的唯一守护；
       # 已由 tsc 取代 tests/static-syntax.test.js 与 tests/static-import-graph.test.js。
       - name: WebUI 静态类型检查
         run: npm run typecheck:webui
-
-      - name: 严格度棘轮检查
-        run: npm run check:strict
 
       - name: any 债务棘轮检查
         run: npm run check:any

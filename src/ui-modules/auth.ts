@@ -21,6 +21,7 @@ import crypto from 'crypto';
 import { CONFIG } from '../core/config-manager.ts';
 import { getClientIp } from '../utils/common.ts';
 import { PASSWORD } from '../utils/constants.ts';
+import { sendJson } from './http-helpers.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 // Token存储到本地文件中
@@ -575,13 +576,11 @@ export async function checkAuth(req: IncomingMessage): Promise<boolean> {
  */
 export async function handleLoginRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 405, {
             success: false,
             message: 'Only POST requests are supported',
             messageCode: 'login.error.postOnly'
-        }));
-        return true;
+        });
     }
 
     const ip = getClientIp(req, CONFIG);
@@ -590,26 +589,22 @@ export async function handleLoginRequest(req: IncomingMessage, res: ServerRespon
     const lockout = loginAttemptManager.isLockedOut(ip);
     if (lockout.locked) {
         logger.warn(`[Auth] Login attempt from locked IP: ${ip}, reason: account_locked, remaining: ${lockout.remainingTime}s`);
-        res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 429, {
             success: false,
             message: `Account temporarily locked due to too many failed attempts. Please try again in ${lockout.remainingTime} seconds.`,
             messageCode: 'login.error.locked',
             messageParams: { time: lockout.remainingTime }
-        }));
-        return true;
+        });
     }
 
     // 2. 频率限制
     if (loginAttemptManager.isTooFrequent(ip)) {
         logger.warn(`[Auth] Login attempt too frequent from IP: ${ip}, reason: rate_limit`);
-        res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        return sendJson(res, 429, {
             success: false,
             message: 'Too many requests, please slow down.',
             messageCode: 'login.error.tooFrequent'
-        }));
-        return true;
+        });
     }
 
     try {
@@ -618,13 +613,11 @@ export async function handleLoginRequest(req: IncomingMessage, res: ServerRespon
 
         if (!password) {
             logger.warn(`[Auth] Login failed from IP: ${ip}, reason: empty_password`);
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            return sendJson(res, 400, {
                 success: false,
                 message: 'Password cannot be empty',
                 messageCode: 'login.error.empty'
-            }));
-            return true;
+            });
         }
 
         const isValid = await validateCredentials(password);
@@ -646,13 +639,12 @@ export async function handleLoginRequest(req: IncomingMessage, res: ServerRespon
                 expiryTime
             });
 
-             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, 200, {
                 success: true,
                 message: 'Login successful',
                 token,
                 expiresIn: `${loginExpiry} seconds`
-            }));
+            });
         } else {
             // 登录失败，记录
             const isLocked = loginAttemptManager.recordFailure(ip);
@@ -663,15 +655,14 @@ export async function handleLoginRequest(req: IncomingMessage, res: ServerRespon
 
             logger.warn(`[Auth] Login failed from IP: ${ip}, reason: incorrect_password, remaining_attempts: ${Math.max(0, remaining)}${isLocked ? ', result: locked' : ''}`);
 
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, 401, {
                 success: false,
                 message: isLocked
                     ? `Incorrect password. Account locked for ${Math.ceil(lockoutDuration / 60)} minutes.`
                     : `Incorrect password. ${remaining} attempts remaining.`,
                 messageCode: isLocked ? 'login.error.incorrectWithLock' : 'login.error.incorrectWithRemaining',
                 messageParams: isLocked ? { time: Math.ceil(lockoutDuration / 60) } : { count: remaining }
-            }));
+            });
         }
 
     } catch (caught) { const error = caught as DynamicPayload;
@@ -680,19 +671,17 @@ export async function handleLoginRequest(req: IncomingMessage, res: ServerRespon
         const isBodyTooLarge = error.code === 'BODY_TOO_LARGE';
 
         if (isBodyTooLarge) {
-            res.writeHead(413, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, 413, {
                 success: false,
                 message: 'Request body too large',
                 messageCode: 'login.error.bodyTooLarge'
-            }));
+            });
         } else {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            sendJson(res, 500, {
                 success: false,
                 message: error.message || 'Server error',
                 messageCode: isJsonError ? 'login.error.invalidJson' : undefined
-            }));
+            });
         }
     }
     return true;

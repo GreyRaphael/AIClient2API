@@ -10,6 +10,7 @@
 import { spawn } from 'child_process';
 import { sleep } from './sleep.ts';
 import type { ChildProcess } from 'node:child_process';
+import type { AxiosRequestConfig } from 'axios';
 import fs from 'fs';
 import path from 'path';
 import logger from './logger.ts';
@@ -186,34 +187,35 @@ class TLSSidecar {
     /**
      * 为 axios 配置 sidecar 代理
      * 将目标 URL 改为 sidecar 地址，原始目标通过 header 传递
-     * 
-     * @param {Object} axiosConfig - axios 配置对象
-     * @param {string} [proxyUrl] - 上游代理 URL（可选）
-     * @returns {Object} 修改后的 axios 配置
+     *
+     * @param axiosConfig - axios 配置对象
+     * @param proxyUrl - 上游代理 URL（可选）
+     * @returns 修改后的 axios 配置
      */
-    wrapAxiosConfig(axiosConfig: Record<string, unknown>, proxyUrl: string | null): Record<string, unknown> {
+    wrapAxiosConfig<T extends AxiosRequestConfig | Record<string, unknown>>(axiosConfig: T, proxyUrl: string | null): T {
         if (!this.isReady() || !this.baseUrl) {
             return axiosConfig; // sidecar 不可用，原样返回
         }
 
-        const targetUrl = axiosConfig.url;
+        const config = axiosConfig as AxiosRequestConfig & Record<string, unknown>;
+        const targetUrl = config.url;
 
         // 将请求指向 sidecar
-        axiosConfig.url = this.baseUrl;
+        config.url = this.baseUrl;
 
         // 通过 header 传递目标和代理信息
-        const headers = isRecord(axiosConfig.headers) ? axiosConfig.headers : {};
+        const headers = isRecord(config.headers) ? config.headers : {};
         headers['X-Target-Url'] = targetUrl;
         if (proxyUrl) {
             headers['X-Proxy-Url'] = proxyUrl;
         }
-        axiosConfig.headers = headers;
+        config.headers = headers;
 
         // 走 sidecar 不需要 Node.js 侧的 TLS agent
-        delete axiosConfig.httpAgent;
-        delete axiosConfig.httpsAgent;
+        delete config.httpAgent;
+        delete config.httpsAgent;
         // 确保 axios 不使用自己的代理
-        axiosConfig.proxy = false;
+        config.proxy = false;
 
         return axiosConfig;
     }

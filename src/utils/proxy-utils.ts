@@ -6,6 +6,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import type { Agent } from 'node:http';
+import type { AxiosRequestConfig } from 'axios';
 import crypto from 'node:crypto';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import logger from './logger.ts';
@@ -736,26 +737,27 @@ function isDirectlyReachable(baseUrl: string | null | undefined): boolean {
     return false;
 }
 
-export function configureAxiosProxy(
-    axiosConfig: UnknownRecord,
+export function configureAxiosProxy<T extends AxiosRequestConfig | UnknownRecord>(
+    axiosConfig: T,
     config: UnknownRecord | null | undefined,
     providerType: string,
     affinityKey?: string | null
-): UnknownRecord {
+): T {
+    const target = axiosConfig as AxiosRequestConfig;
     const proxyConfig = getProxyConfigForProvider(config, providerType);
 
     if (proxyConfig) {
         // 使用代理 agent
-        axiosConfig.httpAgent = proxyConfig.httpAgent;
-        axiosConfig.httpsAgent = proxyConfig.httpsAgent;
+        target.httpAgent = proxyConfig.httpAgent;
+        target.httpsAgent = proxyConfig.httpsAgent;
         // 禁用 axios 内置的代理配置，使用我们的 agent
-        axiosConfig.proxy = false;
+        target.proxy = false;
     } else {
         // 无代理直连：总是装配本模块的 Keep-Alive Agent。
-        const baseUrl = getString(axiosConfig.baseURL) || getString(axiosConfig.url);
+        const baseUrl = getString(target.baseURL) || getString(target.url);
         const agents = getKeepAliveAgents(config, baseUrl, affinityKey);
-        axiosConfig.httpAgent = agents.httpAgent;
-        axiosConfig.httpsAgent = agents.httpsAgent;
+        target.httpAgent = agents.httpAgent;
+        target.httpsAgent = agents.httpsAgent;
 
         // 关闭 axios 自身的内置代理解析，避免它读取 `http_proxy`/`https_proxy`/
         // `NODE_USE_ENV_PROXY` 后，在 lib/adapters/http.js 的 setProxy() 里把 hostname
@@ -766,7 +768,7 @@ export function configureAxiosProxy(
         // 环境代理访问，强制直连会直接失败（实测 500 / 直连不可达）。因此仅当目标主机
         // 确实可直连时才关闭；否则保留环境代理行为。
         if (isDirectlyReachable(baseUrl)) {
-            axiosConfig.proxy = false;
+            target.proxy = false;
         }
     }
 
@@ -811,17 +813,18 @@ export function isTLSSidecarEnabledForProvider(config: UnknownRecord | null | un
  * @param {string} [affinityKey] - 会话级亲和性标识
  * @returns {Object} 更新后的 axios 配置
  */
-export function configureTLSSidecar(
-    axiosConfig: UnknownRecord,
+export function configureTLSSidecar<T extends AxiosRequestConfig | UnknownRecord>(
+    axiosConfig: T,
     config: UnknownRecord | null | undefined,
     providerType: string,
     defaultBaseUrl: string | null = null,
     affinityKey?: string | null
-): UnknownRecord {
+): T {
     if (!config) {
         return configureAxiosProxy(axiosConfig, config, providerType, affinityKey);
     }
 
+    const target = axiosConfig as AxiosRequestConfig;
     const sidecar = getTLSSidecar();
     if (sidecar.isReady() && isTLSSidecarEnabledForProvider(config, providerType)) {
         // 优先使用 IP 绑定的代理，其次使用 Sidecar 专用的代理，最后使用全局代理
@@ -829,12 +832,12 @@ export function configureTLSSidecar(
         const proxyUrl = boundProxyUrl || getString(config.TLS_SIDECAR_PROXY_URL) || getString(config.PROXY_URL) || null;
 
         // 处理相对路径
-        const requestUrl = getString(axiosConfig.url);
+        const requestUrl = getString(target.url);
         if (requestUrl && !requestUrl.startsWith('http')) {
-            const baseUrl = (getString(axiosConfig.baseURL) || defaultBaseUrl || '').replace(/\/$/, '');
+            const baseUrl = (getString(target.baseURL) || defaultBaseUrl || '').replace(/\/$/, '');
             if (baseUrl) {
                 const path = requestUrl.startsWith('/') ? requestUrl : '/' + requestUrl;
-                axiosConfig.url = baseUrl + path;
+                target.url = baseUrl + path;
             }
         }
 
@@ -849,7 +852,7 @@ export function configureTLSSidecar(
         const source = boundProxyUrl ? `${nodeDisplay} (IP binding ${clientIp})` : nodeDisplay;
         logger.info(`[TLS Sidecar] Using sidecar for ${source}${proxyUrl ? ` (proxy: ${proxyUrl})` : ''}`);
 
-        sidecar.wrapAxiosConfig(axiosConfig, proxyUrl);
+        sidecar.wrapAxiosConfig(target, proxyUrl);
     }else{
         // 未启用 TLS Sidecar，直接使用全局代理
         configureAxiosProxy(axiosConfig, config, providerType, affinityKey);

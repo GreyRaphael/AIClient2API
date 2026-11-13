@@ -562,7 +562,7 @@ function setupSignalHandlers() {
         logger.error('[Master] Unhandled rejection at:', promise, 'reason:', reason);
 
         // 检查是否为可重试的网络错误
-        if (reason && isRetryableNetworkError(/** @type {any} */ (reason))) {
+        if (reason && isRetryableNetworkError(reason)) {
             logger.warn('[Master] Network error in promise rejection, continuing operation...');
             return; // 不退出程序，继续运行
         }

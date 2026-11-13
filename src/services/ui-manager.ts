@@ -13,6 +13,8 @@ import { handleApiKeyUserRoutes, handleApiKeyManagementRoutes } from './api-keys
 import * as auth from '../ui-modules/auth.ts';
 import * as configApi from '../ui-modules/config-api.ts';
 import * as providerApi from '../ui-modules/provider-api.ts';
+import * as providerHealthModels from '../ui-modules/provider-health-models.ts';
+import { handleRevealProviderSecret } from '../ui-modules/provider-secrets.ts';
 import * as usageApi from '../ui-modules/usage-api.ts';
 import * as uploadConfigApi from '../ui-modules/upload-config-api.ts';
 import * as systemApi from '../ui-modules/system-api.ts';
@@ -350,7 +352,7 @@ const UI_ROUTES: readonly UiRouteEntry[] = [
     {
         method: 'GET',
         path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/secret$/,
-        run: ({ req, res, currentConfig, providerPoolManager, match }) => providerApi.handleRevealProviderSecret(
+        run: ({ req, res, currentConfig, providerPoolManager, match }) => handleRevealProviderSecret(
             req, res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), decodeURIComponent(match![2])
         )
     },
@@ -388,17 +390,17 @@ const UI_ROUTES: readonly UiRouteEntry[] = [
     {
         method: 'GET',
         path: '/api/provider-models/metadata',
-        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleGetProviderModelMetadata(res, currentConfig, providerPoolManager)
+        run: ({ res, currentConfig, providerPoolManager }) => providerHealthModels.handleGetProviderModelMetadata(res, currentConfig, providerPoolManager)
     },
     {
         method: 'GET',
         path: '/api/provider-models',
-        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleGetProviderModels(res, currentConfig, providerPoolManager)
+        run: ({ res, currentConfig, providerPoolManager }) => providerHealthModels.handleGetProviderModels(res, currentConfig, providerPoolManager)
     },
     {
         method: 'POST',
         path: '/api/provider-models/refresh',
-        run: ({ res, currentConfig, providerPoolManager }) => providerApi.handleRefreshProviderModels(res, currentConfig, providerPoolManager)
+        run: ({ res, currentConfig, providerPoolManager }) => providerHealthModels.handleRefreshProviderModels(res, currentConfig, providerPoolManager)
     },
     {
         method: 'POST',
@@ -415,21 +417,21 @@ const UI_ROUTES: readonly UiRouteEntry[] = [
     {
         method: 'POST',
         path: /^\/api\/providers\/([^\/]+)\/health-check$/,
-        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleHealthCheck(
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerHealthModels.handleHealthCheck(
             res, currentConfig, providerPoolManager, decodeURIComponent(match![1])
         )
     },
     {
         method: 'POST',
         path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/detect-models$/,
-        run: ({ req, res, currentConfig, providerPoolManager, match }) => providerApi.handleDetectProviderModels(
+        run: ({ req, res, currentConfig, providerPoolManager, match }) => providerHealthModels.handleDetectProviderModels(
             req, res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2]
         )
     },
     {
         method: 'POST',
         path: /^\/api\/providers\/([^\/]+)\/([^\/]+)\/health-check$/,
-        run: ({ res, currentConfig, providerPoolManager, match }) => providerApi.handleSingleProviderHealthCheck(
+        run: ({ res, currentConfig, providerPoolManager, match }) => providerHealthModels.handleSingleProviderHealthCheck(
             res, currentConfig, providerPoolManager, decodeURIComponent(match![1]), match![2]
         )
     },

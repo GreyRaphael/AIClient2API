@@ -3,7 +3,8 @@ import type { ProviderPoolManager } from '../providers/provider-pool-manager.ts'
 
 
 import { existsSync, readFileSync } from 'fs';
-import { providerPoolsPath } from './provider-api.ts';
+import { sendJson } from './http-helpers.ts';
+import { providerPoolsPath } from './provider-pools-store.ts';
 import type { DynamicPayload } from '../../types/dynamic-payload.js';
 
 function getDefaultProviders(currentConfig: DynamicPayload): string[] {
@@ -125,7 +126,5 @@ export async function handleGetAccessInfo(
 ): Promise<boolean> {
     const { getRegisteredProviders } = await import('../providers/adapter.ts');
     const payload = buildAccessInfoPayload(currentConfig, providerPoolManager, getRegisteredProviders());
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(payload));
-    return true;
+    return sendJson(res, 200, payload);
 }

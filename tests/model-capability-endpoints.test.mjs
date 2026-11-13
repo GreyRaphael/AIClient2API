@@ -11,7 +11,8 @@ import {
     resolveNodeCapability,
     setCapabilityStore
 } from '../src/providers/model-capability.ts';
-import { handleGetProviderModels, handleGetProviders, handleGetProviderModelMetadata } from '../src/ui-modules/provider-api.ts';
+import { handleGetProviders } from '../src/ui-modules/provider-api.ts';
+import { handleGetProviderModels, handleGetProviderModelMetadata } from '../src/ui-modules/provider-health-models.ts';
 import { CONFIG } from '../src/core/config-manager.ts';
 
 function createResponse() {
