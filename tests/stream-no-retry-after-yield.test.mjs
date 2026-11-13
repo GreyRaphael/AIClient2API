@@ -47,7 +47,7 @@ function buildPartiallyFailingStream() {
 /** 安装一个最小 axios mock，返回可注入的 instance。 */
 function installAxiosMock() {
     let instance;
-    jest.doMock('axios', () => {
+    jest.mock('axios', () => {
         instance = {
             request: jest.fn(),
             defaults: { headers: { common: {} } },

@@ -31,9 +31,7 @@ export function createResponse(overrides = {}) {
         },
         end(chunk) {
             // 保留原始值语义：调用方可能断言 body === null / undefined / Buffer
-            if (chunk === undefined) {
-                this.body = typeof this.body === 'string' ? this.body : this.body;
-            } else {
+            if (chunk !== undefined) {
                 this.body = typeof this.body === 'string' ? this.body + String(chunk) : chunk;
             }
             return this;

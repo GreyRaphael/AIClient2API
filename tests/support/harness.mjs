@@ -40,8 +40,6 @@ class Asymmetric {
                 if (label === 'BigInt') return typeof candidate === 'bigint';
                 return candidate instanceof this.payload;
             }
-            case 'anything':
-                return candidate !== null && candidate !== undefined;
             case 'objectContaining':
                 return containsSubset(candidate, this.payload);
             case 'arrayContaining':
@@ -49,8 +47,6 @@ class Asymmetric {
                     && this.payload.every((want) => candidate.some((got) => looseEqual(got, want)));
             case 'stringContaining':
                 return typeof candidate === 'string' && candidate.includes(this.payload);
-            case 'stringMatching':
-                return typeof candidate === 'string' && new RegExp(this.payload).test(candidate);
             default:
                 throw new Error(`未知非对称匹配器: ${this.kind}`);
         }
@@ -190,12 +186,6 @@ function buildMatchers(value, state) {
         toEqual: (expected) => assertThat(looseEqual(value, expected), {
             negated,
             message: `期望 ${label()} 深等于 ${formatValue(expected)}`,
-            notMessage: `期望 ${label()} 不等于 ${formatValue(expected)}`
-        }),
-
-        toStrictEqual: (expected) => assertThat(looseEqual(value, expected), {
-            negated,
-            message: `期望 ${label()} 严格深等于 ${formatValue(expected)}`,
             notMessage: `期望 ${label()} 不等于 ${formatValue(expected)}`
         }),
 
@@ -373,15 +363,6 @@ function buildMatchers(value, state) {
         });
     };
 
-    matcher.toHaveBeenLastCalledWith = (...expected) => {
-        const pass = callCount() > 0 && looseEqual(callArgs(callCount() - 1), expected);
-        assertThat(pass, {
-            negated,
-            message: `期望最后一次以 ${formatValue(expected)} 调用`,
-            notMessage: `期望最后一次不以 ${formatValue(expected)} 调用`
-        });
-    };
-
     return matcher;
 }
 
@@ -427,24 +408,21 @@ export function expect(value) {
 }
 
 expect.any = (ctor) => new Asymmetric('any', ctor, `Any<${ctor?.name}>`);
-expect.anything = () => new Asymmetric('anything', null, 'Anything');
 expect.objectContaining = (obj) => new Asymmetric('objectContaining', obj, 'ObjectContaining');
 expect.arrayContaining = (arr) => new Asymmetric('arrayContaining', arr, 'ArrayContaining');
 expect.stringContaining = (str) => new Asymmetric('stringContaining', str, 'StringContaining');
-expect.stringMatching = (pattern) => new Asymmetric('stringMatching', pattern, 'StringMatching');
 
 /**
  * `jest` 对象兼容层。
  *
  * `fn`/`spyOn` 直接复用 node:test 的 mock（同一套调用记录语义）；
- * `mock()`/`doMock()`/`unmock()` 是模块级 mock，必须走
- * `--experimental-test-module-mocks` 与 `mock.module()`，由调用方显式声明；
- * 这里给出明确报错而不是静默失效。
+ * `mock()` 是模块级 mock，必须走 `--experimental-test-module-mocks` 与
+ * `mock.module()`，由调用方显式声明；这里给出明确报错而不是静默失效。
  */
 /** 已登记的模块 mock，保证 jest.mock 幂等 */
 const mockedSpecifiers = new Set();
 
-/** 所有由 harness 创建的 mock（fn/spyOn），用于 clearAllMocks / resetAllMocks */
+/** 所有由 harness 创建的 mock（fn/spyOn），用于 clearAllMocks / restoreAllMocks */
 const allMocks = new Set();
 
 /**
@@ -575,30 +553,6 @@ export const jest = {
         mockedSpecifiers.add(specifier);
     },
 
-    // doMock 在 Jest 里是"不提升、立即注册"，与 Node 的 mock.module 语义一致
-    doMock: (specifier, factory) => jest.mock(specifier, factory),
-
-    requireActual: (specifier) => import(specifier),
-
-    /**
-     * 假定时器。Node 已内置 `mock.timers`（MockTimers），直接转调即可，
-     * 无需 sinon 之类的额外依赖。
-     */
-    // 只伪造定时器，不伪造 Date：伪造 Date 会干扰 runner 自身的时间计算与报告。
-    useFakeTimers: () => nodeMock.timers.enable({ apis: ['setTimeout', 'setInterval'] }),
-    useRealTimers: () => nodeMock.timers.reset(),
-    advanceTimersByTime: (ms) => nodeMock.timers.tick(ms),
-    advanceTimersByTimeAsync: async (ms) => { nodeMock.timers.tick(ms); await new Promise((r) => setImmediate(r)); },
-    runAllTimers: () => nodeMock.timers.runAll(),
-    runAllTimersAsync: async () => { nodeMock.timers.runAll(); await new Promise((r) => setImmediate(r)); },
-    setSystemTime: (t) => nodeMock.timers.setTime(t instanceof Date ? t.getTime() : t),
-    clearAllTimers: () => nodeMock.timers.reset(),
-    clearAllMocks: () => { for (const m of allMocks) m.mock?.resetCalls?.(); },
-    resetAllMocks: () => { for (const m of allMocks) m.mockReset?.(); allMocks.clear(); },
-    restoreAllMocks: () => {
-        for (const m of allMocks) m.mockRestore?.();
-        allMocks.clear();
-    },
     /**
      * 假定时器。Node 内置 `mock.timers`（MockTimers）转调即可，无需 sinon。
      *
@@ -611,6 +565,7 @@ export const jest = {
      * 这里自己记账：enable 时包一层 setTimeout/setInterval/clearTimeout/clearInterval，
      * 只统计「尚未触发且尚未被 clear」的句柄，语义与 Jest 一致。
      */
+    // 只伪造定时器，不伪造 Date：伪造 Date 会干扰 runner 自身的时间计算与报告。
     useFakeTimers: () => {
         nodeMock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
         installTimerCounting();
@@ -622,22 +577,13 @@ export const jest = {
     },
     advanceTimersByTime: (ms) => nodeMock.timers.tick(ms),
     advanceTimersByTimeAsync: async (ms) => { nodeMock.timers.tick(ms); await new Promise((r) => setImmediate(r)); },
-    runAllTimers: () => nodeMock.timers.runAll(),
-    runAllTimersAsync: async () => { nodeMock.timers.runAll(); await new Promise((r) => setImmediate(r)); },
-    setSystemTime: (t) => nodeMock.timers.setTime(t instanceof Date ? t.getTime() : t),
     clearAllTimers: () => { activeTimerHandles.clear(); nodeMock.timers.reset(); },
     clearAllMocks: () => { for (const m of allMocks) m.mock?.resetCalls?.(); },
-    resetAllMocks: () => { for (const m of allMocks) m.mockReset?.(); allMocks.clear(); },
     restoreAllMocks: () => {
         for (const m of allMocks) m.mockRestore?.();
         allMocks.clear();
     },
-    getTimerCount: () => activeTimerHandles.size,
-
-    resetModules: () => {
-        // Node 没有等价 API（ESM 模块记录不可清除）。依赖它的测试应改为显式重建被测对象，
-        // 这里保持静默以避免误伤，但调用点已在本仓库消除。
-    }
+    getTimerCount: () => activeTimerHandles.size
 };
 
 // --- 活动定时器记账（服务于 jest.getTimerCount） -------------------------------

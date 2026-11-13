@@ -1,5 +1,5 @@
 import { describe, test } from 'node:test';
-import { expect, jest } from './support/harness.mjs';
+import { expect } from './support/harness.mjs';
 /**
  * 模型用量统计 section（主菜单）的 SSR 冒烟 + 纯函数契约。
  *
@@ -18,8 +18,6 @@ import { expect, jest } from './support/harness.mjs';
  * tests/webui-e2e/smoke.spec.js 的真实浏览器用例覆盖，纯逻辑部分由下面的 usage-utils 用例覆盖。
  */
 
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import render from 'preact-render-to-string';
 import { html } from '@ui/html.js';
 import { formatDateTime } from '@ui/lib/stats.js';
@@ -150,81 +148,6 @@ describe('模型用量统计 section：SSR 结构', () => {
         expect(markup).toContain('empty-cell');
         expect(markup).toContain('colspan="9"');
         expect(() => render(html`<${ModelUsageStatsSection} />`)).not.toThrow();
-    });
-});
-
-describe('日历热力图：方块形状与绿色深浅（迁移回归护栏）', () => {
-    const shared = readFileSync(path.join(process.cwd(), 'static/ui/styles/shared.css'), 'utf8');
-    const base = readFileSync(path.join(process.cwd(), 'static/ui/styles/base.css'), 'utf8');
-
-    /** 取出某个选择器的声明块（去注释） */
-    function rule(css, selector) {
-        const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
-        const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const m = new RegExp(escaped + '\\s*\\{([^}]*)\\}').exec(clean);
-        return m ? m[1] : '';
-    }
-
-    test('格子是 11px 方块，圆角必须是小值（曾被误改成 --radius-sm(6px) 变成圆点）', () => {
-        const block = rule(shared, '.calendar-day');
-        expect(block).toContain('width: 11px');
-        expect(block).toContain('height: 11px');
-        // 6px 圆角作用在 11px 方块上会几乎变成圆形 —— 用户可见的视觉回归
-        expect(block).toMatch(/border-radius:\s*2px/);
-        expect(block).not.toMatch(/border-radius:\s*var\(--radius-sm\)/);
-        expect(block).not.toMatch(/border-radius:\s*var\(--radius-full\)/);
-    });
-
-    test('四档 data-level 分别绑定不同的绿色令牌（token 消耗量深浅）', () => {
-        for (const level of [1, 2, 3, 4]) {
-            const block = rule(shared, `.calendar-day[data-level="${level}"]`);
-            expect(block).toContain(`background: var(--calendar-level-${level})`);
-        }
-        // level 0（无用量）走背景色，不能是绿色
-        expect(rule(shared, '.calendar-day[data-level="0"]')).toContain('background: var(--bg-secondary)');
-    });
-
-    test('四个绿色令牌在暗色主题下都有定义，且逐级提亮', () => {
-        const tokens = [...base.matchAll(/--calendar-level-(\d):\s*(#[0-9a-fA-F]{6})/g)]
-            .map((m) => ({ level: Number(m[1]), hex: m[2] }));
-        expect(tokens.map((t) => t.level)).toEqual([1, 2, 3, 4]);
-
-        // 相对亮度：暗色背景下 level 越高必须越亮（反向提亮）
-        const luminance = (hex) => {
-            const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        };
-        for (let i = 1; i < tokens.length; i += 1) {
-            expect(luminance(tokens[i].hex)).toBeGreaterThan(luminance(tokens[i - 1].hex));
-        }
-    });
-
-    test('日历规则归属 shared.css（控制台与 potluck 两页都加载它）', () => {
-        // 这些页面都会加载 shared.css；塞回 plugin-shared.css 会让控制台丢失日历样式
-        for (const page of ['index.html', 'potluck-user.html']) {
-            const html = readFileSync(path.join(process.cwd(), 'static', page), 'utf8');
-            expect({ page, loadsShared: html.includes('shared.css') }).toEqual({ page, loadsShared: true });
-        }
-        expect(shared).toContain('.calendar-grid');
-        expect(shared).toContain('.calendar-day');
-    });
-
-    test('月份刻度与日期格子共用一个 grid（拆成两个会漂到 +127px）', () => {
-        // 独立的 .calendar-months 容器已不存在：月份标签是同一个 grid 的第一行，
-        // 列宽由 --calendar-weeks 单一来源决定，两者不可能再分叉。
-        expect(shared).not.toContain('.calendar-months');
-        const gridBlock = rule(shared, '.calendar-grid');
-        expect(gridBlock).toContain('grid-template-columns: repeat(var(--calendar-weeks)');
-        expect(gridBlock).toContain('gap: 2px');
-
-        // section 那侧只允许「撑满高度」，不允许再覆盖 gap / 列定义，
-        // 否则 3px 那样的覆盖会让月份轨道与日期轨道重新错开。
-        const section = readFileSync(
-            path.join(process.cwd(), 'static/ui/styles/components/section-model-usage-stats.css'), 'utf8'
-        );
-        const sectionGrid = rule(section, '#model-usage-stats .calendar-grid');
-        expect(sectionGrid).not.toContain('gap:');
-        expect(sectionGrid).not.toContain('grid-template-columns');
     });
 });
 

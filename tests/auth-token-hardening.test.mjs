@@ -1,5 +1,5 @@
 import { describe, test, beforeEach, afterEach } from 'node:test';
-import { expect, jest } from './support/harness.mjs';
+import { expect } from './support/harness.mjs';
 
 /**
  * token 校验的原型链加固：
@@ -10,13 +10,14 @@ import { expect, jest } from './support/harness.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as auth from '../src/ui-modules/auth.ts';
 
 const MAGIC_TOKENS = ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf', '__defineGetter__'];
 
 let tempDir;
 let originalCwd;
 
-/** 在临时 cwd 下放置 token store 后重新加载模块（TOKEN_STORE_FILE 在模块加载时解析 cwd） */
+/** 在临时 cwd 下放置 token store（auth.ts 运行期惰性读取 process.cwd()） */
 async function loadAuthWithTokens(tokens) {
     fs.mkdirSync(path.join(tempDir, 'configs'), { recursive: true });
     fs.writeFileSync(
@@ -25,8 +26,7 @@ async function loadAuthWithTokens(tokens) {
         'utf8'
     );
     process.chdir(tempDir);
-    jest.resetModules();
-    return import('../src/ui-modules/auth.ts');
+    return auth;
 }
 
 beforeEach(() => {

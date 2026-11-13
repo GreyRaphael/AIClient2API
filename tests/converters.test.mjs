@@ -1,14 +1,22 @@
 import { describe, test } from 'node:test';
-import { expect, jest } from './support/harness.mjs';
+import { expect } from './support/harness.mjs';
 import '../src/converters/register-converters.ts';
 import { convertData } from '../src/convert/convert.ts';
 import { MODEL_PROTOCOL_PREFIX } from '../src/utils/common.ts';
+import { MODEL_PROTOCOL_PREFIX as CONSTANTS_PROTOCOL_PREFIX } from '../src/utils/constants.ts';
 import { mapFinishReason } from '../src/converters/utils.ts';
 import { GeminiConverter } from '../src/converters/strategies/GeminiConverter.ts';
 import { OpenAIConverter } from '../src/converters/strategies/OpenAIConverter.ts';
 import { ClaudeConverter } from '../src/converters/strategies/ClaudeConverter.ts';
+import { CodexConverter } from '../src/converters/strategies/CodexConverter.ts';
 import { ConverterFactory } from '../src/converters/ConverterFactory.ts';
 import { BaseConverter } from '../src/converters/BaseConverter.ts';
+import { ProviderStrategyFactory } from '../src/utils/provider-strategy-factory.ts';
+import {
+    budgetTokensToEffort,
+    effortToClaudeBudget,
+    effortToGeminiThinking
+} from '../src/converters/thinking-budget.ts';
 import { createResponsesStreamState, generateResponseCompleted } from '../src/providers/openai/openai-responses-events.ts';
 
 describe('BaseConverter contract', () => {
@@ -1264,5 +1272,131 @@ describe('Phase 0 & 后续定点修复用例', () => {
         expect(completed.response.usage.output_tokens).toBe(8);
         expect(completed.response.output[0].type).toBe('reasoning');
         expect(completed.response.output[1].type).toBe('message');
+    });
+});
+
+describe('ClaudeConverter -> Codex instructions 归一化', () => {
+    test('单 block 的 system 对象被转成字符串而不是原样赋给 instructions', () => {
+        const converter = new ClaudeConverter();
+        const codexConverter = new CodexConverter();
+        converter.codexConverter = codexConverter;
+
+        const requestId = 'test-req-1';
+        const result = converter.toCodexRequest({
+            model: 'claude-sonnet-4-5',
+            max_tokens: 32,
+            system: { type: 'text', text: 'You are a helpful assistant.' },
+            messages: [{ role: 'user', content: 'hi' }]
+        }, requestId);
+
+        expect(typeof result.instructions).toBe('string');
+        expect(result.instructions).toBe('You are a helpful assistant.');
+    });
+});
+
+describe('CodexConverter.convertTools 不污染入参', () => {
+    test('删除 $schema 只作用于副本', () => {
+        const converter = new CodexConverter();
+        const schema = { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', properties: {} };
+        const tools = [{ type: 'function', function: { name: 'do_thing', description: 'x', parameters: schema } }];
+
+        const converted = converter.convertTools(tools, 'req-2', {});
+
+        // 转换结果的 parameters 不应带 $schema
+        expect(converted[0].parameters.$schema).toBeUndefined();
+        // 但调用方传进来的原对象必须保留 $schema（否则重试时会拿到被改过的 body）
+        expect(schema.$schema).toBe('http://json-schema.org/draft-07/schema#');
+    });
+});
+
+describe('ProviderStrategyFactory 单例化', () => {
+    test('同一协议始终返回同一个实例', () => {
+        for (const protocol of Object.values(CONSTANTS_PROTOCOL_PREFIX)) {
+            expect(ProviderStrategyFactory.getStrategy(protocol))
+                .toBe(ProviderStrategyFactory.getStrategy(protocol));
+        }
+    });
+
+    test('所有受支持协议都有对应策略', () => {
+        for (const protocol of Object.values(CONSTANTS_PROTOCOL_PREFIX)) {
+            const strategy = ProviderStrategyFactory.getStrategy(protocol);
+            expect(typeof strategy.extractResponseText).toBe('function');
+            expect(typeof strategy.extractPromptText).toBe('function');
+        }
+    });
+
+    test('策略实例必须保持无状态（单例化的前提）', () => {
+        // 若某个策略类新增了实例字段，复用单例就会造成跨请求串话。
+        // 这条断言是给未来的改动上锁：新增字段时此处会失败。
+        for (const protocol of Object.values(CONSTANTS_PROTOCOL_PREFIX)) {
+            const strategy = ProviderStrategyFactory.getStrategy(protocol);
+            expect(Object.keys(strategy)).toHaveLength(0);
+        }
+    });
+
+    test('拒绝原型链键与未知协议', () => {
+        for (const bad of ['__proto__', 'constructor', 'toString', 'valueOf', 'bogus', '']) {
+            expect(() => ProviderStrategyFactory.getStrategy(bad))
+                .toThrow(/Unsupported provider protocol/);
+        }
+    });
+});
+
+describe('thinking-budget 思考预算与等级换算', () => {
+    test('budgetTokensToEffort 边界值与默认行为', () => {
+        expect(budgetTokensToEffort(null)).toBe('high');
+        expect(budgetTokensToEffort(undefined)).toBe('high');
+
+        expect(budgetTokensToEffort(0)).toBe('low');
+        expect(budgetTokensToEffort(1024)).toBe('low');
+        expect(budgetTokensToEffort(2047)).toBe('low');
+        expect(budgetTokensToEffort(2048)).toBe('low');
+
+        expect(budgetTokensToEffort(2049)).toBe('medium');
+        expect(budgetTokensToEffort(3072)).toBe('medium');
+        expect(budgetTokensToEffort(4096)).toBe('medium');
+        expect(budgetTokensToEffort(8192)).toBe('medium');
+
+        expect(budgetTokensToEffort(8193)).toBe('high');
+        expect(budgetTokensToEffort(20000)).toBe('high');
+        expect(budgetTokensToEffort(32000)).toBe('high');
+    });
+
+    test('五档规范表往返映射 (round-trip)', () => {
+        expect(effortToClaudeBudget('low')).toBe(2048);
+        expect(budgetTokensToEffort(effortToClaudeBudget('low'))).toBe('low');
+
+        expect(effortToClaudeBudget('medium')).toBe(8192);
+        expect(budgetTokensToEffort(effortToClaudeBudget('medium'))).toBe('medium');
+
+        expect(effortToClaudeBudget('high')).toBe(20000);
+        expect(budgetTokensToEffort(effortToClaudeBudget('high'))).toBe('high');
+
+        expect(effortToClaudeBudget('minimal')).toBe(1024);
+        expect(budgetTokensToEffort(effortToClaudeBudget('minimal'))).toBe('low');
+
+        expect(effortToClaudeBudget('xhigh')).toBe(32000);
+        expect(budgetTokensToEffort(effortToClaudeBudget('xhigh'))).toBe('high');
+        expect(effortToClaudeBudget('max')).toBe(32000);
+        expect(budgetTokensToEffort(effortToClaudeBudget('max'))).toBe('high');
+
+        expect(effortToClaudeBudget('none')).toBe(0);
+        expect(effortToClaudeBudget('')).toBe(0);
+        expect(effortToClaudeBudget(null)).toBe(0);
+    });
+
+    test('effortToGeminiThinking 统一输出 thinkingLevel', () => {
+        expect(effortToGeminiThinking('low')).toEqual({ thinkingLevel: 'LOW' });
+        expect(effortToGeminiThinking('medium')).toEqual({ thinkingLevel: 'MEDIUM' });
+        expect(effortToGeminiThinking('high')).toEqual({ thinkingLevel: 'HIGH' });
+        expect(effortToGeminiThinking('minimal')).toEqual({ thinkingLevel: 'LOW' });
+        expect(effortToGeminiThinking('max')).toEqual({ thinkingLevel: 'HIGH' });
+        expect(effortToGeminiThinking('xhigh')).toEqual({ thinkingLevel: 'HIGH' });
+        expect(effortToGeminiThinking('auto')).toEqual({ includeThoughts: true });
+
+        expect(effortToGeminiThinking('none')).toBeNull();
+        expect(effortToGeminiThinking('')).toBeNull();
+        expect(effortToGeminiThinking(null)).toBeNull();
+        expect(effortToGeminiThinking('unsupported')).toBeNull();
     });
 });

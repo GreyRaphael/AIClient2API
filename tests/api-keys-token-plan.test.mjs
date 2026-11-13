@@ -414,3 +414,45 @@ describe('端到端鉴权与预扣回收', () => {
         expect(payload2.data.plan.tokenQuota).toBe(100_000_000);
     });
 });
+
+describe('api-keys sqlite store', () => {
+    test('增量写入/删除/清空/元数据存取', async () => {
+        const db = await import('../src/services/api-keys/key-db.ts');
+        db.setDatabaseDir(sandbox);
+
+        const dummyKey1 = {
+            id: 'maki_k1',
+            name: 'Key 1',
+            maskedKey: 'maki_****1',
+            enabled: true,
+            todayUsage: 0,
+            dailyLimit: 100,
+            todayTotalTokens: 0,
+            todayCachedTokens: 0,
+            totalUsage: 0,
+            totalTokens: 0,
+            totalCachedTokens: 0,
+            qps: 0, rpm: 0, maxQps: 0, maxRpm: 0, tps: 0, maxTps: 0,
+            lastUsedAt: null,
+            createdAt: new Date().toISOString(),
+            plan: null,
+            usageHistory: {}
+        };
+        const dummyKey2 = { ...dummyKey1, id: 'maki_k2', name: 'Key 2' };
+
+        db.saveKeys({ maki_k1: dummyKey1, maki_k2: dummyKey2 }, ['maki_k1', 'maki_k2']);
+        expect(Object.keys(db.loadAllKeys()).sort()).toEqual(['maki_k1', 'maki_k2']);
+
+        const updatedK1 = { ...dummyKey1, name: 'Key 1 Updated' };
+        db.saveKeys({ maki_k1: updatedK1 }, ['maki_k1']);
+        expect(db.loadAllKeys().maki_k1.name).toBe('Key 1 Updated');
+
+        // saveKeys 传 undefined 等价于删除
+        db.saveKeys({ maki_k1: updatedK1, maki_k2: undefined }, ['maki_k2']);
+        expect(Object.keys(db.loadAllKeys())).toEqual(['maki_k1']);
+
+        db.saveKeys({ maki_k1: undefined }, ['maki_k1']);
+        expect(Object.keys(db.loadAllKeys())).toEqual([]);
+        db.shutdown();
+    });
+});
