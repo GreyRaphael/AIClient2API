@@ -1,54 +1,37 @@
-# AIClient-2API 发布说明 (v8.9.4)
+# AIClient-2API 发布说明 (v8.9.5)
 
-> ## 🔧 缺陷修复与 Node 26 / TS 7 架构精简版本
+> ## ✨ WebUI 用量统计增强与令牌管理视觉优化
 >
-> **版本重点**：围绕 v8.9.3 代码评审开展系统性治理——修复 5 个高优先级缺陷与残余边界 Bug，
-> 清理跨模块死代码与冗余封装，并将核心请求管线、转换器与调度结构充分收敛到
-> **Node.js 26** 与 **TypeScript 7** 原生能力。
+> **版本重点**：为 WebUI「模型用量统计」表格新增**上次请求时间**列与对应排序支持，
+> 并针对「令牌管理 (API Keys)」页面卡片密度、间距尺度与弹窗作用域样式进行视觉重整，
+> 同步修复 WebUI E2E 测试中的接口匹配与日历断言边界问题。
 
 ---
 
 ## ⚠️ 升级与兼容性说明
 
 - **运行时要求**：Node.js >= 26.0.0（与 v8.9.x 系列一致）。
-- **兼容性**：无破坏性 HTTP API 或配置文件格式变更，可直接从 v8.9.0 ~ v8.9.3 升级。
+- **兼容性**：纯前端 WebUI 与测试增强，无破坏性 HTTP API 或配置文件格式变更，可直接从 v8.9.0 ~ v8.9.4 平滑升级。
 
 ---
 
-## 一、核心缺陷修复（Stability & Bug Fixes）
+## 一、功能新增与交互优化（WebUI）
 
-1. **模型能力刷新退避与 Antigravity 重试边界收敛**
-   - 区分能力刷新意图 `'respect-backoff' | 'force'`：常规模型查询与后台预热严格遵守退避窗口，仅显式触发刷新时强制穿透，避免失败节点在每次 `/v1/models` 请求时反复打满上游。
-   - 在 `antigravity-core.ts` 抽取 `#prepareRetryStep` 统一 `callApi` 与 `streamApi` 重试步进，修正 `429` 重试次数上限并在限流与网络错误重试时重置 `baseURLIndex`，同步修正 `retry.ts` 的 `limitFor` 上限钳位。
+1. **模型用量统计表格新增「上次请求时间」列与排序**
+   - 在 `static/ui/sections/model-usage-stats/index.ts` 中将明细表格由 8 列扩展为 9 列，新增「上次请求时间 / Last Request」（`.col-last-used`），悬停展示原始 ISO 时间戳。
+   - 在 `static/ui/lib/stats.js` 增强 `formatDateTime` 对 `null` / `undefined` / 空字符串 / 非法日期的 `--` 安全兜底，并在中英文语言包补齐词条。
+   - 在 `static/ui/sections/model-usage-stats/usage-utils.ts` 扩展 `SortField` 支持 `lastUsedAt`，表格排序下拉新增「上次请求时间 ↓」（按毫秒时间戳降序，缺省或无效时间戳统一归零排后）。
 
-2. **Codex 响应信封显式契约（告别静默 `null`）**
-   - 移除易在对象拷贝/序列化后丢失的不可枚举属性与 `_codexToolNameMap` 隐式挂载；新增 `unwrapCodexEnvelope` / `requireCodexEnvelope`，对未识别上游响应直接抛出 `502`，并收窄 `CodexConverter` 同步转换返回契约。
+2. **令牌管理（API Keys）页面排版与视觉美化**
+   - 收敛 `static/ui/sections/api-keys/index.ts` 页面结构：采用 `.api-keys-stats-grid` 4 栏均衡 KPI 统计卡片、优化配额/汇率提示横幅（`.rates-banner`）、清理空白日历图例，并将 Key 卡片重构为清晰的身份信息头与左右操作栏。
+   - 修正 `static/ui/styles/components/section-api-keys.css` 间距尺度，解决搜索图标与输入文本重叠问题，完善分布条、`.key-card.disabled` 禁用态对比度、图标按钮对齐，以及基于 `#modal-root` 的 `.api-keys-modal` 弹窗作用域和移动端响应式布局。
 
-3. **超长工具名截断与碰撞哈希统一**
-   - 将分散的 5 份截断逻辑统一到 `src/converters/tool-name.ts`，修复超长 `mcp__` 工具名碰撞后哈希截取异常及 `buildToolNameMap` 去重后缀超过 64 字符上限的溢出隐患。
-
-4. **其他稳定性细节**
-   - 修复 `--log-prompts file` 启动横幅未正确读取运行时派生日志文件名的问题。
-   - 收口 `provider-api.ts` 与 `access-api.ts` 的文件路径与并发文件锁（`withProviderPoolsLock` / `providerPoolsPath`），统一使用 `resolveErrorStatusCode` 解析异常状态码。
+3. **E2E 测试稳定性修复**
+   - 在 `tests/webui-e2e/smoke.spec.js` 将 `/api/model-usage-stats` mock 匹配规则修正为 `/\/api\/model-usage-stats(\?|$)/`，并将日历首格可见性断言限定为 `.calendar-day:not(.out-of-year)`。
 
 ---
 
-## 二、Node 26 / TypeScript 7 工程化与结构重整
-
-- **连接生命周期与流式管线解耦**：
-  - 将 12 个位置参数收敛为 `RequestHandlerContext`。
-  - 为 `StreamAbortScope` 实现原生 `Disposable`（`[Symbol.dispose]()`），结合 Node 26 `using` 声明、Native `AbortSignal.any()` 与 `createSlotReleaser` 统一管理客户端断连中止与并发槽位释放。
-  - 将 `handleStreamRequest` 拆分为 `openUpstreamStream`、`pumpUpstreamStream`、`buildOutboundFrames`、`flushFramesWithBackpressure`、`finalizeUpstreamOutcome` 与 `handleStreamFailureRetry`。
-- **转换器与路由收敛**：
-  - `OpenAIResponsesConverter.toClaudeStreamChunk` 迁移到 `AnthropicSseEmitter`（`multi` 模式），消除手写块状态与签名拼接逻辑。
-  - `ui-manager.ts` 管理路由改写为有序声明式路由表 `UI_ROUTES`；`provider-pool-manager.ts` 移除冗余镜像字段改为 `get` 访问器委托；`trae-core.ts` 为账户缓存增加 256 项 LRU 上界并拆分 `prepareRequestBody`。
-- **类型契约与死代码清理**：
-  - `ApiServiceAdapter` 与 `BaseConverter` 改为真正的编译期 `abstract class` 契约；删除死文件 `types/converters.d.ts`、无用导出与冗余参数（`noUnusedParameters` 纳入 `tsconfig` 归零），`any` AST 节点基线由 `98` 收紧至 `94`（`: any` / `as any` / `strict` 错误均为 `0`）。
-  - 统一 `vendor:fa:check` 字体子集校验并消除冗余 CSS 与过时 shim。
-
----
-
-## 三、全量验证结果
+## 二、全量验证结果
 
 | 检查项 | 结果 |
 |---|---|
@@ -56,8 +39,9 @@
 | `check:strict` / `check:any` | 0 严格错误；0 `any` 注解（94 AST nodes） |
 | `check:imports` / `check:cycles` | 142 个文件全部通过（0 循环依赖） |
 | `lint:css` / `gen:webui-html:check` / `vendor:webui:check` / `vendor:fa:check` | 全部通过 |
-| 核心单元测试与回归测试（`npm test`） | **1122 / 1122 通过**（250 个套件） |
+| 核心单元测试与回归测试（`npm test`） | **1124 / 1124 通过**（250 个套件） |
 | 运行时冒烟测试（`npm run test:runtime`） | 通过 |
+| WebUI Playwright E2E（`tests/webui-e2e/smoke.spec.js`） | **40 / 40 通过** |
 
 ---
 

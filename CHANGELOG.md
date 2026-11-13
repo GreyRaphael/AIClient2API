@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.5] - 2026-11-13
+
+### Added — WebUI 模型用量统计增强
+
+- **模型用量统计表格新增「上次请求时间」列与排序**：
+  - `static/ui/sections/model-usage-stats/index.ts` 与 `usage-utils.ts` 扩展明细表至 9 列（新增 `col-last-used` / `usageStats.column.lastUsedAt`），使用 `formatDateTime` 格式化展示 `lastUsedAt`（空值与非法时间统一兜底 `--`），中英文文案同步补充至 `static/ui/locales/zh-CN.js` 与 `en-US.js`。
+  - 新增 `lastUsedAt-desc`（「上次请求时间 ↓」）排序维度，`sortValue` 将时间转为毫秒时间戳比较（缺省/无效时间视为最旧），并补充对应单元测试与 E2E 断言。
+
+### Changed — WebUI 令牌管理页面优化与 E2E 修复
+
+- **令牌管理（API Keys）页面布局与视觉收敛**：
+  - 重构 `static/ui/sections/api-keys/index.ts` 与 `static/ui/styles/components/section-api-keys.css`：将顶部统计收敛为 `.api-keys-stats-grid` 4 张均衡 KPI 卡片，整理配额/汇率横幅（`.rates-banner`）、热力日历与全宽/双栏分析卡布局。
+  - 优化 Key 卡片头部与操作组拆分（`.key-card-head`、`.key-identity`、`.key-actions`），修正间距尺度、搜索框图标左内边距防重叠、分布条与禁用态对比度，并通过 `.api-keys-modal` 补充 `#modal-root` 弹窗作用域与响应式样式。
+- **WebUI E2E 用例修复**：
+  - 修复 `tests/webui-e2e/smoke.spec.js` 中 `/api/model-usage-stats` 路由匹配正则（`/\/api\/model-usage-stats(\?|$)/`）及日历首格可见性选择器（`.calendar-day:not(.out-of-year)`）。
+
+### Verified
+
+- `npm run verify` 全量通过：`typecheck` / `typecheck:webui`、`check:strict`（`0`）、`check:any`（`94` AST nodes / `0` any）、`check:imports` & `check:cycles`（`142` 文件 `0` 环）、`lint:css` / `gen:webui-html:check` / `vendor:webui:check` / `vendor:fa:check`、单元测试 **`1124/1124`（250 套件）通过**、`smoke-runtime` 通过。
+- WebUI E2E（`tests/webui-e2e/smoke.spec.js`）：**40/40 通过**。
+
 ## [v8.9.4] - 2026-11-13
 
 ### Fixed — 稳定性与边界缺陷修复
