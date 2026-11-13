@@ -803,7 +803,7 @@ test.describe('console shell', () => {
                 dates: [now.slice(0, 10)]
             }
         };
-        await page.route('**/api/model-usage-stats', (route) => route.fulfill({
+        await page.route(/\/api\/model-usage-stats(\?|$)/, (route) => route.fulfill({
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify(payload)
@@ -815,7 +815,7 @@ test.describe('console shell', () => {
         // ① 左侧「选择日期」卡片：日历渲染出格子，且带「历史累计」「重置统计」两个动作
         const calendarCard = page.locator('#model-usage-stats .usage-stats-calendar-card');
         await expect(calendarCard).toBeVisible();
-        await expect(calendarCard.locator('.calendar-day').first()).toBeVisible();
+        await expect(calendarCard.locator('.calendar-day:not(.out-of-year)').first()).toBeVisible();
 
         // ② 右侧汇总卡片：5 项指标都有数值与进度条
         const summaryCard = page.locator('#model-usage-stats .usage-stats-summary-card');

@@ -402,52 +402,65 @@ export default function ApiKeysSection() {
         return html`
             <div class="key-plan-banner ${isExpiredNow ? 'expired' : ''}">
                 <div class="plan-head">
-                    <span class="plan-tag"><i class="fas fa-crown"></i> ${plan.packLabel} (${plan.cycleId === 'week' ? '周付' : '月付'})</span>
-                    <span class="plan-expiry">${isExpiredNow ? '已过期' : `有效至: ${untilStr}`}</span>
+                    <span class="plan-tag"><i class="fas fa-crown"></i> ${plan.packLabel} · ${plan.cycleId === 'week' ? '周付' : '月付'}</span>
+                    <span class="plan-expiry">${isExpiredNow ? '已过期' : `有效至 ${untilStr}`}</span>
                 </div>
                 <div class="plan-details">
-                    <span>余量: <b>${formatTokenCompact(remaining)}</b> / ${formatTokenCompact(plan.tokenQuota)} (${percent}% 已用)</span>
-                    ${plan.dailyTokenCap ? html`<span>日上限: <b>${formatTokenCompact(plan.dailyTokenCap)}</b></span>` : null}
+                    <span>剩余额度 <b>${formatTokenCompact(remaining)}</b> / ${formatTokenCompact(plan.tokenQuota)} (${percent}% 已用)</span>
+                    ${plan.dailyTokenCap ? html`<span>日上限 <b>${formatTokenCompact(plan.dailyTokenCap)}</b></span>` : null}
+                </div>
+                <div class="progress-bar plan-progress">
+                    <div class=${`fill ${isExpiredNow ? 'danger' : percent >= 90 ? 'danger' : percent >= 70 ? 'warning' : ''}`} style=${`width: ${percent}%`}></div>
                 </div>
             </div>`;
     };
 
     const renderKeyCard = (key: ApiKeyRecord) => {
-        const usagePercent = key.dailyLimit > 0 ? (key.todayUsage / key.dailyLimit) * 100 : 0;
+        const hasLimit = key.dailyLimit > 0;
+        const usagePercent = hasLimit ? (key.todayUsage / key.dailyLimit) * 100 : 0;
         const progressClass = usagePercent >= 90 ? 'danger' : usagePercent >= 70 ? 'warning' : '';
         const badges = keyProviderBadges(key.usageHistory || {});
 
         return html`
-            <div class=${`key-card ${key.enabled ? '' : 'disabled'}`} key=${key.id}>
-                <div class="key-info">
-                    <div class="key-name">
-                        <span class="name-text">${key.name}</span>
-                        <button type="button" class="btn-icon" title="修改名称" onClick=${() => setEditName({ key, value: key.name })}>
-                            <i class="fas fa-edit"></i>
-                        </button>
+            <article class=${`key-card ${key.enabled ? '' : 'disabled'}`} key=${key.id}>
+                <div class="key-card-head">
+                    <div class="key-identity">
+                        <div class="key-name-row">
+                            <span class="name-text">${key.name}</span>
+                            <span class=${`status-pill ${key.enabled ? 'active' : 'inactive'}`}>
+                                <span class=${`status-dot ${key.enabled ? 'active' : 'inactive'}`}></span>
+                                ${key.enabled ? '启用中' : '已禁用'}
+                            </span>
+                            <button type="button" class="btn-icon" title="修改名称" onClick=${() => setEditName({ key, value: key.name })}>
+                                <i class="fas fa-edit"></i>
+                            </button>
+                        </div>
+                        <div class="key-id-row">
+                            <code class="key-code">${key.maskedKey || key.id}</code>
+                            <button type="button" class="btn-icon" title="复制完整 Key" onClick=${() => void copyText(key.id)}>
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <span class="key-last-active">
+                                <i class="fas fa-clock"></i>
+                                最近活跃 ${formatRelativeTime(key.lastUsedAt)}
+                            </span>
+                        </div>
                     </div>
-                    <div class="key-id-row">
-                        <code class="key-code">${key.maskedKey || key.id}</code>
-                        <button type="button" class="btn-icon" title="复制完整 Key" onClick=${() => void copyText(key.id)}>
-                            <i class="fas fa-copy"></i>
-                        </button>
-                    </div>
-                    ${renderPlanBadge(key.plan)}
                     ${badges.length > 0 ? html`
                         <div class="key-dist-mini">
                             ${badges.map((b) => html`
-                                <span class="dist-badge" key=${b.name}>${b.name}: <b>${formatNumber(b.count)}</b></span>
+                                <span class="dist-badge" key=${b.name}>${b.name} <b>${formatNumber(b.count)}</b></span>
                             `)}
                         </div>` : null}
                 </div>
 
+                ${renderPlanBadge(key.plan)}
+
                 <div class="key-stats-grid">
                     <div class="key-stat-cell">
-                        <div class="stat-label">今日调用 / 每日限额</div>
-                        <div class=${`stat-val ${progressClass}`}>${key.todayUsage} / ${key.dailyLimit} 次</div>
-                        <div class="stat-sub">
-                            ${formatTokenCompact(key.todayTotalTokens || 0)} Tokens
-                            ${key.todayCachedTokens ? ` (含 ${formatTokenCompact(key.todayCachedTokens)} 缓存)` : ''}
+                        <div class="stat-label">今日请求 / 每日限额</div>
+                        <div class=${`stat-val ${progressClass}`}>
+                            ${hasLimit ? `${formatNumber(key.todayUsage)} / ${formatNumber(key.dailyLimit)} 次` : `${formatNumber(key.todayUsage)} 次 · 无限制`}
                         </div>
                         <div class="progress-bar">
                             <div class=${`fill ${progressClass}`} style=${`width: ${Math.min(100, usagePercent)}%`}></div>
@@ -455,129 +468,140 @@ export default function ApiKeysSection() {
                     </div>
 
                     <div class="key-stat-cell">
-                        <div class="stat-label">累计调用</div>
+                        <div class="stat-label">今日 Tokens</div>
+                        <div class="stat-val">${formatTokenCompact(key.todayTotalTokens || 0)}</div>
+                        <div class="stat-sub">
+                            ${key.todayCachedTokens ? `含缓存 ${formatTokenCompact(key.todayCachedTokens)}` : '无缓存命中'}
+                        </div>
+                    </div>
+
+                    <div class="key-stat-cell">
+                        <div class="stat-label">历史累计</div>
                         <div class="stat-val">${formatNumber(key.totalUsage)} 次</div>
                         <div class="stat-sub">${formatTokenCompact(key.totalTokens || 0)} Tokens</div>
                     </div>
 
                     <div class="key-stat-cell">
                         <div class="stat-label">实时速率 (60s)</div>
-                        <div class="stat-val">${(key.qps || 0).toFixed(2)} QPS / ${(key.rpm || 0).toFixed(0)} RPM</div>
+                        <div class="stat-val">${(key.qps || 0).toFixed(2)} QPS · ${(key.rpm || 0).toFixed(0)} RPM</div>
                         <div class="stat-sub">${(key.tps || 0).toFixed(1)} TPS (峰值 ${(key.maxTps || 0).toFixed(1)})</div>
-                    </div>
-
-                    <div class="key-stat-cell">
-                        <div class="stat-label">最近活跃 / 状态</div>
-                        <div class="stat-val">
-                            <span class=${`status-dot ${key.enabled ? 'active' : 'inactive'}`}></span>
-                            ${key.enabled ? '已启用' : '已禁用'}
-                        </div>
-                        <div class="stat-sub">${formatRelativeTime(key.lastUsedAt)}</div>
                     </div>
                 </div>
 
                 <div class="key-actions">
-                    <button type="button" class="btn btn-secondary btn-sm" title="管理商业化套餐" onClick=${() => openPlanModal(key)}>
-                        <i class="fas fa-crown"></i> <span>套餐</span>
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" title="修改每日限额" onClick=${() => setEditLimit({ key, value: String(key.dailyLimit) })}>
-                        <i class="fas fa-sliders-h"></i> <span>限额</span>
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" title="重置今日调用量" onClick=${() => void handleResetUsage(key)}>
-                        <i class="fas fa-redo"></i> <span>重置</span>
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" title="重置 Token 统计" onClick=${() => void handleResetTokenStats(key)}>
-                        <i class="fas fa-eraser"></i> <span>Token</span>
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" title=${key.enabled ? '禁用该 Key' : '启用该 Key'} onClick=${() => void handleToggleKey(key)}>
-                        <i class=${`fas ${key.enabled ? 'fa-toggle-on' : 'fa-toggle-off'}`}></i>
-                        <span>${key.enabled ? '禁用' : '启用'}</span>
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" title="重新生成密钥" onClick=${() => void handleRegenerateKey(key)}>
-                        <i class="fas fa-sync-alt"></i> <span>换密</span>
-                    </button>
-                    <button type="button" class="btn btn-danger btn-sm" title="永久删除" onClick=${() => void handleDeleteKey(key)}>
-                        <i class="fas fa-trash"></i> <span>删除</span>
-                    </button>
+                    <div class="key-actions-group">
+                        <button type="button" class="btn btn-secondary btn-sm" title="管理商业化套餐" onClick=${() => openPlanModal(key)}>
+                            <i class="fas fa-crown"></i> <span>套餐</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" title="修改每日限额" onClick=${() => setEditLimit({ key, value: String(key.dailyLimit) })}>
+                            <i class="fas fa-sliders-h"></i> <span>限额</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" title="重置今日调用量" onClick=${() => void handleResetUsage(key)}>
+                            <i class="fas fa-redo"></i> <span>重置</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" title="重置 Token 统计" onClick=${() => void handleResetTokenStats(key)}>
+                            <i class="fas fa-eraser"></i> <span>Token</span>
+                        </button>
+                    </div>
+                    <div class="key-actions-group">
+                        <button type="button" class="btn btn-secondary btn-sm" title=${key.enabled ? '禁用该 Key' : '启用该 Key'} onClick=${() => void handleToggleKey(key)}>
+                            <i class=${`fas ${key.enabled ? 'fa-toggle-on' : 'fa-toggle-off'}`}></i>
+                            <span>${key.enabled ? '禁用' : '启用'}</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" title="重新生成密钥" onClick=${() => void handleRegenerateKey(key)}>
+                            <i class="fas fa-sync-alt"></i> <span>换密</span>
+                        </button>
+                        <button type="button" class="btn btn-danger btn-sm" title="永久删除" onClick=${() => void handleDeleteKey(key)}>
+                            <i class="fas fa-trash"></i> <span>删除</span>
+                        </button>
+                    </div>
                 </div>
-            </div>`;
+            </article>`;
     };
 
+    const totalKeys = stats?.totalKeys || 0;
+    const enabledKeys = stats?.enabledKeys || 0;
+    const disabledKeys = Math.max(0, totalKeys - enabledKeys);
+
     return html`
-        <div id="api-keys" class="api-keys-section">
+        <section id="api-keys" class="section active api-keys-section" aria-labelledby="api-keys-title">
             <div class="section-header">
-                <div>
-                    <h2><i class="fas fa-key"></i> 令牌管理 (API Keys)</h2>
+                <div class="header-title-block">
+                    <h2 id="api-keys-title"><i class="fas fa-key"></i> 令牌管理 (API Keys)</h2>
                     <p class="section-desc">管理网关客户端访问令牌、每日限额与 Token 商业化套餐配置</p>
                 </div>
                 <div class="header-actions">
+                    <button id="refreshKeysBtn" type="button" class="btn btn-secondary btn-sm" disabled=${loading} onClick=${() => void loadData()}>
+                        <i class=${`fas ${loading ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i> <span>刷新</span>
+                    </button>
                     <a href="/potluck-user.html" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" title="打开用户端自助查询额度页面">
-                        <i class="fas fa-external-link-alt"></i> <span>用户自助查询页</span>
+                        <i class="fas fa-external-link-alt"></i> <span>用户自助查询</span>
                     </a>
                     <button type="button" class="btn btn-secondary btn-sm" onClick=${() => setApplyLimitOpen(true)}>
-                        <i class="fas fa-sliders-h"></i> <span>批量设置限额</span>
+                        <i class="fas fa-sliders-h"></i> <span>批量限额</span>
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm" onClick=${() => void handleResetAllTokens()}>
                         <i class="fas fa-eraser"></i> <span>重置全部 Token</span>
                     </button>
-                    <button type="button" class="btn btn-primary" onClick=${() => setCreateOpen(true)}>
+                    <button id="createKeyBtn" type="button" class="btn btn-primary btn-sm" onClick=${() => setCreateOpen(true)}>
                         <i class="fas fa-plus"></i> <span>生成新 Key</span>
                     </button>
                 </div>
             </div>
 
-            <div class="stats-grid">
-                <div class="stat-card purple">
-                    <div class="label">总 Key 数量</div>
-                    <div class="value">${stats?.totalKeys || 0}</div>
+            <div class="api-keys-stats-grid">
+                <div class="kpi-card tone-indigo">
+                    <div class="kpi-head">
+                        <span class="kpi-label">启用 / 总 Key</span>
+                        <span class="kpi-icon"><i class="fas fa-key"></i></span>
+                    </div>
+                    <div class="kpi-value">${enabledKeys} <span class="kpi-sep">/ ${totalKeys}</span></div>
+                    <div class="kpi-sub">正常启用 ${enabledKeys} · 已禁用 ${disabledKeys}</div>
                 </div>
-                <div class="stat-card green">
-                    <div class="label">正常启用</div>
-                    <div class="value">${stats?.enabledKeys || 0}</div>
+                <div class="kpi-card tone-emerald">
+                    <div class="kpi-head">
+                        <span class="kpi-label">今日总调用</span>
+                        <span class="kpi-icon"><i class="fas fa-bolt"></i></span>
+                    </div>
+                    <div class="kpi-value">${formatNumber(stats?.todayTotalUsage || 0)}</div>
+                    <div class="kpi-sub">历史累计 ${formatNumber(stats?.totalUsage || 0)} 次</div>
                 </div>
-                <div class="stat-card pink">
-                    <div class="label">今日总调用</div>
-                    <div class="value">${formatNumber(stats?.todayTotalUsage || 0)}</div>
+                <div class="kpi-card tone-info">
+                    <div class="kpi-head">
+                        <span class="kpi-label">今日总 Tokens</span>
+                        <span class="kpi-icon"><i class="fas fa-microchip"></i></span>
+                    </div>
+                    <div class="kpi-value">${formatTokenCompact(stats?.todayTotalTokens || 0)}</div>
+                    <div class="kpi-sub">今日缓存命中 ${formatTokenCompact(stats?.todayCachedTokens || 0)}</div>
                 </div>
-                <div class="stat-card cyan">
-                    <div class="label">历史累计调用</div>
-                    <div class="value">${formatNumber(stats?.totalUsage || 0)}</div>
-                </div>
-                <div class="stat-card green">
-                    <div class="label">今日总 Tokens</div>
-                    <div class="value">${formatTokenCompact(stats?.todayTotalTokens || 0)}</div>
-                </div>
-                <div class="stat-card cyan">
-                    <div class="label">今日缓存命中</div>
-                    <div class="value">${formatTokenCompact(stats?.todayCachedTokens || 0)}</div>
-                </div>
-                <div class="stat-card pink">
-                    <div class="label">累计消耗 Tokens</div>
-                    <div class="value">${formatTokenCompact(stats?.totalTokens || 0)}</div>
-                </div>
-                <div class="stat-card cyan">
-                    <div class="label">累计缓存命中</div>
-                    <div class="value">${formatTokenCompact(stats?.totalCachedTokens || 0)}</div>
+                <div class="kpi-card tone-warning">
+                    <div class="kpi-head">
+                        <span class="kpi-label">累计消耗 Tokens</span>
+                        <span class="kpi-icon"><i class="fas fa-database"></i></span>
+                    </div>
+                    <div class="kpi-value">${formatTokenCompact(stats?.totalTokens || 0)}</div>
+                    <div class="kpi-sub">累计缓存命中 ${formatTokenCompact(stats?.totalCachedTokens || 0)}</div>
                 </div>
             </div>
 
             <div class="rates-banner">
-                <span>实时 QPS: <strong>${(stats?.qps || 0).toFixed(2)}</strong> (峰值 ${(stats?.maxQps || 0).toFixed(2)})</span>
-                <span class="divider">|</span>
-                <span>RPM: <strong>${(stats?.rpm || 0).toFixed(0)}</strong> (峰值 ${(stats?.maxRpm || 0).toFixed(0)})</span>
-                <span class="divider">|</span>
-                <span>TPS: <strong>${(stats?.tps || 0).toFixed(1)}</strong> (峰值 ${(stats?.maxTps || 0).toFixed(1)})</span>
+                <span class="rates-title">
+                    <span class="live-dot"></span>
+                    60s 实时吞吐
+                </span>
+                <div class="rates-metrics">
+                    <span class="rate-chip">QPS <strong>${(stats?.qps || 0).toFixed(2)}</strong> <span class="rate-peak">峰值 ${(stats?.maxQps || 0).toFixed(2)}</span></span>
+                    <span class="rate-chip">RPM <strong>${(stats?.rpm || 0).toFixed(0)}</strong> <span class="rate-peak">峰值 ${(stats?.maxRpm || 0).toFixed(0)}</span></span>
+                    <span class="rate-chip">TPS <strong>${(stats?.tps || 0).toFixed(1)}</strong> <span class="rate-peak">峰值 ${(stats?.maxTps || 0).toFixed(1)}</span></span>
+                </div>
             </div>
 
             ${aggregated.totalCalls > 0 ? html`
                 <div class="analytics-row">
-                    <div class="analytics-card">
+                    <div class="analytics-card analytics-card-wide">
                         <div class="card-head">
                             <span class="card-title"><i class="fas fa-calendar-alt"></i> Token 用量日历 (按年度)</span>
-                            <div class="calendar-legend">
-                                <div class="level level-1"></div>
-                                <div class="level level-4"></div>
-                            </div>
+                            <span class="card-subtitle">${formatTokenCompact(aggregated.totalTokens)} Tokens</span>
                         </div>
                         <${StatsCalendar} usageHistory=${usageHistory} />
                     </div>
@@ -606,19 +630,27 @@ export default function ApiKeysSection() {
                         <input type="text" class="form-control search-input" placeholder="按名称或 Key ID 搜索..."
                             value=${search} onInput=${(e: Event) => setSearch((e.target as HTMLInputElement).value)} />
                     </div>
-                    <div class="toolbar-sort">
-                        <label>排序：</label>
-                        <select class="form-control sort-select" value=${sort} onChange=${(e: Event) => setSort((e.target as HTMLSelectElement).value)}>
-                            <option value="created-desc">创建时间 ↓</option>
-                            <option value="name-asc">名称 A-Z</option>
-                            <option value="name-desc">名称 Z-A</option>
-                            <option value="usage-desc">今日用量 ↓</option>
-                            <option value="usage-asc">今日用量 ↑</option>
-                            <option value="total-desc">累计调用 ↓</option>
-                            <option value="lastUsed-desc">最近活跃 ↓</option>
-                            <option value="qps-desc">QPS 速率 ↓</option>
-                            <option value="rpm-desc">RPM 频率 ↓</option>
-                        </select>
+                    <div class="toolbar-meta">
+                        ${allKeys.length > 0 ? html`
+                            <span class="keys-count-badge">
+                                ${filteredKeys.length === allKeys.length
+                                    ? `共 ${allKeys.length} 个密钥`
+                                    : `匹配 ${filteredKeys.length} / ${allKeys.length}`}
+                            </span>` : null}
+                        <div class="toolbar-sort">
+                            <label>排序</label>
+                            <select class="form-control sort-select" value=${sort} onChange=${(e: Event) => setSort((e.target as HTMLSelectElement).value)}>
+                                <option value="created-desc">创建时间 ↓</option>
+                                <option value="name-asc">名称 A-Z</option>
+                                <option value="name-desc">名称 Z-A</option>
+                                <option value="usage-desc">今日用量 ↓</option>
+                                <option value="usage-asc">今日用量 ↑</option>
+                                <option value="total-desc">累计调用 ↓</option>
+                                <option value="lastUsed-desc">最近活跃 ↓</option>
+                                <option value="qps-desc">QPS 速率 ↓</option>
+                                <option value="rpm-desc">RPM 频率 ↓</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -627,7 +659,7 @@ export default function ApiKeysSection() {
                         <div class="empty-state">
                             <div class="icon"><i class="fas fa-key"></i></div>
                             <p>尚未创建任何网关 API Key</p>
-                            <button type="button" class="btn btn-primary btn-lg" onClick=${() => setCreateOpen(true)}>
+                            <button type="button" class="btn btn-primary" onClick=${() => setCreateOpen(true)}>
                                 <i class="fas fa-plus"></i> 生成第一个 API Key
                             </button>
                         </div>`
@@ -636,10 +668,10 @@ export default function ApiKeysSection() {
                             : filteredKeys.map(renderKeyCard)}
                 </div>
             </div>
-        </div>
+        </section>
 
         <!-- 模态框：生成新 Key -->
-        <${Modal} open=${createOpen} title="生成新 API Key" onClose=${() => setCreateOpen(false)} width="520px"
+        <${Modal} open=${createOpen} className="api-keys-modal" title="生成新 API Key" onClose=${() => setCreateOpen(false)} width="520px"
             footer=${html`
                 <button type="button" class="btn btn-secondary" onClick=${() => setCreateOpen(false)}>取消</button>
                 <button type="button" class="btn btn-primary" onClick=${() => void handleCreateKey()}>
@@ -681,7 +713,7 @@ export default function ApiKeysSection() {
         <//>
 
         <!-- 模态框：Key 已生成 -->
-        <${Modal} open=${Boolean(createdKey)} title="API Key 已生成" onClose=${() => setCreatedKey(null)} width="540px"
+        <${Modal} open=${Boolean(createdKey)} className="api-keys-modal" title="API Key 已生成" onClose=${() => setCreatedKey(null)} width="540px"
             footer=${html`
                 <button type="button" class="btn btn-secondary" onClick=${() => void copyText(createdKey?.id || '')}>
                     <i class="fas fa-copy"></i> 复制 Key
@@ -696,7 +728,7 @@ export default function ApiKeysSection() {
         <//>
 
         <!-- 模态框：修改名称 -->
-        <${Modal} open=${Boolean(editName)} title="修改 Key 名称" onClose=${() => setEditName(null)} width="440px"
+        <${Modal} open=${Boolean(editName)} className="api-keys-modal" title="修改 Key 名称" onClose=${() => setEditName(null)} width="440px"
             footer=${html`
                 <button type="button" class="btn btn-secondary" onClick=${() => setEditName(null)}>取消</button>
                 <button type="button" class="btn btn-primary" onClick=${() => void handleUpdateName()}>
@@ -712,7 +744,7 @@ export default function ApiKeysSection() {
         <//>
 
         <!-- 模态框：修改限额 -->
-        <${Modal} open=${Boolean(editLimit)} title="修改每日限额" onClose=${() => setEditLimit(null)} width="440px"
+        <${Modal} open=${Boolean(editLimit)} className="api-keys-modal" title="修改每日限额" onClose=${() => setEditLimit(null)} width="440px"
             footer=${html`
                 <button type="button" class="btn btn-secondary" onClick=${() => setEditLimit(null)}>取消</button>
                 <button type="button" class="btn btn-primary" onClick=${() => void handleUpdateLimit()}>
@@ -729,7 +761,7 @@ export default function ApiKeysSection() {
         <//>
 
         <!-- 模态框：商业化套餐管理 -->
-        <${Modal} open=${Boolean(planModalKey)} title=${`商业化套餐管理 - ${planModalKey?.name || ''}`} onClose=${() => setPlanModalKey(null)} width="520px"
+        <${Modal} open=${Boolean(planModalKey)} className="api-keys-modal" title=${`商业化套餐管理 - ${planModalKey?.name || ''}`} onClose=${() => setPlanModalKey(null)} width="520px"
             footer=${html`
                 ${planModalKey?.plan ? html`
                     <button type="button" class="btn btn-danger" onClick=${() => void handleClearPlan()}>
@@ -774,7 +806,7 @@ export default function ApiKeysSection() {
         <//>
 
         <!-- 模态框：批量设置限额 -->
-        <${Modal} open=${applyLimitOpen} title="批量应用每日调用限额" onClose=${() => setApplyLimitOpen(false)} width="460px"
+        <${Modal} open=${applyLimitOpen} className="api-keys-modal" title="批量应用每日调用限额" onClose=${() => setApplyLimitOpen(false)} width="460px"
             footer=${html`
                 <button type="button" class="btn btn-secondary" onClick=${() => setApplyLimitOpen(false)}>取消</button>
                 <button type="button" class="btn btn-danger" onClick=${() => void handleApplyLimitToAll()}>

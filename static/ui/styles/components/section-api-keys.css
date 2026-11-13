@@ -5,27 +5,43 @@
 #api-keys {
     display: flex;
     flex-direction: column;
-    gap: var(--space-8);
+    gap: var(--space-12);
 }
 
 #api-keys .section-header {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--space-8);
+}
+
+#api-keys .header-title-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
 }
 
 #api-keys .section-header h2 {
     margin: 0;
-    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    font-size: 1.5rem;
     font-weight: 700;
     color: var(--text-primary);
+    letter-spacing: -0.02em;
+}
+
+#api-keys .section-header h2 i {
+    color: var(--primary-color);
+    font-size: 1.25rem;
 }
 
 #api-keys .section-desc {
-    margin: var(--space-1) 0 0;
+    margin: 0;
     font-size: 0.875rem;
+    line-height: 1.5;
     color: var(--text-secondary);
 }
 
@@ -33,45 +49,211 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: var(--space-3);
+    gap: var(--space-4);
 }
 
+/* 顶部 4 栏 KPI 概览卡片 */
+#api-keys .api-keys-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-8);
+}
+
+#api-keys .kpi-card {
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    transition: var(--transition);
+}
+
+#api-keys .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--primary-color);
+    opacity: 0.85;
+}
+
+#api-keys .kpi-card.tone-indigo::before {
+    background: var(--indigo-500);
+}
+
+#api-keys .kpi-card.tone-emerald::before {
+    background: var(--success-color);
+}
+
+#api-keys .kpi-card.tone-info::before {
+    background: var(--info-color);
+}
+
+#api-keys .kpi-card.tone-warning::before {
+    background: var(--warning-color);
+}
+
+#api-keys .kpi-card:hover {
+    border-color: var(--primary-30);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+#api-keys .kpi-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+#api-keys .kpi-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+#api-keys .kpi-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--radius-md);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    background: var(--primary-10);
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+#api-keys .kpi-card.tone-indigo .kpi-icon {
+    background: rgba(var(--indigo-rgb), 0.14);
+    color: var(--indigo-500);
+}
+
+#api-keys .kpi-card.tone-emerald .kpi-icon {
+    background: var(--success-10);
+    color: var(--success-color);
+}
+
+#api-keys .kpi-card.tone-info .kpi-icon {
+    background: var(--info-bg);
+    color: var(--info-color);
+}
+
+#api-keys .kpi-card.tone-warning .kpi-icon {
+    background: var(--warning-15);
+    color: var(--warning-color);
+}
+
+#api-keys .kpi-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+#api-keys .kpi-sep {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-tertiary);
+}
+
+#api-keys .kpi-sub {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 60s 实时吞吐状态条 */
 #api-keys .rates-banner {
     display: flex;
     align-items: center;
-    gap: var(--space-3);
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6) var(--space-8);
+    box-shadow: var(--shadow-sm);
+}
+
+#api-keys .rates-title {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
     font-size: 0.8125rem;
+    font-weight: 600;
     color: var(--text-secondary);
+}
+
+#api-keys .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--success-color);
+    box-shadow: 0 0 0 3px var(--primary-20);
+}
+
+#api-keys .rates-metrics {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+}
+
+#api-keys .rate-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-5);
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-4);
-    margin-top: calc(-1 * var(--space-4));
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 
-#api-keys .rates-banner strong {
+#api-keys .rate-chip strong {
     color: var(--primary-color);
+    font-weight: 700;
 }
 
-#api-keys .rates-banner .divider {
-    color: var(--border-color);
+#api-keys .rate-peak {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
 }
 
+/* 年度用量日历 & 调用分布 */
 #api-keys .analytics-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: var(--space-6);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-8);
 }
 
 #api-keys .analytics-card {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    padding: var(--space-6);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10);
     box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-6);
+    min-width: 0;
+}
+
+#api-keys .analytics-card-wide {
+    grid-column: 1 / -1;
 }
 
 #api-keys .analytics-card .card-head {
@@ -79,24 +261,85 @@
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: var(--space-4);
 }
 
 #api-keys .analytics-card .card-title {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
     font-size: 0.875rem;
     font-weight: 600;
     color: var(--text-primary);
 }
 
-#api-keys .analytics-card .card-subtitle {
-    font-size: 0.75rem;
+#api-keys .analytics-card .card-title i {
     color: var(--primary-color);
 }
 
+#api-keys .analytics-card .card-subtitle {
+    font-size: 0.75rem;
+    color: var(--primary-color);
+    background: var(--primary-10);
+    padding: var(--space-1) var(--space-4);
+    border-radius: var(--radius-full);
+    font-weight: 600;
+}
+
+/* 分布条（DistributionList 组件复用） */
+#api-keys .distribution-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+#api-keys .distribution-item {
+    width: 100%;
+}
+
+#api-keys .dist-info {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    font-size: 0.8125rem;
+    margin-bottom: var(--space-2);
+}
+
+#api-keys .dist-name {
+    color: var(--text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#api-keys .dist-count {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+#api-keys .dist-bar {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+#api-keys .dist-fill {
+    height: 100%;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+}
+
+/* 密钥列表工具栏与列表 */
 #api-keys .keys-container {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-8);
 }
 
 #api-keys .keys-toolbar {
@@ -104,7 +347,12 @@
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--space-6);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    padding: var(--space-6) var(--space-8);
+    box-shadow: var(--shadow-sm);
 }
 
 #api-keys .toolbar-search {
@@ -115,81 +363,161 @@
 
 #api-keys .toolbar-search .search-icon {
     position: absolute;
-    left: var(--space-3);
+    left: var(--space-7);
     top: 50%;
     transform: translateY(-50%);
     color: var(--text-tertiary);
     font-size: 0.875rem;
+    pointer-events: none;
 }
 
 #api-keys .toolbar-search .search-input {
-    padding-left: var(--space-8);
+    padding-left: 2.375rem;
     width: 100%;
+}
+
+#api-keys .toolbar-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+}
+
+#api-keys .keys-count-badge {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    padding: var(--space-2) var(--space-5);
+    white-space: nowrap;
 }
 
 #api-keys .toolbar-sort {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-3);
     font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
+#api-keys .toolbar-sort label {
+    white-space: nowrap;
+}
+
 #api-keys .toolbar-sort .sort-select {
     width: auto;
-    min-width: 150px;
+    min-width: 160px;
 }
 
 #api-keys .keys-list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-8);
 }
 
+/* 单个 Key 卡片 */
 #api-keys .key-card {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    padding: var(--space-6);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-12);
     box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
-    transition: border-color 0.2s;
+    gap: var(--space-8);
+    transition: var(--transition);
 }
 
 #api-keys .key-card:hover {
-    border-color: var(--border-hover);
+    border-color: var(--primary-30);
+    box-shadow: var(--shadow-md);
 }
 
 #api-keys .key-card.disabled {
-    opacity: 0.65;
     background: var(--bg-secondary);
 }
 
-#api-keys .key-info {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
+#api-keys .key-card.disabled .key-card-head,
+#api-keys .key-card.disabled .key-plan-banner,
+#api-keys .key-card.disabled .key-stats-grid {
+    opacity: 0.68;
 }
 
-#api-keys .key-name {
+#api-keys .key-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+}
+
+#api-keys .key-identity {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+}
+
+#api-keys .key-name-row {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    flex-wrap: wrap;
+    gap: var(--space-4);
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
 }
 
+#api-keys .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: var(--space-1) var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid transparent;
+}
+
+#api-keys .status-pill.active {
+    background: var(--primary-10);
+    border-color: var(--primary-30);
+    color: var(--primary-color);
+}
+
+#api-keys .status-pill.inactive {
+    background: var(--danger-10);
+    border-color: var(--danger-border);
+    color: var(--danger-color);
+}
+
+#api-keys .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-full);
+}
+
+#api-keys .status-dot.active {
+    background: var(--success-color);
+}
+
+#api-keys .status-dot.inactive {
+    background: var(--danger-color);
+}
+
 #api-keys .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     color: var(--text-tertiary);
     cursor: pointer;
-    padding: var(--space-1) var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-sm);
-    transition: color 0.2s, background 0.2s;
+    transition: var(--transition);
 }
 
 #api-keys .btn-icon:hover {
@@ -200,41 +528,78 @@
 #api-keys .key-id-row {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    flex-wrap: wrap;
+    gap: var(--space-3);
 }
 
 #api-keys .key-code {
     font-family: var(--font-mono);
     font-size: 0.8125rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    padding: var(--space-1) var(--space-2);
+    padding: var(--space-1) var(--space-4);
     border-radius: var(--radius-sm);
 }
 
+#api-keys .key-last-active {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    margin-left: var(--space-2);
+}
+
+#api-keys .key-dist-mini {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+#api-keys .dist-badge {
+    font-size: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+}
+
+#api-keys .dist-badge b {
+    color: var(--text-primary);
+}
+
+/* 套餐横幅 */
 #api-keys .key-plan-banner {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    background: rgba(52, 211, 153, 0.08);
-    border: 1px solid rgba(52, 211, 153, 0.25);
-    border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-3);
+    gap: var(--space-3);
+    background: var(--primary-10);
+    border: 1px solid var(--primary-30);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6) var(--space-8);
     font-size: 0.8125rem;
 }
 
 #api-keys .key-plan-banner.expired {
     background: var(--danger-10);
-    border-color: var(--danger-color);
+    border-color: var(--danger-border);
 }
 
 #api-keys .key-plan-banner .plan-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
 }
 
 #api-keys .key-plan-banner .plan-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
     font-weight: 600;
     color: var(--primary-color);
 }
@@ -244,6 +609,7 @@
 }
 
 #api-keys .key-plan-banner .plan-expiry {
+    font-size: 0.75rem;
     color: var(--text-secondary);
 }
 
@@ -251,40 +617,30 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: var(--space-3);
+    gap: var(--space-6);
     color: var(--text-secondary);
 }
 
-#api-keys .key-dist-mini {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-2);
+#api-keys .key-plan-banner .plan-progress {
     margin-top: var(--space-1);
 }
 
-#api-keys .dist-badge {
-    font-size: 0.75rem;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border-radius: var(--radius-sm);
-    padding: 2px var(--space-2);
-}
-
+/* 单卡 4 格统计区 */
 #api-keys .key-stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: var(--space-4);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-8);
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    padding: var(--space-4);
+    border-radius: var(--radius-lg);
+    padding: var(--space-7) var(--space-8);
 }
 
 #api-keys .key-stat-cell {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
+    min-width: 0;
 }
 
 #api-keys .stat-label {
@@ -295,6 +651,7 @@
 #api-keys .stat-val {
     font-size: 0.875rem;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
     color: var(--text-primary);
     display: flex;
     align-items: center;
@@ -311,21 +668,8 @@
 
 #api-keys .stat-sub {
     font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
     color: var(--text-secondary);
-}
-
-#api-keys .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: var(--radius-full);
-}
-
-#api-keys .status-dot.active {
-    background: var(--success-color);
-}
-
-#api-keys .status-dot.inactive {
-    background: var(--danger-color);
 }
 
 #api-keys .progress-bar {
@@ -334,14 +678,14 @@
     background: var(--bg-tertiary);
     border-radius: var(--radius-full);
     overflow: hidden;
-    margin-top: var(--space-1);
+    margin-top: var(--space-2);
 }
 
 #api-keys .progress-bar .fill {
     height: 100%;
     background: var(--primary-color);
     border-radius: var(--radius-full);
-    transition: width 0.3s;
+    transition: width 0.3s ease;
 }
 
 #api-keys .progress-bar .fill.warning {
@@ -352,85 +696,194 @@
     background: var(--danger-color);
 }
 
+/* 卡片底部操作栏 */
 #api-keys .key-actions {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: var(--space-4);
     border-top: 1px solid var(--border-color);
-    padding-top: var(--space-4);
+    padding-top: var(--space-7);
 }
 
-#api-keys .modal-form {
+#api-keys .key-actions-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+}
+
+/* 空状态 */
+#api-keys .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-6);
+    padding: var(--space-20) var(--space-8);
+    background: var(--bg-primary);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-xl);
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+#api-keys .empty-state .icon {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: var(--radius-full);
+    background: var(--primary-10);
+    color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+#api-keys .empty-state p {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+/* 弹窗内部表单（Portal 挂载于 #modal-root，须以 .api-keys-modal 作用域化） */
+.api-keys-modal .modal-form {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
 }
 
-#api-keys .form-divider {
+.api-keys-modal .modal-form .form-group:last-child {
+    margin-bottom: 0;
+}
+
+.api-keys-modal .form-divider {
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-color);
-    padding-bottom: var(--space-2);
-    margin-top: var(--space-2);
+    padding-bottom: var(--space-3);
+    margin: var(--space-2) 0;
 }
 
-#api-keys .created-key-modal {
+.api-keys-modal .created-key-modal {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: var(--space-4);
 }
 
-#api-keys .created-key-modal .warn-text {
+.api-keys-modal .created-key-modal .warn-text {
     font-size: 0.875rem;
     color: var(--warning-color);
     margin: 0;
 }
 
-#api-keys .created-key-modal .key-box {
-    background: var(--bg-tertiary);
+.api-keys-modal .created-key-modal .key-box {
+    background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: var(--space-4);
+    padding: var(--space-8);
     word-break: break-all;
     font-family: var(--font-mono);
     color: var(--primary-color);
     font-size: 0.875rem;
 }
 
-#api-keys .current-plan-card {
+.api-keys-modal .current-plan-card {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: var(--space-3);
+    padding: var(--space-6) var(--space-8);
     font-size: 0.8125rem;
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--space-3);
 }
 
-#api-keys .current-plan-card .current-head {
+.api-keys-modal .current-plan-card .current-head {
     font-weight: 600;
     color: var(--primary-color);
 }
 
-#api-keys .current-plan-card .current-body {
+.api-keys-modal .current-plan-card .current-body {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
     color: var(--text-secondary);
 }
 
-#api-keys .danger-notice {
+.api-keys-modal .danger-notice {
     background: var(--danger-10);
-    border: 1px solid var(--danger-color);
+    border: 1px solid var(--danger-border);
     border-radius: var(--radius-md);
-    padding: var(--space-3);
+    padding: var(--space-6);
     color: var(--text-primary);
     font-size: 0.8125rem;
 }
 
-#api-keys .danger-notice p {
+.api-keys-modal .danger-notice p {
     margin: 0;
+}
+
+/* ==========================================================================
+   移动端适配
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+    #api-keys .api-keys-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #api-keys .key-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    #api-keys .analytics-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    #api-keys {
+        gap: var(--space-8);
+    }
+
+    #api-keys .section-header {
+        align-items: flex-start;
+    }
+
+    #api-keys .kpi-card {
+        padding: var(--space-8);
+    }
+
+    #api-keys .rates-banner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    #api-keys .keys-toolbar {
+        padding: var(--space-6);
+    }
+
+    #api-keys .key-card {
+        padding: var(--space-8);
+    }
+
+    #api-keys .key-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #api-keys .key-actions-group {
+        width: 100%;
+    }
+}
+
+@media (max-width: 560px) {
+    #api-keys .api-keys-stats-grid,
+    #api-keys .key-stats-grid {
+        grid-template-columns: 1fr;
+    }
 }
