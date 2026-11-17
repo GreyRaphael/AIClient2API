@@ -3,9 +3,17 @@ import { expect, jest } from './support/harness.mjs';
 
 import {
     AntigravityApiService,
+    formatAntigravityErrorDetails,
+    formatAntigravityRequestSummary,
     getAntigravityClientVersion,
     parseAntigravityUserAgentVersion
 } from '../src/providers/gemini/antigravity-core.ts';
+import {
+    GENERIC_AGENT_IDENTITY,
+    geminiToAntigravity,
+    sanitizeAgentFingerprint
+} from '../src/providers/gemini/antigravity-transforms.ts';
+import logger from '../src/utils/logger.ts';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
 import {
     CAPABILITY_SOURCE,
@@ -563,5 +571,240 @@ describe('Antigravity 429 轮换与上限回归', () => {
             'https://edge-a.example/v1internal:streamGenerateContent',
             'https://edge-b.example/v1internal:streamGenerateContent'
         ]);
+    });
+});
+
+describe('Antigravity 错误详情与 reason/details 日志输出', () => {
+    test('formatAntigravityErrorDetails 提取对象与 JSON 字符串中的 rpcStatus、reason 与 details', () => {
+        const objError = {
+            response: {
+                status: 429,
+                data: {
+                    error: {
+                        code: 429,
+                        message: 'Resource has been exhausted (e.g. check quota).',
+                        status: 'RESOURCE_EXHAUSTED',
+                        details: [
+                            {
+                                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                                reason: 'RATE_LIMIT_EXCEEDED',
+                                domain: 'cloudcode-pa.googleapis.com',
+                                metadata: { model: 'gemini-4-hydrogen-medium' }
+                            }
+                        ]
+                    }
+                }
+            }
+        };
+        const formatted = formatAntigravityErrorDetails(objError);
+        expect(formatted).toContain('rpcStatus=RESOURCE_EXHAUSTED');
+        expect(formatted).toContain('reason=RATE_LIMIT_EXCEEDED');
+        expect(formatted).toContain('details=');
+        expect(formatted).toContain('gemini-4-hydrogen-medium');
+
+        const strError = {
+            response: {
+                status: 429,
+                data: JSON.stringify([{
+                    error: {
+                        status: 'RESOURCE_EXHAUSTED',
+                        details: [{ violations: [{ reason: 'QUOTA_EXHAUSTED', subject: 'project:aicode-consumers' }] }]
+                    }
+                }])
+            }
+        };
+        const formattedStr = formatAntigravityErrorDetails(strError);
+        expect(formattedStr).toContain('rpcStatus=RESOURCE_EXHAUSTED');
+        expect(formattedStr).toContain('reason=QUOTA_EXHAUSTED');
+        expect(formattedStr).toContain('aicode-consumers');
+
+        const noDetailsError = {
+            response: { status: 429, data: { error: { code: 429, status: 'RESOURCE_EXHAUSTED' } } }
+        };
+        expect(formatAntigravityErrorDetails(noDetailsError)).toContain('responseData=');
+        expect(formatAntigravityErrorDetails({})).toBe('');
+    });
+
+    test('callApi 遇到 429 时在 logger.error 中打印 response.data 内的 reason 与 details', async () => {
+        const service = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: path.join(os.tmpdir(), 'no-such-cred.json'),
+            REQUEST_MAX_RETRIES: 0,
+            REQUEST_BASE_DELAY: 1
+        });
+        service.baseURLs = ['https://edge-a.example'];
+
+        const err = new Error('Resource has been exhausted (e.g. check quota).');
+        err.response = {
+            status: 429,
+            headers: {},
+            data: {
+                error: {
+                    code: 429,
+                    message: 'Resource has been exhausted (e.g. check quota).',
+                    status: 'RESOURCE_EXHAUSTED',
+                    details: [{ reason: 'MODEL_CAPACITY_EXHAUSTED', metadata: { model: 'gemini-4-hydrogen-medium' } }]
+                }
+            }
+        };
+        service.authClient = {
+            request: jest.fn(async () => {
+                throw err;
+            })
+        };
+
+        const originalError = logger.error.bind(logger);
+        const logged = [];
+        logger.error = (...args) => {
+            logged.push(args.map(String).join(' '));
+        };
+        try {
+            await expect(service.callApi('generateContent', { contents: [] })).rejects.toMatchObject({
+                shouldSwitchCredential: true
+            });
+        } finally {
+            logger.error = originalError;
+        }
+
+        const errorLine = logged.find((line) => line.includes('[Antigravity API] Error calling'));
+        expect(errorLine).toBeDefined();
+        expect(errorLine).toContain('reason=MODEL_CAPACITY_EXHAUSTED');
+        expect(errorLine).toContain('details=');
+        expect(errorLine).toContain('gemini-4-hydrogen-medium');
+    });
+
+    test('formatAntigravityRequestSummary 与 429 请求摘要日志输出关键字段', async () => {
+        const payload = {
+            model: 'gemini-4-hydrogen-medium',
+            requestType: 'agent',
+            project: 'aicode-consumers',
+            request: {
+                sessionId: '-12345',
+                systemInstruction: { parts: [{ text: 'You are a helpful agent.\nLine 2' }] },
+                contents: [
+                    { role: 'user', parts: [{ text: 'hi' }] },
+                    { role: 'model', parts: [{ functionCall: { name: 'Bash', args: {} } }] }
+                ],
+                tools: [{ functionDeclarations: [{ name: 'Bash', parameters: {} }, { name: 'Read', parameters: {} }] }],
+                generationConfig: { maxOutputTokens: 65534, thinkingConfig: { thinkingLevel: 'medium', includeThoughts: true } },
+                unexpectedFlag: true
+            }
+        };
+        const summary = formatAntigravityRequestSummary('generateContent', payload, 'antigravity/cli/1.4.7 linux/amd64');
+        expect(summary).toContain('model=gemini-4-hydrogen-medium');
+        expect(summary).toContain('systemInstruction={parts=1,chars=31,preview="You are a helpful agent.\\nLine 2"}');
+        expect(summary).toContain('turns=2');
+        expect(summary).toContain('fn=2');
+        expect(summary).toContain('names=[Bash,Read]');
+        expect(summary).toContain('extraReqKeys=[unexpectedFlag]');
+
+        const service = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: path.join(os.tmpdir(), 'no-such-cred.json'),
+            REQUEST_MAX_RETRIES: 0,
+            REQUEST_BASE_DELAY: 1
+        });
+        service.baseURLs = ['https://edge-a.example', 'https://edge-b.example'];
+        const err = new Error('Resource has been exhausted (e.g. check quota).');
+        err.response = { status: 429, headers: {}, data: { error: { code: 429, status: 'RESOURCE_EXHAUSTED' } } };
+        service.authClient = { request: jest.fn(async () => { throw err; }) };
+
+        const originalWarn = logger.warn.bind(logger);
+        const warned = [];
+        logger.warn = (...args) => {
+            warned.push(args.map(String).join(' '));
+        };
+        try {
+            await expect(service.callApi('generateContent', payload)).rejects.toMatchObject({
+                shouldSwitchCredential: true
+            });
+        } finally {
+            logger.warn = originalWarn;
+        }
+
+        const summaryLines = warned.filter((line) => line.includes('[Antigravity API] 429 Request summary'));
+        expect(summaryLines).toHaveLength(1);
+        expect(summaryLines[0]).toContain('baseURL=https://edge-a.example');
+        expect(summaryLines[0]).toContain('names=[Bash,Read]');
+    });
+});
+
+describe('Antigravity 通用 Agent 指纹清洗', () => {
+    test('system 作用域将 Antigravity / Hermes / DeepSeek Harness 及通用 Harness 首句统一改写为通用助理身份', () => {
+        expect(sanitizeAgentFingerprint(
+            'You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.',
+            'system'
+        )).toBe(GENERIC_AGENT_IDENTITY);
+
+        expect(sanitizeAgentFingerprint(
+            'You are Hermes Agent, an intelligent AI assistant created by Nous Research.\nYou run on Hermes Agent (by Nous Research).',
+            'system'
+        )).toBe(`${GENERIC_AGENT_IDENTITY}\n${GENERIC_AGENT_IDENTITY}`);
+
+        expect(sanitizeAgentFingerprint(
+            'You are an AI agent powered by DeepSeek Harness.\n\nYou are a coding agent powered by the gemini-4-hydrogen-medium model.',
+            'system'
+        )).toBe(`${GENERIC_AGENT_IDENTITY}\n\nYou are a coding agent powered by the gemini-4-hydrogen-medium model.`);
+
+        // 未列举的新 Harness 句式也能在 system 作用域被通用规则覆盖
+        expect(sanitizeAgentFingerprint(
+            'You are an AI coding agent powered by Acme Harness.\nFollow workspace rules.',
+            'system'
+        )).toBe(`${GENERIC_AGENT_IDENTITY}\nFollow workspace rules.`);
+
+        expect(sanitizeAgentFingerprint(
+            'You are OpenClaw, a helpful AI coding assistant built by Example Labs.\nBe concise.',
+            'system'
+        )).toBe(`${GENERIC_AGENT_IDENTITY}\nBe concise.`);
+
+        expect(sanitizeAgentFingerprint(
+            'Web GUI note. The browser provides no implicit DOM, route, or screenshot context.',
+            'system'
+        )).toBe('Web GUI note. The web view has no implicit page DOM, route, or screenshot context.');
+    });
+
+    test('content 作用域仅清洗确认品牌指纹，避免误伤普通对话与代码示例', () => {
+        expect(sanitizeAgentFingerprint(
+            'Example: You are an AI agent powered by DeepSeek Harness.',
+            'content'
+        )).toBe(`Example: ${GENERIC_AGENT_IDENTITY}`);
+
+        const guiProse = 'The browser provides no implicit DOM, route, or screenshot context.';
+        expect(sanitizeAgentFingerprint(guiProse, 'content')).toBe(guiProse);
+
+        const ordinaryProse = 'In this tutorial: You are an AI agent powered by Custom CLI.';
+        expect(sanitizeAgentFingerprint(ordinaryProse, 'content')).toBe(ordinaryProse);
+
+        const roleplay = 'You are Sherlock, a brilliant detective in London.';
+        expect(sanitizeAgentFingerprint(roleplay, 'system')).toBe(roleplay);
+    });
+
+    test('buildAntigravityPayload 对 systemInstruction 与 contents 应用分级清洗', () => {
+        const service = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
+        service.availableModels = ['gemini-4-hydrogen-medium'];
+
+        const { payload } = service.buildAntigravityPayload('gemini-4-hydrogen-medium', {
+            system_instruction: {
+                role: 'user',
+                parts: [{ text: 'You are an AI agent powered by DeepSeek Harness.\n\nHelp with code.' }]
+            },
+            contents: [
+                { role: 'user', parts: [{ text: 'You are an AI agent powered by Custom CLI.' }] }
+            ]
+        });
+
+        expect(payload.request?.systemInstruction?.parts?.[0]?.text)
+            .toBe(`${GENERIC_AGENT_IDENTITY}\n\nHelp with code.`);
+        expect(payload.request?.contents?.[0]?.parts?.[0]?.text)
+            .toBe('You are an AI agent powered by Custom CLI.');
+
+        // 直接调用纯转换函数 geminiToAntigravity 也一致生效
+        const direct = geminiToAntigravity('gemini-4-hydrogen-medium', {
+            request: {
+                systemInstruction: {
+                    parts: [{ text: 'You are Hermes Agent, an intelligent AI assistant created by Nous Research.' }]
+                },
+                contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
+            }
+        }, 'proj-1');
+        expect(direct.request?.systemInstruction?.parts?.[0]?.text).toBe(GENERIC_AGENT_IDENTITY);
     });
 });

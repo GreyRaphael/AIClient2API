@@ -130,29 +130,78 @@ export function antigravityModelRequiresStreamForNonStream(modelName: unknown): 
     return name.includes('claude') || name.includes('gpt') || name === 'gemini-pro-agent' || name.includes('gemini-3.1-pro') || name.includes('gemini-3.1-flash-image');
 }
 
+export const GENERIC_AGENT_IDENTITY = 'You are an expert AI coding assistant.';
+
+type FingerprintRule = readonly [pattern: RegExp, replacement: string];
+
 /**
- * 净化文本中的敏感 Prompt 特征与 Agent 身份指纹，防止触发 Google 上游风控与反滥用 429 拦截
- * @param {string} text
- * @returns {string}
+ * 已确认触发上游 429 或明确属于特定 Agent 品牌的精确指纹规则。
+ * 在 `systemInstruction` 与 `contents` 中均会执行，避免品牌特征漏网。
  */
-function sanitizeAgentFingerprint(text: unknown): string {
+const EXACT_FINGERPRINT_RULES: readonly FingerprintRule[] = [
+    [
+        /You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding\./gi,
+        GENERIC_AGENT_IDENTITY
+    ],
+    [
+        /You are Hermes Agent, an intelligent AI assistant(?:\s+created by Nous Research)?\./gi,
+        GENERIC_AGENT_IDENTITY
+    ],
+    [
+        /You run on Hermes Agent(?:\s*\(by Nous Research\))?\./gi,
+        GENERIC_AGENT_IDENTITY
+    ],
+    [
+        /You are an AI agent powered by DeepSeek Harness\./gi,
+        GENERIC_AGENT_IDENTITY
+    ],
+    [/created by Nous Research/gi, 'created as an advanced AI'],
+    [/\(by Nous Research\)/gi, ''],
+    [/Nous Research/gi, 'AI Research']
+];
+
+/**
+ * 仅作用于 `systemInstruction` 的通用 Agent Harness 句式规则。
+ * 限定在行首/独立句并控制匹配长度，覆盖未事先枚举的第三方 Harness，
+ * 同时避免在 `contents`（用户对话、代码或工具输出）中误改正文内容。
+ */
+const SYSTEM_GENERIC_FINGERPRINT_RULES: readonly FingerprintRule[] = [
+    [
+        /(^|\n)([ \t]*)You are an AI (?:coding )?agent powered by [^\n.!?]{1,80}\./gi,
+        `$1$2${GENERIC_AGENT_IDENTITY}`
+    ],
+    [
+        /(^|\n)([ \t]*)You are [A-Z][A-Za-z0-9 _.-]{1,40},\s+(?:an?|the)\s+(?:[a-z]+\s+){0,4}AI\s+(?:coding\s+)?(?:assistant|agent)\b[^\n.!?]{0,140}\./gi,
+        `$1$2${GENERIC_AGENT_IDENTITY}`
+    ],
+    // DeepSeek Harness Web GUI 系统提示词中包含此固定句式，会被上游精确指纹拦截为 429 rateLimitExceeded；
+    // 保留语义同义改写，避免破坏上下文约束判断
+    [
+        /The browser provides no implicit DOM,\s*route,\s*or screenshot context\./gi,
+        'The web view has no implicit page DOM, route, or screenshot context.'
+    ]
+];
+
+function applyFingerprintRules(text: string, rules: readonly FingerprintRule[]): string {
+    let result = text;
+    for (const [pattern, replacement] of rules) {
+        result = result.replace(pattern, replacement);
+    }
+    return result;
+}
+
+/**
+ * 净化文本中的敏感 Prompt 特征与 Agent 身份指纹，防止触发 Google 上游风控与反滥用 429 拦截。
+ * - `system` 作用域（`systemInstruction`）：同时应用精确指纹与通用 Harness 句式规则；
+ * - `content` 作用域（`contents`）：仅应用精确指纹规则，避免误改正文或代码片段。
+ */
+export function sanitizeAgentFingerprint(text: unknown, scope: 'system' | 'content' = 'content'): string {
     if (typeof text !== 'string') return String(text);
-    return text
-        .replace(
-            /You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding\./gi,
-            'You are an expert AI coding assistant.'
-        )
-        .replace(
-            /(You are Hermes Agent, an intelligent AI assistant) created by Nous Research\./gi,
-            '$1.'
-        )
-        .replace(
-            /You run on Hermes Agent \(by Nous Research\)\./gi,
-            'You run on Hermes Agent.'
-        )
-        .replace(/created by Nous Research/gi, 'created as an advanced AI')
-        .replace(/\(by Nous Research\)/gi, '')
-        .replace(/Nous Research/gi, 'AI Research');
+    let sanitized = applyFingerprintRules(text, EXACT_FINGERPRINT_RULES);
+    if (scope === 'system') {
+        sanitized = applyFingerprintRules(sanitized, SYSTEM_GENERIC_FINGERPRINT_RULES);
+    }
+    return sanitized;
 }
 
 function normalizeAntigravityTextPart(part: DynamicPayload, isClaudeModel = false): void {
@@ -533,7 +582,7 @@ export function geminiToAntigravityInPlace(modelName: string, template: DynamicP
     if (template.request?.systemInstruction?.parts && Array.isArray(template.request.systemInstruction.parts)) {
         template.request.systemInstruction.parts.forEach((part: DynamicPayload) => {
             if (typeof part.text === 'string') {
-                part.text = sanitizeAgentFingerprint(part.text);
+                part.text = sanitizeAgentFingerprint(part.text, 'system');
             }
         });
         delete template.request.systemInstruction.role;

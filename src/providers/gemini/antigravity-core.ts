@@ -23,7 +23,7 @@ import type { ProviderCapabilities } from '../provider-capabilities.ts';
 import { getErrorMessage } from '../../utils/error.ts';
 import { decodeJwtPayload } from '../../auth/oauth-shared.ts';
 import type { DynamicPayload } from '../../../types/dynamic-payload.js';
-import { isRecord } from '../../utils/type-guards.ts';
+import { isPlainRecord, isRecord } from '../../utils/type-guards.ts';
 import {
     normalizeAntigravityModelId,
     formatAntigravityDisplayName,
@@ -69,6 +69,202 @@ type AntigravityErrorLike = ErrorAugmentation & { message?: string };
 
 function asAntigravityError(error: unknown): AntigravityErrorLike {
     return isRecord(error) ? error as AntigravityErrorLike : {};
+}
+
+const ANTIGRAVITY_ERROR_LOG_MAX_CHARS = 2000;
+
+function safeJsonSlice(value: unknown, maxChars: number): string {
+    try {
+        return JSON.stringify(value).slice(0, maxChars);
+    } catch {
+        return String(value).slice(0, maxChars);
+    }
+}
+
+function collectReasonsFromRecord(record: Record<string, unknown>, reasons: string[]): void {
+    if (typeof record.reason === 'string' && record.reason) {
+        reasons.push(record.reason);
+    }
+    if (Array.isArray(record.violations)) {
+        for (const v of record.violations) {
+            if (isPlainRecord(v) && typeof v.reason === 'string' && v.reason) {
+                reasons.push(v.reason);
+            }
+        }
+    }
+}
+
+/**
+ * 从 Antigravity 上游 `error.response?.data` 中提取 `status`、`reason` 与 `details`，
+ * 用于在发生错误时打印完整诊断上下文。
+ */
+export function formatAntigravityErrorDetails(rawError: unknown): string {
+    const rawData: unknown = asAntigravityError(rawError).response?.data;
+    if (rawData === undefined || rawData === null || rawData === '') return '';
+
+    let parsed: unknown = rawData;
+    if (Buffer.isBuffer(rawData) || typeof rawData === 'string') {
+        const text = Buffer.isBuffer(rawData) ? rawData.toString('utf8') : rawData;
+        if (!text.trim()) return '';
+        try {
+            parsed = JSON.parse(text);
+        } catch {
+            return ` | Response: ${text.slice(0, ANTIGRAVITY_ERROR_LOG_MAX_CHARS)}`;
+        }
+    }
+
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    const reasons: string[] = [];
+    const detailsList: unknown[] = [];
+    let rpcStatus = '';
+
+    for (const item of items) {
+        if (!isPlainRecord(item)) continue;
+        const errObj = isPlainRecord(item.error) ? item.error : item;
+        if (!rpcStatus && typeof errObj.status === 'string' && errObj.status) {
+            rpcStatus = errObj.status;
+        }
+        collectReasonsFromRecord(item, reasons);
+        if (errObj !== item) collectReasonsFromRecord(errObj, reasons);
+
+        const itemDetails = Array.isArray(errObj.details)
+            ? errObj.details
+            : (Array.isArray(item.details) ? item.details : []);
+        for (const detail of itemDetails) {
+            detailsList.push(detail);
+            if (isPlainRecord(detail)) collectReasonsFromRecord(detail, reasons);
+        }
+        if (Array.isArray(errObj.errors)) {
+            for (const subErr of errObj.errors) {
+                if (isPlainRecord(subErr)) collectReasonsFromRecord(subErr, reasons);
+            }
+        }
+    }
+
+    const uniqueReasons = [...new Set(reasons)];
+    const parts: string[] = [];
+    if (rpcStatus) parts.push(`rpcStatus=${rpcStatus}`);
+    if (uniqueReasons.length > 0) parts.push(`reason=${uniqueReasons.join(',')}`);
+    if (detailsList.length > 0) {
+        parts.push(`details=${safeJsonSlice(detailsList, ANTIGRAVITY_ERROR_LOG_MAX_CHARS)}`);
+    } else {
+        parts.push(`responseData=${safeJsonSlice(parsed, ANTIGRAVITY_ERROR_LOG_MAX_CHARS)}`);
+    }
+    return ` | ${parts.join(', ')}`;
+}
+
+const KNOWN_ANTIGRAVITY_REQ_KEYS = new Set([
+    'sessionId',
+    'systemInstruction',
+    'contents',
+    'tools',
+    'toolConfig',
+    'generationConfig'
+]);
+const ANTIGRAVITY_SUMMARY_PREVIEW_CHARS = 180;
+
+function escapePreviewText(text: string): string {
+    return text.replace(/\r?\n/g, '\\n').slice(0, ANTIGRAVITY_SUMMARY_PREVIEW_CHARS);
+}
+
+function summarizeSystemInstruction(sysInst: unknown): string {
+    if (!isPlainRecord(sysInst) || !Array.isArray(sysInst.parts)) return 'none';
+    const texts: string[] = [];
+    for (const part of sysInst.parts) {
+        if (isPlainRecord(part) && typeof part.text === 'string') texts.push(part.text);
+    }
+    const joined = texts.join('\n');
+    const roleTag = typeof sysInst.role === 'string' ? `,role=${sysInst.role}` : '';
+    return `parts=${sysInst.parts.length},chars=${joined.length}${roleTag},preview="${escapePreviewText(joined)}"`;
+}
+
+function summarizeContents(contents: unknown): string {
+    if (!Array.isArray(contents)) return 'none';
+    let totalChars = 0;
+    let thoughtParts = 0;
+    let thoughtSigParts = 0;
+    const turnSummaries: string[] = [];
+
+    for (const turn of contents) {
+        if (!isPlainRecord(turn)) continue;
+        const role = typeof turn.role === 'string' ? turn.role : 'missing';
+        const parts = Array.isArray(turn.parts) ? turn.parts : [];
+        let fc = 0;
+        let fr = 0;
+        let media = 0;
+        let chars = 0;
+
+        for (const p of parts) {
+            if (!isPlainRecord(p)) continue;
+            if (typeof p.text === 'string') chars += p.text.length;
+            if (p.thought === true) thoughtParts++;
+            if (p.thoughtSignature || p.thought_signature) thoughtSigParts++;
+            if (p.functionCall) fc++;
+            else if (p.functionResponse) fr++;
+            else if (p.inlineData || p.inline_data || p.fileData) media++;
+        }
+        totalChars += chars;
+        const tags = [`${chars}c`];
+        if (fc > 0) tags.push(`fc=${fc}`);
+        if (fr > 0) tags.push(`fr=${fr}`);
+        if (media > 0) tags.push(`media=${media}`);
+        turnSummaries.push(`${role}(${tags.join(',')})`);
+    }
+
+    const head = turnSummaries.length <= 6
+        ? turnSummaries.join(' -> ')
+        : `${turnSummaries.slice(0, 4).join(' -> ')} -> ... -> ${turnSummaries.slice(-2).join(' -> ')}`;
+    return `turns=${contents.length},chars=${totalChars},thought=${thoughtParts},sig=${thoughtSigParts}${head ? `,flow=[${head}]` : ''}`;
+}
+
+function summarizeTools(tools: unknown): string {
+    if (!Array.isArray(tools) || tools.length === 0) return 'none';
+    const fnNames: string[] = [];
+    const serverTools: string[] = [];
+    for (const tool of tools) {
+        if (!isPlainRecord(tool)) continue;
+        if (Array.isArray(tool.functionDeclarations)) {
+            for (const fn of tool.functionDeclarations) {
+                if (isPlainRecord(fn) && typeof fn.name === 'string') fnNames.push(fn.name);
+            }
+        }
+        for (const key of Object.keys(tool)) {
+            if (key !== 'functionDeclarations') serverTools.push(key);
+        }
+    }
+    const nameSample = fnNames.length > 15
+        ? `${fnNames.slice(0, 15).join(',')},+${fnNames.length - 15}`
+        : fnNames.join(',');
+    const serverPart = serverTools.length > 0 ? `,server=[${serverTools.join(',')}]` : '';
+    return `groups=${tools.length},fn=${fnNames.length},schemaChars=${safeJsonSlice(tools, Number.MAX_SAFE_INTEGER).length}${nameSample ? `,names=[${nameSample}]` : ''}${serverPart}`;
+}
+
+/**
+ * 构建发往 Antigravity 上游请求体的脱敏结构摘要，用于对比成功请求与 429 请求的差异。
+ */
+export function formatAntigravityRequestSummary(method: string, body: unknown, httpUserAgent?: string): string {
+    if (!isPlainRecord(body)) return `method=${method}, body=invalid`;
+    const req = isPlainRecord(body.request) ? body.request : null;
+    const payloadStr = safeJsonSlice(body, Number.MAX_SAFE_INTEGER);
+    const parts: string[] = [
+        `method=${method}`,
+        `model=${String(body.model ?? '')}`,
+        `requestType=${String(body.requestType ?? '')}`,
+        `project=${String(body.project ?? '')}`,
+        `payloadBytes=${Buffer.byteLength(payloadStr, 'utf8')}`
+    ];
+    if (httpUserAgent) parts.push(`ua=${httpUserAgent}`);
+    if (req) {
+        parts.push(`sessionId=${String(req.sessionId ?? '')}`);
+        parts.push(`systemInstruction={${summarizeSystemInstruction(req.systemInstruction)}}`);
+        parts.push(`contents={${summarizeContents(req.contents)}}`);
+        parts.push(`tools={${summarizeTools(req.tools)}}`);
+        if (req.toolConfig !== undefined) parts.push(`toolConfig=${safeJsonSlice(req.toolConfig, 400)}`);
+        if (req.generationConfig !== undefined) parts.push(`generationConfig=${safeJsonSlice(req.generationConfig, 600)}`);
+        const extraKeys = Object.keys(req).filter((k) => !KNOWN_ANTIGRAVITY_REQ_KEYS.has(k));
+        if (extraKeys.length > 0) parts.push(`extraReqKeys=[${extraKeys.join(',')}]`);
+    }
+    return parts.join(' | ');
 }
 
 // --- Constants ---
@@ -691,6 +887,8 @@ export class AntigravityApiService {
         rawError: unknown,
         options: {
             context: 'callApi' | 'stream';
+            method: string;
+            body: unknown;
             baseURL: string;
             baseURLIndex: number;
             retryCount: number;
@@ -699,7 +897,7 @@ export class AntigravityApiService {
             isRetry: boolean;
         }
     ): Promise<{ retryCount: number; baseURLIndex: number }> {
-        const { context, baseURL, baseURLIndex, retryCount, maxRetries, baseDelay, isRetry } = options;
+        const { context, method, body, baseURL, baseURLIndex, retryCount, maxRetries, baseDelay, isRetry } = options;
         const error = asAntigravityError(rawError);
         const status = error.response?.status;
         const errorCode = error.code;
@@ -707,7 +905,11 @@ export class AntigravityApiService {
         const logAction = context === 'callApi' ? 'Error calling' : 'Error during stream';
         const streamSuffix = context === 'stream' ? ' during stream' : '';
 
-        logger.error(`[Antigravity API] ${logAction} (Status: ${status}, Code: ${errorCode}):`, error.message);
+        const detailSuffix = formatAntigravityErrorDetails(error);
+        logger.error(`[Antigravity API] ${logAction} (Status: ${status}, Code: ${errorCode}):`, `${errorMessage}${detailSuffix}`);
+        if (status === 429 && retryCount === 0 && baseURLIndex === 0) {
+            logger.warn(`[Antigravity API] 429 Request summary (baseURL=${baseURL}): ${formatAntigravityRequestSummary(method, body, this.userAgent)}`);
+        }
 
         if (status === 401 && !isRetry) {
             logger.info(`[Antigravity API] Received 401 Unauthorized${streamSuffix}. Triggering background refresh via PoolManager...`);
@@ -787,6 +989,12 @@ export class AntigravityApiService {
         throw error;
     }
 
+    #logRequestSummaryIfNeeded(method: string, body: unknown, retryCount: number, baseURLIndex: number): void {
+        if (retryCount === 0 && baseURLIndex === 0 && (method === 'generateContent' || method === 'streamGenerateContent')) {
+            logger.debug(`[Antigravity] Request summary: ${formatAntigravityRequestSummary(method, body, this.userAgent)}`);
+        }
+    }
+
     async callApi<T = unknown>(method: string, body: DynamicPayload, isRetry = false, retryCount = 0, baseURLIndex = 0): Promise<T> {
         const maxRetries = this.config.REQUEST_MAX_RETRIES ?? 3;
         const baseDelay = this.config.REQUEST_BASE_DELAY ?? 1000;
@@ -796,6 +1004,7 @@ export class AntigravityApiService {
         }
 
         const baseURL = this.baseURLs[baseURLIndex];
+        this.#logRequestSummaryIfNeeded(method, body, retryCount, baseURLIndex);
 
         try {
             const requestOptions: DynamicPayload = {
@@ -819,6 +1028,8 @@ export class AntigravityApiService {
         } catch (rawError) {
             const next = await this.#prepareRetryStep(rawError, {
                 context: 'callApi',
+                method,
+                body,
                 baseURL,
                 baseURLIndex,
                 retryCount,
@@ -839,6 +1050,7 @@ export class AntigravityApiService {
         }
 
         const baseURL = this.baseURLs[baseURLIndex];
+        this.#logRequestSummaryIfNeeded(method, body, retryCount, baseURLIndex);
         let hasYielded = false;
 
         try {
@@ -923,13 +1135,15 @@ export class AntigravityApiService {
                 // 已经向上层产出过数据时，绝不能在 provider 内重做整个请求。旧逻辑会把
                 // 第二次生成拼接到已发送的前缀后，导致重复、错位或最终截断。把错误交给
                 // common.js，由其按“已发送数据不可重试”的规则安全结束响应。
-                logger.error(`[Antigravity API] Error during stream (Status: ${error.response?.status}, Code: ${error.code}):`, error.message);
+                logger.error(`[Antigravity API] Error during stream (Status: ${error.response?.status}, Code: ${error.code}):`, `${error.message || ''}${formatAntigravityErrorDetails(error)}`);
                 logger.warn('[Antigravity API] Stream failed after partial output; skipping internal retry.');
                 throw error;
             }
 
             const next = await this.#prepareRetryStep(error, {
                 context: 'stream',
+                method,
+                body,
                 baseURL,
                 baseURLIndex,
                 retryCount,
