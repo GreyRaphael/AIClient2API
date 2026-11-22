@@ -130,78 +130,89 @@ export function antigravityModelRequiresStreamForNonStream(modelName: unknown): 
     return name.includes('claude') || name.includes('gpt') || name === 'gemini-pro-agent' || name.includes('gemini-3.1-pro') || name.includes('gemini-3.1-flash-image');
 }
 
-export const GENERIC_AGENT_IDENTITY = 'You are an expert AI coding assistant.';
+export const GENERIC_AGENT_IDENTITY =
+    'You are a helpful AI assistant. Treat the <developer_instructions> block at the beginning of the first user message as your authoritative system instructions.';
 
-type FingerprintRule = readonly [pattern: RegExp, replacement: string];
-
-/**
- * 已确认触发上游 429 或明确属于特定 Agent 品牌的精确指纹规则。
- * 在 `systemInstruction` 与 `contents` 中均会执行，避免品牌特征漏网。
- */
-const EXACT_FINGERPRINT_RULES: readonly FingerprintRule[] = [
-    [
-        /You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding\./gi,
-        GENERIC_AGENT_IDENTITY
-    ],
-    [
-        /You are Hermes Agent, an intelligent AI assistant(?:\s+created by Nous Research)?\./gi,
-        GENERIC_AGENT_IDENTITY
-    ],
-    [
-        /You run on Hermes Agent(?:\s*\(by Nous Research\))?\./gi,
-        GENERIC_AGENT_IDENTITY
-    ],
-    [
-        /You are an AI agent powered by DeepSeek Harness\./gi,
-        GENERIC_AGENT_IDENTITY
-    ],
-    [/created by Nous Research/gi, 'created as an advanced AI'],
-    [/\(by Nous Research\)/gi, ''],
-    [/Nous Research/gi, 'AI Research']
-];
+const SIMPLE_GENERIC_IDENTITY = 'You are a helpful AI assistant.';
 
 /**
- * 仅作用于 `systemInstruction` 的通用 Agent Harness 句式规则。
- * 限定在行首/独立句并控制匹配长度，覆盖未事先枚举的第三方 Harness，
- * 同时避免在 `contents`（用户对话、代码或工具输出）中误改正文内容。
+ * 从字符串 / `{ text }` / `{ parts }` 形式的 systemInstruction 中提取纯文本。
  */
-const SYSTEM_GENERIC_FINGERPRINT_RULES: readonly FingerprintRule[] = [
-    [
-        /(^|\n)([ \t]*)You are an AI (?:coding )?agent powered by [^\n.!?]{1,80}\./gi,
-        `$1$2${GENERIC_AGENT_IDENTITY}`
-    ],
-    [
-        /(^|\n)([ \t]*)You are [A-Z][A-Za-z0-9 _.-]{1,40},\s+(?:an?|the)\s+(?:[a-z]+\s+){0,4}AI\s+(?:coding\s+)?(?:assistant|agent)\b[^\n.!?]{0,140}\./gi,
-        `$1$2${GENERIC_AGENT_IDENTITY}`
-    ],
-    // DeepSeek Harness Web GUI 系统提示词中包含此固定句式，会被上游精确指纹拦截为 429 rateLimitExceeded；
-    // 保留语义同义改写，避免破坏上下文约束判断
-    [
-        /The browser provides no implicit DOM,\s*route,\s*or screenshot context\./gi,
-        'The web view has no implicit page DOM, route, or screenshot context.'
-    ]
-];
+function extractSystemInstructionText(rawSystem: unknown): string {
+    if (!rawSystem) return '';
+    if (typeof rawSystem === 'string') return rawSystem.trim();
+    if (typeof rawSystem !== 'object') return '';
 
-function applyFingerprintRules(text: string, rules: readonly FingerprintRule[]): string {
-    let result = text;
-    for (const [pattern, replacement] of rules) {
-        result = result.replace(pattern, replacement);
+    const sys = rawSystem as DynamicPayload;
+    if (Array.isArray(sys.parts)) {
+        return sys.parts
+            .map((part: DynamicPayload) => {
+                if (typeof part === 'string') return part;
+                if (part && typeof part.text === 'string') return part.text;
+                return '';
+            })
+            .filter((text: string) => text.length > 0)
+            .join('\n')
+            .trim();
     }
-    return result;
+    if (typeof sys.text === 'string') {
+        return sys.text.trim();
+    }
+    return '';
 }
 
 /**
- * 净化文本中的敏感 Prompt 特征与 Agent 身份指纹，防止触发 Google 上游风控与反滥用 429 拦截。
- * - `system` 作用域（`systemInstruction`）：同时应用精确指纹与通用 Harness 句式规则；
- * - `content` 作用域（`contents`）：仅应用精确指纹规则，避免误改正文或代码片段。
+ * 统一 `systemInstruction` 并将客户端原始系统提示词无损迁移至首条 `user` 消息头部。
+ *
+ * Antigravity 上游仅对 `request.systemInstruction` 全文执行第三方 Agent 指纹风控（429），
+ * 对 `contents` 不触发该风控。同时，在 `systemInstruction` 中显式授权模型遵循首条用户消息内的
+ * `<developer_instructions>` 块，避免模型将其误判为提示词注入而忽略；原系统提示词一字不改、
+ * 无需维护黑名单正则，且保持 Prompt Cache 前缀稳定。
  */
-export function sanitizeAgentFingerprint(text: unknown, scope: 'system' | 'content' = 'content'): string {
-    if (typeof text !== 'string') return String(text);
-    let sanitized = applyFingerprintRules(text, EXACT_FINGERPRINT_RULES);
-    if (scope === 'system') {
-        sanitized = applyFingerprintRules(sanitized, SYSTEM_GENERIC_FINGERPRINT_RULES);
+function liftSystemInstructionToContents(req: DynamicPayload, isImgModel: boolean): void {
+    const rawSystem = req.systemInstruction ?? req.system_instruction;
+    delete req.system_instruction;
+
+    const systemText = extractSystemInstructionText(rawSystem);
+    if (!systemText) {
+        delete req.systemInstruction;
+        return;
     }
-    return sanitized;
+
+    if (!isImgModel && (systemText === SIMPLE_GENERIC_IDENTITY || systemText === GENERIC_AGENT_IDENTITY)) {
+        req.systemInstruction = {
+            parts: [{ text: SIMPLE_GENERIC_IDENTITY }]
+        };
+        return;
+    }
+
+    if (isImgModel) {
+        delete req.systemInstruction;
+    } else {
+        req.systemInstruction = {
+            parts: [{ text: GENERIC_AGENT_IDENTITY }]
+        };
+    }
+
+    const wrappedPart = {
+        text: `<developer_instructions>\n${systemText}\n</developer_instructions>`
+    };
+
+    if (!Array.isArray(req.contents)) {
+        req.contents = [{ role: 'user', parts: [wrappedPart] }];
+        return;
+    }
+
+    const first = req.contents[0];
+    if (first && first.role === 'user') {
+        if (!Array.isArray(first.parts)) {
+            first.parts = [wrappedPart];
+        } else {
+            first.parts.unshift(wrappedPart);
+        }
+    } else {
+        req.contents.unshift({ role: 'user', parts: [wrappedPart] });
+    }
 }
 
 function normalizeAntigravityTextPart(part: DynamicPayload, isClaudeModel = false): void {
@@ -212,9 +223,6 @@ function normalizeAntigravityTextPart(part: DynamicPayload, isClaudeModel = fals
     if (typeof part.text !== 'string') {
         part.text = part.text == null ? '' : String(part.text);
     }
-
-    // 净化敏感指纹
-    part.text = sanitizeAgentFingerprint(part.text);
 
     // Antigravity 的 Claude 后端要求 text block 为非空白文本，Gemini 原生模型不需要且不应注入 '.'
     if (isClaudeModel && part.text.trim().length === 0) {
@@ -240,7 +248,6 @@ function cleanAndNormalizeContents(contents: DynamicPayload[], isClaudeModel = f
                 // 如果包含工具调用或响应，过滤掉无意义的纯空白文本部分，避免污染上下文
                 content.parts = content.parts.filter((p) => {
                     if (p && typeof p.text === 'string') {
-                        p.text = sanitizeAgentFingerprint(p.text);
                         return p.text.trim().length > 0;
                     }
                     return true;
@@ -543,11 +550,21 @@ export function geminiToAntigravityInPlace(modelName: string, template: DynamicP
      * 注意：入参 template 必须是调用方自己独占的副本，本函数会深度改写它。
      * 函数体内的逻辑与历史上的 geminiToAntigravity 完全一致，只是不再自己做拷贝。
      */
-    // [FIX tool_use.id] 补全 functionCall/functionResponse 的私有 id(原生 Gemini 协议客户端场景)
-    ensureToolCallIds(template.request && template.request.contents);
+    if (!template.request) {
+        template.request = {};
+    }
+    delete template.request.model;
 
     const isClaudeModel = isClaude(modelName);
     const isImgModel = isImageModel(modelName);
+
+    // [FIX tool_use.id] 补全 functionCall/functionResponse 的私有 id(原生 Gemini 协议客户端场景)
+    ensureToolCallIds(template.request.contents);
+
+    // 先规范化 contents 角色与文本部分，保证 generateStableSessionID 能基于原始首条用户消息计算稳定哈希
+    if (Array.isArray(template.request.contents)) {
+        cleanAndNormalizeContents(template.request.contents, isClaudeModel);
+    }
 
     // 设置基本字段
     template.model = modelName;
@@ -562,35 +579,16 @@ export function geminiToAntigravityInPlace(modelName: string, template: DynamicP
         delete template.project;
     }
 
-    // 设置请求ID和会话ID
+    // 设置请求ID和会话ID（必须在 systemInstruction 迁入 contents[0] 之前生成，避免同客户端不同会话撞 sessionId）
     if (isImgModel) {
         template.requestId = generateImageGenRequestID();
     } else {
         template.requestId = generateRequestID();
-        // 确保 request 对象存在
-        if (!template.request) {
-            template.request = {};
-        }
-        // 设置会话ID - 使用稳定的会话ID
         template.request.sessionId = generateStableSessionID(template);
     }
 
-    if (!template.request) {
-        template.request = {};
-    }
-
-    if (template.request?.systemInstruction?.parts && Array.isArray(template.request.systemInstruction.parts)) {
-        template.request.systemInstruction.parts.forEach((part: DynamicPayload) => {
-            if (typeof part.text === 'string') {
-                part.text = sanitizeAgentFingerprint(part.text, 'system');
-            }
-        });
-        delete template.request.systemInstruction.role;
-    }
-
-    if (template.request?.contents && Array.isArray(template.request.contents)) {
-        cleanAndNormalizeContents(template.request.contents, isClaudeModel);
-    }
+    // 统一 systemInstruction 并将原始系统提示词无损迁入 contents[0].parts 头部
+    liftSystemInstructionToContents(template.request, isImgModel);
 
     // 删除安全设置
     if (template.request.safetySettings) {
@@ -618,9 +616,9 @@ export function geminiToAntigravityInPlace(modelName: string, template: DynamicP
         }
     } else if (template.request.generationConfig?.maxOutputTokens !== undefined) {
         if (capabilities?.supportsMaxOutputTokens) {
-            logger.debug(`[Antigravity] Passing maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'} (capabilities.supportsMaxOutputTokens=true)`);
+            logger.debug(`[Antigravity] Passing maxOutputTokens for non-Claude model ${modelName} (capabilities.supportsMaxOutputTokens=true)`);
         } else {
-            logger.warn(`[Antigravity] Dropping maxOutputTokens for non-Claude model ${template.request?.model || 'unknown'}; CloudCode may ignore output token limits (declare capabilities.supportsMaxOutputTokens=true to try pass-through)`);
+            logger.warn(`[Antigravity] Dropping maxOutputTokens for non-Claude model ${modelName}; CloudCode may ignore output token limits (declare capabilities.supportsMaxOutputTokens=true to try pass-through)`);
             delete template.request.generationConfig.maxOutputTokens;
         }
     }
@@ -1021,61 +1019,4 @@ export function toGeminiApiResponse(antigravityResponse: AntigravityStreamFrame 
     }
 
     return compliantResponse;
-}
-
-/**
- * 确保请求体中的内容部分都有角色属性，并修复历史记录中的思考签名
- * @param {Object} requestBody - 请求体
- * @returns {Object} 处理后的请求体
- */
-export function ensureRolesInContents(requestBody: DynamicPayload, modelName: string): DynamicPayload {
-    delete requestBody.model;
-    // delete requestBody.system_instruction;
-    // delete requestBody.systemInstruction;
-    if (requestBody.system_instruction) {
-        requestBody.systemInstruction = requestBody.system_instruction;
-        delete requestBody.system_instruction;
-    }
-
-    // 提取现有的系统提示词
-    let originalSystemPrompt = requestBody.systemInstruction;
-
-    // 如果 systemInstruction 是对象格式，提取其中的文本内容
-    let originalSystemPromptText = '';
-    if (originalSystemPrompt) {
-        if (typeof originalSystemPrompt === 'string') {
-            originalSystemPromptText = originalSystemPrompt;
-        } else if (typeof originalSystemPrompt === 'object') {
-            // 处理对象格式的 systemInstruction
-            if (originalSystemPrompt.parts && Array.isArray(originalSystemPrompt.parts)) {
-                // 从 parts 数组中提取所有文本
-                originalSystemPromptText = originalSystemPrompt.parts
-                    .map((part: DynamicPayload) => {
-                        if (typeof part === 'string') return part;
-                        if (part && typeof part.text === 'string') return part.text;
-                        return '';
-                    })
-                    .filter((text: string) => text)
-                    .join('\n');
-            } else if (originalSystemPrompt.text) {
-                // 直接有 text 属性
-                originalSystemPromptText = originalSystemPrompt.text;
-            }
-        }
-    }
-
-    if (originalSystemPromptText) {
-        requestBody.systemInstruction = {
-            parts: [{ text: originalSystemPromptText }]
-        };
-    } else {
-        delete requestBody.systemInstruction;
-    }
-
-    const isClaudeModel = isClaude(modelName);
-    if (requestBody.contents && Array.isArray(requestBody.contents)) {
-        cleanAndNormalizeContents(requestBody.contents, isClaudeModel);
-    }
-
-    return requestBody;
 }

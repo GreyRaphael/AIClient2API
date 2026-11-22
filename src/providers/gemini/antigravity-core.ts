@@ -37,8 +37,7 @@ import {
     geminiToAntigravityInPlace,
     stripIntermediateUsageMetadata,
     convertStreamToNonStream,
-    toGeminiApiResponse,
-    ensureRolesInContents
+    toGeminiApiResponse
 } from './antigravity-transforms.ts';
 import type { AntigravityStreamFrame } from './antigravity-transforms.ts';
 
@@ -242,16 +241,23 @@ function summarizeTools(tools: unknown): string {
 /**
  * 构建发往 Antigravity 上游请求体的脱敏结构摘要，用于对比成功请求与 429 请求的差异。
  */
-export function formatAntigravityRequestSummary(method: string, body: unknown, httpUserAgent?: string): string {
+export function formatAntigravityRequestSummary(
+    method: string,
+    body: unknown,
+    httpUserAgent?: string,
+    payloadBytes?: number
+): string {
     if (!isPlainRecord(body)) return `method=${method}, body=invalid`;
     const req = isPlainRecord(body.request) ? body.request : null;
-    const payloadStr = safeJsonSlice(body, Number.MAX_SAFE_INTEGER);
+    const resolvedBytes = typeof payloadBytes === 'number'
+        ? payloadBytes
+        : Buffer.byteLength(safeJsonSlice(body, Number.MAX_SAFE_INTEGER), 'utf8');
     const parts: string[] = [
         `method=${method}`,
         `model=${String(body.model ?? '')}`,
         `requestType=${String(body.requestType ?? '')}`,
         `project=${String(body.project ?? '')}`,
-        `payloadBytes=${Buffer.byteLength(payloadStr, 'utf8')}`
+        `payloadBytes=${resolvedBytes}`
     ];
     if (httpUserAgent) parts.push(`ua=${httpUserAgent}`);
     if (req) {
@@ -889,6 +895,7 @@ export class AntigravityApiService {
             context: 'callApi' | 'stream';
             method: string;
             body: unknown;
+            payloadBytes?: number;
             baseURL: string;
             baseURLIndex: number;
             retryCount: number;
@@ -897,7 +904,7 @@ export class AntigravityApiService {
             isRetry: boolean;
         }
     ): Promise<{ retryCount: number; baseURLIndex: number }> {
-        const { context, method, body, baseURL, baseURLIndex, retryCount, maxRetries, baseDelay, isRetry } = options;
+        const { context, method, body, payloadBytes, baseURL, baseURLIndex, retryCount, maxRetries, baseDelay, isRetry } = options;
         const error = asAntigravityError(rawError);
         const status = error.response?.status;
         const errorCode = error.code;
@@ -908,7 +915,7 @@ export class AntigravityApiService {
         const detailSuffix = formatAntigravityErrorDetails(error);
         logger.error(`[Antigravity API] ${logAction} (Status: ${status}, Code: ${errorCode}):`, `${errorMessage}${detailSuffix}`);
         if (status === 429 && retryCount === 0 && baseURLIndex === 0) {
-            logger.warn(`[Antigravity API] 429 Request summary (baseURL=${baseURL}): ${formatAntigravityRequestSummary(method, body, this.userAgent)}`);
+            logger.warn(`[Antigravity API] 429 Request summary (baseURL=${baseURL}): ${formatAntigravityRequestSummary(method, body, this.userAgent, payloadBytes)}`);
         }
 
         if (status === 401 && !isRetry) {
@@ -989,9 +996,20 @@ export class AntigravityApiService {
         throw error;
     }
 
-    #logRequestSummaryIfNeeded(method: string, body: unknown, retryCount: number, baseURLIndex: number): void {
-        if (retryCount === 0 && baseURLIndex === 0 && (method === 'generateContent' || method === 'streamGenerateContent')) {
-            logger.debug(`[Antigravity] Request summary: ${formatAntigravityRequestSummary(method, body, this.userAgent)}`);
+    #logRequestSummaryIfNeeded(
+        method: string,
+        body: unknown,
+        retryCount: number,
+        baseURLIndex: number,
+        payloadBytes?: number
+    ): void {
+        if (
+            retryCount === 0 &&
+            baseURLIndex === 0 &&
+            (method === 'generateContent' || method === 'streamGenerateContent') &&
+            logger.shouldLog('debug')
+        ) {
+            logger.debug(`[Antigravity] Request summary: ${formatAntigravityRequestSummary(method, body, this.userAgent, payloadBytes)}`);
         }
     }
 
@@ -1004,7 +1022,9 @@ export class AntigravityApiService {
         }
 
         const baseURL = this.baseURLs[baseURLIndex];
-        this.#logRequestSummaryIfNeeded(method, body, retryCount, baseURLIndex);
+        const serializedBody = JSON.stringify(body);
+        const payloadBytes = Buffer.byteLength(serializedBody, 'utf8');
+        this.#logRequestSummaryIfNeeded(method, body, retryCount, baseURLIndex, payloadBytes);
 
         try {
             const requestOptions: DynamicPayload = {
@@ -1015,7 +1035,7 @@ export class AntigravityApiService {
                     'User-Agent': this.userAgent
                 },
                 responseType: 'json',
-                body: JSON.stringify(body)
+                body: serializedBody
             };
 
             this._applySidecar(requestOptions);
@@ -1030,6 +1050,7 @@ export class AntigravityApiService {
                 context: 'callApi',
                 method,
                 body,
+                payloadBytes,
                 baseURL,
                 baseURLIndex,
                 retryCount,
@@ -1050,7 +1071,9 @@ export class AntigravityApiService {
         }
 
         const baseURL = this.baseURLs[baseURLIndex];
-        this.#logRequestSummaryIfNeeded(method, body, retryCount, baseURLIndex);
+        const serializedBody = JSON.stringify(body);
+        const payloadBytes = Buffer.byteLength(serializedBody, 'utf8');
+        this.#logRequestSummaryIfNeeded(method, body, retryCount, baseURLIndex, payloadBytes);
         let hasYielded = false;
 
         try {
@@ -1067,7 +1090,7 @@ export class AntigravityApiService {
                 // 阻止 gaxios 在非 2xx 时自行消耗流并抛异常，
                 // 由下方 res.status !== 200 统一处理，保证流仍可读取
                 validateStatus: () => true,
-                body: JSON.stringify(body)
+                body: serializedBody
             };
 
             // Gaxios 的 timeout 是覆盖整个响应生命周期的绝对超时，不能用于流式请求的
@@ -1144,6 +1167,7 @@ export class AntigravityApiService {
                 context: 'stream',
                 method,
                 body,
+                payloadBytes,
                 baseURL,
                 baseURLIndex,
                 retryCount,
@@ -1452,12 +1476,9 @@ export class AntigravityApiService {
             logger.debug(`[Antigravity] Stripped downstream reasoning_effort for model '${actualModelName}'`);
         }
 
-        // 唯一一次全量深拷贝：processedRequestBody 是本函数独占的副本，
-        // 直接作为 template 交给 geminiToAntigravityInPlace 原地改写。
-        // 旧实现先 deepCopy(requestBody)，再把 { request: copy } 交给 geminiToAntigravity，
-        // 由后者做第二次全量 deepCopy（含 Base64 图片时是纯浪费）。
-        const processedRequestBody = ensureRolesInContents(structuredClone(requestBody), selectedModel);
-        const payload = geminiToAntigravityInPlace(actualModelName, { request: processedRequestBody }, this.projectId ?? null, capabilities);
+        // 唯一一次全量深拷贝：独占副本直接交给 geminiToAntigravityInPlace 原地改写，
+        // 避免重复拷贝与重复遍历 contents（含 Base64 图片时开销显著）。
+        const payload = geminiToAntigravityInPlace(actualModelName, { request: structuredClone(requestBody) }, this.projectId ?? null, capabilities);
 
         // 若选中的模型以 -high / -medium / -low 结尾，确保思考级别设置为对应等级
         const targetSuffix = this._resolveModelThinkingSuffix(selectedModel, actualModelName);

@@ -10,8 +10,7 @@ import {
 } from '../src/providers/gemini/antigravity-core.ts';
 import {
     GENERIC_AGENT_IDENTITY,
-    geminiToAntigravity,
-    sanitizeAgentFingerprint
+    geminiToAntigravity
 } from '../src/providers/gemini/antigravity-transforms.ts';
 import logger from '../src/utils/logger.ts';
 import { ProviderPoolManager } from '../src/providers/provider-pool-manager.ts';
@@ -727,84 +726,138 @@ describe('Antigravity 错误详情与 reason/details 日志输出', () => {
     });
 });
 
-describe('Antigravity 通用 Agent 指纹清洗', () => {
-    test('system 作用域将 Antigravity / Hermes / DeepSeek Harness 及通用 Harness 首句统一改写为通用助理身份', () => {
-        expect(sanitizeAgentFingerprint(
-            'You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.',
-            'system'
-        )).toBe(GENERIC_AGENT_IDENTITY);
-
-        expect(sanitizeAgentFingerprint(
-            'You are Hermes Agent, an intelligent AI assistant created by Nous Research.\nYou run on Hermes Agent (by Nous Research).',
-            'system'
-        )).toBe(`${GENERIC_AGENT_IDENTITY}\n${GENERIC_AGENT_IDENTITY}`);
-
-        expect(sanitizeAgentFingerprint(
-            'You are an AI agent powered by DeepSeek Harness.\n\nYou are a coding agent powered by the gemini-4-hydrogen-medium model.',
-            'system'
-        )).toBe(`${GENERIC_AGENT_IDENTITY}\n\nYou are a coding agent powered by the gemini-4-hydrogen-medium model.`);
-
-        // 未列举的新 Harness 句式也能在 system 作用域被通用规则覆盖
-        expect(sanitizeAgentFingerprint(
-            'You are an AI coding agent powered by Acme Harness.\nFollow workspace rules.',
-            'system'
-        )).toBe(`${GENERIC_AGENT_IDENTITY}\nFollow workspace rules.`);
-
-        expect(sanitizeAgentFingerprint(
-            'You are OpenClaw, a helpful AI coding assistant built by Example Labs.\nBe concise.',
-            'system'
-        )).toBe(`${GENERIC_AGENT_IDENTITY}\nBe concise.`);
-
-        expect(sanitizeAgentFingerprint(
-            'Web GUI note. The browser provides no implicit DOM, route, or screenshot context.',
-            'system'
-        )).toBe('Web GUI note. The web view has no implicit page DOM, route, or screenshot context.');
-    });
-
-    test('content 作用域仅清洗确认品牌指纹，避免误伤普通对话与代码示例', () => {
-        expect(sanitizeAgentFingerprint(
-            'Example: You are an AI agent powered by DeepSeek Harness.',
-            'content'
-        )).toBe(`Example: ${GENERIC_AGENT_IDENTITY}`);
-
-        const guiProse = 'The browser provides no implicit DOM, route, or screenshot context.';
-        expect(sanitizeAgentFingerprint(guiProse, 'content')).toBe(guiProse);
-
-        const ordinaryProse = 'In this tutorial: You are an AI agent powered by Custom CLI.';
-        expect(sanitizeAgentFingerprint(ordinaryProse, 'content')).toBe(ordinaryProse);
-
-        const roleplay = 'You are Sherlock, a brilliant detective in London.';
-        expect(sanitizeAgentFingerprint(roleplay, 'system')).toBe(roleplay);
-    });
-
-    test('buildAntigravityPayload 对 systemInstruction 与 contents 应用分级清洗', () => {
+describe('Antigravity systemInstruction 统一与无损迁移', () => {
+    test('buildAntigravityPayload 将 system_instruction 统一为通用身份，并将原文无损迁入首条 user.parts[0]', () => {
         const service = new AntigravityApiService({ ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: 'dummy.json' });
         service.availableModels = ['gemini-4-hydrogen-medium'];
 
+        const rawSystem = 'You are an AI agent powered by DeepSeek Harness.\n\nThe browser provides no implicit DOM, route, or screenshot context.';
         const { payload } = service.buildAntigravityPayload('gemini-4-hydrogen-medium', {
             system_instruction: {
                 role: 'user',
-                parts: [{ text: 'You are an AI agent powered by DeepSeek Harness.\n\nHelp with code.' }]
+                parts: [{ text: rawSystem }]
             },
             contents: [
-                { role: 'user', parts: [{ text: 'You are an AI agent powered by Custom CLI.' }] }
+                { role: 'user', parts: [{ text: 'Help with Nous Research paper' }] }
             ]
         });
 
-        expect(payload.request?.systemInstruction?.parts?.[0]?.text)
-            .toBe(`${GENERIC_AGENT_IDENTITY}\n\nHelp with code.`);
-        expect(payload.request?.contents?.[0]?.parts?.[0]?.text)
-            .toBe('You are an AI agent powered by Custom CLI.');
+        expect(payload.request?.systemInstruction).toEqual({
+            parts: [{ text: GENERIC_AGENT_IDENTITY }]
+        });
+        expect(payload.request?.system_instruction).toBeUndefined();
+        expect(payload.request?.contents).toHaveLength(1);
+        expect(payload.request?.contents?.[0]?.role).toBe('user');
+        expect(payload.request?.contents?.[0]?.parts).toEqual([
+            { text: `<developer_instructions>\n${rawSystem}\n</developer_instructions>` },
+            { text: 'Help with Nous Research paper' }
+        ]);
+    });
 
-        // 直接调用纯转换函数 geminiToAntigravity 也一致生效
-        const direct = geminiToAntigravity('gemini-4-hydrogen-medium', {
+    test('不同会话即使共用同一 systemInstruction 也能基于原始首条用户消息生成不同的 sessionId', () => {
+        const sharedSystem = { parts: [{ text: 'You are Hermes Agent, an intelligent AI assistant created by Nous Research.' }] };
+        const a = geminiToAntigravity('gemini-4-hydrogen-medium', {
             request: {
-                systemInstruction: {
-                    parts: [{ text: 'You are Hermes Agent, an intelligent AI assistant created by Nous Research.' }]
-                },
+                systemInstruction: sharedSystem,
+                contents: [{ role: 'user', parts: [{ text: 'Task A' }] }]
+            }
+        }, 'proj-1');
+        const b = geminiToAntigravity('gemini-4-hydrogen-medium', {
+            request: {
+                systemInstruction: sharedSystem,
+                contents: [{ role: 'user', parts: [{ text: 'Task B' }] }]
+            }
+        }, 'proj-1');
+        const aTurn2 = geminiToAntigravity('gemini-4-hydrogen-medium', {
+            request: {
+                systemInstruction: sharedSystem,
+                contents: [
+                    { role: 'user', parts: [{ text: 'Task A' }] },
+                    { role: 'model', parts: [{ text: 'Done A' }] },
+                    { role: 'user', parts: [{ text: 'Follow-up A' }] }
+                ]
+            }
+        }, 'proj-1');
+
+        expect(a.request?.sessionId).not.toBe(b.request?.sessionId);
+        expect(a.request?.sessionId).toBe(aTurn2.request?.sessionId);
+        expect(a.request?.systemInstruction).toEqual({ parts: [{ text: GENERIC_AGENT_IDENTITY }] });
+        expect(a.request?.contents?.[0]?.parts?.[0]?.text).toContain('Hermes Agent');
+    });
+
+    test('边界场景：无 systemInstruction、首条非 user、空 contents、已为通用身份、图像模型均正确处理', () => {
+        // 无 systemInstruction：不注入额外 systemInstruction，也不修改 contents
+        const noSys = geminiToAntigravity('gemini-4-hydrogen-medium', {
+            request: { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }
+        }, 'proj-1');
+        expect(noSys.request?.systemInstruction).toBeUndefined();
+        expect(noSys.request?.contents).toEqual([{ role: 'user', parts: [{ text: 'hi' }] }]);
+
+        // 原本就是统一身份：不重复注入到 contents
+        const alreadyGeneric = geminiToAntigravity('gemini-4-hydrogen-medium', {
+            request: {
+                systemInstruction: { parts: [{ text: 'You are a helpful AI assistant.' }] },
                 contents: [{ role: 'user', parts: [{ text: 'hi' }] }]
             }
         }, 'proj-1');
-        expect(direct.request?.systemInstruction?.parts?.[0]?.text).toBe(GENERIC_AGENT_IDENTITY);
+        expect(alreadyGeneric.request?.systemInstruction).toEqual({ parts: [{ text: 'You are a helpful AI assistant.' }] });
+        expect(alreadyGeneric.request?.contents).toEqual([{ role: 'user', parts: [{ text: 'hi' }] }]);
+
+        // 首条为 model 或 contents 为空：前置一条新的 user turn
+        const modelFirst = geminiToAntigravity('gemini-4-hydrogen-medium', {
+            request: {
+                systemInstruction: 'System rule',
+                contents: [{ role: 'model', parts: [{ text: 'assistant preface' }] }]
+            }
+        }, 'proj-1');
+        expect(modelFirst.request?.contents).toEqual([
+            { role: 'user', parts: [{ text: '<developer_instructions>\nSystem rule\n</developer_instructions>' }] },
+            { role: 'model', parts: [{ text: 'assistant preface' }] }
+        ]);
+
+        const emptyContents = geminiToAntigravity('gemini-4-hydrogen-medium', {
+            request: {
+                systemInstruction: { parts: [{ text: 'Only system' }] },
+                contents: []
+            }
+        }, 'proj-1');
+        expect(emptyContents.request?.contents).toEqual([
+            { role: 'user', parts: [{ text: '<developer_instructions>\nOnly system\n</developer_instructions>' }] }
+        ]);
+
+        // 图像模型：删除 systemInstruction 并将文本迁入 contents，不注入文本助手身份
+        const imgModel = geminiToAntigravity('gemini-3.1-flash-image', {
+            request: {
+                systemInstruction: { parts: [{ text: 'Draw in watercolor style.' }] },
+                contents: [{ role: 'user', parts: [{ text: 'A cat' }] }]
+            }
+        }, 'proj-1');
+        expect(imgModel.request?.systemInstruction).toBeUndefined();
+        expect(imgModel.request?.contents?.[0]?.parts).toEqual([
+            { text: '<developer_instructions>\nDraw in watercolor style.\n</developer_instructions>' },
+            { text: 'A cat' }
+        ]);
+    });
+
+    test('非 debug 日志级别下 callApi 不会触发 debug 请求摘要日志构建', async () => {
+        const service = new AntigravityApiService({
+            ANTIGRAVITY_OAUTH_CREDS_FILE_PATH: path.join(os.tmpdir(), 'no-such-cred.json'),
+            REQUEST_MAX_RETRIES: 0
+        });
+        service.baseURLs = ['https://edge-a.example'];
+        service.authClient = { request: jest.fn(async () => ({ data: { response: {} } })) };
+
+        const originalDebug = logger.debug.bind(logger);
+        const originalLevel = logger.config.logLevel;
+        const debugged = [];
+        logger.config.logLevel = 'info';
+        logger.debug = (...args) => debugged.push(args.map(String).join(' '));
+        try {
+            await service.callApi('generateContent', { model: 'gemini-4-hydrogen-medium', request: { contents: [] } });
+        } finally {
+            logger.debug = originalDebug;
+            logger.config.logLevel = originalLevel;
+        }
+        expect(debugged).toHaveLength(0);
     });
 });
