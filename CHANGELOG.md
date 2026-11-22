@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v8.9.7] - 2026-11-22
+
+### Fixed & Changed — Antigravity 429 指纹风控通用治理与诊断日志增强
+
+- **Antigravity `systemInstruction` 统一授权与无损迁移（替代黑名单正则）**：
+  - 在 [src/providers/gemini/antigravity-transforms.ts](src/providers/gemini/antigravity-transforms.ts) 中移除针对 DeepSeek Harness / Hermes Agent / Nous Research 等第三方客户端的黑名单正则清洗及冗余的 `ensureRolesInContents` 二次遍历。
+  - 新增 `liftSystemInstructionToContents`：在基于原始首条用户消息计算稳定 `sessionId` 后，将 `request.systemInstruction` 统一替换为显式授权文案，并将客户端完整原始系统提示词一字不改地封装为 `<developer_instructions>` 块前置到首条 `user` 消息的 `parts[0]`（图像模型不注入文本助手身份；无系统提示词或已为纯通用身份时原样保留）。
+  - 该方案基于上游实测结论彻底免疫各类第三方 Harness 的 `systemInstruction` 全文指纹风控（429），既免维护黑名单、零正文篡改、保持 Prompt Cache 前缀稳定，又避免模型将用户侧指令块误判为提示词注入。
+
+- **Antigravity 429 诊断上下文增强与热路径性能优化**：
+  - 在 [src/providers/gemini/antigravity-core.ts](src/providers/gemini/antigravity-core.ts) 中新增 `formatAntigravityErrorDetails` 与 `formatAntigravityRequestSummary`，错误日志完整输出上游 `error.response.data` 内的 `rpcStatus`、`reason`、`details`，并在首次 429 时记录脱敏请求结构摘要（模型、载荷字节数、会话 ID、轮次流向、工具列表及额外字段）。
+  - 为 `#logRequestSummaryIfNeeded` 补充 `logger.shouldLog('debug')` 守卫，并直接复用发请求时已序列化的 `serializedBody` 字节数，避免非 `debug` 级别下热路径重复执行全量 `JSON.stringify`。
+
+- **单元测试与真机上游 E2E 回归**：
+  - 在 [tests/antigravity-provider.test.mjs](tests/antigravity-provider.test.mjs) 中补齐 429 详情与请求摘要日志、`systemInstruction` 统一无损迁移、跨轮 `sessionId` 稳定性、各类边界场景及非 `debug` 零序列化回归单测。
+
+### Verified
+
+- `npm run check:imports`（150 文件通过）、`npm run test:runtime`（smoke 通过）、Antigravity 与能力声明单测 **45/45 通过**，核心后端单测全部通过。
+- 上游 `gemini-4-hydrogen-medium` 实测 E2E（OpenAI Chat 非流式、Anthropic Messages 流式、OpenAI Responses 多轮对话与 Tool Calling，均携带 DeepSeek Harness / Web GUI / Hermes Agent 触发句）：**4/4 全部 HTTP 200 且严格遵循迁移指令**。
+
 ## [v8.9.6] - 2026-11-13
 
 ### Changed — 类型系统收口、模块拆解与结构简化
